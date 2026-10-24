@@ -126,7 +126,11 @@ sent.
   `--session` restore them, so on those session starts the influence is rebuilt from the restored
   branch: each of this extension's results counts with its label classes from `details`, or as
   `local-untrusted` when it has none (refusals count for nothing, and in `off` mode none of these
-  results count), and every other MCP result counts as `local-untrusted`, as it did live. The rebuild
+  results count), and every other MCP result counts as `local-untrusted`, as it did live. A summary
+  that `/tree` left of an abandoned branch is in context too, so the results on that branch count the
+  same way. If that branch is no longer in the session file, the summary itself counts as
+  `local-untrusted` (except in `off` mode). A compaction summary needs no such step: the entries it
+  summarises are still on the restored branch and are counted there. The rebuild
   trusts the session file, which the model can edit through `bash`, and it counts a local error from
   this extension (such as an unreachable server) as `local-untrusted`, which the live path does not.
   Steering messages sent mid-run keep the current run's rid and origin. Only a new user prompt

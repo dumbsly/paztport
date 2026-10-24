@@ -176,6 +176,31 @@ export default function paztport(pi: ExtensionAPI): void {
     registered.set(name, { server: serverId, tool: tool.name });
   }
 
+  /** Records one restored tool result as the live path did; any other entry records nothing. */
+  function restoreEntry(entry: SessionEntry, ids: Set<string>, mode: PaztportConfig["mode"]): void {
+    if (entry.type !== "message") {
+      return;
+    }
+    const m: unknown = entry.message;
+    if (!isObject(m) || m.role !== "toolResult" || typeof m.toolName !== "string" || !isMcpTool(m.toolName)) {
+      return;
+    }
+    const d = m.details;
+    if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
+      if (mode === "off" || isRefusal(m.content, d)) {
+        return;
+      }
+      const classes = classesOf(d.labels);
+      if (classes !== undefined) {
+        influence.recordClasses(d.server, classes, hashContent(m.content));
+      } else {
+        influence.recordUntrusted(`server:${d.server}`, hashContent(m.content));
+      }
+    } else {
+      influence.recordUntrusted(`builtin:${m.toolName}`, hashContent(m.content));
+    }
+  }
+
   /**
    * Records the influence of the tool results on a restored session branch, as the live path did:
    * pi keeps a session's messages over a reload, and resume, fork and a startup with -c or --session
@@ -183,30 +208,35 @@ export default function paztport(pi: ExtensionAPI): void {
    * naming a configured server, with an influence summary) give their label classes, without cids,
    * or local-untrusted when they have no labels; refusals give nothing, and in off mode none of ours
    * count. Every other MCP or MCP resource result is local-untrusted, as in tool_result.
+   *
+   * A branch_summary entry (left by /tree) stands in for a branch the path no longer holds, so the
+   * entries it summarised count too: the abandoned branch from its fromId, less what is on the path,
+   * walked the same way (nested summaries included). When that branch cannot be resolved in full (no
+   * such entry, or a broken parent chain) the summary itself counts as local-untrusted, outside off
+   * mode. A compaction entry needs none of this: it summarises entries on its own path.
    */
-  function restoreInfluence(entries: SessionEntry[], config: PaztportConfig): void {
+  function restoreInfluence(session: Pick<ExtensionContext["sessionManager"], "getBranch">, config: PaztportConfig): void {
     const ids = new Set(config.servers.map((spec) => spec.id));
-    for (const entry of entries) {
-      if (entry.type !== "message") {
+    const entries = session.getBranch();
+    const seen = new Set(entries.map((e) => e.id));
+    // entries grows as abandoned branches are found
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i]!;
+      restoreEntry(entry, ids, config.mode);
+      if (entry.type !== "branch_summary") {
         continue;
       }
-      const m: unknown = entry.message;
-      if (!isObject(m) || m.role !== "toolResult" || typeof m.toolName !== "string" || !isMcpTool(m.toolName)) {
-        continue;
+      const fromId: unknown = entry.fromId;
+      const abandoned = typeof fromId === "string" ? session.getBranch(fromId) : [];
+      const resolved = abandoned.length > 0 && abandoned.at(-1)!.id === fromId && abandoned[0]!.parentId === null;
+      if (!resolved && config.mode !== "off") {
+        influence.recordUntrusted("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]));
       }
-      const d = m.details;
-      if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
-        if (config.mode === "off" || isRefusal(m.content, d)) {
-          continue;
+      for (const e of abandoned) {
+        if (!seen.has(e.id)) {
+          seen.add(e.id);
+          entries.push(e);
         }
-        const classes = classesOf(d.labels);
-        if (classes !== undefined) {
-          influence.recordClasses(d.server, classes, hashContent(m.content));
-        } else {
-          influence.recordUntrusted(`server:${d.server}`, hashContent(m.content));
-        }
-      } else {
-        influence.recordUntrusted(`builtin:${m.toolName}`, hashContent(m.content));
       }
     }
   }
@@ -252,7 +282,7 @@ export default function paztport(pi: ExtensionAPI): void {
     }
     const { config, events, material } = prepare(path, ctx);
     // before the tools are registered, so every call this session stamps carries the restored influence
-    restoreInfluence(ctx.sessionManager.getBranch(), config);
+    restoreInfluence(ctx.sessionManager, config);
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {

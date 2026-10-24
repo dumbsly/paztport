@@ -14,6 +14,8 @@ import type {
   SessionEntry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
+import { SessionManager } from "@earendil-works/pi-coding-agent";
+import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
@@ -36,11 +38,19 @@ class FakePi {
   readonly handlers = new Map<string, Handler[]>();
   readonly api: ExtensionAPI;
   readonly ctx: ExtensionContext;
-  /** The session branch ctx.sessionManager.getBranch() returns: what pi restored for this session. */
+  /**
+   * The session branch ctx.sessionManager.getBranch() returns: what pi restored for this session.
+   * A flat path with no tree behind it, so getBranch(fromId) finds nothing.
+   */
   branch: SessionEntry[] = [];
+  /** A real pi session (a tree) to read instead of `branch`, when set. */
+  session: SessionManager | undefined;
 
   constructor(flagValues: Record<string, string | undefined>, cwd: string) {
-    const sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> = { getBranch: () => [...this.branch] };
+    const sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> = {
+      getBranch: (fromId?: string) =>
+        this.session !== undefined ? this.session.getBranch(fromId) : fromId === undefined ? [...this.branch] : [],
+    };
     this.ctx = { cwd, sessionManager } as unknown as ExtensionContext;
     this.api = {
       registerFlag: (name: string, options: unknown) => void this.flags.set(name, options),
@@ -140,17 +150,24 @@ async function until(cond: () => boolean, ms = 5_000): Promise<void> {
 }
 
 let entrySeq = 0;
-/** A session entry for a tool result, shaped as pi 1.4.0 stores it. */
+/** A tool result message, shaped as pi 1.4.0 stores it. */
+function toolResultMessage(toolName: string, content: unknown, details?: unknown, isError = false): ToolResultMessage {
+  return { role: "toolResult", toolCallId: `call_${entrySeq++}`, toolName, content, details, isError, timestamp: 0 } as ToolResultMessage;
+}
+
+/** A session entry for a tool result. */
 function toolResultEntry(toolName: string, content: unknown, details?: unknown, isError = false): SessionEntry {
-  const id = `e${entrySeq++}`;
   return {
     type: "message",
-    id,
+    id: `e${entrySeq++}`,
     parentId: null,
     timestamp: new Date(0).toISOString(),
-    message: { role: "toolResult", toolCallId: `call_${id}`, toolName, content, details, isError, timestamp: 0 },
+    message: toolResultMessage(toolName, content, details, isError),
   } as unknown as SessionEntry;
 }
+
+/** A pi session entry of any type, for shapes the flat helpers above don't build. */
+const entry = (e: Record<string, unknown>): SessionEntry => ({ parentId: null, timestamp: new Date(0).toISOString(), ...e }) as unknown as SessionEntry;
 
 const LIST = { owner: "acme", repo: "website" };
 const PAYROLL = { owner: "acme", repo: "payroll-notes", path: "README.md" };
@@ -462,6 +479,101 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await off.pi.emit("session_start", { reason: "resume" });
     const b = await off.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
     expect(b.details.influence).toEqual({ ...ZERO, "local-untrusted": 4 });
+  });
+
+  it("branchSummaryCarriesAbandonedInfluence", async () => {
+    // /tree with a summary leaves the branch it abandons off the restored path, but its summary is in
+    // context: the abandoned branch's results count on restore.
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const { pi } = setup([github(outcome)]);
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const live = new Map<string, Result>();
+    for (const [tool, args] of [["list_issues", LIST], ["get_file_contents", PAYROLL]] as const) {
+      live.set(tool, await pi.execute(`mcp__github__${tool}`, args, id()));
+    }
+    const append = (sm: SessionManager, tool: string) => {
+      const r = live.get(tool)!;
+      return sm.appendMessage(toolResultMessage(`mcp__github__${tool}`, r.content, r.details));
+    };
+    /** A real pi session whose path is a prompt and a summary of an abandoned branch holding these results. */
+    const summarised = (tools: string[]): SessionManager => {
+      const sm = SessionManager.inMemory(workspace);
+      const root = sm.appendMessage({ role: "user", content: "fix the typo", timestamp: 0 });
+      for (const tool of tools) append(sm, tool);
+      sm.branchWithSummary(root, "Read the issues and the payroll notes.");
+      expect(sm.getBranch().map((e) => e.type)).toEqual(["message", "branch_summary"]);
+      return sm;
+    };
+    const write = async (sm: SessionManager, branch: string): Promise<Result> => {
+      pi.session = sm;
+      await pi.emit("session_start", { reason: "resume" });
+      await pi.prompt("fix the typo");
+      return pi.execute("mcp__github__create_branch", { ...LIST, branch }, id());
+    };
+
+    // the payroll notes were read on the abandoned branch: poisoned
+    const poisoned = await write(summarised(["list_issues", "get_file_contents"]), "leak-1");
+    expect(poisoned.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(poisoned.details.influence).toEqual({ ...ZERO, "third-party": 1, private: 1 });
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
+
+    // only the issues: the write is allowed, and its influence is exactly what the branch held
+    const clean = await write(summarised(["list_issues"]), "fix-1");
+    expect(clean.isError).toBe(false);
+    expect(clean.details.influence).toEqual({ ...ZERO, "third-party": 1, public: 1 });
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "ALLOWED" });
+
+    // nested: the abandoned branch holds a summary of a branch abandoned before it
+    const nested = SessionManager.inMemory(workspace);
+    const root = nested.appendMessage({ role: "user", content: "fix the typo", timestamp: 0 });
+    append(nested, "get_file_contents");
+    nested.branchWithSummary(root, "Read the payroll notes.");
+    append(nested, "list_issues");
+    nested.branchWithSummary(root, "Read the issues.");
+    const deep = await write(nested, "leak-2");
+    expect(deep.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(deep.details.influence).toEqual({ ...ZERO, "third-party": 1, private: 1 });
+
+    // compaction summarises entries on the path itself, which restore already walks
+    const compacted = SessionManager.inMemory(workspace);
+    compacted.appendMessage({ role: "user", content: "fix the typo", timestamp: 0 });
+    append(compacted, "get_file_contents");
+    append(compacted, "list_issues");
+    const kept = compacted.appendMessage({ role: "user", content: "go on", timestamp: 0 });
+    compacted.appendCompaction("Read the payroll notes and the issues.", kept, 1000);
+    const afterCompaction = await write(compacted, "leak-3");
+    expect(afterCompaction.details.verdict).toBe("INFLUENCE_DENIED");
+  });
+
+  it("unresolvableBranchSummaryIsUntrusted", async () => {
+    const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, session: "attested", ...extra });
+    /** Restores a real pi session holding these entries (the last is the leaf) and reads the influence. */
+    const restore = async (entries: SessionEntry[], mode = "enforce") => {
+      const s = setup([github(), docs()], { mode });
+      s.pi.session = SessionManager.inMemory(workspace, undefined, entries);
+      await s.pi.emit("session_start", { reason: "resume" });
+      // the docs server is unattested: its live result adds one local-untrusted entry outside off mode
+      return (await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).details.influence;
+    };
+    const user = entry({ type: "message", id: "u", message: { role: "user", content: "hi", timestamp: 0 } });
+    const summary = (fromId: unknown) => entry({ type: "branch_summary", id: "s", parentId: "u", ...(fromId !== undefined ? { fromId } : {}), summary: "Read the payroll notes." });
+
+    // fromId names an entry this session does not hold (e.g. a session cut down to one path)
+    const gone = [user, summary("gone")];
+    expect(await restore(gone)).toEqual({ ...ZERO, "local-untrusted": 2 });
+    // pi's fromId for a summary made with no leaf, and no fromId at all
+    expect(await restore([user, summary("root")])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    expect(await restore([user, summary(undefined)])).toEqual({ ...ZERO, "local-untrusted": 2 });
+
+    // a broken chain: what resolves is recorded, and the summary too
+    const notes = { ...toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ verify: "OK", labels: ["private"] })), id: "a", parentId: "missing" } as SessionEntry;
+    const broken = [notes, user, summary("a")];
+    expect(await restore(broken)).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+
+    // off mode records none of this
+    expect(await restore(gone, "off")).toEqual(ZERO);
+    expect(await restore(broken, "off")).toEqual(ZERO);
   });
 
   it("shutdownClosesServers", async () => {
