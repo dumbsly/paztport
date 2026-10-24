@@ -7,14 +7,34 @@ import { createInterface } from "node:readline";
  * Serve one JSON-RPC message per line. Lines are handled concurrently; each response is
  * written as exactly one line. Resolves once input has ended and all handlers have settled.
  */
+class SerializeError extends Error {}
+
 export function serveStdio(
   handler: { handle(m: unknown): Promise<object | undefined> },
   input: NodeJS.ReadableStream,
   output: NodeJS.WritableStream,
 ): Promise<void> {
   const pending = new Set<Promise<void>>();
-  const send = (msg: object): void => {
-    output.write(JSON.stringify(msg) + "\n");
+  // A destroyed or failing output must not crash the process or reject the drain.
+  output.on("error", () => {});
+  const write = (msg: object): void => {
+    try {
+      output.write(JSON.stringify(msg) + "\n");
+    } catch {
+      // swallowed; caller decides on fallback
+      throw new SerializeError();
+    }
+  };
+  const send = (msg: object, id: unknown): void => {
+    try {
+      write(msg);
+    } catch {
+      try {
+        write({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } });
+      } catch {
+        // output unusable; drop
+      }
+    }
   };
 
   async function handleLine(line: string): Promise<void> {
@@ -22,15 +42,19 @@ export function serveStdio(
     try {
       msg = JSON.parse(line);
     } catch {
-      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } });
+      send({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, null);
       return;
     }
+    const rid = (msg as { id?: unknown } | null)?.id;
+    const id = typeof rid === "string" || typeof rid === "number" ? rid : null;
+    let res: object | undefined;
     try {
-      const res = await handler.handle(msg);
-      if (res !== undefined) send(res);
+      res = await handler.handle(msg);
     } catch {
-      send({ jsonrpc: "2.0", id: null, error: { code: -32603, message: "Internal error" } });
+      send({ jsonrpc: "2.0", id, error: { code: -32603, message: "Internal error" } }, id);
+      return;
     }
+    if (res !== undefined) send(res, id);
   }
 
   return new Promise((resolve) => {

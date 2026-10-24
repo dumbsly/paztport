@@ -70,3 +70,36 @@ describe("stdio", () => {
     expect(parse(out)).toHaveLength(1);
   });
 });
+
+describe("stdio hardening", () => {
+  it("unserialisableResultKeepsId", async () => {
+    const circ: any = {};
+    circ.self = circ;
+    const handler = createMcpHandler({
+      serverInfo: { name: "t", version: "1" },
+      tools: [{ name: "c", description: "", inputSchema: {} }],
+      callTool: async () => ({ content: [], structuredContent: circ }),
+    });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let out = "";
+    output.on("data", (d) => (out += d));
+    const done = serveStdio(handler, input, output);
+    input.end(JSON.stringify({ jsonrpc: "2.0", id: 42, method: "tools/call", params: { name: "c" } }) + "\n");
+    await done;
+    const msgs = parse(out);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].id).toBe(42);
+    expect(msgs[0].error.code).toBe(-32603);
+  });
+
+  it("destroyedOutputDoesNotRejectServe", async () => {
+    const handler = createMcpHandler({ serverInfo: { name: "t", version: "1" }, tools: [], callTool: async () => ({ content: [] }) });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    output.destroy();
+    const done = serveStdio(handler, input, output);
+    input.end(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) + "\n");
+    await expect(done).resolves.toBeUndefined();
+  });
+});

@@ -56,11 +56,13 @@ export function createMcpHandler(opts: McpHandlerOptions): { handle(message: unk
           if (!isObject(params) || typeof params.name !== "string" || !toolNames.has(params.name)) {
             return { code: -32602, message: "Invalid params: unknown tool" };
           }
-          return { result: await opts.callTool(params.name, params) };
+          const res: unknown = await opts.callTool(params.name, params);
+          if (!isObject(res)) return { code: -32603, message: "Internal error" };
+          return { result: res };
         }
       }
       const extra = opts.methods && Object.hasOwn(opts.methods, method) ? opts.methods[method] : undefined;
-      if (extra) return { result: await extra(params) };
+      if (extra) return { result: (await extra(params)) ?? {} };
       return { code: -32601, message: "Method not found" };
     } catch {
       return { code: -32603, message: "Internal error" };
@@ -72,7 +74,7 @@ export function createMcpHandler(opts: McpHandlerOptions): { handle(message: unk
       if (!isObject(message)) return fail(null, -32600, "Invalid Request");
       const hasId = "id" in message;
       const rawId = message.id;
-      const idOk = typeof rawId === "string" || typeof rawId === "number" || rawId === null;
+      const idOk = typeof rawId === "string" || (typeof rawId === "number" && Number.isFinite(rawId)) || rawId === null;
       if (hasId && !idOk) return fail(null, -32600, "Invalid Request");
       if (message.jsonrpc !== "2.0" || typeof message.method !== "string") {
         return fail(hasId ? (rawId as Id) : null, -32600, "Invalid Request");

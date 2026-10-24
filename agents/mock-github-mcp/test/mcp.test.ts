@@ -95,3 +95,18 @@ describe("mcp core", () => {
     }
   });
 });
+
+describe("mcp core hardening", () => {
+  it("undefinedMethodResultIsEmptyObject", async () => {
+    const h = make({ methods: { "x/u": async () => undefined }, callTool: async () => undefined as never });
+    const r: any = await h.handle({ jsonrpc: "2.0", id: 1, method: "x/u" });
+    expect(r.result).toEqual({});
+    const c: any = await h.handle({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "echo" } });
+    expect(c.error.code).toBe(-32603);
+  });
+
+  it("nonFiniteIdIsInvalidRequest", async () => {
+    const r: any = await make().handle({ jsonrpc: "2.0", id: Infinity, method: "ping" });
+    expect(r.error.code).toBe(-32600);
+  });
+});
