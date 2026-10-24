@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { encode } from "../src/b64url.ts";
-import { generateKeyPair, randomBytes } from "../src/crypto.ts";
+import { decode, encode } from "../src/b64url.ts";
+import { generateKeyPair, randomBytes, sign, utf8, verify } from "../src/crypto.ts";
+import { canonicalize } from "../src/jcs.ts";
 import { signRoot } from "../src/root.ts";
 import {
   deriveSessionId,
@@ -149,5 +150,24 @@ describe("session reply", () => {
     const bad = { ...w.serverRoot, sig: encode(randomBytes(64)) };
     const reply = signSessionReply({ ...w.body(), serverRoot: bad }, w.serverPolicy.privateKey);
     expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("replySignatureIsDomainSeparated", () => {
+    const w = world();
+    const body = w.body();
+    const reply = signSessionReply(body, w.serverPolicy.privateKey);
+    const prefixed = utf8("paztport-session-reply\n" + canonicalize(body));
+    expect(verify(w.serverPolicy.publicKey, prefixed, decode(reply.sig))).toBe(true);
+    // a signature over the bare canonical body (no domain prefix) is not accepted
+    const bare = encode(sign(w.serverPolicy.privateKey, utf8(canonicalize(body))));
+    expect(verifySessionReply({ ...reply, sig: bare }, w.req, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("signSessionReplyIgnoresStraySig", () => {
+    const w = world();
+    const body = w.body();
+    const clean = signSessionReply(body, w.serverPolicy.privateKey);
+    const stray = signSessionReply({ ...body, sig: "stray" } as Omit<SessionReply, "sig">, w.serverPolicy.privateKey);
+    expect(stray.sig).not.toBe("stray");
+    expect(stray).toEqual(clean); // Ed25519 is deterministic: same body, same signature
+    expect(verifySessionReply(stray, w.req, w.serverPolicy.publicKey)).toBe(true);
   });
 });

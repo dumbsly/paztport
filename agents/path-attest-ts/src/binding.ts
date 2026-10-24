@@ -12,9 +12,9 @@ export function bindHttp(method: string, path: string, body: Uint8Array): string
   return encode(sha256(concat(utf8(method), NL, utf8(path), NL, body)));
 }
 
-/** v2 prompt binding: SHA-256(utf8(text)), base64url. */
+/** v2 prompt binding: SHA-256(utf8("prompt\n" + text)), base64url. */
 export function bindPrompt(text: string): string {
-  return encode(sha256(utf8(text)));
+  return encode(sha256(utf8("prompt\n" + text)));
 }
 
 /** v2 MCP tools/call binding over tool name, call id and canonical arguments. */
@@ -25,8 +25,8 @@ export function bindMcpCall(toolName: string, toolCallId: string, args: unknown)
   return encode(sha256(utf8(`tools/call\n${toolName}\n${toolCallId}\n${canonicalize(args ?? {})}`)));
 }
 
-/** v2 result binding: canonical JSON of the result without its "_meta" key. */
+/** v2 result binding: SHA-256(utf8("result\n" + JCS(result without its "_meta" key))), base64url. */
 export function bindResult(result: Record<string, unknown>): string {
   const { _meta: _ignored, ...rest } = result;
-  return encode(sha256(utf8(canonicalize(rest))));
+  return encode(sha256(utf8("result\n" + canonicalize(rest))));
 }

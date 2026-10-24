@@ -74,8 +74,15 @@ export function sessionStatus(
   return verifyRoot(req.clientRoot, req.clientPolicyKey) && verifyRoot(serverRoot, serverPolicyKey) ? "attested" : "unsafe";
 }
 
+/** The bytes a session reply signature covers: domain prefix + JCS of the reply without "sig". */
+function replySigningBytes(body: Omit<SessionReply, "sig">): Uint8Array {
+  return utf8("paztport-session-reply\n" + canonicalize(body));
+}
+
+/** Signs the reply; any "sig" already on the input is dropped first. */
 export function signSessionReply(reply: Omit<SessionReply, "sig">, serverPolicyPrivateKey: string): SessionReply {
-  return { ...reply, sig: encode(sign(serverPolicyPrivateKey, utf8(canonicalize(reply)))) };
+  const { sig: _stray, ...body } = reply as Omit<SessionReply, "sig"> & { sig?: unknown };
+  return { ...body, sig: encode(sign(serverPolicyPrivateKey, replySigningBytes(body))) };
 }
 
 export function verifySessionReply(reply: SessionReply, req: SessionRequest, pinnedServerPolicyKey: string): boolean {
@@ -84,7 +91,7 @@ export function verifySessionReply(reply: SessionReply, req: SessionRequest, pin
       return false;
     }
     const { sig, ...body } = reply;
-    if (!verify(pinnedServerPolicyKey, utf8(canonicalize(body)), decode(sig))) {
+    if (!verify(pinnedServerPolicyKey, replySigningBytes(body), decode(sig))) {
       return false;
     }
     if (reply.status === "attested" && (reply.serverRoot === null || req.clientRoot === null)) {

@@ -222,8 +222,11 @@ describe("verifyChainV2", () => {
     expect(verifyChainV2(w.input(w.chain()), w.cfg({ runMaxAgeMs: Infinity })).reason).toBe("EXPIRED");
   });
   it("bindingGoldenValues", () => {
-    expect(bindPrompt("hi")).toBe(encode(sha256(utf8("hi"))));
+    expect(bindPrompt("hi")).toBe(encode(sha256(utf8("prompt\nhi"))));
     expect(bindResult({ a: 1, _meta: { x: 1 } })).toBe(bindResult({ a: 1 }));
-    expect(bindResult({ a: 1 })).toBe(encode(sha256(utf8('{"a":1}'))));
+    expect(bindResult({ a: 1 })).toBe(encode(sha256(utf8('result\n{"a":1}'))));
+  });
+  it("bindPromptNotEqualBindMcpCall", () => {
+    expect(bindPrompt("tools/call\nt\nc1\n{}")).not.toBe(bindMcpCall("t", "c1", {}));
   });
 });
