@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 function str(s: string): string {
-  if (!s.isWellFormed()) throw new TypeError("jcs: lone surrogate");
+  if (/\p{Surrogate}/u.test(s)) throw new TypeError("jcs: lone surrogate");
   return JSON.stringify(s);
 }
 
