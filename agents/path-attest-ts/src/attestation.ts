@@ -21,9 +21,12 @@ export function newContentId(): string {
   return encode(randomBytes(16));
 }
 
-/** The value the last response stamp binds: covers the result hash and the labels. */
-export function bindResponse(resultHash: string, labels: ContentLabel[]): string {
-  return encode(sha256(utf8(resultHash + "\n" + canonicalize(labels))));
+/** The value the last response stamp binds: covers the result hash, the call id and the labels. */
+export function bindResponse(resultHash: string, toolCallId: string, labels: ContentLabel[]): string {
+  if (toolCallId.includes("\n")) {
+    throw new Error("toolCallId must not contain newlines");
+  }
+  return encode(sha256(utf8(resultHash + "\n" + toolCallId + "\n" + canonicalize(labels))));
 }
 
 function parseAttestation(result: Record<string, unknown>): ResponseAttestation | null {
@@ -53,26 +56,39 @@ function parseAttestation(result: Record<string, unknown>): ResponseAttestation 
   return { chain: a.chain as StampV2[], proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
 }
 
-/** Never throws; labels are returned only when the whole response verifies. */
+/** Never throws; labels are returned only when the whole response verifies for this call. */
 export function verifyResponse(
   result: Record<string, unknown>,
-  cfg: V2Config,
+  call: { rid: string; toolCallId: string },
+  cfg: Omit<V2Config, "nonceKey">,
 ): { result: VerifyResult; labels: ContentLabel[] } {
   const fail = (reason: VerifyResult["reason"]) => ({
     result: { ok: false, reason, suspectSvc: "", suspectInst: "" } as VerifyResult,
     labels: [] as ContentLabel[],
   });
   try {
+    if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n")) {
+      return fail("CHAIN_MISSING");
+    }
     const att = parseAttestation(result);
     if (att === null) {
       return fail("CHAIN_MISSING");
+    }
+    const head: unknown = att.chain[0];
+    if (typeof head === "object" && head !== null && (head as Record<string, unknown>).rid !== call.rid) {
+      return fail("RID_MISMATCH");
     }
     if (att.resultHash !== bindResult(result)) {
       return fail("BINDING_MISMATCH");
     }
     const r = verifyChainV2(
-      { stamps: att.chain, expectedBind: bindResponse(att.resultHash, att.labels), influence: [], proof: att.proof },
-      cfg,
+      {
+        stamps: att.chain,
+        expectedBind: bindResponse(att.resultHash, call.toolCallId, att.labels),
+        influence: [],
+        proof: att.proof,
+      },
+      { ...cfg, nonceKey: `${call.rid}|${call.toolCallId}|resp` },
     );
     return r.ok ? { result: r, labels: att.labels } : { result: r, labels: [] };
   } catch {

@@ -28,20 +28,35 @@ export function newNonce(): string {
   return encode(randomBytes(16));
 }
 
+export type ClientKeys = { clientPolicyKey: string; clientKeyring: Record<string, string> };
+
+function fixed(value: string, length: number, what: string): Uint8Array {
+  const bytes = decode(value);
+  if (bytes.length !== length) {
+    throw new Error(`${what} must be ${length} bytes`);
+  }
+  return bytes;
+}
+
+/** Binds both roots, both nonces and the client's policy key and keyring; throws on bad lengths. */
 export function deriveSessionId(
   clientRootSig: string | null,
   serverRootSig: string | null,
   clientNonce: string,
   serverNonce: string,
+  clientKeys: ClientKeys,
 ): string {
+  const flags = (clientRootSig !== null ? 1 : 0) | (serverRootSig !== null ? 2 : 0);
+  const keysHash = sha256(utf8(canonicalize({ clientPolicyKey: clientKeys.clientPolicyKey, clientKeyring: clientKeys.clientKeyring })));
   return encode(
     sha256(
       concat(
-        new Uint8Array([0x02]),
-        decode(clientRootSig ?? ""),
-        decode(serverRootSig ?? ""),
-        decode(clientNonce),
-        decode(serverNonce),
+        new Uint8Array([0x02, flags]),
+        clientRootSig === null ? new Uint8Array(0) : fixed(clientRootSig, 64, "clientRootSig"),
+        serverRootSig === null ? new Uint8Array(0) : fixed(serverRootSig, 64, "serverRootSig"),
+        fixed(clientNonce, 16, "clientNonce"),
+        fixed(serverNonce, 16, "serverNonce"),
+        keysHash,
       ),
     ),
   );
@@ -72,7 +87,11 @@ export function verifySessionReply(reply: SessionReply, req: SessionRequest, pin
     if (!verify(pinnedServerPolicyKey, utf8(canonicalize(body)), decode(sig))) {
       return false;
     }
-    if (reply.sess !== deriveSessionId(req.clientRoot?.sig ?? null, reply.serverRoot?.sig ?? null, req.nonce, reply.nonce)) {
+    if (reply.status === "attested" && (reply.serverRoot === null || req.clientRoot === null)) {
+      return false;
+    }
+    const expected = deriveSessionId(req.clientRoot?.sig ?? null, reply.serverRoot?.sig ?? null, req.nonce, reply.nonce, req);
+    if (reply.sess !== expected) {
       return false;
     }
     return reply.serverRoot === null || verifyRoot(reply.serverRoot, pinnedServerPolicyKey);

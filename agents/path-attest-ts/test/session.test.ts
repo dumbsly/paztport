@@ -33,7 +33,7 @@ function world() {
       serverPolicyKey: serverPolicy.publicKey,
       serverKeyring: { "mcp-entry": "k2" },
       nonce: serverNonce,
-      sess: deriveSessionId(req.clientRoot?.sig ?? null, serverRoot.sig, req.nonce, serverNonce),
+      sess: deriveSessionId(req.clientRoot?.sig ?? null, serverRoot.sig, req.nonce, serverNonce, req),
       status: "attested",
       disabled: [],
     };
@@ -66,14 +66,28 @@ describe("deriveSessionId", () => {
   const b = encode(randomBytes(64));
   const n1 = newNonce();
   const n2 = newNonce();
+  const keys = { clientPolicyKey: "pk", clientKeyring: { session: "k" } };
   it("sessionIdDeterministic", () => {
-    expect(deriveSessionId(a, b, n1, n2)).toBe(deriveSessionId(a, b, n1, n2));
-    expect(deriveSessionId(null, null, n1, n2)).toBe(deriveSessionId("", "", n1, n2));
+    expect(deriveSessionId(a, b, n1, n2, keys)).toBe(deriveSessionId(a, b, n1, n2, keys));
   });
   it("sessionIdChangesWithEitherNonce", () => {
-    const base = deriveSessionId(a, b, n1, n2);
-    expect(deriveSessionId(a, b, newNonce(), n2)).not.toBe(base);
-    expect(deriveSessionId(a, b, n1, newNonce())).not.toBe(base);
+    const base = deriveSessionId(a, b, n1, n2, keys);
+    expect(deriveSessionId(a, b, newNonce(), n2, keys)).not.toBe(base);
+    expect(deriveSessionId(a, b, n1, newNonce(), keys)).not.toBe(base);
+  });
+  it("sessionIdChangesWithClientKeys", () => {
+    const base = deriveSessionId(a, b, n1, n2, keys);
+    expect(deriveSessionId(a, b, n1, n2, { ...keys, clientPolicyKey: "other" })).not.toBe(base);
+    expect(deriveSessionId(a, b, n1, n2, { ...keys, clientKeyring: { session: "x" } })).not.toBe(base);
+  });
+  it("nullRootsNotInterchangeable", () => {
+    expect(deriveSessionId(null, a, n1, n2, keys)).not.toBe(deriveSessionId(a, null, n1, n2, keys));
+  });
+  it("badLengthsThrow", () => {
+    expect(() => deriveSessionId(encode(randomBytes(63)), b, n1, n2, keys)).toThrow();
+    expect(() => deriveSessionId(a, encode(randomBytes(65)), n1, n2, keys)).toThrow();
+    expect(() => deriveSessionId(a, b, encode(randomBytes(15)), n2, keys)).toThrow();
+    expect(() => deriveSessionId(a, b, n1, encode(randomBytes(17)), keys)).toThrow();
   });
   it("nonceIs16Bytes", () => {
     expect(newNonce().length).toBe(22);
@@ -100,6 +114,35 @@ describe("session reply", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     expect(verifySessionReply(reply, { ...w.req, nonce: newNonce() }, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("clientKeyringSwapFails", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(verifySessionReply(reply, { ...w.req, clientKeyring: { session: "evil" } }, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(reply, { ...w.req, clientPolicyKey: generateKeyPair().publicKey }, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("attestedWithNullRootRejected", () => {
+    const w = world();
+    const noServer = signSessionReply({ ...w.body(), serverRoot: null, sess: deriveSessionId(w.clientRoot.sig, null, w.req.nonce, w.body().nonce, w.req) }, w.serverPolicy.privateKey);
+    expect(verifySessionReply(noServer, w.req, w.serverPolicy.publicKey)).toBe(false);
+    const body = w.body();
+    const noClientReq = { ...w.req, clientRoot: null };
+    const sess = deriveSessionId(null, w.serverRoot.sig, noClientReq.nonce, body.nonce, noClientReq);
+    const reply = signSessionReply({ ...body, sess }, w.serverPolicy.privateKey);
+    expect(verifySessionReply(reply, noClientReq, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("nullServerRootReplyVerifies", () => {
+    const w = world();
+    const body = w.body();
+    const sess = deriveSessionId(w.clientRoot.sig, null, w.req.nonce, body.nonce, w.req);
+    const reply = signSessionReply({ ...body, serverRoot: null, sess, status: "unsafe" }, w.serverPolicy.privateKey);
+    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey)).toBe(true);
+  });
+  it("replyTamperedKeyringOrDisabledFails", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(verifySessionReply({ ...reply, serverKeyring: { "mcp-entry": "evil" } }, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply({ ...reply, disabled: ["x"] }, w.req, w.serverPolicy.publicKey)).toBe(false);
   });
   it("replyBadServerRootFails", () => {
     const w = world();
