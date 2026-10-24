@@ -298,6 +298,22 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(events(c)).toContainEqual(expect.objectContaining({ type: "session", server: "stub", status: "unsafe", reason: "MALFORMED_REPLY" }));
   });
 
+  it("handshakeErrorReopensWithoutRoot", async () => {
+    // R11 on a failed request too: the server may hold an attested session this client cannot use
+    const c = ctx();
+    const conn = await stub(c, true, ["--session-reply", "error"]);
+    expect(conn.status()).toBe("unsafe");
+    const seen = await echo(conn);
+    expect(seen.sessions).toEqual([true, false]);
+    expect(seen.meta).toBe(false);
+    expect(events(c)).toContainEqual(expect.objectContaining({ type: "session", server: "stub", status: "unsafe", reason: "HANDSHAKE_ERROR" }));
+
+    // a server with no paztport/session (-32601) is not asked again
+    const plain = await stub(ctx(), true);
+    expect(plain.status()).toBe("unsafe");
+    expect((await echo(plain)).sessions).toEqual([true]);
+  });
+
   it("hostileResultsAreErrorsNotThrows", async () => {
     const c = ctx();
     const conn = await stub(c, false);

@@ -9,11 +9,12 @@
 //   verdict    -> a refusal-shaped result whose reason is arguments.reason
 //   untyped.tool -> listed only: an inputSchema without "type" and a name with a "."
 //   stringly   -> listed only: an inputSchema whose type is not "object"
-// --session-reply malformed answers paztport/session with {}; otherwise it is "method not found".
+// --session-reply malformed answers paztport/session with {}; --session-reply error answers it with a
+// JSON-RPC internal error; otherwise it is "method not found".
 
 import { createInterface } from "node:readline";
 
-const malformedSession = process.argv.includes("--session-reply") && process.argv.includes("malformed");
+const sessionReply = process.argv.includes("--session-reply") ? process.argv[process.argv.indexOf("--session-reply") + 1] : undefined;
 const methods: string[] = [];
 const sessions: boolean[] = [];
 const tools = [
@@ -37,7 +38,8 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       return result(m.id, { tools });
     case "paztport/session":
       sessions.push(p.clientRoot !== null);
-      if (malformedSession) return result(m.id, {});
+      if (sessionReply === "malformed") return result(m.id, {});
+      if (sessionReply === "error") return send(JSON.stringify({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "Internal error" } }));
       break;
     case "tools/call":
       switch (p.name) {

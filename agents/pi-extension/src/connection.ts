@@ -245,19 +245,24 @@ export class ServerConnection {
       nonce: newNonce(),
     };
     let reply: unknown;
+    let failure = "MALFORMED_REPLY";
     try {
       reply = await client.request(SESSION_METHOD, req as unknown as Record<string, unknown>);
     } catch (e) {
-      return unsafe(e instanceof McpError && e.code === JSON_RPC_ERROR_CODES.methodNotFound ? "METHOD_NOT_FOUND" : "HANDSHAKE_ERROR");
+      if (e instanceof McpError && e.code === JSON_RPC_ERROR_CODES.methodNotFound) {
+        return unsafe("METHOD_NOT_FOUND"); // no Paztport on the server, so no session to replace
+      }
+      failure = "HANDSHAKE_ERROR";
     }
-    let failure = "MALFORMED_REPLY";
-    if (isSessionReply(reply)) {
+    if (failure !== "HANDSHAKE_ERROR" && isSessionReply(reply)) {
       failure = reply.serverPolicyKey !== pin ? "PIN_MISMATCH" : !verifySessionReply(reply, req, pin) ? "BAD_SIGNATURE" : "";
     }
     if (failure !== "" || !isSessionReply(reply)) {
       // The server may now hold an attested session that this client cannot use: every unstamped call
-      // would be refused. Replace it with an unsafe one (no client root) so reads work and writes are
-      // refused UNSAFE_SESSION. The second reply is not trusted either way.
+      // would be refused. This holds after a timeout or a transport error too, since the server may
+      // have opened the session before the reply was lost. Replace it, best effort, with an unsafe one
+      // (no client root) so reads work and writes are refused UNSAFE_SESSION. The second reply is not
+      // trusted either way.
       try {
         await client.request(SESSION_METHOD, { ...req, clientRoot: null, nonce: newNonce() } as unknown as Record<string, unknown>);
       } catch {
