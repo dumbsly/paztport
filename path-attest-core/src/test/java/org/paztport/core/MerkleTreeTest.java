@@ -80,6 +80,66 @@ class MerkleTreeTest {
     }
 
     @Test
+    void saltAbsorbingPartOfThePathDoesNotProveAShorterRoute() {
+        // leaf = H(0x00 || salt || path), so salt || "gateway/" with path "orders/payment"
+        // hashes the same bytes. A fixed salt length closes the re-split.
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        MerkleProof proof = tree.proofFor("gateway/orders/payment");
+        byte[] salt = Base64Url.decode(proof.leafSalt());
+        byte[] prefix = "gateway/".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] resalted = new byte[salt.length + prefix.length];
+        System.arraycopy(salt, 0, resalted, 0, salt.length);
+        System.arraycopy(prefix, 0, resalted, salt.length, prefix.length);
+        MerkleProof forged = new MerkleProof(Base64Url.encode(resalted), proof.siblings(), proof.dirs(), proof.rootId());
+
+        assertFalse(forged.verify("orders/payment", tree.root()));
+    }
+
+    @Test
+    void shortSaltDoesNotVerify() {
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        MerkleProof proof = tree.proofFor("gateway/orders/payment");
+        byte[] salt = Base64Url.decode(proof.leafSalt());
+        byte[] shorter = java.util.Arrays.copyOf(salt, salt.length - 1);
+        MerkleProof forged = new MerkleProof(Base64Url.encode(shorter), proof.siblings(), proof.dirs(), proof.rootId());
+
+        assertFalse(forged.verify("gateway/orders/payment", tree.root()));
+    }
+
+    @Test
+    void siblingOfWrongLengthDoesNotVerify() {
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        MerkleProof proof = tree.proofFor("gateway/orders/payment");
+        List<String> siblings = new ArrayList<>(proof.siblings());
+        siblings.set(0, Base64Url.encode(Crypto.randomBytes(31)));
+        MerkleProof bad = new MerkleProof(proof.leafSalt(), siblings, proof.dirs(), proof.rootId());
+
+        assertFalse(bad.verify("gateway/orders/payment", tree.root()));
+    }
+
+    @Test
+    void dirsOtherThanLAndRDoNotVerify() {
+        // Previously any non-'L' character was read as 'R'.
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        MerkleProof proof = tree.proofFor("gateway/search"); // index 2: dirs start "R"
+        String dirs = "X" + proof.dirs().substring(1);
+        MerkleProof bad = new MerkleProof(proof.leafSalt(), proof.siblings(), dirs, proof.rootId());
+
+        assertFalse(bad.verify("gateway/search", tree.root()));
+    }
+
+    @Test
+    void undecodableSiblingDoesNotVerifyOrThrow() {
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        MerkleProof proof = tree.proofFor("gateway/orders/payment");
+        List<String> siblings = new ArrayList<>(proof.siblings());
+        siblings.set(0, "!!not-base64!!");
+        MerkleProof bad = new MerkleProof(proof.leafSalt(), siblings, proof.dirs(), proof.rootId());
+
+        assertFalse(bad.verify("gateway/orders/payment", tree.root()));
+    }
+
+    @Test
     void proofEncodeDecodeRoundTrips() {
         MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
         MerkleProof proof = tree.proofFor("gateway/orders/payment");

@@ -3,14 +3,20 @@
 
 package org.paztport.keygen;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
@@ -56,5 +62,20 @@ class KeygenMainTest {
 
         byte[] msg = "hop".getBytes(StandardCharsets.UTF_8);
         assertTrue(Crypto.verify(pub, msg, Crypto.sign(priv, msg)));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void privateKeyFilesAreOwnerOnlyEvenWhenOverwritten(@TempDir Path dir) throws Exception {
+        KeygenMain.run(dir, SERVICES);
+        // A pre-existing, loosened key file must be tightened on re-run.
+        Files.setPosixFilePermissions(dir.resolve("gateway.key"), PosixFilePermissions.fromString("rw-r--r--"));
+        KeygenMain.run(dir, SERVICES);
+
+        Set<PosixFilePermission> ownerOnly = PosixFilePermissions.fromString("rw-------");
+        assertEquals(ownerOnly, Files.getPosixFilePermissions(dir.resolve("policy.key")));
+        for (String svc : SERVICES) {
+            assertEquals(ownerOnly, Files.getPosixFilePermissions(dir.resolve(svc + ".key")), svc);
+        }
     }
 }

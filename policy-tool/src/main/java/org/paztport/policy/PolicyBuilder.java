@@ -28,7 +28,7 @@ import org.paztport.core.SignedRoot;
  */
 public final class PolicyBuilder {
 
-    private static final int SALT_BYTES = 16;
+    private static final int SALT_BYTES = MerkleProof.SALT_BYTES;
 
     private PolicyBuilder() {
     }

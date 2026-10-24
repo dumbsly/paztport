@@ -16,18 +16,47 @@ import java.util.List;
  */
 public record MerkleProof(String leafSalt, List<String> siblings, String dirs, String rootId) {
 
+    /** Every leaf salt is exactly this long; see {@link #verify}. */
+    public static final int SALT_BYTES = 16;
+    private static final int HASH_BYTES = 32;
+
     public MerkleProof {
         siblings = List.copyOf(siblings);
     }
 
-    /** Recomputes the leaf from {@code path} and the carried salt, then walks to the root. */
+    /**
+     * Recomputes the leaf from {@code path} and the carried salt, then walks to the root.
+     *
+     * <p>The salt must be exactly {@link #SALT_BYTES} long. A leaf hashes
+     * {@code salt || path} with no separator, so a longer salt could absorb the
+     * start of the path and prove a different route string. Siblings must be
+     * hash-sized and {@code dirs} only {@code L}/{@code R}. Fails closed: any
+     * malformed field returns {@code false}, never throws.
+     */
     public boolean verify(String path, byte[] root) {
-        if (siblings.size() != dirs.length()) {
+        if (siblings.size() != dirs.length() || !dirs.matches("[LR]*")) {
             return false;
         }
-        byte[] working = MerkleHash.leaf(Base64Url.decode(leafSalt), path);
+        byte[] salt;
+        try {
+            salt = Base64Url.decode(leafSalt);
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+        if (salt.length != SALT_BYTES) {
+            return false;
+        }
+        byte[] working = MerkleHash.leaf(salt, path);
         for (int i = 0; i < siblings.size(); i++) {
-            byte[] sibling = Base64Url.decode(siblings.get(i));
+            byte[] sibling;
+            try {
+                sibling = Base64Url.decode(siblings.get(i));
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
+            if (sibling.length != HASH_BYTES) {
+                return false;
+            }
             working = dirs.charAt(i) == 'L'
                     ? MerkleHash.node(working, sibling)
                     : MerkleHash.node(sibling, working);
