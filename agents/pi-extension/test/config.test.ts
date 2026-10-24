@@ -137,4 +137,26 @@ describe("assertOutsideWorkspace", () => {
   it("missingClientDirThrowsClearly", () => {
     expect(() => assertOutsideWorkspace(join(tmp, "nope"), tmp)).toThrow(/clientDir/);
   });
+
+  it("namesWhatIsGuarded", () => {
+    const ws = join(tmp, "ws5");
+    mkdirSync(ws);
+    writeFileSync(join(ws, "paztport.json"), "{}");
+    expect(() => assertOutsideWorkspace(join(ws, "paztport.json"), ws, "config")).toThrow(/^config .* is inside the workspace/);
+  });
+
+  it("mayBeMissingChecksNearestExistingAncestor", () => {
+    const ws = join(tmp, "ws6");
+    mkdirSync(ws);
+    const outside = join(tmp, "ws6-keys");
+    mkdirSync(outside);
+    const opts = { mayBeMissing: true };
+    expect(() => assertOutsideWorkspace(join(ws, "a/b/pin.pub"), ws, "pin", opts)).toThrow(/^pin .* is inside the workspace/);
+    expect(() => assertOutsideWorkspace(join(outside, "a/pin.pub"), ws, "pin", opts)).not.toThrow();
+    // a symlinked ancestor is resolved before the missing rest is appended
+    const link = join(tmp, "ws6-link");
+    symlinkSync(ws, link);
+    expect(() => assertOutsideWorkspace(join(link, "pin.pub"), ws, "pin", opts)).toThrow(/inside the workspace/);
+    expect(() => assertOutsideWorkspace(join(link, "pin.pub"), ws, "pin")).toThrow(/cannot be resolved/);
+  });
 });

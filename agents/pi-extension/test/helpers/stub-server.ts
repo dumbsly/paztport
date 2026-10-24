@@ -8,6 +8,7 @@
 //   infinity   -> a result field 1e400, which parses to Infinity
 //   verdict    -> a refusal-shaped result whose reason is arguments.reason
 //   untyped.tool -> listed only: an inputSchema without "type" and a name with a "."
+//   stringly   -> listed only: an inputSchema whose type is not "object"
 // --session-reply malformed answers paztport/session with {}; otherwise it is "method not found".
 
 import { createInterface } from "node:readline";
@@ -18,6 +19,7 @@ const sessions: boolean[] = [];
 const tools = [
   ...["echo", "surrogate", "infinity", "verdict"].map((name) => ({ name, inputSchema: { type: "object" } as Record<string, unknown> })),
   { name: "untyped.tool", inputSchema: { properties: { x: { type: "string" } } } },
+  { name: "stringly", inputSchema: { type: "string" } },
 ];
 
 const send = (line: string) => process.stdout.write(line + "\n");

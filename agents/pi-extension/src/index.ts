@@ -47,10 +47,13 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** The remote inputSchema, with `type` defaulting to "object" (pi requires an object schema). */
+/**
+ * The remote inputSchema with `type` forced to "object": MCP requires it, and a tool declared with
+ * another type would make every provider request invalid.
+ */
 function parametersOf(tool: Tool): Parameters {
   const schema = isObject(tool.inputSchema) ? tool.inputSchema : {};
-  return { ...schema, type: schema.type ?? "object" } as unknown as Parameters;
+  return { ...schema, type: "object" } as unknown as Parameters;
 }
 
 /** The MCP behaviour hints pi knows; MCP's annotation `title` is not one. */
@@ -95,7 +98,17 @@ export default function paztport(pi: ExtensionAPI): void {
   let connections = new Map<string, ServerConnection>();
   /** Every tool name this extension registered, to its server id and remote tool name. */
   const registered = new Map<string, { server: string; tool: string }>();
-  /** Bumped by session_start and session_shutdown, so a superseded start drops its connections. */
+  /**
+   * pi toolCallIds this extension's execute ran, until tool_result sees them. pi passes the same id
+   * to execute and tool_result, and tool_result only follows an execute. Names alone cannot tell
+   * these results apart: pi's built-in MCP may register the same `mcp__<id>__<tool>` name.
+   */
+  const ownCalls = new Set<string>();
+  /**
+   * Bumped by session_start and session_shutdown, so a superseded start drops its connections.
+   * pi 1.4.0 builds a fresh runtime and extension instance per session switch or reload (after
+   * session_shutdown), so the reconnect path here is defensive (R13).
+   */
   let generation = 0;
 
   async function closeAll(): Promise<void> {
@@ -105,6 +118,7 @@ export default function paztport(pi: ExtensionAPI): void {
   }
 
   async function execute(name: string, params: unknown, toolCallId: string): Promise<AgentToolResult<Details>> {
+    ownCalls.add(toolCallId);
     const target = registered.get(name);
     const server = target?.server ?? name;
     const conn = target !== undefined ? connections.get(target.server) : undefined;
@@ -121,7 +135,6 @@ export default function paztport(pi: ExtensionAPI): void {
       return r !== undefined && (r.server !== serverId || r.tool !== tool.name);
     };
     const name = mcpToolName(serverId, tool.name, taken);
-    registered.set(name, { server: serverId, tool: tool.name });
     const annotations = annotationsOf(tool);
     pi.registerTool({
       name,
@@ -132,6 +145,7 @@ export default function paztport(pi: ExtensionAPI): void {
       namespace: { name: sanitise(`mcp__${serverId}`), aliases: [serverId] },
       execute: (toolCallId, params) => execute(name, params, toolCallId),
     });
+    registered.set(name, { server: serverId, tool: tool.name });
   }
 
   /** Loads the config, guards the workspace and loads the keys; throws (after any refused_start) if any fails. */
@@ -140,10 +154,19 @@ export default function paztport(pi: ExtensionAPI): void {
     let code = "CONFIG";
     try {
       const config = loadConfig(path);
+      code = "WORKSPACE_GUARD";
+      // R14: a config inside the workspace is the agent's to edit, so its eventsLog is not used either
+      assertOutsideWorkspace(path, ctx.cwd, "config");
       code = "EVENTS_LOG";
       events = new EventLog(config.eventsLog);
       code = "WORKSPACE_GUARD";
       assertOutsideWorkspace(config.clientDir, ctx.cwd);
+      for (const spec of config.servers) {
+        if (spec.pin !== undefined) {
+          // a missing pin leaves the server unsafe (PIN_MISSING); it is judged by where it would be
+          assertOutsideWorkspace(spec.pin, ctx.cwd, `servers.${spec.id}.pin`, { mayBeMissing: true });
+        }
+      }
       code = "CLIENT_MATERIAL";
       const material = loadClientMaterial(config.clientDir);
       return { config, events, material };
@@ -157,6 +180,7 @@ export default function paztport(pi: ExtensionAPI): void {
     const gen = ++generation;
     await closeAll();
     influence.reset();
+    ownCalls.clear();
     runs = new RunState();
     const flag = pi.getFlag(FLAG);
     const path = resolveConfigPath(typeof flag === "string" ? flag : undefined, process.env);
@@ -181,7 +205,11 @@ export default function paztport(pi: ExtensionAPI): void {
       }
       connections.set(spec.id, fresh[i]!);
       for (const tool of fresh[i]!.tools()) {
-        register(spec.id, tool);
+        try {
+          register(spec.id, tool);
+        } catch (e) {
+          failed.push(`MCP server "${spec.id}" tool "${tool.name}" was not registered: ${(e as Error).message}`);
+        }
       }
     });
     if (failed.length > 0) {
@@ -196,8 +224,11 @@ export default function paztport(pi: ExtensionAPI): void {
   });
 
   pi.on("tool_result", (event) => {
+    if (ownCalls.delete(event.toolCallId)) {
+      return; // recorded (or not) by its ServerConnection
+    }
     const name = event.toolName;
-    if ((name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name)) && !registered.has(name)) {
+    if (name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name)) {
       influence.recordUntrusted(`builtin:${name}`, builtinHash(event.content));
     }
   });

@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type ExtensionMode = "enforce" | "no-root" | "off";
 
@@ -114,23 +114,48 @@ export function resolveConfigPath(flag: string | undefined, env: NodeJS.ProcessE
   return fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined;
 }
 
-/** Throws when realpath(clientDir) equals or is under realpath(cwd): keys must stay out of the agent's reach. */
-export function assertOutsideWorkspace(clientDir: string, cwd: string): void {
-  let keys: string;
+/**
+ * realpath of a path that may not exist yet: the realpath of its nearest existing ancestor, with the
+ * missing rest appended (it holds no symlinks, since it does not exist).
+ */
+function realpathOfNearest(path: string): string {
+  let p = resolve(path);
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return join(realpathSync.native(p), ...rest);
+    } catch (e) {
+      const parent = dirname(p);
+      if (parent === p) {
+        throw e;
+      }
+      rest.unshift(basename(p));
+      p = parent;
+    }
+  }
+}
+
+/**
+ * Throws when realpath(path) equals or is under realpath(cwd): keys, pins and the config must stay out
+ * of the agent's reach. `what` names the path in errors. With `mayBeMissing`, a path that does not
+ * exist yet is judged by where it would be; otherwise it must exist.
+ */
+export function assertOutsideWorkspace(path: string, cwd: string, what = "clientDir", opts: { mayBeMissing?: boolean } = {}): void {
+  let target: string;
   let ws: string;
   try {
-    keys = realpathSync.native(clientDir);
+    target = opts.mayBeMissing === true ? realpathOfNearest(path) : realpathSync.native(path);
   } catch (e) {
-    throw new Error(`clientDir ${clientDir} cannot be resolved: ${(e as Error).message}`);
+    throw new Error(`${what} ${path} cannot be resolved: ${(e as Error).message}`);
   }
   try {
     ws = realpathSync.native(cwd);
   } catch (e) {
     throw new Error(`workspace ${cwd} cannot be resolved: ${(e as Error).message}`);
   }
-  const rel = relative(ws, keys);
+  const rel = relative(ws, target);
   const outside = rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
   if (!outside) {
-    throw new Error(`clientDir ${clientDir} is inside the workspace ${cwd}; keep client keys outside it`);
+    throw new Error(`${what} ${path} is inside the workspace ${cwd}; keep it outside`);
   }
 }

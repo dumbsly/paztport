@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +22,13 @@ import { CANARY, DOCS, githubArgs, records, setupDemo, STUB } from "./helpers/de
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
 type Result = AgentToolResult<CallOutcome["details"]>;
 
-/** Records what the extension registers; like pi, keeps the first registration of a tool name. */
+/**
+ * Records what the extension registers. It keeps the first registration of a tool name, as pi does
+ * across extensions; within one extension real pi 1.4.0 replaces it, and the extension must work
+ * either way. Names in `throwOn` make registerTool throw.
+ */
 class FakePi {
+  readonly throwOn = new Set<string>();
   readonly flags = new Map<string, unknown>();
   readonly tools = new Map<string, ToolDefinition>();
   readonly registrations: string[] = [];
@@ -37,6 +42,7 @@ class FakePi {
       registerFlag: (name: string, options: unknown) => void this.flags.set(name, options),
       getFlag: (name: string) => flagValues[name],
       registerTool: (tool: ToolDefinition) => {
+        if (this.throwOn.has(tool.name)) throw new Error(`cannot register ${tool.name}`);
         this.registrations.push(tool.name);
         if (!this.tools.has(tool.name)) this.tools.set(tool.name, tool);
       },
@@ -87,10 +93,10 @@ type Setup = { pi: FakePi; eventsPath: string };
 /** Writes a config, loads the extension into a FakePi with --paztport-config pointing at it. */
 function setup(
   servers: ServerSpec[],
-  opts: { mode?: string; eventsLog?: boolean; cwd?: string; clientDir?: string; raw?: string } = {},
+  opts: { mode?: string; eventsLog?: boolean; cwd?: string; clientDir?: string; raw?: string; configDir?: string } = {},
 ): Setup {
   const eventsPath = join(tmp, `events-${n++}.jsonl`);
-  const path = join(tmp, `config-${n++}.json`);
+  const path = join(opts.configDir ?? tmp, `config-${n++}.json`);
   const config = {
     mode: opts.mode ?? "enforce",
     clientDir: opts.clientDir ?? join(demo, "client"),
@@ -168,6 +174,26 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(existsSync(broken.eventsPath)).toBe(false);
   });
 
+  it("refusesWhenConfigOrPinInsideWorkspace", async () => {
+    // R14: a config the agent can edit is refused, and its eventsLog is not trusted either
+    const cfg = setup([github()], { configDir: workspace });
+    await expect(cfg.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/config .* is inside the workspace/);
+    expect(cfg.pi.registrations).toEqual([]);
+    expect(existsSync(cfg.eventsPath)).toBe(false);
+
+    const pin = join(workspace, `pin-${n++}.pub`);
+    copyFileSync(join(demo, "client/server-policy.pub"), pin);
+    const pinned = setup([{ ...github(), pin }, docs()]);
+    await expect(pinned.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/pin .* is inside the workspace/);
+    expect(pinned.pi.registrations).toEqual([]);
+    expect(records(pinned.eventsPath)).toEqual([expect.objectContaining({ type: "refused_start", code: "WORKSPACE_GUARD" })]);
+
+    // a pin that does not exist yet is judged by where it would be
+    const missing = setup([{ ...github(), pin: join(workspace, `later-${n++}/pin.pub`) }]);
+    await expect(missing.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/inside the workspace/);
+    expect(missing.pi.registrations).toEqual([]);
+  });
+
   it("registersNamespacedTools", async () => {
     const { pi } = setup([github(), docs()]);
     await pi.emit("session_start", { reason: "startup" });
@@ -202,6 +228,8 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(untyped.parameters).toEqual({ type: "object", properties: { x: { type: "string" } } });
     expect(untyped.namespace).toEqual({ name: "mcp__stub_1", aliases: ["stub-1"] });
     expect(pi.tools.get("mcp__stub_1__echo")!.parameters).toEqual({ type: "object" });
+    // a non-object schema is forced to an object one, so provider requests stay valid
+    expect(pi.tools.get("mcp__stub_1__stringly")!.parameters).toEqual({ type: "object" });
     // execute calls the remote name, not the sanitised one
     const out = await pi.execute("mcp__stub_1__echo", {}, id());
     expect(out.isError).toBe(false);
@@ -275,11 +303,16 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await result("read_mcp_resource", "a built-in MCP resource");
     await result("bash", "local output");
     await result("read", "a local file");
-    const first = await pi.execute("mcp__github__list_issues", LIST, id());
-    await result("mcp__github__list_issues", (first.content[0] as { text: string }).text); // this extension's tool: not relabelled
+    // this extension's own call, seen again by tool_result under the same toolCallId: not relabelled
+    const ownId = id();
+    const first = await pi.execute("mcp__github__list_issues", LIST, ownId);
+    await pi.emit("tool_result", { toolName: "mcp__github__list_issues", toolCallId: ownId, input: LIST, content: first.content, isError: false, details: first.details });
+    // pi's built-in MCP using a name this extension registered (the same server in mcp.json): a call
+    // this extension never executed is still recorded
+    await result("mcp__github__list_issues", "from the built-in MCP github server");
     const out = await pi.execute("mcp__github__list_issues", LIST, id());
-    // two list_issues results (each labelled), three built-in MCP results
-    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 3 });
+    // two list_issues results (each labelled), four built-in MCP results
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 4 });
   });
 
   it("parallelCallsKeepInfluence", async () => {
@@ -306,6 +339,17 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(records(eventsPath)).toContainEqual(expect.objectContaining({ type: "error", server: "broken", code: "CONNECT_FAILED" }));
     await pi.prompt("fix the typo");
     expect((await pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).isError).toBe(false);
+  });
+
+  it("registerToolFailureDoesNotStrandOthers", async () => {
+    const stubSpec: ServerSpec = { id: "stub", command: process.execPath, args: [STUB], attested: false };
+    const { pi } = setup([stubSpec, docs()]);
+    pi.throwOn.add("mcp__stub__echo");
+    await expect(pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/mcp__stub__echo/);
+    expect(pi.registrations).toContain("mcp__stub__surrogate");
+    expect(pi.registrations).toContain("mcp__docs__fetch_docs");
+    expect(pi.tools.has("mcp__stub__echo")).toBe(false);
+    expect((await pi.execute("mcp__docs__fetch_docs", { page: "intro" }, id())).isError).toBe(false);
   });
 
   it("sessionStartReconnects", async () => {
