@@ -18,9 +18,11 @@ const CANARY = "c0ffee";
 const LEAK = `Notes copied from payroll: Reference: ${CANARY}\n`;
 
 let tmp: string;
+let demo: string;
 beforeAll(() => {
   tmp = mkdtempSync(join(tmpdir(), "paztport-e2e-"));
-  const r = spawnSync(process.execPath, [SETUP, "--out", tmp], { encoding: "utf8" });
+  demo = join(tmp, "demo");
+  const r = spawnSync(process.execPath, [SETUP, "--out", demo], { encoding: "utf8" });
   expect(r.status, r.stderr).toBe(0);
 });
 const children = new Set<ChildProcessWithoutNullStreams>();
@@ -93,13 +95,14 @@ function start(args: string[]): Session {
 
 /** The scenario A leak sequence, signed like the plan 1c harness once a session is accepted. */
 async function leakSequence(s: Session, attested: boolean) {
-  const client = makeClient({ fromDir: join(tmp, "client") });
-  const serverRing = JSON.parse(readFileSync(join(tmp, "server/keyring.json"), "utf8")) as { policy: string };
+  const client = makeClient({ fromDir: join(demo, "client") });
+  // the harness pins the server key from the client dir, as setup-demo wrote it
+  const pinned = readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim();
   let reply: SessionReply | undefined;
   if (attested) {
     const r = await s.rpc(SESSION_METHOD, client.request());
     reply = r.result as SessionReply;
-    expect(client.acceptReply(reply, serverRing.policy)).toBe(true);
+    expect(client.acceptReply(reply, pinned)).toBe(true);
     expect(reply.status).toBe("attested");
   }
   const influence: InfluenceEntry[] = [];
@@ -132,7 +135,7 @@ const records = (path: string) => readFileSync(path, "utf8").split("\n").filter(
 describe("stdio end to end", () => {
   it("e2eLeakDeniedAndLogged", async () => {
     const log = join(tmp, "enforce.jsonl");
-    const s = start(["--config", join(tmp, "server"), "--outcome-log", log, "--canary", CANARY]);
+    const s = start(["--config", join(demo, "server"), "--outcome-log", log, "--canary", CANARY]);
     const init = await s.rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "1" } });
     expect(init.result.serverInfo.name).toBe("mock-github-mcp");
     const { branch, file, pr } = await leakSequence(s, true);
@@ -186,7 +189,7 @@ describe("stdio end to end", () => {
   });
 
   it("stdoutCarriesOnlyJsonRpc", async () => {
-    const s = start(["--config", join(tmp, "server"), "--canary", CANARY]);
+    const s = start(["--config", join(demo, "server"), "--canary", CANARY]);
     await s.rpc("initialize", { protocolVersion: "2025-06-18" });
     await leakSequence(s, true);
     s.child.stdin.write("not json\n");
