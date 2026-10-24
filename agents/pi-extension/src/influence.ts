@@ -48,6 +48,11 @@ export class InfluenceStore {
     this.all.push({ cls: "local-untrusted", src, h: contentHash });
   }
 
+  /** Content whose sources cannot be traced, so it may hold anything: private and local-untrusted. */
+  recordUnknown(src: string, contentHash: string): void {
+    this.all.push({ cls: "private", src, h: contentHash }, { cls: "local-untrusted", src, h: contentHash });
+  }
+
   classes(): Set<InfluenceClass> {
     return influenceClasses(this.all);
   }

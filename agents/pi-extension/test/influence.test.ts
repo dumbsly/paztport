@@ -27,6 +27,15 @@ describe("InfluenceStore", () => {
     expect(s.classes()).toEqual(new Set(["local-untrusted"]));
   });
 
+  it("unknownEntryIsPrivateAndUntrusted", () => {
+    const s = new InfluenceStore();
+    s.recordUnknown("local:branch_summary", "H4");
+    expect(s.entries()).toEqual([
+      { cls: "local-untrusted", src: "local:branch_summary", h: "H4" },
+      { cls: "private", src: "local:branch_summary", h: "H4" },
+    ]);
+  });
+
   it("classesBecomeEntriesWithoutCid", () => {
     // rebuilt from a restored session branch, which keeps label classes but no cids
     const s = new InfluenceStore();

@@ -17,6 +17,7 @@ import { ServerConnection, type CallOutcome } from "./connection.ts";
 import { EventLog } from "./events.ts";
 import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
+import { SessionChain, type SessionView } from "./restore.ts";
 import { RunState } from "./runs.ts";
 
 const FLAG = "paztport-config";
@@ -199,32 +200,37 @@ export default function paztport(pi: ExtensionAPI): void {
    * local-untrusted, as in tool_result.
    *
    * A branch_summary entry (left by /tree) stands in for a branch the path no longer holds, so the
-   * entries it summarised count too: the abandoned branch from its fromId, less what is on the path,
-   * walked the same way (nested summaries included). When that branch cannot be resolved in full (no
-   * such entry, or a broken parent chain) the summary itself counts as local-untrusted, outside off
-   * mode. A compaction entry needs none of this: it summarises entries on its own path.
+   * entries it summarised count too: the abandoned branch from its fromId, less what is already
+   * counted, walked the same way (nested summaries included). It is looked up in this session, then
+   * in the sessions it was forked or cloned from (see SessionChain). When it cannot be resolved in
+   * full (no such entry, a broken or looping parent chain, an unreadable parent) the summary may hold
+   * anything, so it counts as private and local-untrusted. A compaction entry needs none of this: it
+   * summarises entries on its own path.
    */
-  function restoreInfluence(session: Pick<ExtensionContext["sessionManager"], "getBranch">, config: PaztportConfig): void {
+  function restoreInfluence(session: SessionView, config: PaztportConfig): void {
     const ids = new Set(config.servers.map((spec) => spec.id));
-    const entries = [...session.getBranch()];
-    const seen = new Set(entries.map((e) => e.id));
-    // entries grows as abandoned branches are found
-    for (let i = 0; i < entries.length; i++) {
-      const entry = entries[i]!;
+    const chain = new SessionChain(session);
+    // depth: the session (0 is this one, then its parents) an entry was found in
+    const work = session.getBranch().map((entry) => ({ entry, depth: 0 }));
+    const seen = new Set(work.map((w) => w.entry.id));
+    // work grows as abandoned branches are found
+    for (let i = 0; i < work.length; i++) {
+      const { entry, depth } = work[i]!;
       restoreEntry(entry, ids, config.mode);
       if (entry.type !== "branch_summary") {
         continue;
       }
-      const fromId: unknown = entry.fromId;
-      const abandoned = typeof fromId === "string" ? session.getBranch(fromId) : [];
-      const resolved = abandoned.length > 0 && abandoned.at(-1)!.id === fromId && abandoned[0]!.parentId === null;
-      if (!resolved && config.mode !== "off") {
-        influence.recordUntrusted("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]));
+      const abandoned = chain.branch(entry.fromId, depth);
+      // Off mode records none of this extension's results, so an unresolvable summary records
+      // nothing either, while built-in MCP results on a resolved branch still count (as on the path
+      // and live). Harmless: off mode sends no influence to any server.
+      if (!abandoned.complete && config.mode !== "off") {
+        influence.recordUnknown("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]));
       }
-      for (const e of abandoned) {
+      for (const e of abandoned.entries) {
         if (!seen.has(e.id)) {
           seen.add(e.id);
-          entries.push(e);
+          work.push({ entry: e, depth: abandoned.depth });
         }
       }
     }

@@ -40,16 +40,19 @@ class FakePi {
   readonly ctx: ExtensionContext;
   /**
    * The session branch ctx.sessionManager.getBranch() returns: what pi restored for this session.
-   * A flat path with no tree behind it, so getBranch(fromId) finds nothing.
+   * A flat path with no tree, header or session file behind it: getEntry finds only these.
    */
   branch: SessionEntry[] = [];
   /** A real pi session (a tree) to read instead of `branch`, when set. */
   session: SessionManager | undefined;
 
   constructor(flagValues: Record<string, string | undefined>, cwd: string) {
-    const sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> = {
+    const sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch" | "getEntry" | "getHeader" | "getSessionDir"> = {
       getBranch: (fromId?: string) =>
         this.session !== undefined ? this.session.getBranch(fromId) : fromId === undefined ? [...this.branch] : [],
+      getEntry: (id: string) => (this.session !== undefined ? this.session.getEntry(id) : this.branch.find((e) => e.id === id)),
+      getHeader: () => (this.session !== undefined ? this.session.getHeader() : null),
+      getSessionDir: () => (this.session !== undefined ? this.session.getSessionDir() : ""),
     };
     this.ctx = { cwd, sessionManager } as unknown as ExtensionContext;
     this.api = {
@@ -559,7 +562,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(afterCompaction.details.verdict).toBe("INFLUENCE_DENIED");
   });
 
-  it("unresolvableBranchSummaryIsUntrusted", async () => {
+  it("unresolvableBranchSummaryCountsAsPrivate", async () => {
     const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, session: "attested", ...extra });
     /** Restores a real pi session holding these entries (the last is the leaf) and reads the influence. */
     const restore = async (entries: SessionEntry[], mode = "enforce") => {
@@ -572,21 +575,102 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const user = entry({ type: "message", id: "u", message: { role: "user", content: "hi", timestamp: 0 } });
     const summary = (fromId: unknown) => entry({ type: "branch_summary", id: "s", parentId: "u", ...(fromId !== undefined ? { fromId } : {}), summary: "Read the payroll notes." });
 
-    // fromId names an entry this session does not hold (e.g. a session cut down to one path)
+    // An unresolvable summary may stand for anything, private content included: it counts as private
+    // and local-untrusted. fromId names an entry this session does not hold (e.g. a session cut down
+    // to one path, with no parent file to look in)
     const gone = [user, summary("gone")];
-    expect(await restore(gone)).toEqual({ ...ZERO, "local-untrusted": 2 });
+    expect(await restore(gone)).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
     // pi's fromId for a summary made with no leaf, and no fromId at all
-    expect(await restore([user, summary("root")])).toEqual({ ...ZERO, "local-untrusted": 2 });
-    expect(await restore([user, summary(undefined)])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    expect(await restore([user, summary("root")])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([user, summary(undefined)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
 
     // a broken chain: what resolves is recorded, and the summary too
     const notes = { ...toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ verify: "OK", labels: ["private"] })), id: "a", parentId: "missing" } as SessionEntry;
     const broken = [notes, user, summary("a")];
-    expect(await restore(broken)).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore(broken)).toEqual({ ...ZERO, private: 2, "local-untrusted": 2 });
+
+    // a parent chain that loops, reachable only from fromId: restore ends, and the summary counts
+    const loop = [
+      entry({ type: "message", id: "a", parentId: "b", message: { role: "user", content: "a", timestamp: 0 } }),
+      entry({ type: "message", id: "b", parentId: "a", message: { role: "user", content: "b", timestamp: 0 } }),
+      user,
+      summary("a"),
+    ];
+    expect(await restore(loop)).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+
+    // and a public write on such a context is refused
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const w = setup([github(outcome)]);
+    w.pi.session = SessionManager.inMemory(workspace, undefined, gone);
+    await w.pi.emit("session_start", { reason: "resume" });
+    await w.pi.prompt("fix the typo");
+    const write = await w.pi.execute("mcp__github__create_branch", { ...LIST, branch: "leak" }, id());
+    expect(write.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
 
     // off mode records none of this
     expect(await restore(gone, "off")).toEqual(ZERO);
     expect(await restore(broken, "off")).toEqual(ZERO);
+  });
+
+  it("forkedSessionResolvesSummaryThroughParent", async () => {
+    // /fork and /clone write only the current path to a new session file, naming the old file in the
+    // header's parentSession: a summary's abandoned branch is looked up there.
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const { pi } = setup([github(outcome)]);
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const live = new Map<string, Result>();
+    for (const [tool, args] of [["list_issues", LIST], ["get_file_contents", PAYROLL]] as const) {
+      live.set(tool, await pi.execute(`mcp__github__${tool}`, args, id()));
+    }
+    /** A persisted pi session: a prompt, an abandoned branch with these results, a summary; then forked. */
+    const forked = (tools: string[]): { sm: SessionManager; dir: string; parent: string } => {
+      const dir = join(tmp, `sessions-${n++}`);
+      const sm = SessionManager.create(workspace, dir);
+      const root = sm.appendMessage({ role: "user", content: "fix the typo", timestamp: 0 });
+      for (const tool of tools) {
+        const r = live.get(tool)!;
+        sm.appendMessage(toolResultMessage(`mcp__github__${tool}`, r.content, r.details));
+      }
+      sm.branchWithSummary(root, "Read the issues and the payroll notes.");
+      const parent = sm.getSessionFile()!;
+      const file = sm.createBranchedSession(sm.getLeafId()!)!;
+      expect(file).not.toBe(parent);
+      expect(sm.getHeader()?.parentSession).toBe(parent);
+      expect(sm.getEntries().map((e) => e.type)).toEqual(["message", "branch_summary"]); // the path alone
+      return { sm: SessionManager.open(file, dir), dir, parent };
+    };
+    const write = async (sm: SessionManager, branch: string): Promise<Result> => {
+      pi.session = sm;
+      await pi.emit("session_start", { reason: "fork" });
+      await pi.prompt("fix the typo");
+      return pi.execute("mcp__github__create_branch", { ...LIST, branch }, id());
+    };
+
+    // resolved through the parent: exactly the abandoned branch's classes
+    const poisoned = await write(forked(["list_issues", "get_file_contents"]).sm, "leak-1");
+    expect(poisoned.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(poisoned.details.influence).toEqual({ ...ZERO, "third-party": 1, private: 1 });
+    const clean = await write(forked(["list_issues"]).sm, "fix-1");
+    expect(clean.isError).toBe(false);
+    expect(clean.details.influence).toEqual({ ...ZERO, "third-party": 1, public: 1 });
+
+    // the parent is gone: the summary counts as private and local-untrusted, and the write is refused
+    const gone = forked(["list_issues"]);
+    rmSync(gone.parent);
+    const denied = await write(gone.sm, "leak-2");
+    expect(denied.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(denied.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 1 });
+
+    // a parent outside this session's directory is not read
+    const elsewhere = forked(["list_issues"]);
+    const other = join(tmp, `sessions-${n++}`);
+    mkdirSync(other);
+    const outside = await write(SessionManager.open(elsewhere.sm.getSessionFile()!, other), "leak-3");
+    expect(outside.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(outside.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 1 });
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
   });
 
   it("supersededSessionStartLeavesStateAlone", async () => {

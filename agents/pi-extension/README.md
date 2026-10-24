@@ -104,9 +104,9 @@ sent.
   and verification codes, the response's label classes, the session state, and influence **counts
   per class**. A refusal or local failure is marked `refused: true`: the extension wrote its text and
   recorded no influence for it. Details never hold keys, signatures, chains, proofs, hashes or
-  content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and OpenAI) send only the
-  content. A provider that forwards pi's whole context does
-  receive `details`, though: pi's test faux provider and the `pi-messages` API both do.
+  content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and
+  OpenAI) send only the content. A provider that forwards pi's whole context does receive
+  `details`, though: pi's test faux provider and the `pi-messages` API both do.
 - **Keys.** If `clientDir`, the config file or any pin resolves inside pi's working directory, the
   extension refuses to start. It registers no tools, raises an
   error, and logs `refused_start` to the events log when one is configured. The one exception is a
@@ -130,12 +130,15 @@ sent.
   `local-untrusted` when it has none (a result marked `refused` in `details`, a refusal or local
   failure, counts for nothing, and in `off` mode none of these results count), and every other MCP
   result counts as `local-untrusted`, as it did live. A summary that `/tree` left of an abandoned
-  branch is in context too, so the results on that branch count the same way. If that branch is no
-  longer in the session file, the summary itself counts as `local-untrusted` (except in `off` mode).
-  A compaction summary needs no such step: the entries it summarises are still on the restored
-  branch and are counted there. The rebuild trusts the session file, which the model can edit
-  through `bash`. Steering messages sent mid-run keep the current run's rid and origin. Only a new
-  user prompt starts a new run.
+  branch is in context too, so the results on that branch count the same way. `/fork` and `/clone`
+  write only the current path to the new session file, so that branch is looked up in the session
+  file it was forked or cloned from (named in the new file's header, and read only if it is in the
+  same session directory). If the branch can't be found there either, for example because that file
+  was deleted, the summary may hold anything: it counts as `private` and `local-untrusted`, so public
+  writes are refused (except in `off` mode). A compaction summary needs no such step: the entries
+  it summarises are still on the restored branch and are counted there. The rebuild trusts the
+  session file, which the model can edit through `bash`. Steering messages sent mid-run keep the
+  current run's rid and origin. Only a new user prompt starts a new run.
 - **Built-in local tools are unlabelled.** In phase 1, results of `read`, `bash`, `edit`, `write` and
   other non-MCP tools are not recorded as influence, so a payload in a workspace file goes untracked.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from
