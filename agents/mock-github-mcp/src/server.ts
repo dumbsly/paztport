@@ -34,22 +34,6 @@ function isPublic(state: GithubState, args: Record<string, unknown>): boolean {
   return r !== undefined && !r.private;
 }
 
-/** The strings a write tool would have written, collected from its raw arguments. */
-function writeTextsFromArgs(args: Record<string, unknown>): string[] {
-  const out: string[] = [];
-  for (const key of ["path", "content", "message", "branch", "title", "body"]) {
-    if (typeof args[key] === "string") out.push(args[key]);
-  }
-  if (Array.isArray(args.files)) {
-    for (const f of args.files) {
-      if (!isObject(f)) continue;
-      if (typeof f.path === "string") out.push(f.path);
-      if (typeof f.content === "string") out.push(f.content);
-    }
-  }
-  return out;
-}
-
 export function createGithubServer(opts: GithubServerOptions): { handle(message: unknown): Promise<object | undefined>; state: GithubState } {
   const { mode, state, outcome } = opts;
   const now = opts.now ?? Date.now;
@@ -88,7 +72,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     };
 
     if (verdict !== "OK" && mode === "enforce") {
-      if (tool.kind === "write") outcome.record({ ...record, verdict, audit: false }, writeTextsFromArgs(args));
+      if (tool.kind === "write") outcome.record({ ...record, verdict, audit: false }, tool.textsFromArgs(args));
       return {
         content: [{ type: "text", text: `Paztport refused this call: ${verdict}` }],
         isError: true,

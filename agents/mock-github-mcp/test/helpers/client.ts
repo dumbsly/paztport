@@ -3,6 +3,8 @@
 
 // Test-only simulator of the plan 1c client harness: never part of the server.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   bindMcpCall,
   bindPrompt,
@@ -15,6 +17,7 @@ import {
   META_INFLUENCE,
   META_PROOF,
   newNonce,
+  parseProof,
   NonceCache,
   NONCE_TTL_MS,
   signRoot,
@@ -23,6 +26,7 @@ import {
   verifySessionReply,
   type ContentLabel,
   type InfluenceEntry,
+  type MerkleProof,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
@@ -61,16 +65,54 @@ export type TestClient = {
 };
 
 /** `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey. */
-export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tools?: string[] } = {}): TestClient {
-  const tools = opts.tools ?? ALL_TOOLS;
+type ClientMaterial = {
+  policyPublicKey: string;
+  session: { privateKey: string; publicKey: string };
+  pi: { privateKey: string; publicKey: string };
+  signedRoot: SignedRoot;
+  proofFor(tool: string): MerkleProof;
+};
+
+function generatedMaterial(tools: string[]): ClientMaterial & { policyPrivateKey: string } {
   const policy = generateKeyPair();
-  const session = generateKeyPair();
-  const pi = generateKeyPair();
   const { signedRoot, bundles } = buildPolicy(
     tools.map((t) => ["session", "pi", `mcp:github.${t}`]),
     8,
     policy.privateKey,
   );
+  return {
+    policyPublicKey: policy.publicKey,
+    policyPrivateKey: policy.privateKey,
+    session: generateKeyPair(),
+    pi: generateKeyPair(),
+    signedRoot,
+    proofFor: (tool) => bundles["pi"]!.proofs[`session/pi/mcp:github.${tool}`]!,
+  };
+}
+
+/** Loads what `setup-demo.ts` wrote into `<out>/client`: session/pi keys, keyring, root and pi's proofs. */
+function loadMaterial(dir: string): ClientMaterial {
+  const text = (f: string) => readFileSync(join(dir, f), "utf8").trim();
+  const json = (f: string) => JSON.parse(text(f)) as any;
+  const ring = json("keyring.json");
+  const bundle = json("proofs-pi.json");
+  return {
+    policyPublicKey: ring.policy,
+    session: { privateKey: text("session.key"), publicKey: ring.services.session },
+    pi: { privateKey: text("pi.key"), publicKey: ring.services.pi },
+    signedRoot: json("root.json"),
+    proofFor: (tool) => parseProof(bundle.proofs[`session/pi/mcp:github.${tool}`]),
+  };
+}
+
+/**
+ * `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey.
+ * `fromDir` uses the keys, root and proofs produced by `setup-demo.ts` instead of generating fresh ones.
+ */
+export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tools?: string[]; fromDir?: string } = {}): TestClient {
+  const m = opts.fromDir !== undefined ? loadMaterial(opts.fromDir) : generatedMaterial(opts.tools ?? ALL_TOOLS);
+  const { session, pi, signedRoot } = m;
+  const policy = { publicKey: m.policyPublicKey };
   const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey) : signedRoot;
   const clientRoot: SignedRoot | null = opts.withRoot === false ? null : forged;
   const nonce = newNonce();
@@ -118,7 +160,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
         arguments: args,
         _meta: {
           [META_CHAIN]: [s0, s1],
-          [META_PROOF]: bundles["pi"]!.proofs[`session/pi/mcp:github.${name}`],
+          [META_PROOF]: m.proofFor(name),
           [META_INFLUENCE]: influence,
           [META_CALL_ID]: callId,
         },

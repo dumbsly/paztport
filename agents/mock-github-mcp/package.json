@@ -2,6 +2,7 @@
   "name": "@paztport/mock-github-mcp",
   "version": "0.1.0",
   "type": "module",
+  "bin": {"mock-github-mcp": "./src/main.ts", "mock-docs-mcp": "./src/docs-main.ts"},
   "dependencies": {"@paztport/path-attest": "*"},
   "license": "Apache-2.0"
 }

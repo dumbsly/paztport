@@ -183,3 +183,17 @@ describe("mock github tools", () => {
     ]);
   });
 });
+
+describe("textsFromArgs", () => {
+  const byName = Object.fromEntries(GITHUB_TOOLS.map((t) => [t.name, t]));
+  it("readToolsReturnNothing", () => {
+    for (const t of GITHUB_TOOLS.filter((x) => x.kind === "read")) expect(t.textsFromArgs({ owner: "o", body: "b", query: "q" })).toEqual([]);
+  });
+  it("writeToolsPickStringsLeniently", () => {
+    expect(byName.create_branch!.textsFromArgs({ branch: "b", from_branch: "main" })).toEqual(["b"]);
+    expect(byName.push_files!.textsFromArgs({ branch: "b", message: "m", files: [{ path: "p", content: "c" }, null, { path: 1 }] })).toEqual(["c", "p", "m", "b"]);
+    expect(byName.push_files!.textsFromArgs({ files: "nope", message: 7 })).toEqual([]);
+    expect(byName.create_pull_request!.textsFromArgs({ title: "t", body: "b", head: "h" })).toEqual(["t", "b"]);
+    expect(byName.add_issue_comment!.textsFromArgs({ body: "x" })).toEqual(["x"]);
+  });
+});

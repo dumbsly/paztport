@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "workspaces": ["path-attest-ts", "policy-tool-ts", "mock-github-mcp"],
-  "scripts": {"test": "vitest run", "check": "tsc -p ."},
+  "scripts": {"test": "vitest run", "check": "tsc -p .", "setup-demo": "node scripts/setup-demo.ts"},
   "engines": {"node": ">=22.19"},
   "devDependencies": {"typescript": "5.9.3", "vitest": "3.2.4", "@types/node": "22.18.0"}
 }

@@ -824,6 +824,7 @@ paztport/
 ├── services/                 gateway, orders, payment, search
 ├── responder/                quarantine controller (docker-java)
 ├── agents/                   TS protocol library + policy CLIs (agent/MCP demo, in progress)
+│   └── mock-github-mcp/      mock GitHub MCP server (+ docs server), stdio, demo agent target
 └── scripts/
     ├── demo.sh               every scenario, pass/fail table
     ├── measure.sh            off vs enforce latency, header sizes

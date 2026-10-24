@@ -95,6 +95,8 @@ export type GithubTool = {
   inputSchema: object;
   kind: ToolKind;
   run(state: GithubState, args: Record<string, unknown>): ToolOutcome;
+  /** The strings a write tool would write, read leniently from raw args; read tools return []. */
+  textsFromArgs(args: Record<string, unknown>): string[];
 };
 
 class ArgError extends Error {}
@@ -162,6 +164,32 @@ function guarded(body: (state: GithubState, args: Args) => ToolOutcome): GithubT
   };
 }
 
+/** Lenient picker for raw (possibly malformed) args: string values of the given keys, in order. */
+function pick(args: Args, keys: string[]): string[] {
+  return keys.flatMap((k) => (typeof args[k] === "string" ? [args[k] as string] : []));
+}
+
+/** Lenient picker for raw push_files entries: every string `key` of each well-formed file object. */
+function fileField(args: Args, key: "path" | "content"): string[] {
+  const files = args["files"];
+  if (!Array.isArray(files)) return [];
+  return files.flatMap((f) => {
+    const v = typeof f === "object" && f !== null ? (f as Record<string, unknown>)[key] : undefined;
+    return typeof v === "string" ? [v] : [];
+  });
+}
+
+const noTexts = (): string[] => [];
+
+/** Per write tool: the strings it writes. Shared by tool.run (accepted writes) and the server (refused writes). */
+const WRITE_TEXTS = {
+  create_branch: (a: Args) => pick(a, ["branch"]),
+  create_or_update_file: (a: Args) => pick(a, ["content", "message", "branch", "path"]),
+  push_files: (a: Args) => [...fileField(a, "content"), ...fileField(a, "path"), ...pick(a, ["message", "branch"])],
+  create_pull_request: (a: Args) => pick(a, ["title", "body"]),
+  add_issue_comment: (a: Args) => pick(a, ["body"]),
+};
+
 function schema(properties: Record<string, object>, required: string[]): object {
   return { type: "object", properties, required };
 }
@@ -173,6 +201,7 @@ const REPO = { ...S, description: "Repository name" };
 export const GITHUB_TOOLS: GithubTool[] = [
   {
     name: "list_issues",
+    textsFromArgs: noTexts,
     description: "List issues in a GitHub repository.",
     kind: "read",
     inputSchema: schema({ owner: OWNER, repo: REPO, state: { ...S, enum: ["OPEN", "CLOSED"], description: "Filter by state" } }, ["owner", "repo"]),
@@ -186,6 +215,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
   },
   {
     name: "issue_read",
+    textsFromArgs: noTexts,
     description: "Get information about a specific issue in a GitHub repository.",
     kind: "read",
     inputSchema: schema({ method: { ...S, enum: ["get"], description: "Operation to perform" }, owner: OWNER, repo: REPO, issue_number: { type: "number", description: "Issue number" } }, ["method", "owner", "repo", "issue_number"]),
@@ -204,6 +234,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
   },
   {
     name: "get_file_contents",
+    textsFromArgs: noTexts,
     description: "Get the contents of a file or list the files of a repository.",
     kind: "read",
     inputSchema: schema({ owner: OWNER, repo: REPO, path: { ...S, description: "Path to the file" }, ref: { ...S, description: "Branch name (default main)" } }, ["owner", "repo"]),
@@ -220,6 +251,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
   },
   {
     name: "search_repositories",
+    textsFromArgs: noTexts,
     description: "Find GitHub repositories by name, e.g. user:acme.",
     kind: "read",
     inputSchema: schema({ query: { ...S, description: "Repository search query" } }, ["query"]),
@@ -235,6 +267,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
   },
   {
     name: "create_branch",
+    textsFromArgs: WRITE_TEXTS.create_branch,
     description: "Create a new branch in a GitHub repository.",
     kind: "write",
     inputSchema: schema({ owner: OWNER, repo: REPO, branch: { ...S, description: "Name for the new branch" }, from_branch: { ...S, description: "Source branch (default main)" } }, ["owner", "repo", "branch"]),
@@ -245,11 +278,12 @@ export const GITHUB_TOOLS: GithubTool[] = [
       branchOf(state, t.owner, t.repo, from);
       if (state.branchFiles(t.owner, t.repo, branch)) throw new ArgError(`branch already exists: ${branch}`);
       state.createBranch(t.owner, t.repo, branch, from);
-      return { text: `Created branch ${branch} from ${from}`, write: { owner: t.owner, repo: t.repo, texts: [branch] } };
+      return { text: `Created branch ${branch} from ${from}`, write: { owner: t.owner, repo: t.repo, texts: WRITE_TEXTS.create_branch(args) } };
     }),
   },
   {
     name: "create_or_update_file",
+    textsFromArgs: WRITE_TEXTS.create_or_update_file,
     description: "Create or update a single file in a GitHub repository.",
     kind: "write",
     inputSchema: schema({ owner: OWNER, repo: REPO, path: { ...S, description: "Path to the file" }, content: { ...S, description: "File content" }, message: { ...S, description: "Commit message" }, branch: { ...S, description: "Branch to commit to" }, sha: { ...S, description: "Blob SHA of the file being replaced" } }, ["owner", "repo", "path", "content", "message", "branch"]),
@@ -261,11 +295,12 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const branch = req(args, "branch");
       branchOf(state, t.owner, t.repo, branch);
       state.putFiles(t.owner, t.repo, branch, [{ path, content }]);
-      return { text: `Committed ${path} to ${branch}`, write: { owner: t.owner, repo: t.repo, texts: [content, message, branch, path] } };
+      return { text: `Committed ${path} to ${branch}`, write: { owner: t.owner, repo: t.repo, texts: WRITE_TEXTS.create_or_update_file(args) } };
     }),
   },
   {
     name: "push_files",
+    textsFromArgs: WRITE_TEXTS.push_files,
     description: "Push multiple files to a GitHub repository in a single commit.",
     kind: "write",
     inputSchema: schema({ owner: OWNER, repo: REPO, branch: { ...S, description: "Branch to push to" }, files: { type: "array", items: { type: "object", properties: { path: S, content: S }, required: ["path", "content"] }, description: "Files to push" }, message: { ...S, description: "Commit message" } }, ["owner", "repo", "branch", "files", "message"]),
@@ -278,12 +313,13 @@ export const GITHUB_TOOLS: GithubTool[] = [
       state.putFiles(t.owner, t.repo, branch, files);
       return {
         text: `Pushed ${files.length} file(s) to ${branch}`,
-        write: { owner: t.owner, repo: t.repo, texts: [...files.map((f) => f.content), ...files.map((f) => f.path), message, branch] },
+        write: { owner: t.owner, repo: t.repo, texts: WRITE_TEXTS.push_files(args) },
       };
     }),
   },
   {
     name: "create_pull_request",
+    textsFromArgs: WRITE_TEXTS.create_pull_request,
     description: "Create a new pull request in a GitHub repository.",
     kind: "write",
     inputSchema: schema({ owner: OWNER, repo: REPO, title: { ...S, description: "PR title" }, head: { ...S, description: "Branch containing changes" }, base: { ...S, description: "Branch to merge into" }, body: { ...S, description: "PR description" } }, ["owner", "repo", "title", "head", "base"]),
@@ -296,11 +332,12 @@ export const GITHUB_TOOLS: GithubTool[] = [
       branchOf(state, t.owner, t.repo, head);
       branchOf(state, t.owner, t.repo, base);
       state.addPull({ owner: t.owner, repo: t.repo, title, body, head, base });
-      return { text: `Created pull request #${state.pulls().length}: ${title}`, write: { owner: t.owner, repo: t.repo, texts: [title, body] } };
+      return { text: `Created pull request #${state.pulls().length}: ${title}`, write: { owner: t.owner, repo: t.repo, texts: WRITE_TEXTS.create_pull_request(args) } };
     }),
   },
   {
     name: "add_issue_comment",
+    textsFromArgs: WRITE_TEXTS.add_issue_comment,
     description: "Add a comment to an issue in a GitHub repository.",
     kind: "write",
     inputSchema: schema({ owner: OWNER, repo: REPO, issue_number: { type: "number", description: "Issue number" }, body: { ...S, description: "Comment text" } }, ["owner", "repo", "issue_number", "body"]),
@@ -310,7 +347,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const body = req(args, "body");
       if (!state.issues(t.owner, t.repo)!.some((i) => i.number === n)) throw new ArgError(`issue not found: #${n}`);
       state.addComment({ owner: t.owner, repo: t.repo, issue_number: n, body });
-      return { text: `Added comment to #${n}`, write: { owner: t.owner, repo: t.repo, texts: [body] } };
+      return { text: `Added comment to #${n}`, write: { owner: t.owner, repo: t.repo, texts: WRITE_TEXTS.add_issue_comment(args) } };
     }),
   },
 ];

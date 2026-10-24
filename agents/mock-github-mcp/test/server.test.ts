@@ -404,6 +404,54 @@ describe("composed github server", () => {
     }
   });
 
+  describe("bypass shapes in a tainted attested session", () => {
+    async function tainted() {
+      const h = setup();
+      await h.open();
+      await leakReads(h);
+      expect(new Set(h.influence.map((e) => e.cls))).toEqual(new Set(["third-party", "private"]));
+      return { h, before: h.snapshot() };
+    }
+
+    it("noMetaCallRefused", async () => {
+      const { h, before } = await tainted();
+      const r = await h.send({ name: "create_branch", arguments: { owner: "acme", repo: "website", branch: "x" } });
+      expect(r.isError).toBe(true);
+      expect(verdictOf(r)).toEqual({ reason: "CHAIN_MISSING" });
+      expect(r._meta?.[META_ATTESTATION]).toBeUndefined();
+      expect(h.snapshot()).toEqual(before);
+    });
+
+    it("caseVariantRepoIsToolError", async () => {
+      const { h, before } = await tainted();
+      const c = await h.call("create_or_update_file", { owner: "Acme", repo: "Website", path: "notes.md", content: LEAK, message: "m", branch: "main" });
+      expect(c.result.isError).toBe(true);
+      expect(h.snapshot()).toEqual(before);
+    });
+
+    it("missingOwnerRepoIsToolError", async () => {
+      const { h, before } = await tainted();
+      for (const args of [{ branch: "x" }, { owner: "acme", branch: "x" }, { repo: "website", branch: "x" }]) {
+        const c = await h.call("create_branch", args);
+        expect(c.result.isError).toBe(true);
+      }
+      expect(h.snapshot()).toEqual(before);
+    });
+
+    it("secondSessionInvalidatesFirst", async () => {
+      const { h, before } = await tainted();
+      const stale = h.client.callParams("create_branch", { owner: "acme", repo: "website", branch: "x" }, []);
+      const second = makeClient();
+      const r = await h.rpc(SESSION_METHOD, second.request());
+      expect(second.acceptReply(r.result as SessionReply, h.cfg.policyPublicKey)).toBe(true);
+      const res = await h.send(stale);
+      expect(res.isError).toBe(true);
+      expect(res._meta?.[META_ATTESTATION]).toBeUndefined();
+      expect(verdictOf(res)).toBeDefined();
+      expect(h.snapshot()).toEqual(before);
+    });
+  });
+
   it("indexReExports", () => {
     expect(index.META_VERDICT).toBe("paztport/verdict");
     expect(typeof index.createGithubServer).toBe("function");
