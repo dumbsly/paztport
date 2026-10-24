@@ -15,3 +15,6 @@ export * from "./nonce.ts";
 export * from "./verify-v1.ts";
 export * from "./influence.ts";
 export * from "./verify-v2.ts";
+export * from "./meta.ts";
+export * from "./session.ts";
+export * from "./attestation.ts";

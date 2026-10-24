@@ -1,0 +1,81 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+import { encode } from "./b64url.ts";
+import { randomBytes, sha256, utf8 } from "./crypto.ts";
+import { bindResult } from "./binding.ts";
+import type { InfluenceClass } from "./influence.ts";
+import { canonicalize } from "./jcs.ts";
+import { META_ATTESTATION } from "./meta.ts";
+import type { MerkleProof } from "./merkle.ts";
+import type { VerifyResult } from "./reason.ts";
+import type { StampV2 } from "./stamp.ts";
+import { verifyChainV2, type V2Config } from "./verify-v2.ts";
+
+export type ContentLabel = { cls: InfluenceClass; cid: string };
+export type ResponseAttestation = { chain: StampV2[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
+
+const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
+
+export function newContentId(): string {
+  return encode(randomBytes(16));
+}
+
+/** The value the last response stamp binds: covers the result hash and the labels. */
+export function bindResponse(resultHash: string, labels: ContentLabel[]): string {
+  return encode(sha256(utf8(resultHash + "\n" + canonicalize(labels))));
+}
+
+function parseAttestation(result: Record<string, unknown>): ResponseAttestation | null {
+  const meta = result._meta;
+  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
+    return null;
+  }
+  const att = (meta as Record<string, unknown>)[META_ATTESTATION];
+  if (typeof att !== "object" || att === null || Array.isArray(att)) {
+    return null;
+  }
+  const a = att as Record<string, unknown>;
+  if (!Array.isArray(a.chain) || typeof a.resultHash !== "string" || !Array.isArray(a.labels)) {
+    return null;
+  }
+  const labels: ContentLabel[] = [];
+  for (const l of a.labels) {
+    if (typeof l !== "object" || l === null || Array.isArray(l)) {
+      return null;
+    }
+    const o = l as Record<string, unknown>;
+    if (typeof o.cls !== "string" || !CLASSES.includes(o.cls) || typeof o.cid !== "string") {
+      return null;
+    }
+    labels.push({ cls: o.cls as InfluenceClass, cid: o.cid });
+  }
+  return { chain: a.chain as StampV2[], proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
+}
+
+/** Never throws; labels are returned only when the whole response verifies. */
+export function verifyResponse(
+  result: Record<string, unknown>,
+  cfg: V2Config,
+): { result: VerifyResult; labels: ContentLabel[] } {
+  const fail = (reason: VerifyResult["reason"]) => ({
+    result: { ok: false, reason, suspectSvc: "", suspectInst: "" } as VerifyResult,
+    labels: [] as ContentLabel[],
+  });
+  try {
+    const att = parseAttestation(result);
+    if (att === null) {
+      return fail("CHAIN_MISSING");
+    }
+    if (att.resultHash !== bindResult(result)) {
+      return fail("BINDING_MISMATCH");
+    }
+    const r = verifyChainV2(
+      { stamps: att.chain, expectedBind: bindResponse(att.resultHash, att.labels), influence: [], proof: att.proof },
+      cfg,
+    );
+    return r.ok ? { result: r, labels: att.labels } : { result: r, labels: [] };
+  } catch {
+    return fail("CHAIN_MISSING");
+  }
+}
