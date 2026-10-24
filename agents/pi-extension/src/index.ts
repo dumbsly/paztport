@@ -31,7 +31,7 @@ const CLASSES: Record<InfluenceClass, true> = { "third-party": true, private: tr
 /** Tools whose results carry MCP server content: `mcp__` tools (this extension's and pi's built-in MCP) and pi's MCP resource tools. */
 const isMcpTool = (name: string): boolean => name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name);
 
-type Details = CallOutcome["details"] | { server: string; influence: Record<string, number> };
+type Details = CallOutcome["details"] | { server: string; influence: Record<string, number>; refused: true };
 type Parameters = ToolDefinition["parameters"];
 
 const sanitise = (s: string): string => s.replace(/[^A-Za-z0-9_]/g, "_");
@@ -100,19 +100,6 @@ function classesOf(labels: unknown): InfluenceClass[] | undefined {
   return labels as InfluenceClass[];
 }
 
-/** True for the local text a refusal puts in place of the server's (see ServerConnection.call). */
-function isRefusal(content: unknown, details: Record<string, unknown>): boolean {
-  return (
-    typeof details.verdict === "string" &&
-    details.labels === undefined &&
-    Array.isArray(content) &&
-    content.length === 1 &&
-    isObject(content[0]) &&
-    content[0].type === "text" &&
-    content[0].text === `Paztport refused this call: ${details.verdict}`
-  );
-}
-
 /**
  * Makes pi a Paztport harness for the MCP servers named in the config (--paztport-config or
  * PAZTPORT_CONFIG): their tools are registered as `mcp__<server>__<tool>` and every call goes
@@ -151,7 +138,7 @@ export default function paztport(pi: ExtensionAPI): void {
     const server = target?.server ?? name;
     const conn = target !== undefined ? connections.get(target.server) : undefined;
     if (target === undefined || conn === undefined) {
-      return { content: text(`MCP server "${server}" is not connected`), details: { server, influence: influence.summary() }, isError: true };
+      return { content: text(`MCP server "${server}" is not connected`), details: { server, influence: influence.summary(), refused: true }, isError: true };
     }
     const out = await conn.call(target.tool, isObject(params) ? params : {}, toolCallId);
     return { content: text(out.text), details: out.details, isError: out.isError };
@@ -187,7 +174,8 @@ export default function paztport(pi: ExtensionAPI): void {
     }
     const d = m.details;
     if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
-      if (mode === "off" || isRefusal(m.content, d)) {
+      // details.refused: an outcome the live path recorded nothing for (see CallOutcome)
+      if (mode === "off" || d.refused === true) {
         return;
       }
       const classes = classesOf(d.labels);
@@ -206,8 +194,9 @@ export default function paztport(pi: ExtensionAPI): void {
    * pi keeps a session's messages over a reload, and resume, fork and a startup with -c or --session
    * restore them, so what reached the model then is still in its context (R16). Our results (details
    * naming a configured server, with an influence summary) give their label classes, without cids,
-   * or local-untrusted when they have no labels; refusals give nothing, and in off mode none of ours
-   * count. Every other MCP or MCP resource result is local-untrusted, as in tool_result.
+   * or local-untrusted when they have no labels; refusals and local errors (details.refused) give
+   * nothing, and in off mode none of ours count. Every other MCP or MCP resource result is
+   * local-untrusted, as in tool_result.
    *
    * A branch_summary entry (left by /tree) stands in for a branch the path no longer holds, so the
    * entries it summarised count too: the abandoned branch from its fromId, less what is on the path,

@@ -121,6 +121,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(out.text).toContain("Typo in README");
     expect(out.details).toMatchObject({ server: "github", callId: "toolu_A1", rid: c.runs.current()!.rid, verify: "OK", labels: ["third-party"], session: "attested" });
     expect(out.details.verdict).toBeUndefined();
+    expect(out.details.refused).toBeUndefined();
     expect(out.details.influence["third-party"]).toBe(1);
     expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "third-party", src: "server:github" })]);
     expect(records(log)).toEqual([expect.objectContaining({ tool: "list_issues", verdict: "ALLOWED", rid: c.runs.current()!.rid, callId: "toolu_A1" })]);
@@ -187,6 +188,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       expect(refused.details.verdict).toBe("INFLUENCE_DENIED");
       expect(refused.details.labels).toBeUndefined();
       expect(refused.details.verify).toBeUndefined();
+      expect(refused.details.refused).toBe(true);
       expect(refused.details.influence).toEqual(summary);
     }
     expect(c.influence.entries()).toEqual(entries);
@@ -203,6 +205,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(out.isError).toBe(false);
     expect(out.details.verify).toBe("EXPIRED");
     expect(out.details.labels).toBeUndefined();
+    expect(out.details.refused).toBeUndefined();
     expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "local-untrusted", src: "server:github" })]);
   });
 
@@ -215,6 +218,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(branch!.details.verdict).toBe("INFLUENCE_DENIED");
     expect(branch!.details.verify).toBe("OK");
     expect(branch!.details.labels).toEqual(["public"]);
+    expect(branch!.details.refused).toBeUndefined();
     expect(c.influence.classes().has("public")).toBe(true);
     expect(records(log).at(-1)).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED", audit: true });
   });
@@ -322,6 +326,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       expect(out.isError).toBe(true);
       expect(out.text).toBe('MCP server "stub" error: malformed tools/call result');
       expect(out.details.influence["local-untrusted"]).toBe(0);
+      expect(out.details.refused).toBe(true);
     }
     expect(c.influence.entries()).toEqual([]);
     expect(events(c).filter((e) => e.type === "error").map((e) => e.code)).toEqual(["MALFORMED_RESULT", "MALFORMED_RESULT"]);
@@ -357,6 +362,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       expect(out.isError).toBe(true);
       expect(out.text).toBe(`Paztport refused this call: ${shown}`);
       expect(out.details.verdict).toBe(shown);
+      expect(out.details.refused).toBe(true);
     }
     expect(c.influence.entries()).toEqual([]);
     const text = readFileSync(c.eventsPath, "utf8");
@@ -464,6 +470,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       expect(out.isError).toBe(true);
       expect(out.text).toMatch(/^MCP server "github" error: /);
       expect(out.details.server).toBe("github");
+      expect(out.details.refused).toBe(true);
     }
     expect(c.influence.entries()).toEqual([]);
     expect(events(c)).toContainEqual(expect.objectContaining({ type: "error", server: "github", code: "TRANSPORT" }));
@@ -477,6 +484,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(out.isError).toBe(true);
     expect(out.text).toMatch(/no active run/);
     expect(out.details.session).toBe("attested");
+    expect(out.details.refused).toBe(true);
     expect(records(log)).toEqual([]);
     expect(events(c)).toContainEqual(expect.objectContaining({ type: "error", server: "github", tool: "create_branch", code: "NO_ACTIVE_RUN" }));
   });
@@ -489,6 +497,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     const out = await call(conn, "create_branch", { owner: "acme", repo: "website", branch: "x" });
     expect(out.isError).toBe(true);
     expect(out.text).toMatch(/no policy proof/);
+    expect(out.details.refused).toBe(true);
     expect(records(log)).toEqual([]);
     expect(events(c)).toContainEqual(expect.objectContaining({ type: "error", code: "NO_PROOF" }));
   });

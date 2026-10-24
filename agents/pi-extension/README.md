@@ -101,8 +101,9 @@ sent.
   reaches the model; it is recorded as `local-untrusted`.
 - **Details.** Paztport data goes in the tool result's `details`: the server, call id, rid, verdict
   and verification codes, the response's label classes, the session state, and influence **counts
-  per class**. Details never hold keys, signatures, chains, proofs, hashes or content. pi stores them
-  with the session. pi-ai's provider converters (such as Anthropic and OpenAI) send only the
+  per class**. A refusal or local failure is marked `refused: true`: the extension wrote its text and
+  recorded no influence for it. Details never hold keys, signatures, chains, proofs, hashes or
+  content. pi stores them with the session. pi-ai's provider converters (such as Anthropic and OpenAI) send only the
   content. A provider that forwards pi's whole context does
   receive `details`, though: pi's test faux provider and the `pi-messages` API both do.
 - **Keys.** If `clientDir`, the config file or any pin resolves inside pi's working directory, the
@@ -125,16 +126,15 @@ sent.
   `/new` starts an empty session. Reload keeps the messages, and `/resume`, `/fork` and `pi -c` or
   `--session` restore them, so on those session starts the influence is rebuilt from the restored
   branch: each of this extension's results counts with its label classes from `details`, or as
-  `local-untrusted` when it has none (refusals count for nothing, and in `off` mode none of these
-  results count), and every other MCP result counts as `local-untrusted`, as it did live. A summary
-  that `/tree` left of an abandoned branch is in context too, so the results on that branch count the
-  same way. If that branch is no longer in the session file, the summary itself counts as
-  `local-untrusted` (except in `off` mode). A compaction summary needs no such step: the entries it
-  summarises are still on the restored branch and are counted there. The rebuild
-  trusts the session file, which the model can edit through `bash`, and it counts a local error from
-  this extension (such as an unreachable server) as `local-untrusted`, which the live path does not.
-  Steering messages sent mid-run keep the current run's rid and origin. Only a new user prompt
-  starts a new run.
+  `local-untrusted` when it has none (a result marked `refused` in `details`, a refusal or local
+  failure, counts for nothing, and in `off` mode none of these results count), and every other MCP
+  result counts as `local-untrusted`, as it did live. A summary that `/tree` left of an abandoned
+  branch is in context too, so the results on that branch count the same way. If that branch is no
+  longer in the session file, the summary itself counts as `local-untrusted` (except in `off` mode).
+  A compaction summary needs no such step: the entries it summarises are still on the restored
+  branch and are counted there. The rebuild trusts the session file, which the model can edit
+  through `bash`. Steering messages sent mid-run keep the current run's rid and origin. Only a new
+  user prompt starts a new run.
 - **Built-in local tools are unlabelled.** In phase 1, results of `read`, `bash`, `edit`, `write` and
   other non-MCP tools are not recorded as influence, so a payload in a workspace file goes untracked.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from

@@ -51,6 +51,12 @@ export type CallOutcome = {
     session: SessionState;
     /** Why the session is not attested (a reason code, no secrets). */
     sessionReason?: string;
+    /**
+     * Set when this extension produced the outcome itself and recorded no influence for it: a server
+     * refusal (its text replaced), a local refusal such as no active run, or a local error. Its text
+     * holds no server content, and a restored session skips it.
+     */
+    refused?: true;
   };
 };
 
@@ -313,7 +319,7 @@ export class ServerConnection {
         code,
         ...(rpcCode !== undefined ? { rpcCode } : {}),
       });
-      return { text: `MCP server "${server}" error: ${message}`, isError: true, details: details(extra) };
+      return { text: `MCP server "${server}" error: ${message}`, isError: true, details: details({ ...extra, refused: true }) };
     };
 
     const client = this.client;
@@ -370,7 +376,7 @@ export class ServerConnection {
     if (verdict !== undefined && !verdict.audit) {
       // A refusal: the tool did not run. Its text is replaced by a local message, so no server content
       // reaches the model unrecorded, and nothing is recorded as influence.
-      const out = details({ ...withRid, verdict: verdict.reason });
+      const out = details({ ...withRid, verdict: verdict.reason, refused: true });
       this.events.emit({ type: "response", server, tool, callId, ...withRid, verdict: verdict.reason, isError: true, classes: out.influence });
       return { text: `Paztport refused this call: ${verdict.reason}`, isError: true, details: out };
     }

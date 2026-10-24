@@ -277,6 +277,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const before = await pi.execute("mcp__github__list_issues", LIST, id());
     expect(before.isError).toBe(true);
     expect(before.content).toEqual([{ type: "text", text: expect.stringMatching(/no active run/) }]);
+    expect(before.details.refused).toBe(true);
 
     await pi.prompt("fix the typo");
     const a = await pi.execute("mcp__github__list_issues", LIST, id());
@@ -307,11 +308,13 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(JSON.stringify(out.content)).not.toMatch(/paztport\/|_meta|"sig"/);
     expect(out.details).toMatchObject({ server: "github", verify: "OK", labels: ["private"], session: "attested" });
     expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1, private: 1 });
+    expect(out.details.refused).toBeUndefined();
 
     const refused = await pi.execute("mcp__github__create_branch", { ...LIST, branch: "leak" }, id());
     expect(refused.isError).toBe(true);
     expect(refused.content).toEqual([{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }]);
     expect(refused.details.verdict).toBe("INFLUENCE_DENIED");
+    expect(refused.details.refused).toBe(true);
 
     const banned = new Set(["sig", "sess", "h", "cid", "_meta", "chain", "proof"]);
     const walk = (v: unknown): void => {
@@ -452,7 +455,10 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
       // unverified, or from an unsafe session: local-untrusted
       toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "issues" }], own({ session: "unsafe", sessionReason: "PIN_MISMATCH" })),
       // a refusal carries no server content and is never recorded
-      toolResultEntry("mcp__github__create_branch", [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], own({ session: "attested", verdict: "INFLUENCE_DENIED" }), true),
+      toolResultEntry("mcp__github__create_branch", [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], own({ session: "attested", verdict: "INFLUENCE_DENIED", refused: true }), true),
+      // a result the live path recorded is recorded, even with a refusal's text: here an audit verdict
+      // from an unsafe session (no labels)
+      toolResultEntry("mcp__github__create_branch", [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], own({ session: "unsafe", sessionReason: "UNSAFE", verdict: "INFLUENCE_DENIED" })),
       // pi's built-in MCP (details { server, tool }), even under a name this extension registers
       toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "built-in github" }], { server: "github", tool: "list_issues" }),
       toolResultEntry("mcp__other__fetch", [{ type: "text", text: "built-in other" }], { server: "other", tool: "fetch" }),
@@ -467,10 +473,10 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const enforce = setup([github(), docs()]);
     enforce.pi.branch = branch;
     await enforce.pi.emit("session_start", { reason: "reload" });
-    // one unsafe result of ours and four built-in MCP results, plus the live docs result (the docs
+    // two unsafe results of ours and four built-in MCP results, plus the live docs result (the docs
     // server is unattested)
     const a = await enforce.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
-    expect(a.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 6 });
+    expect(a.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 7 });
 
     // off mode records none of this extension's results (restored or live); the four built-in MCP
     // results still count
@@ -479,6 +485,13 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await off.pi.emit("session_start", { reason: "resume" });
     const b = await off.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
     expect(b.details.influence).toEqual({ ...ZERO, "local-untrusted": 4 });
+
+    // a local error is not recorded either, as live: only the live docs result counts
+    const local = setup([github(), docs()]);
+    local.pi.branch = [toolResultEntry("mcp__github__list_issues", [{ type: "text", text: 'MCP server "github" error: not connected' }], own({ session: "attested", refused: true }), true)];
+    await local.pi.emit("session_start", { reason: "reload" });
+    const c = await local.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
+    expect(c.details.influence).toEqual({ ...ZERO, "local-untrusted": 1 });
   });
 
   it("branchSummaryCarriesAbandonedInfluence", async () => {
@@ -590,6 +603,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const out = await pi.execute("mcp__github__list_issues", LIST, id());
     expect(out.isError).toBe(true);
     expect(out.content).toEqual([{ type: "text", text: 'MCP server "github" is not connected' }]);
+    expect(out.details.refused).toBe(true);
     await pi.emit("session_shutdown", { reason: "quit" }); // idempotent
   });
 });
