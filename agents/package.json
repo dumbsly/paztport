@@ -1,7 +1,7 @@
 {
   "private": true,
   "type": "module",
-  "workspaces": ["path-attest-ts"],
+  "workspaces": ["path-attest-ts", "policy-tool-ts"],
   "scripts": {"test": "vitest run", "check": "tsc -p ."},
   "engines": {"node": ">=22.19"},
   "devDependencies": {"typescript": "5.9.3", "vitest": "3.2.4", "@types/node": "22.18.0"}

@@ -815,6 +815,7 @@ paztport/
 ├── policy-tool/              paths.yaml → signed root + per-service bundles
 ├── services/                 gateway, orders, payment, search
 ├── responder/                quarantine controller (docker-java)
+├── agents/                   TS protocol library + policy CLIs (agent/MCP demo, in progress)
 └── scripts/
     ├── demo.sh               every scenario, pass/fail table
     ├── measure.sh            off vs enforce latency, header sizes
