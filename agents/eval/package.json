@@ -1,0 +1,8 @@
+{
+  "name": "@paztport/eval",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {".": "./src/verify.ts"},
+  "dependencies": {"@paztport/path-attest": "*", "@paztport/mock-github-mcp": "*", "@paztport/pi-extension": "*"},
+  "license": "Apache-2.0"
+}
