@@ -2,17 +2,28 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { appendFileSync } from "node:fs";
-import type { ReasonCode } from "@paztport/path-attest";
+import type { InfluenceClass, ReasonCode } from "@paztport/path-attest";
 import type { GithubState, PullRequest } from "./github.ts";
 
 export type Mode = "enforce" | "audit" | "off";
+/** One line per tools/call, read or write, allowed or refused. */
 export type OutcomeRecord = {
   ts: number;
   mode: Mode;
   tool: string;
+  kind: "read" | "write";
   owner: string;
   repo: string;
+  /** A write aimed at a known public repo; always false for reads. */
   publicDestination: boolean;
+  /** The labelFor class of the result; absent when the tool did not run. */
+  label?: InfluenceClass;
+  /** A read that returned (or, when refused, targeted) private content. */
+  privateRead: boolean;
+  /** Set when the call verified against an attested session. */
+  rid?: string;
+  callId?: string;
+  sess?: string;
   containsCanary: boolean;
   verdict: "ALLOWED" | ReasonCode;
   audit: boolean;

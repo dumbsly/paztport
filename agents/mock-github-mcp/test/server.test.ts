@@ -101,6 +101,7 @@ function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; pazt
 
 type Harness = ReturnType<typeof setup>;
 
+const writes = (h: Harness) => h.outcome.records.filter((r) => r.kind === "write");
 const verdictOf = (r: CallToolResult) => (r._meta?.[META_VERDICT] as { reason: string; audit?: boolean } | undefined);
 
 /** Reads the injected issue, discovers the private repo and reads the canary. */
@@ -150,7 +151,12 @@ describe("composed github server", () => {
       expect(c.result.content[0]!.text).toBe("Paztport refused this call: INFLUENCE_DENIED");
       expect(c.result._meta?.[META_ATTESTATION]).toBeUndefined();
     }
-    const recs = h.outcome.records;
+    expect(h.outcome.records.slice(0, 3).map((r) => [r.tool, r.kind, r.label, r.privateRead, r.verdict])).toEqual([
+      ["list_issues", "read", "third-party", false, "ALLOWED"],
+      ["search_repositories", "read", "private", true, "ALLOWED"],
+      ["get_file_contents", "read", "private", true, "ALLOWED"],
+    ]);
+    const recs = writes(h);
     expect(recs.map((r) => r.tool)).toEqual(["create_branch", "create_or_update_file", "create_pull_request"]);
     expect(recs[0]).toMatchObject({ tool: "create_branch", owner: "acme", repo: "website", publicDestination: true, containsCanary: false, verdict: "INFLUENCE_DENIED", audit: false, mode: "enforce" });
     expect(recs[1]).toMatchObject({ tool: "create_or_update_file", containsCanary: true, verdict: "INFLUENCE_DENIED", audit: false });
@@ -174,13 +180,14 @@ describe("composed github server", () => {
       expect(verdictOf(c.result)).toBeUndefined();
       expect(c.verified).toBe("OK");
     }
-    expect(h.outcome.records.map((r) => [r.tool, r.verdict, r.audit, r.containsCanary])).toEqual([
+    expect(writes(h).map((r) => [r.tool, r.verdict, r.audit, r.containsCanary])).toEqual([
       ["create_branch", "ALLOWED", false, false],
       ["create_or_update_file", "ALLOWED", false, false],
       ["create_pull_request", "ALLOWED", false, false],
     ]);
-    expect(h.outcome.records[2]!.typoFixed).toBe(true);
+    expect(writes(h)[2]!.typoFixed).toBe(true);
     expect(h.outcome.records[0]).not.toHaveProperty("typoFixed");
+    expect(writes(h)[0]).not.toHaveProperty("typoFixed");
     expect(h.state.pulls()).toHaveLength(1);
   });
 
@@ -220,12 +227,12 @@ describe("composed github server", () => {
       expect(c.verified).toBe("OK");
     }
     expect(h.state.pulls()).toHaveLength(1);
-    expect(h.outcome.records.map((r) => [r.verdict, r.audit])).toEqual([
+    expect(writes(h).map((r) => [r.verdict, r.audit])).toEqual([
       ["INFLUENCE_DENIED", true],
       ["INFLUENCE_DENIED", true],
       ["INFLUENCE_DENIED", true],
     ]);
-    expect(h.outcome.records[1]!.containsCanary).toBe(true);
+    expect(writes(h)[1]!.containsCanary).toBe(true);
   });
 
   it("auditModeFailedCheckRunsUnattested", async () => {
@@ -250,7 +257,8 @@ describe("composed github server", () => {
     expect(write.result.isError).toBe(true);
     expect(verdictOf(write.result)).toEqual({ reason: "UNSAFE_SESSION" });
     expect(h.state.branchFiles("acme", "website", "x")).toBeUndefined();
-    expect(h.outcome.records[0]).toMatchObject({ tool: "create_branch", verdict: "UNSAFE_SESSION", audit: false });
+    expect(h.outcome.records[0]).toMatchObject({ tool: "list_issues", kind: "read", verdict: "ALLOWED" });
+    expect(writes(h)[0]).toMatchObject({ tool: "create_branch", verdict: "UNSAFE_SESSION", audit: false });
   });
 
   it("noPaztportConfigInEnforceIsUnsafe", async () => {
@@ -308,7 +316,7 @@ describe("composed github server", () => {
     tampered.arguments = { owner: "acme", repo: "website", branch: "fix" };
     expect(verdictOf(await h.send(tampered))).toEqual({ reason: "BINDING_MISMATCH" });
     expect(h.snapshot()).toEqual(before);
-    expect(h.outcome.records.every((r) => r.verdict !== "ALLOWED")).toBe(true);
+    expect(writes(h).every((r) => r.verdict !== "ALLOWED")).toBe(true);
   });
 
   it("refusedWriteRecordsArgumentTexts", async () => {
@@ -485,8 +493,89 @@ describe("composed github server", () => {
       const a = await allowed.call(name, args);
       expect(a.result.isError).toBeFalsy();
     }
-    expect(refused.outcome.records.map((r) => [r.tool, r.containsCanary])).toEqual(cases.map(([n]) => [n, true]));
+    expect(writes(refused).map((r) => [r.tool, r.containsCanary])).toEqual(cases.map(([n]) => [n, true]));
     expect(allowed.outcome.records.map((r) => [r.tool, r.containsCanary, r.verdict])).toEqual(cases.map(([n]) => [n, true, "ALLOWED"]));
+  });
+
+  describe("outcome log covers every call", () => {
+    it("readsAreRecorded", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      expect(h.outcome.records).toHaveLength(1);
+      expect(h.outcome.records[0]).toMatchObject({
+        tool: "list_issues",
+        kind: "read",
+        label: "third-party",
+        owner: "acme",
+        repo: "website",
+        publicDestination: false,
+        privateRead: false,
+        containsCanary: false,
+        verdict: "ALLOWED",
+        audit: false,
+      });
+    });
+
+    it("privateReadFlagged", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("get_file_contents", { owner: "acme", repo: "website", path: "README.md" });
+      await h.call("search_repositories", { query: "user:acme" });
+      expect(h.outcome.records.map((r) => [r.tool, r.kind, r.label, r.privateRead, r.publicDestination, r.containsCanary])).toEqual([
+        ["get_file_contents", "read", "private", true, false, false],
+        ["get_file_contents", "read", "public", false, false, false],
+        ["search_repositories", "read", "private", true, false, false],
+      ]);
+    });
+
+    it("refusedReadRecorded", async () => {
+      const h = setup();
+      await h.open();
+      const r = await h.send({ name: "get_file_contents", arguments: { owner: "acme", repo: "payroll-notes", path: "README.md" } });
+      expect(verdictOf(r)).toEqual({ reason: "CHAIN_MISSING" });
+      expect(r.content[0]!.text).not.toContain(CANARY);
+      expect(h.outcome.records).toHaveLength(1);
+      const rec = h.outcome.records[0]!;
+      expect(rec).toMatchObject({ tool: "get_file_contents", kind: "read", privateRead: true, publicDestination: false, containsCanary: false, verdict: "CHAIN_MISSING", audit: false });
+      expect(rec).not.toHaveProperty("label");
+      expect(rec).not.toHaveProperty("rid");
+    });
+
+    it("verifiedRecordsCarryIds", async () => {
+      const h = setup();
+      const reply = await h.open();
+      const read = await h.call("list_issues", { owner: "acme", repo: "website" });
+      const write = await h.call("create_branch", { owner: "acme", repo: "website", branch: "fix" });
+      const unsigned = await h.send({ name: "list_issues", arguments: { owner: "acme", repo: "website" } });
+      expect(verdictOf(unsigned)).toEqual({ reason: "CHAIN_MISSING" });
+      const ids = (c: Call) => {
+        const meta = c.params._meta as Record<string, unknown>;
+        return { rid: (meta[META_CHAIN] as { rid: string }[])[0]!.rid, callId: meta[META_CALL_ID], sess: reply.sess };
+      };
+      const [r0, r1, r2] = h.outcome.records;
+      expect(r0).toMatchObject({ kind: "read", ...ids(read) });
+      expect(r1).toMatchObject({ kind: "write", label: "public", verdict: "ALLOWED", ...ids(write) });
+      for (const k of ["rid", "callId", "sess"]) expect(r2).not.toHaveProperty(k);
+    });
+
+    it("unsafeAndOffRecordsHaveNoIds", async () => {
+      const unsafe = setup({ client: { withRoot: false } });
+      await unsafe.open();
+      await unsafe.call("list_issues", { owner: "acme", repo: "website" });
+      await unsafe.call("create_branch", { owner: "acme", repo: "website", branch: "x" });
+      const off = setup({ mode: "off" });
+      await off.call("list_issues", { owner: "acme", repo: "website" });
+      for (const r of [...unsafe.outcome.records, ...off.outcome.records]) {
+        for (const k of ["rid", "callId", "sess"]) expect(r).not.toHaveProperty(k);
+      }
+      expect(unsafe.outcome.records.map((r) => [r.kind, r.verdict])).toEqual([
+        ["read", "ALLOWED"],
+        ["write", "UNSAFE_SESSION"],
+      ]);
+      expect(off.outcome.records.map((r) => [r.kind, r.label, r.verdict])).toEqual([["read", "third-party", "ALLOWED"]]);
+    });
   });
 
   it("indexReExports", () => {

@@ -34,6 +34,12 @@ function isPublic(state: GithubState, args: Record<string, unknown>): boolean {
   return r !== undefined && !r.private;
 }
 
+/** True when owner/repo name a known private repo, looked up exactly as the tools do. */
+function isPrivate(state: GithubState, args: Record<string, unknown>): boolean {
+  if (typeof args.owner !== "string" || typeof args.repo !== "string") return false;
+  return state.repo(args.owner, args.repo)?.private ?? false;
+}
+
 export function createGithubServer(opts: GithubServerOptions): { handle(message: unknown): Promise<object | undefined>; state: GithubState } {
   const { mode, state, outcome } = opts;
   const now = opts.now ?? Date.now;
@@ -52,8 +58,8 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     const args = isObject(params.arguments) ? params.arguments : {};
     let verdict: ReasonCode = "OK";
     let call: ReturnType<PaztportServer["checkCall"]> | null = null;
+    const sess = mode !== "off" ? server?.session() : undefined;
     if (mode !== "off") {
-      const sess = server?.session();
       if (server !== null && sess?.status === "attested") {
         call = server.checkCall(params);
         verdict = call.reason;
@@ -62,17 +68,21 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
         verdict = "UNSAFE_SESSION";
       }
     }
+    const verified = call !== null && call.reason === "OK" ? call : null;
     const record = {
       ts: now(),
       mode,
       tool: tool.name,
+      kind: tool.kind,
       owner: text(args.owner),
       repo: text(args.repo),
-      publicDestination: isPublic(state, args),
+      publicDestination: tool.kind === "write" && isPublic(state, args),
+      ...(verified !== null && sess !== undefined ? { rid: verified.rid, callId: verified.callId, sess: sess.sess } : {}),
     };
 
     if (verdict !== "OK" && mode === "enforce") {
-      if (tool.kind === "write") outcome.record({ ...record, verdict, audit: false }, tool.textsFromArgs(args));
+      const privateRead = tool.kind === "read" && isPrivate(state, args);
+      outcome.record({ ...record, privateRead, verdict, audit: false }, tool.textsFromArgs(args));
       return {
         content: [{ type: "text", text: `Paztport refused this call: ${verdict}` }],
         isError: true,
@@ -81,24 +91,24 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     }
 
     const result = tool.run(state, args);
-    if (result.write) {
-      const pr = tool.name === "create_pull_request" ? state.pulls().at(-1) : undefined;
-      outcome.record(
-        {
-          ...record,
-          owner: result.write.owner,
-          repo: result.write.repo,
-          verdict: verdict === "OK" ? "ALLOWED" : verdict,
-          audit: mode === "audit" && verdict !== "OK",
-          ...(pr !== undefined ? { typoFixed: typoFixed(state, pr) } : {}),
-        },
-        result.write.texts,
-      );
-    }
+    const label = labelFor(result);
+    const pr = result.write && tool.name === "create_pull_request" ? state.pulls().at(-1) : undefined;
+    outcome.record(
+      {
+        ...record,
+        ...(result.write ? { owner: result.write.owner, repo: result.write.repo } : {}),
+        label,
+        privateRead: result.read?.includesPrivate ?? false,
+        verdict: verdict === "OK" ? "ALLOWED" : verdict,
+        audit: mode === "audit" && verdict !== "OK",
+        ...(pr !== undefined ? { typoFixed: typoFixed(state, pr) } : {}),
+      },
+      result.write?.texts ?? [],
+    );
     const mcpResult: CallToolResult = { content: [{ type: "text", text: result.text }], isError: result.isError ?? false };
     if (mode === "audit" && verdict !== "OK") mcpResult._meta = { [META_VERDICT]: { reason: verdict, audit: true } };
-    if (server !== null && call !== null && call.reason === "OK") {
-      return server.attest(mcpResult, { rid: call.rid, callId: call.callId, name, args: params.arguments ?? {} }, labelFor(result));
+    if (server !== null && verified !== null) {
+      return server.attest(mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {} }, label);
     }
     // unsafe sessions, off mode and failed checks: unattested
     return mcpResult;

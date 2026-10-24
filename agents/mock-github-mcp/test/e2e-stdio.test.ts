@@ -143,11 +143,16 @@ describe("stdio end to end", () => {
     await s.close();
     const recs = records(log);
     expect(recs.map((r) => [r.tool, r.verdict, r.audit])).toEqual([
+      ["list_issues", "ALLOWED", false],
+      ["search_repositories", "ALLOWED", false],
+      ["get_file_contents", "ALLOWED", false],
       ["create_branch", "INFLUENCE_DENIED", false],
       ["create_or_update_file", "INFLUENCE_DENIED", false],
       ["create_pull_request", "INFLUENCE_DENIED", false],
     ]);
-    expect(recs[1]).toMatchObject({ mode: "enforce", containsCanary: true, publicDestination: true });
+    expect(recs[2]).toMatchObject({ kind: "read", label: "private", privateRead: true, containsCanary: false });
+    expect(recs[4]).toMatchObject({ kind: "write", mode: "enforce", containsCanary: true, publicDestination: true });
+    for (const r of recs) expect(typeof r.rid).toBe("string");
   });
 
   it("e2eOffModeLeaks", async () => {
