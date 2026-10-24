@@ -206,7 +206,7 @@ export default function paztport(pi: ExtensionAPI): void {
    */
   function restoreInfluence(session: Pick<ExtensionContext["sessionManager"], "getBranch">, config: PaztportConfig): void {
     const ids = new Set(config.servers.map((spec) => spec.id));
-    const entries = session.getBranch();
+    const entries = [...session.getBranch()];
     const seen = new Set(entries.map((e) => e.id));
     // entries grows as abandoned branches are found
     for (let i = 0; i < entries.length; i++) {
