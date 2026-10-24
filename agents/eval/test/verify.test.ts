@@ -268,6 +268,16 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     ]);
   });
 
+  it("duplicatedSessionLineDoesNotResetReplayProtection", () => {
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const i = rs.indexOf(callOf(rs, "toolu_a"));
+      rs.splice(i + 1, 0, structuredClone(rs.find((x) => x.type === "session")), structuredClone(rs[i]));
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "session")).toEqual(["OK", "OK"]);
+    expect(results(r.items, "call").slice(0, 2)).toEqual(["OK", "REPLAY"]);
+  });
+
   it("swappedClientRootWithForgedProofFails", () => {
     const route = "session/pi/mcp:github.list_issues";
     const tree = buildTree([{ salt: randomBytes(16), path: route }], 1, "forged-root");

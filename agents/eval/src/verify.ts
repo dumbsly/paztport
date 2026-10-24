@@ -28,8 +28,7 @@ import {
  * - NO_SESSION: a call or response whose server has no verified session before it.
  * - PROMPT_MISMATCH: the call chain's first stamp does not bind the run's recorded prompt.
  * - UNREADABLE: a line, record or file that cannot be read.
- * - NO_CALL: a response with no verified call before it (same server, rid and call id), or a second
- *   response for the same call.
+ * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
  * - REFUSED: the server refused a call that itself verified. A refusal carries no signature or
  *   attestation by design, so verify cannot check it: it checks only that the response has the
@@ -44,7 +43,7 @@ import {
  * Replay is checked over the whole file, not over a 15 second window: the library's nonce cache forgets
  * keys older than its TTL relative to the record being checked, which suits a live server but would let
  * a copy of a call pass once any later record is more than 15 seconds on. Offline there is nothing to
- * forget, so each session keeps every key it has seen (a deliberate deviation from the live server).
+ * forget, so the whole file shares one cache, and a call whose (server, rid, call id) was already seen is REPLAY (a deliberate deviation from the live server).
  *
  * Calls are checked with serverId = the record's server id. The mock server checks calls with the
  * serverId "github", which is the record's server id in every shipped configuration. Freshness windows
@@ -77,8 +76,6 @@ type Session = {
   serverRoot: Uint8Array;
   serverRootId: string;
   sess: string;
-  /** Remembers every key for the whole file; see the note on replay above. */
-  nonces: NonceCache;
 };
 
 /** First 16 characters of the base64url SHA-256 of the pin text. */
@@ -112,7 +109,6 @@ function verifySession(r: Rec): Session | undefined {
       serverRoot: decode(reply.serverRoot.root),
       serverRootId: reply.serverRoot.rootId,
       sess: reply.sess,
-      nonces: new NonceCache(Number.POSITIVE_INFINITY),
     };
   } catch {
     return undefined;
@@ -192,6 +188,8 @@ function verifyFile(path: string, label: string): VerifyReport {
   }
 
   type CallEntry = { line: number; callId: string; ok: boolean; session: Session; responded: boolean };
+  // One cache for the whole file: a repeated session record must not reset replay protection.
+  const nonces = new NonceCache(Number.POSITIVE_INFINITY);
   const sessions = new Map<string, Session | undefined>(); // the latest session record per server id
   const pins = new Set<string>();
   const calls = new Map<string, CallEntry>();
@@ -234,6 +232,8 @@ function verifyFile(path: string, label: string): VerifyReport {
         add("UNREADABLE");
       } else if (session === undefined) {
         add("NO_SESSION");
+      } else if (calls.has(key(server, rec.rid, rec.callId))) {
+        add("REPLAY"); // the same call again, whatever session record precedes it
       } else {
         const v = verifyCall(params, { serverId: server }, {
           keyring: session.clientKeyring,
@@ -241,7 +241,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           rootId: session.clientRootId,
           allowedOrigins: ["session"],
           sess: session.sess,
-          nonces: session.nonces,
+          nonces,
           now: rec.now,
         });
         let result: VerifyItem["result"];
@@ -255,9 +255,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         }
         add(result);
         const k = key(server, rec.rid, rec.callId);
-        if (!calls.has(k)) {
-          calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
-        }
+        calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
         if (result === "OK") {
           boundRids.add(rec.rid);
         }
@@ -295,7 +293,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           rootId: call.session.serverRootId,
           allowedOrigins: ["mcp-entry"],
           sess: call.session.sess,
-          nonces: call.session.nonces,
+          nonces,
           now: rec.now,
         });
         add(v.result.reason);
