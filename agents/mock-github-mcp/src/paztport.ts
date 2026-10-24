@@ -7,18 +7,28 @@ import {
   bindMcpCall,
   bindResponse,
   bindResult,
+  decode,
   deriveSessionId,
   META_ATTESTATION,
   newContentId,
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
+  parseProof,
   sessionStatus,
+  sign,
   signSessionReply,
   signStampV2,
+  utf8,
+  verify,
+  verifyCall,
+  verifyProof,
+  verifyRoot,
   type ContentLabel,
   type InfluenceClass,
+  type InfluenceEntry,
   type MerkleProof,
+  type ReasonCode,
   type ResponseAttestation,
   type SessionReply,
   type SessionRequest,
@@ -70,27 +80,73 @@ function str(v: unknown, what: string): string {
   return v;
 }
 
-/** Loads the files the policy-tool keygen and policy CLIs write into one directory. */
+/** Copies a string map into an object whose keys (even "__proto__") are ordinary own properties. */
+function stringMap(v: Record<string, unknown>, what: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
+}
+
+const PROBE = utf8("paztport-mock-github key probe");
+
+/** True when the private key signs a probe that the public key verifies. */
+function keysMatch(privateKey: string, publicKey: string): boolean {
+  try {
+    return verify(publicKey, PROBE, sign(privateKey, PROBE));
+  } catch {
+    return false;
+  }
+}
+
+/** Throws a clear Error unless the loaded files are mutually consistent. */
+function validateServerConfig(cfg: ServerPaztportConfig): void {
+  if (!verifyRoot(cfg.signedRoot, cfg.policyPublicKey)) {
+    throw new Error("root.json is not signed by the keyring.json policy key");
+  }
+  if (!keysMatch(cfg.policyPrivateKey, cfg.policyPublicKey)) {
+    throw new Error("policy.key does not match the keyring.json policy key");
+  }
+  for (const svc of ["mcp-entry", "github-tools"] as const) {
+    if (!Object.hasOwn(cfg.keyring, svc)) {
+      throw new Error(`keyring.json has no entry for ${svc}`);
+    }
+    if (!keysMatch(cfg.signingKeys[svc], cfg.keyring[svc]!)) {
+      throw new Error(`${svc}.key does not match its keyring.json entry`);
+    }
+  }
+  let rootBytes: Uint8Array;
+  try {
+    rootBytes = decode(cfg.signedRoot.root);
+  } catch {
+    throw new Error("root.json root is not valid base64url");
+  }
+  if (cfg.routeProof.rootId !== cfg.signedRoot.rootId || !verifyProof(cfg.routeProof, ROUTE, rootBytes)) {
+    throw new Error(`route proof for ${ROUTE} does not verify against root.json`);
+  }
+}
+
+/** Loads and validates the files the policy-tool keygen and policy CLIs write into one directory. */
 export function loadServerConfig(dir: string): ServerPaztportConfig {
   const ring = readJson(join(dir, "keyring.json"));
   if (!isObject(ring) || !isObject(ring.services)) {
     throw new Error("malformed keyring.json");
   }
-  const keyring: Record<string, string> = {};
-  for (const [svc, key] of Object.entries(ring.services)) {
-    keyring[svc] = str(key, `keyring entry ${svc}`);
-  }
+  const keyring = stringMap(ring.services, "keyring");
   const root = readJson(join(dir, "root.json"));
   if (!isObject(root)) {
     throw new Error("malformed root.json");
   }
   const signedRoot: SignedRoot = { rootId: str(root.rootId, "rootId"), root: str(root.root, "root"), sig: str(root.sig, "sig") };
   const bundle = readJson(join(dir, "proofs-mcp-entry.json"));
-  const routeProof = isObject(bundle) && isObject(bundle.proofs) ? (bundle.proofs[ROUTE] as MerkleProof | undefined) : undefined;
-  if (routeProof === undefined) {
+  const rawProof = isObject(bundle) && isObject(bundle.proofs) && Object.hasOwn(bundle.proofs, ROUTE) ? bundle.proofs[ROUTE] : undefined;
+  if (rawProof === undefined) {
     throw new Error(`proofs-mcp-entry.json has no proof for ${ROUTE}`);
   }
-  return {
+  let routeProof: MerkleProof;
+  try {
+    routeProof = parseProof(rawProof);
+  } catch (e) {
+    throw new Error(`malformed route proof for ${ROUTE} in proofs-mcp-entry.json: ${(e as Error).message}`);
+  }
+  const cfg: ServerPaztportConfig = {
     policyPrivateKey: readText(join(dir, "policy.key")),
     policyPublicKey: str(ring.policy, "keyring policy"),
     signingKeys: { "mcp-entry": readText(join(dir, "mcp-entry.key")), "github-tools": readText(join(dir, "github-tools.key")) },
@@ -99,6 +155,8 @@ export function loadServerConfig(dir: string): ServerPaztportConfig {
     routeProof,
     inst: "mock-github-1",
   };
+  validateServerConfig(cfg);
+  return cfg;
 }
 
 function parseSessionRequest(params: unknown): SessionRequest {
@@ -116,10 +174,7 @@ function parseSessionRequest(params: unknown): SessionRequest {
   if (!isObject(params.clientKeyring)) {
     throw new Error("clientKeyring must be an object");
   }
-  const clientKeyring: Record<string, string> = {};
-  for (const [svc, key] of Object.entries(params.clientKeyring)) {
-    clientKeyring[svc] = str(key, `clientKeyring entry ${svc}`);
-  }
+  const clientKeyring = stringMap(params.clientKeyring, "clientKeyring");
   return {
     clientRoot,
     clientPolicyKey: str(params.clientPolicyKey, "clientPolicyKey"),
@@ -148,7 +203,7 @@ export class PaztportServer {
       clientPolicyKey: request.clientPolicyKey,
       clientKeyring: request.clientKeyring,
     });
-    const disabled = status === "unsafe" ? this.rules.disabledWhenUnsafe : [];
+    const disabled = status === "unsafe" ? [...this.rules.disabledWhenUnsafe] : [];
     const reply = signSessionReply(
       {
         serverRoot: this.cfg.signedRoot,
@@ -167,6 +222,31 @@ export class PaztportServer {
 
   session(): Session | undefined {
     return this.current;
+  }
+
+  /** Verifies a tools/call params object against the current attested session's client policy. */
+  checkCall(params: Record<string, unknown>): { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[] } {
+    const session = this.current;
+    if (session === undefined || session.status !== "attested" || session.request.clientRoot === null) {
+      throw new Error("checkCall needs an attested session");
+    }
+    let root: Uint8Array;
+    try {
+      root = decode(session.request.clientRoot.root);
+    } catch {
+      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [] };
+    }
+    const v = verifyCall(params, { serverId: "github" }, {
+      keyring: session.request.clientKeyring,
+      root,
+      rootId: session.request.clientRoot.rootId,
+      allowedOrigins: ["session"],
+      sess: session.sess,
+      nonces: session.nonces,
+      now: this.now(),
+    });
+    const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
+    return { reason, rid: v.rid, callId: v.callId, influence: reason === "OK" ? v.influence : [] };
   }
 
   attest(

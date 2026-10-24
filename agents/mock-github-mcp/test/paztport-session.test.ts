@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, verifyCall, verifyRoot } from "@paztport/path-attest";
+import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, signRoot, verifyCall, verifyRoot } from "@paztport/path-attest";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig, PaztportServer, type ServerPaztportConfig, type SessionRules } from "../src/paztport.ts";
 import { makeClient } from "./helpers/client.ts";
@@ -61,6 +61,23 @@ describe("session handshake", () => {
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(client.acceptReply(reply, generateKeyPair().publicKey)).toBe(false);
   });
+  it("disabledInReplyIsACopy", () => {
+    const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };
+    const srv = new PaztportServer(serverConfig(), rules, Date.now);
+    const reply = srv.openSession(makeClient({ withRoot: false }).request());
+    reply.disabled.push("list_issues");
+    expect(rules.disabledWhenUnsafe).toEqual(["create_branch"]);
+    expect(srv.openSession(makeClient({ withRoot: false }).request()).disabled).toEqual(["create_branch"]);
+  });
+  it("protoKeyInClientKeyringIsOrdinary", () => {
+    const srv = new PaztportServer(serverConfig(), RULES, Date.now);
+    const req = JSON.parse(JSON.stringify(makeClient().request()).replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",'));
+    srv.openSession(req);
+    const ring = srv.session()!.request.clientKeyring;
+    expect(Object.hasOwn(ring, "__proto__")).toBe(true);
+    expect(ring["__proto__"]).toBe("k");
+    expect(Object.keys(ring)).toContain("session");
+  });
   it("malformedSessionRequestThrows", () => {
     const srv = new PaztportServer(serverConfig(), RULES, Date.now);
     for (const bad of [null, "x", {}, { clientRoot: null, clientPolicyKey: 1, clientKeyring: {}, nonce: "n" }, { clientRoot: null, clientPolicyKey: "k", clientKeyring: [], nonce: "n" }, { clientRoot: { rootId: "v" }, clientPolicyKey: "k", clientKeyring: {}, nonce: "n" }]) {
@@ -75,13 +92,14 @@ describe("response attestation", () => {
     const cfg = serverConfig();
     const srv = new PaztportServer(cfg, RULES, Date.now);
     const client = makeClient();
-    expect(client.acceptReply(srv.openSession(client.request()), cfg.policyPublicKey)).toBe(true);
-    return { cfg, srv, client };
+    const reply = srv.openSession(client.request());
+    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
+    return { cfg, srv, client, reply };
   }
   it("attestedResponseVerifiesForClient", () => {
-    const { cfg, srv, client } = setup();
+    const { srv, client, reply } = setup();
     const out = srv.attest(RESULT, CALL, "third-party");
-    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, cfg.keyring, cfg.signedRoot);
+    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
     expect(v.reason).toBe("OK");
     expect(v.labels).toHaveLength(1);
     expect(v.labels[0]!.cls).toBe("third-party");
@@ -98,11 +116,37 @@ describe("response attestation", () => {
     }
   });
   it("replayedResponseIsRejected", () => {
-    const { cfg, srv, client } = setup();
+    const { srv, client, reply } = setup();
     const out = srv.attest(RESULT, CALL, "public");
-    const args = [{ rid: CALL.rid, toolCallId: CALL.callId }, cfg.keyring, cfg.signedRoot] as const;
+    const args = [{ rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
     expect(client.verify(out, ...args).reason).toBe("OK");
     expect(client.verify(out, ...args).reason).toBe("REPLAY");
+  });
+  it("tamperedContentIsBindingMismatch", () => {
+    const { srv, client, reply } = setup();
+    const out = srv.attest(RESULT, CALL, "private");
+    const tampered: CallToolResult = { ...out, content: [{ type: "text", text: "hello, edited" }] };
+    expect(client.verify(tampered, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
+  });
+  it("responseIntoOtherSessionRejected", () => {
+    const { srv, client: clientA, reply: replyA } = setup();
+    const outA = srv.attest(RESULT, CALL, "public");
+    const clientB = makeClient();
+    const replyB = srv.openSession(clientB.request());
+    expect(clientB.acceptReply(replyB, replyA.serverPolicyKey)).toBe(true);
+    expect(replyB.sess).not.toBe(replyA.sess);
+    const v = clientB.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
+    expect(v.reason).not.toBe("OK");
+    expect(v.reason).toBe("SESSION_UNKNOWN");
+    expect(v.labels).toEqual([]);
+    // the response still verifies in the session it was made for
+    expect(clientA.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyA.serverKeyring, replyA.serverRoot!).reason).toBe("OK");
+  });
+  it("staleResponseIsExpired", () => {
+    const { srv, client, reply } = setup();
+    const out = srv.attest(RESULT, CALL, "public");
+    const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
+    expect(v.reason).toBe("EXPIRED");
   });
   it("clientCallParamsVerifyOnServer", () => {
     const { srv, client } = setup();
@@ -143,8 +187,91 @@ describe("loadServerConfig", () => {
     // the loaded config drives a full handshake and a verifiable response
     const srv = new PaztportServer(cfg, RULES, Date.now);
     const client = makeClient();
-    expect(client.acceptReply(srv.openSession(client.request()), cfg.policyPublicKey)).toBe(true);
+    const reply = srv.openSession(client.request());
+    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     const out = srv.attest(RESULT, CALL, "public");
-    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, cfg.keyring, cfg.signedRoot).reason).toBe("OK");
+    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
+  });
+
+  /** Writes cfg in the policy-tool file layout, after `tweak` edits the file contents. */
+  function writeDir(cfg: ServerPaztportConfig, tweak: (files: Record<string, unknown>) => void = () => {}): string {
+    const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
+    dirs.push(dir);
+    const files: Record<string, unknown> = {
+      "keyring.json": { services: { ...cfg.keyring }, policy: cfg.policyPublicKey },
+      "policy.key": cfg.policyPrivateKey,
+      "mcp-entry.key": cfg.signingKeys["mcp-entry"],
+      "github-tools.key": cfg.signingKeys["github-tools"],
+      "root.json": cfg.signedRoot,
+      "proofs-mcp-entry.json": { proofs: { "mcp-entry/github-tools": cfg.routeProof } },
+    };
+    tweak(files);
+    mkdirSync(dir, { recursive: true });
+    for (const [name, v] of Object.entries(files)) {
+      writeFileSync(join(dir, name), typeof v === "string" ? v + "\n" : JSON.stringify(v));
+    }
+    return dir;
+  }
+
+  it("loadServerConfigAcceptsConsistentFiles", () => {
+    const cfg = serverConfig();
+    expect(loadServerConfig(writeDir(cfg))).toEqual(cfg);
+  });
+  it("loadServerConfigRejectsMalformedProof", () => {
+    const dir = writeDir(serverConfig(), (f) => {
+      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { leafSalt: 1 } } };
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/route proof/);
+  });
+  it("loadServerConfigRejectsProofForOtherRoute", () => {
+    const cfg = serverConfig();
+    const other = buildPolicy([["mcp-entry", "elsewhere"]], 8, cfg.policyPrivateKey);
+    const dir = writeDir(cfg, (f) => {
+      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": other.bundles["mcp-entry"]!.proofs["mcp-entry/elsewhere"] } };
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/route proof/);
+  });
+  it("loadServerConfigRejectsRootNotSignedByPolicyKey", () => {
+    const cfg = serverConfig();
+    const forged = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, generateKeyPair().privateKey);
+    const dir = writeDir(cfg, (f) => {
+      f["root.json"] = forged;
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/root\.json/);
+  });
+  it("loadServerConfigRejectsMismatchedPolicyKey", () => {
+    const dir = writeDir(serverConfig(), (f) => {
+      f["policy.key"] = generateKeyPair().privateKey;
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/policy\.key/);
+  });
+  it("loadServerConfigRejectsMismatchedSigningKeys", () => {
+    for (const svc of ["mcp-entry", "github-tools"]) {
+      const dir = writeDir(serverConfig(), (f) => {
+        f[`${svc}.key`] = generateKeyPair().privateKey;
+      });
+      expect(() => loadServerConfig(dir)).toThrow(new RegExp(`${svc}\\.key`));
+    }
+  });
+  it("loadServerConfigRejectsMissingKeyringEntry", () => {
+    const dir = writeDir(serverConfig(), (f) => {
+      delete (f["keyring.json"] as { services: Record<string, string> }).services["github-tools"];
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/github-tools/);
+  });
+  it("loadServerConfigRejectsUnusableKey", () => {
+    const dir = writeDir(serverConfig(), (f) => {
+      f["mcp-entry.key"] = "not-a-key";
+    });
+    expect(() => loadServerConfig(dir)).toThrow(/mcp-entry\.key/);
+  });
+  it("loadServerConfigKeyringProtoKeyIsOrdinary", () => {
+    const cfg = serverConfig();
+    const dir = writeDir(cfg);
+    const path = join(dir, "keyring.json");
+    writeFileSync(path, JSON.stringify({ services: { ...cfg.keyring }, policy: cfg.policyPublicKey }).replace('"services":{', '"services":{"__proto__":"x",'));
+    const loaded = loadServerConfig(dir);
+    expect(Object.hasOwn(loaded.keyring, "__proto__")).toBe(true);
+    expect(loaded.keyring["__proto__"]).toBe("x");
   });
 });

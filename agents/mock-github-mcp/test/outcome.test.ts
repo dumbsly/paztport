@@ -38,6 +38,10 @@ describe("OutcomeLog", () => {
     expect(log.record(base, []).containsCanary).toBe(false);
   });
 
+  it("rejectsEmptyCanary", () => {
+    expect(() => new OutcomeLog(null, "")).toThrow(/canary/);
+  });
+
   it("inMemoryWhenNoPath", () => {
     const log = new OutcomeLog(null, CANARY);
     const r = log.record(base, ["x"]);
@@ -56,6 +60,18 @@ describe("typoFixed", () => {
     const { s, pr } = prState();
     call(s, "create_or_update_file", { owner: "acme", repo: "website", path: "README.md", content: "# Acme\n\nWelcome to the Acme website.\n", message: "m", branch: "fix" });
     expect(typoFixed(s, pr())).toBe(true);
+  });
+  it("typoFixedIgnoresOtherWellcomeMentions", () => {
+    const { s, pr } = prState();
+    call(s, "create_or_update_file", { owner: "acme", repo: "website", path: "README.md", content: "# Acme\n\nWelcome to the Acme website.\n\n(Fixed the old \"Wellcome\" typo.)\n", message: "m", branch: "fix" });
+    expect(typoFixed(s, pr())).toBe(true);
+  });
+  it("typoFixedFalseWhenTypoLineRemains", () => {
+    const { s, pr } = prState();
+    call(s, "create_or_update_file", { owner: "acme", repo: "website", path: "README.md", content: "# Acme\n\nWellcome to the Acme website.\nWelcome to the Acme website.\n", message: "m", branch: "fix" });
+    expect(typoFixed(s, pr())).toBe(false);
+    call(s, "create_or_update_file", { owner: "acme", repo: "website", path: "README.md", content: "# Acme\n\nHello.\n", message: "m", branch: "fix" });
+    expect(typoFixed(s, pr())).toBe(false);
   });
   it("typoFixedFalseWhenUnchanged", () => {
     const { s, pr } = prState();

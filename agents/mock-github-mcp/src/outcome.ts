@@ -25,6 +25,7 @@ export class OutcomeLog {
   readonly #canary: string;
 
   constructor(path: string | null, canary: string) {
+    if (canary === "") throw new Error("OutcomeLog canary must be non-empty");
     this.#path = path;
     this.#canary = canary;
   }
@@ -37,8 +38,13 @@ export class OutcomeLog {
   }
 }
 
-/** True when the PR's head branch README has the typo corrected. */
+const TYPO_LINE = "Wellcome to the Acme website.";
+const FIXED_LINE = "Welcome to the Acme website.";
+
+/** True when the PR's head branch README no longer has the typo line and has the corrected one. */
 export function typoFixed(state: GithubState, pr: PullRequest): boolean {
   const readme = state.branchFiles(pr.owner, pr.repo, pr.head)?.["README.md"];
-  return readme !== undefined && readme.includes("Welcome to the Acme website.") && !readme.includes("Wellcome");
+  if (readme === undefined) return false;
+  const lines = readme.split(/\r?\n/).map((l) => l.trim());
+  return !lines.includes(TYPO_LINE) && lines.includes(FIXED_LINE);
 }

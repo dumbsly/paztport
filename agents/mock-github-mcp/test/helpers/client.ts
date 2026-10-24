@@ -56,10 +56,12 @@ export type TestClient = {
     call: { rid: string; toolCallId: string },
     serverKeyring: Record<string, string>,
     serverRoot: SignedRoot,
+    now?: number,
   ): { reason: ReasonCode; labels: ContentLabel[] };
 };
 
-export function makeClient(opts: { withRoot?: boolean; tools?: string[] } = {}): TestClient {
+/** `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey. */
+export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tools?: string[] } = {}): TestClient {
   const tools = opts.tools ?? ALL_TOOLS;
   const policy = generateKeyPair();
   const session = generateKeyPair();
@@ -69,12 +71,12 @@ export function makeClient(opts: { withRoot?: boolean; tools?: string[] } = {}):
     8,
     policy.privateKey,
   );
-  const clientRoot: SignedRoot | null = opts.withRoot === false ? null : signedRoot;
+  const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey) : signedRoot;
+  const clientRoot: SignedRoot | null = opts.withRoot === false ? null : forged;
   const nonce = newNonce();
   const responseNonces = new NonceCache(NONCE_TTL_MS);
   let req: SessionRequest | undefined;
   let sess: string | undefined;
-  let lastNow = Date.now();
   let seq = 0;
 
   const request = (): SessionRequest => {
@@ -101,7 +103,6 @@ export function makeClient(opts: { withRoot?: boolean; tools?: string[] } = {}):
         throw new Error("no accepted session");
       }
       const now = o.now ?? Date.now();
-      lastNow = now;
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
       const s0 = signStampV2(
@@ -123,7 +124,7 @@ export function makeClient(opts: { withRoot?: boolean; tools?: string[] } = {}):
         },
       };
     },
-    verify(result, call, serverKeyring, serverRoot) {
+    verify(result, call, serverKeyring, serverRoot, now = Date.now()) {
       if (sess === undefined) {
         throw new Error("no accepted session");
       }
@@ -134,7 +135,7 @@ export function makeClient(opts: { withRoot?: boolean; tools?: string[] } = {}):
         allowedOrigins: ["mcp-entry"],
         sess,
         nonces: responseNonces,
-        now: lastNow,
+        now,
       });
       return { reason: r.result.reason, labels: r.labels };
     },
