@@ -6,6 +6,10 @@ import { concat, randomBytes, sha256, utf8 } from "./crypto.ts";
 
 export type MerkleProof = { leafSalt: string; siblings: string[]; dirs: string; rootId: string };
 
+export const SALT_BYTES = 16;
+const HASH_BYTES = 32;
+const DIRS = /^[LR]*$/;
+
 const LEAF = new Uint8Array([0x00]);
 const NODE = new Uint8Array([0x01]);
 
@@ -72,14 +76,22 @@ export function buildTree(
   };
 }
 
+/** False unless the proof has a 16-byte salt, 32-byte siblings, L/R dirs, and hashes path up to root. */
 export function verifyProof(proof: MerkleProof, path: string, root: Uint8Array): boolean {
-  if (proof.siblings.length !== proof.dirs.length) {
-    return false;
-  }
   try {
-    let working = leafHash(decode(proof.leafSalt), path);
+    if (proof.siblings.length !== proof.dirs.length || !DIRS.test(proof.dirs)) {
+      return false;
+    }
+    const salt = decode(proof.leafSalt);
+    if (salt.length !== SALT_BYTES) {
+      return false;
+    }
+    let working = leafHash(salt, path);
     for (let i = 0; i < proof.siblings.length; i++) {
       const sibling = decode(proof.siblings[i]!);
+      if (sibling.length !== HASH_BYTES) {
+        return false;
+      }
       working = proof.dirs[i] === "L" ? nodeHash(working, sibling) : nodeHash(sibling, working);
     }
     return Buffer.from(working).equals(Buffer.from(root));
@@ -99,7 +111,8 @@ export function parseProof(value: unknown): MerkleProof {
     typeof v.dirs !== "string" ||
     typeof v.rootId !== "string" ||
     !Array.isArray(v.siblings) ||
-    !v.siblings.every((s) => typeof s === "string")
+    !v.siblings.every((s) => typeof s === "string") ||
+    !DIRS.test(v.dirs)
   ) {
     throw new Error("malformed proof");
   }

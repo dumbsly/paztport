@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { concat, randomBytes, utf8 } from "../src/crypto.ts";
 import { decode, encode } from "../src/b64url.ts";
-import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, verifyProof } from "../src/merkle.ts";
+import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, parseProof, verifyProof } from "../src/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
@@ -69,5 +69,37 @@ describe("merkle", () => {
     expect(Buffer.from(l)).not.toEqual(Buffer.from(nodeHash(salt, utf8(p))));
     expect(Buffer.from(leafHash(salt, p))).toEqual(Buffer.from(l));
     expect(concat(salt, utf8(p)).length).toBe(16 + 3);
+  });
+  it("resaltedSuffixRouteRejected", () => {
+    const full = "session/pi/mcp:github.create_pull_request";
+    const salt = randomBytes(16);
+    const t = buildTree([{ salt, path: full }], 8, "v1");
+    const proof = t.proofFor(full);
+    // SHA-256(0x00||salt||"session/"||suffix) == leaf of `full`: a longer salt re-splits the path.
+    const resalted = { ...proof, leafSalt: encode(concat(salt, utf8("session/"))) };
+    expect(verifyProof(resalted, "pi/mcp:github.create_pull_request", t.root)).toBe(false);
+    expect(verifyProof(proof, full, t.root)).toBe(true);
+  });
+  it("shortSaltRejected", () => {
+    const t = buildTree([{ salt: randomBytes(8), path: "a/b" }], 8, "v1");
+    expect(verifyProof(t.proofFor("a/b"), "a/b", t.root)).toBe(false);
+  });
+  it("siblingWrongLengthRejected", () => {
+    const t = buildTree(leaves(), 8, "v1");
+    const proof = t.proofFor("a/b");
+    for (const n of [31, 33, 0]) {
+      const bad = { ...proof, siblings: [encode(randomBytes(n)), ...proof.siblings.slice(1)] };
+      expect(verifyProof(bad, "a/b", t.root)).toBe(false);
+    }
+  });
+  it("dirsWithXRejected", () => {
+    const t = buildTree(leaves(), 8, "v1");
+    const proof = t.proofFor("a/c"); // index 1: first direction is "R"
+    expect(proof.dirs[0]).toBe("R");
+    const bad = { ...proof, dirs: "X" + proof.dirs.slice(1) };
+    expect(verifyProof(bad, "a/c", t.root)).toBe(false);
+    expect(() => parseProof(bad)).toThrow();
+    expect(() => parseProof({ ...proof, dirs: proof.dirs.toLowerCase() })).toThrow();
+    expect(parseProof(proof)).toEqual(proof);
   });
 });

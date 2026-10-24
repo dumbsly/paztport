@@ -1,13 +1,12 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { buildTree } from "./merkle.ts";
+import { buildTree, SALT_BYTES } from "./merkle.ts";
 import type { MerkleProof } from "./merkle.ts";
 import { randomBytes, sha256, utf8 } from "./crypto.ts";
 import { signRoot } from "./root.ts";
 import type { SignedRoot } from "./root.ts";
 
-export const SALT_BYTES = 16;
 export const DEFAULT_DEPTH = 8;
 
 export type ProofBundle = { service: string; rootId: string; proofs: Record<string, MerkleProof> };
