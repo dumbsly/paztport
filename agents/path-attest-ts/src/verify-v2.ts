@@ -3,7 +3,7 @@
 
 import { decode } from "./b64url.ts";
 import { verify } from "./crypto.ts";
-import { commitInfluence, type InfluenceEntry } from "./influence.ts";
+import { commitInfluence, parseInfluence, type InfluenceEntry } from "./influence.ts";
 import { parseProof, verifyProof } from "./merkle.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { ReasonCode, VerifyResult } from "./reason.ts";
@@ -102,6 +102,9 @@ export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
   // 7. Freshness: the call stamp is recent; the run (origin) is not too old nor from the future.
   const callMax = cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS;
   const runMax = cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS;
+  if (![cfg.now, callMax, runMax].every(Number.isFinite)) {
+    return fail("EXPIRED");
+  }
   if (Math.abs(cfg.now - last.ts) > callMax || cfg.now - first.ts > runMax || first.ts - cfg.now > callMax) {
     return fail("EXPIRED");
   }
@@ -112,7 +115,13 @@ export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
   }
 
   // 9. Influence commitment.
-  if (last.infl !== commitInfluence(input.influence)) {
+  let committed: string;
+  try {
+    committed = commitInfluence(parseInfluence(input.influence));
+  } catch {
+    return fail("INFLUENCE_MISMATCH");
+  }
+  if (last.infl !== committed) {
     return fail("INFLUENCE_MISMATCH");
   }
 

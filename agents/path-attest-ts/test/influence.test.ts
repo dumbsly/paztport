@@ -26,4 +26,12 @@ describe("influence", () => {
     expect(influenceClasses([a, b, c])).toEqual(new Set(["third-party", "private"]));
     expect(influenceClasses([])).toEqual(new Set());
   });
+  it("cidAbsentVsEmptyOrderIndependent", () => {
+    const e = { ...a, cid: "" };
+    expect(commitInfluence([a, e])).toBe(commitInfluence([e, a]));
+  });
+  it("nonAdjacentDuplicatesCollapse", () => {
+    expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, a, b]));
+    expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, b]));
+  });
 });

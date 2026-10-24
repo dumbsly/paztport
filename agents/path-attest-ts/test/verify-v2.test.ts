@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindMcpCall } from "../src/binding.ts";
-import { generateKeyPair, randomBytes } from "../src/crypto.ts";
+import { bindMcpCall, bindPrompt, bindResult } from "../src/binding.ts";
+import { encode } from "../src/b64url.ts";
+import { generateKeyPair, randomBytes, sha256, utf8 } from "../src/crypto.ts";
 import { commitInfluence, type InfluenceEntry } from "../src/influence.ts";
 import { buildTree } from "../src/merkle.ts";
 import { NonceCache } from "../src/nonce.ts";
@@ -183,5 +184,46 @@ describe("verifyChainV2", () => {
       cfg,
     );
     expect(r.reason).toBe("OK");
+  });
+  it("loneSurrogateSwapRejected", () => {
+    const w = world();
+    expect(() => w.mk("session", { inst: "i\uD800" })).toThrow();
+    const [s0, s1] = w.chain() as [StampV2, StampV2];
+    expect(verifyChainV2(w.input([{ ...s0, inst: "i\uD800" }, s1]), w.cfg()).reason).toBe("CHAIN_MISSING");
+  });
+  it("nonCanonicalSigRejected", () => {
+    const w = world();
+    const [s0, s1] = w.chain() as [StampV2, StampV2];
+    expect(verifyChainV2(w.input([{ ...s0, sig: s0.sig + "==" }, s1]), w.cfg()).reason).toBe("CHAIN_MISSING");
+    // 64-byte signature: last char carries 2 unused bits; flip them to a non-canonical variant.
+    const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const lastIdx = alpha.indexOf(s0.sig[s0.sig.length - 1]!);
+    const variant = s0.sig.slice(0, -1) + alpha[lastIdx ^ 1];
+    expect(verifyChainV2(w.input([{ ...s0, sig: variant }, s1]), w.cfg()).reason).toBe("CHAIN_MISSING");
+  });
+  it("malformedInfluenceIsInfluenceMismatch", () => {
+    const w = world();
+    const bad = [null, [{ cls: "third-party", src: "\uD800", h: "h" }], [{ cls: "bogus", src: "s", h: "h" }]];
+    for (const influence of bad) {
+      const r = verifyChainV2(w.input(w.chain(), { influence: influence as never }), w.cfg());
+      expect(r.reason).toBe("INFLUENCE_MISMATCH");
+    }
+  });
+  it("bindMcpCallRejectsNewlines", () => {
+    expect(() => bindMcpCall("a\nb", "c", {})).toThrow();
+    expect(() => bindMcpCall("a", "b\nc", {})).toThrow();
+  });
+  it("nonFiniteNowIsExpired", () => {
+    const w = world();
+    for (const bad of [NaN, Infinity]) {
+      expect(verifyChainV2(w.input(w.chain()), w.cfg({ now: bad })).reason).toBe("EXPIRED");
+    }
+    expect(verifyChainV2(w.input(w.chain()), w.cfg({ callMaxAgeMs: NaN })).reason).toBe("EXPIRED");
+    expect(verifyChainV2(w.input(w.chain()), w.cfg({ runMaxAgeMs: Infinity })).reason).toBe("EXPIRED");
+  });
+  it("bindingGoldenValues", () => {
+    expect(bindPrompt("hi")).toBe(encode(sha256(utf8("hi"))));
+    expect(bindResult({ a: 1, _meta: { x: 1 } })).toBe(bindResult({ a: 1 }));
+    expect(bindResult({ a: 1 })).toBe(encode(sha256(utf8('{"a":1}'))));
   });
 });

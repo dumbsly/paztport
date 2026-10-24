@@ -12,12 +12,55 @@ function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Sorts by h, then cls, then src, and removes exact duplicates. */
+/** Sorts by h, cls, src, then cid (absent first), and removes all exact duplicates. */
 export function normalizeInfluence(entries: InfluenceEntry[]): InfluenceEntry[] {
   const sorted = entries
     .map((e): InfluenceEntry => (e.cid === undefined ? { cls: e.cls, src: e.src, h: e.h } : { cls: e.cls, src: e.src, h: e.h, cid: e.cid }))
-    .sort((a, b) => cmp(a.h, b.h) || cmp(a.cls, b.cls) || cmp(a.src, b.src) || cmp(a.cid ?? "", b.cid ?? ""));
-  return sorted.filter((e, i) => i === 0 || canonicalize(e) !== canonicalize(sorted[i - 1]));
+    .sort(
+      (a, b) =>
+        cmp(a.h, b.h) ||
+        cmp(a.cls, b.cls) ||
+        cmp(a.src, b.src) ||
+        (a.cid === undefined ? (b.cid === undefined ? 0 : -1) : b.cid === undefined ? 1 : cmp(a.cid, b.cid)),
+    );
+  const seen = new Set<string>();
+  return sorted.filter((e) => {
+    const k = canonicalize(e);
+    if (seen.has(k)) {
+      return false;
+    }
+    seen.add(k);
+    return true;
+  });
+}
+
+const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
+const LONE_SURROGATE = /\p{Surrogate}/u;
+
+/** Throws unless value is an array of well-formed influence entries. */
+export function parseInfluence(value: unknown): InfluenceEntry[] {
+  if (!Array.isArray(value)) {
+    throw new Error("influence must be an array");
+  }
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new Error("influence entry must be an object");
+    }
+    const o = item as Record<string, unknown>;
+    if (typeof o.cls !== "string" || !CLASSES.includes(o.cls) || typeof o.src !== "string" || typeof o.h !== "string") {
+      throw new Error("malformed influence entry");
+    }
+    if (o.cid !== undefined && typeof o.cid !== "string") {
+      throw new Error("malformed influence cid");
+    }
+    for (const f of [o.src, o.h, o.cid]) {
+      if (typeof f === "string" && LONE_SURROGATE.test(f)) {
+        throw new Error("lone surrogate in influence entry");
+      }
+    }
+    const base = { cls: o.cls as InfluenceClass, src: o.src, h: o.h };
+    return o.cid === undefined ? base : { ...base, cid: o.cid as string };
+  });
 }
 
 /** Empty string for no influence, otherwise b64url(SHA-256(JCS(normalized entries))). */

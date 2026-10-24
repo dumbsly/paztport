@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { encode } from "./b64url.ts";
+import { decode, encode } from "./b64url.ts";
 import { sign, utf8 } from "./crypto.ts";
 
 export type StampV1 = { svc: string; inst: string; rid: string; ts: number; bind: string; prev: string; sig: string };
@@ -29,6 +29,7 @@ export type StampV2 = {
   sig: string;
 };
 
+const LONE_SURROGATE = /\p{Surrogate}/u;
 const V2_STRING_FIELDS = ["svc", "inst", "rid", "sess", "bind", "infl", "prev"] as const;
 
 /** The exact bytes covered by a v2 stamp's signature; throws if any string field contains the delimiter. */
@@ -36,6 +37,9 @@ export function signingBytesV2(s: Omit<StampV2, "sig">): Uint8Array {
   for (const f of V2_STRING_FIELDS) {
     if (s[f].includes("|")) {
       throw new Error(`stamp field ${f} must not contain '|'`);
+    }
+    if (LONE_SURROGATE.test(s[f])) {
+      throw new Error(`stamp field ${f} must not contain a lone surrogate`);
     }
   }
   return utf8(`2|${s.svc}|${s.inst}|${s.rid}|${s.ts}|${s.sess}|${s.bind}|${s.infl}|${s.prev}`);
@@ -73,6 +77,12 @@ export function parseStampsV2(value: unknown): StampV2[] {
       if (typeof o[f] !== "string") {
         throw new Error(`malformed stamp field ${f}`);
       }
+      if (LONE_SURROGATE.test(o[f] as string)) {
+        throw new Error(`lone surrogate in stamp field ${f}`);
+      }
+    }
+    if (encode(decode(o.sig as string)) !== o.sig) {
+      throw new Error("non-canonical signature encoding");
     }
     return {
       v: 2,
