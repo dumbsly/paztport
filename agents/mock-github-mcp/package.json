@@ -1,0 +1,7 @@
+{
+  "name": "@paztport/mock-github-mcp",
+  "version": "0.1.0",
+  "type": "module",
+  "dependencies": {"@paztport/path-attest": "*"},
+  "license": "Apache-2.0"
+}

@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["path-attest-ts/src", "path-attest-ts/test", "policy-tool-ts/src", "policy-tool-ts/test", "vitest.config.ts"]
+  "include": ["path-attest-ts/src", "path-attest-ts/test", "policy-tool-ts/src", "policy-tool-ts/test", "mock-github-mcp/src", "mock-github-mcp/test", "vitest.config.ts"]
 }
