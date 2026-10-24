@@ -12,6 +12,10 @@ import { influenceDecision } from "./rules.ts";
 export type GithubServerOptions = {
   mode: Mode;
   paztport: ServerPaztportConfig | null;
+  /**
+   * Defaults to disabling every write tool in unsafe sessions. Caveat: custom rules that omit a write
+   * tool leave it ungated whenever the session is not attested.
+   */
   rules?: SessionRules;
   state: GithubState;
   outcome: OutcomeLog;

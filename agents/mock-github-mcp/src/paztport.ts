@@ -61,6 +61,10 @@ export type Session = {
   served: Set<InfluenceClass>;
 };
 
+/**
+ * Tools refused in an unsafe session. A tool left out of this list runs ungated in unsafe sessions,
+ * where no influence rule applies; the server's default lists every write tool.
+ */
 export type SessionRules = { disabledWhenUnsafe: string[] };
 
 function readText(path: string): string {
@@ -197,6 +201,11 @@ export class PaztportServer {
     this.now = now;
   }
 
+  /**
+   * Handles a paztport/session handshake. There is one session per connection: a new handshake
+   * replaces the current session (its keyring, nonces and served classes), so calls signed for the
+   * old session are refused afterwards. A malformed request throws InvalidParams.
+   */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
     try {
