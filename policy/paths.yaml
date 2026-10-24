@@ -1,0 +1,4 @@
+paths:
+  - [gateway, orders, payment]
+  - [gateway, orders]
+  - [gateway, search]

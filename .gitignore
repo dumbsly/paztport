@@ -1,0 +1,14 @@
+# Build output
+target/
+dependency-reduced-pom.xml
+
+# Generated keys, signed root, and proof bundles (keygen / policy-tool output).
+# Contains private keys: never commit.
+out/
+*.key
+
+# IDE and OS
+.idea/
+*.iml
+.vscode/
+.DS_Store

@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+quarantine:
+  threshold: ${QUARANTINE_THRESHOLD:3}
+  window-ms: ${QUARANTINE_WINDOW_MS:60000}
+  max-per-svc: ${QUARANTINE_MAX_PER_SVC:2}
+  svc-window-ms: ${QUARANTINE_SVC_WINDOW_MS:600000}
+  mesh-network: ${MESH_NETWORK:paztport-mesh}
+  quarantine-network: ${QUARANTINE_NETWORK:paztport-quarantine}

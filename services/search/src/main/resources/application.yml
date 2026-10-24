@@ -1,0 +1,14 @@
+server:
+  port: 8080
+
+path-attest:
+  service-name: search
+  # key-path and proofs-path are supplied by the environment in docker-compose
+  # (PATH_ATTEST_KEY_PATH / PATH_ATTEST_PROOFS_PATH) so the boot test can run
+  # without mounted files.
+
+downstream:
+  payment-url: ${PAYMENT_URL:http://payment:8080}
+
+attack:
+  enabled: ${ATTACK_MODE:false}

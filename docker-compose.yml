@@ -1,0 +1,119 @@
+# Paztport local POC.
+#
+#   mvn -q package -DskipTests
+#   docker compose run --rm keygen
+#   docker compose run --rm policy-tool
+#   docker compose up -d --build
+#
+# Least knowledge is enforced by the volume mounts: each service bind-mounts
+# only the specific files its role needs. Callers see their own private key and
+# their own proofs; payment sees only the public keyring and the signed root.
+
+services:
+
+  # --- one-shot tools (not started by `up`; run explicitly) ---
+
+  keygen:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: keygen/target/keygen.jar
+    volumes:
+      - ./out/keys:/out/keys
+    command: ["/out/keys"]
+
+  policy-tool:
+    profiles: ["tools"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: policy-tool/target/policy-tool.jar
+    volumes:
+      - ./policy:/policy:ro
+      - ./out/keys:/out/keys:ro
+      - ./out/policy:/out/policy
+    command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
+
+  # --- the mesh ---
+
+  payment:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: services/payment/target/payment.jar
+    networks: [mesh]
+    environment:
+      PATH_ATTEST_MODE: ${PATH_ATTEST_MODE:-enforce}
+      PA_CAPTURE: "true"   # demo harness: lets the attacker replay a real request
+      RESPONDER_URL: ${RESPONDER_URL:-}   # empty = log only; the demo sets it for the quarantine scenarios
+    volumes:
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+
+  orders:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: services/orders/target/orders.jar
+    networks: [mesh]
+    volumes:
+      - ./out/keys/orders.key:/config/keys/orders.key:ro
+      - ./out/policy/proofs-orders.json:/config/policy/proofs-orders.json:ro
+    depends_on: [payment]
+
+  search:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: services/search/target/search.jar
+    networks: [mesh]
+    environment:
+      ATTACK_MODE: "true"
+      PATH_ATTEST_KEY_PATH: /config/keys/search.key
+      PATH_ATTEST_PROOFS_PATH: /config/policy/proofs-search.json
+    volumes:
+      - ./out/keys/search.key:/config/keys/search.key:ro
+      - ./out/policy/proofs-search.json:/config/policy/proofs-search.json:ro
+
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: services/gateway/target/gateway.jar
+    networks: [mesh]
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./out/keys/gateway.key:/config/keys/gateway.key:ro
+      - ./out/policy/proofs-gateway.json:/config/policy/proofs-gateway.json:ro
+    depends_on: [orders, search]
+
+  responder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        JAR: responder/target/responder.jar
+    networks: [mesh]
+    environment:
+      MESH_NETWORK: paztport-mesh
+      QUARANTINE_NETWORK: paztport-quarantine
+      QUARANTINE_THRESHOLD: ${QUARANTINE_THRESHOLD:-3}
+      QUARANTINE_MAX_PER_SVC: ${QUARANTINE_MAX_PER_SVC:-2}
+    volumes:
+      # Host-level control, acceptable for a local demo only (see README).
+      - /var/run/docker.sock:/var/run/docker.sock
+
+networks:
+  mesh:
+    name: paztport-mesh
+  quarantine:
+    name: paztport-quarantine
+    internal: true

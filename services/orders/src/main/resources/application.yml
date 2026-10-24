@@ -1,0 +1,10 @@
+server:
+  port: 8080
+
+path-attest:
+  service-name: orders
+  key-path: ${PA_KEY_PATH:/config/keys/orders.key}
+  proofs-path: ${PA_PROOFS_PATH:/config/policy/proofs-orders.json}
+
+downstream:
+  payment-url: ${PAYMENT_URL:http://payment:8080}
