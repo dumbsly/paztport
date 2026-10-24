@@ -4,11 +4,11 @@
 import { describe, expect, it } from "vitest";
 import { bindMcpCall } from "../src/binding.ts";
 import { generateKeyPair, randomBytes } from "../src/crypto.ts";
-import { commitInfluence, type InfluenceEntry } from "../src/influence.ts";
+import { commitInfluence, parseInfluence, type InfluenceEntry } from "../src/influence.ts";
 import { buildTree } from "../src/merkle.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "../src/meta.ts";
 import { NonceCache } from "../src/nonce.ts";
-import { signStampV2 } from "../src/stamp.ts";
+import { parseStampsV2, signStampV2 } from "../src/stamp.ts";
 import { verifyCall } from "../src/verify-call.ts";
 import { NONCE_TTL_MS, type V2Config } from "../src/verify-v2.ts";
 
@@ -19,10 +19,10 @@ const TOOL = "create_pull_request";
 const ROUTE = `session/pi/mcp:github.${TOOL}`;
 const infl: InfluenceEntry[] = [{ cls: "third-party", src: "web:example.com", h: "h1" }];
 
-function world() {
+function world(extraRoutes: string[] = []) {
   const harness = generateKeyPair();
   const tree = buildTree(
-    [ROUTE, "session/pi/mcp:github.get_issue"].map((path) => ({ salt: randomBytes(16), path })),
+    [ROUTE, "session/pi/mcp:github.get_issue", ...extraRoutes].map((path) => ({ salt: randomBytes(16), path })),
     8,
     "v1",
   );
@@ -38,7 +38,7 @@ function world() {
   });
   /** A tools/call params object whose chain binds (name, callId, args); `send` overrides what is sent. */
   const params = (
-    signed: { name?: string; callId?: string; args?: Record<string, unknown> } = {},
+    signed: { name?: string; callId?: string; args?: Record<string, unknown>; route?: string } = {},
     send: { name?: string; callId?: unknown; args?: Record<string, unknown> } = {},
   ): Record<string, unknown> => {
     const name = signed.name ?? TOOL;
@@ -53,7 +53,7 @@ function world() {
       arguments: send.args ?? args,
       _meta: {
         [META_CHAIN]: [s0, s1],
-        [META_PROOF]: tree.proofFor(ROUTE),
+        [META_PROOF]: tree.proofFor(signed.route ?? ROUTE),
         [META_INFLUENCE]: infl,
         [META_CALL_ID]: "callId" in send ? send.callId : callId,
       },
@@ -139,5 +139,52 @@ describe("verifyCall", () => {
     expect(nonces.size).toBe(0); // checked before the nonce is spent
     expect(verifyCall(w.params(), SERVER, w.cfg({ nonces: new NonceCache(2 * 5000) })).result.ok).toBe(true);
     expect(verifyCall(w.params(), SERVER, w.cfg({ nonces: new NonceCache(NaN) })).result.reason).toBe("REPLAY");
+  });
+  it("slashInToolNameIsChainMissing", () => {
+    // the client root holds a route built from the nodes [session, pi, mcp:github.a, b]; "a/b" must not reach it
+    const route = ["session", "pi", "mcp:github.a", "b"].join("/");
+    expect(route).toBe("session/pi/mcp:github.a/b");
+    const w = world([route]);
+    const r = verifyCall(w.params({ name: "a/b", route }), SERVER, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+    expect(r.result.ok).toBe(false);
+    expect(r.influence).toEqual([]);
+  });
+  it("pipeInToolNameIsChainMissing", () => {
+    const w = world(["session/pi/mcp:github.a|b"]);
+    const r = verifyCall(w.params({ name: "a|b", route: "session/pi/mcp:github.a|b" }), SERVER, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+  });
+  it("slashOrPipeInServerIdIsChainMissing", () => {
+    const w = world();
+    for (const serverId of ["git/hub", "git|hub"]) {
+      const r = verifyCall(w.params(), { serverId }, w.cfg());
+      expect(r.result.reason, serverId).toBe("CHAIN_MISSING");
+    }
+  });
+  it("parsesChainOnce", () => {
+    const w = world();
+    const p = w.params();
+    const meta = p._meta as Record<string, unknown>;
+    const reads: Record<string, number> = {};
+    const counted = new Proxy(meta, {
+      get(t, k, r) {
+        if (typeof k === "string") reads[k] = (reads[k] ?? 0) + 1;
+        return Reflect.get(t, k, r);
+      },
+    });
+    const r = verifyCall({ ...p, _meta: counted }, SERVER, w.cfg());
+    expect(r.result.ok).toBe(true);
+    expect(r.influence).toEqual(infl);
+    expect(reads[META_CHAIN]).toBe(1);
+    expect(reads[META_INFLUENCE]).toBe(1);
+  });
+  it("parsingParsedInputIsIdempotent", () => {
+    const w = world();
+    const meta = w.params()._meta as Record<string, unknown>;
+    const stamps = parseStampsV2(meta[META_CHAIN]);
+    expect(parseStampsV2(stamps)).toEqual(stamps);
+    const parsed = parseInfluence(meta[META_INFLUENCE]);
+    expect(parseInfluence(parsed)).toEqual(parsed);
   });
 });

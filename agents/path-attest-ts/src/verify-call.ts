@@ -36,14 +36,26 @@ export function verifyCall(
     if (!isObject(params) || typeof params.name !== "string" || !isObject(params._meta)) {
       return fail("CHAIN_MISSING");
     }
+    if (/[/|]/.test(params.name) || /[/|]/.test(ctx.serverId)) {
+      return fail("CHAIN_MISSING");
+    }
     const meta = params._meta;
     const id = meta[META_CALL_ID];
     if (typeof id !== "string") {
       return fail("CHAIN_MISSING");
     }
     callId = id;
-    const chain = meta[META_CHAIN];
-    rid = parseStampsV2(chain)[0]!.rid;
+    // Read each _meta field once and parse once; verifyChainV2 re-parsing parsed values is idempotent.
+    const stamps = parseStampsV2(meta[META_CHAIN]);
+    rid = stamps[0]!.rid;
+    const rawInfluence = meta[META_INFLUENCE];
+    const proof = meta[META_PROOF];
+    let influence: InfluenceEntry[] | undefined;
+    try {
+      influence = parseInfluence(rawInfluence);
+    } catch {
+      // unparsable influence is rejected by verifyChainV2 in its own check order
+    }
     let expectedBind: string;
     try {
       expectedBind = bindMcpCall(params.name, callId, params.arguments ?? {});
@@ -52,16 +64,16 @@ export function verifyCall(
     }
     const result = verifyChainV2(
       {
-        stamps: chain,
+        stamps,
         expectedBind,
-        influence: meta[META_INFLUENCE] as InfluenceEntry[],
-        proof: meta[META_PROOF],
+        influence: influence ?? (rawInfluence as InfluenceEntry[]),
+        proof,
         receiver: `mcp:${ctx.serverId}.${params.name}`,
       },
       { ...cfg, nonceKey: `${rid}|${callId}|req` },
     );
     return result.ok
-      ? { result, rid, callId, influence: parseInfluence(meta[META_INFLUENCE]) }
+      ? { result, rid, callId, influence: influence! }
       : { result, rid, callId, influence: [] };
   } catch {
     return fail("CHAIN_MISSING");
