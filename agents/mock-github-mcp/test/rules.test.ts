@@ -2,12 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { InfluenceClass, InfluenceEntry } from "@paztport/path-attest";
+import type { InfluenceClass } from "@paztport/path-attest";
 import { GITHUB_TOOLS, type GithubTool } from "../src/github.ts";
 import { influenceDecision } from "../src/rules.ts";
 
 const tool = (name: string): GithubTool => GITHUB_TOOLS.find((t) => t.name === name)!;
-const infl = (...classes: InfluenceClass[]): InfluenceEntry[] => classes.map((cls, i) => ({ cls, src: `src-${i}`, h: `h-${i}` }));
+const infl = (...classes: InfluenceClass[]): Set<InfluenceClass> => new Set(classes);
 const WRITES = GITHUB_TOOLS.filter((t) => t.kind === "write");
 const READS = GITHUB_TOOLS.filter((t) => t.kind === "read");
 
@@ -30,7 +30,7 @@ describe("influenceDecision", () => {
       expect(influenceDecision(t, true, infl("third-party"))).toBe("OK");
       expect(influenceDecision(t, true, infl("third-party", "public", "local-untrusted"))).toBe("OK");
       expect(influenceDecision(t, true, infl("private", "public"))).toBe("OK");
-      expect(influenceDecision(t, true, [])).toBe("OK");
+      expect(influenceDecision(t, true, new Set())).toBe("OK");
     }
   });
   it("privateDestinationAllowed", () => {

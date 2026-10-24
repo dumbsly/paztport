@@ -498,6 +498,83 @@ describe("composed github server", () => {
     expect(allowed.outcome.records.map((r) => [r.tool, r.containsCanary, r.verdict])).toEqual(cases.map(([n]) => [n, true, "ALLOWED"]));
   });
 
+  describe("served-class union", () => {
+    const PUBLIC_WRITE = { owner: "acme", repo: "website", branch: "leak" };
+    const third = (h: Harness) => h.influence.filter((e) => e.cls === "third-party");
+
+    it("servedPrivateDeniesEvenIfClientOmitsIt", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      for (const influence of [[], third(h)]) {
+        const before = h.snapshot();
+        const r = await h.send(h.client.callParams("create_branch", PUBLIC_WRITE, influence));
+        expect(r.isError).toBe(true);
+        expect(verdictOf(r)).toEqual({ reason: "INFLUENCE_DENIED" });
+        expect(r._meta?.[META_ATTESTATION]).toBeUndefined();
+        expect(h.snapshot()).toEqual(before);
+      }
+      // a write to the private repo is still fine
+      const priv = await h.call("create_branch", { owner: "acme", repo: "payroll-notes", branch: "x" });
+      expect(priv.result.isError).toBeFalsy();
+    });
+
+    it("servedThirdPartyPlusClientPrivateDenied", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      const privateOnly = h.influence.filter((e) => e.cls === "private");
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      const r = await h.send(h.client.callParams("create_branch", PUBLIC_WRITE, privateOnly));
+      expect(verdictOf(r)).toEqual({ reason: "INFLUENCE_DENIED" });
+    });
+
+    it("cleanSessionUnaffected", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      await h.call("search_repositories", { query: "website" });
+      await h.call("get_file_contents", { owner: "acme", repo: "website", path: "README.md" });
+      // the client under-reports too: no influence at all
+      const r = await h.send(h.client.callParams("create_branch", { owner: "acme", repo: "website", branch: "fix" }, []));
+      expect(r.isError).toBeFalsy();
+      const pr = await h.call("create_or_update_file", { owner: "acme", repo: "website", path: "README.md", content: FIXED_README, message: "Fix typo", branch: "fix" });
+      expect(pr.result.isError).toBeFalsy();
+      expect(writes(h).map((x) => x.verdict)).toEqual(["ALLOWED", "ALLOWED"]);
+    });
+
+    it("auditModeUsesUnion", async () => {
+      const h = setup({ mode: "audit" });
+      await h.open();
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      const r = await h.send(h.client.callParams("create_branch", PUBLIC_WRITE, []));
+      expect(r.isError).toBeFalsy();
+      expect(verdictOf(r)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
+    });
+
+    it("offModeTracksNothing", async () => {
+      const h = setup({ mode: "off" });
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      const w = await h.call("create_branch", PUBLIC_WRITE);
+      expect(w.result.isError).toBeFalsy();
+      expect(w.result._meta).toBeUndefined();
+      expect(h.outcome.records.map((r) => r.verdict)).toEqual(["ALLOWED", "ALLOWED", "ALLOWED"]);
+    });
+
+    it("unsafeSessionServesNothing", async () => {
+      // unattested responses are never recorded as served; reads stay open, writes stay disabled
+      const h = setup({ client: { withRoot: false } });
+      await h.open();
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("list_issues", { owner: "acme", repo: "website" });
+      const w = await h.call("create_branch", { owner: "acme", repo: "payroll-notes", branch: "x" });
+      expect(verdictOf(w.result)).toEqual({ reason: "UNSAFE_SESSION" });
+    });
+  });
+
   describe("outcome log covers every call", () => {
     it("readsAreRecorded", async () => {
       const h = setup();

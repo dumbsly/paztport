@@ -115,6 +115,17 @@ describe("response attestation", () => {
       expect(att.chain.map((s: any) => s.svc)).toEqual(["mcp-entry", "github-tools"]);
     }
   });
+  it("attestRecordsServedClass", () => {
+    const { srv, client } = setup();
+    expect([...srv.session()!.served]).toEqual([]);
+    srv.attest(RESULT, CALL, "third-party");
+    srv.attest(RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "private");
+    srv.attest(RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
+    expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
+    // a new handshake starts a new session with nothing served
+    srv.openSession(client.request());
+    expect(srv.session()!.served.size).toBe(0);
+  });
   it("replayedResponseIsRejected", () => {
     const { srv, client, reply } = setup();
     const out = srv.attest(RESULT, CALL, "public");

@@ -57,6 +57,8 @@ export type Session = {
   status: "attested" | "unsafe";
   request: SessionRequest;
   nonces: NonceCache;
+  /** Every class this server has attested in a response in this session (sticky). */
+  served: Set<InfluenceClass>;
 };
 
 export type SessionRules = { disabledWhenUnsafe: string[] };
@@ -216,7 +218,7 @@ export class PaztportServer {
       },
       this.cfg.policyPrivateKey,
     );
-    this.current = { sess, status, request, nonces: new NonceCache(NONCE_TTL_MS) };
+    this.current = { sess, status, request, nonces: new NonceCache(NONCE_TTL_MS), served: new Set() };
     return reply;
   }
 
@@ -270,6 +272,7 @@ export class PaztportServer {
       this.cfg.signingKeys["github-tools"],
     );
     const attestation: ResponseAttestation = { chain: [s0, s1], proof: this.cfg.routeProof, labels, resultHash };
+    session.served.add(cls);
     return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: attestation } };
   }
 }
