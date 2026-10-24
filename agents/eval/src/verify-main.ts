@@ -5,18 +5,20 @@
 // Exit code: 0 if every file verifies, 1 if any does not, 2 on a usage error.
 
 import { statSync } from "node:fs";
-import { verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
-
-const NOT_FAILURES: readonly string[] = ["OK", "REFUSED", "NO_RESPONSE"];
+import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
 function line(r: VerifyReport): string {
+  const pin = r.pins.length > 0 ? ` pin ${r.pins.join(",")}` : "";
   if (r.ok) {
-    return `OK  ${r.file} (${r.items.length} items)`;
+    const refused = r.items.filter((i) => i.result === "REFUSED").length;
+    // A server refusal carries no signature, so verify reports it as it is found and says so.
+    const note = refused > 0 ? `, ${refused} REFUSED (server refusal; refusals are not signed)` : "";
+    return `OK  ${r.file} (${r.items.length} items${note})${pin}`;
   }
   const first = r.items.find((i) => !NOT_FAILURES.includes(i.result))!;
   const where = first.line > 0 ? `line ${first.line} ` : "";
   const id = first.callId !== undefined ? ` ${first.callId}` : "";
-  return `FAIL ${r.file} ${where}${first.type}${id}: ${first.result}`;
+  return `FAIL ${r.file} ${where}${first.type}${id}: ${first.result}${pin}`;
 }
 
 const args = process.argv.slice(2);

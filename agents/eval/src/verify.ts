@@ -6,10 +6,13 @@ import { join } from "node:path";
 import {
   bindPrompt,
   decode,
-  NONCE_TTL_MS,
+  encode,
   NonceCache,
+  sha256,
+  utf8,
   verifyCall,
   verifyResponse,
+  verifyRoot,
   verifySessionReply,
   type ReasonCode,
   type SessionReply,
@@ -25,10 +28,23 @@ import {
  * - NO_SESSION: a call or response whose server has no verified session before it.
  * - PROMPT_MISMATCH: the call chain's first stamp does not bind the run's recorded prompt.
  * - UNREADABLE: a line, record or file that cannot be read.
- * - REFUSED: the server refused the call. A refusal carries no attestation by design, so it is
- *   reported, not counted as a failure.
+ * - NO_CALL: a response with no verified call before it (same server, rid and call id), or a second
+ *   response for the same call.
+ * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
+ * - REFUSED: the server refused a call that itself verified. A refusal carries no signature or
+ *   attestation by design, so verify cannot check it: it checks only that the response has the
+ *   server's refusal shape (isError, and a `_meta` holding only the verdict) and answers a verified
+ *   call. It is reported, not counted as a failure. A refusal-looking response that carries an
+ *   attestation, or any other `_meta`, is verified as an ordinary response.
  * - NO_RESPONSE: a call with no response record (for example a run that was stopped). Reported, not
  *   counted as a failure.
+ * - UNBOUND: a run record that no verified call refers to, so its prompt is not tied to anything in
+ *   this file. Reported, not counted as a failure.
+ *
+ * Replay is checked over the whole file, not over a 15 second window: the library's nonce cache forgets
+ * keys older than its TTL relative to the record being checked, which suits a live server but would let
+ * a copy of a call pass once any later record is more than 15 seconds on. Offline there is nothing to
+ * forget, so each session keeps every key it has seen (a deliberate deviation from the live server).
  *
  * Calls are checked with serverId = the record's server id. The mock server checks calls with the
  * serverId "github", which is the record's server id in every shipped configuration. Freshness windows
@@ -38,13 +54,14 @@ export type VerifyItem = {
   line: number;
   type: string;
   callId?: string;
-  result: "OK" | ReasonCode | "BAD_SESSION" | "NO_SESSION" | "PROMPT_MISMATCH" | "UNREADABLE" | "REFUSED" | "NO_RESPONSE";
+  result: "OK" | ReasonCode | "BAD_SESSION" | "NO_SESSION" | "PROMPT_MISMATCH" | "UNREADABLE" | "REFUSED" | "NO_RESPONSE" | "NO_CALL" | "DUPLICATE_RESPONSE" | "UNBOUND";
 };
-export type VerifyReport = { file: string; ok: boolean; items: VerifyItem[] };
+/** `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to. */
+export type VerifyReport = { file: string; ok: boolean; items: VerifyItem[]; pins: string[] };
 
 const META_VERDICT = "paztport/verdict";
 /** Results that are reported but do not make a file fail. */
-const NOT_FAILURES: readonly string[] = ["OK", "REFUSED", "NO_RESPONSE"];
+export const NOT_FAILURES: readonly string[] = ["OK", "REFUSED", "NO_RESPONSE", "UNBOUND"];
 
 type Rec = Record<string, unknown>;
 
@@ -60,7 +77,14 @@ type Session = {
   serverRoot: Uint8Array;
   serverRootId: string;
   sess: string;
+  /** Remembers every key for the whole file; see the note on replay above. */
+  nonces: NonceCache;
 };
+
+/** First 16 characters of the base64url SHA-256 of the pin text. */
+export function pinFingerprint(pin: string): string {
+  return encode(sha256(utf8(pin))).slice(0, 16);
+}
 
 function verifySession(r: Rec): Session | undefined {
   try {
@@ -75,6 +99,11 @@ function verifySession(r: Rec): Session | undefined {
     if (!verifySessionReply(reply, request, r.pin)) {
       return undefined;
     }
+    // The reply binds the client root's signature but not its contents; the root itself must verify
+    // against the client policy key, which the session id does bind.
+    if (!verifyRoot(request.clientRoot, request.clientPolicyKey)) {
+      return undefined;
+    }
     return {
       clientKeyring: request.clientKeyring,
       clientRoot: decode(request.clientRoot.root),
@@ -83,6 +112,7 @@ function verifySession(r: Rec): Session | undefined {
       serverRoot: decode(reply.serverRoot.root),
       serverRootId: reply.serverRoot.rootId,
       sess: reply.sess,
+      nonces: new NonceCache(Number.POSITIVE_INFINITY),
     };
   } catch {
     return undefined;
@@ -97,18 +127,25 @@ function firstBind(params: Rec): string | undefined {
   return isObject(first) && isString(first.bind) ? first.bind : undefined;
 }
 
-/** A response result with a paztport/verdict that is not an audit-mode note: a refusal. */
-function isRefusal(result: unknown): boolean {
-  const meta = isObject(result) ? result._meta : undefined;
-  if (!isObject(meta) || !Object.hasOwn(meta, META_VERDICT)) {
+/**
+ * The mock server's refusal: isError true and a `_meta` that holds only a non-audit paztport/verdict.
+ * Such a response is unsigned by design; it counts as a refusal only when it answers a verified call.
+ */
+function hasRefusalShape(result: Rec): boolean {
+  const meta = result._meta;
+  if (result.isError !== true || !isObject(meta)) {
+    return false;
+  }
+  const keys = Object.keys(meta);
+  if (keys.length !== 1 || keys[0] !== META_VERDICT) {
     return false;
   }
   const verdict = meta[META_VERDICT];
-  return !(isObject(verdict) && verdict.audit === true);
+  return isObject(verdict) && verdict.audit !== true;
 }
 
 function unreadable(file: string, line: number, type: string): VerifyReport {
-  return { file, ok: false, items: [{ line, type, result: "UNREADABLE" }] };
+  return { file, ok: false, items: [{ line, type, result: "UNREADABLE" }], pins: [] };
 }
 
 function verifyFile(path: string, label: string): VerifyReport {
@@ -139,30 +176,56 @@ function verifyFile(path: string, label: string): VerifyReport {
     return unreadable(label, 0, "file"); // an empty file verifies nothing
   }
 
-  // Runs may be written after the session and before or between calls; collect them first.
+  // Runs may be written after the session and before or between calls; collect them first. A second
+  // run record for a rid must repeat the first prompt, otherwise the rid's prompt is in dispute.
   const prompts = new Map<string, string>();
+  const disputed = new Set<string>();
   for (const { rec } of lines) {
-    if (rec.type === "run" && isString(rec.rid) && isString(rec.prompt) && !prompts.has(rec.rid)) {
-      prompts.set(rec.rid, rec.prompt);
+    if (rec.type === "run" && isString(rec.rid) && isString(rec.prompt)) {
+      const seen = prompts.get(rec.rid);
+      if (seen === undefined) {
+        prompts.set(rec.rid, rec.prompt);
+      } else if (seen !== rec.prompt) {
+        disputed.add(rec.rid);
+      }
     }
   }
 
-  const nonces = new NonceCache(NONCE_TTL_MS);
+  type CallEntry = { line: number; callId: string; ok: boolean; session: Session; responded: boolean };
   const sessions = new Map<string, Session | undefined>(); // the latest session record per server id
-  const calls = new Map<string, { line: number; rid: string }>();
-  const responded = new Set<string>();
+  const pins = new Set<string>();
+  const calls = new Map<string, CallEntry>();
+  const key = (server: string, rid: string, callId: string) => JSON.stringify([server, rid, callId]);
+  const responses: { line: number; rec: Rec }[] = [];
+  const runItems: { item: VerifyItem; rid: string }[] = [];
+  const boundRids = new Set<string>();
+  const firstRun = new Set<string>();
 
   for (const { line, rec } of lines) {
     const type = rec.type as string;
     const callId = isString(rec.callId) ? rec.callId : undefined;
-    const add = (result: VerifyItem["result"]) => items.push({ line, type, ...(callId !== undefined ? { callId } : {}), result });
+    const add = (result: VerifyItem["result"]): VerifyItem => {
+      const item: VerifyItem = { line, type, ...(callId !== undefined ? { callId } : {}), result };
+      items.push(item);
+      return item;
+    };
     const server = isString(rec.server) ? rec.server : "";
 
     if (type === "run") {
-      add(isString(rec.rid) && isString(rec.prompt) ? "OK" : "UNREADABLE");
+      if (!isString(rec.rid) || !isString(rec.prompt)) {
+        add("UNREADABLE");
+      } else if (disputed.has(rec.rid) && (firstRun.has(rec.rid) || prompts.get(rec.rid) !== rec.prompt)) {
+        add("PROMPT_MISMATCH");
+      } else {
+        firstRun.add(rec.rid);
+        runItems.push({ item: add("OK"), rid: rec.rid });
+      }
     } else if (type === "session") {
       const s = verifySession(rec);
       sessions.set(server, s);
+      if (s !== undefined) {
+        pins.add(pinFingerprint(rec.pin as string));
+      }
       add(s !== undefined ? "OK" : "BAD_SESSION");
     } else if (type === "call") {
       const params = rec.params;
@@ -178,53 +241,80 @@ function verifyFile(path: string, label: string): VerifyReport {
           rootId: session.clientRootId,
           allowedOrigins: ["session"],
           sess: session.sess,
-          nonces,
+          nonces: session.nonces,
           now: rec.now,
         });
+        let result: VerifyItem["result"];
         if (v.result.reason !== "OK") {
-          add(v.result.reason);
+          result = v.result.reason;
         } else if (v.rid !== rec.rid || v.callId !== rec.callId) {
-          add("RID_MISMATCH");
+          result = "RID_MISMATCH";
         } else {
-          const prompt = prompts.get(v.rid);
-          add(prompt !== undefined && firstBind(params) === bindPrompt(prompt) ? "OK" : "PROMPT_MISMATCH");
+          const prompt = disputed.has(v.rid) ? undefined : prompts.get(v.rid);
+          result = prompt !== undefined && firstBind(params) === bindPrompt(prompt) ? "OK" : "PROMPT_MISMATCH";
         }
-        calls.set(`${server}|${rec.callId}`, { line, rid: rec.rid });
+        add(result);
+        const k = key(server, rec.rid, rec.callId);
+        if (!calls.has(k)) {
+          calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
+        }
+        if (result === "OK") {
+          boundRids.add(rec.rid);
+        }
       }
     } else {
-      const session = sessions.get(server);
-      if (!isString(rec.callId) || !isString(rec.rid) || !isObject(rec.result) || typeof rec.now !== "number") {
-        add("UNREADABLE");
-        continue;
-      }
-      responded.add(`${server}|${rec.callId}`);
-      if (isRefusal(rec.result)) {
+      responses.push({ line, rec });
+    }
+  }
+
+  // Responses are matched to calls only once every call has been checked: a response counts only
+  // when it answers a verified call that comes before it in the file.
+  for (const { line, rec } of responses) {
+    const callId = isString(rec.callId) ? rec.callId : undefined;
+    const add = (result: VerifyItem["result"]) => items.push({ line, type: "response", ...(callId !== undefined ? { callId } : {}), result });
+    if (!isString(rec.server) || !isString(rec.callId) || !isString(rec.rid) || !isObject(rec.result) || typeof rec.now !== "number") {
+      add("UNREADABLE");
+      continue;
+    }
+    const call = calls.get(key(rec.server, rec.rid, rec.callId));
+    const answered = call?.responded === true;
+    if (call !== undefined) {
+      call.responded = true; // a response was seen for it, so it is not also reported as unanswered
+    }
+    if (call === undefined || !call.ok || call.line > line) {
+      add("NO_CALL");
+    } else if (answered) {
+      add("DUPLICATE_RESPONSE");
+    } else {
+      if (hasRefusalShape(rec.result)) {
         add("REFUSED");
-      } else if (session === undefined) {
-        add("NO_SESSION");
       } else {
         const v = verifyResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId }, {
-          keyring: session.serverKeyring,
-          root: session.serverRoot,
-          rootId: session.serverRootId,
+          keyring: call.session.serverKeyring,
+          root: call.session.serverRoot,
+          rootId: call.session.serverRootId,
           allowedOrigins: ["mcp-entry"],
-          sess: session.sess,
-          nonces,
+          sess: call.session.sess,
+          nonces: call.session.nonces,
           now: rec.now,
         });
-        const call = calls.get(`${server}|${rec.callId}`);
-        add(v.result.reason === "OK" && call !== undefined && call.rid !== rec.rid ? "RID_MISMATCH" : v.result.reason);
+        add(v.result.reason);
       }
     }
   }
 
-  for (const [key, call] of calls) {
-    if (!responded.has(key)) {
-      items.push({ line: call.line, type: "response", callId: key.slice(key.indexOf("|") + 1), result: "NO_RESPONSE" });
+  for (const call of calls.values()) {
+    if (!call.responded) {
+      items.push({ line: call.line, type: "response", callId: call.callId, result: "NO_RESPONSE" });
+    }
+  }
+  for (const { item, rid } of runItems) {
+    if (!boundRids.has(rid)) {
+      item.result = "UNBOUND";
     }
   }
   items.sort((a, b) => a.line - b.line); // stable: a call's NO_RESPONSE follows its own item
-  return { file: label, ok: items.every((i) => NOT_FAILURES.includes(i.result)), items };
+  return { file: label, ok: items.every((i) => NOT_FAILURES.includes(i.result)), items, pins: [...pins] };
 }
 
 /** Never throws. A missing file, a malformed line or an unknown record gives an UNREADABLE item. */

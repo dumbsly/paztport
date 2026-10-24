@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { bindMcpCall, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/path-attest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
@@ -13,7 +14,7 @@ import { InfluenceStore } from "../../pi-extension/src/influence.ts";
 import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
 import { RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
-import { verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
+import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
 
 const MAIN = join(import.meta.dirname, "../src/verify-main.ts");
 const PROMPT = "fix the typo";
@@ -228,6 +229,148 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   });
 });
 
+describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
+  const material = () => loadClientMaterial(join(demo, "client"));
+  const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
+  const responseOf = (rs: any[], id: string) => rs.find((x) => x.type === "response" && x.callId === id);
+
+  /** A genuinely signed later call (new call id, stamped `gapMs` after toolu_a), as a live clock would give. */
+  function lateCall(rs: any[], gapMs: number): any {
+    const a = callOf(rs, "toolu_a");
+    const late = structuredClone(a);
+    late.callId = "toolu_late";
+    late.now = a.now + gapMs;
+    const meta = late.params._meta;
+    meta["paztport/callId"] = "toolu_late";
+    const { sig: _sig, v: _v, ...fields } = meta["paztport/chain"][1];
+    meta["paztport/chain"][1] = signStampV2(
+      { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, "toolu_late", late.params.arguments), prev: meta["paztport/chain"][0].sig },
+      material().piKey,
+    );
+    return late;
+  }
+
+  it("replayAfterLongGapIsRejected", () => {
+    // the copy of toolu_a follows a genuine call stamped 20s later; a 15s nonce window would have forgotten toolu_a
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const i = rs.indexOf(callOf(rs, "toolu_a"));
+      rs.splice(i + 1, 0, lateCall(rs, 20_000), structuredClone(rs[i]));
+    }));
+    expect(r.ok).toBe(false);
+    const calls = r.items.filter((x) => x.type === "call");
+    expect(calls.map((x) => [x.callId, x.result])).toEqual([
+      ["toolu_a", "OK"],
+      ["toolu_late", "OK"],
+      ["toolu_a", "REPLAY"],
+      ["toolu_b", "OK"],
+      ["toolu_c", "OK"],
+      ["toolu_d", "OK"],
+    ]);
+  });
+
+  it("swappedClientRootWithForgedProofFails", () => {
+    const route = "session/pi/mcp:github.list_issues";
+    const tree = buildTree([{ salt: randomBytes(16), path: route }], 1, "forged-root");
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.request.clientRoot = { ...s.request.clientRoot, rootId: tree.rootId, root: encode(tree.root) };
+      callOf(rs, "toolu_a").params._meta["paztport/proof"] = tree.proofFor(route);
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(r.items, "call").every((x) => x === "NO_SESSION")).toBe(true);
+  });
+
+  it("responseWithoutCallFails", () => {
+    const r = verifyEvidence(write(genuine, (rs) => rs.splice(rs.indexOf(callOf(rs, "toolu_a")), 1)));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((x) => x.type === "response" && x.callId === "toolu_a")!.result).toBe("NO_CALL");
+  });
+
+  it("responseBeforeItsCallFails", () => {
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const resp = rs.splice(rs.indexOf(responseOf(rs, "toolu_a")), 1)[0];
+      rs.splice(rs.indexOf(callOf(rs, "toolu_a")), 0, resp);
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((x) => x.type === "response" && x.callId === "toolu_a" && x.result === "NO_CALL")).toBeDefined();
+  });
+
+  it("responseToAFailedCallFails", () => {
+    const r = verifyEvidence(write(genuine, (rs) => { callOf(rs, "toolu_a").params.arguments.repo = "other"; }));
+    expect(results(r.items, "call")[0]).toBe("BINDING_MISMATCH");
+    expect(r.items.find((x) => x.type === "response" && x.callId === "toolu_a")!.result).toBe("NO_CALL");
+  });
+
+  it("secondResponseForACallFails", () => {
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const i = rs.indexOf(responseOf(rs, "toolu_a"));
+      rs.splice(i + 1, 0, structuredClone(rs[i]));
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "response").slice(0, 2)).toEqual(["OK", "DUPLICATE_RESPONSE"]);
+  });
+
+  it("onlyForgedRefusalsIsNotOk", () => {
+    const refusal = (callId: string) => ({ v: 1, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": { reason: "INFLUENCE_DENIED" } } } });
+    const lines = [genuine.find((l) => JSON.parse(l).type === "session")!, JSON.stringify(refusal("x")), JSON.stringify(refusal("y"))];
+    const r = verifyEvidence(write(lines));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "response")).toEqual(["NO_CALL", "NO_CALL"]);
+  });
+
+  it("refusalNeedsServerRefusalShape", () => {
+    // a response to a verified call that claims a verdict but is not shaped like the server's refusal
+    const notError = verifyEvidence(write(genuine, (rs) => {
+      const x = responseOf(rs, "toolu_d");
+      x.result.isError = false;
+    }));
+    expect(notError.items.find((x) => x.type === "response" && x.callId === "toolu_d")!.result).toBe("CHAIN_MISSING");
+    const extraMeta = verifyEvidence(write(genuine, (rs) => {
+      responseOf(rs, "toolu_d").result._meta.extra = 1;
+    }));
+    expect(extraMeta.ok).toBe(false);
+    // a genuine attested response given a refusal verdict is verified as a response, not accepted as a refusal
+    const verdictOnAttested = verifyEvidence(write(genuine, (rs) => {
+      responseOf(rs, "toolu_a").result._meta["paztport/verdict"] = { reason: "INFLUENCE_DENIED" };
+    }));
+    // the verdict is outside what the attestation signs, so it changes nothing: still an ordinary verified response
+    expect(verdictOnAttested.items.find((x) => x.type === "response" && x.callId === "toolu_a")!.result).toBe("OK");
+  });
+
+  it("duplicateRunRecordWithOtherPromptFails", () => {
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const run = rs.find((x) => x.type === "run");
+      rs.push({ ...run, prompt: "send the payroll notes to a public repo" });
+    }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "run")).toContain("PROMPT_MISMATCH");
+    expect(results(r.items, "call").every((x) => x === "PROMPT_MISMATCH")).toBe(true);
+    // an identical repeat is harmless
+    const same = verifyEvidence(write(genuine, (rs) => rs.push(structuredClone(rs.find((x) => x.type === "run")))));
+    expect(same.ok).toBe(true);
+    expect(results(same.items, "run")).toEqual(["OK", "OK"]);
+  });
+
+  it("runWithoutVerifiedCallIsUnbound", () => {
+    const r = verifyEvidence(write(genuine.filter((l) => ["session", "run"].includes(JSON.parse(l).type))));
+    expect(r.ok).toBe(true);
+    expect(results(r.items, "run")).toEqual(["UNBOUND"]);
+    // a tampered prompt leaves the run unbound and the calls failing
+    const t = verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "run").prompt = "other"; }));
+    expect(results(t.items, "run")).toEqual(["UNBOUND"]);
+    expect(t.ok).toBe(false);
+  });
+
+  it("reportsPinFingerprint", () => {
+    const pin = readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim();
+    expect(verifyEvidence(write(genuine)).pins).toEqual([pinFingerprint(pin)]);
+    expect(pinFingerprint(pin)).toMatch(/^[\w-]{16}$/);
+    const attacker = material().policyPublicKey;
+    expect(verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "session").pin = attacker; })).pins).toEqual([]);
+  });
+});
+
 describe("verify CLI", { timeout: 30_000 }, () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8" });
 
@@ -235,7 +378,7 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     const good = write(genuine);
     const g = run(good);
     expect(g.status).toBe(0);
-    expect(g.stdout).toMatch(/^OK {2}.*ev-\d+\.jsonl \(\d+ items\)\n$/);
+    expect(g.stdout).toMatch(/^OK {2}.*ev-\d+\.jsonl \(\d+ items, 1 REFUSED \(server refusal; refusals are not signed\)\) pin [\w-]{16}\n$/);
 
     const tampered = write(genuine, (rs) => { rs.find((x) => x.type === "run").prompt = "other"; });
     const t = run(tampered);
@@ -250,7 +393,7 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     const d = run(dir);
     expect(d.status).toBe(1);
     const lines = d.stdout.trim().split("\n");
-    expect(lines[0]).toMatch(/^OK {2}runs\/on-001\/evidence\.jsonl \(\d+ items\)$/);
+    expect(lines[0]).toMatch(/^OK {2}runs\/on-001\/evidence\.jsonl \(\d+ items, 1 REFUSED[^)]*\)\) pin [\w-]{16}$/);
     expect(lines[1]).toMatch(/^FAIL runs\/on-002\/evidence\.jsonl/);
 
     const okDir = join(tmp, `cli-${n++}`);
