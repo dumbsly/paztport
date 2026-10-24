@@ -372,34 +372,37 @@ export class ServerConnection {
 
     // Hashing and verification can throw on results JSON allows but JCS rejects (a lone surrogate, a
     // number that parsed to Infinity). Such a result is an error, its text is dropped and nothing is
-    // recorded: every throwing step runs before the first record.
+    // recorded: every throwing step runs before the first record. Off mode records nothing, so it
+    // hashes nothing and passes such results through like a baseline client.
     const text = textOf(raw);
     let verify: string | undefined;
     let labels: InfluenceClass[] | undefined;
-    try {
-      const h = contentHash(raw);
-      if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
-        const v = verifyResponse(raw, { rid, toolCallId: callId }, {
-          keyring: reply.serverKeyring,
-          root: decode(reply.serverRoot.root),
-          rootId: reply.serverRoot.rootId,
-          allowedOrigins: ["mcp-entry"],
-          sess: reply.sess,
-          nonces: this.responseNonces,
-          now: this.now(),
-        });
-        verify = v.result.reason;
-        if (v.result.ok) {
-          labels = v.labels.map((l) => l.cls);
-          this.influence.recordLabels(server, v.labels, h);
+    if (this.mode !== "off") {
+      try {
+        const h = contentHash(raw);
+        if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
+          const v = verifyResponse(raw, { rid, toolCallId: callId }, {
+            keyring: reply.serverKeyring,
+            root: decode(reply.serverRoot.root),
+            rootId: reply.serverRoot.rootId,
+            allowedOrigins: ["mcp-entry"],
+            sess: reply.sess,
+            nonces: this.responseNonces,
+            now: this.now(),
+          });
+          verify = v.result.reason;
+          if (v.result.ok) {
+            labels = v.labels.map((l) => l.cls);
+            this.influence.recordLabels(server, v.labels, h);
+          } else {
+            this.influence.recordUntrusted(`server:${server}`, h);
+          }
         } else {
           this.influence.recordUntrusted(`server:${server}`, h);
         }
-      } else if (this.mode !== "off") {
-        this.influence.recordUntrusted(`server:${server}`, h);
+      } catch {
+        return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
       }
-    } catch {
-      return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
     }
     const isError = raw.isError === true;
     const extra = {

@@ -1,7 +1,6 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { spawnSync } from "node:child_process";
 import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,13 +12,8 @@ import { EventLog } from "../src/events.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { RunState } from "../src/runs.ts";
+import { CANARY, DOCS, githubArgs, records, setupDemo, STUB } from "./helpers/demo.ts";
 
-const MOCK = join(import.meta.dirname, "../../mock-github-mcp/src");
-const MAIN = join(MOCK, "main.ts");
-const DOCS = join(MOCK, "docs-main.ts");
-const STUB = join(import.meta.dirname, "helpers/stub-server.ts");
-const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
-const CANARY = "c0ffee";
 const CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const FIXED_README = "# Acme website\n\nWelcome to the Acme website.\n\nThis repository holds the public marketing site.\n";
 const LEAK = `Notes copied from payroll: Reference: ${CANARY}\n`;
@@ -30,9 +24,7 @@ let material: ClientMaterial;
 let n = 0;
 beforeAll(() => {
   tmp = mkdtempSync(join(tmpdir(), "paztport-conn-"));
-  demo = join(tmp, "demo");
-  const r = spawnSync(process.execPath, [SETUP, "--out", demo], { encoding: "utf8" });
-  expect(r.status, r.stderr).toBe(0);
+  demo = setupDemo(tmp);
   material = loadClientMaterial(join(demo, "client"));
 });
 const opened: ServerConnection[] = [];
@@ -69,11 +61,10 @@ async function github(
   spec: Partial<ServerSpec> = {},
 ): Promise<{ conn: ServerConnection; log: string }> {
   const log = join(tmp, `outcome-${n++}.jsonl`);
-  const args = [MAIN, "--mode", serverMode, "--config", join(demo, "server"), "--outcome-log", log, "--canary", CANARY];
   const conn = await connect(c, {
     id: "github",
     command: process.execPath,
-    args,
+    args: githubArgs(demo, serverMode, log),
     attested: true,
     pin: join(demo, "client/server-policy.pub"),
     ...spec,
@@ -100,8 +91,6 @@ async function echo(conn: ServerConnection): Promise<{ methods: string[]; sessio
   return JSON.parse((await conn.call("echo", {}, `toolu_${seq++}`)).text);
 }
 
-const records = (path: string): Record<string, any>[] =>
-  readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 const events = (c: Ctx): Record<string, any>[] => records(c.eventsPath);
 
 let seq = 0;
@@ -321,6 +310,20 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(c.influence.entries()).toEqual([]);
     expect(events(c).filter((e) => e.type === "error").map((e) => e.code)).toEqual(["MALFORMED_RESULT", "MALFORMED_RESULT"]);
     expect((await echo(conn)).meta).toBe(false); // the connection still works
+  });
+
+  it("offModePassesHostileResultsThrough", async () => {
+    // off mode hashes nothing, so like a baseline client it shows results JCS would reject
+    const c = ctx("off");
+    const conn = await stub(c, false);
+    const surrogate = await call(conn, "surrogate", {});
+    expect(surrogate.isError).toBe(false);
+    expect(surrogate.text).toBe("bad \ud800 text");
+    const infinity = await call(conn, "infinity", {});
+    expect(infinity.isError).toBe(false);
+    expect(infinity.text).toBe("big");
+    expect(c.influence.entries()).toEqual([]);
+    expect(events(c).filter((e) => e.type === "error")).toEqual([]);
   });
 
   it("forgedVerdictReasonIsUnknown", async () => {

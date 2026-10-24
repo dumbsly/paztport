@@ -7,6 +7,7 @@
 //   surrogate  -> a text holding a lone surrogate (valid JSON, rejected by JCS)
 //   infinity   -> a result field 1e400, which parses to Infinity
 //   verdict    -> a refusal-shaped result whose reason is arguments.reason
+//   untyped.tool -> listed only: an inputSchema without "type" and a name with a "."
 // --session-reply malformed answers paztport/session with {}; otherwise it is "method not found".
 
 import { createInterface } from "node:readline";
@@ -14,7 +15,10 @@ import { createInterface } from "node:readline";
 const malformedSession = process.argv.includes("--session-reply") && process.argv.includes("malformed");
 const methods: string[] = [];
 const sessions: boolean[] = [];
-const tools = ["echo", "surrogate", "infinity", "verdict"].map((name) => ({ name, inputSchema: { type: "object" } }));
+const tools = [
+  ...["echo", "surrogate", "infinity", "verdict"].map((name) => ({ name, inputSchema: { type: "object" } as Record<string, unknown> })),
+  { name: "untyped.tool", inputSchema: { properties: { x: { type: "string" } } } },
+];
 
 const send = (line: string) => process.stdout.write(line + "\n");
 const result = (id: unknown, r: unknown) => send(JSON.stringify({ jsonrpc: "2.0", id, result: r }));
