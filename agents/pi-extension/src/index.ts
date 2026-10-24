@@ -261,6 +261,11 @@ export default function paztport(pi: ExtensionAPI): void {
   pi.on("session_start", async (_event, ctx) => {
     const gen = ++generation;
     await closeAll();
+    if (gen !== generation) {
+      // a later session_start or session_shutdown superseded this one while it closed the old
+      // connections: the influence, runs and connections are the later one's to set up
+      return;
+    }
     influence.reset();
     ownCalls.clear();
     runs = new RunState();

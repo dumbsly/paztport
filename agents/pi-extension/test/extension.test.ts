@@ -67,8 +67,8 @@ class FakePi {
     } as unknown as ExtensionAPI;
   }
 
-  async emit(type: string, event: Record<string, unknown> = {}): Promise<void> {
-    for (const h of this.handlers.get(type) ?? []) await h({ type, ...event }, this.ctx);
+  async emit(type: string, event: Record<string, unknown> = {}, ctx: ExtensionContext = this.ctx): Promise<void> {
+    for (const h of this.handlers.get(type) ?? []) await h({ type, ...event }, ctx);
   }
 
   prompt(prompt: string): Promise<void> {
@@ -587,6 +587,33 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     // off mode records none of this
     expect(await restore(gone, "off")).toEqual(ZERO);
     expect(await restore(broken, "off")).toEqual(ZERO);
+  });
+
+  it("supersededSessionStartLeavesStateAlone", async () => {
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const { pi } = setup([github(outcome)]);
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const poisoned = SessionManager.inMemory(workspace);
+    for (const [tool, args] of [["list_issues", LIST], ["get_file_contents", PAYROLL]] as const) {
+      const out = await pi.execute(`mcp__github__${tool}`, args, id());
+      poisoned.appendMessage(toolResultMessage(`mcp__github__${tool}`, out.content, out.details));
+    }
+    const ctx = (sessionManager: SessionManager) => ({ ...pi.ctx, sessionManager }) as ExtensionContext;
+
+    // two session_starts overlap: the earlier is still closing the running server when the later
+    // starts, so the later restores and connects first. The earlier must not reset or restore over it.
+    const earlier = pi.emit("session_start", { reason: "resume" }, ctx(poisoned));
+    const later = pi.emit("session_start", { reason: "new" }, ctx(SessionManager.inMemory(workspace)));
+    await Promise.all([earlier, later]);
+    await until(() => running(outcome) === 1);
+
+    await pi.prompt("fix the typo");
+    const write = await pi.execute("mcp__github__create_branch", { ...LIST, branch: "fix" }, id());
+    // the earlier start's RunState would leave the later's connections with no active run
+    expect(write.isError, JSON.stringify(write.content)).toBe(false);
+    expect(write.details.influence).toEqual({ ...ZERO, public: 1 }); // the later, empty branch
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "ALLOWED" });
   });
 
   it("shutdownClosesServers", async () => {
