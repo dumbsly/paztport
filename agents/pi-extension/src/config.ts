@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readFileSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type ExtensionMode = "enforce" | "no-root" | "off";
 
@@ -119,17 +119,18 @@ export function assertOutsideWorkspace(clientDir: string, cwd: string): void {
   let keys: string;
   let ws: string;
   try {
-    keys = realpathSync(clientDir);
+    keys = realpathSync.native(clientDir);
   } catch (e) {
     throw new Error(`clientDir ${clientDir} cannot be resolved: ${(e as Error).message}`);
   }
   try {
-    ws = realpathSync(cwd);
+    ws = realpathSync.native(cwd);
   } catch (e) {
     throw new Error(`workspace ${cwd} cannot be resolved: ${(e as Error).message}`);
   }
   const rel = relative(ws, keys);
-  if (rel === "" || (!rel.startsWith("..") && !isAbsolute(rel))) {
+  const outside = rel === ".." || rel.startsWith(".." + sep) || isAbsolute(rel);
+  if (!outside) {
     throw new Error(`clientDir ${clientDir} is inside the workspace ${cwd}; keep client keys outside it`);
   }
 }

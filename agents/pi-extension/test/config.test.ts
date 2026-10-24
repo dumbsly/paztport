@@ -128,6 +128,12 @@ describe("assertOutsideWorkspace", () => {
     expect(() => assertOutsideWorkspace(keys, wsLink)).toThrow(/workspace/);
   });
 
+  it("dotDotPrefixedDirInsideRejected", () => {
+    const ws = join(tmp, "ws4");
+    mkdirSync(join(ws, "..keys"), { recursive: true });
+    expect(() => assertOutsideWorkspace(join(ws, "..keys"), ws)).toThrow(/workspace/);
+  });
+
   it("missingClientDirThrowsClearly", () => {
     expect(() => assertOutsideWorkspace(join(tmp, "nope"), tmp)).toThrow(/clientDir/);
   });
