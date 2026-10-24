@@ -8,6 +8,9 @@ export type CallToolResult = {
   _meta?: Record<string, unknown>;
 };
 
+/** Thrown by an extra method to answer -32602 Invalid params; the message should name the bad field. */
+export class InvalidParams extends Error {}
+
 export type McpToolSpec = {
   name: string;
   description: string;
@@ -64,7 +67,8 @@ export function createMcpHandler(opts: McpHandlerOptions): { handle(message: unk
       const extra = opts.methods && Object.hasOwn(opts.methods, method) ? opts.methods[method] : undefined;
       if (extra) return { result: (await extra(params)) ?? {} };
       return { code: -32601, message: "Method not found" };
-    } catch {
+    } catch (e) {
+      if (e instanceof InvalidParams) return { code: -32602, message: `Invalid params: ${e.message}` };
       return { code: -32603, message: "Internal error" };
     }
   }

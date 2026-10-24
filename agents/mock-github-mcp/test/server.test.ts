@@ -656,6 +656,27 @@ describe("composed github server", () => {
     });
   });
 
+  it("malformedSessionIsInvalidParams", async () => {
+    const h = setup();
+    const good = h.client.request();
+    const cases: [unknown, RegExp][] = [
+      [null, /session request/],
+      [{ ...good, clientPolicyKey: 1 }, /clientPolicyKey/],
+      [{ ...good, nonce: undefined }, /nonce/],
+      [{ ...good, clientKeyring: [] }, /clientKeyring/],
+      [{ ...good, clientRoot: { rootId: "v" } }, /clientRoot\.root/],
+    ];
+    for (const [params, field] of cases) {
+      const r = await h.rpc(SESSION_METHOD, params);
+      expect(r.error.code).toBe(-32602);
+      expect(r.error.message).toMatch(/^Invalid params: /);
+      expect(r.error.message).toMatch(field);
+    }
+    // nothing was opened: writes are still unsafe
+    const w = await h.call("create_branch", { owner: "acme", repo: "website", branch: "x" });
+    expect(verdictOf(w.result)).toEqual({ reason: "UNSAFE_SESSION" });
+  });
+
   it("indexReExports", () => {
     expect(index.META_VERDICT).toBe("paztport/verdict");
     expect(typeof index.createGithubServer).toBe("function");

@@ -34,7 +34,7 @@ import {
   type SessionRequest,
   type SignedRoot,
 } from "@paztport/path-attest";
-import type { CallToolResult } from "./mcp.ts";
+import { InvalidParams, type CallToolResult } from "./mcp.ts";
 
 /** Refusal key on error results (re-exported from index.ts). */
 export const META_VERDICT = "paztport/verdict";
@@ -198,7 +198,12 @@ export class PaztportServer {
   }
 
   openSession(params: unknown): SessionReply {
-    const request = parseSessionRequest(params);
+    let request: SessionRequest;
+    try {
+      request = parseSessionRequest(params);
+    } catch (e) {
+      throw new InvalidParams((e as Error).message);
+    }
     const status = sessionStatus(request, this.cfg.signedRoot, this.cfg.policyPublicKey);
     const serverNonce = newNonce();
     const sess = deriveSessionId(request.clientRoot?.sig ?? null, this.cfg.signedRoot.sig, request.nonce, serverNonce, {

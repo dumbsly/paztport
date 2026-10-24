@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { createMcpHandler } from "../src/mcp.ts";
+import { createMcpHandler, InvalidParams } from "../src/mcp.ts";
 import type { McpHandlerOptions } from "../src/mcp.ts";
 
 const tools = [{ name: "echo", description: "echo", inputSchema: { type: "object" } }];
@@ -64,6 +64,12 @@ describe("mcp core", () => {
     const h = make({ methods: { "x/y": async (p) => ({ got: p }) } });
     const r: any = await h.handle({ jsonrpc: "2.0", id: 6, method: "x/y", params: { q: 1 } });
     expect(r.result).toEqual({ got: { q: 1 } });
+  });
+
+  it("invalidParamsFromExtraMethodIsMinus32602", async () => {
+    const h = make({ methods: { "x/y": async () => { throw new InvalidParams("nonce must be a string"); } } });
+    const r: any = await h.handle({ jsonrpc: "2.0", id: 7, method: "x/y" });
+    expect(r).toEqual({ jsonrpc: "2.0", id: 7, error: { code: -32602, message: "Invalid params: nonce must be a string" } });
   });
 
   it("invalidRequestIsMinus32600", async () => {

@@ -3,12 +3,13 @@
 
 import { createInterface } from "node:readline";
 
+/** Thrown by write() when a message cannot be serialized or written, so send() can fall back. */
+class SerializeError extends Error {}
+
 /**
  * Serve one JSON-RPC message per line. Lines are handled concurrently; each response is
  * written as exactly one line. Resolves once input has ended and all handlers have settled.
  */
-class SerializeError extends Error {}
-
 export function serveStdio(
   handler: { handle(m: unknown): Promise<object | undefined> },
   input: NodeJS.ReadableStream,
@@ -21,7 +22,7 @@ export function serveStdio(
     try {
       output.write(JSON.stringify(msg) + "\n");
     } catch {
-      // swallowed; caller decides on fallback
+      // rethrown as SerializeError; send() falls back to an error reply
       throw new SerializeError();
     }
   };
