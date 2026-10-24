@@ -10,6 +10,19 @@ import { readKey, writeJson } from "./files.ts";
 
 const USAGE = "Usage: node policy.ts --paths <yaml> --policy-key <file> --out <dir> [--depth 8]";
 
+/** Route node names become path segments, file names and "/"-joined routes: keep them unambiguous. */
+function validNode(n: string): boolean {
+  return (
+    n.length > 0 &&
+    n !== "." &&
+    n !== ".." &&
+    !n.includes("/") &&
+    !n.includes("\\") &&
+    !n.includes("|") &&
+    !/\p{Surrogate}/u.test(n)
+  );
+}
+
 function fail(): never {
   console.error(USAGE);
   process.exit(2);
@@ -44,6 +57,7 @@ function main(): void {
     console.error(`policy: ${paths} must contain "paths: [[svc, ...], ...]"`);
     process.exit(2);
   }
+  if (!(routes as string[][]).every((r) => r.every(validNode))) fail();
 
   const { signedRoot, bundles } = buildPolicy(routes as string[][], depth, readKey(keyFile));
   writeJson(join(out, "root.json"), signedRoot);

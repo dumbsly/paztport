@@ -62,6 +62,30 @@ describe("policy-tool CLIs", () => {
     }
   });
 
+  it("keygenRejectsCaseInsensitiveDuplicates", () => {
+    for (const svc of ["A,a", "Policy", "KEYRING", "orders,Orders"]) {
+      const out = tmp();
+      const r = run(keygen, ["--out", out, "--services", svc]);
+      expect(r.status, svc).toBe(2);
+      expect(r.stderr).toContain("Usage");
+      expect(readdirSync(out)).toEqual([]);
+    }
+  });
+
+  it("policyRejectsBadNodeNames", () => {
+    const keys = tmp();
+    expect(run(keygen, ["--out", keys, "--services", "gateway"]).status).toBe(0);
+    for (const node of ['""', '"a/b"', '"a\\\\b"', '"a|b"', '"."', '".."', '"x\\ud800"']) {
+      const out = tmp();
+      const yamlPath = join(keys, "paths.yaml");
+      writeFileSync(yamlPath, `paths:\n  - [gateway, ${node}]\n`);
+      const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out]);
+      expect(r.status, node).toBe(2);
+      expect(r.stderr, node).toContain("Usage");
+      expect(readdirSync(out), node).toEqual([]);
+    }
+  });
+
   it("policyBuildsRootAndBundles", () => {
     const keys = tmp();
     const out = tmp();

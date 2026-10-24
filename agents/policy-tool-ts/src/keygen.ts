@@ -21,9 +21,11 @@ function main(): void {
   }
   const names = (services ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0);
   const reserved = new Set([".", "..", "policy", "keyring"]);
+  // Compare case-insensitively: on a case-insensitive filesystem "A.key" overwrites "a.key".
+  const lower = names.map((n) => n.toLowerCase());
   const bad =
-    new Set(names).size !== names.length ||
-    names.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\"));
+    new Set(lower).size !== lower.length ||
+    lower.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\"));
   if (!out || names.length === 0 || bad) {
     console.error(USAGE);
     process.exit(2);
