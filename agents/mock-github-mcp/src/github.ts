@@ -2,6 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export type RepoFiles = Record<string, string>;
+
+/** Null-prototype copy so paths like "__proto__" or "constructor" are ordinary keys. */
+function cloneFiles(src: RepoFiles): RepoFiles {
+  const out: RepoFiles = Object.create(null);
+  for (const k of Object.keys(src)) Object.defineProperty(out, k, { value: src[k], writable: true, enumerable: true, configurable: true });
+  return out;
+}
+
+function setFile(files: RepoFiles, path: string, content: string): void {
+  Object.defineProperty(files, path, { value: content, writable: true, enumerable: true, configurable: true });
+}
 export type Issue = { number: number; title: string; body: string; author: string; state: "open" | "closed" };
 export type PullRequest = { number: number; owner: string; repo: string; title: string; body: string; head: string; base: string };
 export type Comment = { owner: string; repo: string; issue_number: number; body: string };
@@ -18,7 +29,7 @@ export class GithubState {
     for (const r of repos) {
       this.#repos.set(`${r.owner}/${r.name}`, {
         private: r.private,
-        branches: new Map([["main", { ...r.files }]]),
+        branches: new Map([["main", cloneFiles(r.files)]]),
         issues: r.issues.map((i) => ({ ...i })),
       });
     }
@@ -31,7 +42,7 @@ export class GithubState {
 
   branchFiles(owner: string, name: string, branch: string): RepoFiles | undefined {
     const f = this.#repos.get(`${owner}/${name}`)?.branches.get(branch);
-    return f ? { ...f } : undefined;
+    return f ? cloneFiles(f) : undefined;
   }
 
   pulls(): PullRequest[] {
@@ -54,12 +65,12 @@ export class GithubState {
   /** Internal mutation helpers used by the tools; callers validate first. */
   createBranch(owner: string, name: string, branch: string, from: string): void {
     const r = this.#repos.get(`${owner}/${name}`)!;
-    r.branches.set(branch, { ...r.branches.get(from)! });
+    r.branches.set(branch, cloneFiles(r.branches.get(from)!));
   }
 
   putFiles(owner: string, name: string, branch: string, files: { path: string; content: string }[]): void {
     const target = this.#repos.get(`${owner}/${name}`)!.branches.get(branch)!;
-    for (const f of files) target[f.path] = f.content;
+    for (const f of files) setFile(target, f.path, f.content);
   }
 
   addPull(p: Omit<PullRequest, "number">): void {
@@ -203,9 +214,8 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const files = branchOf(state, t.owner, t.repo, ref);
       const read = { owner: t.owner, repo: t.repo, what: "file" as const, includesPrivate: t.private };
       if (!path) return { text: Object.keys(files).join("\n"), read };
-      const content = files[path];
-      if (content === undefined) throw new ArgError(`file not found: ${path}`);
-      return { text: content, read };
+      if (!Object.hasOwn(files, path)) throw new ArgError(`file not found: ${path}`);
+      return { text: files[path]!, read };
     }),
   },
   {
@@ -251,7 +261,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       const branch = req(args, "branch");
       branchOf(state, t.owner, t.repo, branch);
       state.putFiles(t.owner, t.repo, branch, [{ path, content }]);
-      return { text: `Committed ${path} to ${branch}`, write: { owner: t.owner, repo: t.repo, texts: [content, message, branch] } };
+      return { text: `Committed ${path} to ${branch}`, write: { owner: t.owner, repo: t.repo, texts: [content, message, branch, path] } };
     }),
   },
   {
@@ -268,7 +278,7 @@ export const GITHUB_TOOLS: GithubTool[] = [
       state.putFiles(t.owner, t.repo, branch, files);
       return {
         text: `Pushed ${files.length} file(s) to ${branch}`,
-        write: { owner: t.owner, repo: t.repo, texts: [...files.map((f) => f.content), message, branch] },
+        write: { owner: t.owner, repo: t.repo, texts: [...files.map((f) => f.content), ...files.map((f) => f.path), message, branch] },
       };
     }),
   },

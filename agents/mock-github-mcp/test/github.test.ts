@@ -106,15 +106,35 @@ describe("mock github tools", () => {
     const s = createFixtures({ canary: CANARY, issuePayload: null });
     call(s, "create_branch", { owner: "acme", repo: "payroll-notes", branch: "br" });
     const put = call(s, "create_or_update_file", { owner: "acme", repo: "payroll-notes", path: "p.md", content: "CONTENT", message: "msg", branch: "br" });
-    expect(put.write?.texts).toEqual(expect.arrayContaining(["CONTENT"]));
+    expect(put.write?.texts).toEqual(expect.arrayContaining(["CONTENT", "msg", "br", "p.md"]));
     const pr = call(s, "create_pull_request", { owner: "acme", repo: "payroll-notes", title: "TITLE", head: "br", base: "main", body: "BODY" });
     expect(pr.write?.texts).toEqual(expect.arrayContaining(["TITLE", "BODY"]));
     const c = call(s, "add_issue_comment", { owner: "acme", repo: "website", issue_number: 1, body: "CBODY" });
     expect(c.write?.texts).toContain("CBODY");
     const b = call(s, "create_branch", { owner: "acme", repo: "website", branch: "newbranch" });
     expect(b.write?.texts).toContain("newbranch");
-    const push = call(s, "push_files", { owner: "acme", repo: "website", branch: "main", message: "m", files: [{ path: "x", content: "XC" }] });
-    expect(push.write?.texts).toContain("XC");
+    const push = call(s, "push_files", { owner: "acme", repo: "website", branch: "main", message: "PMSG", files: [{ path: "x-path", content: "XC" }, { path: "y-path", content: "YC" }] });
+    expect(push.write?.texts).toEqual(expect.arrayContaining(["XC", "YC", "PMSG", "main", "x-path", "y-path"]));
+  });
+
+  it("protoKeysAreOrdinaryPaths", () => {
+    const s = createFixtures({ canary: CANARY, issuePayload: null });
+    for (const p of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+      const r = call(s, "get_file_contents", { owner: "acme", repo: "website", path: p });
+      expect(r.isError).toBe(true);
+      expect(r.text).toContain("file not found");
+    }
+    call(s, "create_branch", { owner: "acme", repo: "website", branch: "pb" });
+    expect(call(s, "create_or_update_file", { owner: "acme", repo: "website", path: "__proto__", content: "PROTO", message: "m", branch: "pb" }).isError).toBeUndefined();
+    const r = call(s, "get_file_contents", { owner: "acme", repo: "website", path: "__proto__", ref: "pb" });
+    expect(r.isError).toBeUndefined();
+    expect(r.text).toBe("PROTO");
+    expect(call(s, "get_file_contents", { owner: "acme", repo: "website", ref: "pb" }).text).toContain("__proto__");
+    expect(Object.keys(s.branchFiles("acme", "website", "pb")!)).toContain("__proto__");
+    expect(call(s, "get_file_contents", { owner: "acme", repo: "website", path: "constructor", ref: "pb" }).isError).toBe(true);
+    // copies via create_branch keep it ordinary too
+    call(s, "create_branch", { owner: "acme", repo: "website", branch: "pb2", from_branch: "pb" });
+    expect(call(s, "get_file_contents", { owner: "acme", repo: "website", path: "__proto__", ref: "pb2" }).text).toBe("PROTO");
   });
 
   it("badArgsAreToolErrors", () => {
