@@ -447,9 +447,32 @@ describe("composed github server", () => {
       const res = await h.send(stale);
       expect(res.isError).toBe(true);
       expect(res._meta?.[META_ATTESTATION]).toBeUndefined();
-      expect(verdictOf(res)).toBeDefined();
+      expect(verdictOf(res)).toEqual({ reason: "BAD_SIGNATURE" });
       expect(h.snapshot()).toEqual(before);
     });
+  });
+
+  it("refusedWriteRecordsSameTextsAsAccepted", async () => {
+    const C = CANARY;
+    const cases: [string, Record<string, unknown>][] = [
+      ["create_branch", { owner: "acme", repo: "website", branch: `b-${C}` }],
+      ["create_or_update_file", { owner: "acme", repo: "website", path: `${C}.md`, content: C, message: C, branch: "main" }],
+      ["push_files", { owner: "acme", repo: "website", branch: "main", files: [{ path: `${C}.md`, content: C }], message: C }],
+      ["create_pull_request", { owner: "acme", repo: "website", title: C, head: "main", base: "main", body: C }],
+      ["add_issue_comment", { owner: "acme", repo: "website", issue_number: 1, body: C }],
+    ];
+    const refused = setup();
+    await refused.open();
+    await leakReads(refused);
+    const allowed = setup({ mode: "off" });
+    for (const [name, args] of cases) {
+      const r = await refused.call(name, args);
+      expect(verdictOf(r.result)).toEqual({ reason: "INFLUENCE_DENIED" });
+      const a = await allowed.call(name, args);
+      expect(a.result.isError).toBeFalsy();
+    }
+    expect(refused.outcome.records.map((r) => [r.tool, r.containsCanary])).toEqual(cases.map(([n]) => [n, true]));
+    expect(allowed.outcome.records.map((r) => [r.tool, r.containsCanary, r.verdict])).toEqual(cases.map(([n]) => [n, true, "ALLOWED"]));
   });
 
   it("indexReExports", () => {

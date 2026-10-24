@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { META_ATTESTATION, META_CALL_ID, META_CHAIN, SESSION_METHOD, type InfluenceEntry, type SessionReply } from "@paztport/path-attest";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT } from "../src/paztport.ts";
@@ -23,33 +23,63 @@ beforeAll(() => {
   const r = spawnSync(process.execPath, [SETUP, "--out", tmp], { encoding: "utf8" });
   expect(r.status, r.stderr).toBe(0);
 });
-afterAll(() => rmSync(tmp, { recursive: true, force: true }));
+const children = new Set<ChildProcessWithoutNullStreams>();
+const killAll = () => {
+  for (const c of children) c.kill("SIGKILL");
+  children.clear();
+};
+afterEach(killAll);
+afterAll(() => {
+  killAll();
+  rmSync(tmp, { recursive: true, force: true });
+});
 
 type Session = {
   child: ChildProcessWithoutNullStreams;
   stdout: string[];
+  unparseable: string[];
   rpc(method: string, params?: unknown): Promise<any>;
   close(): Promise<void>;
 };
 
 function start(args: string[]): Session {
   const child = spawn(process.execPath, [MAIN, ...args], { stdio: ["pipe", "pipe", "pipe"] });
+  children.add(child);
   child.stderr.resume();
   const stdout: string[] = [];
-  const waiting = new Map<number, (m: any) => void>();
+  const unparseable: string[] = [];
+  const waiting = new Map<number, { resolve(m: any): void; reject(e: Error): void }>();
+  const failAll = (why: string) => {
+    for (const w of waiting.values()) w.reject(new Error(why));
+    waiting.clear();
+  };
+  child.on("error", (e) => failAll(`child error: ${e.message}`));
+  child.on("exit", (code, sig) => failAll(`child exited (code ${code}, signal ${sig}) with requests pending`));
+  child.stdin.on("error", () => {});
   createInterface({ input: child.stdout }).on("line", (line) => {
     stdout.push(line);
-    const m = JSON.parse(line);
-    waiting.get(m.id)?.(m);
+    let m: any;
+    try {
+      m = JSON.parse(line);
+    } catch {
+      unparseable.push(line);
+      return;
+    }
+    const w = waiting.get(m?.id);
+    if (w) {
+      waiting.delete(m.id);
+      w.resolve(m);
+    }
   });
   let id = 0;
   return {
     child,
     stdout,
+    unparseable,
     rpc(method, params) {
       const n = ++id;
-      return new Promise((resolve) => {
-        waiting.set(n, resolve);
+      return new Promise((resolve, reject) => {
+        waiting.set(n, { resolve, reject });
         child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: n, method, params }) + "\n");
       });
     },
@@ -153,6 +183,7 @@ describe("stdio end to end", () => {
     s.child.stdin.write("not json\n");
     await s.rpc("ping");
     await s.close();
+    expect(s.unparseable).toEqual([]);
     expect(s.stdout.length).toBeGreaterThan(7);
     for (const line of s.stdout) {
       const m = JSON.parse(line);

@@ -191,6 +191,8 @@ describe("textsFromArgs", () => {
   });
   it("writeToolsPickStringsLeniently", () => {
     expect(byName.create_branch!.textsFromArgs({ branch: "b", from_branch: "main" })).toEqual(["b"]);
+    expect(byName.create_or_update_file!.textsFromArgs({ content: "c", message: "m", branch: "b", path: "p", sha: "s", owner: "o" })).toEqual(["c", "m", "b", "p"]);
+    expect(byName.create_or_update_file!.textsFromArgs({ content: 1, path: "p" })).toEqual(["p"]);
     expect(byName.push_files!.textsFromArgs({ branch: "b", message: "m", files: [{ path: "p", content: "c" }, null, { path: 1 }] })).toEqual(["c", "p", "m", "b"]);
     expect(byName.push_files!.textsFromArgs({ files: "nope", message: 7 })).toEqual([]);
     expect(byName.create_pull_request!.textsFromArgs({ title: "t", body: "b", head: "h" })).toEqual(["t", "b"]);
