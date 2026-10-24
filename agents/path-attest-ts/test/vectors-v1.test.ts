@@ -22,6 +22,7 @@ describe("Java-exported v1 vectors", () => {
 
   it.each((v.chains as any[]).map((c, i): [number, any] => [i, c]))("chain %i round-trips", (_i: number, c: any) => {
     expect(decodeChainV1(c.header)).toEqual(c.stamps);
+    expect(encodeChainV1(c.stamps)).toBe(c.header);
     expect(decodeChainV1(encodeChainV1(c.stamps))).toEqual(c.stamps);
   });
 
