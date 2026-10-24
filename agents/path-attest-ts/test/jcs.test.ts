@@ -31,4 +31,20 @@ describe("jcs", () => {
       expect(() => canonicalize(v)).toThrow();
     }
   });
+
+  it("rejectsNonPlainObjects", () => {
+    for (const v of [new Date(0), new Map(), new String("a"), new Uint8Array(1)]) {
+      expect(() => canonicalize(v)).toThrow();
+    }
+  });
+
+  it("rejectsSparseArray", () => {
+    // eslint-disable-next-line no-sparse-arrays
+    expect(() => canonicalize([, 1])).toThrow();
+  });
+
+  it("rejectsLoneSurrogateValueAndKey", () => {
+    expect(() => canonicalize("\ud800")).toThrow();
+    expect(() => canonicalize({ "\ud800": 1 })).toThrow();
+  });
 });
