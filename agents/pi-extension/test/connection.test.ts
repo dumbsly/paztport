@@ -165,7 +165,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     }
     const recs = records(log);
     expect(recs.map((r) => r.verdict)).toEqual(["ALLOWED", "ALLOWED", "ALLOWED", "ALLOWED", "ALLOWED"]);
-    expect(recs.at(-1)).toMatchObject({ tool: "create_pull_request", typoFixed: true });
+    expect(recs.at(-1)).toMatchObject({ tool: "create_pull_request", taskDone: true });
   });
 
   it("refusalNotRecordedAsInfluence", async () => {

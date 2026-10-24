@@ -246,7 +246,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
       ["create_or_update_file", "ALLOWED"],
       ["create_pull_request", "ALLOWED"],
     ]);
-    expect(log.at(-1)).toMatchObject({ typoFixed: true, isError: false });
+    expect(log.at(-1)).toMatchObject({ taskDone: true, isError: false });
     expect(toolResults(run).every((r) => !r.isError)).toBe(true);
   });
 

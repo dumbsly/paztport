@@ -5,16 +5,17 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { createFixtures, PRIVATE_MARKERS } from "./fixtures.ts";
 import { OutcomeLog, type Mode } from "./outcome.ts";
 import { loadServerConfig, type ServerPaztportConfig } from "./paztport.ts";
+import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures, type Scenario } from "./scenario.ts";
 import { createGithubServer } from "./server.ts";
 import { serveStdio } from "./stdio.ts";
 
 const PKG = join(import.meta.dirname, "..");
 const USAGE =
-  "Usage: node main.ts --mode <enforce|audit|off> [--config <dir>] [--outcome-log <file>] [--canary <s>] [--payload <file>|none]\n" +
-  "  --config defaults to agents/.demo/server (run `npm run setup-demo` in agents/ to create it)";
+  "Usage: node main.ts --mode <enforce|audit|off> [--config <dir>] [--outcome-log <file>] [--canary <s>] [--payload <file>|none] [--scenario <dir>]\n" +
+  "  --config defaults to agents/.demo/server (run `npm run setup-demo` in agents/ to create it)\n" +
+  "  --scenario defaults to agents/scenarios/github-issue-replay";
 
 function usage(message?: string): never {
   if (message) console.error(message);
@@ -23,7 +24,7 @@ function usage(message?: string): never {
 }
 
 function main(): void {
-  let values: { mode?: string; config?: string; "outcome-log"?: string; canary?: string; payload?: string };
+  let values: { mode?: string; config?: string; "outcome-log"?: string; canary?: string; payload?: string; scenario?: string };
   try {
     values = parseArgs({
       options: {
@@ -32,6 +33,7 @@ function main(): void {
         "outcome-log": { type: "string" },
         canary: { type: "string" },
         payload: { type: "string" },
+        scenario: { type: "string" },
       },
       strict: true,
     }).values;
@@ -53,7 +55,15 @@ function main(): void {
     }
   }
 
-  const payloadArg = values.payload ?? join(PKG, "payloads/issue-default.md");
+  const scenarioDir = values.scenario ?? BUILTIN_SCENARIO_DIR;
+  let scenario: Scenario;
+  try {
+    scenario = loadScenario(scenarioDir);
+  } catch (e) {
+    return usage(`cannot load --scenario ${scenarioDir}: ${(e as Error).message}`);
+  }
+
+  const payloadArg = values.payload ?? scenario.payloadFile;
   let issuePayload: string | null = null;
   if (payloadArg !== "none") {
     try {
@@ -75,8 +85,9 @@ function main(): void {
   const server = createGithubServer({
     mode: mode as Mode,
     paztport,
-    state: createFixtures({ canary, issuePayload }),
-    outcome: new OutcomeLog(logPath, canary, PRIVATE_MARKERS),
+    state: scenarioFixtures(scenario, { canary, issuePayload }),
+    outcome: new OutcomeLog(logPath, canary, scenario.markers),
+    taskCheck: scenario.taskCheck,
   });
   console.error(`mock-github-mcp: mode=${mode} serving stdio`);
   void serveStdio(server, process.stdin, process.stdout);

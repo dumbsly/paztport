@@ -17,6 +17,7 @@ import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT, type ServerPaztportConfig } from "../src/paztport.ts";
 import { OutcomeLog, type Mode } from "../src/outcome.ts";
+import { BUILTIN_SCENARIO_DIR, loadScenario } from "../src/scenario.ts";
 import { createGithubServer } from "../src/server.ts";
 import * as index from "../src/index.ts";
 import { ALL_TOOLS, makeClient } from "./helpers/client.ts";
@@ -53,7 +54,7 @@ function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; pazt
   const cfg = serverConfig();
   const state = createFixtures({ canary: CANARY, issuePayload: PAYLOAD });
   const outcome = new OutcomeLog(null, CANARY, PRIVATE_MARKERS);
-  const server = createGithubServer({ mode, paztport: o.paztport === false ? null : cfg, state, outcome });
+  const server = createGithubServer({ mode, paztport: o.paztport === false ? null : cfg, state, outcome, taskCheck: loadScenario(BUILTIN_SCENARIO_DIR).taskCheck });
   const client = makeClient(o.client);
   let id = 0;
   let reply: SessionReply | undefined;
@@ -185,10 +186,10 @@ describe("composed github server", () => {
       ["create_or_update_file", "ALLOWED", false, false],
       ["create_pull_request", "ALLOWED", false, false],
     ]);
-    expect(writes(h)[2]!.typoFixed).toBe(true);
+    expect(writes(h)[2]!.taskDone).toBe(true);
     expect(h.outcome.records.every((r) => !r.containsCanary && !r.containsPrivateMarker)).toBe(true);
-    expect(h.outcome.records[0]).not.toHaveProperty("typoFixed");
-    expect(writes(h)[0]).not.toHaveProperty("typoFixed");
+    expect(h.outcome.records[0]).not.toHaveProperty("taskDone");
+    expect(writes(h)[0]).not.toHaveProperty("taskDone");
     expect(h.state.pulls()).toHaveLength(1);
   });
 

@@ -5,9 +5,10 @@ import { influenceClasses, SESSION_METHOD, type InfluenceClass, type InfluenceEn
 import { GITHUB_TOOLS, type GithubState, type GithubTool } from "./github.ts";
 import { labelFor } from "./labels.ts";
 import { createMcpHandler, type CallToolResult, type McpToolSpec } from "./mcp.ts";
-import { typoFixed, type Mode, type OutcomeLog } from "./outcome.ts";
+import { taskDone, type Mode, type OutcomeLog } from "./outcome.ts";
 import { META_VERDICT, PaztportServer, type ServerPaztportConfig, type Session, type SessionRules } from "./paztport.ts";
 import { influenceDecision } from "./rules.ts";
+import type { TaskCheck } from "./scenario.ts";
 
 export type GithubServerOptions = {
   mode: Mode;
@@ -19,6 +20,8 @@ export type GithubServerOptions = {
   rules?: SessionRules;
   state: GithubState;
   outcome: OutcomeLog;
+  /** How a create_pull_request is scored as the task done; from the scenario. */
+  taskCheck: TaskCheck;
   now?: () => number;
 };
 
@@ -60,7 +63,7 @@ function contextClasses(influence: InfluenceEntry[], session: Session): Set<Infl
 }
 
 export function createGithubServer(opts: GithubServerOptions): { handle(message: unknown): Promise<object | undefined>; state: GithubState } {
-  const { mode, state, outcome } = opts;
+  const { mode, state, outcome, taskCheck } = opts;
   const now = opts.now ?? Date.now;
   const rules = opts.rules ?? DEFAULT_RULES;
   const server = mode !== "off" && opts.paztport !== null ? new PaztportServer(opts.paztport, rules, now) : null;
@@ -123,7 +126,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
         isError: result.isError ?? false,
         verdict: verdict === "OK" ? "ALLOWED" : verdict,
         audit: mode === "audit" && verdict !== "OK",
-        ...(pr !== undefined ? { typoFixed: typoFixed(state, pr) } : {}),
+        ...(pr !== undefined ? { taskDone: taskDone(state, pr, taskCheck) } : {}),
       },
       result.write?.texts ?? [],
     );
