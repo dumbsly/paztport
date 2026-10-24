@@ -30,7 +30,7 @@ function world() {
     allowedOrigins: ["mcp-entry"],
     sess: SESS,
     nonces: new NonceCache(60_000),
-        now: NOW,
+    now: NOW,
     ...over,
   });
   const labels: ContentLabel[] = [{ cls: "third-party", cid: newContentId() }];
@@ -121,6 +121,14 @@ describe("verifyResponse", () => {
     const again = verifyResponse(resp, CALL, cfg);
     expect(again.result.reason).toBe("REPLAY");
     expect(again.labels).toEqual([]);
+  });
+  it("responseShortTtlIsReplay", () => {
+    const w = world();
+    const nonces = new NonceCache(1000);
+    const r = verifyResponse(w.response(), CALL, w.cfg({ nonces }));
+    expect(r.result.reason).toBe("REPLAY");
+    expect(r.labels).toEqual([]);
+    expect(nonces.size).toBe(0);
   });
   it("invalidCallFieldsChainMissing", () => {
     const w = world();

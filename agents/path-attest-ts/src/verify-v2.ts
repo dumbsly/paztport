@@ -11,6 +11,8 @@ import { parseStampsV2, signingBytesV2, type StampV2 } from "./stamp.ts";
 
 export const CALL_MAX_AGE_MS = 5000;
 export const RUN_MAX_AGE_MS = 1_800_000;
+/** Nonce caches must remember keys for at least twice the call freshness window. */
+export const NONCE_TTL_MS = 15_000;
 
 export type V2Input = {
   stamps: unknown;
@@ -125,8 +127,8 @@ export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
     return fail("INFLUENCE_MISMATCH");
   }
 
-  // 10. Replay.
-  if (cfg.nonces.seenBefore(cfg.nonceKey, cfg.now)) {
+  // 10. Replay. A cache that forgets sooner than 2x the call window fails closed, before spending the nonce.
+  if (!(cfg.nonces.ttlMs >= 2 * callMax) || cfg.nonces.seenBefore(cfg.nonceKey, cfg.now)) {
     return fail("REPLAY");
   }
 

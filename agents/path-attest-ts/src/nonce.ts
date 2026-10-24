@@ -3,7 +3,7 @@
 
 /** Bounded replay cache: remembers keys for ttlMs, evicting expired ones on each call. */
 export class NonceCache {
-  private readonly ttlMs: number;
+  readonly ttlMs: number;
   private readonly seen = new Map<string, number>();
 
   constructor(ttlMs: number) {
