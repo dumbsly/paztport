@@ -4,7 +4,7 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { generateKeyPair } from "@paztport/path-attest";
-import { writeJson, writeText } from "./files.ts";
+import { writeJson, writePrivate } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c";
 
@@ -20,7 +20,11 @@ function main(): void {
     // fall through to usage
   }
   const names = (services ?? "").split(",").map((s) => s.trim()).filter((s) => s.length > 0);
-  if (!out || names.length === 0) {
+  const reserved = new Set([".", "..", "policy", "keyring"]);
+  const bad =
+    new Set(names).size !== names.length ||
+    names.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\"));
+  if (!out || names.length === 0 || bad) {
     console.error(USAGE);
     process.exit(2);
   }
@@ -28,11 +32,11 @@ function main(): void {
   const ring: { services: Record<string, string>; policy: string } = { services: {}, policy: "" };
   for (const svc of names) {
     const kp = generateKeyPair();
-    writeText(join(out, `${svc}.key`), kp.privateKey);
+    writePrivate(join(out, `${svc}.key`), kp.privateKey);
     ring.services[svc] = kp.publicKey;
   }
   const policy = generateKeyPair();
-  writeText(join(out, "policy.key"), policy.privateKey);
+  writePrivate(join(out, "policy.key"), policy.privateKey);
   ring.policy = policy.publicKey;
   writeJson(join(out, "keyring.json"), ring);
   console.log(`keygen: wrote ${names.length} service keys, policy key and keyring to ${out}`);

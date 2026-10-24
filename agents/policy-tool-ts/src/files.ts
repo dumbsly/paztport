@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export type Keyring = { services: Record<string, string>; policy: string };
@@ -28,7 +28,9 @@ export function writeJson(path: string, value: unknown): void {
   writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
 }
 
-export function writeText(path: string, text: string): void {
+/** Writes secret material owner-only; mode applies only on create, so chmod too. */
+export function writePrivate(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, text);
+  writeFileSync(path, text, { mode: 0o600 });
+  chmodSync(path, 0o600);
 }

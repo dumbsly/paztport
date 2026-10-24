@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -34,6 +34,31 @@ describe("policy-tool CLIs", () => {
     for (const [name, pub] of [...Object.entries(ring.services), ["policy", ring.policy]] as const) {
       const priv = readKey(join(out, `${name}.key`));
       expect(verify(pub, msg, sign(priv, msg))).toBe(true);
+    }
+  });
+
+  it("privateKeysAreOwnerOnly", () => {
+    if (process.platform === "win32") return;
+    const out = tmp();
+    for (let i = 0; i < 2; i++) {
+      expect(run(keygen, ["--out", out, "--services", "a,b"]).status).toBe(0);
+      const keys = readdirSync(out).filter((f) => f.endsWith(".key"));
+      expect(keys.sort()).toEqual(["a.key", "b.key", "policy.key"]);
+      for (const f of keys) expect(statSync(join(out, f)).mode & 0o077).toBe(0);
+    }
+    // pre-existing permissive file is tightened on re-run
+    chmodSync(join(out, "a.key"), 0o644);
+    expect(run(keygen, ["--out", out, "--services", "a,b"]).status).toBe(0);
+    expect(statSync(join(out, "a.key")).mode & 0o077).toBe(0);
+  });
+
+  it("keygenRejectsBadServiceNames", () => {
+    for (const svc of ["a,a", "a/b", "a\\b", "..", ".", "policy", "keyring", "a,,b,policy"]) {
+      const out = tmp();
+      const r = run(keygen, ["--out", out, "--services", svc]);
+      expect(r.status, svc).toBe(2);
+      expect(r.stderr).toContain("Usage");
+      expect(readdirSync(out)).toEqual([]);
     }
   });
 
