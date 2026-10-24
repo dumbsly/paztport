@@ -27,8 +27,10 @@ node mock-github-mcp/src/main.ts --mode enforce --outcome-log run.jsonl --canary
 - `--canary <s>`: the secret placed in both private READMEs (default: random)
 - `--payload <file>|none`: body of the injected issue (default `payloads/issue-default.md`; `none` drops the issue)
 
-The harness side lives in `agents/.demo/client`: the client keys, root and proofs, and
-`server-policy.pub`, the server policy key the client pins.
+The harness side lives in `agents/.demo/client`: the session and pi keys, the keyring, root and
+proofs, and `server-policy.pub`, the server policy key the client pins. setup-demo deletes the
+client policy private key once it has signed the client root; the server's `policy.key` stays, since
+the server signs its session replies with it.
 
 `node mock-github-mcp/src/docs-main.ts [--payload <file>]` runs a second, plain MCP server with one
 read tool, `fetch_docs`. It knows nothing of Paztport; its `contributing` page carries a payload

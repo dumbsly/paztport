@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -45,15 +45,10 @@ describe("loadClientMaterial", () => {
     expect(routes).toHaveLength(9);
     const route = "session/pi/mcp:github.create_pull_request";
     expect(verifyProof(m.proofs[route]!, route, decode(m.signedRoot.root))).toBe(true);
-  });
-
-  it("policyPrivateKeyNotRead", () => {
-    // least privilege: verifying the root needs only the public key, so policy.key is never read
-    const secret = readFileSync(join(client, "policy.key"), "utf8").trim();
-    expect(JSON.stringify(loadClientMaterial(client))).not.toContain(secret);
-    const dir = copy();
-    rmSync(join(dir, "policy.key"));
-    expect(Object.keys(loadClientMaterial(dir)).sort()).toEqual(["keyring", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
+    // least privilege: the root is checked with the policy public key alone, and setup-demo does not
+    // leave the client policy private key behind
+    expect(existsSync(join(client, "policy.key"))).toBe(false);
+    expect(Object.keys(m).sort()).toEqual(["keyring", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
   });
 
   it("mismatchedKeyRejected", () => {

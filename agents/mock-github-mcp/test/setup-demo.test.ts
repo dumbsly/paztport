@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
@@ -22,6 +22,9 @@ describe("setup-demo", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(pin(out)).toBe(serverPolicy(out) + "\n");
     expect(r.stdout).not.toContain(serverPolicy(out));
+    // the client policy private key only signs the client root; the server's signs session replies
+    expect(existsSync(join(out, "client/policy.key"))).toBe(false);
+    expect(existsSync(join(out, "server/policy.key"))).toBe(true);
   });
 
   it("setupRefusesOverwriteWithoutForce", () => {
@@ -36,5 +39,6 @@ describe("setup-demo", () => {
     expect(forced.status, forced.stderr).toBe(0);
     expect(serverPolicy(out)).not.toBe(before);
     expect(pin(out)).toBe(serverPolicy(out) + "\n");
+    expect(existsSync(join(out, "client/policy.key"))).toBe(false);
   });
 });

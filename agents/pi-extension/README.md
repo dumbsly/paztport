@@ -55,8 +55,9 @@ then classify the run from the outcome log as the
 
 - `mode`: `enforce`, `no-root` or `off` (see below).
 - `clientDir`: the client keys, signed root, `proofs-pi.json` and the pinned `server-policy.pub`, as
-  written by `setup-demo`. The client policy private key there (`policy.key`) is not read: the root
-  is checked with the policy public key from `keyring.json`.
+  written by `setup-demo`. It holds no policy private key: setup-demo deletes the client's
+  `policy.key` once it has signed the root, and the root is checked with the policy public key from
+  `keyring.json`.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`.
