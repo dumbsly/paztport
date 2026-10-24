@@ -18,8 +18,7 @@ import {
 export type ClientMaterial = {
   sessionKey: string;
   piKey: string;
-  /** Validated against the keyring but unused in this package. */
-  policyKey: string;
+  /** The client policy public key; the policy private key (policy.key) is never read. */
   policyPublicKey: string;
   keyring: Record<string, string>;
   signedRoot: SignedRoot;
@@ -76,7 +75,8 @@ export function readPin(path: string): string {
 
 /**
  * Loads and validates the files the policy-tool keygen and policy CLIs write for the client mesh
- * (session, pi). Throws a clear Error if they are not mutually consistent.
+ * (session, pi). Throws a clear Error if they are not mutually consistent. Least privilege: the root
+ * is checked with the policy public key alone, so the policy private key (policy.key) is not read.
  */
 export function loadClientMaterial(dir: string): ClientMaterial {
   const ring = readJson(dir, "keyring.json");
@@ -93,14 +93,10 @@ export function loadClientMaterial(dir: string): ClientMaterial {
   const m = {
     sessionKey: readText(dir, "session.key"),
     piKey: readText(dir, "pi.key"),
-    policyKey: readText(dir, "policy.key"),
   };
 
   if (!verifyRoot(signedRoot, policyPublicKey)) {
     throw new Error("root.json is not signed by the keyring.json policy key");
-  }
-  if (!keysMatch(m.policyKey, policyPublicKey)) {
-    throw new Error("policy.key does not match the keyring.json policy key");
   }
   for (const [svc, key] of [["session", m.sessionKey], ["pi", m.piKey]] as const) {
     if (!Object.hasOwn(keyring, svc)) {

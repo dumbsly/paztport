@@ -37,7 +37,6 @@ describe("loadClientMaterial", () => {
     const ring = json(join(client, "keyring.json"));
     expect(m.sessionKey).toBe(readFileSync(join(client, "session.key"), "utf8").trim());
     expect(m.piKey).toBe(readFileSync(join(client, "pi.key"), "utf8").trim());
-    expect(m.policyKey).toBe(readFileSync(join(client, "policy.key"), "utf8").trim());
     expect(m.policyPublicKey).toBe(ring.policy);
     expect(m.keyring).toEqual(ring.services);
     expect(m.signedRoot.rootId).toBe(json(join(client, "root.json")).rootId);
@@ -48,8 +47,17 @@ describe("loadClientMaterial", () => {
     expect(verifyProof(m.proofs[route]!, route, decode(m.signedRoot.root))).toBe(true);
   });
 
+  it("policyPrivateKeyNotRead", () => {
+    // least privilege: verifying the root needs only the public key, so policy.key is never read
+    const secret = readFileSync(join(client, "policy.key"), "utf8").trim();
+    expect(JSON.stringify(loadClientMaterial(client))).not.toContain(secret);
+    const dir = copy();
+    rmSync(join(dir, "policy.key"));
+    expect(Object.keys(loadClientMaterial(dir)).sort()).toEqual(["keyring", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
+  });
+
   it("mismatchedKeyRejected", () => {
-    for (const name of ["session", "pi", "policy"]) {
+    for (const name of ["session", "pi"]) {
       const dir = copy();
       writeFileSync(join(dir, `${name}.key`), generateKeyPair().privateKey + "\n");
       expect(() => loadClientMaterial(dir), name).toThrow(new RegExp(`${name}\\.key`));
