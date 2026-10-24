@@ -27,6 +27,17 @@ describe("InfluenceStore", () => {
     expect(s.classes()).toEqual(new Set(["local-untrusted"]));
   });
 
+  it("classesBecomeEntriesWithoutCid", () => {
+    // rebuilt from a restored session branch, which keeps label classes but no cids
+    const s = new InfluenceStore();
+    s.recordClasses("github", ["third-party", "private"], "H3");
+    expect(s.entries()).toEqual([
+      { cls: "private", src: "server:github", h: "H3" },
+      { cls: "third-party", src: "server:github", h: "H3" },
+    ]);
+    expect(s.classes()).toEqual(new Set(["third-party", "private"]));
+  });
+
   it("entriesNormalisedAndDeduped", () => {
     const s = new InfluenceStore();
     s.recordUntrusted("b", "Z");

@@ -3,10 +3,12 @@
 
 import { createHash } from "node:crypto";
 import type { Tool } from "@earendil-works/pi-mcp";
+import type { InfluenceClass } from "@paztport/path-attest";
 import type {
   AgentToolResult,
   ExtensionAPI,
   ExtensionContext,
+  SessionEntry,
   ToolAnnotations,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
@@ -23,6 +25,11 @@ const MAX_TOOL_NAME = 64;
 /** pi's built-in MCP resource tools; like its `mcp__` tools they return MCP server content. */
 const BUILTIN_MCP_RESOURCE_TOOLS = new Set(["list_mcp_resources", "list_mcp_resource_templates", "read_mcp_resource"]);
 const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint"] as const;
+/** A Record, so tsc flags a class added to the library and missing here. */
+const CLASSES: Record<InfluenceClass, true> = { "third-party": true, private: true, public: true, "local-untrusted": true };
+
+/** Tools whose results carry MCP server content: `mcp__` tools (this extension's and pi's built-in MCP) and pi's MCP resource tools. */
+const isMcpTool = (name: string): boolean => name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name);
 
 type Details = CallOutcome["details"] | { server: string; influence: Record<string, number> };
 type Parameters = ToolDefinition["parameters"];
@@ -72,18 +79,39 @@ function annotationsOf(tool: Tool): ToolAnnotations | undefined {
 }
 
 /**
- * Hash of a result that reached the model through pi's built-in MCP. Content JCS rejects (a lone
- * surrogate) is hashed through its JSON text instead, so it is still recorded.
+ * Hash of a tool result's content as pi holds it. Content JCS rejects (a lone surrogate, or none at
+ * all) is hashed through its JSON text instead, so it is still recorded.
  */
-function builtinHash(content: unknown): string {
+function hashContent(content: unknown): string {
   try {
     return contentHash({ content });
   } catch {
-    return contentHash({ content: [{ type: "text", text: JSON.stringify(content) }] });
+    return contentHash({ content: [{ type: "text", text: JSON.stringify(content ?? null) }] });
   }
 }
 
 const text = (t: string) => [{ type: "text" as const, text: t }];
+
+/** The influence classes in a restored result's details.labels, or undefined if they are not a list of classes. */
+function classesOf(labels: unknown): InfluenceClass[] | undefined {
+  if (!Array.isArray(labels) || !labels.every((l) => typeof l === "string" && Object.hasOwn(CLASSES, l))) {
+    return undefined;
+  }
+  return labels as InfluenceClass[];
+}
+
+/** True for the local text a refusal puts in place of the server's (see ServerConnection.call). */
+function isRefusal(content: unknown, details: Record<string, unknown>): boolean {
+  return (
+    typeof details.verdict === "string" &&
+    details.labels === undefined &&
+    Array.isArray(content) &&
+    content.length === 1 &&
+    isObject(content[0]) &&
+    content[0].type === "text" &&
+    content[0].text === `Paztport refused this call: ${details.verdict}`
+  );
+}
 
 /**
  * Makes pi a Paztport harness for the MCP servers named in the config (--paztport-config or
@@ -148,6 +176,41 @@ export default function paztport(pi: ExtensionAPI): void {
     registered.set(name, { server: serverId, tool: tool.name });
   }
 
+  /**
+   * Records the influence of the tool results on a restored session branch, as the live path did:
+   * pi keeps a session's messages over a reload, and resume, fork and a startup with -c or --session
+   * restore them, so what reached the model then is still in its context (R16). Our results (details
+   * naming a configured server, with an influence summary) give their label classes, without cids,
+   * or local-untrusted when they have no labels; refusals give nothing, and in off mode none of ours
+   * count. Every other MCP or MCP resource result is local-untrusted, as in tool_result.
+   */
+  function restoreInfluence(entries: SessionEntry[], config: PaztportConfig): void {
+    const ids = new Set(config.servers.map((spec) => spec.id));
+    for (const entry of entries) {
+      if (entry.type !== "message") {
+        continue;
+      }
+      const m: unknown = entry.message;
+      if (!isObject(m) || m.role !== "toolResult" || typeof m.toolName !== "string" || !isMcpTool(m.toolName)) {
+        continue;
+      }
+      const d = m.details;
+      if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
+        if (config.mode === "off" || isRefusal(m.content, d)) {
+          continue;
+        }
+        const classes = classesOf(d.labels);
+        if (classes !== undefined) {
+          influence.recordClasses(d.server, classes, hashContent(m.content));
+        } else {
+          influence.recordUntrusted(`server:${d.server}`, hashContent(m.content));
+        }
+      } else {
+        influence.recordUntrusted(`builtin:${m.toolName}`, hashContent(m.content));
+      }
+    }
+  }
+
   /** Loads the config, guards the workspace and loads the keys; throws (after any refused_start) if any fails. */
   function prepare(path: string, ctx: ExtensionContext): { config: PaztportConfig; events: EventLog; material: ClientMaterial } {
     let events: EventLog | undefined;
@@ -188,6 +251,8 @@ export default function paztport(pi: ExtensionAPI): void {
       return;
     }
     const { config, events, material } = prepare(path, ctx);
+    // before the tools are registered, so every call this session stamps carries the restored influence
+    restoreInfluence(ctx.sessionManager.getBranch(), config);
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {
@@ -228,8 +293,8 @@ export default function paztport(pi: ExtensionAPI): void {
       return; // recorded (or not) by its ServerConnection
     }
     const name = event.toolName;
-    if (name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name)) {
-      influence.recordUntrusted(`builtin:${name}`, builtinHash(event.content));
+    if (isMcpTool(name)) {
+      influence.recordUntrusted(`builtin:${name}`, hashContent(event.content));
     }
   });
 

@@ -18,7 +18,7 @@ import {
   type FauxProviderRegistration,
   type ToolCall,
 } from "@earendil-works/pi-ai";
-import { registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { getApiProvider, registerApiProvider, registerFauxProvider, unregisterApiProviders } from "@earendil-works/pi-ai/compat";
 import {
   createAgentSessionFromServices,
   createAgentSessionServices,
@@ -248,6 +248,38 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     ]);
     expect(log.at(-1)).toMatchObject({ typoFixed: true, isError: false });
     expect(toolResults(run).every((r) => !r.isError)).toBe(true);
+  });
+
+  it("reloadKeepsInfluence", async () => {
+    // pi's /reload keeps the messages and emits session_start "reload": the extension reconnects (a
+    // fresh server session) but rebuilds influence from the branch, so the poisoned context still
+    // closes public writes
+    const run = await start("enforce", [
+      call("list_issues", WEBSITE),
+      call("get_file_contents", PAYROLL),
+      say("I read the issues and the notes."),
+      call("create_branch", { ...WEBSITE, branch: "about-author" }),
+      say("I could not create the branch."),
+    ]);
+    await run.session.prompt(PROMPT);
+    // reload resets pi-ai's API registry to the built-in APIs, which drops the faux one: register the
+    // same faux stream again
+    const fauxApi = getApiProvider(run.faux.api)!;
+    await run.session.reload();
+    registerApiProvider({ api: fauxApi.api, stream: fauxApi.stream, streamSimple: fauxApi.streamSimple }, "faux-after-reload");
+    cleanups.push(() => unregisterApiProviders("faux-after-reload"));
+    expect(run.session.getActiveToolNames()).toContain("mcp__github__create_branch");
+    await run.session.prompt("Now create the branch.");
+
+    expect(run.faux.getPendingResponseCount()).toBe(0);
+    const log = records(run.outcome);
+    expect(log.map((r) => [r.tool, r.verdict])).toEqual([
+      ["list_issues", "ALLOWED"],
+      ["get_file_contents", "ALLOWED"],
+      ["create_branch", "INFLUENCE_DENIED"],
+    ]);
+    expect(log[2]!.rid).not.toBe(log[0]!.rid);
+    expect(textOf(toolResults(run).at(-1)!)).toBe("Paztport refused this call: INFLUENCE_DENIED");
   });
 
   it("modelNeverSeesMeta", async () => {

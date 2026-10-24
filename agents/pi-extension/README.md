@@ -55,7 +55,8 @@ then classify the run from the outcome log as the
 
 - `mode`: `enforce`, `no-root` or `off` (see below).
 - `clientDir`: the client keys, signed root, `proofs-pi.json` and the pinned `server-policy.pub`, as
-  written by `setup-demo`.
+  written by `setup-demo`. The client policy private key there (`policy.key`) is not read: the root
+  is checked with the policy public key from `keyring.json`.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`.
@@ -68,10 +69,13 @@ Relative `clientDir`, `pin` and `eventsLog` paths resolve against the config fil
 
 Each configured server runs as one child process per pi session. With the example config that is
 two processes, the mock GitHub server and the docs server, as in the mock server README. They start
-on session start and stop on shutdown. `/new`, `/resume`, `/fork` and reload restart them.
+on session start and stop on shutdown. `/new`, `/resume`, `/fork` and reload restart them, each with
+a new server session.
 
 Tools are registered as `mcp__<id>__<tool>`, with `id` as an alias. That is pi's own MCP naming:
-characters outside `[A-Za-z0-9_]` become `_`, and names are capped at 64 characters.
+characters outside `[A-Za-z0-9_]` become `_`. A name longer than 64 characters, or one this extension
+already gave a different tool, is cut and ends in `_` plus 8 hex characters of a hash of the server
+id and tool name, so it is at most 64 characters and unique.
 
 ## Modes
 
@@ -101,11 +105,12 @@ sent.
   with the session. pi-ai's provider converters (such as Anthropic and OpenAI) send only the
   content. A provider that forwards pi's whole context does
   receive `details`, though: pi's test faux provider and the `pi-messages` API both do.
-- **Keys.** Keys stay outside the workspace. If `clientDir`, the config file or any pin resolves
-  inside pi's working directory, the extension refuses to start. It registers no tools, raises an
+- **Keys.** If `clientDir`, the config file or any pin resolves inside pi's working directory, the
+  extension refuses to start. It registers no tools, raises an
   error, and logs `refused_start` to the events log when one is configured. The one exception is a
   config file inside the workspace: it is refused with the error alone, since its `eventsLog` can't
-  be trusted.
+  be trusted. This keeps keys out of the project; it does not hide them from the model (see
+  [Limits](#limits)).
 
 ## Limits
 
@@ -116,19 +121,32 @@ sent.
 - **One origin per server session.** The prompt-origin stamp is minted once per run for each server
   session and reused for every call in that run. A new handshake starts a new server session, and
   the server's record of what it has served starts empty again.
-- **Influence is sticky for the pi session.** Everything recorded stays until the next session start
-  (`/new`, `/resume`, `/fork`, reload), even across prompts. Steering messages sent mid-run keep the
-  current run's rid and origin. Only a new user prompt starts a new run.
+- **Influence is sticky for the pi session.** Everything recorded stays, even across prompts, until
+  `/new` starts an empty session. Reload keeps the messages, and `/resume`, `/fork` and `pi -c` or
+  `--session` restore them, so on those session starts the influence is rebuilt from the restored
+  branch: each of this extension's results counts with its label classes from `details`, or as
+  `local-untrusted` when it has none (refusals count for nothing, and in `off` mode none of these
+  results count), and every other MCP result counts as `local-untrusted`, as it did live. The rebuild
+  trusts the session file, which the model can edit through `bash`, and it counts a local error from
+  this extension (such as an unreachable server) as `local-untrusted`, which the live path does not.
+  Steering messages sent mid-run keep the current run's rid and origin. Only a new user prompt
+  starts a new run.
 - **Built-in local tools are unlabelled.** In phase 1, results of `read`, `bash`, `edit`, `write` and
   other non-MCP tools are not recorded as influence, so a payload in a workspace file goes untracked.
-- **Tool descriptions are not tracked.** Descriptions and schemas from `tools/list` are not recorded
-  as influence, so tool-description poisoning goes unnoticed.
+- **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from
+  `tools/list` are not recorded as influence, and neither are MCP server `instructions` or
+  descriptions that pi puts in the system prompt (for servers in its own `mcp.json`). Poisoning there
+  goes unnoticed.
 - **No subagents.** Run and influence state belong to the one pi session. Subagents are not covered.
 - **Don't also list these servers in pi's `mcp.json`.** pi's built-in MCP would register the same
   `mcp__<id>__<tool>` names. Results from pi's built-in MCP tools are still recorded, as
   `local-untrusted`.
 - **Other extensions run later.** Another extension's `tool_result` handler can rewrite a result after
   this extension recorded it, so the model may see content other than what was hashed.
+- **The workspace guard is hygiene, not a boundary.** It keeps the keys, the config and the pins from
+  being included in or edited as part of the project by accident. pi's `read` and `bash` tools accept
+  absolute paths, so the model can still read these files (`pi.key` among them) or use them through
+  `bash`. Phase 2 local enforcement closes this.
 - **Not everything is guarded.** The events log path and the server `command`/`args` are not checked
   against the workspace. Key files inside `clientDir` that are symlinks are followed.
 - **Aborts don't reach the server.** pi's abort signal is not forwarded to in-flight MCP calls. An

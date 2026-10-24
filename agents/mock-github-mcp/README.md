@@ -100,5 +100,7 @@ content.
 - Only the listed phrases and repo names are markers; other verbatim private lines are not detected.
 - The served-class union guards against under-reporting within one session; a new handshake resets it.
 - Run vitest from `agents/` (`npx vitest run mock-github-mcp`), not from this directory.
-- `agents/.demo/` holds private keys. Keep it outside any agent's workspace, so the agent under test
-  cannot read or sign with them.
+- `agents/.demo/` holds private keys. Keep it outside any agent's workspace, so they are not part of
+  the project the agent works on. That is hygiene, not a boundary: an agent with a shell or a file
+  tool that takes absolute paths (pi's `read` and `bash` do) can still read the keys and sign with
+  them. Phase 2 local enforcement closes this.

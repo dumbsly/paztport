@@ -34,6 +34,16 @@ export class InfluenceStore {
     }
   }
 
+  /**
+   * Label classes without their cids: what a restored session branch keeps of a verified response
+   * (the classes in its tool result's details).
+   */
+  recordClasses(serverId: string, classes: InfluenceClass[], contentHash: string): void {
+    for (const cls of classes) {
+      this.all.push({ cls, src: `server:${serverId}`, h: contentHash });
+    }
+  }
+
   recordUntrusted(src: string, contentHash: string): void {
     this.all.push({ cls: "local-untrusted", src, h: contentHash });
   }

@@ -11,6 +11,7 @@ import type {
   ExtensionAPI,
   ExtensionContext,
   ExtensionToolContext,
+  SessionEntry,
   ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { ServerSpec } from "../src/config.ts";
@@ -35,9 +36,12 @@ class FakePi {
   readonly handlers = new Map<string, Handler[]>();
   readonly api: ExtensionAPI;
   readonly ctx: ExtensionContext;
+  /** The session branch ctx.sessionManager.getBranch() returns: what pi restored for this session. */
+  branch: SessionEntry[] = [];
 
   constructor(flagValues: Record<string, string | undefined>, cwd: string) {
-    this.ctx = { cwd } as unknown as ExtensionContext;
+    const sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> = { getBranch: () => [...this.branch] };
+    this.ctx = { cwd, sessionManager } as unknown as ExtensionContext;
     this.api = {
       registerFlag: (name: string, options: unknown) => void this.flags.set(name, options),
       getFlag: (name: string) => flagValues[name],
@@ -133,6 +137,19 @@ async function until(cond: () => boolean, ms = 5_000): Promise<void> {
     if (Date.now() > end) throw new Error("timed out");
     await new Promise((r) => setTimeout(r, 25));
   }
+}
+
+let entrySeq = 0;
+/** A session entry for a tool result, shaped as pi 1.4.0 stores it. */
+function toolResultEntry(toolName: string, content: unknown, details?: unknown, isError = false): SessionEntry {
+  const id = `e${entrySeq++}`;
+  return {
+    type: "message",
+    id,
+    parentId: null,
+    timestamp: new Date(0).toISOString(),
+    message: { role: "toolResult", toolCallId: `call_${id}`, toolName, content, details, isError, timestamp: 0 },
+  } as unknown as SessionEntry;
 }
 
 const LIST = { owner: "acme", repo: "website" };
@@ -301,6 +318,8 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await result("mcp__other__fetch", "from a built-in MCP server");
     await result("mcp__other__fetch", "bad \ud800 text"); // JCS rejects it; still recorded
     await result("read_mcp_resource", "a built-in MCP resource");
+    // a result with no content at all is still recorded, not a throw
+    await pi.emit("tool_result", { toolName: "mcp__other__empty", toolCallId: id(), input: {}, content: undefined, isError: false });
     await result("bash", "local output");
     await result("read", "a local file");
     // this extension's own call, seen again by tool_result under the same toolCallId: not relabelled
@@ -311,8 +330,8 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     // this extension never executed is still recorded
     await result("mcp__github__list_issues", "from the built-in MCP github server");
     const out = await pi.execute("mcp__github__list_issues", LIST, id());
-    // two list_issues results (each labelled), four built-in MCP results
-    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 4 });
+    // two list_issues results (each labelled), five built-in MCP results
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 5 });
   });
 
   it("parallelCallsKeepInfluence", async () => {
@@ -373,6 +392,76 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const branch = await pi.execute("mcp__github__create_branch", { ...LIST, branch: "fix" }, id());
     expect(branch.isError).toBe(false);
     expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "ALLOWED" });
+  });
+
+  it("restoredBranchKeepsInfluence", async () => {
+    // A poisoned session: the issues (third-party) and the private notes reached the model.
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const { pi } = setup([github(outcome)]);
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    for (const [tool, args] of [["list_issues", LIST], ["get_file_contents", PAYROLL]] as const) {
+      const out = await pi.execute(`mcp__github__${tool}`, args, id());
+      pi.branch.push(toolResultEntry(`mcp__github__${tool}`, out.content, out.details));
+    }
+    const poisoned = { ...ZERO, "third-party": 1, private: 1 };
+
+    // reload keeps the messages; resume, fork and a startup with -c or --session restore them. Each
+    // reconnects (a fresh server session), but the context is still poisoned, so the write is refused.
+    for (const reason of ["reload", "resume", "fork", "startup"]) {
+      await pi.emit("session_start", { reason });
+      await pi.prompt("fix the typo");
+      const write = await pi.execute("mcp__github__create_branch", { ...LIST, branch: `leak-${reason}` }, id());
+      expect(write.details.verdict, reason).toBe("INFLUENCE_DENIED");
+      expect(write.details.influence, reason).toEqual(poisoned);
+      expect(records(outcome).at(-1), reason).toMatchObject({ tool: "create_branch", verdict: "INFLUENCE_DENIED" });
+    }
+
+    // /new: an empty branch is a clean context
+    pi.branch = [];
+    await pi.emit("session_start", { reason: "new" });
+    await pi.prompt("fix the typo");
+    const write = await pi.execute("mcp__github__create_branch", { ...LIST, branch: "fix" }, id());
+    expect(write.isError).toBe(false);
+    expect(write.details.influence).toEqual({ ...ZERO, public: 1 }); // only the write's own result
+    expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "ALLOWED" });
+  });
+
+  it("restoredBranchRecordedLikeLivePath", async () => {
+    const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, ...extra });
+    const branch = [
+      // this extension's results: verified labels are re-recorded as their classes
+      toolResultEntry("mcp__github__get_file_contents", [{ type: "text", text: "notes" }], own({ session: "attested", verify: "OK", labels: ["private"] })),
+      // unverified, or from an unsafe session: local-untrusted
+      toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "issues" }], own({ session: "unsafe", sessionReason: "PIN_MISMATCH" })),
+      // a refusal carries no server content and is never recorded
+      toolResultEntry("mcp__github__create_branch", [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], own({ session: "attested", verdict: "INFLUENCE_DENIED" }), true),
+      // pi's built-in MCP (details { server, tool }), even under a name this extension registers
+      toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "built-in github" }], { server: "github", tool: "list_issues" }),
+      toolResultEntry("mcp__other__fetch", [{ type: "text", text: "built-in other" }], { server: "other", tool: "fetch" }),
+      toolResultEntry("read_mcp_resource", [{ type: "text", text: "a resource" }], { server: "other", tool: "read_mcp_resource" }),
+      toolResultEntry("mcp__other__empty", undefined),
+      // not MCP content
+      toolResultEntry("bash", [{ type: "text", text: "local output" }]),
+      { type: "message", id: "u", parentId: null, timestamp: new Date(0).toISOString(), message: { role: "user", content: "hi", timestamp: 0 } } as unknown as SessionEntry,
+      { type: "model_change", id: "m", parentId: null, timestamp: new Date(0).toISOString(), provider: "p", modelId: "m" } as SessionEntry,
+    ];
+
+    const enforce = setup([github(), docs()]);
+    enforce.pi.branch = branch;
+    await enforce.pi.emit("session_start", { reason: "reload" });
+    // one unsafe result of ours and four built-in MCP results, plus the live docs result (the docs
+    // server is unattested)
+    const a = await enforce.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
+    expect(a.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 6 });
+
+    // off mode records none of this extension's results (restored or live); the four built-in MCP
+    // results still count
+    const off = setup([github(), docs()], { mode: "off" });
+    off.pi.branch = branch;
+    await off.pi.emit("session_start", { reason: "resume" });
+    const b = await off.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
+    expect(b.details.influence).toEqual({ ...ZERO, "local-untrusted": 4 });
   });
 
   it("shutdownClosesServers", async () => {
