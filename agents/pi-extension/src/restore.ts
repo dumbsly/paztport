@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFileSync, realpathSync } from "node:fs";
+import { readFileSync, realpathSync, statSync } from "node:fs";
 import { sep } from "node:path";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 
@@ -15,6 +15,8 @@ export type Walk = { entries: SessionEntry[]; complete: boolean };
 
 /** How many parentSession links are followed. */
 const MAX_PARENTS = 8;
+/** The largest parent session file read. */
+const MAX_PARENT_BYTES = 64 * 1024 * 1024;
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -51,17 +53,20 @@ function parentOf(header: unknown): string | undefined {
  * Entry lookups for a session, then for the sessions it was forked or cloned from, nearest first.
  * pi's /fork and /clone write only the current path to the new session file and name the old file
  * in the header's parentSession, so a branch summarised there is found in the parent. A parent is
- * read only if it is a .jsonl file inside this session's directory (pi's session store), at most
- * MAX_PARENTS deep, each file once; it is read and parsed as JSONL, never written. Parents load on
- * first use.
+ * read only if it is a regular .jsonl file under this session's directory (pi's session store) of at
+ * most maxBytes, at most MAX_PARENTS deep, each file once; it is read and parsed as JSONL, never
+ * written. Anything else (a FIFO, which would block the read, a directory, an oversize file) is
+ * unreadable, so its summaries stay unresolved. Parents load on first use.
  */
 export class SessionChain {
   private readonly lookups: Lookup[];
   private readonly dir: string | undefined;
   private readonly files = new Set<string>();
   private parent: string | undefined;
+  private readonly maxBytes: number;
 
-  constructor(session: SessionView) {
+  constructor(session: SessionView, opts: { maxBytes?: number } = {}) {
+    this.maxBytes = opts.maxBytes ?? MAX_PARENT_BYTES;
     this.lookups = [(id) => session.getEntry(id)];
     let dir: string | undefined;
     try {
@@ -115,6 +120,10 @@ export class SessionChain {
         return false;
       }
       this.files.add(real);
+      const st = statSync(real);
+      if (!st.isFile() || st.size > this.maxBytes) {
+        return false;
+      }
       text = readFileSync(real, "utf8");
     } catch {
       return false;

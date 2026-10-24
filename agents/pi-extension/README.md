@@ -132,13 +132,14 @@ sent.
   result counts as `local-untrusted`, as it did live. A summary that `/tree` left of an abandoned
   branch is in context too, so the results on that branch count the same way. `/fork` and `/clone`
   write only the current path to the new session file, so that branch is looked up in the session
-  file it was forked or cloned from (named in the new file's header, and read only if it is in the
-  same session directory). If the branch can't be found there either, for example because that file
-  was deleted, the summary may hold anything: it counts as `private` and `local-untrusted`, so public
-  writes are refused (except in `off` mode). A compaction summary needs no such step: the entries
-  it summarises are still on the restored branch and are counted there. The rebuild trusts the
-  session file, which the model can edit through `bash`. Steering messages sent mid-run keep the
-  current run's rid and origin. Only a new user prompt starts a new run.
+  file it was forked or cloned from. That file is named in the new file's header, and it is read
+  only if it is a regular file of at most 64 MiB under the same session directory. If the branch
+  can't be found there either, for example because that file was deleted, the summary may hold
+  anything: it counts as `private` and `local-untrusted`, so public writes are refused (except in
+  `off` mode). A compaction summary needs no such step: the entries it summarises are still on the
+  restored branch and are counted there. The rebuild trusts the session file, which the model can
+  edit through `bash`. Steering messages sent mid-run keep the current run's rid and origin. Only a
+  new user prompt starts a new run.
 - **Built-in local tools are unlabelled.** In phase 1, results of `read`, `bash`, `edit`, `write` and
   other non-MCP tools are not recorded as influence, so a payload in a workspace file goes untracked.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from

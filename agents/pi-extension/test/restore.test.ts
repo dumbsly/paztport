@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -80,5 +81,23 @@ describe("SessionChain", () => {
     writeFileSync(a, JSON.stringify({ type: "session", parentSession: b }) + "\n");
     expect(new SessionChain(view(dir, a)).branch("nowhere", 0).complete).toBe(false);
     expect(new SessionChain(view(dir, a)).branch("b", 0)).toMatchObject({ complete: true, depth: 2 });
+  });
+
+  it("readsOnlyRegularFilesUnderTheCap", () => {
+    const dir = join(tmp, "store3");
+    mkdirSync(dir);
+    // a FIFO named *.jsonl would block the read, and with it session_start
+    const fifo = join(dir, "fifo.jsonl");
+    if (spawnSync("mkfifo", [fifo]).status === 0) {
+      expect(new SessionChain(view(dir, fifo)).branch("f", 0).complete).toBe(false);
+    }
+    // a directory named *.jsonl
+    const sub = join(dir, "sub.jsonl");
+    mkdirSync(sub);
+    expect(new SessionChain(view(dir, sub)).branch("d", 0).complete).toBe(false);
+    // over the size cap
+    const big = file(dir, undefined, e("big", null));
+    expect(new SessionChain(view(dir, big), { maxBytes: 64 }).branch("big", 0).complete).toBe(false);
+    expect(new SessionChain(view(dir, big)).branch("big", 0).complete).toBe(true);
   });
 });
