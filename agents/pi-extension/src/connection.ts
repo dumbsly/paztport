@@ -20,6 +20,7 @@ import {
   verifyResponse,
   verifySessionReply,
   type InfluenceClass,
+  type ReasonCode,
   type SessionReply,
   type SessionRequest,
 } from "@paztport/path-attest";
@@ -57,7 +58,26 @@ export type CallOutcome = {
 const META_VERDICT = "paztport/verdict";
 const INST = "pi-1";
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
-const REASON_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+/**
+ * Every refusal code the library defines (the mock server's verdicts are all ReasonCodes). A Record,
+ * so tsc flags a code added to the library and missing here.
+ */
+const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK">, true> = {
+  CHAIN_MISSING: true,
+  BAD_ORIGIN: true,
+  BAD_SIGNATURE: true,
+  BROKEN_LINK: true,
+  EXPIRED: true,
+  RID_MISMATCH: true,
+  BINDING_MISMATCH: true,
+  REPLAY: true,
+  PATH_NOT_ALLOWED: true,
+  SESSION_UNKNOWN: true,
+  CLIENT_PATH_NOT_ALLOWED: true,
+  INFLUENCE_MISMATCH: true,
+  INFLUENCE_DENIED: true,
+  UNSAFE_SESSION: true,
+};
 const RPC_ERRORS: Record<number, string> = {
   [JSON_RPC_ERROR_CODES.parseError]: "parse error",
   [JSON_RPC_ERROR_CODES.invalidRequest]: "invalid request",
@@ -102,14 +122,17 @@ function textOf(raw: Record<string, unknown>): string {
     .join("\n");
 }
 
-/** The paztport/verdict on a result, if any. The reason is server data, so it is narrowed to a code. */
+/**
+ * The paztport/verdict on a result, if any. The reason is server data that reaches the model, so
+ * anything but a known refusal code becomes "UNKNOWN".
+ */
 function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boolean } | undefined {
   const meta = raw._meta;
   if (!isObject(meta) || !Object.hasOwn(meta, META_VERDICT)) {
     return undefined;
   }
   const v = meta[META_VERDICT];
-  const reason = isObject(v) && typeof v.reason === "string" && REASON_CODE.test(v.reason) ? v.reason : "UNKNOWN";
+  const reason = isObject(v) && typeof v.reason === "string" && Object.hasOwn(REFUSAL_CODES, v.reason) ? v.reason : "UNKNOWN";
   return { reason, audit: isObject(v) && v.audit === true };
 }
 
@@ -227,14 +250,20 @@ export class ServerConnection {
     } catch (e) {
       return unsafe(e instanceof McpError && e.code === JSON_RPC_ERROR_CODES.methodNotFound ? "METHOD_NOT_FOUND" : "HANDSHAKE_ERROR");
     }
-    if (!isSessionReply(reply)) {
-      return unsafe("MALFORMED_REPLY");
+    let failure = "MALFORMED_REPLY";
+    if (isSessionReply(reply)) {
+      failure = reply.serverPolicyKey !== pin ? "PIN_MISMATCH" : !verifySessionReply(reply, req, pin) ? "BAD_SIGNATURE" : "";
     }
-    if (reply.serverPolicyKey !== pin) {
-      return unsafe("PIN_MISMATCH");
-    }
-    if (!verifySessionReply(reply, req, pin)) {
-      return unsafe("BAD_SIGNATURE");
+    if (failure !== "" || !isSessionReply(reply)) {
+      // The server may now hold an attested session that this client cannot use: every unstamped call
+      // would be refused. Replace it with an unsafe one (no client root) so reads work and writes are
+      // refused UNSAFE_SESSION. The second reply is not trusted either way.
+      try {
+        await client.request(SESSION_METHOD, { ...req, clientRoot: null, nonce: newNonce() } as unknown as Record<string, unknown>);
+      } catch {
+        // stays unsafe
+      }
+      return unsafe(failure);
     }
     this.reply = reply;
     this.state = reply.status;
@@ -315,7 +344,7 @@ export class ServerConnection {
           _meta: { [META_CHAIN]: [origin, pi], [META_PROOF]: proof, [META_INFLUENCE]: infl, [META_CALL_ID]: callId },
         };
       } catch (e) {
-        return fail(`cannot stamp the call (${(e as Error).message}); nothing was sent`, "STAMP_FAILED", { rid });
+        return fail(`cannot stamp the call (${describeError(e).message}); nothing was sent`, "STAMP_FAILED", { rid });
       }
     }
     const withRid = rid !== undefined ? { rid } : {};
@@ -336,37 +365,41 @@ export class ServerConnection {
     if (verdict !== undefined && !verdict.audit) {
       // A refusal: the tool did not run. Its text is replaced by a local message, so no server content
       // reaches the model unrecorded, and nothing is recorded as influence.
-      this.events.emit({ type: "response", server, tool, callId, ...withRid, verdict: verdict.reason, isError: true });
-      return {
-        text: `Paztport refused this call: ${verdict.reason}`,
-        isError: true,
-        details: details({ ...withRid, verdict: verdict.reason }),
-      };
+      const out = details({ ...withRid, verdict: verdict.reason });
+      this.events.emit({ type: "response", server, tool, callId, ...withRid, verdict: verdict.reason, isError: true, classes: out.influence });
+      return { text: `Paztport refused this call: ${verdict.reason}`, isError: true, details: out };
     }
 
+    // Hashing and verification can throw on results JSON allows but JCS rejects (a lone surrogate, a
+    // number that parsed to Infinity). Such a result is an error, its text is dropped and nothing is
+    // recorded: every throwing step runs before the first record.
     const text = textOf(raw);
-    const h = contentHash(raw);
     let verify: string | undefined;
     let labels: InfluenceClass[] | undefined;
-    if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
-      const v = verifyResponse(raw, { rid, toolCallId: callId }, {
-        keyring: reply.serverKeyring,
-        root: decode(reply.serverRoot.root),
-        rootId: reply.serverRoot.rootId,
-        allowedOrigins: ["mcp-entry"],
-        sess: reply.sess,
-        nonces: this.responseNonces,
-        now: this.now(),
-      });
-      verify = v.result.reason;
-      if (v.result.ok) {
-        labels = v.labels.map((l) => l.cls);
-        this.influence.recordLabels(server, v.labels, h);
-      } else {
+    try {
+      const h = contentHash(raw);
+      if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
+        const v = verifyResponse(raw, { rid, toolCallId: callId }, {
+          keyring: reply.serverKeyring,
+          root: decode(reply.serverRoot.root),
+          rootId: reply.serverRoot.rootId,
+          allowedOrigins: ["mcp-entry"],
+          sess: reply.sess,
+          nonces: this.responseNonces,
+          now: this.now(),
+        });
+        verify = v.result.reason;
+        if (v.result.ok) {
+          labels = v.labels.map((l) => l.cls);
+          this.influence.recordLabels(server, v.labels, h);
+        } else {
+          this.influence.recordUntrusted(`server:${server}`, h);
+        }
+      } else if (this.mode !== "off") {
         this.influence.recordUntrusted(`server:${server}`, h);
       }
-    } else if (this.mode !== "off") {
-      this.influence.recordUntrusted(`server:${server}`, h);
+    } catch {
+      return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
     }
     const isError = raw.isError === true;
     const extra = {
