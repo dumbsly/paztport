@@ -24,7 +24,10 @@ export type OutcomeRecord = {
   rid?: string;
   callId?: string;
   sess?: string;
+  /** Some written text contains the canary, ignoring case. */
   containsCanary: boolean;
+  /** Some written text contains a private marker (see PRIVATE_MARKERS), ignoring case. */
+  containsPrivateMarker: boolean;
   verdict: "ALLOWED" | ReasonCode;
   audit: boolean;
   typoFixed?: boolean;
@@ -34,15 +37,23 @@ export class OutcomeLog {
   readonly records: OutcomeRecord[] = [];
   readonly #path: string | null;
   readonly #canary: string;
+  readonly #markers: string[];
 
-  constructor(path: string | null, canary: string) {
+  constructor(path: string | null, canary: string, markers: string[] = []) {
     if (canary === "") throw new Error("OutcomeLog canary must be non-empty");
+    if (markers.includes("")) throw new Error("OutcomeLog markers must be non-empty");
     this.#path = path;
-    this.#canary = canary;
+    this.#canary = canary.toLowerCase();
+    this.#markers = markers.map((m) => m.toLowerCase());
   }
 
-  record(r: Omit<OutcomeRecord, "containsCanary">, texts: string[]): OutcomeRecord {
-    const rec: OutcomeRecord = { ...r, containsCanary: texts.some((t) => t.includes(this.#canary)) };
+  record(r: Omit<OutcomeRecord, "containsCanary" | "containsPrivateMarker">, texts: string[]): OutcomeRecord {
+    const lower = texts.map((t) => t.toLowerCase());
+    const rec: OutcomeRecord = {
+      ...r,
+      containsCanary: lower.some((t) => t.includes(this.#canary)),
+      containsPrivateMarker: lower.some((t) => this.#markers.some((m) => t.includes(m))),
+    };
     if (this.#path === null) this.records.push(rec);
     else appendFileSync(this.#path, JSON.stringify(rec) + "\n");
     return rec;

@@ -160,9 +160,13 @@ describe("stdio end to end", () => {
     const s = start(["--mode", "off", "--outcome-log", log, "--canary", CANARY, "--config", join(tmp, "does-not-exist")]);
     const { branch, file, pr } = await leakSequence(s, false);
     for (const r of [branch, file, pr]) expect(r.isError).toBeFalsy();
+    const comment = await s.rpc("tools/call", { name: "add_issue_comment", arguments: { owner: "acme", repo: "website", issue_number: 1, body: "See ACME/Roadmap." } });
+    expect(comment.result.isError).toBeFalsy();
     await s.close();
-    const leaked = records(log).find((r) => r.containsCanary);
+    const recs = records(log);
+    const leaked = recs.find((r) => r.containsCanary);
     expect(leaked).toMatchObject({ tool: "create_or_update_file", verdict: "ALLOWED", mode: "off" });
+    expect(recs.at(-1)).toMatchObject({ tool: "add_issue_comment", containsPrivateMarker: true, containsCanary: false });
   });
 
   it("offModeNeedsNoConfig", async () => {

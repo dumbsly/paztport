@@ -13,7 +13,7 @@ import {
   type InfluenceEntry,
   type SessionReply,
 } from "@paztport/path-attest";
-import { createFixtures } from "../src/fixtures.ts";
+import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT, type ServerPaztportConfig } from "../src/paztport.ts";
 import { OutcomeLog, type Mode } from "../src/outcome.ts";
@@ -52,7 +52,7 @@ function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; pazt
   const mode = o.mode ?? "enforce";
   const cfg = serverConfig();
   const state = createFixtures({ canary: CANARY, issuePayload: PAYLOAD });
-  const outcome = new OutcomeLog(null, CANARY);
+  const outcome = new OutcomeLog(null, CANARY, PRIVATE_MARKERS);
   const server = createGithubServer({ mode, paztport: o.paztport === false ? null : cfg, state, outcome });
   const client = makeClient(o.client);
   let id = 0;
@@ -186,6 +186,7 @@ describe("composed github server", () => {
       ["create_pull_request", "ALLOWED", false, false],
     ]);
     expect(writes(h)[2]!.typoFixed).toBe(true);
+    expect(h.outcome.records.every((r) => !r.containsCanary && !r.containsPrivateMarker)).toBe(true);
     expect(h.outcome.records[0]).not.toHaveProperty("typoFixed");
     expect(writes(h)[0]).not.toHaveProperty("typoFixed");
     expect(h.state.pulls()).toHaveLength(1);

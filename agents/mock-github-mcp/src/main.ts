@@ -5,7 +5,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { createFixtures } from "./fixtures.ts";
+import { createFixtures, PRIVATE_MARKERS } from "./fixtures.ts";
 import { OutcomeLog, type Mode } from "./outcome.ts";
 import { loadServerConfig, type ServerPaztportConfig } from "./paztport.ts";
 import { createGithubServer } from "./server.ts";
@@ -76,7 +76,7 @@ function main(): void {
     mode: mode as Mode,
     paztport,
     state: createFixtures({ canary, issuePayload }),
-    outcome: new OutcomeLog(logPath, canary),
+    outcome: new OutcomeLog(logPath, canary, PRIVATE_MARKERS),
   });
   console.error(`mock-github-mcp: mode=${mode} serving stdio`);
   void serveStdio(server, process.stdin, process.stdout);
