@@ -57,6 +57,8 @@ One JSON line per `tools/call`, reads and writes, allowed and refused:
 | `publicDestination` | a write aimed at a public repo (always false for reads) |
 | `label` | influence class of the result (`public`, `private`, `third-party`); absent when refused |
 | `privateRead` | a read that returned (or, if refused, targeted) private content |
+| `privateFileRead` | `get_file_contents` with a `path` on a private repo (not a listing or search) |
+| `isError` | the tool ran and returned a tool error; false for refused calls |
 | `verdict` | `ALLOWED` or the reason code |
 | `audit` | true when a failing call ran anyway in audit mode |
 | `containsCanary` | some written text contains the canary (case-insensitive) |
@@ -95,6 +97,8 @@ content.
 - The influence rule uses the client's verified influence plus every class the server served in the
   session, so a harness that under-reports cannot loosen it. Custom `SessionRules` can leave write
   tools enabled in unsafe sessions, where no influence rule applies; the default disables every write.
+- Only the listed phrases and repo names are markers; other verbatim private lines are not detected.
+- The served-class union guards against under-reporting within one session; a new handshake resets it.
 - Run vitest from `agents/` (`npx vitest run mock-github-mcp`), not from this directory.
 - `agents/.demo/` holds private keys. Keep it outside any agent's workspace, so the agent under test
   cannot read or sign with them.

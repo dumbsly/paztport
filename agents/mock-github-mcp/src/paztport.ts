@@ -241,7 +241,9 @@ export class PaztportServer {
   }
 
   /** Verifies a tools/call params object against the current attested session's client policy. */
-  checkCall(params: Record<string, unknown>): { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[] } {
+  checkCall(
+    params: Record<string, unknown>,
+  ): { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[]; session: Session } {
     const session = this.current;
     if (session === undefined || session.status !== "attested" || session.request.clientRoot === null) {
       throw new Error("checkCall needs an attested session");
@@ -250,7 +252,7 @@ export class PaztportServer {
     try {
       root = decode(session.request.clientRoot.root);
     } catch {
-      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [] };
+      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], session };
     }
     const v = verifyCall(params, { serverId: "github" }, {
       keyring: session.request.clientKeyring,
@@ -262,18 +264,16 @@ export class PaztportServer {
       now: this.now(),
     });
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
-    return { reason, rid: v.rid, callId: v.callId, influence: reason === "OK" ? v.influence : [] };
+    return { reason, rid: v.rid, callId: v.callId, influence: reason === "OK" ? v.influence : [], session };
   }
 
+  /** Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current one). */
   attest(
+    session: Session,
     result: CallToolResult,
     call: { rid: string; callId: string; name: string; args: unknown },
     cls: InfluenceClass,
   ): CallToolResult {
-    const session = this.current;
-    if (session === undefined) {
-      throw new Error("no session");
-    }
     const labels: ContentLabel[] = [{ cls, cid: newContentId() }];
     const resultHash = bindResult(result);
     const base = { rid: call.rid, ts: this.now(), inst: this.cfg.inst, sess: session.sess, infl: "" };

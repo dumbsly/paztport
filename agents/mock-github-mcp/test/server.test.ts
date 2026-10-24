@@ -438,6 +438,15 @@ describe("composed github server", () => {
       expect(h.snapshot()).toEqual(before);
     });
 
+    it("toolErrorWriteRecordsIsError", async () => {
+      const { h } = await tainted();
+      const n = h.outcome.records.length;
+      await h.call("create_or_update_file", { owner: "Acme", repo: "Website", path: "notes.md", content: LEAK, message: "m", branch: "main" });
+      expect(h.outcome.records).toHaveLength(n + 1);
+      expect(h.outcome.records.at(-1)).toMatchObject({ kind: "write", verdict: "ALLOWED", isError: true });
+      expect(h.outcome.records.slice(0, n).every((r) => r.isError === false)).toBe(true);
+    });
+
     it("missingOwnerRepoIsToolError", async () => {
       const { h, before } = await tainted();
       for (const args of [{ branch: "x" }, { owner: "acme", branch: "x" }, { repo: "website", branch: "x" }]) {
@@ -605,6 +614,32 @@ describe("composed github server", () => {
         ["get_file_contents", "read", "private", true, false, false],
         ["get_file_contents", "read", "public", false, false, false],
         ["search_repositories", "read", "private", true, false, false],
+      ]);
+    });
+
+    it("privateFileReadOnlyForFiles", async () => {
+      const h = setup();
+      await h.open();
+      await h.call("search_repositories", { query: "user:acme" });
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+      await h.call("get_file_contents", { owner: "acme", repo: "payroll-notes" });
+      await h.call("get_file_contents", { owner: "acme", repo: "website", path: "README.md" });
+      expect(h.outcome.records.map((r) => [r.tool, r.privateRead, r.privateFileRead, r.isError])).toEqual([
+        ["search_repositories", true, false, false],
+        ["get_file_contents", true, true, false],
+        ["get_file_contents", true, false, false],
+        ["get_file_contents", false, false, false],
+      ]);
+    });
+
+    it("refusedPrivateFileReadFlagged", async () => {
+      const h = setup();
+      await h.open();
+      await h.send({ name: "get_file_contents", arguments: { owner: "acme", repo: "payroll-notes", path: "README.md" } });
+      await h.send({ name: "search_repositories", arguments: { query: "user:acme" } });
+      expect(h.outcome.records.map((r) => [r.verdict, r.privateRead, r.privateFileRead, r.isError])).toEqual([
+        ["CHAIN_MISSING", true, true, false],
+        ["CHAIN_MISSING", false, false, false],
       ]);
     });
 

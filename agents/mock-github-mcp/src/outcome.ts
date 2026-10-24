@@ -20,6 +20,10 @@ export type OutcomeRecord = {
   label?: InfluenceClass;
   /** A read that returned (or, when refused, targeted) private content. */
   privateRead: boolean;
+  /** A get_file_contents with a path on a private repo (a private file, not a listing or search). */
+  privateFileRead: boolean;
+  /** The tool ran and returned a tool error; false for refused calls. */
+  isError: boolean;
   /** Set when the call verified against an attested session. */
   rid?: string;
   callId?: string;

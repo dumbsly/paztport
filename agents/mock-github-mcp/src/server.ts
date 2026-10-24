@@ -44,6 +44,11 @@ function isPrivate(state: GithubState, args: Record<string, unknown>): boolean {
   return state.repo(args.owner, args.repo)?.private ?? false;
 }
 
+/** True for get_file_contents with a non-empty path on a known private repo. */
+function isPrivateFile(tool: GithubTool, state: GithubState, args: Record<string, unknown>): boolean {
+  return tool.name === "get_file_contents" && typeof args.path === "string" && args.path !== "" && isPrivate(state, args);
+}
+
 /**
  * The classes the influence rule sees in an attested session: the client's verified influence
  * plus every class this server served in the session. The union only adds classes, so the server
@@ -96,7 +101,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
 
     if (verdict !== "OK" && mode === "enforce") {
       const privateRead = tool.kind === "read" && isPrivate(state, args);
-      outcome.record({ ...record, privateRead, verdict, audit: false }, tool.textsFromArgs(args));
+      outcome.record({ ...record, privateRead, privateFileRead: isPrivateFile(tool, state, args), isError: false, verdict, audit: false }, tool.textsFromArgs(args));
       return {
         content: [{ type: "text", text: `Paztport refused this call: ${verdict}` }],
         isError: true,
@@ -106,13 +111,16 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
 
     const result = tool.run(state, args);
     const label = labelFor(result);
+    const privateRead = result.read?.includesPrivate ?? false;
     const pr = result.write && tool.name === "create_pull_request" ? state.pulls().at(-1) : undefined;
     outcome.record(
       {
         ...record,
         ...(result.write ? { owner: result.write.owner, repo: result.write.repo } : {}),
         label,
-        privateRead: result.read?.includesPrivate ?? false,
+        privateRead,
+        privateFileRead: privateRead && isPrivateFile(tool, state, args),
+        isError: result.isError ?? false,
         verdict: verdict === "OK" ? "ALLOWED" : verdict,
         audit: mode === "audit" && verdict !== "OK",
         ...(pr !== undefined ? { typoFixed: typoFixed(state, pr) } : {}),
@@ -122,7 +130,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     const mcpResult: CallToolResult = { content: [{ type: "text", text: result.text }], isError: result.isError ?? false };
     if (mode === "audit" && verdict !== "OK") mcpResult._meta = { [META_VERDICT]: { reason: verdict, audit: true } };
     if (server !== null && verified !== null) {
-      return server.attest(mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {} }, label);
+      return server.attest(verified.session, mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {} }, label);
     }
     // unsafe sessions, off mode and failed checks: unattested
     return mcpResult;

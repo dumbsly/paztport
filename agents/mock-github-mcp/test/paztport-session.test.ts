@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, signRoot, verifyCall, verifyRoot } from "@paztport/path-attest";
+import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, signRoot, verifyCall, verifyRoot, type InfluenceClass } from "@paztport/path-attest";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig, PaztportServer, type ServerPaztportConfig, type SessionRules } from "../src/paztport.ts";
 import { makeClient } from "./helpers/client.ts";
@@ -98,7 +98,7 @@ describe("response attestation", () => {
   }
   it("attestedResponseVerifiesForClient", () => {
     const { srv, client, reply } = setup();
-    const out = srv.attest(RESULT, CALL, "third-party");
+    const out = srv.attest(srv.session()!, RESULT, CALL, "third-party");
     const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!);
     expect(v.reason).toBe("OK");
     expect(v.labels).toHaveLength(1);
@@ -108,7 +108,7 @@ describe("response attestation", () => {
   it("attestationLabelMatchesClass", () => {
     const { srv } = setup();
     for (const cls of ["third-party", "private", "public", "local-untrusted"] as const) {
-      const att = (srv.attest(RESULT, CALL, cls)._meta as Record<string, any>)[META_ATTESTATION];
+      const att = (srv.attest(srv.session()!, RESULT, CALL, cls)._meta as Record<string, any>)[META_ATTESTATION];
       expect(att.labels).toHaveLength(1);
       expect(att.labels[0].cls).toBe(cls);
       expect(typeof att.labels[0].cid).toBe("string");
@@ -118,9 +118,9 @@ describe("response attestation", () => {
   it("attestRecordsServedClass", () => {
     const { srv, client } = setup();
     expect([...srv.session()!.served]).toEqual([]);
-    srv.attest(RESULT, CALL, "third-party");
-    srv.attest(RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "private");
-    srv.attest(RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
+    srv.attest(srv.session()!, RESULT, CALL, "third-party");
+    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "private");
+    srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
     expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
     // a new handshake starts a new session with nothing served
     srv.openSession(client.request());
@@ -128,20 +128,20 @@ describe("response attestation", () => {
   });
   it("replayedResponseIsRejected", () => {
     const { srv, client, reply } = setup();
-    const out = srv.attest(RESULT, CALL, "public");
+    const out = srv.attest(srv.session()!, RESULT, CALL, "public");
     const args = [{ rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!] as const;
     expect(client.verify(out, ...args).reason).toBe("OK");
     expect(client.verify(out, ...args).reason).toBe("REPLAY");
   });
   it("tamperedContentIsBindingMismatch", () => {
     const { srv, client, reply } = setup();
-    const out = srv.attest(RESULT, CALL, "private");
+    const out = srv.attest(srv.session()!, RESULT, CALL, "private");
     const tampered: CallToolResult = { ...out, content: [{ type: "text", text: "hello, edited" }] };
     expect(client.verify(tampered, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
   it("responseIntoOtherSessionRejected", () => {
     const { srv, client: clientA, reply: replyA } = setup();
-    const outA = srv.attest(RESULT, CALL, "public");
+    const outA = srv.attest(srv.session()!, RESULT, CALL, "public");
     const clientB = makeClient();
     const replyB = srv.openSession(clientB.request());
     expect(clientB.acceptReply(replyB, replyA.serverPolicyKey)).toBe(true);
@@ -155,7 +155,7 @@ describe("response attestation", () => {
   });
   it("staleResponseIsExpired", () => {
     const { srv, client, reply } = setup();
-    const out = srv.attest(RESULT, CALL, "public");
+    const out = srv.attest(srv.session()!, RESULT, CALL, "public");
     const v = client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!, Date.now() + 60_000);
     expect(v.reason).toBe("EXPIRED");
   });
@@ -174,9 +174,16 @@ describe("response attestation", () => {
     });
     expect(r.result.reason).toBe("OK");
   });
-  it("attestWithoutSessionThrows", () => {
-    const srv = new PaztportServer(serverConfig(), RULES, Date.now);
-    expect(() => srv.attest(RESULT, CALL, "public")).toThrow();
+  it("attestUsesVerifiedSession", () => {
+    const { srv } = setup();
+    // a session that is not the current one, as when a new handshake lands mid-call
+    const other = { ...srv.session()!, sess: "verified-session-id", served: new Set<InfluenceClass>() };
+    expect(other.sess).not.toBe(srv.session()!.sess);
+    const out = srv.attest(other, RESULT, CALL, "private");
+    const att = (out._meta as Record<string, any>)[META_ATTESTATION];
+    expect(att.chain.map((s: any) => s.sess)).toEqual(["verified-session-id", "verified-session-id"]);
+    expect(other.served).toEqual(new Set(["private"]));
+    expect(srv.session()!.served.size).toBe(0);
   });
 });
 
@@ -200,7 +207,7 @@ describe("loadServerConfig", () => {
     const client = makeClient();
     const reply = srv.openSession(client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
-    const out = srv.attest(RESULT, CALL, "public");
+    const out = srv.attest(srv.session()!, RESULT, CALL, "public");
     expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
   });
 

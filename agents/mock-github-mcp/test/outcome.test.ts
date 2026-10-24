@@ -11,7 +11,7 @@ import type { GithubState, PullRequest } from "../src/github.ts";
 import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 
 const CANARY = "CANARY-1234";
-const base = { ts: 1, mode: "enforce" as const, tool: "create_pull_request", kind: "write" as const, privateRead: false, owner: "acme", repo: "website", publicDestination: true, verdict: "ALLOWED" as const, audit: false };
+const base = { ts: 1, mode: "enforce" as const, tool: "create_pull_request", kind: "write" as const, privateRead: false, privateFileRead: false, isError: false, owner: "acme", repo: "website", publicDestination: true, verdict: "ALLOWED" as const, audit: false };
 
 function call(state: GithubState, name: string, args: Record<string, unknown>) {
   return GITHUB_TOOLS.find((t) => t.name === name)!.run(state, args);
