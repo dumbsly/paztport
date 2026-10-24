@@ -4,3 +4,6 @@
 export * from "./b64url.ts";
 export * from "./crypto.ts";
 export * from "./jcs.ts";
+export * from "./merkle.ts";
+export * from "./root.ts";
+export * from "./policy.ts";
