@@ -113,6 +113,10 @@ describe("loadScenario validation", () => {
     ["steps unknown placeholder", (j) => (j.steps.list_issues = "list {nothing}"), /steps\.list_issues/],
     ["tools", (j) => (j.tools = ""), /tools/],
     ["serverId", (j) => (j.serverId = 4), /serverId/],
+    ["userPrompt read as a file by pi", (j) => (j.userPrompt = "@notes.md fix it"), /userPrompt/],
+    ["tools of another server", (j) => (j.tools = "mcp__other__*"), /tools/],
+    ["tools with a built-in", (j) => (j.tools = "mcp__github__*,bash"), /tools/],
+    ["tools with an empty entry", (j) => (j.tools = "mcp__github__*,"), /tools/],
     ["payloadFile missing", (j) => (j.payloadFile = "nope.md"), /payloadFile/],
     ["payloadFile escapes", (j) => (j.payloadFile = "../outside.md"), /payloadFile/],
   ];
@@ -121,6 +125,11 @@ describe("loadScenario validation", () => {
       expect(() => loadScenario(copyScenario(edit))).toThrow(field);
     });
   }
+
+  it("toolsMayListSeveralOfTheServersTools", () => {
+    const s = loadScenario(copyScenario((j) => (j.tools = "mcp__github__get_file_contents,mcp__github__list_issues")));
+    expect(s.tools).toBe("mcp__github__get_file_contents,mcp__github__list_issues");
+  });
 
   it("missingFolderOrJsonIsClearError", () => {
     expect(() => loadScenario(join(tmp, "does-not-exist"))).toThrow(/scenario\.json/);

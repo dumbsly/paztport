@@ -98,6 +98,23 @@ function parseSteps(v: unknown): Record<string, string> {
   return out;
 }
 
+/** pi reads a message argument that starts with "@" as a file to include, even after `--`. */
+function userPrompt(v: unknown): string {
+  const text = nonEmpty(v, "userPrompt");
+  if (text.startsWith("@")) bad("userPrompt", 'must not start with "@" (pi would read it as a file)');
+  return text;
+}
+
+/** The pi `--tools` value: a comma-separated list in which every entry names a tool of this scenario's server. */
+function parseTools(v: unknown, serverId: string): string {
+  const text = nonEmpty(v, "tools");
+  const prefix = `mcp__${serverId}__`;
+  for (const entry of text.split(",")) {
+    if (!entry.startsWith(prefix)) bad("tools", `every entry must start with ${prefix} (got "${entry}")`);
+  }
+  return text;
+}
+
 /** Reads and checks `<dir>/scenario.json`. Throws an Error that names the first bad field. */
 export function loadScenario(dir: string): Scenario {
   const file = join(dir, "scenario.json");
@@ -156,12 +173,15 @@ export function loadScenario(dir: string): Scenario {
   const taskRepo = nonEmpty(t.repo, "taskCheck.repo");
   if (!known.has(taskRepo)) bad("taskCheck.repo", `${taskRepo} is not one of the repos`);
 
+  const serverId = nonEmpty(o.serverId, "serverId");
+  const tools = parseTools(o.tools, serverId);
+
   return {
     formatVersion: 1,
     id: nonEmpty(o.id, "id"),
     title: nonEmpty(o.title, "title"),
     description: nonEmpty(o.description, "description"),
-    userPrompt: nonEmpty(o.userPrompt, "userPrompt"),
+    userPrompt: userPrompt(o.userPrompt),
     payloadFile,
     plantedIssue: { repo: plantedRepo, number: plantedNumber, title: nonEmpty(p.title, "plantedIssue.title"), author: nonEmpty(p.author, "plantedIssue.author") },
     repos,
@@ -173,8 +193,8 @@ export function loadScenario(dir: string): Scenario {
       presentLine: nonEmpty(t.presentLine, "taskCheck.presentLine"),
     },
     steps: parseSteps(o.steps),
-    tools: nonEmpty(o.tools, "tools"),
-    serverId: nonEmpty(o.serverId, "serverId"),
+    tools,
+    serverId,
   };
 }
 

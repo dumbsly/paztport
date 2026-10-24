@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { prepareAgentDir, type ModelRef } from "./models.ts";
 
@@ -61,6 +62,7 @@ class LineSplitter {
 class Tail {
   #offset = 0;
   readonly #split = new LineSplitter();
+  readonly #decoder = new StringDecoder("utf8");
   readonly path: string;
   constructor(path: string) {
     this.path = path;
@@ -81,11 +83,29 @@ class Tail {
       closeSync(fd);
     }
     this.#offset = size;
-    return this.#split.push(buf.toString("utf8"));
+    return this.#split.push(this.#decoder.write(buf));
   }
   end(): string[] {
-    return [...this.poll(), ...this.#split.end()];
+    const polled = this.poll();
+    return [...polled, ...this.#split.push(this.#decoder.end()), ...this.#split.end()];
   }
+}
+
+/** Process groups of running pi processes, killed if the eval exits without finishing them. */
+const liveGroups = new Set<number>();
+let exitHookInstalled = false;
+function installExitHook(): void {
+  if (exitHookInstalled) return;
+  exitHookInstalled = true;
+  process.on("exit", () => {
+    for (const pid of liveGroups) {
+      try {
+        process.kill(-pid, "SIGKILL");
+      } catch {
+        // already gone
+      }
+    }
+  });
 }
 
 function validate(spec: RunSpec): void {
@@ -157,7 +177,11 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     "--tools", scenario.tools,
     "--no-session",
     "--mode", "json",
+    // Nothing outside the run folder reaches the model: no AGENTS.md/CLAUDE.md from the cwd or its parents,
+    // no skills or prompt templates, and no user mcp.json (our extension starts the only MCP server).
+    "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp",
     ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
+    "--",
     scenario.userPrompt,
   ];
   const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
@@ -189,20 +213,14 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   ];
 
   const child = spawn(process.execPath, args, { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => {
-    appendFileSync(path("transcript.jsonl"), chunk);
-    emit("transcript", out.push(chunk));
-  });
-  child.stderr.on("data", (chunk: string) => {
-    appendFileSync(path("stderr.txt"), chunk);
-    emit("stderr", err.push(chunk));
-  });
-  const poller = setInterval(() => {
-    for (const [file, tail] of tails) emit(file, tail.poll());
-  }, POLL_MS);
+  if (child.pid !== undefined) {
+    installExitHook();
+    liveGroups.add(child.pid);
+  }
 
+  // The group kill reaches pi and anything that stayed in its group. It does not reach MCP servers: pi-mcp
+  // starts each in its own process group. Those end because their stdin closes when pi dies, which the mock
+  // server relies on; an MCP server that ignores stdin EOF would outlive a killed run.
   const killGroup = (sig: NodeJS.Signals) => {
     if (child.pid === undefined) return;
     try {
@@ -212,14 +230,46 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     }
   };
   let reason: "timeout" | "abort" | null = null;
+  let faulted = false;
   let exited = false;
   let escalation: NodeJS.Timeout | undefined;
-  const terminate = (why: "timeout" | "abort") => {
+  const terminate = (why: "timeout" | "abort" | "fault") => {
+    if (why === "fault") faulted = true;
     if (reason !== null || exited) return;
-    reason = why;
+    if (why !== "fault") reason = why;
     killGroup("SIGTERM");
     escalation = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
   };
+  /** A run file that cannot be written or read ends the run as an error; it never throws out of an event handler. */
+  const guard = (fn: () => void) => {
+    try {
+      fn();
+    } catch (e) {
+      if (!faulted) {
+        try {
+          appendFileSync(path("stderr.txt"), `runner: ${(e as Error).message}\n`);
+        } catch {
+          // stderr.txt is the broken file too
+        }
+      }
+      terminate("fault");
+    }
+  };
+
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    guard(() => appendFileSync(path("transcript.jsonl"), chunk));
+    emit("transcript", out.push(chunk));
+  });
+  child.stderr.on("data", (chunk: string) => {
+    guard(() => appendFileSync(path("stderr.txt"), chunk));
+    emit("stderr", err.push(chunk));
+  });
+  const poller = setInterval(() => {
+    for (const [file, tail] of tails) guard(() => emit(file, tail.poll()));
+  }, POLL_MS);
+
   const timer = setTimeout(() => terminate("timeout"), spec.timeoutMs);
   const onAbort = () => terminate("abort");
   signal?.addEventListener("abort", onAbort, { once: true });
@@ -230,14 +280,15 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     child.on("error", (e) => {
       if (child.pid === undefined) {
         spawnFailed = true;
-        appendFileSync(path("stderr.txt"), `could not start pi: ${e.message}\n`);
+        guard(() => appendFileSync(path("stderr.txt"), `could not start pi: ${e.message}\n`));
         done();
       }
     });
     child.on("exit", (code) => {
       exited = true;
       exitCode = code;
-      // pi stops its mock servers itself; this catches any that outlive it, and releases the pipes
+      clearTimeout(escalation);
+      // catches anything that stayed in pi's group and outlived it, and releases the pipes
       killGroup("SIGKILL");
       setTimeout(() => {
         child.stdout.destroy();
@@ -251,11 +302,13 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   clearTimeout(timer);
   clearTimeout(escalation);
   clearInterval(poller);
+  if (child.pid !== undefined) liveGroups.delete(child.pid);
   signal?.removeEventListener("abort", onAbort);
   emit("transcript", out.end());
   emit("stderr", err.end());
-  for (const [file, tail] of tails) emit(file, tail.end());
+  for (const [file, tail] of tails) guard(() => emit(file, tail.end()));
 
-  const status: RunResult["status"] = reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed ? "error" : exitCode === 0 ? "completed" : "error";
+  const status: RunResult["status"] =
+    reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed || faulted ? "error" : exitCode === 0 ? "completed" : "error";
   return finish(status, exitCode, startedAt);
 }

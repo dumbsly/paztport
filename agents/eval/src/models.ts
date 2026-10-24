@@ -41,7 +41,7 @@ export function prepareAgentDir(dir: string, model: ModelRef, userAgentDir = fal
   const providers = { ...(current.providers ?? {}) };
   const models = [...(providers.ollama?.models ?? [])];
   if (!models.some((m) => m.id === model.id)) models.push({ id: model.id });
-  providers.ollama = { baseUrl: "http://localhost:11434/v1", api: "openai-completions", apiKey: "ollama", models } as (typeof providers)[string];
+  providers.ollama = { baseUrl: "http://127.0.0.1:11434/v1", api: "openai-completions", apiKey: "ollama", models } as (typeof providers)[string];
   const next = { $schema: "https://pi.dev/schemas/models.schema.json", ...current, providers };
   const tmp = `${file}.${process.pid}.tmp`;
   writeFileSync(tmp, JSON.stringify(next, null, 2) + "\n");

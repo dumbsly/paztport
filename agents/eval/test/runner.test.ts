@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -36,7 +36,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   // no process started by a test may outlive it
   const ps = execFileSync("ps", ["-axo", "command"], { encoding: "utf8" });
-  const leaked = ps.split("\n").filter((l) => l.includes("paztport-stub-grandchild") && l.includes(tmp));
+  const leaked = ps.split("\n").filter((l) => l.startsWith(`${process.execPath} -e `) && l.includes("paztport-stub-grandchild"));
   expect(leaked).toEqual([]);
 });
 
@@ -121,7 +121,10 @@ describe("runOnce", () => {
       expect(flagValue(argv, "--tools")).toBe("mcp__github__*");
       expect(argv).toContain("--no-session");
       expect(flagValue(argv, "--mode")).toBe("json");
+      // nothing outside the run folder reaches the model: no context files, skills, templates or user MCP config
+      for (const f of ["--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp"]) expect(argv, `${mode} ${f}`).toContain(f);
       expect(argv.at(-1)).toBe(scenario.userPrompt);
+      expect(argv.at(-2)).toBe("--");
       if (want.warning) expect(flagValue(argv, "--append-system-prompt")).toBe(warningFile);
       else expect(argv).not.toContain("--append-system-prompt");
 
@@ -251,6 +254,51 @@ describe("runOnce", () => {
     expect(await gone(Number(readFileSync(c.pidfile, "utf8")))).toBe(true);
   }, 20_000);
 
+  it("detachedMcpServerStopsWithPiAfterTimeout", async () => {
+    // pi-mcp starts MCP servers in their own process group, so the group kill cannot reach them; they
+    // end because their stdin closes when pi dies. The stub's detached grandchild behaves the same way.
+    const c = mk({ timeoutMs: 700 }, "hang-detached");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("timeout");
+    expect(await gone(Number(readFileSync(c.pidfile, "utf8")))).toBe(true);
+  });
+
+  it("detachedMcpServerStopsWithPiAfterSigkill", async () => {
+    const c = mk({ timeoutMs: 500 }, "hang-detached-ignore");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("timeout");
+    expect(await gone(Number(readFileSync(c.pidfile, "utf8")))).toBe(true);
+  }, 20_000);
+
+  it("exitHookKillsLiveRunGroups", async () => {
+    const c = mk({}, "hang");
+    const r = spawnSync(process.execPath, [join(import.meta.dirname, "fixtures/crash-runner.ts")], { env: { ...process.env, CRASH_SPEC: JSON.stringify(c.spec) }, timeout: 20_000 });
+    expect(r.status).toBe(1);
+    expect(await gone(Number(readFileSync(c.pidfile, "utf8")))).toBe(true);
+  });
+
+  it("multiByteCharacterSplitAcrossReadsIsNotGarbled", async () => {
+    const c = mk({}, "split");
+    const seen: string[] = [];
+    await runOnce(c.spec, (file, line) => {
+      if (file === "events") seen.push(line);
+    });
+    expect(seen).toEqual([JSON.stringify({ text: "caf\u00e9 \u20ac \u{1F600}" })]);
+  });
+
+  it("aFileSystemErrorOnTheTranscriptIsAnErrorResult", async () => {
+    const c = mk({}, "break-transcript");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("error");
+    expect(readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8")).toContain("runner:");
+  });
+
+  it("aFileSystemErrorOnTheEventsLogIsAnErrorResult", async () => {
+    const c = mk({}, "break-events");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("error");
+  });
+
   it("abortSignalStops", async () => {
     const c = mk({}, "hang");
     const ac = new AbortController();
@@ -307,7 +355,7 @@ describe("prepareAgentDir", () => {
     prepareAgentDir(dir, { provider: "ollama", id: "gemma3:4b" });
     prepareAgentDir(dir, OLLAMA);
     const models = JSON.parse(readFileSync(join(dir, "models.json"), "utf8"));
-    expect(models.providers.ollama).toMatchObject({ baseUrl: "http://localhost:11434/v1", api: "openai-completions", apiKey: "ollama" });
+    expect(models.providers.ollama).toMatchObject({ baseUrl: "http://127.0.0.1:11434/v1", api: "openai-completions", apiKey: "ollama" });
     expect(models.providers.ollama.models).toEqual([{ id: "qwen3:4b" }, { id: "gemma3:4b" }]);
   });
   it("leaves the user's own directory alone", () => {
