@@ -26,9 +26,12 @@ import {
 } from "@paztport/path-attest";
 import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
+import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";
 import { contentHash, type InfluenceStore } from "./influence.ts";
 import { readPin, type ClientMaterial } from "./keys.ts";
 import type { RunState } from "./runs.ts";
+
+type EvidenceCallParams = Extract<EvidenceRecord, { type: "call" }>["params"];
 
 export type SessionState = "attested" | "unsafe" | "off";
 
@@ -165,6 +168,7 @@ export class ServerConnection {
   private readonly influence: InfluenceStore;
   private readonly runs: RunState;
   private readonly events: EventLog;
+  private readonly evidence: EvidenceLog;
   private readonly now: () => number;
   private readonly responseNonces = new NonceCache(NONCE_TTL_MS);
   private client: McpClient | undefined;
@@ -182,6 +186,7 @@ export class ServerConnection {
     runs: RunState,
     events: EventLog,
     now: () => number = Date.now,
+    evidence: EvidenceLog = new EvidenceLog(undefined),
   ) {
     this.spec = spec;
     this.mode = mode;
@@ -190,6 +195,7 @@ export class ServerConnection {
     this.runs = runs;
     this.events = events;
     this.now = now;
+    this.evidence = evidence;
   }
 
   /** Spawns the server, runs initialize, the paztport/session handshake (when due) and tools/list. Throws if the server cannot start. */
@@ -250,12 +256,26 @@ export class ServerConnection {
       clientKeyring: this.material.keyring,
       nonce: newNonce(),
     };
+    // Each request that was sent is written to the evidence file, with the raw reply (null when
+    // there was none) and the state it left this connection in.
+    const record = (request: SessionRequest, raw: unknown, status: "attested" | "unsafe", reason?: string) =>
+      this.evidence.write({
+        v: 1,
+        type: "session",
+        server: this.spec.id,
+        request,
+        reply: raw ?? null,
+        pin,
+        status,
+        ...(reason !== undefined ? { reason } : {}),
+      });
     let reply: unknown;
     let failure = "MALFORMED_REPLY";
     try {
       reply = await client.request(SESSION_METHOD, req as unknown as Record<string, unknown>);
     } catch (e) {
       if (e instanceof McpError && e.code === JSON_RPC_ERROR_CODES.methodNotFound) {
+        record(req, null, "unsafe", "METHOD_NOT_FOUND");
         return unsafe("METHOD_NOT_FOUND"); // no Paztport on the server, so no session to replace
       }
       failure = "HANDSHAKE_ERROR";
@@ -269,11 +289,15 @@ export class ServerConnection {
       // have opened the session before the reply was lost. Replace it, best effort, with an unsafe one
       // (no client root) so reads work and writes are refused UNSAFE_SESSION. The second reply is not
       // trusted either way.
+      record(req, reply, "unsafe", failure);
+      const replacement: SessionRequest = { ...req, clientRoot: null, nonce: newNonce() };
+      let second: unknown;
       try {
-        await client.request(SESSION_METHOD, { ...req, clientRoot: null, nonce: newNonce() } as unknown as Record<string, unknown>);
+        second = await client.request(SESSION_METHOD, replacement as unknown as Record<string, unknown>);
       } catch {
         // stays unsafe
       }
+      record(replacement, second, "unsafe", failure);
       return unsafe(failure);
     }
     this.reply = reply;
@@ -281,6 +305,7 @@ export class ServerConnection {
     if (reply.status === "unsafe") {
       this.reason = "UNSAFE";
     }
+    record(req, reply, reply.status, this.reason);
   }
 
   status(): SessionState {
@@ -332,6 +357,7 @@ export class ServerConnection {
     const reply = this.reply;
     let rid: string | undefined;
     let params: Record<string, unknown> = { name: tool, arguments: args };
+    let stampedAt: number | undefined;
     if (session === "attested" && reply !== undefined) {
       const run = this.runs.current();
       if (run === undefined) {
@@ -346,8 +372,9 @@ export class ServerConnection {
       try {
         const origin = this.runs.origin(reply.sess, this.material.sessionKey, INST);
         const infl = this.influence.entries();
+        stampedAt = this.now();
         const pi = signStampV2(
-          { svc: "pi", inst: INST, rid, ts: this.now(), sess: reply.sess, bind: bindMcpCall(tool, callId, args), infl: commitInfluence(infl), prev: origin.sig },
+          { svc: "pi", inst: INST, rid, ts: stampedAt, sess: reply.sess, bind: bindMcpCall(tool, callId, args), infl: commitInfluence(infl), prev: origin.sig },
           this.material.piKey,
         );
         params = {
@@ -359,6 +386,17 @@ export class ServerConnection {
       }
     }
     const withRid = rid !== undefined ? { rid } : {};
+    // Attested connections only: what was sent, and when it was stamped. Unsafe and off calls are plain.
+    const attested = session === "attested" && reply !== undefined && rid !== undefined && stampedAt !== undefined ? { rid, stampedAt } : undefined;
+    if (attested !== undefined) {
+      this.evidence.write({ v: 1, type: "call", server, tool, callId, rid: attested.rid, now: attested.stampedAt, params: params as EvidenceCallParams });
+    }
+    // `now` is the value passed to verifyResponse; without one (a refusal, a malformed result) the time is read here.
+    const respond = (result: unknown, now?: number) => {
+      if (attested !== undefined) {
+        this.evidence.write({ v: 1, type: "response", server, tool, callId, rid: attested.rid, now: now ?? this.now(), result });
+      }
+    };
     this.events.emit({ type: "call", server, tool, callId, ...withRid, session });
 
     let raw: unknown;
@@ -369,11 +407,13 @@ export class ServerConnection {
       return fail(d.message, d.code, withRid, d.rpcCode);
     }
     if (!isObject(raw)) {
+      respond(raw);
       return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
     }
 
     const verdict = verdictOf(raw);
     if (verdict !== undefined && !verdict.audit) {
+      respond(raw);
       // A refusal: the tool did not run. Its text is replaced by a local message, so no server content
       // reaches the model unrecorded, and nothing is recorded as influence.
       const out = details({ ...withRid, verdict: verdict.reason, refused: true });
@@ -388,10 +428,12 @@ export class ServerConnection {
     const text = textOf(raw);
     let verify: string | undefined;
     let labels: InfluenceClass[] | undefined;
+    let verifiedAt: number | undefined;
     if (this.mode !== "off") {
       try {
         const h = contentHash(raw);
         if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
+          verifiedAt = this.now();
           const v = verifyResponse(raw, { rid, toolCallId: callId }, {
             keyring: reply.serverKeyring,
             root: decode(reply.serverRoot.root),
@@ -399,7 +441,7 @@ export class ServerConnection {
             allowedOrigins: ["mcp-entry"],
             sess: reply.sess,
             nonces: this.responseNonces,
-            now: this.now(),
+            now: verifiedAt,
           });
           verify = v.result.reason;
           if (v.result.ok) {
@@ -412,9 +454,11 @@ export class ServerConnection {
           this.influence.recordUntrusted(`server:${server}`, h);
         }
       } catch {
+        respond(raw, verifiedAt);
         return fail("malformed tools/call result", "MALFORMED_RESULT", withRid);
       }
     }
+    respond(raw, verifiedAt);
     const isError = raw.isError === true;
     const extra = {
       ...withRid,

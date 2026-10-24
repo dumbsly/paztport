@@ -45,6 +45,9 @@ describe("loadConfig", () => {
     const cfg = loadConfig(path);
     expect(cfg.clientDir).toBe(join(dir, "client"));
     expect(cfg.eventsLog).toBe(join(dir, "logs/events.jsonl"));
+    expect(cfg.evidenceLog).toBeUndefined();
+    const ev = write({ ...base, evidenceLog: "logs/evidence.jsonl" });
+    expect(loadConfig(ev).evidenceLog).toBe(join(ev, "..", "logs/evidence.jsonl"));
     expect(cfg.servers[0]!.pin).toBe(join(dir, "client", "server-policy.pub"));
     expect(cfg.servers[1]!.pin).toBe(join(dir, "pins/b.pub"));
     expect(cfg.servers[2]!.pin).toBeUndefined();
@@ -80,6 +83,7 @@ describe("loadConfig", () => {
     expect(() => loadConfig(write({ ...base, servers: [{ id: "a", command: "node", attested: true, args: [1] }] }))).toThrow(/servers\[0\]\.args/);
     expect(() => loadConfig(write({ ...base, servers: [{ id: "a", command: "node", attested: true, env: { K: 1 } }] }))).toThrow(/servers\[0\]\.env/);
     expect(() => loadConfig(write({ ...base, eventsLog: 5 }))).toThrow(/eventsLog/);
+    expect(() => loadConfig(write({ ...base, evidenceLog: "" }))).toThrow(/evidenceLog/);
     expect(() => loadConfig(write([]))).toThrow(/config/);
   });
 

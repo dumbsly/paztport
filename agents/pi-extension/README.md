@@ -65,7 +65,16 @@ then classify the run from the outcome log as the
   reason codes, influence class counts, rids and call ids. It never records content, arguments,
   keys, signatures or hashes.
 
-Relative `clientDir`, `pin` and `eventsLog` paths resolve against the config file's directory.
+- `evidenceLog` (optional): an opt-in JSONL file with what a third party needs to re-verify a run
+  offline, kept apart from the events log. It holds the user prompt and rid of each run; for each
+  handshake request sent, the request, the raw reply and the pin it was checked against; and, on
+  attested connections, each `tools/call` exactly as sent (name, arguments and `_meta`: chain, proof
+  and influence) with the time it was stamped, and each raw result including its `_meta` with the
+  time it was verified. It is non-secret: no private keys. It does include prompts, tool arguments
+  and tool results, so it can hold private content. The model never sees it, and it is not
+  workspace-guarded, so keep it outside the agent's working directory.
+
+Relative `clientDir`, `pin`, `eventsLog` and `evidenceLog` paths resolve against the config file's directory.
 `command` and `args` are used as given.
 
 Each configured server runs as one child process per pi session. With the example config that is

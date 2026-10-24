@@ -22,6 +22,8 @@ export type PaztportConfig = {
   clientDir: string;
   servers: ServerSpec[];
   eventsLog?: string;
+  /** Opt-in evidence file for offline re-verification; holds tool arguments and results. */
+  evidenceLog?: string;
 };
 
 const MODES: readonly string[] = ["enforce", "no-root", "off"];
@@ -101,6 +103,9 @@ export function loadConfig(path: string): PaztportConfig {
   const cfg: PaztportConfig = { mode: raw.mode as ExtensionMode, clientDir, servers };
   if (raw.eventsLog !== undefined) {
     cfg.eventsLog = resolve(dir, nonEmptyString(raw.eventsLog, "eventsLog"));
+  }
+  if (raw.evidenceLog !== undefined) {
+    cfg.evidenceLog = resolve(dir, nonEmptyString(raw.evidenceLog, "evidenceLog"));
   }
   return cfg;
 }

@@ -15,6 +15,7 @@ import type {
 import { assertOutsideWorkspace, loadConfig, resolveConfigPath, type PaztportConfig } from "./config.ts";
 import { ServerConnection, type CallOutcome } from "./connection.ts";
 import { EventLog } from "./events.ts";
+import { EvidenceLog } from "./evidence.ts";
 import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
 import { SessionChain, type SessionView } from "./restore.ts";
@@ -112,6 +113,8 @@ export default function paztport(pi: ExtensionAPI): void {
   const influence = new InfluenceStore();
   let runs = new RunState();
   let connections = new Map<string, ServerConnection>();
+  /** The evidence file of the current session; a no-op log until a config is loaded. */
+  let evidence = new EvidenceLog(undefined);
   /** Every tool name this extension registered, to its server id and remote tool name. */
   const registered = new Map<string, { server: string; tool: string }>();
   /**
@@ -237,7 +240,10 @@ export default function paztport(pi: ExtensionAPI): void {
   }
 
   /** Loads the config, guards the workspace and loads the keys; throws (after any refused_start) if any fails. */
-  function prepare(path: string, ctx: ExtensionContext): { config: PaztportConfig; events: EventLog; material: ClientMaterial } {
+  function prepare(
+    path: string,
+    ctx: ExtensionContext,
+  ): { config: PaztportConfig; events: EventLog; evidence: EvidenceLog; material: ClientMaterial } {
     let events: EventLog | undefined;
     let code = "CONFIG";
     try {
@@ -247,6 +253,8 @@ export default function paztport(pi: ExtensionAPI): void {
       assertOutsideWorkspace(path, ctx.cwd, "config");
       code = "EVENTS_LOG";
       events = new EventLog(config.eventsLog);
+      code = "EVIDENCE_LOG";
+      const evidenceLog = new EvidenceLog(config.evidenceLog);
       code = "WORKSPACE_GUARD";
       assertOutsideWorkspace(config.clientDir, ctx.cwd);
       for (const spec of config.servers) {
@@ -257,7 +265,7 @@ export default function paztport(pi: ExtensionAPI): void {
       }
       code = "CLIENT_MATERIAL";
       const material = loadClientMaterial(config.clientDir);
-      return { config, events, material };
+      return { config, events, evidence: evidenceLog, material };
     } catch (e) {
       events?.emit({ type: "refused_start", code });
       throw new Error(`Paztport refused to start: ${(e as Error).message}`);
@@ -275,15 +283,18 @@ export default function paztport(pi: ExtensionAPI): void {
     influence.reset();
     ownCalls.clear();
     runs = new RunState();
+    evidence = new EvidenceLog(undefined);
     const flag = pi.getFlag(FLAG);
     const path = resolveConfigPath(typeof flag === "string" ? flag : undefined, process.env);
     if (path === undefined) {
       return;
     }
-    const { config, events, material } = prepare(path, ctx);
+    const prepared = prepare(path, ctx);
+    const { config, events, material } = prepared;
+    evidence = prepared.evidence;
     // before the tools are registered, so every call this session stamps carries the restored influence
     restoreInfluence(ctx.sessionManager, config);
-    const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events));
+    const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events, Date.now, evidence));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {
       // a later session_start or session_shutdown superseded this one
@@ -314,7 +325,12 @@ export default function paztport(pi: ExtensionAPI): void {
 
   pi.on("before_agent_start", (event) => {
     if (event.messageType === "user") {
-      runs.start(event.prompt, Date.now());
+      const ts = Date.now();
+      runs.start(event.prompt, ts);
+      const run = runs.current();
+      if (run !== undefined) {
+        evidence.write({ v: 1, type: "run", rid: run.rid, ts, prompt: event.prompt });
+      }
     }
   });
 
