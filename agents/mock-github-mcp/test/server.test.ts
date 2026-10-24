@@ -441,6 +441,20 @@ describe("composed github server", () => {
     it("secondSessionInvalidatesFirst", async () => {
       const { h, before } = await tainted();
       const stale = h.client.callParams("create_branch", { owner: "acme", repo: "website", branch: "x" }, []);
+      // same client keys, fresh nonce: only the session id differs
+      const r = await h.rpc(SESSION_METHOD, h.client.request());
+      expect(h.client.acceptReply(r.result as SessionReply, h.cfg.policyPublicKey)).toBe(true);
+      const res = await h.send(stale);
+      expect(res.isError).toBe(true);
+      expect(res._meta?.[META_ATTESTATION]).toBeUndefined();
+      expect(verdictOf(res)).toEqual({ reason: "SESSION_UNKNOWN" });
+      expect(h.snapshot()).toEqual(before);
+    });
+
+    // Pins keyring replacement: a new session with new client keys rejects stamps signed by the old keys.
+    it("secondSessionWithNewKeysRejectsOldStamps", async () => {
+      const { h, before } = await tainted();
+      const stale = h.client.callParams("create_branch", { owner: "acme", repo: "website", branch: "x" }, []);
       const second = makeClient();
       const r = await h.rpc(SESSION_METHOD, second.request());
       expect(second.acceptReply(r.result as SessionReply, h.cfg.policyPublicKey)).toBe(true);

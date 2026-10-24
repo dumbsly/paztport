@@ -115,7 +115,6 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
   const policy = { publicKey: m.policyPublicKey };
   const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey) : signedRoot;
   const clientRoot: SignedRoot | null = opts.withRoot === false ? null : forged;
-  const nonce = newNonce();
   const responseNonces = new NonceCache(NONCE_TTL_MS);
   let req: SessionRequest | undefined;
   let sess: string | undefined;
@@ -126,7 +125,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       clientRoot,
       clientPolicyKey: policy.publicKey,
       clientKeyring: { session: session.publicKey, pi: pi.publicKey },
-      nonce,
+      nonce: newNonce(),
     };
     return req;
   };
