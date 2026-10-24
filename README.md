@@ -758,16 +758,24 @@ These are design directions, not implementations.
 
 ## 16. Running it
 
-**Prerequisites:** JDK 21, Maven, Docker with Compose.
+**Prerequisites:** JDK 21 or newer, Maven, Docker with Compose.
 
 ```bash
 mvn -q package -DskipTests              # build every module
+docker compose build keygen policy-tool # package the freshly built jars
 docker compose run --rm keygen          # per-service keys + keyring
 docker compose run --rm policy-tool     # signed root + per-service proof bundles
 docker compose up -d --build            # the mesh + responder
 ./scripts/demo.sh                       # run every scenario, print pass/fail
 ./scripts/measure.sh                    # optional: off vs enforce latency + header sizes
 ```
+
+`docker compose run` reuses an existing image and never rebuilds it. If you
+change and rebuild the Java code, run `docker compose build keygen policy-tool`
+again before generating keys or policy. Otherwise the old jars run, and you get
+output in the old format, for example private keys that aren't owner-only.
+`up --build` rebuilds the mesh services itself. Private key files are written
+owner-read/write only (`0600`).
 
 `demo.sh` is idempotent. It cleans up any replacement containers, restores the
 original policy, rebuilds the root, resets the mode to `enforce`, and runs:
