@@ -1,0 +1,261 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
+import { prepareAgentDir, type ModelRef } from "./models.ts";
+
+export { checkModelAvailable, parseModel, prepareAgentDir, type ModelRef } from "./models.ts";
+
+export type RunMode = "off" | "on" | "clean-off" | "clean-on" | "warning";
+export type RunSpec = {
+  scenarioDir: string;
+  mode: RunMode;
+  model: ModelRef;
+  runDir: string;
+  /** Holds client/ and server/ keys. */
+  demoDir: string;
+  agentDir: string;
+  /** The agent dir is the user's own: hosted keys stay in the environment and models.json is not touched. */
+  userAgentDir: boolean;
+  timeoutMs: number;
+  /** A custom payload file. Ignored in the clean modes, which send none. */
+  payloadFile?: string;
+  /** Used only in mode "warning". */
+  warning?: { file: string };
+  /** Default: the installed pi 1.4.0 cli.js. */
+  piCli?: string;
+};
+export type RunResult = { status: "completed" | "timeout" | "error"; exitCode: number | null; durationMs: number; canary: string; mode: RunMode };
+export type LineFile = "transcript" | "events" | "outcome" | "stderr";
+
+const AGENTS = join(import.meta.dirname, "../..");
+const PI_CLI = join(AGENTS, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
+const EXTENSION = join(AGENTS, "pi-extension");
+const MOCK_MAIN = join(AGENTS, "mock-github-mcp/src/main.ts");
+const MODES: readonly RunMode[] = ["off", "on", "clean-off", "clean-on", "warning"];
+const HOSTED_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY"];
+const KILL_GRACE_MS = 5000;
+const CLOSE_GRACE_MS = 2000;
+const POLL_MS = 100;
+
+/** Splits a byte stream into lines; `end` returns an unterminated last line. */
+class LineSplitter {
+  #rest = "";
+  push(chunk: string): string[] {
+    const parts = (this.#rest + chunk).split("\n");
+    this.#rest = parts.pop() ?? "";
+    return parts.filter((l) => l !== "");
+  }
+  end(): string[] {
+    const last = this.#rest;
+    this.#rest = "";
+    return last === "" ? [] : [last];
+  }
+}
+
+/** Reads what a file gained since the last poll. */
+class Tail {
+  #offset = 0;
+  readonly #split = new LineSplitter();
+  readonly path: string;
+  constructor(path: string) {
+    this.path = path;
+  }
+  poll(): string[] {
+    let size: number;
+    try {
+      size = statSync(this.path).size;
+    } catch {
+      return [];
+    }
+    if (size <= this.#offset) return [];
+    const buf = Buffer.alloc(size - this.#offset);
+    const fd = openSync(this.path, "r");
+    try {
+      readSync(fd, buf, 0, buf.length, this.#offset);
+    } finally {
+      closeSync(fd);
+    }
+    this.#offset = size;
+    return this.#split.push(buf.toString("utf8"));
+  }
+  end(): string[] {
+    return [...this.poll(), ...this.#split.end()];
+  }
+}
+
+function validate(spec: RunSpec): void {
+  if (!MODES.includes(spec.mode)) throw new Error(`invalid run mode: ${String(spec.mode)}`);
+  if (typeof spec.timeoutMs !== "number" || !Number.isFinite(spec.timeoutMs) || spec.timeoutMs <= 0) throw new Error("timeoutMs must be a positive number");
+  for (const k of ["scenarioDir", "runDir", "demoDir", "agentDir"] as const) {
+    if (typeof spec[k] !== "string" || spec[k] === "") throw new Error(`${k} must be a non-empty path`);
+  }
+  if (!spec.model || !spec.model.provider || !spec.model.id) throw new Error("model must name a provider and an id");
+  if (spec.mode === "warning" && !spec.warning?.file) throw new Error("mode warning needs a warning file");
+  if (spec.mode === "warning" && !existsSync(spec.warning!.file)) throw new Error(`warning file not found: ${spec.warning!.file}`);
+  if (spec.payloadFile !== undefined && !existsSync(spec.payloadFile)) throw new Error(`payload file not found: ${spec.payloadFile}`);
+}
+
+/**
+ * One stock pi run against the mock server for one scenario mode. Throws only for an invalid spec; a pi
+ * that fails to start, exits non-zero, times out or is aborted comes back as a result.
+ */
+export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: string) => void, signal?: AbortSignal): Promise<RunResult> {
+  validate(spec);
+  const scenario = loadScenario(spec.scenarioDir);
+  prepareAgentDir(spec.agentDir, spec.model, spec.userAgentDir);
+
+  const runDir = resolve(spec.runDir);
+  const demoDir = resolve(spec.demoDir);
+  const scenarioDir = resolve(spec.scenarioDir);
+  const workspace = join(runDir, "workspace");
+  rmSync(workspace, { recursive: true, force: true });
+  mkdirSync(workspace, { recursive: true });
+  const path = (name: string) => join(runDir, name);
+  for (const f of ["transcript.jsonl", "events.jsonl", "evidence.jsonl", "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
+
+  const canary = randomBytes(8).toString("hex");
+  writeFileSync(path("canary.txt"), canary + "\n");
+
+  const enforced = spec.mode === "on" || spec.mode === "clean-on";
+  const serverMode = enforced ? "enforce" : "off";
+  const payloadArg = spec.mode === "clean-on" || spec.mode === "clean-off" ? "none" : spec.payloadFile ? resolve(spec.payloadFile) : undefined;
+  const serverArgs = [
+    MOCK_MAIN,
+    "--mode", serverMode,
+    ...(enforced ? ["--config", join(demoDir, "server")] : []),
+    "--outcome-log", path("outcome.jsonl"),
+    "--canary", canary,
+    "--scenario", scenarioDir,
+    ...(payloadArg !== undefined ? ["--payload", payloadArg] : []),
+  ];
+  writeFileSync(
+    path("config.json"),
+    JSON.stringify(
+      {
+        mode: enforced ? "enforce" : "off",
+        clientDir: join(demoDir, "client"),
+        eventsLog: path("events.jsonl"),
+        evidenceLog: path("evidence.jsonl"),
+        servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
+      },
+      null,
+      2,
+    ) + "\n",
+  );
+
+  const args = [
+    spec.piCli ?? PI_CLI,
+    "-e", EXTENSION,
+    "--paztport-config", path("config.json"),
+    "--provider", spec.model.provider,
+    "--model", spec.model.id,
+    "--tools", scenario.tools,
+    "--no-session",
+    "--mode", "json",
+    ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
+    scenario.userPrompt,
+  ];
+  const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+  if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
+
+  const finish = (status: RunResult["status"], exitCode: number | null, startedAt: number): RunResult => {
+    const result: RunResult = { status, exitCode, durationMs: Date.now() - startedAt, canary, mode: spec.mode };
+    writeFileSync(path("run.json"), JSON.stringify(result, null, 2) + "\n");
+    return result;
+  };
+  const startedAt = Date.now();
+  if (signal?.aborted) return finish("error", null, startedAt);
+
+  const emit = (file: LineFile, lines: string[]) => {
+    if (!onLine) return;
+    for (const l of lines) {
+      try {
+        onLine(file, l);
+      } catch {
+        // a failing listener must not stop the run or leave pi running
+      }
+    }
+  };
+  const out = new LineSplitter();
+  const err = new LineSplitter();
+  const tails: [LineFile, Tail][] = [
+    ["events", new Tail(path("events.jsonl"))],
+    ["outcome", new Tail(path("outcome.jsonl"))],
+  ];
+
+  const child = spawn(process.execPath, args, { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  child.stdout.on("data", (chunk: string) => {
+    appendFileSync(path("transcript.jsonl"), chunk);
+    emit("transcript", out.push(chunk));
+  });
+  child.stderr.on("data", (chunk: string) => {
+    appendFileSync(path("stderr.txt"), chunk);
+    emit("stderr", err.push(chunk));
+  });
+  const poller = setInterval(() => {
+    for (const [file, tail] of tails) emit(file, tail.poll());
+  }, POLL_MS);
+
+  const killGroup = (sig: NodeJS.Signals) => {
+    if (child.pid === undefined) return;
+    try {
+      process.kill(-child.pid, sig);
+    } catch {
+      // the group is already gone
+    }
+  };
+  let reason: "timeout" | "abort" | null = null;
+  let exited = false;
+  let escalation: NodeJS.Timeout | undefined;
+  const terminate = (why: "timeout" | "abort") => {
+    if (reason !== null || exited) return;
+    reason = why;
+    killGroup("SIGTERM");
+    escalation = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
+  };
+  const timer = setTimeout(() => terminate("timeout"), spec.timeoutMs);
+  const onAbort = () => terminate("abort");
+  signal?.addEventListener("abort", onAbort, { once: true });
+
+  let exitCode: number | null = null;
+  let spawnFailed = false;
+  await new Promise<void>((done) => {
+    child.on("error", (e) => {
+      if (child.pid === undefined) {
+        spawnFailed = true;
+        appendFileSync(path("stderr.txt"), `could not start pi: ${e.message}\n`);
+        done();
+      }
+    });
+    child.on("exit", (code) => {
+      exited = true;
+      exitCode = code;
+      // pi stops its mock servers itself; this catches any that outlive it, and releases the pipes
+      killGroup("SIGKILL");
+      setTimeout(() => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        done();
+      }, CLOSE_GRACE_MS).unref();
+    });
+    child.on("close", () => done());
+  });
+
+  clearTimeout(timer);
+  clearTimeout(escalation);
+  clearInterval(poller);
+  signal?.removeEventListener("abort", onAbort);
+  emit("transcript", out.end());
+  emit("stderr", err.end());
+  for (const [file, tail] of tails) emit(file, tail.end());
+
+  const status: RunResult["status"] = reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed ? "error" : exitCode === 0 ? "completed" : "error";
+  return finish(status, exitCode, startedAt);
+}
