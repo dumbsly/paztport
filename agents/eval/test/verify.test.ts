@@ -669,10 +669,11 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 
   const localOf = (rs: any[], id: string) => rs.find((x) => x.type === "local" && x.callId === id);
   const localResult = (r: { items: VerifyItem[] }, id: string) => r.items.find((i) => i.type === "local" && i.callId === id)?.result;
-  /** Re-signs a local record's stamp with the pi key over its (edited) input and resolution, as a gate that decided wrongly would. */
+  /** Re-signs a local record's step stamp with the pi key over its (edited) fields, as a gate that decided wrongly would. */
   function resign(rec: any): void {
     const { sig: _sig, v: _v, ...fields } = rec.chain[1];
-    rec.chain[1] = signStampV2({ ...fields, bind: bindLocalTool(rec.tool, rec.input, rec.resolved) }, local.material.piKey);
+    const bind = bindLocalTool(rec.tool, rec.input, { resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash });
+    rec.chain[1] = signStampV2({ ...fields, bind }, local.material.piKey);
   }
 
   it("genuineLocalEvidenceVerifies", () => {
@@ -720,13 +721,17 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("tamperedVerdictFails", () => {
+    // the verdict is signed: changing it breaks the binding
     for (const id of ["l_leak", "l_outside", "l_route", "l_uncheck"]) {
       const r = verifyEvidence(write(localLines, (rs) => { localOf(rs, id).verdict = "OK"; }));
       expect(r.ok, id).toBe(false);
-      expect(localResult(r, id), id).toBe("VERDICT_MISMATCH");
+      expect(localResult(r, id), id).toBe("BINDING_MISMATCH");
     }
     const r = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").verdict = "SCOPE_DENIED"; }));
-    expect(localResult(r, "l_read")).toBe("VERDICT_MISMATCH");
+    expect(localResult(r, "l_read")).toBe("BINDING_MISMATCH");
+    // and a signed verdict that does not follow from the rules fails the verdict check
+    const resigned = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_leak"); x.verdict = "OK"; resign(x); }));
+    expect(localResult(resigned, "l_leak")).toBe("VERDICT_MISMATCH");
     expect(localResult(verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").verdict = "MAYBE"; })), "l_read")).toBe("UNREADABLE");
   });
 
@@ -735,7 +740,6 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = verifyEvidence(write(localLines, (rs) => {
       const rec = localOf(rs, "l_leak");
       rec.influence = rec.influence.filter((e: any) => e.cls !== "private");
-      rec.verdict = "OK";
     }));
     expect(r.ok).toBe(false);
     expect(localResult(r, "l_leak")).toBe("INFLUENCE_MISMATCH");
@@ -783,9 +787,12 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("proofsAreCheckedAgainstTheClientRoot", () => {
-    // an allowed call whose proof is removed reads as an unlisted route: its OK verdict no longer follows
+    // an allowed call whose proof is removed no longer matches its signed routeAllowed
     const dropped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = null; }));
-    expect(localResult(dropped, "l_read")).toBe("VERDICT_MISMATCH");
+    expect(localResult(dropped, "l_read")).toBe("BAD_PROOF");
+    // a signed "route not listed" that carries a proof
+    const listed = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.routeAllowed = false; resign(x); }));
+    expect(localResult(listed, "l_read")).toBe("BAD_PROOF");
     // another route's proof does not prove this one
     const swapped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = localOf(rs, "l_note").proof; }));
     expect(localResult(swapped, "l_read")).toBe("BAD_PROOF");
@@ -816,6 +823,56 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(broken.nothingToCheck).toBeUndefined();
   });
 
+  it("theDecisionIsSigned", () => {
+    // review probe: an allowed write recorded as an unlisted route (proof dropped, verdict changed)
+    const downgraded = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; x.verdict = "PATH_NOT_ALLOWED"; }));
+    expect(downgraded.ok).toBe(false);
+    expect(localResult(downgraded, "l_note")).toBe("BINDING_MISMATCH");
+    const both = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; x.routeAllowed = false; x.verdict = "PATH_NOT_ALLOWED"; }));
+    expect(localResult(both, "l_note")).toBe("BINDING_MISMATCH");
+    // review probe: the rules removed and every step turned into a scope refusal
+    const nullRules = verifyEvidence(write(localLines, (rs) => {
+      const c = rs.find((x) => x.type === "client");
+      c.rules = null;
+      c.rulesProof = null;
+      for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED";
+    }));
+    expect(nullRules.ok).toBe(false);
+    expect(results(nullRules.items, "client")).toEqual(["OK"]);
+    expect(results(nullRules.items, "local").every((x) => x === "BINDING_MISMATCH" || x === "RULES_MISMATCH")).toBe(true);
+    expect(localResult(nullRules, "l_outside")).toBe("RULES_MISMATCH"); // its verdict was SCOPE_DENIED already
+    // a signed rules hash that is not the client record's
+    const other = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.rulesHash = "AAAA"; resign(x); }));
+    expect(localResult(other, "l_read")).toBe("RULES_MISMATCH");
+    const none = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.rulesHash = null; resign(x); }));
+    expect(localResult(none, "l_read")).toBe("RULES_MISMATCH");
+    // with the route not listed the gate resolves nothing (R27c)
+    const resolved = verifyEvidence(write(localLines, (rs) => {
+      const x = localOf(rs, "l_route");
+      x.resolved = { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true };
+      resign(x);
+    }));
+    expect(localResult(resolved, "l_route")).toBe("VERDICT_MISMATCH");
+  });
+
+  it("originTimeAndInstanceAreChecked", () => {
+    const ts = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "run").ts += 1; }));
+    expect(ts.ok).toBe(false);
+    expect(results(ts.items, "local").every((x) => x === "TIME_MISMATCH")).toBe(true);
+    // a step stamp from another instance, signed with the right key
+    const inst = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.chain[1].inst = "pi-2"; resign(x); }));
+    expect(localResult(inst, "l_read")).toBe("BAD_SIGNATURE");
+    // an origin from another instance, signed with the session key, and the step re-chained to it
+    const origin = verifyEvidence(write(localLines, (rs) => {
+      const x = localOf(rs, "l_read");
+      const { sig: _sig, v: _v, ...fields } = x.chain[0];
+      x.chain[0] = signStampV2({ ...fields, inst: "pi-2" }, local.material.sessionKey);
+      x.chain[1].prev = x.chain[0].sig;
+      resign(x);
+    }));
+    expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
+  });
+
   it("aRepeatedLocalRecordIsAReplay", () => {
     const r = verifyEvidence(write(localLines, (rs) => rs.push(structuredClone(localOf(rs, "l_read")))));
     expect(r.ok).toBe(false);
@@ -829,7 +886,8 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(results(r.items, "local").every((x) => x === "REFUSED")).toBe(true);
     expect(noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").every((x) => x.verdict === "SCOPE_DENIED")).toBe(true);
     const ok = verifyEvidence(write(noRules, (rs) => { localOf(rs, "l_read").verdict = "OK"; }));
-    expect(localResult(ok, "l_read")).toBe("VERDICT_MISMATCH");
+    expect(localResult(ok, "l_read")).toBe("BINDING_MISMATCH");
+    expect(noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").every((x) => x.rulesHash === null)).toBe(true);
   });
 
   it("cliSaysLocalRefusalsAreSigned", () => {
@@ -838,6 +896,6 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(r.stdout).toMatch(/^OK {2}.*\(\d+ items, 1 REFUSED \(server refusal; not signed\), 4 REFUSED \(local refusal; signed\)\) pin [\w-]{16}\n$/);
     const t = spawnSync(process.execPath, [MAIN, write(localLines, (rs) => { localOf(rs, "l_leak").verdict = "OK"; })], { encoding: "utf8" });
     expect(t.status).toBe(1);
-    expect(t.stdout).toMatch(/^FAIL .*line \d+ local l_leak: VERDICT_MISMATCH/);
+    expect(t.stdout).toMatch(/^FAIL .*line \d+ local l_leak: BINDING_MISMATCH/);
   });
 });

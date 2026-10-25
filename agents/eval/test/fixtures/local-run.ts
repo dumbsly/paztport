@@ -6,10 +6,9 @@
 
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { RULES_ROUTE_PREFIX, rulesHash } from "@paztport/path-attest";
 import { ServerConnection } from "../../../pi-extension/src/connection.ts";
 import { EventLog } from "../../../pi-extension/src/events.ts";
-import { EvidenceLog } from "../../../pi-extension/src/evidence.ts";
+import { clientRecord, EvidenceLog } from "../../../pi-extension/src/evidence.ts";
 import { InfluenceStore } from "../../../pi-extension/src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../../../pi-extension/src/keys.ts";
 import { LocalGate } from "../../../pi-extension/src/local/gate.ts";
@@ -25,21 +24,6 @@ export type LocalRun = {
   outcomePath: string;
   material: ClientMaterial;
 };
-
-/** The client record as the extension writes it at session_start in enforce mode. */
-function clientRecord(material: ClientMaterial) {
-  const rules = material.rules ?? null;
-  const route = rules !== null ? `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}` : undefined;
-  return {
-    v: 1 as const,
-    type: "client" as const,
-    keyring: material.keyring,
-    policyPublicKey: material.policyPublicKey,
-    signedRoot: material.signedRoot,
-    rules,
-    rulesProof: route !== undefined && Object.hasOwn(material.proofs, route) ? material.proofs[route]! : null,
-  };
-}
 
 /**
  * One run in `runDir` (evidence.jsonl, events.jsonl, outcome.jsonl, workspace/) with the demo keys in `demo`.

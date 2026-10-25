@@ -23,6 +23,7 @@ import { parseCli, main } from "../src/eval-main.ts";
 import { CLASSES_NOTE, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT, renderSummary } from "../src/report.ts";
 import { recheckResultsDir, recheckSignature } from "../src/recheck.ts";
 import { OFF_MODE_COPY, runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
+import { localRun } from "./fixtures/local-run.ts";
 
 const PAYLOAD = join(BUILTIN_SCENARIO_DIR, "payload.md");
 const MODEL = "lab/model-x";
@@ -709,6 +710,23 @@ describe("verification", { timeout: 120_000 }, () => {
     expect(r.verify).toMatchObject({ ok: 1, failed: 0 });
     const md = renderSummary(r);
     expect(md).toMatch(/1 of 1/);
+  });
+
+  it("aLocalStepCopiedIntoAnotherRunFailsBothRuns", async () => {
+    // run 2's files are a copy of run 1's (a genuine local-tools run): each verifies on its own
+    const o = opts({ runs: 2, modes: ["on"] });
+    let first: string | undefined;
+    const { fn } = stub(async (spec) => {
+      if (first === undefined) {
+        await localRun(spec.demoDir, spec.runDir);
+        first = spec.runDir;
+      } else {
+        for (const f of ["evidence.jsonl", "events.jsonl", "outcome.jsonl"]) writeFileSync(join(spec.runDir, f), readFileSync(join(first, f)));
+      }
+    }, noRecords);
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
+    expect(r.runs.map((x) => x.verify!.status)).toEqual(["failed", "failed"]);
+    expect(r.runs[0]!.verify!.problems).toContain("a signed local step in evidence.jsonl also appears in runs/on-002's evidence");
   });
 
   it("aDeletedEvidenceFileFails", async () => {

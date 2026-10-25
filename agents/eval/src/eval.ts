@@ -9,7 +9,7 @@ import { basename, join, resolve } from "node:path";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { collectEnvironment, type Environment } from "./environment.ts";
-import { checkRun, hasEvidenceFile, type RunVerify } from "./crosscheck.ts";
+import { checkRun, hasEvidenceFile, reusedLocalSignatures, withProblems, type RunVerify } from "./crosscheck.ts";
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
@@ -235,7 +235,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
     const records = new Map<string, OutcomeRecord[] | null>();
 
     const assess = (r: StoredRun, report: VerifyReport | undefined): RunVerify =>
-      checkRun({ mode: r.mode, outcome: r.outcome, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), eventsPath: join(out, r.dir, "events.jsonl"), report, expectedPin });
+      checkRun({ mode: r.mode, outcome: r.outcome, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), eventsPath: join(out, r.dir, "events.jsonl"), report, expectedPin, localTools: scenario.localTools === true });
     const tally = () => {
       const t = { ok: 0, failed: 0, none: 0, notRecorded: 0 };
       for (const r of results.runs) {
@@ -308,14 +308,15 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
     }
 
     // The whole folder is checked once more at the end, from the files as they are now:
-    // evidence by verifyResultsDir, and each outcome log read again from disk.
+    // evidence by verifyResultsDir, each outcome log read again from disk, and no signed local step in two runs.
     if (results.runs.length > 0) {
       const reports = new Map(verifyResultsDir(out).map((r) => [r.file, r]));
+      const reused = reusedLocalSignatures(new Map(results.runs.map((r) => [r.dir, evidenceOf(r.dir)])));
       for (const r of results.runs) {
         const file = `${r.dir}/evidence.jsonl`;
         records.set(r.dir, usableRecords(join(out, r.dir, "outcome.jsonl")));
         r.evidenceFile = hasEvidenceFile(evidenceOf(r.dir));
-        r.verify = assess(r, r.evidenceFile ? reports.get(file) : undefined);
+        r.verify = withProblems(assess(r, r.evidenceFile ? reports.get(file) : undefined), reused.get(r.dir));
       }
     }
     write();

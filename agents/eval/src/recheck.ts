@@ -3,7 +3,7 @@
 
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { checkRun, hasEvidenceFile } from "./crosscheck.ts";
+import { checkRun, hasEvidenceFile, reusedLocalSignatures, withProblems } from "./crosscheck.ts";
 import { usableRecords, type StoredRun } from "./eval.ts";
 import { DEFINITIONS, MODE_LABEL } from "./report.ts";
 import type { RunMode, RunResult } from "./runner.ts";
@@ -97,6 +97,16 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
   const pin = isObj(results.serverKey) && typeof results.serverKey.fingerprint === "string" ? results.serverKey.fingerprint : undefined;
   if (pin === undefined) problems.push("results.json records no server key fingerprint, so the evidence pins can't be compared with it");
   const reports = new Map(verifyResultsDir(dir).map((r) => [r.file, r]));
+  let onDisk: string[] = [];
+  try {
+    onDisk = readdirSync(join(dir, "runs"), { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => `runs/${e.name}`);
+  } catch {
+    // no runs folder: every listed run is reported as missing below
+  }
+  // a signed local step copied from one run into another fails both
+  const reused = reusedLocalSignatures(new Map(onDisk.map((rel) => [rel, join(dir, rel, "evidence.jsonl")])));
   const listed = new Set<string>();
   const runs: StoredRun[] = [];
 
@@ -152,6 +162,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       eventsPath: join(runDir, "events.jsonl"),
       report: run.evidenceFile ? reports.get(file) : undefined,
       expectedPin: pin ?? "",
+      localTools: results.localTools === true,
     });
     // what `npm run verify` fails on its own (an unreadable outcome log, for example) is a failure here too
     const vr = reports.get(file);
@@ -159,6 +170,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       const why = vr.problem ?? vr.items.find((x) => !NOT_FAILURES.includes(x.result))?.result ?? "it does not verify";
       run.verify = { status: "failed", problems: [`npm run verify fails ${file}: ${why}`] };
     }
+    run.verify = withProblems(run.verify, reused.get(rel));
     runs.push(run);
 
     if (raw.outcome !== run.outcome) disagreements.push(`results.json says ${name} was ${String(raw.outcome ?? "not scored")}; the files say ${run.outcome}`);
@@ -169,14 +181,6 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
   }
 
   // a run folder results.json leaves out is a run that the table does not count
-  let onDisk: string[] = [];
-  try {
-    onDisk = readdirSync(join(dir, "runs"), { withFileTypes: true })
-      .filter((e) => e.isDirectory())
-      .map((e) => `runs/${e.name}`);
-  } catch {
-    // no runs folder: every listed run is reported as missing above
-  }
   for (const rel of onDisk.sort()) if (!listed.has(rel)) disagreements.push(`the folder has ${rel.slice(5)}, which results.json does not list or count`);
   for (const r of reports.values()) {
     const owner = r.file.replace(/\/evidence\.jsonl$/, "");

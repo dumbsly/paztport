@@ -21,6 +21,7 @@ import {
   decode,
   NonceCache,
   NONCE_TTL_MS,
+  rulesHash,
   verifyChainV2,
   type InfluenceEntry,
   type StampV2,
@@ -194,7 +195,11 @@ describe("LocalGate modes", () => {
     const { gate, eventsPath, evidencePath } = rig("enforce", { material: bare });
     expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: SCOPE_TEXT });
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["SCOPE_DENIED"]);
-    expect(lines(evidencePath)).toMatchObject([{ type: "local", tool: "read", callId: "c1", verdict: "SCOPE_DENIED" }]);
+    const [rec] = lines(evidencePath);
+    expect(rec).toMatchObject({ type: "local", tool: "read", callId: "c1", verdict: "SCOPE_DENIED", routeAllowed: true, rulesHash: null });
+    // with no rules nothing is resolved, and the stamp binds that and the verdict
+    expect(rec!.resolved).toEqual({ paths: [], programs: [], parse: "ok", readOnly: false });
+    expect(rec!.chain[1].bind).toBe(bindLocalTool("read", rec!.input, { resolved: rec!.resolved, verdict: "SCOPE_DENIED", routeAllowed: true, rulesHash: null }));
   });
 
   it("noActiveRunRefusesWithAnEventOnly", () => {
@@ -254,7 +259,10 @@ describe("LocalGate evidence", () => {
       expect(origin.sess).toBe("");
       expect(pi.sess).toBe("");
       expect(pi.prev).toBe(origin.sig);
-      expect(pi.bind).toBe(bindLocalTool(rec.tool, rec.input, rec.resolved));
+      // the binding covers the decision too: what was resolved, the verdict, whether the route is listed, and which rules
+      expect(rec.routeAllowed).toBe(rec.proof !== null);
+      expect(rec.rulesHash).toBe(rulesHash(material.rules!));
+      expect(pi.bind).toBe(bindLocalTool(rec.tool, rec.input, { resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }));
       expect(pi.infl).toBe(commitInfluence(rec.influence as InfluenceEntry[]));
       expect(pi.ts).toBe(2_000);
       expect([origin.svc, pi.svc, pi.inst]).toEqual(["session", "pi", "pi-1"]);
@@ -269,7 +277,7 @@ describe("LocalGate evidence", () => {
     // the full v2 chain check, with the route as receiver
     for (const rec of recs.slice(0, 2)) {
       const v = verifyChainV2(
-        { stamps: rec.chain, expectedBind: bindLocalTool(rec.tool, rec.input, rec.resolved), influence: rec.influence, proof: rec.proof, receiver: `local:${rec.tool}` },
+        { stamps: rec.chain, expectedBind: bindLocalTool(rec.tool, rec.input, { resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }), influence: rec.influence, proof: rec.proof, receiver: `local:${rec.tool}` },
         {
           keyring: material.keyring,
           root: decode(material.signedRoot.root),

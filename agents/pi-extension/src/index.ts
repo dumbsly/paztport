@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
-import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceClass } from "@paztport/path-attest";
+import type { InfluenceClass } from "@paztport/path-attest";
 import {
   getAgentDir,
   type AgentToolResult,
@@ -17,7 +17,7 @@ import {
 import { assertOutsideWorkspace, loadConfig, resolveConfigPath, type PaztportConfig } from "./config.ts";
 import { ServerConnection, type CallOutcome } from "./connection.ts";
 import { EventLog } from "./events.ts";
-import { EvidenceLog } from "./evidence.ts";
+import { clientRecord, EvidenceLog } from "./evidence.ts";
 import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
 import { LocalGate } from "./local/gate.ts";
@@ -384,17 +384,7 @@ export default function paztport(pi: ExtensionAPI): void {
     const { config, events, material } = prepared;
     evidence = prepared.evidence;
     if (config.mode === "enforce") {
-      const rules = material.rules ?? null;
-      const rulesRoute = rules !== null ? `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}` : undefined;
-      evidence.write({
-        v: 1,
-        type: "client",
-        keyring: material.keyring,
-        policyPublicKey: material.policyPublicKey,
-        signedRoot: material.signedRoot,
-        rules,
-        rulesProof: rulesRoute !== undefined && Object.hasOwn(material.proofs, rulesRoute) ? material.proofs[rulesRoute]! : null,
-      });
+      evidence.write(clientRecord(material));
     }
     gate = new LocalGate({
       mode: config.mode,

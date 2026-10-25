@@ -1,13 +1,14 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { setupDemo } from "../../pi-extension/test/helpers/demo.ts";
-import { checkRun } from "../src/crosscheck.ts";
+import { checkRun, reusedLocalSignatures } from "../src/crosscheck.ts";
+import { recheckResultsDir } from "../src/recheck.ts";
 import { verifyEvidence } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
 
@@ -67,22 +68,26 @@ describe("checkRun on a phase-1 run", () => {
 
 describe("checkRun with local steps", { timeout: 60_000 }, () => {
   let local: LocalRun;
+  let other: LocalRun; // a second run with the same keys, as two runs of one eval have
   let evidence: string[];
   let events: string[];
   let pin: string;
   beforeAll(async () => {
-    local = await localRun(setupDemo(tmp), join(tmp, "local-run"));
+    const demo = setupDemo(tmp);
+    local = await localRun(demo, join(tmp, "local-run"));
+    other = await localRun(demo, join(tmp, "other-run"));
     evidence = jsonLines(local.evidencePath);
     events = jsonLines(local.eventsPath);
     pin = verifyEvidence(local.evidencePath).pins[0]!;
   }, 60_000);
 
-  const check = (o: { evidencePath?: string; eventsPath?: string; mode?: "on" | "off"; outcome?: string } = {}) => {
+  const check = (o: { evidencePath?: string; eventsPath?: string; mode?: "on" | "off"; outcome?: string; localTools?: boolean; outcomePath?: string } = {}) => {
     const evidencePath = o.evidencePath ?? local.evidencePath;
     return checkRun({
       mode: o.mode ?? "on",
       outcome: o.outcome ?? "blocked",
-      records: outcomes(local.outcomePath),
+      localTools: o.localTools ?? true,
+      records: outcomes(o.outcomePath ?? local.outcomePath),
       evidencePath,
       eventsPath: o.eventsPath ?? local.eventsPath,
       report: verifyEvidence(evidencePath),
@@ -121,6 +126,83 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
     const v = check({ eventsPath: write(withoutLocal(events, "l_leak")) });
     expect(v.status).toBe("failed");
     expect(v.problems).toContain("evidence.jsonl has a local record for call l_leak (write) that the events log does not show");
+  });
+
+  it("anEventWhoseToolDiffersFails", () => {
+    const v = check({ eventsPath: write(events, (rs) => { localEvent(rs, "l_note").tool = "read"; }) });
+    expect(v.status).toBe("failed");
+    expect(v.problems).toContain("the events log shows local call l_note as read, but evidence.jsonl shows write");
+  });
+
+  it("reviewProbesFail", () => {
+    // an allowed write turned into a signed-looking unlisted-route refusal, events edited to match
+    const downgrade = check({
+      evidencePath: write(evidence, (rs) => { const x = localEvent(rs, "l_note"); x.proof = null; x.verdict = "PATH_NOT_ALLOWED"; }),
+      eventsPath: write(events, (rs) => { localEvent(rs, "l_note").verdict = "PATH_NOT_ALLOWED"; }),
+    });
+    expect(downgrade.status).toBe("failed");
+    // the rules removed and every step turned into a scope refusal, events edited to match
+    const nullRules = check({
+      evidencePath: write(evidence, (rs) => {
+        const c = rs.find((x) => x.type === "client");
+        c.rules = null;
+        c.rulesProof = null;
+        for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED";
+      }),
+      eventsPath: write(events, (rs) => { for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED"; }),
+    });
+    expect(nullRules.status).toBe("failed");
+  });
+
+  it("aLocalStepCopiedFromAnotherRunFails", () => {
+    // review probe: another run's signed refusal (with its run record) moved into this run's evidence and events
+    const P = (path: string) => jsonLines(path).map((l) => JSON.parse(l));
+    const theirs = P(other.evidencePath);
+    const leak = theirs.find((x) => x.type === "local" && x.callId === "l_leak");
+    const ev = write(withoutLocal(evidence, "l_leak"), (rs) => rs.push(theirs.find((x) => x.type === "run"), leak));
+    const evt = write(withoutLocal(events, "l_leak"), (rs) => rs.push(P(other.eventsPath).find((x) => x.type === "local" && x.callId === "l_leak")));
+    expect(verifyEvidence(ev).ok).toBe(true); // each record is genuine
+    const v = check({ evidencePath: ev, eventsPath: evt });
+    expect(v.status).toBe("failed");
+    expect(v.problems).toContain("evidence.jsonl has a local record for call l_leak in a run the server never saw");
+  });
+
+  it("aLocalSignatureInTwoRunsIsReported", () => {
+    const copy = join(tmp, "copy-run");
+    const theirs = jsonLines(other.evidencePath);
+    const leak = theirs.find((l) => JSON.parse(l).type === "local" && JSON.parse(l).callId === "l_leak")!;
+    const mixed = write([leak]); // a run whose only local step is run b's
+    const found = reusedLocalSignatures(new Map([["runs/a", local.evidencePath], ["runs/b", other.evidencePath], [copy, mixed]]));
+    expect(found.get("runs/a")).toBeUndefined();
+    expect(found.get("runs/b")).toEqual([`a signed local step in evidence.jsonl also appears in ${copy}'s evidence`]);
+    expect(found.get(copy)).toEqual(["a signed local step in evidence.jsonl also appears in runs/b's evidence"]);
+    // a missing or unreadable file has nothing to compare
+    expect(reusedLocalSignatures(new Map([["runs/a", local.evidencePath], ["runs/x", join(tmp, "nope.jsonl")]])).size).toBe(0);
+  });
+
+  it("recheckFailsBothRunsThatShareALocalStep", () => {
+    // a results folder whose second run is a copy of the first: each file is genuine on its own
+    const dir = join(tmp, "copied-folder");
+    for (const name of ["on-001", "on-002"]) {
+      mkdirSync(join(dir, "runs", name), { recursive: true });
+      for (const f of ["evidence.jsonl", "events.jsonl", "outcome.jsonl"]) copyFileSync(join(local.runDir, f), join(dir, "runs", name, f));
+    }
+    const runs = ["on-001", "on-002"].map((name, i) => ({ mode: "on", index: i + 1, dir: `runs/${name}`, outcome: "blocked", status: "completed" }));
+    const rc = recheckResultsDir(dir, { formatVersion: 1, runs, serverKey: { fingerprint: pin } });
+    expect(rc.runs.map((r) => r.verify!.status)).toEqual(["failed", "failed"]);
+    expect(rc.runs[0]!.verify!.problems).toContain("a signed local step in evidence.jsonl also appears in runs/on-002's evidence");
+    expect(rc.runs[1]!.verify!.problems).toContain("a signed local step in evidence.jsonl also appears in runs/on-001's evidence");
+  });
+
+  it("aLocalToolsRunNeedsAClientRecordWithRules", () => {
+    const noRules = write(evidence, (rs) => { const c = rs.find((x) => x.type === "client"); c.rules = null; c.rulesProof = null; });
+    const v = check({ evidencePath: write(jsonLines(noRules).filter((l) => JSON.parse(l).type !== "local")), eventsPath: write([]) });
+    expect(v.status).toBe("failed");
+    expect(v.problems).toContain("a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules");
+    const none = check({ evidencePath: write(evidence.filter((l) => !["client", "local"].includes(JSON.parse(l).type))), eventsPath: write([]) });
+    expect(none.problems).toContain("a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules");
+    // an MCP-only scenario has no such need
+    expect(check({ evidencePath: write(evidence.filter((l) => !["client", "local"].includes(JSON.parse(l).type))), eventsPath: write([]), localTools: false }).status).toBe("ok");
   });
 
   it("aRepeatedEventFails", () => {

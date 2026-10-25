@@ -88,26 +88,30 @@ function readLocalEvents(path: string): LocalEvent[] | { problem: string } {
   return out;
 }
 
-/** True when a local event was made during a run: the gate signs those (in enforce mode), and only those. */
+/**
+ * True when a local event was made during a run (it has a rid). In enforce mode the gate signs every such call;
+ * in no-root mode it emits them unsigned, but the eval never runs no-root: its modes with Paztport on are enforce.
+ */
 const inRun = (e: LocalEvent): boolean => typeof e.rid === "string";
 
-type LocalRecord = { tool: string; verdict: string };
-/** The tool and verdict of each local record of an evidence file, by line number (the same numbering `verify` reports). */
-function localsByLine(path: string): Map<number, LocalRecord> {
-  const out = new Map<number, LocalRecord>();
-  readFileSync(path, "utf8")
-    .split("\n")
-    .forEach((raw, i) => {
-      try {
-        const r: unknown = JSON.parse(raw);
-        if (typeof r === "object" && r !== null) {
-          const o = r as Record<string, unknown>;
-          if (o.type === "local" && typeof o.tool === "string" && typeof o.verdict === "string") out.set(i + 1, { tool: o.tool, verdict: o.verdict });
-        }
-      } catch {
-        // verify reports unreadable lines
-      }
-    });
+/** The parsed records of an evidence file, by line number (the same numbering `verify` reports). */
+function recordsByLine(path: string): Map<number, Record<string, unknown>> {
+  const out = new Map<number, Record<string, unknown>>();
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return out;
+  }
+  text.split("\n").forEach((raw, i) => {
+    if (raw.trim() === "") return;
+    try {
+      const r: unknown = JSON.parse(raw);
+      if (typeof r === "object" && r !== null && !Array.isArray(r)) out.set(i + 1, r as Record<string, unknown>);
+    } catch {
+      // verify reports unreadable lines
+    }
+  });
   return out;
 }
 
@@ -116,24 +120,36 @@ const decision = (verdict: string): string => (verdict === "OK" ? "allowed" : `r
 /**
  * Cross-checks the events log's local lines (what the eval counts local blocks and scope refusals from) against
  * the verified local records. Every local event made during a run must match a verified local record with the
- * same call id and verdict, and every verified local record must have its event, so a local block counts only
- * when its signed refusal verified. A local event outside a run is unsigned by design, and the gate refuses
+ * same call id, tool and verdict, and every verified local record must have its event, so a local block counts
+ * only when its signed refusal verified. A local event outside a run is unsigned by design, and the gate refuses
  * every call there as out of scope, so it must be SCOPE_DENIED. A run with Paztport on is in enforce mode, which
  * writes the client record before any local call, so local events made during a run need one. A call that the
  * gate allowed and something later stopped (another handler, an abort) has an OK record and an OK event; that
  * is not a disagreement.
+ *
+ * Local steps are signed by the client alone, so a genuine step could be copied from another run made with the
+ * same keys. When the outcome log shows attested calls, each local record's rid must be one the server saw in
+ * this run; reusedLocalSignatures covers the folder as a whole.
  */
-function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePath: string): string[] {
+function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePath: string, records: OutcomeRecord[] | null): string[] {
   const problems: string[] = [];
-  const ids = idsByLine(evidencePath);
-  const locals = localsByLine(evidencePath);
+  const byLine = recordsByLine(evidencePath);
   const hasClient = report.items.some((i) => i.type === "client");
-  const verified = new Map<string, LocalRecord & { callId: string }>();
+  const verified = new Map<string, { tool: string; verdict: string; callId: string }>();
   for (const item of report.items) {
-    const id = ids.get(item.line);
-    const rec = locals.get(item.line);
-    if (item.type === "local" && (item.result === "OK" || item.result === "REFUSED") && id !== undefined && rec !== undefined) {
-      verified.set(key(id), { ...rec, callId: id.callId });
+    const rec = byLine.get(item.line);
+    if (item.type !== "local" || rec === undefined || (item.result !== "OK" && item.result !== "REFUSED")) continue;
+    if (typeof rec.rid === "string" && typeof rec.callId === "string" && typeof rec.tool === "string" && typeof rec.verdict === "string") {
+      verified.set(key({ rid: rec.rid, callId: rec.callId }), { tool: rec.tool, verdict: rec.verdict, callId: rec.callId });
+    }
+  }
+
+  const witnessed = new Set((records ?? []).filter((r) => typeof r.sess === "string" && typeof r.rid === "string").map((r) => r.rid as string));
+  if (witnessed.size > 0) {
+    for (const rec of byLine.values()) {
+      if (rec.type === "local" && typeof rec.rid === "string" && !witnessed.has(rec.rid)) {
+        problems.push(`evidence.jsonl has a local record for call ${String(rec.callId)} in a run the server never saw`);
+      }
     }
   }
 
@@ -163,6 +179,8 @@ function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePat
     const rec = verified.get(k);
     if (rec === undefined) {
       problems.push(`the events log shows local call ${e.callId} (${String(e.tool)}) ${decision(e.verdict)}, which has no verified local record in evidence.jsonl`);
+    } else if (rec.tool !== e.tool) {
+      problems.push(`the events log shows local call ${e.callId} as ${String(e.tool)}, but evidence.jsonl shows ${rec.tool}`);
     } else if (rec.verdict !== e.verdict) {
       problems.push(`the events log shows local call ${e.callId} ${decision(e.verdict)}, but evidence.jsonl shows it ${decision(rec.verdict)}`);
     }
@@ -172,6 +190,49 @@ function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePat
     if (!shown.has(k)) problems.push(`evidence.jsonl has a local record for call ${rec.callId} (${rec.tool}) that the events log does not show`);
   }
   return problems;
+}
+
+/** True when the evidence has a client record that verified and carries local rules. */
+function hasClientWithRules(report: VerifyReport, evidencePath: string): boolean {
+  const byLine = recordsByLine(evidencePath);
+  return report.items.some((i) => i.type === "client" && i.result === "OK" && byLine.get(i.line)?.rules !== null && byLine.get(i.line)?.rules !== undefined);
+}
+
+/**
+ * Signed local steps that appear in more than one run of a results folder. Each run's local origin stamps are
+ * minted for its own run, and each step stamp is unique, so the same signature in two runs means a step was
+ * copied from one into the other. `evidence` maps each run (its folder, as reported) to its evidence file; files
+ * that are missing or can't be read have nothing to compare. Returns the problems by run, only for runs with any.
+ */
+export function reusedLocalSignatures(evidence: Map<string, string>): Map<string, string[]> {
+  const owners = new Map<string, Set<string>>(); // signature -> runs
+  for (const [run, path] of evidence) {
+    for (const rec of recordsByLine(path).values()) {
+      if (rec.type !== "local" || !Array.isArray(rec.chain)) continue;
+      for (const stamp of rec.chain.slice(0, 2)) {
+        const sig = typeof stamp === "object" && stamp !== null ? (stamp as Record<string, unknown>).sig : undefined;
+        if (typeof sig !== "string") continue;
+        const set = owners.get(sig) ?? new Set<string>();
+        set.add(run);
+        owners.set(sig, set);
+      }
+    }
+  }
+  const pairs = new Map<string, Set<string>>(); // run -> the other runs it shares a signature with
+  for (const runs of owners.values()) {
+    if (runs.size < 2) continue;
+    for (const run of runs) for (const other of runs) if (other !== run) pairs.set(run, (pairs.get(run) ?? new Set<string>()).add(other));
+  }
+  const out = new Map<string, string[]>();
+  for (const [run, others] of pairs) out.set(run, [...others].sort().map((o) => `a signed local step in evidence.jsonl also appears in ${o}'s evidence`));
+  return out;
+}
+
+/** A run's check with more problems added: any problem fails it. */
+export function withProblems(v: RunVerify, more: string[] | undefined): RunVerify {
+  if (more === undefined || more.length === 0) return v;
+  const problems = [...v.problems, ...more];
+  return { status: "failed", problems: problems.length > MAX_PROBLEMS ? [...problems.slice(0, MAX_PROBLEMS), `and ${problems.length - MAX_PROBLEMS} more`] : problems };
 }
 
 /** Cross-checks the verified evidence against the outcome log. Returns the disagreements. */
@@ -235,6 +296,8 @@ export function checkRun(input: {
   eventsPath: string;
   report: VerifyReport | undefined;
   expectedPin: string;
+  /** The scenario gives the model local tools: a run with Paztport on must then have a verified client record with local rules. */
+  localTools?: boolean;
 }): RunVerify {
   const { mode, outcome, records, report, expectedPin } = input;
   const problems: string[] = [];
@@ -268,7 +331,10 @@ export function checkRun(input: {
   if (records === null) problems.push("the outcome log could not be used, so the evidence could not be compared with it");
   else problems.push(...crossCheck(records, report, input.evidencePath));
   if (eventsProblem !== undefined) problems.push(`${eventsProblem}, so its local tool calls could not be compared with evidence.jsonl`);
-  else problems.push(...crossCheckLocal(events as LocalEvent[], report, input.evidencePath));
+  else problems.push(...crossCheckLocal(events as LocalEvent[], report, input.evidencePath, records));
+  if (input.localTools === true && EXPECT_EVIDENCE.includes(mode) && !hasClientWithRules(report, input.evidencePath)) {
+    problems.push("a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules");
+  }
 
   const capped = problems.length > MAX_PROBLEMS ? [...problems.slice(0, MAX_PROBLEMS), `and ${problems.length - MAX_PROBLEMS} more`] : problems;
   return { status: problems.length > 0 ? "failed" : "ok", problems: capped };

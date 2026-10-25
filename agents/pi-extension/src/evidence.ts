@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { appendFileSync } from "node:fs";
-import type { InfluenceEntry, LocalRules, MerkleProof, SessionRequest, SignedRoot, StampV2 } from "@paztport/path-attest";
+import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceEntry, type LocalRules, type MerkleProof, type SessionRequest, type SignedRoot, type StampV2 } from "@paztport/path-attest";
+import type { ClientMaterial } from "./keys.ts";
 import type { LocalVerdict, Resolved } from "./local/decide.ts";
 
 /**
@@ -28,6 +29,8 @@ export type EvidenceRecord =
   /**
    * One gated built-in tool call: what the gate saw (input, resolution, influence) and decided, signed
    * as a client-mesh step chained from the run's origin. `proof` is null when the route is not listed.
+   * The step stamp's bind is bindLocalTool(tool, input, { resolved, verdict, routeAllowed, rulesHash }),
+   * so the decision is signed; `rulesHash` is rulesHash(rules) of the session's rules, null with none.
    */
   | {
       v: 1;
@@ -38,11 +41,30 @@ export type EvidenceRecord =
       now: number;
       input: Record<string, unknown>;
       resolved: Resolved;
+      routeAllowed: boolean;
+      rulesHash: string | null;
       chain: [StampV2, StampV2];
       proof: MerkleProof | null;
       influence: InfluenceEntry[];
       verdict: LocalVerdict;
     };
+
+export type ClientRecord = Extract<EvidenceRecord, { type: "client" }>;
+
+/** The client record for a session's material, as the extension writes it at session_start in enforce mode. */
+export function clientRecord(material: ClientMaterial): ClientRecord {
+  const rules = material.rules ?? null;
+  const route = rules !== null ? `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}` : undefined;
+  return {
+    v: 1,
+    type: "client",
+    keyring: material.keyring,
+    policyPublicKey: material.policyPublicKey,
+    signedRoot: material.signedRoot,
+    rules,
+    rulesProof: route !== undefined && Object.hasOwn(material.proofs, route) ? material.proofs[route]! : null,
+  };
+}
 
 /**
  * Optional JSONL evidence file, separate from the events log. Unlike the events log it holds

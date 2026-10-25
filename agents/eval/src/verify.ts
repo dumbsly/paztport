@@ -4,36 +4,21 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
-  bindLocalTool,
   bindPrompt,
-  canonicalize,
-  commitInfluence,
   decode,
   encode,
-  influenceClasses,
   NonceCache,
-  parseInfluence,
-  parseLocalRules,
-  parseProof,
-  parseStampsV2,
-  RULES_ROUTE_PREFIX,
-  rulesHash,
   sha256,
-  signingBytesV2,
   utf8,
-  verify,
   verifyCall,
-  verifyProof,
   verifyResponse,
   verifyRoot,
   verifySessionReply,
-  type LocalRules,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
-  type StampV2,
 } from "@paztport/path-attest";
-import { decideLocal, type LocalVerdict, type Resolved } from "../../pi-extension/src/local/decide.ts";
+import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
@@ -57,29 +42,16 @@ import { decideLocal, type LocalVerdict, type Resolved } from "../../pi-extensio
  *   anything in this file. Reported, not counted as a failure.
  * - BAD_CLIENT: a client record that does not verify (see below).
  * - NO_CLIENT: a local record with no verified client record before it.
- * - BAD_PROOF: a local record whose route proof does not prove `session/pi/local:<tool>` against the client root.
- * - TIME_MISMATCH: a local record whose stamp time is not the record's `now`.
+ * - BAD_PROOF: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
+ *   root, or whose signed `routeAllowed` does not match whether it has a proof.
+ * - TIME_MISMATCH: a local record whose stamp time is not the record's `now`, or whose origin time is not its run's.
+ * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
  * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
- * Local steps (phase 2). The pi extension writes a `client` record (the client mesh: keyring, policy key,
- * signed root, local rules and their proof) and then one `local` record per gated built-in tool call:
- * - The client record verifies when its root verifies against its policy key, every session record in the
- *   file that names a client root names this root with the same policy key and keyring, and, when it has
- *   rules, the rules parse and `rulesProof` proves `session/pi/rules:<rulesHash(rules)>` against the root.
- *   The client policy key is trusted on first use from the file, as it is in session records (where the
- *   server's signed reply binds it); verify pins no client key of its own.
- * - A local record is checked against the latest client record before it: the origin stamp is signed with
- *   the keyring's session key and the step stamp with its pi key, the step follows the origin, both carry
- *   the record's rid and an empty `sess`, the step's time is the record's `now`, the origin binds the prompt
- *   of the rid's run record, the step binds the tool, input and recorded resolution and commits to the
- *   recorded influence, and the proof (when present) proves the route. A null proof means the route is not
- *   listed. Then the verdict must be what the extension's own rule (decideLocal) gives for the recorded
- *   resolution and influence under the signed rules; with no rules it must be SCOPE_DENIED.
- * - A verified local step is OK when it was allowed, and REFUSED when it was refused. Local refusals are
- *   signed and checked, unlike the server's. A repeated (rid, call id) is REPLAY.
- * - Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw,
- *   not that the gate saw the disk correctly. Freshness windows do not apply to local steps: they never
- *   cross a boundary, so there is no receiver whose clock they must fit.
+ * Local steps (phase 2): `client` and `local` records are checked by verify-local.ts, whose comment lists
+ * the checks. A verified local step is OK when it was allowed and REFUSED when it was refused; local
+ * refusals are signed and checked, unlike the server's. Verify does not look at the disk, and freshness
+ * windows do not apply to local steps.
  *
  * Replay is checked over the whole file, not over a 15 second window: the library's nonce cache forgets
  * keys older than its TTL relative to the record being checked, which suits a live server but would let
@@ -106,11 +78,7 @@ export type VerifyItem = {
     | "NO_CALL"
     | "DUPLICATE_RESPONSE"
     | "UNBOUND"
-    | "BAD_CLIENT"
-    | "NO_CLIENT"
-    | "BAD_PROOF"
-    | "TIME_MISMATCH"
-    | "VERDICT_MISMATCH";
+    | LocalResult;
 };
 /**
  * `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to.
@@ -210,160 +178,6 @@ function hasRefusalShape(result: Rec): boolean {
   return isObject(verdict) && verdict.audit !== true;
 }
 
-/** What a verified client record gives the local records that follow it. */
-type Client = { keyring: Record<string, string>; root: Uint8Array; rootId: string; rules: LocalRules | null };
-
-const LOCAL_ROUTE_PREFIX = "session/pi/local:";
-const VERDICTS: readonly string[] = ["OK", "PATH_NOT_ALLOWED", "SCOPE_DENIED", "UNCHECKABLE", "INFLUENCE_DENIED"] satisfies LocalVerdict[];
-const NEEDS: readonly string[] = ["read", "write", "exec"];
-const VIAS: readonly string[] = ["list", "folder", "never", "missing", "uncheckable"];
-
-/** The client roots, policy keys and keyrings that session records in the file name. */
-type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown };
-
-function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
-  try {
-    const sr = r.signedRoot;
-    const keyring = r.keyring;
-    if (!isObject(keyring) || !Object.values(keyring).every(isString) || !isString(r.policyPublicKey)) {
-      return undefined;
-    }
-    if (!isObject(sr) || !isString(sr.rootId) || !isString(sr.root) || !isString(sr.sig)) {
-      return undefined;
-    }
-    const signedRoot = { rootId: sr.rootId, root: sr.root, sig: sr.sig };
-    if (!verifyRoot(signedRoot, r.policyPublicKey)) {
-      return undefined;
-    }
-    // the session's request is bound by the server's signed reply: a client record must agree with it
-    for (const n of named) {
-      if (canonicalize(n.root) !== canonicalize(signedRoot) || n.policyKey !== r.policyPublicKey || canonicalize(n.keyring) !== canonicalize(keyring)) {
-        return undefined;
-      }
-    }
-    const root = decode(signedRoot.root);
-    let rules: LocalRules | null = null;
-    if (r.rules !== null) {
-      rules = parseLocalRules(r.rules); // throws on rules that don't parse
-      const proof = parseProof(r.rulesProof);
-      if (proof.rootId !== signedRoot.rootId || !verifyProof(proof, `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}`, root)) {
-        return undefined;
-      }
-    } else if (r.rulesProof !== null) {
-      return undefined;
-    }
-    return { keyring: keyring as Record<string, string>, root, rootId: signedRoot.rootId, rules };
-  } catch {
-    return undefined;
-  }
-}
-
-function isResolved(v: unknown): v is Resolved {
-  return (
-    isObject(v) &&
-    (v.parse === "ok" || v.parse === "error") &&
-    typeof v.readOnly === "boolean" &&
-    Array.isArray(v.paths) &&
-    v.paths.every((p) => isObject(p) && isString(p.at) && isString(p.need) && NEEDS.includes(p.need)) &&
-    Array.isArray(v.programs) &&
-    v.programs.every((p) => isObject(p) && isString(p.name) && isString(p.via) && VIAS.includes(p.via))
-  );
-}
-
-function stampSigned(keyring: Record<string, string>, s: StampV2): boolean {
-  try {
-    return Object.hasOwn(keyring, s.svc) && verify(keyring[s.svc]!, signingBytesV2(s), decode(s.sig));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Checks one local record (see the module comment). `seen` holds the (rid, call id) of every local record
- * read so far; `promptOf` gives a rid's undisputed prompt.
- */
-function verifyLocal(r: Rec, client: Client | undefined, promptOf: (rid: string) => string | undefined, seen: Set<string>): VerifyItem["result"] {
-  if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
-    return "UNREADABLE";
-  }
-  if (!isString(r.verdict) || !VERDICTS.includes(r.verdict) || !(r.proof === null || isObject(r.proof))) {
-    return "UNREADABLE";
-  }
-  let chain: StampV2[];
-  let influence: ReturnType<typeof parseInfluence>;
-  try {
-    chain = parseStampsV2(r.chain);
-    influence = parseInfluence(r.influence);
-  } catch {
-    return "UNREADABLE";
-  }
-  if (chain.length !== 2) {
-    return "UNREADABLE";
-  }
-  if (client === undefined) {
-    return "NO_CLIENT";
-  }
-  const k = JSON.stringify([r.rid, r.callId]);
-  if (seen.has(k)) {
-    return "REPLAY";
-  }
-  seen.add(k);
-  const [origin, step] = chain as [StampV2, StampV2];
-  if (origin.svc !== "session") {
-    return "BAD_ORIGIN";
-  }
-  if (step.svc !== "pi" || !stampSigned(client.keyring, origin) || !stampSigned(client.keyring, step)) {
-    return "BAD_SIGNATURE";
-  }
-  if (origin.prev !== "" || step.prev !== origin.sig) {
-    return "BROKEN_LINK";
-  }
-  if (origin.rid !== r.rid || step.rid !== r.rid) {
-    return "RID_MISMATCH";
-  }
-  if (origin.sess !== "" || step.sess !== "") {
-    return "SESSION_UNKNOWN";
-  }
-  if (step.ts !== r.now) {
-    return "TIME_MISMATCH";
-  }
-  const prompt = promptOf(r.rid);
-  if (prompt === undefined || origin.bind !== bindPrompt(prompt)) {
-    return "PROMPT_MISMATCH";
-  }
-  let bind: string;
-  try {
-    bind = bindLocalTool(r.tool, r.input, r.resolved);
-  } catch {
-    return "BINDING_MISMATCH";
-  }
-  if (step.bind !== bind) {
-    return "BINDING_MISMATCH";
-  }
-  if (step.infl !== commitInfluence(influence)) {
-    return "INFLUENCE_MISMATCH";
-  }
-  let routeAllowed = false;
-  if (r.proof !== null) {
-    try {
-      const proof = parseProof(r.proof);
-      if (proof.rootId !== client.rootId || !verifyProof(proof, LOCAL_ROUTE_PREFIX + r.tool, client.root)) {
-        return "BAD_PROOF";
-      }
-    } catch {
-      return "BAD_PROOF";
-    }
-    routeAllowed = true;
-  }
-  // no rules: the gate refuses every call as out of scope, and decideLocal has nothing to apply
-  const expected: LocalVerdict =
-    client.rules === null ? "SCOPE_DENIED" : decideLocal({ routeAllowed, resolved: r.resolved, rules: client.rules, classes: influenceClasses(influence) });
-  if (expected !== r.verdict) {
-    return "VERDICT_MISMATCH";
-  }
-  return r.verdict === "OK" ? "OK" : "REFUSED";
-}
-
 function unreadable(file: string, line: number, type: string): VerifyReport {
   return { file, ok: false, items: [{ line, type, result: "UNREADABLE" }], pins: [] };
 }
@@ -402,8 +216,10 @@ function verifyFile(path: string, label: string): VerifyReport {
   const disputed = new Set<string>();
   // Every client root a session record names, for the client records to agree with.
   const named: NamedClient[] = [];
+  const runTimes = new Map<string, Set<number>>();
   for (const { rec } of lines) {
     if (rec.type === "run" && isString(rec.rid) && isString(rec.prompt)) {
+      if (typeof rec.ts === "number") runTimes.set(rec.rid, (runTimes.get(rec.rid) ?? new Set<number>()).add(rec.ts));
       const seen = prompts.get(rec.rid);
       if (seen === undefined) {
         prompts.set(rec.rid, rec.prompt);
@@ -415,7 +231,10 @@ function verifyFile(path: string, label: string): VerifyReport {
       named.push({ root: rec.request.clientRoot, policyKey: rec.request.clientPolicyKey, keyring: rec.request.clientKeyring });
     }
   }
-  const promptOf = (rid: string) => (disputed.has(rid) ? undefined : prompts.get(rid));
+  const runOf = (rid: string): RunInfo | undefined => {
+    const prompt = disputed.has(rid) ? undefined : prompts.get(rid);
+    return prompt === undefined ? undefined : { prompt, ts: runTimes.get(rid) ?? new Set<number>() };
+  };
 
   type CallEntry = { line: number; callId: string; ok: boolean; session: Session; responded: boolean };
   // One cache for the whole file: a repeated session record must not reset replay protection.
@@ -461,7 +280,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const result = verifyLocal(rec, client, promptOf, localSeen);
+      const result = verifyLocal(rec, client, runOf, localSeen);
       add(result);
       if (result === "OK" || result === "REFUSED") {
         boundRids.add(rec.rid as string);

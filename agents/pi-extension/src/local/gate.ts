@@ -4,7 +4,7 @@
 // The local gate: every tool call that is not one of this extension's MCP tools is checked here, in
 // pi's tool_call hook, against the signed client rules before it runs.
 
-import { bindLocalTool, commitInfluence, influenceClasses, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/path-attest";
+import { bindLocalTool, commitInfluence, influenceClasses, rulesHash, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/path-attest";
 import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
@@ -56,8 +56,8 @@ function deepFreeze(v: unknown): void {
 /**
  * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
  * run is a signed client-mesh step: a v2 stamp with an empty `sess`, chained from the run's origin and
- * bound to the input and what the gate resolved, written to the evidence file with the route proof,
- * the influence and the verdict. no-root mode has no rules to check against and refuses every call.
+ * bound to the input and the decision (what the gate resolved, the verdict, whether the route is listed
+ * and the rules' hash), written to the evidence file with the route proof and the influence. no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
@@ -116,11 +116,28 @@ export class LocalGate {
     try {
       const origin = runs.origin("", material.sessionKey, INST);
       const now = this.deps.now();
-      const stamp = signStampV2(
-        { svc: "pi", inst: INST, rid: run.rid, ts: now, sess: "", bind: bindLocalTool(toolName, input, resolved), infl: commitInfluence(entries), prev: origin.sig },
-        material.piKey,
-      );
-      evidence.write({ v: 1, type: "local", tool: toolName, callId: toolCallId, rid: run.rid, now, input, resolved, chain: [origin, stamp], proof, influence: entries, verdict });
+      const routeAllowed = proof !== null;
+      const hash = rules !== undefined ? rulesHash(rules) : null;
+      // the stamp binds the decision as well as the call: what was resolved, the verdict, whether the route
+      // is listed and which rules decided, so none of them can be changed in the evidence after signing
+      const bind = bindLocalTool(toolName, input, { resolved, verdict, routeAllowed, rulesHash: hash });
+      const stamp = signStampV2({ svc: "pi", inst: INST, rid: run.rid, ts: now, sess: "", bind, infl: commitInfluence(entries), prev: origin.sig }, material.piKey);
+      evidence.write({
+        v: 1,
+        type: "local",
+        tool: toolName,
+        callId: toolCallId,
+        rid: run.rid,
+        now,
+        input,
+        resolved,
+        routeAllowed,
+        rulesHash: hash,
+        chain: [origin, stamp],
+        proof,
+        influence: entries,
+        verdict,
+      });
     } catch {
       // input JCS rejects (a lone surrogate, a non-finite number) cannot be bound: refuse it unsigned
       verdict = "UNCHECKABLE";
