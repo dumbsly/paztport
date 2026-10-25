@@ -11,7 +11,7 @@ import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
 import { clientRecord, EvidenceLog } from "../../pi-extension/src/evidence.ts";
 import { InfluenceStore } from "../../pi-extension/src/influence.ts";
-import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
+import { loadClientMaterial, type ClientMaterial } from "../../pi-extension/src/keys.ts";
 import { LocalGate } from "../../pi-extension/src/local/gate.ts";
 import { RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
@@ -913,12 +913,21 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
    * The evidence lines of one run in which the real LocalGate checks the calls `steps` makes, with the demo
    * rules and a workspace of website/, notes/n.md and secret/ (refused).
    */
-  function gateRun(steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void, opts: { home?: string } = {}): string[] {
+  /**
+   * The evidence lines of one run in which the real LocalGate checks the calls `steps` makes, with the demo
+   * rules (or the client material `opts.material` gives) and a workspace of website/, notes/n.md, priv/x and
+   * secret/ (refused).
+   */
+  function gateRun(
+    steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void,
+    opts: { home?: string; material?: ClientMaterial } = {},
+  ): string[] {
     const dir = realpathSync.native(mkdtempSync(join(tmp, "gate-run-")));
     const workspace = join(dir, "workspace");
-    for (const d of ["website", "notes", "secret"]) mkdirSync(join(workspace, d), { recursive: true });
+    for (const d of ["website", "notes", "secret", "priv"]) mkdirSync(join(workspace, d), { recursive: true });
     writeFileSync(join(workspace, "notes", "n.md"), "note\n");
-    const material = loadClientMaterial(join(demo, "client"), join(demo, "client/local-tools"));
+    writeFileSync(join(workspace, "priv", "x"), "SECRET\n");
+    const material = opts.material ?? loadClientMaterial(join(demo, "client"), join(demo, "client/local-tools"));
     const evidencePath = join(dir, "evidence.jsonl");
     const evidence = new EvidenceLog(evidencePath);
     const influence = new InfluenceStore();
@@ -943,17 +952,50 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     return jsonLines(evidencePath);
   }
 
-  it("aCallRefusedForItsOwnReadsVerifies", () => {
-    // private in the session, and the call itself reads an unlabelled folder (local-untrusted) into a public one
+  /** A client signed afresh (new keys, new root) whose local rules add priv/, labelled private. */
+  function privateClient(): ClientMaterial {
+    const dir = mkdtempSync(join(tmp, "priv-client-"));
+    const tool = (script: string, args: string[]) => {
+      const r = spawnSync(process.execPath, [join(import.meta.dirname, "../../policy-tool-ts/src", script), ...args], { encoding: "utf8" });
+      if (r.status !== 0) throw new Error(r.stderr || r.stdout);
+    };
+    const yaml = readFileSync(join(import.meta.dirname, "../../policies/client-local-tools.paths.yaml"), "utf8").replace(
+      '    - { path: "notes"',
+      '    - { path: "priv", access: [read], label: private }\n    - { path: "notes"',
+    );
+    expect(yaml).toContain('"priv"');
+    writeFileSync(join(dir, "paths.yaml"), yaml);
+    tool("keygen.ts", ["--out", join(dir, "client"), "--services", "session,pi"]);
+    tool("policy.ts", ["--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "client/policy.key"), "--out", join(dir, "client/local-tools")]);
+    return loadClientMaterial(join(dir, "client"), join(dir, "client/local-tools"));
+  }
+
+  it("aCallsOwnPrivateReadsCountAndTheRecordVerifies", () => {
+    const material = privateClient();
+    const tainted = gateRun((gate, influence) => {
+      influence.recordClasses("github", ["third-party"], "h1");
+      gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy");
+    }, { material });
+    expect(localOf(tainted.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("INFLUENCE_DENIED");
+    const r = verifyEvidence(write(tainted));
+    expect(bad(r.items)).toEqual([]);
+    expect(localResult(r, "l_copy")).toBe("REFUSED");
+    // with an empty session the same copy is allowed, and verifies
+    const clean = gateRun((gate) => void gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy"), { material });
+    expect(localOf(clean.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("OK");
+    expect(localResult(verifyEvidence(write(clean)), "l_copy")).toBe("OK");
+  });
+
+  it("aCallsOwnUnlabelledReadsAddNothingAndTheRecordVerifies", () => {
+    // private in the session; the call reads an unlabelled folder, whose content the model never saw, into a public one
     const lines = gateRun((gate, influence) => {
       influence.recordClasses("github", ["private"], "h1");
       gate.check("bash", { command: "cat notes/n.md > website/y.md" }, "l_copy");
     });
-    const rs = lines.map((l) => JSON.parse(l));
-    expect(localOf(rs, "l_copy").verdict).toBe("INFLUENCE_DENIED");
+    expect(localOf(lines.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("OK");
     const r = verifyEvidence(write(lines));
     expect(bad(r.items)).toEqual([]);
-    expect(localResult(r, "l_copy")).toBe("REFUSED");
+    expect(localResult(r, "l_copy")).toBe("OK");
   });
 
   it("aRecordWithPlaceholdersForTheWorkspaceAndHomeVerifies", () => {

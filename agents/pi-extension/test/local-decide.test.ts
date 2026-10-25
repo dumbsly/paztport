@@ -125,8 +125,9 @@ describe("decideLocal", () => {
   it("emptyCommandIsOk", () => {
     expect(verdict(resolved([]))).toBe("OK");
   });
-  it("theCallsOwnReadLabelsCountWithTheSessionsInfluence", () => {
-    // a single call that reads a private folder and writes a public one (cat priv/x > website/leak.md)
+  it("theCallsOwnPrivateReadsCountWithTheSessionsInfluence", () => {
+    // a single call that reads a private folder and writes a public one (cat priv/x > website/leak.md); bash
+    // also reads its working folder, here an unlabelled root
     const r = parseLocalRules({
       v: 1,
       folders: [
@@ -136,16 +137,16 @@ describe("decideLocal", () => {
       ],
       programs: ["cat", "grep"],
     });
-    const copy = resolved([read("priv/x"), write("website/leak.md")], [{ name: "cat", via: "list" }]);
+    const copy = resolved([read("."), read("priv/x"), write("website/leak.md")], [{ name: "cat", via: "list" }]);
     expect(verdict(copy, ["third-party"], true, r)).toBe("INFLUENCE_DENIED");
     expect(verdict(copy, ["local-untrusted"], true, r)).toBe("INFLUENCE_DENIED");
-    // with nothing untrusted in the session the copy is allowed, as the server allows a private read then a public write
+    // with nothing untrusted in the session the copy is allowed, as the server allows a private read then a public
+    // write: the call's own reads carry data, not instructions, so only their private label counts
     expect(verdict(copy, [], true, r)).toBe("OK");
     expect(verdict(copy, ["private"], true, r)).toBe("OK");
-    // an unlabelled folder reads as local-untrusted, so reading it with private in the session counts too
-    expect(verdict(resolved([read("notes/a.md"), write("website/a.md")]), ["private"])).toBe("INFLUENCE_DENIED");
-    // a public read adds nothing that triggers the rule
-    expect(verdict(resolved([read("website/a.md"), write("website/b.md")]), ["private"])).toBe("OK");
+    // an unlabelled folder the call reads adds nothing: the model never saw that content, so it can't have steered the call
+    expect(verdict(resolved([read("notes/u"), write("website/x")]), ["private"])).toBe("OK");
+    expect(verdict(resolved([read("notes/u"), write("website/x")]), ["private", "third-party"])).toBe("INFLUENCE_DENIED");
   });
 });
 

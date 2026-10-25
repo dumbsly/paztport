@@ -158,35 +158,39 @@ describe("LocalGate verdicts", () => {
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["OK", "INFLUENCE_DENIED", "INFLUENCE_DENIED", "OK", "OK"]);
   });
 
-  it("aSingleCallCopyingPrivateToPublicCountsItsOwnReads", () => {
+  it("aSingleCallCopyingPrivateToPublicCountsItsOwnPrivateReads", () => {
     // review probe: one bash call that reads a private folder and writes a public one
-    const rulesWithRoot = (root: Record<string, unknown>) =>
-      parseLocalRules({
-        v: 1,
-        folders: [
-          { path: ".", access: ["read"], ...root },
-          { path: "priv", access: ["read"], label: "private" },
-          { path: "website", access: ["read", "write"], label: "public", destination: "public" },
-        ],
-        programs: ["cat", "cp", "grep"],
-      });
+    const rules = parseLocalRules({
+      v: 1,
+      folders: [
+        { path: ".", access: ["read"] },
+        { path: "priv", access: ["read"], label: "private" },
+        { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      ],
+      programs: ["cat", "cp", "grep"],
+    });
     const commands = ["cat priv/x > website/leak.md", "grep SECRET priv/x > website/l3.md"];
     // grep reads below the working folder, so here no folder is refused (secret/ would refuse it as out of scope)
-    const gateWith = (root: Record<string, unknown>) => rig("enforce", { material: { ...material, rules: rulesWithRoot(root) }, refused: [] });
-    const tainted = gateWith({});
+    const priv = () => rig("enforce", { material: { ...material, rules }, refused: [] });
+    const tainted = priv();
     tainted.influence.recordClasses("github", ["third-party"], "h1");
     for (const [i, command] of commands.entries()) {
       expect(tainted.gate.check("bash", { command }, `c${i}`), command).toEqual({ block: true, reason: UNSAFE_TEXT });
     }
     expect(lines(tainted.eventsPath).map((e) => e.verdict)).toEqual(["INFLUENCE_DENIED", "INFLUENCE_DENIED"]);
-    // with nothing untrusted in the session or the call the same copy is allowed, as a private read and then a
-    // public write are on the server; bash always reads its working folder, so here the root carries a label
-    const clean = gateWith({ label: "public" });
+    // with an empty session the same copy is allowed, as a private read and then a public write are on the server;
+    // the unlabelled root bash reads adds nothing
+    const clean = priv();
     for (const [i, command] of commands.entries()) {
       expect(clean.gate.check("bash", { command }, `c${i}`), command).toEqual({ block: false });
     }
-    // an unlabelled root reads as local-untrusted, so with it the copy is refused even in an empty session
-    expect(gateWith({}).gate.check("bash", { command: commands[0] }, "c9")).toEqual({ block: true, reason: UNSAFE_TEXT });
+  });
+
+  it("aCallsOwnUnlabelledReadsAddNothing", () => {
+    // notes/ has no label: the call reads data the model never saw, so it can't have steered the call
+    const { gate, influence } = rig("enforce");
+    influence.recordClasses("github", ["private"], "h1");
+    expect(gate.check("bash", { command: "cat notes/a.md > website/x.md" }, "c1")).toEqual({ block: false });
   });
 
   it("listedOtherToolHasOnlyItsRoute", () => {

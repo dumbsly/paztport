@@ -56,8 +56,10 @@ export function folderRuleFor(at: string, rules: LocalRules): FolderRule | undef
 
 /**
  * The first matching rule wins: route, then uncheckable, then scope, then influence. The influence rule is
- * decided on the session's classes together with the call's own read labels (readLabels), so a single call
- * that reads a private folder and writes a public one is decided as a read followed by a write would be.
+ * decided on the session's classes plus `private` when the call itself reads a private-labelled folder, so a
+ * single call that copies a private folder into a public one is decided as a read followed by a write would be.
+ * The call's other read labels are not added: its own reads carry data, not instructions, and the model never
+ * saw that content, so it can't have steered the call. Only private data moving matters there.
  */
 export function decideLocal(d: {
   routeAllowed: boolean;
@@ -79,7 +81,10 @@ export function decideLocal(d: {
   ) {
     return "SCOPE_DENIED";
   }
-  const all = new Set<InfluenceClass>([...classes, ...readLabels(resolved, rules)]);
+  const all = new Set<InfluenceClass>(classes);
+  if (readLabels(resolved, rules).includes("private")) {
+    all.add("private");
+  }
   if (all.has("private") && (all.has("third-party") || all.has("local-untrusted"))) {
     if (folders.some(({ p, rule }) => p.need === "write" && rule?.destination === "public")) {
       return "INFLUENCE_DENIED";

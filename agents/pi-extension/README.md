@@ -182,19 +182,21 @@ The first check that fails decides, in this order:
    keys and pins, the logs, pi's session and agent folders), is refused.
 4. **Influence.** If the session holds `private` content together with `third-party` or
    `local-untrusted` content, a write to a folder whose `destination` is `public` is refused
-   (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories. The
-   call's own reads count too: the labels of the folders it reads are added to the session's for
-   this check, so one `bash` command that copies a `private` folder into a public one is decided as
-   a read followed by a write would be. `bash` always reads its working folder, so when that folder
-   has no label (it counts as `local-untrusted`), a `bash` command can't write to a public folder if
-   it reads a `private` folder or if the session holds `private` content.
+   (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories. A
+   call's own reads of private-labelled folders count too: if the call reads a folder labelled
+   `private`, `private` is added to the session's classes for this check, so one `bash` command that
+   copies a `private` folder into a public one is decided as a read followed by a write would be. The
+   call's other read labels are not added: its own reads carry data, not instructions, and the model
+   has not seen that content, so it can't have steered the call. With an empty session, that copy is
+   allowed, as a private read and then a public write are on the server.
 
 In `enforce` mode, each call that reaches the gate during a run is a signed step in the client's
 chain: the stamp binds the call id, the input, what the gate resolved, the verdict, whether the route
 was listed, the hash of the rules, and the influence at that moment. The step is written to the
 evidence file whether the call was allowed or refused. The input is bound and recorded with the
 workspace path written as `<workspace>` and the home folder as `<home>`, wherever either appears as a
-whole path in one of its strings (the workspace first); the tool runs with the input as given. A call
+whole path in one of its strings (the workspace first); the tool runs with the input as given. In
+eval and demo runs, `<home>` is the run's own home folder, which the runner gives pi, not yours. A call
 whose input can't be signed (a lone surrogate, a number JSON can't hold) is refused as `UNCHECKABLE`
 and is not signed. In `no-root` mode, and for a call made before any user prompt, the call is refused
 with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
