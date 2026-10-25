@@ -18,6 +18,9 @@
 // eval checks each of its runs: its evidence.jsonl is verified, then one more line says whether the events log,
 // the outcome log and the evidence agree, and whether the evidence is pinned to the server key demo-run.json
 // records. An older demo-run.json records no server key; the pins are then not compared, and a line says so.
+// The mode demo-run.json records must be the one run.json and config.json record, and whatever it says, a run
+// whose outcome log shows signed calls or whose events log shows local tool calls made during a run must have
+// signed evidence.
 
 import { statSync } from "node:fs";
 import { isSingleRunDir, verifySingleRunDir } from "./crosscheck.ts";

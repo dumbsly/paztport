@@ -5,7 +5,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { checkRecords, readOutcomeLog } from "./score.ts";
-import { NOT_FAILURES, verifyEvidence, type VerifyReport } from "./verify.ts";
+import { NOT_FAILURES, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode } from "./runner.ts";
 
 /**
@@ -365,7 +365,10 @@ export type SingleRunCheck = {
 /**
  * Checks a demo single-run folder as the eval checks each of its runs: its evidence.jsonl is verified, then
  * checkRun compares the events log, the outcome log and the evidence, and the evidence's pin with the server
- * key fingerprint, using the mode, scored outcome and localTools demo-run.json records. A demo-run.json
+ * key fingerprint, using the mode, scored outcome and localTools demo-run.json records. demo-run.json can be
+ * edited, so it is not trusted on its own: whatever mode it records, a run whose outcome log shows signed
+ * calls or whose events log shows local tool calls made during a run must have signed evidence (as
+ * verifyResultsDir decides it), and its mode must be the one run.json and config.json record. A demo-run.json
  * without serverKey (written before the demo recorded it) is checked without the pin comparison.
  */
 export function verifySingleRunDir(dir: string): SingleRunCheck {
@@ -395,7 +398,7 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
   } catch {
     records = null;
   }
-  const crossCheck = checkRun({
+  let crossCheck = checkRun({
     mode: obj.mode as RunMode,
     outcome,
     records,
@@ -406,5 +409,39 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     localTools: obj.localTools === true,
     pinOwner: "the demo's",
   });
+  // what demo-run.json says is not trusted on its own: the run's own logs say whether it must have signed evidence
+  if (report.nothingToCheck === true && crossCheck.status !== "failed") {
+    const need = signedEvidenceNeeded(dir);
+    if (need !== undefined) crossCheck = { status: "failed", problems: [need] };
+  }
+  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode));
   return { report, crossCheck, ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }) };
+}
+
+/** A JSON object read from a file in the run folder, or the reason it can't be. */
+function readObject(path: string): Record<string, unknown> | undefined {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Where the mode demo-run.json records disagrees with the runner's own files: run.json's mode, and the mode
+ * config.json starts Paztport in (enforce for the modes with Paztport on, off for the others). The runner writes
+ * both before pi starts, so a file that can't be read can't show the mode either.
+ */
+function modeDisagreements(dir: string, mode: RunMode): string[] {
+  const problems: string[] = [];
+  const unread = (f: string) => `${f} can't be read, so the mode demo-run.json records can't be checked against it`;
+  const run = readObject(join(dir, "run.json"));
+  if (run === undefined) problems.push(unread("run.json"));
+  else if (run.mode !== mode) problems.push(`demo-run.json records mode ${mode}, but run.json records mode ${String(run.mode)}`);
+  const config = readObject(join(dir, "config.json"));
+  const serverMode = EXPECT_EVIDENCE.includes(mode) ? "enforce" : "off";
+  if (config === undefined) problems.push(unread("config.json"));
+  else if (config.mode !== serverMode) problems.push(`demo-run.json records mode ${mode}, but config.json starts Paztport in mode ${String(config.mode)}`);
+  return problems;
 }

@@ -484,6 +484,22 @@ function eventsShowLocalSteps(runDir: string): boolean | { problem: string } {
 
 const LOCAL_STEPS_NO_EVIDENCE = "the events log shows local tool calls during a run, but evidence.jsonl has no signed records";
 
+/**
+ * Why a run must have signed evidence, from its own logs and whatever any record of its mode says: its outcome
+ * log shows signed calls (records with `sess`), or its events log shows local tool calls made during a run
+ * (`local` lines with a rid), or a log that exists can't be read and so can't show that there were none.
+ * Undefined when neither log shows anything Paztport would have signed.
+ */
+export function signedEvidenceNeeded(runDir: string): string | undefined {
+  const signed = outcomeShowsSignedCalls(runDir);
+  if (typeof signed === "object") return `${signed.problem}, so it can't show that this run made no signed calls`;
+  if (signed) return SIGNED_CALLS_NO_EVIDENCE;
+  const local = eventsShowLocalSteps(runDir);
+  if (typeof local === "object") return `${local.problem}, so it can't show that this run made no local tool calls`;
+  if (local) return LOCAL_STEPS_NO_EVIDENCE;
+  return undefined;
+}
+
 const nothingToCheck = (file: string): VerifyReport => ({ file, ok: true, items: [], pins: [], nothingToCheck: true });
 const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem });
 
@@ -538,17 +554,11 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
       reports.push(report);
       continue;
     }
-    // no signed evidence: the outcome log decides first, whatever results.json says (it can be edited or deleted)
-    const signed = outcomeShowsSignedCalls(join(dir, "runs", name));
-    const local = typeof signed === "object" || signed ? false : eventsShowLocalSteps(join(dir, "runs", name));
-    if (typeof signed === "object") {
-      reports.push(needsSigned(rel, `${signed.problem}, so it can't show that this run made no signed calls`));
-    } else if (signed) {
-      reports.push(needsSigned(rel, SIGNED_CALLS_NO_EVIDENCE));
-    } else if (typeof local === "object") {
-      reports.push(needsSigned(rel, `${local.problem}, so it can't show that this run made no local tool calls`));
-    } else if (local) {
-      reports.push(needsSigned(rel, LOCAL_STEPS_NO_EVIDENCE));
+    // no signed evidence: the outcome log, then the events log, decide first, whatever results.json says (it can
+    // be edited or deleted)
+    const need = signedEvidenceNeeded(join(dir, "runs", name));
+    if (need !== undefined) {
+      reports.push(needsSigned(rel, need));
     } else if (expect === "signed") {
       const what = report !== undefined ? "has no signed records" : size === 0 ? "is empty" : "is missing";
       reports.push(needsSigned(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));

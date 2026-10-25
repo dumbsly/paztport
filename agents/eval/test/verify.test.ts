@@ -1036,15 +1036,25 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     pin = pinFingerprint(readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim());
   }, 60_000);
   const cli = (dir: string) => spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
-  /** A copy of the run as a demo single-run folder, with demo-run.json as the demo writes it. */
+  /**
+   * A copy of the run as a demo single-run folder, with demo-run.json as the demo writes it, and run.json and
+   * config.json as the runner writes them for its mode.
+   */
   function single(over: Record<string, unknown> = {}, edit?: (dir: string) => void): string {
     const dir = join(tmp, `single-${n++}`);
     cpSync(base, dir, { recursive: true });
     const run = { formatVersion: 1, kind: "single", localTools: true, mode: "on", scored: { outcome: "blocked" }, serverKey: { fingerprint: pin }, ...over };
     for (const [k, v] of Object.entries(run)) if (v === undefined) delete (run as Record<string, unknown>)[k];
     writeFileSync(join(dir, "demo-run.json"), JSON.stringify(run, null, 2) + "\n");
+    writeRunFiles(dir, run.mode as string);
     edit?.(dir);
     return dir;
+  }
+  /** run.json and config.json as the runner writes them for a run in `mode`. */
+  function writeRunFiles(dir: string, mode: string): void {
+    const enforced = mode === "on" || mode === "clean-on";
+    writeFileSync(join(dir, "run.json"), JSON.stringify({ status: "completed", exitCode: 0, durationMs: 1000, canary: "0123456789abcdef", mode }, null, 2) + "\n");
+    writeFileSync(join(dir, "config.json"), JSON.stringify({ mode: enforced ? "enforce" : "off", clientDir: "x", eventsLog: join(dir, "events.jsonl") }, null, 2) + "\n");
   }
   const CROSS_OK = "OK  cross-check (events, outcome log and evidence agree)";
 
@@ -1098,6 +1108,54 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     const on = cli(single({}, (d) => rmSync(join(d, "evidence.jsonl"))));
     expect(on.stdout).toMatch(/^FAIL cross-check: the outcome log shows attested calls, but evidence\.jsonl is missing/m);
     expect(on.status).toBe(1);
+  });
+
+  it("a run whose files show signed calls must have signed evidence, whatever mode its files record", () => {
+    // every file that records the mode is edited to off; the evidence is gone and the outcome log emptied, but
+    // the events log still shows local tool calls made during a run, which Paztport signs
+    const local = cli(single({ mode: "off" }, (d) => {
+      rmSync(join(d, "evidence.jsonl"));
+      writeFileSync(join(d, "outcome.jsonl"), "");
+    }));
+    expect(local.stdout).toMatch(/^FAIL cross-check: the events log shows local tool calls during a run, but evidence\.jsonl has no signed records$/m);
+    expect(local.status).toBe(1);
+    // the outcome log shows calls made in a signed session
+    const signed = cli(single({ mode: "off" }, (d) => {
+      rmSync(join(d, "evidence.jsonl"));
+      writeFileSync(join(d, "events.jsonl"), "");
+    }));
+    expect(signed.stdout).toMatch(/^FAIL cross-check: the outcome log shows attested calls, but evidence\.jsonl is missing, empty or has no signed records$/m);
+    expect(signed.status).toBe(1);
+    // an outcome log that can't be read can't show that there were none
+    const unreadable = cli(single({ mode: "off" }, (d) => {
+      rmSync(join(d, "evidence.jsonl"));
+      writeFileSync(join(d, "events.jsonl"), "");
+      writeFileSync(join(d, "outcome.jsonl"), "{\n");
+    }));
+    expect(unreadable.stdout).toMatch(/^FAIL cross-check: the outcome log can't be read; line 1 is not valid JSON, so it can't show that this run made no signed calls$/m);
+    expect(unreadable.status).toBe(1);
+  });
+
+  it("a mode in demo-run.json that run.json or config.json does not record fails the cross-check", () => {
+    // only demo-run.json is edited: the evidence is gone and the outcome log emptied, the events log is kept
+    const edited = cli(single({ mode: "off" }, (d) => {
+      writeRunFiles(d, "on");
+      rmSync(join(d, "evidence.jsonl"));
+      writeFileSync(join(d, "outcome.jsonl"), "");
+    }));
+    expect(edited.stdout).toMatch(/^FAIL cross-check: .*demo-run\.json records mode off, but run\.json records mode on/m);
+    expect(edited.stdout).toMatch(/demo-run\.json records mode off, but config\.json starts Paztport in mode enforce/);
+    expect(edited.status).toBe(1);
+    // with the evidence kept, the disagreement alone fails it
+    const kept = cli(single({}, (d) => writeFileSync(join(d, "run.json"), JSON.stringify({ status: "completed", exitCode: 0, mode: "clean-on" }))));
+    expect(kept.stdout).toMatch(/^FAIL cross-check: demo-run\.json records mode on, but run\.json records mode clean-on$/m);
+    expect(kept.status).toBe(1);
+    // a run.json or config.json that can't be read can't show the mode
+    for (const f of ["run.json", "config.json"]) {
+      const gone = cli(single({}, (d) => rmSync(join(d, f))));
+      expect(gone.stdout).toMatch(new RegExp(`^FAIL cross-check: ${f.replace(".", "\\.")} can't be read, so the mode demo-run\\.json records can't be checked against it`, "m"));
+      expect(gone.status).toBe(1);
+    }
   });
 
   it("a demo-run.json that can't be read fails the cross-check", () => {
