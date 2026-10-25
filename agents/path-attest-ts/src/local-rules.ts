@@ -27,15 +27,16 @@ export const NEVER_PROGRAMS: readonly string[] = [
   "nvim", "view", "emacs", "nano", "ed", "ex", "m4", "chroot", "setsid", "stdbuf", "flock", "rbash", "ash", "csh", "tcsh", "nodejs",
   "mawk", "nawk", "xcrun", "launchctl", "at", "batch", "crontab", "screen", "tmux", "expect", "gdb", "lldb", "dtrace", "sandbox-exec",
   "irb", "julia", "swift", "tclsh", "wish", "Rscript", "printf", "getopts",
+  "time", "command", "lockf", "pydoc", "vimdiff", "rview", "rvim", "vimtutor",
 ];
 
 /**
  * True when `name`, compared case-insensitively, is a NEVER_PROGRAMS entry or such an
- * entry followed only by a version suffix of digits and dots (python3.12, perl5.30, Bash).
+ * entry followed only by a version suffix of digits, dots and dashes (python3.12, perl5.30, Bash).
  */
 export function isNeverProgram(name: string): boolean {
   const lower = name.toLowerCase();
-  return NEVER_PROGRAMS.some((entry) => lower.startsWith(entry.toLowerCase()) && /^[0-9.]*$/.test(lower.slice(entry.length)));
+  return NEVER_PROGRAMS.some((entry) => lower.startsWith(entry.toLowerCase()) && /^[-0-9.]*$/.test(lower.slice(entry.length)));
 }
 
 const ACCESS: readonly string[] = ["read", "write", "exec"];

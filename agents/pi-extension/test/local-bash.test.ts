@@ -217,7 +217,7 @@ describe("resolveBash", () => {
   });
   it("nonReadOnlyOptionsAreNotPathsButLongOptionValuesAre", () => {
     expect(resolveBash("mkdir -p notes/x", ctx).paths).toEqual([{ need: "read", at: "." }, { need: "write", at: "notes/x" }]);
-    expect(resolveBash("cp --target-directory=website notes/a", ctx).paths).toContainEqual({ need: "write", at: "website" });
+    expect(resolveBash("cp --target-directory=website notes/a", ctx).paths).toContainEqual({ need: "write", at: "uncheckable" });
     expect(resolveBash("cp -tnotes/x a", ctx).paths).toContainEqual({ need: "write", at: "uncheckable" });
   });
   it("readOnlyArgumentIsAPathOnlyWhenItLooksLikeOneOrExists", () => {
@@ -299,7 +299,7 @@ describe("resolveBash", () => {
   });
   it("optionsEndAtTheFirstOperandOrDoubleDash", () => {
     const w = (c: string) => resolveBash(c, ctx).paths.slice(1);
-    expect(w("cp notes/a -evil")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "-evil" }]);
+    expect(w("cp notes/a -evil")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "uncheckable" }, { need: "write", at: "-evil" }]);
     expect(w("cp notes/a --")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "--" }]);
     expect(w("mkdir -")).toEqual([{ need: "write", at: "-" }]);
     expect(w("mkdir -p -- -x")).toEqual([{ need: "write", at: "-x" }]);
@@ -366,3 +366,63 @@ describe("resolveBash subtrees", () => {
     expect(resolveBash("echo x > notes/deep/f", c).paths).toContainEqual({ need: "write", at: "notes/deep/f" });
   });
 });
+
+describe("resolveBash option tokens in any position", () => {
+  const at = (c: string) => resolveBash(c, ctx).paths;
+  it("readOnlyProgramsJudgeAttachedValuesAfterOperandsAndAfterOptionArguments", () => {
+    writeFileSync(join(ctx.cwd, ".env"), "x");
+    expect(verdict("grep KEY website/README.md --file=.env")).toBe("OK"); // .env is a plain read in the root
+    expect(at("grep KEY website/README.md --file=.env")).toContainEqual({ need: "read", at: ".env" });
+    expect(at("grep KEY website/README.md -f.env")).toContainEqual({ need: "read", at: ".env" });
+    expect(at("grep -e KEY -f.env website/README.md")).toContainEqual({ need: "read", at: ".env" });
+    expect(at("grep KEY website/README.md -f/etc/passwd")).toContainEqual({ need: "read", at: "outside" });
+    expect(verdict("grep KEY website/README.md -f/etc/passwd")).toBe("SCOPE_DENIED");
+    expect(verdict("grep KEY website/README.md --file=/etc/passwd")).toBe("SCOPE_DENIED");
+    expect(at("diff -L x -X.env a b")).toContainEqual({ need: "read", at: ".env" });
+    expect(verdict("grep KEY website/README.md --file=../.env")).toBe("UNCHECKABLE");
+  });
+  it("aDashedTokenAfterTheOptionsEndedIsAlsoAnOperand", () => {
+    writeFileSync(join(ctx.cwd, "-name"), "x");
+    const p = at("cat run.sh -name");
+    expect(p).toContainEqual({ need: "read", at: "-name" });
+    expect(at("grep KEY run.sh --file=.env")).toContainEqual({ need: "read", at: ".env" });
+  });
+  it("programsThatMayWriteCannotCarryAttachedValuesAnywhere", () => {
+    expect(verdict("cp notes/a -t/tmp")).toBe("UNCHECKABLE");
+    expect(verdict("cp notes/a --target-directory=/tmp")).toBe("UNCHECKABLE");
+    expect(verdict("cp --target-directory=/tmp notes/a")).toBe("UNCHECKABLE");
+    expect(verdict("cp -e KEY notes/a -t/tmp")).toBe("UNCHECKABLE");
+    expect(verdict("mkdir -p website/x")).toBe("OK");
+  });
+});
+
+describe("resolveBash implicit working folder", () => {
+  const nested = parseLocalRules({
+    v: 1,
+    folders: [
+      { path: ".", access: ["read"] },
+      { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      { path: "notes", access: ["read", "write"], destination: "private" },
+    ],
+    programs: rules.programs,
+  });
+  it("recursiveGrepAndLsWithNoPathWalkTheWorkingFolder", () => {
+    mkdirSync(join(ctx.cwd, "notes", "secret"), { recursive: true });
+    const c = { ...ctx, rules: nested, refused: [join(ctx.cwd, "notes", "secret")] };
+    for (const cmd of ["grep -r KEY", "grep -rn KEY", "grep --recursive KEY", "grep -d recurse KEY", "ls -R", "ls"]) {
+      const r = resolveBash(cmd, c);
+      expect(r.paths, cmd).toContainEqual({ need: "read", at: "refused" });
+      expect(decideLocal({ routeAllowed: true, resolved: r, rules: nested, classes: new Set() }), cmd).toBe("SCOPE_DENIED");
+    }
+  });
+  it("nestedFolderRulesBecomeExtraReadPaths", () => {
+    const r = resolveBash("ls -R", ctx);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
+  });
+  it("commandsThatCannotWalkTheFolderAreUnchanged", () => {
+    expect(resolveBash("grep -n needle", ctx).paths).toEqual([{ need: "read", at: "." }]);
+    expect(resolveBash("pwd", ctx).paths).toEqual([{ need: "read", at: "." }]);
+    expect(resolveBash("cat < website/README.md", ctx).paths).not.toContainEqual({ need: "read", at: "notes" });
+  });
+});
+

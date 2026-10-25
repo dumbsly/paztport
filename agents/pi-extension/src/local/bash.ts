@@ -305,6 +305,21 @@ function existsHere(cwd: string, arg: string): boolean {
   }
 }
 
+// Read-only programs that never walk the working folder on their own.
+const NEVER_WALKS: readonly string[] = ["pwd", "echo", "true", "false", "basename", "dirname", "test", "cat", "head", "tail", "wc", "cut", "tr", "diff"];
+
+/** Whether a command that names no path still reads the working folder: ls always, grep when told to recurse, anything that may write. */
+function walksCwd(argv: readonly string[], ro: boolean): boolean {
+  const name = argv[0] as string;
+  if (!ro) {
+    return true;
+  }
+  if (name === "grep") {
+    return argv.slice(1).some((a) => /^-[a-zA-Z]*[rR]/.test(a) || /^--(recursive|dereference-recursive)$/.test(a) || a === "recurse" || a === "--directories=recurse");
+  }
+  return !NEVER_WALKS.includes(name);
+}
+
 const hasDotDot = (arg: string): boolean => arg.split("/").includes("..");
 
 /** Resolve one program name (argv[0]) to how the policy sees it, adding an exec path for a pathed program. */
@@ -372,7 +387,8 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
   if (parsed.commands.slice(0, -1).some(writes)) {
     return refusal;
   }
-  const paths: ResolvedPath[] = [resolvePathArg(".", "read", ctx)];
+  const cwdPath = resolvePathArg(".", "read", ctx);
+  const paths: ResolvedPath[] = [cwdPath];
   const programs: ResolvedProgram[] = [];
   let readOnly = true;
   const addPath = (arg: string, need: Need): void => {
@@ -384,7 +400,16 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
     paths.push(...(p.at === "uncheckable" ? [p] : withSubtree(resolve(ctx.cwd, arg), p, ctx)));
   };
   const looksLikePath = (v: string): boolean => v.includes("/") || v.startsWith(".") || v.startsWith("~") || existsHere(ctx.cwd, v);
+  /** The value attached to an option: unjudgeable for a program that may write, a read path when it looks like one otherwise. */
+  const optionValue = (v: string, ro: boolean, need: Need): void => {
+    if (!ro) {
+      paths.push({ need, at: "uncheckable" });
+    } else if (looksLikePath(v)) {
+      addPath(v, "read");
+    }
+  };
   for (const cmd of parsed.commands) {
+    const before = paths.length;
     const name = cmd.argv[0] as string;
     const program = resolveProgram(name, ctx, paths);
     if (!programs.some((p) => p.name === program.name && p.via === program.via)) {
@@ -402,38 +427,39 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
     const need: Need = roProgram ? "read" : "write";
     let optionsEnded = false;
     for (const arg of cmd.argv.slice(1)) {
-      let value = arg;
       if (!optionsEnded && arg === "--") {
         optionsEnded = true;
         continue;
       }
-      if (!optionsEnded && arg !== "-" && arg.startsWith("-")) {
-        const eq = arg.indexOf("=");
+      if (arg.startsWith("-") && arg !== "-" && arg !== "--") {
+        // Some tools permute arguments, and an option's separate argument can end option parsing early,
+        // so any dashed token may carry an attached value: judge it wherever it stands.
         if (arg.startsWith("--")) {
-          if (eq < 0) {
-            continue;
+          const eq = arg.indexOf("=");
+          if (eq > 0) {
+            optionValue(arg.slice(eq + 1), roProgram, need);
           }
-          value = arg.slice(eq + 1);
-        } else if (!roProgram) {
-          // an attached short-option value ("-t.") could name a path: options must be given separately
-          if (arg.length > 2) {
-            paths.push({ need, at: "uncheckable" });
-          }
-          continue;
-        } else {
+        } else if (roProgram) {
           for (let k = 2; k < arg.length; k++) {
-            if (looksLikePath(arg.slice(k))) {
-              addPath(arg.slice(k), "read");
-            }
+            optionValue(arg.slice(k), true, need);
           }
+        } else if (arg.length > 2) {
+          paths.push({ need, at: "uncheckable" });
+        }
+        if (!optionsEnded) {
           continue;
         }
       } else {
         optionsEnded = true;
       }
-      if (!roProgram || looksLikePath(value)) {
-        addPath(value, need);
+      if (!roProgram || looksLikePath(arg)) {
+        addPath(arg, need);
       }
+    }
+    if (paths.length === before && walksCwd(cmd.argv, roProgram)) {
+      // nothing named: the working folder itself is walked (grep -r KEY, ls -R)
+      const sub = withSubtree(ctx.cwd, cwdPath, ctx);
+      paths.push(...(sub[0] === cwdPath ? sub.slice(1) : sub));
     }
   }
   return { paths, programs, parse: "ok", readOnly };
