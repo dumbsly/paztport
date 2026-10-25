@@ -22,6 +22,7 @@ import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
 import { LocalGate } from "./local/gate.ts";
 import { canonical } from "./local/paths.ts";
+import { createGatedBash } from "./local/shell.ts";
 import { SCOPE_TEXT } from "./refusals.ts";
 import { SessionChain, type SessionView } from "./restore.ts";
 import { RunState } from "./runs.ts";
@@ -371,6 +372,10 @@ export default function paztport(pi: ExtensionAPI): void {
     // before the tools are registered, so every call this session stamps carries the restored influence
     restoreInfluence(ctx.sessionManager, config);
     failedStart = false;
+    if (config.mode !== "off") {
+      // pi's own bash is replaced by one with a fixed shell, PATH and environment (mode off keeps pi's)
+      pi.registerTool(createGatedBash(ctx.cwd));
+    }
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events, Date.now, evidence));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {

@@ -442,6 +442,13 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     for (const e of events) expect(JSON.stringify(e)).not.toContain("website/");
   });
 
+  it("sessionBashIsPaztportsOwn", async () => {
+    const run = await start("enforce", [say("Done.")], { local: true, files: LOCAL_FILES });
+    const bash = run.session.getAllTools().find((t) => t.name === "bash");
+    expect(bash?.sourceInfo.source).not.toBe("builtin");
+    expect(bash?.sourceInfo.path).not.toContain("<builtin:");
+  });
+
   it("sessionNestedCallIsGated", async () => {
     // A tool that runs another tool through ctx.executeTool, as codemode does: the nested call carries
     // a parentToolCallId and must meet the same gate. The runner takes the name of a listed built-in

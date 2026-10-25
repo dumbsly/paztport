@@ -242,7 +242,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await pi.emit("session_start", { reason: "startup" });
     expect(GITHUB_TOOLS).toHaveLength(9);
     expect(pi.registrations.filter((name) => name.startsWith("mcp__github__"))).toHaveLength(9);
-    expect([...pi.tools.keys()].sort()).toEqual([...GITHUB_TOOLS.map((t) => `mcp__github__${t.name}`), "mcp__docs__fetch_docs"].sort());
+    expect([...pi.tools.keys()].sort()).toEqual(["bash", ...GITHUB_TOOLS.map((t) => `mcp__github__${t.name}`), "mcp__docs__fetch_docs"].sort());
     for (const t of GITHUB_TOOLS) {
       const def = pi.tools.get(`mcp__github__${t.name}`)!;
       expect(def.label).toBe(t.name);
@@ -383,7 +383,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const broken: ServerSpec = { id: "broken", command: process.execPath, args: [join(tmp, "no-such-server.ts")], attested: false };
     const { pi, eventsPath } = setup([broken, docs()]);
     await expect(pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/broken/);
-    expect(pi.registrations).toEqual(["mcp__docs__fetch_docs"]);
+    expect(pi.registrations).toEqual(["bash", "mcp__docs__fetch_docs"]);
     expect(records(eventsPath)).toContainEqual(expect.objectContaining({ type: "error", server: "broken", code: "CONNECT_FAILED" }));
     await pi.prompt("fix the typo");
     expect((await pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).isError).toBe(false);
