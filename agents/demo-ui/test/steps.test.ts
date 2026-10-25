@@ -281,3 +281,130 @@ describe("steps", () => {
     expect(steps.map((s) => s.result)).toEqual(["allowed", "allowed", "error"]);
   });
 });
+
+describe("local tool rows", () => {
+  const local = loadScenario(join(import.meta.dirname, "../../scenarios/github-issue-replay-local"));
+  const rules = {
+    v: 1,
+    folders: [
+      { path: ".", access: ["read"] },
+      { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      { path: "notes", access: ["read", "write"], destination: "private" },
+    ],
+    programs: ["cat", "ls"],
+  };
+  const lstart = (id: string, tool: string, args: Record<string, unknown>) => ({ type: "tool_execution_start", toolCallId: id, toolName: tool, args });
+  const lend = (id: string, tool: string, isError = false) => ({ type: "tool_execution_end", toolCallId: id, toolName: tool, isError });
+  const stamp = (svc: string) => ({ svc, inst: "pi-1", rid: "r1", ts: 5, sess: "", bind: "b", infl: "", prev: "p", sig: `sig-${svc}` });
+  const localRecord = (callId: string, tool: string, extra: Record<string, unknown>) => ({
+    v: 1,
+    type: "local",
+    tool,
+    callId,
+    rid: "r1",
+    now: 5,
+    input: {},
+    resolved: { paths: [], programs: [], parse: "ok", readOnly: false },
+    routeAllowed: true,
+    rulesHash: "h",
+    chain: [stamp("session"), stamp("pi")],
+    proof: { leafSalt: "s", siblings: ["a", "b"], dirs: "LR" },
+    influence: [],
+    verdict: "OK",
+    ...extra,
+  });
+  const levent = (callId: string, tool: string, verdict: string) => ({ ts: 1, type: "local", tool, callId, rid: "r1", verdict });
+
+  function run() {
+    const transcript = [
+      lstart("l1", "write", { path: "website/CHANGELOG.md", content: "x" }),
+      lend("l1", "write"),
+      start("c1", "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }),
+      lstart("l2", "bash", { command: "cat notes/a.md > website/b.md" }),
+      lstart("l3", "bash", { command: "cat $HOME/x" }),
+      lstart("l4", "read", { path: "/etc/hosts" }),
+    ];
+    const events = [
+      levent("l1", "write", "OK"),
+      { ts: 2, type: "response", server: "github", tool: "get_file_contents", callId: "c1", rid: "r1", verify: "OK", labels: ["private"], isError: false, classes: classes({ private: 1 }) },
+      levent("l2", "bash", "INFLUENCE_DENIED"),
+      levent("l3", "bash", "UNCHECKABLE"),
+      levent("l4", "read", "PATH_NOT_ALLOWED"),
+    ];
+    const evidence = [
+      { v: 1, type: "client", keyring: {}, policyPublicKey: "k", signedRoot: {}, rules, rulesProof: null },
+      localRecord("l1", "write", { resolved: { paths: [{ need: "write", at: "website/CHANGELOG.md" }], programs: [], parse: "ok", readOnly: false } }),
+      localRecord("l2", "bash", {
+        verdict: "INFLUENCE_DENIED",
+        resolved: { paths: [{ need: "read", at: "notes/a.md" }, { need: "write", at: "website/b.md" }], programs: [{ name: "cat", via: "list" }], parse: "ok", readOnly: false },
+        influence: [{ cls: "private", src: "mcp:github.get_file_contents", h: "x" }],
+      }),
+      localRecord("l3", "bash", { verdict: "UNCHECKABLE", resolved: { paths: [], programs: [{ name: "cat", via: "uncheckable" }], parse: "ok", readOnly: false } }),
+      localRecord("l4", "read", { verdict: "PATH_NOT_ALLOWED", resolved: { paths: [{ need: "read", at: "outside" }], programs: [], parse: "ok", readOnly: false } }),
+    ];
+    return { transcript, events, outcome: [rec({ callId: "c1", rid: "r1", tool: "get_file_contents", repo: "payroll-notes", label: "private" })], evidence };
+  }
+
+  it("a local write, a local refusal and an MCP call are rows in order, with the scenario's phrases", () => {
+    const steps = buildSteps(local, run(), { complete: true });
+    expect(steps.map((s) => [s.index, s.tool, s.phrase, s.result])).toEqual([
+      [1, "write", "write website/CHANGELOG.md", "allowed"],
+      [2, "get_file_contents", "read README.md in acme/payroll-notes", "allowed"],
+      [3, "bash", "run the command cat notes/a.md > website/b.md", "refused"],
+      [4, "bash", "run the command cat $HOME/x", "refused"],
+      [5, "read", "read /etc/hosts", "refused"],
+    ]);
+  });
+
+  it("the plain reasons: the existing one for the influence rule, and the two fixed ones for scope and uncheckable", () => {
+    const steps = buildSteps(local, run(), { complete: true });
+    expect(steps[2]).toMatchObject({ code: "INFLUENCE_DENIED", reason: PLAIN_REASON.INFLUENCE_DENIED, held: ["private data"] });
+    expect(steps[2]!.rule).toMatch(/public folder/);
+    expect(steps[3]).toMatchObject({ code: "UNCHECKABLE", reason: "couldn't be checked" });
+    expect(steps[4]).toMatchObject({ code: "PATH_NOT_ALLOWED", reason: "outside what this session may do" });
+    expect(plainReason("SCOPE_DENIED")).toBe("outside what this session may do");
+    expect(steps[0]!.reason).toBeUndefined();
+  });
+
+  it("the rule that fired is the folder with its access and destination, or the program, from the record and the signed rules", () => {
+    const steps = buildSteps(local, run(), { complete: true });
+    expect(steps[0]!.local).toMatchObject({ verdict: "OK", routeAllowed: true });
+    expect(steps[0]!.local!.checks).toEqual([{ what: "write to website/CHANGELOG.md", rule: "the folder website allows read and write; writes there count as public; what is read there is public" }]);
+    expect(steps[2]!.local!.checks).toEqual([
+      { what: "read notes/a.md", rule: "the folder notes allows read and write; writes there count as private" },
+      { what: "write to website/b.md", rule: "the folder website allows read and write; writes there count as public; what is read there is public" },
+      { what: "run cat", rule: "a program on the session's list" },
+    ]);
+    expect(steps[3]!.local!.checks).toEqual([{ what: "run cat", rule: "a program that couldn't be checked" }]);
+    expect(steps[4]!.local!.checks).toEqual([{ what: "read outside", rule: "outside every folder this session may use" }]);
+  });
+
+  it("a row's evidence holds its own events and evidence lines; the client record is not part of it", () => {
+    const steps = buildSteps(local, run(), { complete: true });
+    expect(steps[2]!.evidence.callId).toBe("l2");
+    expect(steps[2]!.evidence.rid).toBe("r1");
+    expect(steps[2]!.evidence.events).toEqual([levent("l2", "bash", "INFLUENCE_DENIED")]);
+    expect(steps[2]!.evidence.evidence.map((e) => (e as any).type)).toEqual(["local"]);
+  });
+
+  it("a local tool that errored is an error row; a call with no answer is left out until the run is complete", () => {
+    const logs = run();
+    logs.transcript.push(lend("l1", "write", true));
+    expect(buildSteps(local, logs, { complete: true })[0]).toMatchObject({ result: "error", reason: "the tool returned an error" });
+    const waiting = { transcript: [lstart("l9", "bash", { command: "ls" })], events: [], outcome: [], evidence: [] };
+    expect(buildSteps(local, waiting, { complete: false })).toEqual([]);
+    expect(buildSteps(local, waiting, { complete: true })[0]).toMatchObject({ tool: "bash", result: "error", reason: "no answer was recorded before the run ended" });
+  });
+
+  it("a scenario without local tools does not turn built-in tool names into rows", () => {
+    const steps = buildSteps(scenario, { ...run(), transcript: [lstart("l1", "bash", { command: "ls" })], events: [], evidence: [] }, { complete: true });
+    expect(steps.map((s) => s.tool)).toEqual(["get_file_contents"]);
+  });
+
+  it("a local argument is capped at 80 characters in the phrase", () => {
+    const long = "x".repeat(200);
+    const steps = buildSteps(local, { transcript: [lstart("l1", "bash", { command: long }), lend("l1", "bash")], events: [], outcome: [], evidence: [] }, { complete: true });
+    expect(steps[0]!.phrase).toBe(`run the command ${"x".repeat(80)}…`);
+  });
+});
+

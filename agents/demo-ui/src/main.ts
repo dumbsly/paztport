@@ -1,10 +1,11 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open]
+// Usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open] [--unsafe-tool-usage]
 //   --agent-dir  use your own pi setup, which allows hosted models (the page shows each provider's terms note)
 //   --results    also list a results folder from somewhere else (for example a published one)
 //   --no-open    print the address and do not open a browser
+//   --unsafe-tool-usage  offer runs without Paztport for the scenario that gives the model a real shell (use only in a sandbox)
 // Exit code: 0 on a clean stop, 1 when Ollama isn't running, 2 for a usage or setup problem.
 
 import { spawn, spawnSync } from "node:child_process";
@@ -17,7 +18,7 @@ import { startDemoServer, type DemoServer } from "./server.ts";
 const AGENTS = join(import.meta.dirname, "../..");
 const NODE_FLOOR = "22.19";
 const OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags";
-const USAGE = "usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open]";
+const USAGE = "usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open] [--unsafe-tool-usage]";
 
 export type Launched = DemoServer;
 export type LaunchDeps = {
@@ -78,7 +79,7 @@ export async function launch(argv: string[], deps: LaunchDeps = {}): Promise<Lau
       args: argv,
       strict: true,
       allowPositionals: false,
-      options: { "agent-dir": { type: "string" }, results: { type: "string", multiple: true }, "no-open": { type: "boolean" } },
+      options: { "agent-dir": { type: "string" }, results: { type: "string", multiple: true }, "no-open": { type: "boolean" }, "unsafe-tool-usage": { type: "boolean" } },
     }).values;
   } catch (e) {
     log((e as Error).message);
@@ -139,12 +140,14 @@ export async function launch(argv: string[], deps: LaunchDeps = {}): Promise<Lau
     key,
     ...(userAgentDir !== undefined ? { userAgentDir } : {}),
     extraResults,
+    ...(v["unsafe-tool-usage"] ? { unsafeToolUsage: true } : {}),
     ...(deps.fetch ? { deps: { fetch: deps.fetch } } : {}),
   });
   const url = `${server.url}/#key=${key}`;
   log(`The demo is running at ${url}`);
   log("The address carries a key that lets the page start runs. Keep it to yourself, and press Ctrl-C to stop the demo.");
   if (userAgentDir !== undefined) log("You started the demo with your own pi agent dir. A hosted model receives the run's prompts and tool results under its provider's terms.");
+  if (v["unsafe-tool-usage"]) log("You started the demo with --unsafe-tool-usage. The scenario with local tools can be run with Paztport off, and then the model has a real shell on this machine. Use that only in a sandbox.");
   if (!v["no-open"]) (deps.opener ?? defaultOpener)(url);
   return { url, close: server.close };
 }

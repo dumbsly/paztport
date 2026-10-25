@@ -7,8 +7,8 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { runEval, type ResultsFile } from "../../eval/src/eval.ts";
-import { CLASSES_NOTE } from "../../eval/src/report.ts";
-import type { LineFile, RunResult, RunSpec } from "../../eval/src/runner.ts";
+import { CLASSES_NOTE, DEFINITIONS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT } from "../../eval/src/report.ts";
+import { OFF_MODE_COPY, type LineFile, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
 import { startDemoServer, type DemoServer, type DemoServerOptions } from "../src/server.ts";
@@ -899,3 +899,116 @@ function resultsFile(): ResultsFile {
     requested: { modes: ["on"], runs: 1 },
   };
 }
+
+describe("demo server, scenario with local tools", () => {
+  const SCENARIOS = join(import.meta.dirname, "../../scenarios");
+  const localBody = { ...body, scenario: "github-issue-replay-local" };
+
+  it("lists the scenario, marked as having local tools, and says whether the off choice is offered", async () => {
+    const { srv } = await start({ scenarioDir: SCENARIOS });
+    const setup = await (await api(srv, "/api/setup")).json();
+    expect(setup.scenarios.map((s: any) => [s.id, s.localTools === true])).toEqual([
+      ["github-issue-replay", false],
+      ["github-issue-replay-local", true],
+    ]);
+    expect(setup.unsafeToolUsage).toBe(false);
+    expect(setup.offModeNote).toBe(OFF_MODE_COPY);
+    expect(setup.localToolsNote).toMatch(/real shell/);
+  });
+
+  it("off is refused with the off-mode copy without the flag, and no run starts; on is fine", async () => {
+    const specs: RunSpec[] = [];
+    const { srv } = await start({ scenarioDir: SCENARIOS, deps: { runOnce: async (spec) => (specs.push(spec), result(spec)) } });
+    const off = await post(srv, "/api/runs", { ...localBody, mode: "off" });
+    expect(off.status).toBe(400);
+    expect((await off.json()).error).toBe(OFF_MODE_COPY);
+    expect(specs).toEqual([]);
+    const on = await post(srv, "/api/runs", localBody);
+    expect(on.status).toBe(200);
+    await sse(srv, (await on.json()).id);
+    expect(specs.map((s) => [s.mode, s.unsafeToolUsage])).toEqual([["on", undefined]]);
+    // the compare button is hidden on the page; the endpoint refuses the same way
+    const first = await (await post(srv, "/api/runs", localBody)).json();
+    await sse(srv, first.id);
+    const cmp = await post(srv, `/api/runs/${first.id}/compare`);
+    expect(cmp.status).toBe(400);
+    expect((await cmp.json()).error).toBe(OFF_MODE_COPY);
+  });
+
+  it("with the flag, off is allowed, compare works, and the run spec carries unsafeToolUsage", async () => {
+    const specs: RunSpec[] = [];
+    const { srv } = await start({ scenarioDir: SCENARIOS, unsafeToolUsage: true, deps: { runOnce: async (spec) => (specs.push(spec), result(spec)) } });
+    expect((await (await api(srv, "/api/setup")).json()).unsafeToolUsage).toBe(true);
+    const off = await post(srv, "/api/runs", { ...localBody, mode: "off" });
+    expect(off.status).toBe(200);
+    await sse(srv, (await off.json()).id);
+    const cmp = await post(srv, `/api/runs/${(await (await post(srv, "/api/runs", localBody)).json()).id}/compare`);
+    expect(cmp.status).toBe(200);
+    await sse(srv, (await cmp.json()).id);
+    expect(specs.map((s) => [s.mode, s.unsafeToolUsage])).toEqual([["off", true], ["on", true], ["off", true]]);
+  });
+
+  it("the scenario without local tools is unchanged: off is allowed without the flag and the spec has no flag", async () => {
+    const specs: RunSpec[] = [];
+    const { srv } = await start({ scenarioDir: SCENARIOS, deps: { runOnce: async (spec) => (specs.push(spec), result(spec)) } });
+    const off = await post(srv, "/api/runs", { ...body, mode: "off" });
+    expect(off.status).toBe(200);
+    await sse(srv, (await off.json()).id);
+    expect(specs.map((s) => [s.mode, "unsafeToolUsage" in s])).toEqual([["off", false]]);
+  });
+
+  it("an eval with the flag passes it to the eval", async () => {
+    const seen: unknown[] = [];
+    const { srv } = await start({
+      scenarioDir: SCENARIOS,
+      unsafeToolUsage: true,
+      deps: { runEval: (async (opts: any) => (seen.push(opts.unsafeToolUsage), { runs: [], summary: [] })) as unknown as RunEval },
+    });
+    const { id } = await (await post(srv, "/api/runs", { ...localBody, mode: "off", runs: 2 })).json();
+    await sse(srv, id);
+    expect(seen).toEqual([true]);
+  });
+
+  it("the table wording for local tools comes from the report, so the page never carries its own copy", async () => {
+    const { srv } = await start({ scenarioDir: SCENARIOS });
+    const setup = await (await api(srv, "/api/setup")).json();
+    expect(setup.table.localClassesNote).toBe(LOCAL_CLASSES_NOTE);
+    expect(setup.table.classesNote).toBe(CLASSES_NOTE);
+    expect(setup.table.localDefinitions.map((d: any) => d.key)).toEqual(DEFINITIONS.map((d) => d.key));
+    expect(setup.table.localDefinitions.find((d: any) => d.key === "leaked").text).toBe(LOCAL_DEFINITION_TEXT.leaked);
+    expect(setup.table.localDefinitions.find((d: any) => d.key === "timeout").text).toBe(DEFINITIONS.find((d) => d.key === "timeout")!.text);
+    expect(setup.table.localLimits.length).toBe(setup.table.limits.length + 1);
+  });
+
+  it("a saved run of the scenario reopens marked as having local tools; one of the other scenario does not", async () => {
+    const { srv } = await start({ scenarioDir: SCENARIOS, deps: { runOnce: async (spec) => (mkdirSync(spec.runDir, { recursive: true }), result(spec)) } });
+    const a = await (await post(srv, "/api/runs", localBody)).json();
+    const doneA = (await sse(srv, a.id)).find((e) => e.event === "done")!.data;
+    const b = await (await post(srv, "/api/runs", body)).json();
+    const doneB = (await sse(srv, b.id)).find((e) => e.event === "done")!.data;
+    const openA = await (await api(srv, `/api/results/${doneA.name}`)).json();
+    const openB = await (await api(srv, `/api/results/${doneB.name}`)).json();
+    expect(openA.localTools).toBe(true);
+    expect(openB.localTools).toBeUndefined();
+  });
+
+  it("a local run's steps reach the page: the rule, the plain reason, and the phrase from the scenario", async () => {
+    const play: RunOnce = async (spec, onLine) => {
+      mkdirSync(spec.runDir, { recursive: true });
+      const lines = [
+        JSON.stringify({ type: "tool_execution_start", toolCallId: "l1", toolName: "bash", args: { command: "cat $HOME/x" } }),
+      ];
+      const events = [JSON.stringify({ ts: 1, type: "local", tool: "bash", callId: "l1", rid: "r1", verdict: "UNCHECKABLE" })];
+      writeFileSync(join(spec.runDir, "transcript.jsonl"), lines.join("\n") + "\n");
+      writeFileSync(join(spec.runDir, "events.jsonl"), events.join("\n") + "\n");
+      for (const l of lines) onLine?.("transcript", l);
+      for (const e of events) onLine?.("events", e);
+      return result(spec);
+    };
+    const { srv } = await start({ scenarioDir: SCENARIOS, deps: { runOnce: play } });
+    const { id } = await (await post(srv, "/api/runs", localBody)).json();
+    const done = (await sse(srv, id)).find((e) => e.event === "done")!.data;
+    expect(done.steps).toHaveLength(1);
+    expect(done.steps[0]).toMatchObject({ tool: "bash", phrase: "run the command cat $HOME/x", result: "refused", reason: "couldn't be checked", code: "UNCHECKABLE" });
+  });
+});

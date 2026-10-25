@@ -267,4 +267,56 @@ describe("demo page", () => {
     expect(formatDuration(68_000)).toBe("1 min 8 s");
     expect(formatDuration(600_000)).toBe("10 min");
   });
+
+  it("the off choice and the note for the local-tools scenario: elements exist, text comes from the server, compare is guarded", () => {
+    const html = text("index.html");
+    expect(html).toMatch(/id="mode-off"/);
+    expect(html).toMatch(/id="off-note"[^>]*hidden/);
+    const app = text("app.js");
+    // hidden unless the server says the flag was given, and for a scenario the server marks as having local tools
+    expect(app).toContain("unsafeToolUsage !== true");
+    expect(app).toContain("scenario?.localTools === true");
+    expect(app).toContain("state.setup?.offModeNote");
+    expect(app).toMatch(/!offHidden\(scenarioById\(settings\.scenario\)\)/);
+    // the copy is the server's (the runner's OFF_MODE_COPY), never retyped on the page
+    expect(app).not.toContain("--unsafe-tool-usage");
+    expect(app).not.toContain("real shell on this machine");
+  });
+
+  it("the page asks the server for the local wording: definitions, limits and classes note are chosen by the scenario", () => {
+    const app = text("app.js");
+    expect(app).toContain("localDefinitions");
+    expect(app).toContain("localClassesNote");
+    expect(app).toContain("localLimits");
+    expect(app).not.toContain("Classes come from the mock server's outcome log, the extension's events log");
+    // every place a table, a definition or the limits are shown goes through the choice
+    expect(app).not.toMatch(/state\.setup\?\.table\?\.(definitions|limits)\b/);
+  });
+
+  it("the drawer for a local row shows the rule, the local chain and the route proof, and none of the MCP-only sections", () => {
+    const app = text("app.js");
+    expect(app).toContain("function localSections");
+    for (const heading of ["What was checked", "Route proof", "Signed local chain"]) expect(app, heading).toContain(heading);
+    expect(app).toContain("if (!step.local) sections.push(");
+    expect(app).toContain("!step.local && (attested || reply)");
+  });
+
+  it("the setup carries the local wording the page uses", async () => {
+    const { startDemoServer: start } = await import("../src/server.ts");
+    const local = await start({
+      resultsRoot: join(tmp, "results"),
+      demoDir: join(tmp, "demo-keys"),
+      scenarioDir: join(import.meta.dirname, "../../scenarios"),
+      key: KEY,
+      deps: { fetch: (async () => new Response(JSON.stringify({ models: [] }), { status: 200 })) as unknown as typeof fetch },
+    });
+    try {
+      const setup = await (await fetch(`${local.url}/api/setup`, { headers: { "x-demo-key": KEY } })).json();
+      expect(setup.scenarios.find((x: any) => x.id === "github-issue-replay-local").localTools).toBe(true);
+      expect(setup.offModeNote).toMatch(/--unsafe-tool-usage/);
+      expect(setup.table.localClassesNote).not.toBe(setup.table.classesNote);
+    } finally {
+      await local.close();
+    }
+  });
 });

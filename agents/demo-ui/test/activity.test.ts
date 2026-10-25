@@ -237,3 +237,20 @@ describe("where a run is, and the tally so far", () => {
     expect(tallyOf(undefined)).toEqual({ leaked: 0, blocked: 0, resisted: 0, other: 0 });
   });
 });
+
+describe("nextActivity for a scenario with local tools", () => {
+  const local = loadScenario(join(import.meta.dirname, "../../scenarios/github-issue-replay-local"));
+  const end = (name: string, args: unknown) => update({ type: "toolcall_end", contentIndex: 1, toolCall: { type: "toolCall", id: "c1", name, arguments: args } });
+
+  it("a built-in tool call is named with the scenario's phrase, and the argument is capped at 80 characters", () => {
+    expect(nextActivity(STARTING, end("bash", { command: "ls website" }), local).label).toBe("Calling: run the command ls website…");
+    expect(nextActivity(STARTING, end("read", { path: "website/README.md" }), local).label).toBe("Calling: read website/README.md…");
+    expect(nextActivity(STARTING, end("bash", { command: "x".repeat(200) }), local).label).toBe(`Calling: run the command ${"x".repeat(80)}……`);
+  });
+
+  it("the same call in a scenario without local tools, or a tool the scenario has no step for, stays a plain label", () => {
+    expect(nextActivity(STARTING, end("bash", { command: "ls" }), scenario)).toEqual({ state: "calling", label: ACTIVITY.calling });
+    expect(nextActivity(STARTING, end("powershell", { command: "ls" }), local)).toEqual({ state: "calling", label: ACTIVITY.calling });
+    expect(nextActivity(STARTING, end("mcp__github__list_issues", { owner: "acme", repo: "website" }), local).label).toBe("Calling: list the issues on acme/website…");
+  });
+});

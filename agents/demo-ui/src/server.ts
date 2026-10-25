@@ -8,9 +8,9 @@ import type { AddressInfo } from "node:net";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
-import { checkModelAvailable, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
+import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
-import { CLASSES_NOTE, DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
+import { CLASSES_NOTE, DEFINITIONS, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL } from "../../eval/src/report.ts";
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
@@ -30,6 +30,8 @@ export type DemoServerOptions = {
   userAgentDir?: string;
   /** Published results folders to list beside the ones under resultsRoot. */
   extraResults?: string[];
+  /** Offers the modes without Paztport for a scenario that gives the model a real shell (--unsafe-tool-usage). */
+  unsafeToolUsage?: boolean;
   /** Per-run time limit. Default 600 s. */
   timeoutMs?: number;
   deps?: { runOnce?: typeof runOnce; runEval?: typeof runEval; fetch?: typeof fetch };
@@ -57,6 +59,7 @@ const PROGRESS_POLL_MS = 1000;
 export const REFUSALS_NOTE = "Refusals are unsigned. Each one is checked for its shape and against the server's own log.";
 const TOOLS_NOTE = "In these runs the agent gets only the scenario's mock repository tools. It has no shell and no file tools.";
 const HOSTED_NOTE = "A hosted model receives this run's prompts and tool results under that provider's terms. Read them before you start.";
+const LOCAL_TOOLS_NOTE = `In these runs the agent gets the scenario's mock repository tools and pi's file tools. ${LOCAL_SHELL_CAPTION}`;
 const MISTRAL_NOTE = "Mistral's hosted API is not permitted for this demo.";
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -314,6 +317,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
   const isolatedAgentDir = join(dirname(demoDir), "agent-ui");
   const payloadDir = join(dirname(demoDir), "payloads");
   const userAgentDir = opts.userAgentDir !== undefined ? resolve(opts.userAgentDir) : undefined;
+  const unsafeToolUsage = opts.unsafeToolUsage === true;
 
   const runs = new Map<string, ActiveRun>();
   let active: ActiveRun | undefined;
@@ -349,6 +353,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     const entry = typeof raw.scenario === "string" ? scenarios.find((s) => s.id === raw.scenario) : undefined;
     if (!entry) throw new HttpError(400, "That scenario isn't one of the available scenarios.");
     if (raw.mode !== "on" && raw.mode !== "off") throw new HttpError(400, 'The mode must be "on" or "off".');
+    if (entry.scenario.localTools === true && raw.mode === "off" && !unsafeToolUsage) throw new HttpError(400, OFF_MODE_COPY);
     const count = raw.runs === undefined ? 1 : raw.runs;
     if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > MAX_RUNS) throw new HttpError(400, `Runs must be a whole number from 1 to ${MAX_RUNS}.`);
     if (raw.payload !== undefined && (typeof raw.payload !== "string" || raw.payload === "" || Buffer.byteLength(raw.payload) > MAX_PAYLOAD)) {
@@ -513,6 +518,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       agentDir: userAgentDir ?? isolatedAgentDir,
       userAgentDir: userAgentDir !== undefined,
       timeoutMs,
+      ...(unsafeToolUsage ? { unsafeToolUsage: true } : {}),
       ...(payloadFile !== undefined ? { payloadFile } : {}),
     };
     let result: RunResult;
@@ -534,6 +540,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       date: new Date().toISOString(),
       model,
       scenario: { id: scenario.id, title: scenario.title },
+      ...(scenario.localTools === true ? { localTools: true } : {}),
       mode: settings.mode,
       payload,
       tools: scenario.tools,
@@ -574,6 +581,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       outDir: dir,
       timeoutMs,
       command: "demo",
+      ...(unsafeToolUsage ? { unsafeToolUsage: true } : {}),
     };
     // each run's activity line, prefixed with where it is in the eval
     let started = 0;
@@ -675,11 +683,29 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     }
     return {
       models,
-      scenarios: scenarios.map((s) => ({ id: s.id, title: s.scenario.title, description: s.scenario.description, userPrompt: s.scenario.userPrompt })),
+      scenarios: scenarios.map((s) => ({
+        id: s.id,
+        title: s.scenario.title,
+        description: s.scenario.description,
+        userPrompt: s.scenario.userPrompt,
+        ...(s.scenario.localTools === true ? { localTools: true } : {}),
+      })),
       toolsNote: TOOLS_NOTE,
+      localToolsNote: LOCAL_TOOLS_NOTE,
+      unsafeToolUsage,
+      offModeNote: OFF_MODE_COPY,
       termsNotes,
       plainClasses: PLAIN_CLASS,
-      table: { modeLabels: MODE_LABEL, definitions: DEFINITIONS, limits: LIMITS, classesNote: CLASSES_NOTE },
+      table: {
+        modeLabels: MODE_LABEL,
+        definitions: DEFINITIONS,
+        limits: LIMITS,
+        classesNote: CLASSES_NOTE,
+        // the wording of a table for a scenario with local tools: the same list, four definitions replaced, one limit added
+        localDefinitions: DEFINITIONS.map((d) => ({ ...d, text: LOCAL_DEFINITION_TEXT[d.key] ?? d.text })),
+        localLimits: [...LIMITS, LOCAL_LIMIT],
+        localClassesNote: LOCAL_CLASSES_NOTE,
+      },
       refusalsNote: REFUSALS_NOTE,
       ...(ollamaNote !== undefined ? { ollamaNote } : {}),
     };
@@ -773,8 +799,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       const dir = folder.dir;
       const logs = logsFromDir(dir);
       const answer = finalAnswer(logs.transcript);
-      const steps = buildSteps(scenarioFor(String((l.run.scenario as Obj | undefined)?.id ?? "")), logs, { complete: true });
-      return { status: 200, body: { ...l.run, name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
+      const scenario = scenarioFor(String((l.run.scenario as Obj | undefined)?.id ?? ""));
+      const steps = buildSteps(scenario, logs, { complete: true });
+      return { status: 200, body: { ...l.run, ...(scenario.localTools === true ? { localTools: true } : {}), name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
     }
     const results = l.results;
     // what results.json says, as the eval recorded it; an older folder may not count runs that recorded
@@ -794,6 +821,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       status: 200,
       body: {
         ...results,
+        ...(scenarioFor(String((results.scenario as Obj | undefined)?.id ?? "")).localTools === true ? { localTools: true } : {}),
         name,
         ...folderVerify(folder.dir, c.verifyStatus),
         ok: true,

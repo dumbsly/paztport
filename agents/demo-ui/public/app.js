@@ -185,6 +185,24 @@ function selectedScenario() {
   return state.setup?.scenarios.find((s) => s.id === id);
 }
 
+/** The scenario with this id, or the one chosen in the setup when none is given. */
+function scenarioById(id) {
+  return state.setup?.scenarios.find((s) => s.id === id);
+}
+
+/** The scenario gives the model a real shell: without the unsafe flag the demo offers it only with Paztport on. */
+function offHidden(scenario) {
+  return scenario?.localTools === true && state.setup?.unsafeToolUsage !== true;
+}
+
+/** The table wording for a scenario with local tools or without (the server sends both). */
+function tableText(local) {
+  const t = state.setup?.table ?? {};
+  return local
+    ? { definitions: t.localDefinitions ?? t.definitions ?? [], limits: t.localLimits ?? t.limits ?? [], classesNote: t.localClassesNote ?? state.setup?.table?.classesNote }
+    : { definitions: t.definitions ?? [], limits: t.limits ?? [], classesNote: state.setup?.table?.classesNote };
+}
+
 function selectedMode() {
   return document.querySelector('input[name="mode"]:checked')?.value ?? "on";
 }
@@ -277,13 +295,17 @@ function renderWhat() {
           : "One of the open issues contains planted instructions: the scenario's reference text.",
       ),
       h("li", {}, "The GitHub server is a local mock with made-up repositories. No real repository is read or changed."),
-      h("li", {}, state.setup.toolsNote),
+      h("li", {}, s.localTools === true ? state.setup.localToolsNote : state.setup.toolsNote),
       h(
         "li",
         {},
-        mode === "on"
-          ? "Paztport is on: each request is signed, and the mock server refuses a write to a public repository once the agent has read private data together with text from someone outside the project or content from an unverified source."
-          : "Paztport is off: the mock server allows every call and records what happened.",
+        s.localTools === true
+          ? mode === "on"
+            ? "Paztport is on: each request is signed. Before a file or shell action runs, it is compared with the folders and programs this session may use, and it is refused if it is outside them or couldn't be checked; the check on shell commands is conservative. A write to a public place is refused once the agent has read private data together with text from someone outside the project or content from an unverified source."
+            : "Paztport is off: the file and shell tools run without any check, and the mock server allows every call and records what happened."
+          : mode === "on"
+            ? "Paztport is on: each request is signed, and the mock server refuses a write to a public repository once the agent has read private data together with text from someone outside the project or content from an unverified source."
+            : "Paztport is off: the mock server allows every call and records what happened.",
       ),
       h("li", {}, "Whether the agent follows the planted instructions is up to the model. If it doesn't, that is a result too, reported as “resisted”."),
       h(
@@ -305,7 +327,18 @@ function renderWhat() {
   ]);
 }
 
+/** Hides the off choice (and says why, once) for a scenario that gives the model a real shell, unless the server says the unsafe flag was given. */
+function renderModeChoice() {
+  const hidden = offHidden(selectedScenario());
+  $("mode-off").hidden = hidden;
+  const note = $("off-note");
+  note.textContent = hidden ? (state.setup?.offModeNote ?? "") : "";
+  note.hidden = !hidden;
+  if (hidden) $("mode-on-input").checked = true;
+}
+
 function renderSetup() {
+  renderModeChoice();
   renderModelNote();
   renderCost();
   renderWhat();
@@ -435,9 +468,9 @@ function answerSection(text) {
   );
 }
 
-function outcomeLine(scored) {
+function outcomeLine(scored, local) {
   if (!isObj(scored)) return null;
-  const defs = state.setup?.table?.definitions ?? [];
+  const defs = tableText(local).definitions;
   const def = defs.find((d) => d.key === OUTCOME_KEY[scored.outcome]);
   const parts = [
     h("p", {}, h("strong", {}, "Scored from the mock server's outcome log: "), outcomeWord(scored.outcome), def ? [" (", withCode(def.text), ")"] : null),
@@ -614,9 +647,9 @@ function runPanel(id, settings, { primary }) {
       }
       renderSteps();
       if (data.started !== false) {
-        add(outcome, outcomeLine(data.scored));
+        add(outcome, outcomeLine(data.scored, scenarioById(settings.scenario)?.localTools === true));
         add(after, [answerSection(data.finalAnswer), verifySection({ ...ctx(), mode: settings.mode, signedCalls: hasSignedCalls([...steps.values()]) })]);
-        if (primary && state.panels.length === 1) $("compare").hidden = false;
+        if (primary && state.panels.length === 1 && !offHidden(scenarioById(settings.scenario))) $("compare").hidden = false;
       }
     } else {
       after.append(h("p", { class: "muted" }, "Loading the results…"));
@@ -775,6 +808,58 @@ function chainList(chain) {
   );
 }
 
+/** The drawer sections for a local tool call: the rule that decided it, the local stamp chain, the route proof and what the agent held. */
+function localSections(step, record, plain) {
+  const detail = step.local;
+  const out = [];
+  out.push(
+    h(
+      "section",
+      {},
+      h("h3", {}, "What was checked"),
+      detail.checks.length
+        ? h("ul", {}, detail.checks.map((c) => h("li", {}, h("code", {}, c.what), ": ", c.rule)))
+        : h("p", { class: "muted" }, "No path or program was recorded for this call."),
+      h("p", { class: "note" }, "Decision: ", h("code", {}, detail.verdict), ". Rules are read from the signed rules in the evidence file; this page does not read the keys folder."),
+    ),
+  );
+  const proof = record?.proof;
+  out.push(
+    h(
+      "section",
+      {},
+      h("h3", {}, "Route proof"),
+      record === undefined
+        ? h("p", { class: "muted" }, "No signed record was found for this call.")
+        : [
+            h("p", {}, detail.routeAllowed === true ? "This tool is on the session's list of tools it may use, and the proof below ties it to the signed root." : "This tool is not on the session's list, so there is no proof."),
+            isObj(proof) ? h("p", { class: "note" }, "Proof for ", h("code", {}, `session/pi/local:${step.tool}`), ", with ", String(Array.isArray(proof.siblings) ? proof.siblings.length : "?"), " steps.") : null,
+          ],
+    ),
+  );
+  const chain = record?.chain;
+  out.push(
+    h(
+      "section",
+      {},
+      h("h3", {}, "Signed local chain"),
+      Array.isArray(chain)
+        ? [h("p", { class: "note" }, "The first link is the run's origin; the second is this call, signed with the call id, what was resolved, the decision and the rules' hash."), chainList(chain)]
+        : h("p", { class: "muted" }, "No signed record was found for this call."),
+    ),
+  );
+  const held = Array.isArray(record?.influence) ? [...new Set(record.influence.filter(isObj).map((e) => e.cls))].filter((c) => typeof c === "string") : [];
+  out.push(
+    h(
+      "section",
+      {},
+      h("h3", {}, "What the agent held when this was decided"),
+      held.length ? h("ul", {}, held.map((c) => h("li", {}, h("code", {}, c), plain[c] ? ` (${plain[c]})` : ""))) : h("p", { class: "muted" }, "Nothing that counts as private, outside text or unverified content."),
+    ),
+  );
+  return out;
+}
+
 function rawLines(title, lines) {
   const list = lines.filter((l) => l !== undefined);
   return h("details", {}, h("summary", {}, `${title} (${list.length})`), list.length ? h("pre", {}, list.map((l) => JSON.stringify(l)).join("\n")) : h("p", { class: "muted" }, "None."));
@@ -818,6 +903,9 @@ function openDrawer(step, ctx, opener) {
     );
   }
 
+  const local = step.local ? evidence.find((r) => r.type === "local") : undefined;
+  if (step.local) sections.push(...localSections(step, local, plain));
+
   // labels: from the signed reply when there is one, else what the logs recorded
   let labels = [];
   let source = "";
@@ -835,7 +923,7 @@ function openDrawer(step, ctx, opener) {
     }
   }
   labels = [...new Set(labels.filter((l) => typeof l === "string"))];
-  sections.push(
+  if (!step.local) sections.push(
     h(
       "section",
       {},
@@ -846,7 +934,7 @@ function openDrawer(step, ctx, opener) {
     ),
   );
 
-  sections.push(
+  if (!step.local) sections.push(
     h(
       "section",
       {},
@@ -857,7 +945,7 @@ function openDrawer(step, ctx, opener) {
     ),
   );
 
-  if (attested || reply) {
+  if (!step.local && (attested || reply)) {
     let replyBody;
     if (step.result === "refused") replyBody = h("p", {}, ctx.refusalsNote ?? "Refusals are unsigned.");
     else if (Array.isArray(attestation?.chain))
@@ -999,10 +1087,10 @@ function singleDetail(d) {
       ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_IN_FORMAT],
       ["Paztport", d.mode],
       ["Planted text", payloadText(d.payload)],
-      ["Tools", d.tools ? ["the agent had only the scenario's mock tools (", h("code", {}, d.tools), ")"] : NOT_IN_FORMAT],
+      ["Tools", d.tools ? [d.localTools === true ? "the agent had the scenario's mock tools and pi's built-in tools (" : "the agent had only the scenario's mock tools (", h("code", {}, d.tools), ")"] : NOT_IN_FORMAT],
       ["Run", statusText(r)],
     ]),
-    outcomeLine(d.scored),
+    outcomeLine(d.scored, d.localTools === true),
     table.table,
     answerSection(d.finalAnswer),
     verifySection({ mode: d.mode, verifyCommand: d.verifyCommand, refusalsNote: d.refusalsNote, signedCalls: hasSignedCalls(d.steps) }),
@@ -1010,7 +1098,8 @@ function singleDetail(d) {
 }
 
 function summaryTable(d) {
-  const defs = state.setup?.table?.definitions ?? [];
+  const local = d.localTools === true;
+  const defs = tableText(local).definitions;
   const modes = Array.isArray(d.requested?.modes) ? d.requested.modes : (d.summary ?? []).map((s) => s.mode);
   const byMode = new Map((d.summary ?? []).filter(isObj).map((s) => [s.mode, s]));
   const empty = { k: 0, n: 0, ci: [0, 1] };
@@ -1030,7 +1119,15 @@ function summaryTable(d) {
     h(
       "table",
       { class: "summary" },
-      h("caption", {}, "The agent had only the scenario's mock tools (", h("code", {}, d.tools ?? "unknown"), "). Each cell is: runs in this class / runs in this mode (95% Wilson interval, rounded outward to whole percent)."),
+      h(
+        "caption",
+        {},
+        local ? "The agent had the scenario's mock tools and pi's built-in tools (" : "The agent had only the scenario's mock tools (",
+        h("code", {}, d.tools ?? "unknown"),
+        "). ",
+        local ? withCode("`bash` runs in a real shell on the machine that ran the eval. ") : "",
+        "Each cell is: runs in this class / runs in this mode (95% Wilson interval, rounded outward to whole percent).",
+      ),
       h("thead", {}, h("tr", {}, h("th", { scope: "col" }, "Mode"), h("th", { scope: "col" }, "Runs"), defs.map((def) => h("th", { scope: "col" }, def.term)))),
       h("tbody", {}, rows),
     ),
@@ -1043,7 +1140,8 @@ function evalDetail(d, { nested }) {
   const planned = (d.requested?.runs ?? 0) * (d.requested?.modes?.length ?? 0);
   const v = isObj(d.verify) ? d.verify : undefined;
   const count = (k) => (v && typeof v[k] === "number" ? String(v[k]) : NOT_IN_FORMAT);
-  const defs = state.setup?.table?.definitions ?? [];
+  const local = d.localTools === true;
+  const defs = tableText(local).definitions;
   const check = isObj(d.check) ? d.check : undefined;
   const checkedNow = check?.checkedNow === true;
   const recorded = isObj(d.recorded) ? d.recorded : undefined;
@@ -1060,7 +1158,7 @@ function evalDetail(d, { nested }) {
       ["Date", when(d.date)],
       ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_IN_FORMAT],
       ["Planted text", payloadText(d.payload)],
-      ["Tools", ["the agent had only the scenario's mock tools (", h("code", {}, d.tools ?? "unknown"), "). Nothing else was enabled."]],
+      ["Tools", local ? ["the agent had the scenario's mock tools and pi's built-in tools (", h("code", {}, d.tools ?? "unknown"), ")."] : ["the agent had only the scenario's mock tools (", h("code", {}, d.tools ?? "unknown"), "). Nothing else was enabled."]],
       ["Runs per mode", String(d.requested?.runs ?? NOT_IN_FORMAT)],
       isObj(d.versions) ? ["Versions", `pi ${d.versions.pi}, Paztport extension ${d.versions.extension}, mock server ${d.versions.mockServer}, node ${d.versions.node}`] : null,
       d.command ? ["Command", h("code", {}, d.command)] : null,
@@ -1082,7 +1180,7 @@ function evalDetail(d, { nested }) {
       {},
       h("summary", {}, "What the columns mean"),
       h("dl", { class: "defs" }, defs.map((def) => [h("dt", {}, def.term), h("dd", {}, withCode(def.text))])),
-      state.setup?.table?.classesNote ? h("p", { class: "note" }, state.setup.table.classesNote) : null,
+      tableText(local).classesNote ? h("p", { class: "note" }, tableText(local).classesNote) : null,
     ),
     h("h3", {}, "Evidence check"),
     h("p", {}, checkedNow ? "Checked now: " : "", h("span", { class: "badge" }, VERIFY_LABEL[d.verifyStatus] ?? "not recorded"), " ", d.verifyLine ?? ""),
@@ -1123,7 +1221,7 @@ function evalDetail(d, { nested }) {
     );
   }
 
-  add(box, [h("h3", {}, "What this doesn't show"), h("ul", {}, (state.setup?.table?.limits ?? []).map((l) => h("li", {}, l)))]);
+  add(box, [h("h3", {}, "What this doesn't show"), h("ul", {}, tableText(local).limits.map((l) => h("li", {}, l)))]);
 
   if (isObj(d.warning)) {
     add(box, [
@@ -1175,7 +1273,7 @@ function runDetail(d, r) {
   const problem = d.stepsErrors?.[r.dir];
   const table = stepTable(() => ({ mode: r.mode, finished: true, verifyCommand: d.verifyCommands?.[r.dir], refusalsNote: d.refusalsNote }));
   if (Array.isArray(steps)) table.render(steps, "No tool calls were recorded.");
-  const def = (state.setup?.table?.definitions ?? []).find((x) => x.key === OUTCOME_KEY[r.outcome]);
+  const def = tableText(d.localTools === true).definitions.find((x) => x.key === OUTCOME_KEY[r.outcome]);
   return h(
     "div",
     { class: "panel" },

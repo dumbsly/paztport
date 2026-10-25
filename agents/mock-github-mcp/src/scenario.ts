@@ -43,7 +43,7 @@ export type Scenario = {
 };
 
 /** pi's built-in tools (a copy of the list in pi-extension/src/local/gate.ts; the eval does not import the extension). */
-const BUILTIN_LOCAL_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"];
+export const BUILTIN_LOCAL_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"];
 /** Placeholders a local tool's phrase may use: the argument names of pi's built-in tools. */
 const LOCAL_STEP_ARGS: Record<string, string[]> = {
   read: ["path"],

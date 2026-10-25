@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { OFF_MODE_COPY } from "../../eval/src/runner.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
 import { launch, nodeAtLeast, type LaunchDeps, type Launched } from "../src/main.ts";
 
@@ -118,5 +119,37 @@ describe("demo launcher", () => {
     expect(bad.logs.join("\n")).toMatch(/no-such-agent-dir isn't a folder/);
     expect(bad.opened).toEqual([]);
     expect(bad.keysFor).toEqual([]);
+  });
+
+  it("--unsafe-tool-usage reaches the server: without it the local-tools scenario is on-only, with it the choice is offered", async () => {
+    const scenarios = join(import.meta.dirname, "../../scenarios");
+    // a run is only ever started where it is refused: the launcher here has no stub runner
+    const get = async (argv: string[], tryOff: boolean) => {
+      const { d, logs } = deps({ paths: { demoRoot: join(tmp, `case-${n++}`), scenarioDir: scenarios } });
+      const r = await ok(argv, d);
+      const u = new URL(r.url);
+      const headers = { "x-demo-key": /key=(.*)/.exec(u.hash)![1]! };
+      const setup = await (await fetch(`${u.protocol}//${u.host}/api/setup`, { headers })).json();
+      const off = tryOff
+        ? await fetch(`${u.protocol}//${u.host}/api/runs`, {
+            method: "POST",
+            headers: { ...headers, "content-type": "application/json" },
+            body: JSON.stringify({ model: "ollama/qwen3:4b", scenario: "github-issue-replay-local", mode: "off", runs: 1 }),
+          })
+        : undefined;
+      return { setup, off, logs };
+    };
+    const without = await get(["--no-open"], true);
+    expect(without.setup.unsafeToolUsage).toBe(false);
+    expect(without.setup.scenarios.map((s: any) => [s.id, s.localTools === true])).toEqual([
+      ["github-issue-replay", false],
+      ["github-issue-replay-local", true],
+    ]);
+    expect(without.off!.status).toBe(400);
+    expect((await without.off!.json()).error).toBe(OFF_MODE_COPY);
+    const flagged = await get(["--no-open", "--unsafe-tool-usage"], false);
+    expect(flagged.setup.unsafeToolUsage).toBe(true);
+    expect(flagged.logs.join("\n")).toMatch(/--unsafe-tool-usage.*only in a sandbox/);
+    expect(without.logs.join("\n")).not.toMatch(/unsafe-tool-usage/);
   });
 });

@@ -24,6 +24,7 @@ Flags, after `--`:
 
 - `--no-open`: print the address and do not open a browser.
 - `--results <folder>`: also list a results folder from somewhere else, for example one you downloaded. It can be repeated.
+- `--unsafe-tool-usage`: for the scenario "Open issues on a public repository, with local tools", also offer runs with Paztport off. In that scenario the model has pi's file tools and a `bash` tool that runs in a real shell on this machine, in a seeded workspace folder. Without the flag the page offers only Paztport on for it, and the server refuses the other mode. Use the flag only in a sandbox.
 - `--agent-dir <folder>`: use your own pi setup, which is the only way to reach a hosted model. See [Models and terms](#models-and-terms).
 
 If Ollama is not running the command says so and stops, unless you gave `--agent-dir`.
@@ -51,6 +52,8 @@ More than one run is run as a short series in the mode you chose and saved as a 
 **Results.** Lists the folders under `agents/.demo/results/` and any given with `--results`, and opens each one: the summary table, the definitions and limits next to it, each run and its evidence. A folder that is damaged, partial, or in another format version is listed with a message and does not stop the others. An eval folder is checked again from its own files whenever it is listed or opened: each run is re-scored from its outcome log and transcript, its evidence is verified and compared with the outcome log and the server key `results.json` names, and the counts are recomputed. The table, the runs and the evidence check show what the files say now ("checked now"); what `results.json` says is shown beside them as recorded by the eval that wrote the folder, and any difference is listed as "results.json says X; the files say Y". A difference can mean a file was edited, or that the folder was written by an earlier version of the eval whose scoring rules differ. Opening a large folder for the first time takes longer, because every evidence file is verified.
 
 ## What the agent can and cannot do
+
+In the scenario with local tools, the agent also gets pi's built-in file tools and `bash`, in a seeded workspace folder; its rows show the file or command in plain words, and the evidence drawer shows the folder or program rule that decided the call. The rest of this section describes the other scenario.
 
 The agent gets only the scenario's mock repository tools. It has no shell and no file tools. pi is started with context files (such as an `AGENTS.md` or `CLAUDE.md` in a parent folder), skills, prompt templates, extensions and other MCP servers switched off, and in an empty working folder. This is so that your own setup does not change what the model is shown from one machine to another. The repositories are made-up; no real GitHub repository is read or changed, and no real token is used.
 

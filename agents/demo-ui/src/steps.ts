@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
-import type { Scenario } from "../../mock-github-mcp/src/scenario.ts";
+import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
+import { folderRuleFor, type Resolved } from "../../pi-extension/src/local/decide.ts";
 import type { InfluenceClass } from "../../path-attest-ts/src/influence.ts";
+import { parseLocalRules, type LocalRules } from "@paztport/path-attest";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
 export type Step = {
@@ -18,7 +20,17 @@ export type Step = {
   code?: string;
   /** The rule behind a refusal, in plain words, when the code has one written. */
   rule?: string;
+  /** A local tool call (pi's built-in tools): the rule that decided it, in plain words. */
+  local?: LocalDetail;
   evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: unknown[] };
+};
+/** What decided a local call, from the call's own evidence record and the rules in the evidence file's client record. */
+export type LocalDetail = {
+  verdict: string;
+  /** Whether the session's route list had this tool. Absent when no evidence record was found. */
+  routeAllowed?: boolean;
+  /** One line per path or program the gate resolved: what it was and the rule that applied. */
+  checks: { what: string; rule: string }[];
 };
 export type StepLogs = { transcript: unknown[]; events: unknown[]; outcome: OutcomeRecord[]; evidence: unknown[] };
 export type BuildOptions = {
@@ -36,13 +48,22 @@ export const PLAIN_CLASS: Record<InfluenceClass, string> = {
 export const PLAIN_REASON: Record<string, string> = {
   INFLUENCE_DENIED: "a public write after the agent had read private data together with text from someone outside the project or content from an unverified source",
   UNSAFE_SESSION: "a write in a session that couldn't prove where its requests came from",
+  PATH_NOT_ALLOWED: "outside what this session may do",
+  SCOPE_DENIED: "outside what this session may do",
+  UNCHECKABLE: "couldn't be checked",
 };
 
 export const PLAIN_RULE: Record<string, string> = {
   INFLUENCE_DENIED:
     "A write to a public repository is refused when what the agent has read so far includes private data together with text from someone outside the project or from an unverified source.",
   UNSAFE_SESSION: "A write is refused when the session could not prove where its requests came from.",
+  PATH_NOT_ALLOWED: "A local action is refused when it touches a folder or program that the session's rules do not allow for that kind of action.",
+  SCOPE_DENIED: "A local action is refused when it touches a folder or program that the session's rules do not allow for that kind of action.",
+  UNCHECKABLE: "A command is refused when Paztport can't tell what it would do. The check is conservative: simple commands with plain paths are the ones it can read.",
 };
+/** The influence rule as it reads for a local write. */
+const LOCAL_INFLUENCE_RULE =
+  "A write to a public folder is refused when what the agent has read so far includes private data together with text from someone outside the project or from an unverified source.";
 
 /** The plain reason for a refusal code; a code without its own wording reads `refused: <CODE>`. */
 export function plainReason(code: string): string {
@@ -63,7 +84,7 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | undefined => (typeof v === "string" && v !== "" ? v : undefined);
 
-type Call = { id: string; real: boolean; name: string; args?: Obj; ended?: { isError: boolean } };
+type Call = { id: string; real: boolean; name: string; local?: true; args?: Obj; ended?: { isError: boolean } };
 
 /** pi names a tool mcp__<server>__<tool>, with every character outside [A-Za-z0-9_] replaced by "_". */
 function toolOf(full: string, serverId: string): string | undefined {
@@ -73,16 +94,18 @@ function toolOf(full: string, serverId: string): string | undefined {
   return m ? m[1] : undefined;
 }
 
-/** The MCP tool calls in a pi `--mode json` transcript, in the order they first appear. */
-function callsOf(transcript: unknown[], serverId: string): Call[] {
+/** The MCP tool calls, and for a local-tools scenario pi's built-in tool calls, in a pi `--mode json` transcript, in the order they first appear. */
+function callsOf(transcript: unknown[], s: Scenario): Call[] {
   const byId = new Map<string, Call>();
   const upsert = (id: string | undefined, line: number, fullName: unknown): Call | undefined => {
-    const name = typeof fullName === "string" ? toolOf(fullName, serverId) : undefined;
+    const mcp = typeof fullName === "string" ? toolOf(fullName, s.serverId) : undefined;
+    const local = mcp === undefined && s.localTools === true && typeof fullName === "string" && BUILTIN_LOCAL_TOOLS.includes(fullName);
+    const name = mcp ?? (local ? (fullName as string) : undefined);
     const key = id ?? `line-${line}`;
     const existing = byId.get(key);
     if (existing) return existing;
     if (name === undefined) return undefined;
-    const call: Call = { id: key, real: id !== undefined, name };
+    const call: Call = { id: key, real: id !== undefined, name, ...(local ? { local: true as const } : {}) };
     byId.set(key, call);
     return call;
   };
@@ -137,7 +160,7 @@ function phraseFor(s: Scenario, tool: string, args: Obj): string {
  * one the scenario has a step for. The model chooses the name, so a name the scenario does not know is never shown.
  */
 export function callPhrase(s: Scenario, fullName: string, args: Obj): string | undefined {
-  const tool = toolOf(fullName, s.serverId);
+  const tool = toolOf(fullName, s.serverId) ?? (s.localTools === true && BUILTIN_LOCAL_TOOLS.includes(fullName) ? fullName : undefined);
   return tool === undefined || !Object.hasOwn(s.steps, tool) ? undefined : phraseFor(s, tool, args);
 }
 
@@ -185,7 +208,8 @@ const countsOf = (v: unknown): InfluenceClass[] | undefined => {
  * unmatched. Outcome records with no call in the transcript become rows of their own.
  */
 export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {}): Step[] {
-  const calls = callsOf(logs.transcript, s.serverId);
+  const calls = callsOf(logs.transcript, s);
+  const rules = s.localTools === true ? clientRules(logs.evidence) : undefined;
   const events = groupBy(logs.events);
   const evidence = groupBy(logs.evidence);
   const outcomes = logs.outcome.filter(isObj) as OutcomeRecord[];
@@ -203,7 +227,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
   }
   const spare = outcomes.filter((o) => !taken.has(o) && !(typeof o.callId === "string" && calls.some((c) => c.id === o.callId)));
   const hasErrorEvent = (id: string) => (events.get(id) ?? []).some((e) => (e as Obj).type === "error");
-  const waiting = calls.filter((c) => !outcomeFor.has(c.id) && !hasErrorEvent(c.id));
+  const waiting = calls.filter((c) => !c.local && !outcomeFor.has(c.id) && !hasErrorEvent(c.id));
   // a record that names a call the transcript lacks is not part of the by-order pairing
   // each call takes the first unmatched record of the same tool, so calls that reached the server in another order still pair up
   const orderPool = spare.filter((o) => typeof o.callId !== "string");
@@ -217,8 +241,8 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
   // records nothing in the transcript accounts for
   const extra = outcomes.filter((o) => !taken.has(o));
 
-  type Row = { id: string; real: boolean; tool: string; args: Obj; outcome?: OutcomeRecord; ended?: Call["ended"] };
-  const rows: Row[] = calls.map((c) => ({ id: c.id, real: c.real, tool: c.name, args: c.args ?? {}, ...(outcomeFor.has(c.id) ? { outcome: outcomeFor.get(c.id)! } : {}), ...(c.ended ? { ended: c.ended } : {}) }));
+  type Row = { id: string; real: boolean; tool: string; local?: true; args: Obj; outcome?: OutcomeRecord; ended?: Call["ended"] };
+  const rows: Row[] = calls.map((c) => ({ id: c.id, real: c.real, tool: c.name, ...(c.local ? { local: true as const } : {}), args: c.args ?? {}, ...(outcomeFor.has(c.id) ? { outcome: outcomeFor.get(c.id)! } : {}), ...(c.ended ? { ended: c.ended } : {}) }));
   extra.forEach((o, i) => rows.push({ id: str(o.callId) ?? `record-${i + 1}`, real: str(o.callId) !== undefined, tool: o.tool, args: { owner: o.owner, repo: o.repo }, outcome: o }));
 
   const steps: Step[] = [];
@@ -229,10 +253,23 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
     const errorEvent = evs.find((e) => (e as Obj).type === "error") as Obj | undefined;
     const o = row.outcome;
 
+    const localEvent = row.local ? (evs.find((e) => (e as Obj).type === "local") as Obj | undefined) : undefined;
+    const localRecord = row.local ? (evidence.get(row.id) ?? []).find((e) => (e as Obj).type === "local") as Obj | undefined : undefined;
+
     let result: Step["result"] | undefined;
     let reason: string | undefined;
     let code: string | undefined;
-    if (o) {
+    if (localEvent) {
+      const verdict = str(localEvent.verdict);
+      if (verdict !== undefined && verdict !== "OK") {
+        result = "refused";
+        code = verdict;
+        reason = plainReason(verdict);
+      } else if (row.ended?.isError) {
+        result = "error";
+        reason = "the tool returned an error";
+      } else result = "allowed";
+    } else if (o) {
       if (o.verdict !== "ALLOWED") {
         result = "refused";
         code = o.verdict;
@@ -259,6 +296,9 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       if (row.ended.isError) reason = "the tool returned an error";
     }
 
+    // a local call's record carries what the agent held when it was decided
+    const recorded = Array.isArray(localRecord?.influence) ? new Set((localRecord!.influence as unknown[]).map((e) => (isObj(e) ? e.cls : undefined))) : undefined;
+    if (recorded) held = new Set(CLASS_ORDER.filter((c) => recorded.has(c)));
     const before = [...held];
     // what the agent holds after this call: the extension's running count when it logged one, else the call's own label
     const after = countsOf(response?.classes);
@@ -278,9 +318,62 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       held: HELD_ORDER.filter((c) => before.includes(c)).map((c) => PLAIN_CLASS[c]),
       result,
       ...(reason !== undefined ? { reason } : {}),
-      ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: PLAIN_RULE[code] } : {}) } : {}),
+      ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: row.local && code === "INFLUENCE_DENIED" ? LOCAL_INFLUENCE_RULE : PLAIN_RULE[code] } : {}) } : {}),
+      ...(row.local ? { local: localDetail(localEvent, localRecord, rules) } : {}),
       evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: evidence.get(row.id) ?? [] },
     });
   });
   return steps;
+}
+
+/** The rules in the evidence file's client record (the latest one), or undefined when there is none or they don't parse. */
+function clientRules(evidence: unknown[]): LocalRules | undefined {
+  for (let i = evidence.length - 1; i >= 0; i--) {
+    const r = evidence[i];
+    if (!isObj(r) || r.type !== "client") continue;
+    try {
+      return r.rules === null || r.rules === undefined ? undefined : parseLocalRules(r.rules);
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+const NEED_WORD: Record<string, string> = { read: "read", write: "write to", exec: "run a program in" };
+const VIA_RULE: Record<string, string> = {
+  list: "a program on the session's list",
+  folder: "a program from a folder the session may run programs from",
+  never: "a program that can run other programs, write anywhere or reach the network, so it is never allowed",
+  missing: "a program that was not found",
+  uncheckable: "a program that couldn't be checked",
+};
+
+/** The rule that applied to each path and program the gate resolved, in plain words, from the call's own record and the signed rules. */
+function localDetail(event: Obj | undefined, record: Obj | undefined, rules: LocalRules | undefined): LocalDetail {
+  const checks: LocalDetail["checks"] = [];
+  const resolved = isObj(record?.resolved) ? (record!.resolved as Partial<Resolved>) : undefined;
+  for (const p of Array.isArray(resolved?.paths) ? resolved!.paths : []) {
+    if (!isObj(p) || typeof p.at !== "string") continue;
+    const what = `${NEED_WORD[p.need] ?? p.need} ${p.at}`;
+    const folder = rules ? folderRuleFor(p.at, rules) : undefined;
+    if (folder) {
+      const parts = [`the folder ${folder.path} allows ${folder.access.join(" and ")}`];
+      if (folder.destination !== undefined) parts.push(`writes there count as ${folder.destination}`);
+      if (folder.label !== undefined) parts.push(`what is read there is ${folder.label}`);
+      checks.push({ what, rule: parts.join("; ") });
+    } else if (p.at === "outside") checks.push({ what, rule: "outside every folder this session may use" });
+    else if (p.at === "refused") checks.push({ what, rule: "a folder this session may not use" });
+    else if (p.at === "uncheckable") checks.push({ what, rule: "a path that couldn't be checked" });
+    else checks.push({ what, rule: "no folder rule covers it" });
+  }
+  for (const g of Array.isArray(resolved?.programs) ? resolved!.programs : []) {
+    if (!isObj(g) || typeof g.name !== "string") continue;
+    checks.push({ what: `run ${g.name}`, rule: VIA_RULE[String(g.via)] ?? "not on the session's list" });
+  }
+  return {
+    verdict: str(event?.verdict) ?? str(record?.verdict) ?? "unknown",
+    ...(typeof record?.routeAllowed === "boolean" ? { routeAllowed: record.routeAllowed } : {}),
+    checks,
+  };
 }
