@@ -19,13 +19,16 @@
 //               stopReason "error" and an errorMessage, agent_end, and exit 0
 //   provider-error-early  the same with no tool call and no outcome record
 //   answer      a final assistant message with text and stopReason "stop", agent_end, exit 0
-//   paths       prints the session header with its cwd, then a line holding the run dir, the workspace,
-//               the agents dir and the home dir, then a final answer; exit 0
+//   paths       prints the session header with its cwd, then a line holding the run dir, the workspace (as
+//               created under the temp folder, and as the system resolves it), the agents dir and the home
+//               dir, then a final answer; exit 0
+// With $STUB_TOUCH set, it first writes into its cwd: "files" writes stub-wrote.txt and a symlink link-out
+// pointing at /etc/hosts; "unreadable" does the same and adds unreadable.txt, a file no one may read.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 
 // A local-tools run starts pi with an allowlisted environment, which has no STUB_* variables. The test then
 // leaves them in stub-env.json beside config.json; they are applied after the real environment is captured.
@@ -43,6 +46,15 @@ const behavior = process.env.STUB_BEHAVIOR ?? "print";
 const record = process.env.STUB_RECORD;
 if (record) {
   writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: realEnv, cwd: process.cwd(), listing: readdirSync(process.cwd()) }));
+}
+const touch = process.env.STUB_TOUCH;
+if (touch === "files" || touch === "unreadable") {
+  writeFileSync("stub-wrote.txt", "written during the run\n");
+  symlinkSync("/etc/hosts", "link-out");
+  if (touch === "unreadable") {
+    writeFileSync("unreadable.txt", "no one may read this\n");
+    chmodSync("unreadable.txt", 0o000);
+  }
 }
 
 function flag(name: string): string {
@@ -115,8 +127,10 @@ if (behavior === "break-events-ignore") {
     const runDir = dirname(flag("--paztport-config"));
     const agents = resolve(import.meta.dirname, "../../..");
     console.log(JSON.stringify({ type: "session", cwd: process.cwd() }));
-    console.log(JSON.stringify({ type: "note", runDir, workspace: join(runDir, "workspace"), agents: join(agents, "eval/src/x.ts"), home: join(homedir(), ".pi/agent") }));
-    console.error(`stub: read ${join(homedir(), ".pi/agent/settings.json")} from ${process.cwd()}`);
+    // the cwd as the runner created it (under the temp folder as $TMPDIR spells it) and as the system resolves it
+    const created = join(tmpdir(), basename(process.cwd()));
+    console.log(JSON.stringify({ type: "note", runDir, workspace: created, workspaceReal: process.cwd(), agents: join(agents, "eval/src/x.ts"), home: join(homedir(), ".pi/agent") }));
+    console.error(`stub: read ${join(homedir(), ".pi/agent/settings.json")} from ${process.cwd()} (${created})`);
   } else {
     console.log(JSON.stringify({ type: "session" }));
   }

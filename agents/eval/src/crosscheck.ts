@@ -303,6 +303,8 @@ export function checkRun(input: {
   expectedPin: string | undefined;
   /** The scenario gives the model local tools: a run with Paztport on must then have a verified client record with local rules. */
   localTools?: boolean;
+  /** Whose server key the expected pin is, as a failure names it. Default "this eval's"; a demo single run is "the demo's". */
+  pinOwner?: string;
 }): RunVerify {
   const { mode, outcome, records, report, expectedPin } = input;
   const problems: string[] = [];
@@ -330,7 +332,7 @@ export function checkRun(input: {
     problems.push(bad === undefined ? "evidence.jsonl did not verify" : `evidence.jsonl line ${bad.line}: ${bad.type} ${bad.result}`);
   }
   for (const p of report.pins) {
-    if (expectedPin !== undefined && p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not this eval's server key ${expectedPin}`);
+    if (expectedPin !== undefined && p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not ${input.pinOwner ?? "this eval's"} server key ${expectedPin}`);
   }
   if (report.pins.length === 0 && (attested || EXPECT_EVIDENCE.includes(mode))) problems.push("evidence.jsonl has no verified session");
   if (records === null) problems.push("the outcome log could not be used, so the evidence could not be compared with it");
@@ -402,6 +404,7 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     report: hasEvidenceFile(evidencePath) ? verifyEvidence(evidencePath) : undefined,
     expectedPin: typeof fingerprint === "string" ? fingerprint : undefined,
     localTools: obj.localTools === true,
+    pinOwner: "the demo's",
   });
   return { report, crossCheck, ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }) };
 }

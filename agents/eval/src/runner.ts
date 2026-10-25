@@ -3,8 +3,8 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
@@ -99,8 +99,58 @@ class Tail {
   }
 }
 
+/**
+ * The name a run's working folder starts with: the scenario's task repo with "/" as "-", in lower-case
+ * letters, digits and dashes ("acme/website" is "acme-website"), or "project" when nothing is left.
+ */
+export function workspaceSlug(repo: string): string {
+  const slug = repo
+    .toLowerCase()
+    .replace(/\//g, "-")
+    .replace(/[^a-z0-9-]/g, "")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64)
+    .replace(/-$/, "");
+  return slug === "" ? "project" : slug;
+}
+
+/**
+ * Copies a run's working folder (in the system temp folder) into the run folder as workspace/, links as
+ * links, then removes it. Never throws: a copy that fails leaves no workspace/ at all, so scoring finds the
+ * workspace unreadable rather than scoring a partial one, and stderr.txt says so.
+ */
+function settleWorkspace(work: string, dest: string, stderrFile: string): void {
+  const note = (msg: string) => {
+    try {
+      appendFileSync(stderrFile, `runner: ${msg}\n`);
+    } catch {
+      // stderr.txt is broken too
+    }
+  };
+  try {
+    rmSync(dest, { recursive: true, force: true });
+    cpSync(work, dest, { recursive: true, verbatimSymlinks: true });
+  } catch (e) {
+    // the error names the temp folder, which the run folder never shows
+    note(`could not copy the workspace into the run folder (${(e as NodeJS.ErrnoException).code ?? "error"}), so it is left out`);
+    try {
+      rmSync(dest, { recursive: true, force: true });
+    } catch {
+      note("and a partial copy of it could not be removed");
+    }
+  }
+  try {
+    rmSync(work, { recursive: true, force: true });
+  } catch (e) {
+    note(`could not remove the run's temporary working folder (${(e as NodeJS.ErrnoException).code ?? "error"})`);
+  }
+}
+
 /** Process groups of running pi processes, killed if the eval exits without finishing them. */
 const liveGroups = new Set<number>();
+/** Working folders of unfinished runs, copied back and removed if the eval exits without finishing them. */
+const liveWorkspaces = new Map<string, () => void>();
 let exitHookInstalled = false;
 function installExitHook(): void {
   if (exitHookInstalled) return;
@@ -113,6 +163,7 @@ function installExitHook(): void {
         // already gone
       }
     }
+    for (const settle of liveWorkspaces.values()) settle();
   });
 }
 
@@ -141,227 +192,251 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   const runDir = resolve(spec.runDir);
   const demoDir = resolve(spec.demoDir);
   const scenarioDir = resolve(spec.scenarioDir);
-  const workspace = join(runDir, "workspace");
-  rmSync(workspace, { recursive: true, force: true });
-  mkdirSync(workspace, { recursive: true });
-  for (const [rel, text] of Object.entries(scenario.workspace?.files ?? {})) {
-    const file = join(workspace, rel);
-    mkdirSync(dirname(file), { recursive: true });
-    writeFileSync(file, text);
-  }
   const path = (name: string) => join(runDir, name);
-  const enforced = spec.mode === "on" || spec.mode === "clean-on";
-  // without Paztport nothing is signed, so those runs get no evidence log at all
-  for (const f of ["transcript.jsonl", "events.jsonl", ...(enforced ? ["evidence.jsonl"] : []), "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
-  if (!enforced) rmSync(path("evidence.jsonl"), { force: true });
-
-  const canary = randomBytes(8).toString("hex");
-  writeFileSync(path("canary.txt"), canary + "\n");
-
-  const serverMode = enforced ? "enforce" : "off";
-  const payloadArg = spec.mode === "clean-on" || spec.mode === "clean-off" ? "none" : spec.payloadFile ? resolve(spec.payloadFile) : undefined;
-  const serverArgs = [
-    MOCK_MAIN,
-    "--mode", serverMode,
-    ...(enforced ? ["--config", join(demoDir, "server")] : []),
-    "--outcome-log", path("outcome.jsonl"),
-    "--canary", canary,
-    "--scenario", scenarioDir,
-    ...(payloadArg !== undefined ? ["--payload", payloadArg] : []),
-  ];
-  writeFileSync(
-    path("config.json"),
-    JSON.stringify(
-      {
-        mode: enforced ? "enforce" : "off",
-        clientDir: join(demoDir, "client"),
-        ...(scenario.localTools ? { clientPolicyDir: join(demoDir, "client", scenario.clientPolicy!) } : {}),
-        eventsLog: path("events.jsonl"),
-        ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
-        servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
-      },
-      null,
-      2,
-    ) + "\n",
-  );
-
-  const args = [
-    spec.piCli ?? PI_CLI,
-    "-e", EXTENSION,
-    "--paztport-config", path("config.json"),
-    "--provider", spec.model.provider,
-    "--model", spec.model.id,
-    "--tools", scenario.tools,
-    "--no-session",
-    "--mode", "json",
-    // Nothing outside the run folder reaches the model: no AGENTS.md/CLAUDE.md from the cwd or its parents,
-    // no skills or prompt templates, no user mcp.json and no discovered extensions. The explicit -e extension
-    // still loads (checked against pi 1.4.0's --help) and starts the only MCP server.
-    "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp", "--no-extensions",
-    ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
-    "--",
-    scenario.userPrompt,
-  ];
-  let env: NodeJS.ProcessEnv;
-  if (scenario.localTools) {
-    // pi's tools run here as the user: build the environment from an allowlist, with a home of its own, so no
-    // token, agent socket or config of the user's reaches them
-    const home = path("home");
-    mkdirSync(home, { recursive: true });
-    env = { HOME: home, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
-    for (const k of ENV_ALLOWLIST) if (process.env[k] !== undefined) env[k] = process.env[k];
-    if (spec.userAgentDir) for (const k of HOSTED_KEYS) if (process.env[k] !== undefined) env[k] = process.env[k];
-  } else {
-    env = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
-    if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
+  mkdirSync(runDir, { recursive: true });
+  // an earlier run's workspace goes now, so nothing of it is scored if this run's copy fails
+  rmSync(path("workspace"), { recursive: true, force: true });
+  // pi tells the model its working folder, so it works in an ordinary-looking checkout in the system temp
+  // folder, named after the task repo, and the folder is copied into the run folder as workspace/ at the end
+  const workspace = mkdtempSync(join(tmpdir(), `${workspaceSlug(scenario.taskCheck.repo)}-`));
+  // both spellings, while the folder exists: macOS's temp folder is reached through a /var -> /private/var link
+  const workspaceRedactions = withRealPath({ path: workspace, placeholder: "<workspace>" });
+  let settled = false;
+  const settle = () => {
+    if (settled) return;
+    settled = true;
+    liveWorkspaces.delete(workspace);
+    settleWorkspace(workspace, path("workspace"), path("stderr.txt"));
+  };
+  installExitHook();
+  liveWorkspaces.set(workspace, settle);
+  try {
+    return await runIn();
+  } finally {
+    settle();
   }
 
-  // A monotonic clock, as the time limit's timer uses: a wall clock that jumps (a machine waking from sleep, a
-  // clock change) cannot make a run's duration disagree with its limit. On macOS and Linux neither counts time asleep.
-  const finish = (status: RunResult["status"], exitCode: number | null, startedAt: number): RunResult => {
-    const result: RunResult = { status, exitCode, durationMs: Math.round(performance.now() - startedAt), canary, mode: spec.mode };
-    writeFileSync(path("run.json"), JSON.stringify(result, null, 2) + "\n");
-    return result;
-  };
-  const startedAt = performance.now();
-  if (signal?.aborted) return finish("error", null, startedAt);
-
-  const emit = (file: LineFile, lines: string[]) => {
-    if (!onLine) return;
-    for (const l of lines) {
-      try {
-        onLine(file, l);
-      } catch {
-        // a failing listener must not stop the run or leave pi running
-      }
+  async function runIn(): Promise<RunResult> {
+    for (const [rel, text] of Object.entries(scenario.workspace?.files ?? {})) {
+      const file = join(workspace, rel);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, text);
     }
-  };
-  const out = new LineSplitter();
-  const err = new LineSplitter();
-  const tails: [LineFile, Tail][] = [
-    ["events", new Tail(path("events.jsonl"))],
-    ["outcome", new Tail(path("outcome.jsonl"))],
-  ];
+    const enforced = spec.mode === "on" || spec.mode === "clean-on";
+    // without Paztport nothing is signed, so those runs get no evidence log at all
+    for (const f of ["transcript.jsonl", "events.jsonl", ...(enforced ? ["evidence.jsonl"] : []), "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
+    if (!enforced) rmSync(path("evidence.jsonl"), { force: true });
 
-  const child = spawn(process.execPath, args, { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
-  if (child.pid !== undefined) {
-    installExitHook();
-    liveGroups.add(child.pid);
-  }
+    const canary = randomBytes(8).toString("hex");
+    writeFileSync(path("canary.txt"), canary + "\n");
 
-  // The group kill reaches pi and anything that stayed in its group. It does not reach MCP servers: pi-mcp
-  // starts each in its own process group. Those end because their stdin closes when pi dies, which the mock
-  // server relies on; an MCP server that ignores stdin EOF would outlive a killed run.
-  const killGroup = (sig: NodeJS.Signals) => {
-    if (child.pid === undefined) return;
-    try {
-      process.kill(-child.pid, sig);
-    } catch {
-      // the group is already gone
+    const serverMode = enforced ? "enforce" : "off";
+    const payloadArg = spec.mode === "clean-on" || spec.mode === "clean-off" ? "none" : spec.payloadFile ? resolve(spec.payloadFile) : undefined;
+    const serverArgs = [
+      MOCK_MAIN,
+      "--mode", serverMode,
+      ...(enforced ? ["--config", join(demoDir, "server")] : []),
+      "--outcome-log", path("outcome.jsonl"),
+      "--canary", canary,
+      "--scenario", scenarioDir,
+      ...(payloadArg !== undefined ? ["--payload", payloadArg] : []),
+    ];
+    writeFileSync(
+      path("config.json"),
+      JSON.stringify(
+        {
+          mode: enforced ? "enforce" : "off",
+          clientDir: join(demoDir, "client"),
+          ...(scenario.localTools ? { clientPolicyDir: join(demoDir, "client", scenario.clientPolicy!) } : {}),
+          eventsLog: path("events.jsonl"),
+          ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
+          servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
+        },
+        null,
+        2,
+      ) + "\n",
+    );
+
+    const args = [
+      spec.piCli ?? PI_CLI,
+      "-e", EXTENSION,
+      "--paztport-config", path("config.json"),
+      "--provider", spec.model.provider,
+      "--model", spec.model.id,
+      "--tools", scenario.tools,
+      "--no-session",
+      "--mode", "json",
+      // Nothing outside the run folder reaches the model: no AGENTS.md/CLAUDE.md from the cwd or its parents,
+      // no skills or prompt templates, no user mcp.json and no discovered extensions. The explicit -e extension
+      // still loads (checked against pi 1.4.0's --help) and starts the only MCP server.
+      "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp", "--no-extensions",
+      ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
+      "--",
+      scenario.userPrompt,
+    ];
+    let env: NodeJS.ProcessEnv;
+    if (scenario.localTools) {
+      // pi's tools run here as the user: build the environment from an allowlist, with a home of its own, so no
+      // token, agent socket or config of the user's reaches them
+      const home = path("home");
+      mkdirSync(home, { recursive: true });
+      env = { HOME: home, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+      for (const k of ENV_ALLOWLIST) if (process.env[k] !== undefined) env[k] = process.env[k];
+      if (spec.userAgentDir) for (const k of HOSTED_KEYS) if (process.env[k] !== undefined) env[k] = process.env[k];
+    } else {
+      env = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+      if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
     }
-  };
-  let reason: "timeout" | "abort" | null = null;
-  let faulted = false;
-  let exited = false;
-  let escalation: NodeJS.Timeout | undefined;
-  const terminate = (why: "timeout" | "abort" | "fault") => {
-    if (why === "fault") faulted = true;
-    else if (reason === null && !exited) reason = why;
-    // one SIGTERM and one SIGKILL timer per run, however many faults or signals follow
-    if (escalation !== undefined || exited) return;
-    killGroup("SIGTERM");
-    escalation = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
-  };
-  /** A run file that cannot be written or read ends the run as an error; it never throws out of an event handler. */
-  const guard = (fn: () => void) => {
-    try {
-      fn();
-    } catch (e) {
-      if (!faulted) {
+
+    // A monotonic clock, as the time limit's timer uses: a wall clock that jumps (a machine waking from sleep, a
+    // clock change) cannot make a run's duration disagree with its limit. On macOS and Linux neither counts time asleep.
+    const finish = (status: RunResult["status"], exitCode: number | null, startedAt: number): RunResult => {
+      const result: RunResult = { status, exitCode, durationMs: Math.round(performance.now() - startedAt), canary, mode: spec.mode };
+      writeFileSync(path("run.json"), JSON.stringify(result, null, 2) + "\n");
+      return result;
+    };
+    const startedAt = performance.now();
+    if (signal?.aborted) return finish("error", null, startedAt);
+
+    const emit = (file: LineFile, lines: string[]) => {
+      if (!onLine) return;
+      for (const l of lines) {
         try {
-          appendFileSync(path("stderr.txt"), `runner: ${(e as Error).message}\n`);
+          onLine(file, l);
         } catch {
-          // stderr.txt is the broken file too
+          // a failing listener must not stop the run or leave pi running
         }
       }
-      terminate("fault");
+    };
+    const out = new LineSplitter();
+    const err = new LineSplitter();
+    const tails: [LineFile, Tail][] = [
+      ["events", new Tail(path("events.jsonl"))],
+      ["outcome", new Tail(path("outcome.jsonl"))],
+    ];
+
+    const child = spawn(process.execPath, args, { cwd: workspace, env, detached: true, stdio: ["ignore", "pipe", "pipe"] });
+    if (child.pid !== undefined) {
+      installExitHook();
+      liveGroups.add(child.pid);
     }
-  };
 
-  child.stdout.setEncoding("utf8");
-  child.stderr.setEncoding("utf8");
-  child.stdout.on("data", (chunk: string) => {
-    guard(() => appendFileSync(path("transcript.jsonl"), chunk));
-    emit("transcript", out.push(chunk));
-  });
-  child.stderr.on("data", (chunk: string) => {
-    guard(() => appendFileSync(path("stderr.txt"), chunk));
-    emit("stderr", err.push(chunk));
-  });
-  const poller = setInterval(() => {
-    for (const [file, tail] of tails) guard(() => emit(file, tail.poll()));
-  }, POLL_MS);
-
-  const timer = setTimeout(() => terminate("timeout"), spec.timeoutMs);
-  const onAbort = () => terminate("abort");
-  signal?.addEventListener("abort", onAbort, { once: true });
-
-  let exitCode: number | null = null;
-  let spawnFailed = false;
-  await new Promise<void>((done) => {
-    child.on("error", (e) => {
-      if (child.pid === undefined) {
-        spawnFailed = true;
-        guard(() => appendFileSync(path("stderr.txt"), `could not start pi: ${e.message}\n`));
-        done();
-      }
-    });
-    child.on("exit", (code) => {
-      exited = true;
-      exitCode = code;
-      clearTimeout(escalation);
-      // catches anything that stayed in pi's group and outlived it, and releases the pipes
-      killGroup("SIGKILL");
-      setTimeout(() => {
-        child.stdout.destroy();
-        child.stderr.destroy();
-        done();
-      }, CLOSE_GRACE_MS).unref();
-    });
-    child.on("close", () => done());
-  });
-
-  clearTimeout(timer);
-  clearTimeout(escalation);
-  clearInterval(poller);
-  if (child.pid !== undefined) liveGroups.delete(child.pid);
-  signal?.removeEventListener("abort", onAbort);
-  emit("transcript", out.end());
-  emit("stderr", err.end());
-  for (const [file, tail] of tails) guard(() => emit(file, tail.end()));
-
-  // Published run folders should not carry the user's name or folder layout. pi writes absolute paths (its
-  // session header's cwd, errors); scoring reads only tool names and stop reasons, so this changes no result.
-  const redactions: Redaction[] = [
-    { path: workspace, placeholder: "<workspace>" },
-    { path: runDir, placeholder: "<run-dir>" },
-    { path: AGENTS, placeholder: "<agents>" },
-    { path: homedir(), placeholder: "<home>" },
-  ].flatMap(withRealPath);
-  for (const f of ["transcript.jsonl", "stderr.txt"]) {
-    try {
-      redactFile(path(f), redactions);
-    } catch (e) {
-      // the run's result stands; the file keeps its paths, and stderr.txt says so
+    // The group kill reaches pi and anything that stayed in its group. It does not reach MCP servers: pi-mcp
+    // starts each in its own process group. Those end because their stdin closes when pi dies, which the mock
+    // server relies on; an MCP server that ignores stdin EOF would outlive a killed run.
+    const killGroup = (sig: NodeJS.Signals) => {
+      if (child.pid === undefined) return;
       try {
-        appendFileSync(path("stderr.txt"), `runner: could not remove absolute paths from ${f}: ${(e as Error).message}\n`);
+        process.kill(-child.pid, sig);
       } catch {
-        // stderr.txt is the broken file
+        // the group is already gone
+      }
+    };
+    let reason: "timeout" | "abort" | null = null;
+    let faulted = false;
+    let exited = false;
+    let escalation: NodeJS.Timeout | undefined;
+    const terminate = (why: "timeout" | "abort" | "fault") => {
+      if (why === "fault") faulted = true;
+      else if (reason === null && !exited) reason = why;
+      // one SIGTERM and one SIGKILL timer per run, however many faults or signals follow
+      if (escalation !== undefined || exited) return;
+      killGroup("SIGTERM");
+      escalation = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
+    };
+    /** A run file that cannot be written or read ends the run as an error; it never throws out of an event handler. */
+    const guard = (fn: () => void) => {
+      try {
+        fn();
+      } catch (e) {
+        if (!faulted) {
+          try {
+            appendFileSync(path("stderr.txt"), `runner: ${(e as Error).message}\n`);
+          } catch {
+            // stderr.txt is the broken file too
+          }
+        }
+        terminate("fault");
+      }
+    };
+
+    child.stdout.setEncoding("utf8");
+    child.stderr.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      guard(() => appendFileSync(path("transcript.jsonl"), chunk));
+      emit("transcript", out.push(chunk));
+    });
+    child.stderr.on("data", (chunk: string) => {
+      guard(() => appendFileSync(path("stderr.txt"), chunk));
+      emit("stderr", err.push(chunk));
+    });
+    const poller = setInterval(() => {
+      for (const [file, tail] of tails) guard(() => emit(file, tail.poll()));
+    }, POLL_MS);
+
+    const timer = setTimeout(() => terminate("timeout"), spec.timeoutMs);
+    const onAbort = () => terminate("abort");
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    let exitCode: number | null = null;
+    let spawnFailed = false;
+    await new Promise<void>((done) => {
+      child.on("error", (e) => {
+        if (child.pid === undefined) {
+          spawnFailed = true;
+          guard(() => appendFileSync(path("stderr.txt"), `could not start pi: ${e.message}\n`));
+          done();
+        }
+      });
+      child.on("exit", (code) => {
+        exited = true;
+        exitCode = code;
+        clearTimeout(escalation);
+        // catches anything that stayed in pi's group and outlived it, and releases the pipes
+        killGroup("SIGKILL");
+        setTimeout(() => {
+          child.stdout.destroy();
+          child.stderr.destroy();
+          done();
+        }, CLOSE_GRACE_MS).unref();
+      });
+      child.on("close", () => done());
+    });
+
+    clearTimeout(timer);
+    clearTimeout(escalation);
+    clearInterval(poller);
+    if (child.pid !== undefined) liveGroups.delete(child.pid);
+    signal?.removeEventListener("abort", onAbort);
+    emit("transcript", out.end());
+    emit("stderr", err.end());
+    for (const [file, tail] of tails) guard(() => emit(file, tail.end()));
+
+    // Published run folders should not carry the user's name or folder layout. pi writes absolute paths (its
+    // session header's cwd, errors); scoring reads only tool names and stop reasons, so this changes no result.
+    const redactions: Redaction[] = [
+      ...workspaceRedactions,
+      ...[
+        { path: runDir, placeholder: "<run-dir>" },
+        { path: AGENTS, placeholder: "<agents>" },
+        { path: homedir(), placeholder: "<home>" },
+      ].flatMap(withRealPath),
+    ];
+    for (const f of ["transcript.jsonl", "stderr.txt"]) {
+      try {
+        redactFile(path(f), redactions);
+      } catch (e) {
+        // the run's result stands; the file keeps its paths, and stderr.txt says so
+        try {
+          appendFileSync(path("stderr.txt"), `runner: could not remove absolute paths from ${f}: ${(e as Error).message}\n`);
+        } catch {
+          // stderr.txt is the broken file
+        }
       }
     }
-  }
 
-  const status: RunResult["status"] =
-    reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed || faulted ? "error" : exitCode === 0 ? "completed" : "error";
-  return finish(status, exitCode, startedAt);
+    const status: RunResult["status"] =
+      reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed || faulted ? "error" : exitCode === 0 ? "completed" : "error";
+    return finish(status, exitCode, startedAt);
+  }
 }

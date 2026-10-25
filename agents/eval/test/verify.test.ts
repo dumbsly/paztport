@@ -1070,7 +1070,9 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
 
   it("evidence pinned to another server key than the one demo-run.json records fails the cross-check", () => {
     const r = cli(single({ serverKey: { fingerprint: "AAAAAAAAAAAAAAAA" } }));
-    expect(r.stdout).toMatch(/^FAIL cross-check: .*not this eval's server key AAAAAAAAAAAAAAAA/m);
+    // a single run is the demo's, not an eval's
+    expect(r.stdout).toMatch(/^FAIL cross-check: .*evidence\.jsonl is pinned to server key \S+, not the demo's server key AAAAAAAAAAAAAAAA/m);
+    expect(r.stdout).not.toContain("this eval's");
     expect(r.status).toBe(1);
   });
 

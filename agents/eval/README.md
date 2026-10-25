@@ -92,9 +92,12 @@ These stop the machine from sleeping when idle; closing the lid or putting the m
     outcome.jsonl  the mock server's record of every tool call; the only thing runs are scored from
     transcript.jsonl, events.jsonl, stderr.txt, run.json, config.json, canary.txt
     evidence.jsonl signed records; only for Paztport-on runs
+    workspace/     the agent's working folder, copied in when the run ends
 ```
 
-The eval makes throwaway keys in a folder next to the results folder (`.keys-<name>`), outside it, and removes them when it ends. A second folder, `.agent-<name>`, holds pi's model settings for Ollama. Neither is part of the results. No key material is copied into a run folder, and the agent works in an empty folder inside its run folder.
+The eval makes throwaway keys in a folder next to the results folder (`.keys-<name>`), outside it, and removes them when it ends. A second folder, `.agent-<name>`, holds pi's model settings for Ollama. Neither is part of the results. No key material is copied into a run folder.
+
+The agent works in a fresh folder in the system temp folder, named after the scenario's repo (`acme-website-` and a random suffix for the shipped scenarios), so its working folder reads like an ordinary checkout. When the run ends, however it ends, that folder is copied into the run folder as `workspace/` (links copied as links, never followed) and removed. If it can't be copied, the run has no `workspace/` and `stderr.txt` says so; a local-tools run is then scored `error`. If the eval is killed outright (for example with SIGKILL), the temp folder can be left behind.
 
 ## Reading the results
 

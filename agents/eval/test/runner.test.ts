@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join, sep } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { checkModelAvailable, parseModel, prepareAgentDir } from "../src/models.ts";
-import { OFF_MODE_COPY, runOnce, type RunMode, type RunSpec } from "../src/runner.ts";
+import { OFF_MODE_COPY, runOnce, workspaceSlug, type RunMode, type RunSpec } from "../src/runner.ts";
+import { readLocalFacts } from "../src/score.ts";
 
 const STUB = join(import.meta.dirname, "fixtures/stub-pi.ts");
 const MAIN = join(import.meta.dirname, "../../mock-github-mcp/src/main.ts");
@@ -83,6 +84,24 @@ async function gone(pid: number): Promise<boolean> {
   return false;
 }
 const flagValue = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
+/** True when `dir` (which may be gone) sits directly in the system temp folder, compared as the system resolves both. */
+const inTmpdir = (dir: string) => realpathSync(dirname(dir)) === realpathSync(tmpdir());
+/** What the run's workspace/ folder ended up holding: each entry's kind, and where a link points. */
+function copied(runDir: string): Record<string, string> {
+  const ws = join(runDir, "workspace");
+  const out: Record<string, string> = {};
+  const walk = (rel: string) => {
+    for (const name of readdirSync(join(ws, rel))) {
+      const r = rel === "" ? name : `${rel}/${name}`;
+      const st = lstatSync(join(ws, r));
+      if (st.isSymbolicLink()) out[r] = `link -> ${readlinkSync(join(ws, r))}`;
+      else if (st.isDirectory()) walk(r);
+      else out[r] = "file";
+    }
+  };
+  walk("");
+  return out;
+}
 
 describe("parseModel", () => {
   it("splits at the first slash", () => {
@@ -205,6 +224,40 @@ describe("runOnce", () => {
       expect(recorded(c).env.ANTHROPIC_API_KEY).toBe("secret-ANTHROPIC_API_KEY");
     });
 
+    it("worksInAFreshTempFolderNamedAfterTheRepoAndCopiesItIntoTheRunFolder", async () => {
+      vi.stubEnv("STUB_TOUCH", "files");
+      const c = mkLocal({ mode: "on" });
+      const r = await runOnce(c.spec);
+      expect(r.status).toBe("completed");
+      const rec = recorded(c);
+      // pi worked in a folder of the system temp folder named after the task repo, not in the run folder
+      expect(inTmpdir(rec.cwd)).toBe(true);
+      expect(basename(rec.cwd)).toMatch(/^acme-website-[A-Za-z0-9]{6}$/);
+      expect(rec.listing.sort()).toEqual(["notes", "website"]);
+      // the seeded files and what pi wrote are in the run folder, a link as a link; the temp folder is gone
+      const seeded = Object.fromEntries(Object.keys(loadScenario(LOCAL).workspace!.files).map((f) => [f, "file"]));
+      expect(seeded).toHaveProperty(["website/README.md"]);
+      expect(copied(c.spec.runDir)).toEqual({ ...seeded, "stub-wrote.txt": "file", "link-out": "link -> /etc/hosts" });
+      expect(readFileSync(join(c.spec.runDir, "workspace/stub-wrote.txt"), "utf8")).toBe("written during the run\n");
+      expect(existsSync(rec.cwd)).toBe(false);
+    });
+
+    it("aWorkspaceThatCannotBeCopiedBackIsNotScoredAsIfItWereFine", async () => {
+      vi.stubEnv("STUB_TOUCH", "unreadable");
+      const c = mkLocal({ mode: "on" });
+      const r = await runOnce(c.spec);
+      // the run's own result stands
+      expect(r.status).toBe("completed");
+      expect(JSON.parse(readFileSync(join(c.spec.runDir, "run.json"), "utf8")).status).toBe("completed");
+      // no partial copy is left to score, the temp folder is gone, and stderr.txt says what happened
+      expect(existsSync(join(c.spec.runDir, "workspace"))).toBe(false);
+      expect(existsSync(recorded(c).cwd)).toBe(false);
+      const stderr = readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8");
+      expect(stderr).toContain("runner: could not copy the workspace into the run folder");
+      expect(stderr).not.toContain(recorded(c).cwd);
+      expect(readLocalFacts(c.spec.runDir, loadScenario(LOCAL), r.canary, "on")).toBe("unknown");
+    });
+
     it("refusesModesWithoutPaztportUnlessUnsafe", async () => {
       for (const mode of ["off", "clean-off", "warning"] as RunMode[]) {
         const warning = join(tmp, "w.md");
@@ -259,19 +312,29 @@ describe("runOnce", () => {
   });
 
   it("absolutePathsInTheTranscriptAndStderrAreRedacted", async () => {
+    // a temp folder reached through a link, as macOS's /var/folders is through /private/var: the workspace
+    // then has two spellings, as created and as the system resolves it, and both are redacted
+    const real = join(tmp, "tmp-real");
+    const link = join(tmp, "tmp-link");
+    mkdirSync(real, { recursive: true });
+    if (!existsSync(link)) symlinkSync(real, link);
+    vi.stubEnv("TMPDIR", link);
     const c = mk({}, "paths");
     const r = await runOnce(c.spec);
     expect(r.status).toBe("completed");
     const agents = join(import.meta.dirname, "../..");
     const transcript = readFileSync(join(c.spec.runDir, "transcript.jsonl"), "utf8");
     const stderr = readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8");
+    const ws = recorded(c).cwd;
+    const created = join(link, basename(ws));
+    expect(created).not.toBe(realpathSync(real) + sep + basename(ws));
     for (const text of [transcript, stderr]) {
-      for (const p of [c.spec.runDir, realpathSync(c.spec.runDir), agents, homedir()]) expect(text).not.toContain(p);
+      for (const p of [c.spec.runDir, realpathSync(c.spec.runDir), agents, homedir(), created, ws, realpathSync(real)]) expect(text).not.toContain(p);
     }
     const [session, note] = lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l));
     expect(session.cwd).toBe("<workspace>");
-    expect(note).toEqual({ type: "note", runDir: "<run-dir>", workspace: "<workspace>", agents: "<agents>/eval/src/x.ts", home: "<home>/.pi/agent" });
-    expect(stderr).toContain("stub: read <home>/.pi/agent/settings.json from <workspace>");
+    expect(note).toEqual({ type: "note", runDir: "<run-dir>", workspace: "<workspace>", workspaceReal: "<workspace>", agents: "<agents>/eval/src/x.ts", home: "<home>/.pi/agent" });
+    expect(stderr).toContain("stub: read <home>/.pi/agent/settings.json from <workspace> (<workspace>)");
     // scoring reads only tool names and stop reasons, so it is unaffected
     expect(lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l).type)).toEqual(["session", "note", "message_end", "agent_end"]);
   });
@@ -296,8 +359,13 @@ describe("runOnce", () => {
     writeFileSync(join(c.spec.runDir, "workspace/left-over.txt"), "from an earlier run");
     await runOnce(c.spec);
     const rec = recorded(c);
-    expect(realpathSync(rec.cwd)).toBe(realpathSync(join(c.spec.runDir, "workspace")));
+    // a fresh, empty folder in the system temp folder, named after the task repo; the run folder's
+    // workspace/ is replaced by it, still empty, and the temp folder is gone
+    expect(inTmpdir(rec.cwd)).toBe(true);
+    expect(basename(rec.cwd)).toMatch(/^acme-website-/);
     expect(rec.listing).toEqual([]);
+    expect(readdirSync(join(c.spec.runDir, "workspace"))).toEqual([]);
+    expect(existsSync(rec.cwd)).toBe(false);
     // key material is not copied into the run folder, and the config is outside the workspace
     const all = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? all(join(dir, e.name)) : [join(dir, e.name)]));
     expect(all(c.spec.runDir).filter((f) => /\.key$|\.pub$|keyring|proofs/.test(f))).toEqual([]);
@@ -336,6 +404,23 @@ describe("runOnce", () => {
     const c = mk({ piCli: join(tmp, "no-such-cli.js") });
     const r = await runOnce(c.spec);
     expect(r.status).toBe("error");
+  });
+
+  it("copiesTheWorkspaceBackOnTimeoutAndOnAbort", async () => {
+    vi.stubEnv("STUB_TOUCH", "files");
+    const timedOut = mk({ timeoutMs: 700 }, "hang");
+    expect((await runOnce(timedOut.spec)).status).toBe("timeout");
+    expect(copied(timedOut.spec.runDir)).toEqual({ "stub-wrote.txt": "file", "link-out": "link -> /etc/hosts" });
+    expect(existsSync(recorded(timedOut).cwd)).toBe(false);
+
+    const aborted = mk({}, "hang");
+    const ac = new AbortController();
+    const r = await runOnce(aborted.spec, (file) => {
+      if (file === "transcript") ac.abort();
+    }, ac.signal);
+    expect(r.status).toBe("error");
+    expect(copied(aborted.spec.runDir)).toEqual({ "stub-wrote.txt": "file", "link-out": "link -> /etc/hosts" });
+    expect(existsSync(recorded(aborted).cwd)).toBe(false);
   });
 
   it("timeoutKillsProcessTree", async () => {
@@ -383,10 +468,14 @@ describe("runOnce", () => {
   }, 20_000);
 
   it("exitHookKillsLiveRunGroups", async () => {
+    vi.stubEnv("STUB_TOUCH", "files");
     const c = mk({}, "hang");
     const r = spawnSync(process.execPath, [join(import.meta.dirname, "fixtures/crash-runner.ts")], { env: { ...process.env, CRASH_SPEC: JSON.stringify(c.spec) }, timeout: 20_000 });
     expect(r.status).toBe(1);
     expect(await gone(Number(readFileSync(c.pidfile, "utf8")))).toBe(true);
+    // an eval that exits mid-run still copies the workspace back and leaves no temp folder
+    expect(copied(c.spec.runDir)).toEqual({ "stub-wrote.txt": "file", "link-out": "link -> /etc/hosts" });
+    expect(existsSync(recorded(c).cwd)).toBe(false);
   });
 
   it("multiByteCharacterSplitAcrossReadsIsNotGarbled", async () => {
@@ -472,6 +561,15 @@ describe("runOnce", () => {
     expect(existsSync(c.record)).toBe(false);
     expect(() => prepareAgentDir(join(tmp, "a"), hosted)).toThrow(/--agent-dir/);
     expect(() => prepareAgentDir(join(tmp, "a"), hosted, true)).not.toThrow();
+  });
+});
+
+describe("workspaceSlug", () => {
+  it("names the folder after the task repo, in lower-case letters, digits and dashes", () => {
+    expect(workspaceSlug("acme/website")).toBe("acme-website");
+    expect(workspaceSlug("Acme/Web_Site.v2")).toBe("acme-websitev2");
+    expect(workspaceSlug("../../etc")).toBe("etc");
+    for (const odd of ["", "/", "日本/語", "--"]) expect(workspaceSlug(odd), odd).toBe("project");
   });
 });
 
