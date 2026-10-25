@@ -47,6 +47,8 @@ beforeAll(() => {
   symlinkSync(join(base, "nowhere"), join(ws, "website", "dangling"));
   symlinkSync(shared, join(ws, "sharedlink"));
   mkdirSync(join(ws, "docs"));
+  mkdirSync(join(ws, "c", "b"), { recursive: true });
+  symlinkSync(join(ws, "c"), join(ws, "a"));
   mkdirSync(join(ws, "secrets", "keys"));
   mkdirSync(join(ws, "tree", "deep"), { recursive: true });
   mkdirSync(join(ws, "tree", "vault"), { recursive: true });
@@ -269,5 +271,46 @@ describe("absolute rules inside the workspace", () => {
     const at = resolvePathArg("notes/a.md", "write", { ...ctx, rules: rs }).at;
     expect(at).toBe(join(ws, "notes", "a.md"));
     expect(folderRuleFor(at, rs)?.destination).toBe("private");
+  });
+});
+
+describe("round 2: folding and rule locations", () => {
+  const withRules = (folders: unknown[], refused: string[] = []) => ({
+    ...ctx,
+    rules: parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }, ...folders], programs: [] }),
+    refused,
+  });
+  it.skipIf(!caseInsensitive)("aRuleSpelledInOtherCaseStillGovernsItsFolderUnderASearch", () => {
+    const c = withRules([{ path: "TREE/Vault", access: ["read"], label: "private" }]);
+    const r = resolveFileTool("grep", { path: "tree" }, c);
+    expect(r.paths).toEqual([{ need: "read", at: "tree" }, { need: "read", at: "TREE/Vault" }]);
+    expect(readLabels(r, c.rules)).toContain("private");
+  });
+  it.skipIf(!caseInsensitive)("aRuleBelowANonexistentSearchRootOnlyAfterFoldingIsUncheckable", () => {
+    const c = withRules([{ path: "nope/x", access: ["read"], label: "private" }]);
+    expect(resolveFileTool("find", { path: "NOPE" }, c).paths[0]?.at).toBe("uncheckable");
+  });
+  it("anNfdPathMatchingAnNfcRuleOnlyAfterFoldingIsUncheckable", () => {
+    const c = withRules([{ path: "caf\u00e9", access: ["read", "write"], destination: "public" }]);
+    expect(resolvePathArg("cafe\u0301/x", "write", c).at).toBe("uncheckable");
+    expect(resolvePathArg("caf\u00e9/x", "write", c).at).toBe("caf\u00e9/x");
+  });
+  it("anNfdPathUnderAnNfcRefusedEntryIsRefused", () => {
+    const c = withRules([], [join(ws, "r\u00e9sum\u00e9")]);
+    expect(resolvePathArg("re\u0301sume\u0301/a", "read", c).at).toBe("refused");
+  });
+  it("aRuleSpelledThroughAnInWorkspaceSymlinkGovernsTheRealFolderAndIsRecordedInItsSpelling", () => {
+    const c = withRules([{ path: "a/b", access: ["read", "write"], destination: "public" }]);
+    const viaReal = resolvePathArg("c/b/x.md", "write", c);
+    expect(viaReal.at).toBe("a/b/x.md");
+    expect(folderRuleFor(viaReal.at, c.rules)?.destination).toBe("public");
+    expect(resolvePathArg("a/b/x.md", "write", c).at).toBe("a/b/x.md");
+    expect(resolvePathArg("c/other", "write", c).at).toBe("c/other");
+  });
+  it("aSearchOverTheRealFolderSeesARuleSpelledThroughTheSymlink", () => {
+    const c = withRules([{ path: "a/b", access: ["read"], label: "private" }]);
+    const r = resolveFileTool("grep", { path: "c" }, c);
+    expect(r.paths).toEqual([{ need: "read", at: "c" }, { need: "read", at: "a/b" }]);
+    expect(readLabels(r, c.rules)).toContain("private");
   });
 });

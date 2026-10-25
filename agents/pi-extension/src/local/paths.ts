@@ -63,7 +63,8 @@ function isUnder(p: string, base: string): boolean {
   return p.startsWith(base.endsWith(sep) ? base : base + sep);
 }
 
-const fold = (s: string): string => s.normalize("NFC").toLowerCase();
+/** Spelling-insensitive form: NFC always (APFS ignores normalisation form on any volume), lower case when the volume ignores case. */
+const folder = (ci: boolean) => (s: string): string => (ci ? s.normalize("NFC").toLowerCase() : s.normalize("NFC"));
 
 const caseCache = new Map<string, boolean>();
 
@@ -108,21 +109,21 @@ function caseInsensitive(canonicalPath: string): boolean {
   return result;
 }
 
-type RuleLoc = { loc: string; at: string; relative: boolean };
+type RuleLoc = { loc: string; at: string };
 
-/** Where each folder rule lies on disk (canonical), and the `at` spelling that names it. */
+/**
+ * Where each folder rule really lies on disk (canonical, so a rule spelled through an
+ * in-workspace symlink governs the real folder), with the `at` spelling that names it.
+ * Throws when a rule's location cannot be resolved: nothing is then judged.
+ */
 function ruleLocations(ctx: PathContext, ws: string): RuleLoc[] {
   const out: RuleLoc[] = [];
   for (const rule of ctx.rules.folders) {
     const spelled = posix.normalize(rule.path).replace(/(.)\/$/, "$1");
     if (isAbsolute(rule.path)) {
-      try {
-        out.push({ loc: canonical(spelled), at: spelled, relative: false });
-      } catch {
-        // an unresolvable absolute rule matches nothing
-      }
+      out.push({ loc: canonical(spelled), at: spelled });
     } else {
-      out.push({ loc: spelled === "." ? ws : join(ws, spelled), at: spelled, relative: true });
+      out.push({ loc: spelled === "." ? ws : canonical(join(ws, spelled)), at: spelled });
     }
   }
   return out;
@@ -146,12 +147,12 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
   } catch {
     return uncheckable;
   }
-  const ci = caseInsensitive(ws);
-  if (refused.some((r) => isUnder(c, r) || (ci && isUnder(fold(c), fold(r))))) {
+  const fold = folder(caseInsensitive(ws));
+  if (refused.some((r) => isUnder(c, r) || isUnder(fold(c), fold(r)))) {
     return { need, at: "refused" };
   }
-  // A spelling that reaches a folder rule only after case/Unicode folding cannot be judged.
-  if (ci && locs.some((l) => !isUnder(c, l.loc) && isUnder(fold(c), fold(l.loc)))) {
+  // A spelling that reaches a folder rule only after folding cannot be judged.
+  if (locs.some((l) => !isUnder(c, l.loc) && isUnder(fold(c), fold(l.loc)))) {
     return uncheckable;
   }
   let best: RuleLoc | undefined;
@@ -160,13 +161,10 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
       best = l;
     }
   }
-  if (best !== undefined && !best.relative) {
+  if (best !== undefined) {
+    // Record `at` in the winning rule's own spelling so folderRuleFor finds it from the recorded value alone.
     const tail = relative(best.loc, c).split(sep).filter((x) => x !== "").join("/");
     return { need, at: tail === "" ? best.at : posix.join(best.at, tail) };
-  }
-  if (isUnder(c, ws)) {
-    const rel = relative(ws, c);
-    return { need, at: rel === "" ? "." : rel.split(sep).join("/") };
   }
   return { need, at: "outside" };
 }
@@ -216,10 +214,15 @@ export function resolveFileTool(
       try {
         const cs = canonical(abs);
         const ws = canonical(ctx.workspace);
-        if (ctx.refused.some((r) => isUnder(canonical(r), cs))) {
+        const fold = folder(caseInsensitive(ws));
+        const locs = ruleLocations(ctx, ws);
+        if (ctx.refused.some((r) => isUnder(canonical(r), cs) || isUnder(fold(canonical(r)), fold(cs)))) {
           path = { need, at: "refused" };
+        } else if (locs.some((l) => !isUnder(l.loc, cs) && isUnder(fold(l.loc), fold(cs)))) {
+          // a folder rule lies below the root only after folding: its access and label cannot be judged
+          path = { need, at: "uncheckable" };
         } else {
-          for (const l of ruleLocations(ctx, ws)) {
+          for (const l of locs) {
             if (l.loc !== cs && isUnder(l.loc, cs)) {
               extra.push({ need: "read", at: l.at });
             }
