@@ -450,6 +450,33 @@ describe("demo server", () => {
     expect(events.at(-1)!.event).toBe("done");
   }, 15_000);
 
+  it("a run in which Paztport refused to start says so, with pi's reason", async () => {
+    const { srv } = await start({
+      deps: {
+        runOnce: async (spec) => {
+          mkdirSync(spec.runDir, { recursive: true });
+          writeFileSync(join(spec.runDir, "events.jsonl"), JSON.stringify({ ts: 1, type: "refused_start", code: "WORKSPACE_GUARD" }) + "\n");
+          writeFileSync(
+            join(spec.runDir, "stderr.txt"),
+            "Extension error (<agents>/pi-extension/src/index.ts): Paztport refused to start: clientPolicyDir <agents>/x cannot be resolved\nother line\n",
+          );
+          return result(spec);
+        },
+      },
+    });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const done = (await sse(srv, id)).at(-1)!;
+    expect(done.event).toBe("done");
+    expect(done.data.refusedStart).toEqual({ code: "WORKSPACE_GUARD", reason: "clientPolicyDir <agents>/x cannot be resolved" });
+  });
+
+  it("a run that started normally carries no refusedStart", async () => {
+    const { srv } = await start({ deps: { runOnce: async (spec) => (mkdirSync(spec.runDir, { recursive: true }), result(spec)) } });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const done = (await sse(srv, id)).at(-1)!;
+    expect(done.data.refusedStart).toBeUndefined();
+  });
+
   it("a stream for an unknown run is 404", async () => {
     const { srv } = await start();
     expect((await api(srv, "/api/runs/nope/stream")).status).toBe(404);

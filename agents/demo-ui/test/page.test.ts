@@ -309,6 +309,12 @@ describe("demo page", () => {
     expect(app).toContain("Scored from the mock server's outcome log: ");
   });
 
+  it("a run in which Paztport refused to start says so before anything else", () => {
+    const app = text("app.js");
+    expect(app).toContain("Paztport did not start (");
+    expect(app).toMatch(/function statusText\(d\) \{\s*return refusedStartText\(d\.refusedStart\) \+ runStatusText\(d\);/);
+  });
+
   it("the setup carries the local wording the page uses", async () => {
     const { startDemoServer: start } = await import("../src/server.ts");
     const local = await start({

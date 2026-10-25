@@ -118,6 +118,42 @@ function verifyCommand(target: string): string {
  * The run's evidence file and the command that checks it, when it holds something signed to check. A file
  * with only the unsigned run record (an older Paztport-off run, or one that ended before a session) does not.
  */
+/** At most this much of pi's reason is shown. */
+const MAX_REASON = 300;
+
+/**
+ * When Paztport refused to start in a run (a refused_start line in its events log), the code and pi's
+ * reason (the "Paztport refused to start: …" line in stderr.txt, which the runner has already redacted).
+ * Every tool call in such a run was refused, so the page says why instead of showing each call as an error.
+ */
+export function refusedStartOf(runDir: string): { code: string; reason?: string } | undefined {
+  let code: string | undefined;
+  try {
+    for (const line of readFileSync(join(runDir, "events.jsonl"), "utf8").split("\n")) {
+      try {
+        const e: unknown = JSON.parse(line);
+        if (isObj(e) && e.type === "refused_start" && typeof e.code === "string") {
+          code = e.code;
+          break;
+        }
+      } catch {
+        // a torn line says nothing
+      }
+    }
+  } catch {
+    return undefined;
+  }
+  if (code === undefined) return undefined;
+  let reason: string | undefined;
+  try {
+    const m = /Paztport refused to start: (.*)/.exec(readFileSync(join(runDir, "stderr.txt"), "utf8"));
+    if (m !== null) reason = m[1]!.trim().slice(0, MAX_REASON);
+  } catch {
+    // the code alone is still worth showing
+  }
+  return { code, ...(reason !== undefined && reason !== "" ? { reason } : {}) };
+}
+
 function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
   const file = join(runDir, "evidence.jsonl");
   return hasEvidenceFile(file) ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
@@ -533,6 +569,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     const final = emitSteps(true, true);
     const answer = finalAnswer(final.transcript);
     const evidence = evidenceOf(dir);
+    const refusedStart = refusedStartOf(dir);
     const scored = scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"));
     const record = {
       formatVersion: 1,
@@ -548,6 +585,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       scored,
       cancelled: run.cancelled,
       ...(answer !== undefined ? { finalAnswer: answer } : {}),
+      ...(refusedStart !== undefined ? { refusedStart } : {}),
     };
     try {
       writeFileSync(join(dir, "demo-run.json"), JSON.stringify(record, null, 2) + "\n");
@@ -566,6 +604,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       ...evidence,
       refusalsNote: REFUSALS_NOTE,
       cancelled: run.cancelled,
+      ...(refusedStart !== undefined ? { refusedStart } : {}),
     });
   }
 

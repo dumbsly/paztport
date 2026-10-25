@@ -725,7 +725,18 @@ function runPanel(id, settings, { primary }) {
   };
 }
 
+/** Said first when Paztport refused to start in the run: every tool call was then refused, whatever it was. */
+function refusedStartText(r) {
+  if (!r || typeof r.code !== "string") return "";
+  const why = typeof r.reason === "string" ? ` Reason: ${r.reason}${/[.!?]$/.test(r.reason) ? "" : "."}` : " The reason is in stderr.txt in the run folder.";
+  return `Paztport did not start (${r.code}), so every tool call in this run was refused.${why} `;
+}
+
 function statusText(d) {
+  return refusedStartText(d.refusedStart) + runStatusText(d);
+}
+
+function runStatusText(d) {
   const took = typeof d.durationMs === "number" ? formatDuration(d.durationMs) : undefined;
   if (typeof d.error === "string") return `${capitalise(d.error)}${/[.!?]$/.test(d.error) ? "" : "."}`;
   if (typeof d.formatVersion === "number") {
