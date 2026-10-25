@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { spawnSync } from "node:child_process";
 import { request } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { networkInterfaces, tmpdir } from "node:os";
@@ -9,6 +10,9 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { runEval, type ResultsFile } from "../../eval/src/eval.ts";
 import { CLASSES_NOTE, DEFINITIONS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT } from "../../eval/src/report.ts";
 import { OFF_MODE_COPY, type LineFile, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
+import { pinFingerprint, verifyEvidence } from "../../eval/src/verify.ts";
+import { localRun } from "../../eval/test/fixtures/local-run.ts";
+import { setupDemo } from "../../pi-extension/test/helpers/demo.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
 import { startDemoServer, type DemoServer, type DemoServerOptions } from "../src/server.ts";
@@ -565,7 +569,8 @@ describe("demo server", () => {
     expect(done.steps[2]).toMatchObject({ code: "INFLUENCE_DENIED", rule: expect.stringMatching(/public repository/) });
     expect(done.finalAnswer).toBe("I could not open the pull request.");
     expect(done.started).toBe(true);
-    expect(done.verifyCommand).toMatch(/^npm run verify -- .*single-[^/]+\/evidence\.jsonl$/);
+    // the run folder, so verify also cross-checks the evidence with the events and outcome logs
+    expect(done.verifyCommand).toMatch(/^npm run verify -- .*single-[^/]+$/);
     expect(done.evidenceFile).toBe(true);
     const reopened = await (await api(srv, `/api/results/${done.name}`)).json();
     expect(reopened.finalAnswer).toBe("I could not open the pull request.");
@@ -1068,5 +1073,37 @@ describe("demo server, scoring a run with local tools", () => {
     expect(done.scored).toMatchObject({ outcome: "blocked", scopeRefused: true });
     const saved = JSON.parse(readFileSync(join(resultsRoot, done.name, "demo-run.json"), "utf8"));
     expect(saved.scored).toEqual(done.scored);
+  });
+});
+
+describe("demo server, checking a single run's evidence", { timeout: 60_000 }, () => {
+  const SCENARIOS = join(import.meta.dirname, "../../scenarios");
+  const localBody = { ...body, scenario: "github-issue-replay-local" };
+  const AGENTS = join(import.meta.dirname, "../..");
+
+  it("demo-run.json records the server key fingerprint, and the page's verify command checks the run folder", async () => {
+    const keys = setupDemo(join(tmp, `keys-${n++}`));
+    // a genuine local-tools run, made with the demo's own keys
+    const play: RunOnce = async (spec) => (await localRun(spec.demoDir, spec.runDir), result(spec));
+    const { srv, resultsRoot } = await start({ scenarioDir: SCENARIOS, demoDir: keys, deps: { runOnce: play } });
+    const { id } = await (await post(srv, "/api/runs", localBody)).json();
+    const done = (await sse(srv, id)).find((e) => e.event === "done")!.data;
+    const dir = join(resultsRoot, done.name);
+    const saved = JSON.parse(readFileSync(join(dir, "demo-run.json"), "utf8"));
+    const fingerprint = pinFingerprint(readFileSync(join(keys, "client/server-policy.pub"), "utf8").trim());
+    expect(saved.serverKey).toEqual({ fingerprint });
+    expect(verifyEvidence(join(dir, "evidence.jsonl")).pins).toEqual([fingerprint]);
+
+    expect(done.verifyCommand).toBe(`npm run verify -- ${dir}`);
+    const r = spawnSync(process.execPath, [join(AGENTS, "eval/src/verify-main.ts"), dir], { encoding: "utf8", cwd: AGENTS });
+    expect(r.stdout).toMatch(/^OK {2}evidence\.jsonl .*\nOK {2}cross-check \(events, outcome log and evidence agree\)\n$/);
+    expect(r.status).toBe(0);
+  });
+
+  it("without readable keys, demo-run.json has no server key", async () => {
+    const { srv, resultsRoot } = await start({ deps: { runOnce: playing } });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const done = (await sse(srv, id)).find((e) => e.event === "done")!.data;
+    expect(JSON.parse(readFileSync(join(resultsRoot, done.name, "demo-run.json"), "utf8")).serverKey).toBeUndefined();
   });
 });

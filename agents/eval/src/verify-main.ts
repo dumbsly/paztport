@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Usage: node eval/src/verify-main.ts <results-dir | evidence.jsonl>
+// Usage: node eval/src/verify-main.ts <results-dir | demo single-run folder | evidence.jsonl>
 // Exit code: 0 if no file failed, 1 if any did, 2 on a usage error. A file with no signed records (only the
 // unsigned run record, and the client record written at session start: the run ended before a session, or
 // the signed records were cut away) is reported as
@@ -13,8 +13,14 @@
 // log shows local tool calls made during a run, must have signed evidence, whatever results.json says, and
 // a log that exists but can't be read fails. It does not compare each evidence record with the logs or
 // re-score the run. Local refusals are signed, unlike the server's, and the output says which is which.
+//
+// A demo single-run folder (demo-run.json and the run's files at the top, no runs/ folder) is checked as the
+// eval checks each of its runs: its evidence.jsonl is verified, then one more line says whether the events log,
+// the outcome log and the evidence agree, and whether the evidence is pinned to the server key demo-run.json
+// records. An older demo-run.json records no server key; the pins are then not compared, and a line says so.
 
 import { statSync } from "node:fs";
+import { isSingleRunDir, verifySingleRunDir } from "./crosscheck.ts";
 import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
 function line(r: VerifyReport): string {
@@ -38,13 +44,34 @@ function line(r: VerifyReport): string {
 
 const args = process.argv.slice(2);
 if (args.length !== 1 || args[0]!.startsWith("-")) {
-  process.stderr.write("usage: verify <results-dir | evidence.jsonl>\n");
+  process.stderr.write("usage: verify <results-dir | run folder | evidence.jsonl>\n");
   process.exit(2);
 }
 const target = args[0]!;
+let isDir = false;
+try {
+  isDir = statSync(target).isDirectory();
+} catch {
+  // a missing path is reported as an unreadable file below
+}
+if (isDir && isSingleRunDir(target)) {
+  const { report, crossCheck, noServerKey } = verifySingleRunDir(target);
+  process.stdout.write(line(report) + "\n");
+  if (noServerKey) process.stdout.write("NOTE demo-run.json records no server key fingerprint (an older run), so the evidence pin was not compared with it\n");
+  const cross =
+    crossCheck.status === "ok"
+      ? "OK  cross-check (events, outcome log and evidence agree)"
+      : crossCheck.status === "failed"
+        ? `FAIL cross-check: ${crossCheck.problems.join("; ")}`
+        : crossCheck.status === "none"
+          ? "NOTHING TO CHECK cross-check (Paztport was off)"
+          : "NOTHING TO CHECK cross-check (Paztport was on, but the run ended before anything was recorded)";
+  process.stdout.write(cross + "\n");
+  process.exit(report.ok && crossCheck.status !== "failed" ? 0 : 1);
+}
 let reports: VerifyReport[];
 try {
-  reports = statSync(target).isDirectory() ? verifyResultsDir(target) : [verifyEvidence(target)];
+  reports = isDir ? verifyResultsDir(target) : [verifyEvidence(target)];
 } catch {
   reports = [verifyEvidence(target)]; // a missing path is reported as an unreadable file
 }

@@ -2,7 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
+import { checkRecords, readOutcomeLog } from "./score.ts";
 import { NOT_FAILURES, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode } from "./runner.ts";
 
@@ -285,7 +287,8 @@ function crossCheck(records: OutcomeRecord[], report: VerifyReport, evidencePath
  * Decides one run's verification status.
  * @param records the run's outcome records, or null when the log could not be read or used
  * @param report the verify report for the run's evidence file, or undefined when it is missing or empty
- * @param expectedPin the fingerprint of this eval's server policy public key
+ * @param expectedPin the fingerprint of this eval's server policy public key. Undefined only for an older demo
+ *   single run, which recorded none: the pins are then not compared.
  * @param eventsPath the run's events log. Read only in the modes with Paztport on, as the score reads it: its
  *   local lines are cross-checked against the evidence's local records (see crossCheckLocal).
  */
@@ -297,7 +300,7 @@ export function checkRun(input: {
   evidencePath: string;
   eventsPath: string;
   report: VerifyReport | undefined;
-  expectedPin: string;
+  expectedPin: string | undefined;
   /** The scenario gives the model local tools: a run with Paztport on must then have a verified client record with local rules. */
   localTools?: boolean;
 }): RunVerify {
@@ -327,7 +330,7 @@ export function checkRun(input: {
     problems.push(bad === undefined ? "evidence.jsonl did not verify" : `evidence.jsonl line ${bad.line}: ${bad.type} ${bad.result}`);
   }
   for (const p of report.pins) {
-    if (p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not this eval's server key ${expectedPin}`);
+    if (expectedPin !== undefined && p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not this eval's server key ${expectedPin}`);
   }
   if (report.pins.length === 0 && (attested || EXPECT_EVIDENCE.includes(mode))) problems.push("evidence.jsonl has no verified session");
   if (records === null) problems.push("the outcome log could not be used, so the evidence could not be compared with it");
@@ -340,4 +343,65 @@ export function checkRun(input: {
 
   const capped = problems.length > MAX_PROBLEMS ? [...problems.slice(0, MAX_PROBLEMS), `and ${problems.length - MAX_PROBLEMS} more`] : problems;
   return { status: problems.length > 0 ? "failed" : "ok", problems: capped };
+}
+
+const MODES: readonly string[] = ["off", "on", "clean-off", "clean-on", "warning"];
+
+/** A demo single-run folder: its run files and demo-run.json at the top, and no runs/ folder (an eval's). */
+export function isSingleRunDir(dir: string): boolean {
+  return existsSync(join(dir, "demo-run.json")) && !existsSync(join(dir, "runs"));
+}
+
+export type SingleRunCheck = {
+  /** The run's evidence.jsonl, labelled with its path in the folder. */
+  report: VerifyReport;
+  crossCheck: RunVerify;
+  /** demo-run.json records no server key (an older run), so the pins were not compared. */
+  noServerKey?: true;
+};
+
+/**
+ * Checks a demo single-run folder as the eval checks each of its runs: its evidence.jsonl is verified, then
+ * checkRun compares the events log, the outcome log and the evidence, and the evidence's pin with the server
+ * key fingerprint, using the mode, scored outcome and localTools demo-run.json records. A demo-run.json
+ * without serverKey (written before the demo recorded it) is checked without the pin comparison.
+ */
+export function verifySingleRunDir(dir: string): SingleRunCheck {
+  const evidencePath = join(dir, "evidence.jsonl");
+  let report: VerifyReport;
+  if (!existsSync(evidencePath)) report = { file: "evidence.jsonl", ok: true, items: [], pins: [], nothingToCheck: true };
+  else report = { ...verifyEvidence(evidencePath), file: "evidence.jsonl" };
+
+  let run: unknown;
+  try {
+    run = JSON.parse(readFileSync(join(dir, "demo-run.json"), "utf8"));
+  } catch (e) {
+    return { report, crossCheck: { status: "failed", problems: [`demo-run.json can't be read (${(e as Error).message})`] } };
+  }
+  const obj = typeof run === "object" && run !== null && !Array.isArray(run) ? (run as Record<string, unknown>) : {};
+  const scored = obj.scored;
+  const outcome = typeof scored === "object" && scored !== null ? (scored as Record<string, unknown>).outcome : undefined;
+  if (typeof obj.mode !== "string" || !MODES.includes(obj.mode) || typeof outcome !== "string") {
+    return { report, crossCheck: { status: "failed", problems: ["demo-run.json can't be read (it has no mode or no scored outcome)"] } };
+  }
+  const key = obj.serverKey;
+  const fingerprint = typeof key === "object" && key !== null ? (key as Record<string, unknown>).fingerprint : undefined;
+  let records: OutcomeRecord[] | null;
+  try {
+    records = readOutcomeLog(join(dir, "outcome.jsonl"));
+    if (checkRecords(records) !== undefined) records = null;
+  } catch {
+    records = null;
+  }
+  const crossCheck = checkRun({
+    mode: obj.mode as RunMode,
+    outcome,
+    records,
+    evidencePath,
+    eventsPath: join(dir, "events.jsonl"),
+    report: hasEvidenceFile(evidencePath) ? verifyEvidence(evidencePath) : undefined,
+    expectedPin: typeof fingerprint === "string" ? fingerprint : undefined,
+    localTools: obj.localTools === true,
+  });
+  return { report, crossCheck, ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }) };
 }

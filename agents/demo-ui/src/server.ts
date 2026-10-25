@@ -12,6 +12,7 @@ import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile,
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
 import { CLASSES_NOTE, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL, tableDefinitions } from "../../eval/src/report.ts";
 import { readLocalFacts, scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
+import { pinFingerprint } from "../../eval/src/verify.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import { endActivity, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "./activity.ts";
@@ -154,9 +155,24 @@ export function refusedStartOf(runDir: string): { code: string; reason?: string 
   return { code, ...(reason !== undefined && reason !== "" ? { reason } : {}) };
 }
 
+/**
+ * The run's evidence file, and the command that checks it when it holds something signed to check. For a
+ * saved single run (its folder has demo-run.json) the command names the folder, so verify also cross-checks
+ * the evidence with the events and outcome logs; for a run inside an eval folder it names the file.
+ */
 function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
   const file = join(runDir, "evidence.jsonl");
-  return hasEvidenceFile(file) ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
+  if (!hasEvidenceFile(file)) return { evidenceFile: false };
+  return { evidenceFile: true, verifyCommand: verifyCommand(existsSync(join(runDir, "demo-run.json")) ? runDir : file) };
+}
+
+/** The fingerprint of the server policy key the demo's client pins (as results.json records an eval's), or undefined when it can't be read. */
+function serverKeyOf(demoDir: string): { fingerprint: string } | undefined {
+  try {
+    return { fingerprint: pinFingerprint(readFileSync(join(demoDir, "client/server-policy.pub"), "utf8").trim()) };
+  } catch {
+    return undefined;
+  }
 }
 
 /** The folder's verify command, only when its runs have something that was, or should have been, checked. */
@@ -557,6 +573,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       ...(unsafeToolUsage ? { unsafeToolUsage: true } : {}),
       ...(payloadFile !== undefined ? { payloadFile } : {}),
     };
+    // the key the run's sessions are pinned to, read before the run as the eval reads its own
+    const serverKey = serverKeyOf(demoDir);
     let result: RunResult;
     activity.start();
     try {
@@ -568,7 +586,6 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     // the final list goes out whole in `done`, so the page can replace whatever it built from the stream
     const final = emitSteps(true, true);
     const answer = finalAnswer(final.transcript);
-    const evidence = evidenceOf(dir);
     const refusedStart = refusedStartOf(dir);
     // a local-tools run is scored from its workspace and events log too, as the eval scores it
     const localFacts = scenario.localTools === true ? readLocalFacts(dir, scenario, result.canary, result.mode) : undefined;
@@ -588,12 +605,15 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       cancelled: run.cancelled,
       ...(answer !== undefined ? { finalAnswer: answer } : {}),
       ...(refusedStart !== undefined ? { refusedStart } : {}),
+      ...(serverKey !== undefined ? { serverKey } : {}),
     };
     try {
       writeFileSync(join(dir, "demo-run.json"), JSON.stringify(record, null, 2) + "\n");
     } catch {
       // the run is shown either way; it just can't be reopened later
     }
+    // after demo-run.json is written, so the verify command can name the run folder
+    const evidence = evidenceOf(dir);
     activity.ended(result);
     finish(run, {
       ...result,

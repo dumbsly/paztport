@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bindLocalTool, bindMcpCall, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/path-attest";
@@ -1024,5 +1024,83 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const t = spawnSync(process.execPath, [MAIN, write(localLines, (rs) => { localOf(rs, "l_leak").verdict = "OK"; })], { encoding: "utf8" });
     expect(t.status).toBe(1);
     expect(t.stdout).toMatch(/^FAIL .*line \d+ local l_leak: BINDING_MISMATCH/);
+  });
+});
+
+describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
+  // a demo single run keeps its files at the top of its folder, beside demo-run.json, with no runs/ folder
+  let base: string;
+  let pin: string;
+  beforeAll(async () => {
+    base = (await localRun(demo, join(tmp, "single-base"))).runDir;
+    pin = pinFingerprint(readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim());
+  }, 60_000);
+  const cli = (dir: string) => spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
+  /** A copy of the run as a demo single-run folder, with demo-run.json as the demo writes it. */
+  function single(over: Record<string, unknown> = {}, edit?: (dir: string) => void): string {
+    const dir = join(tmp, `single-${n++}`);
+    cpSync(base, dir, { recursive: true });
+    const run = { formatVersion: 1, kind: "single", localTools: true, mode: "on", scored: { outcome: "blocked" }, serverKey: { fingerprint: pin }, ...over };
+    for (const [k, v] of Object.entries(run)) if (v === undefined) delete (run as Record<string, unknown>)[k];
+    writeFileSync(join(dir, "demo-run.json"), JSON.stringify(run, null, 2) + "\n");
+    edit?.(dir);
+    return dir;
+  }
+  const CROSS_OK = "OK  cross-check (events, outcome log and evidence agree)";
+
+  it("verifies the run's evidence and cross-checks it with the events and outcome logs", () => {
+    const r = cli(single());
+    expect(r.stdout.trim().split("\n")).toEqual([expect.stringMatching(/^OK {2}evidence\.jsonl \(\d+ items, 1 REFUSED \(server refusal; not signed\), 4 REFUSED \(local refusal; signed\)\) pin [\w-]{16}$/), CROSS_OK]);
+    expect(r.status).toBe(0);
+  });
+
+  it("a local event in the events log with no evidence record fails the cross-check", () => {
+    const dir = single({}, (d) => {
+      const events = jsonLines(join(d, "events.jsonl")).map((l) => JSON.parse(l));
+      const leak = events.find((e) => e.type === "local" && e.callId === "l_leak");
+      events.push({ ...leak, callId: "l_forged" });
+      writeFileSync(join(d, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    });
+    const r = cli(dir);
+    const lines = r.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^OK {2}evidence\.jsonl/);
+    expect(lines[1]).toMatch(/^FAIL cross-check: .*the events log shows local call l_forged \(write\) refused \(INFLUENCE_DENIED\), which has no verified local record in evidence\.jsonl/);
+    expect(r.status).toBe(1);
+  });
+
+  it("evidence pinned to another server key than the one demo-run.json records fails the cross-check", () => {
+    const r = cli(single({ serverKey: { fingerprint: "AAAAAAAAAAAAAAAA" } }));
+    expect(r.stdout).toMatch(/^FAIL cross-check: .*not this eval's server key AAAAAAAAAAAAAAAA/m);
+    expect(r.status).toBe(1);
+  });
+
+  it("an older demo-run.json with no server key is checked without the pin comparison, and says so", () => {
+    const r = cli(single({ serverKey: undefined }));
+    const lines = r.stdout.trim().split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toMatch(/^OK {2}evidence\.jsonl/);
+    expect(lines[1]).toBe("NOTE demo-run.json records no server key fingerprint (an older run), so the evidence pin was not compared with it");
+    expect(lines[2]).toBe(CROSS_OK);
+    expect(r.status).toBe(0);
+  });
+
+  it("a run with Paztport off has nothing to check; one with Paztport on and no evidence fails", () => {
+    const off = cli(single({ mode: "off", localTools: undefined, scored: { outcome: "resisted" } }, (d) => {
+      // an off run has no extension: no evidence and no events, and the server records no session
+      for (const f of ["evidence.jsonl", "events.jsonl", "outcome.jsonl"]) rmSync(join(d, f));
+    }));
+    expect(off.stdout).toBe(
+      "NOTHING TO CHECK evidence.jsonl (no signed records: Paztport was off, or the run ended before a session)\nNOTHING TO CHECK cross-check (Paztport was off)\n",
+    );
+    expect(off.status).toBe(0);
+    const on = cli(single({}, (d) => rmSync(join(d, "evidence.jsonl"))));
+    expect(on.stdout).toMatch(/^FAIL cross-check: the outcome log shows attested calls, but evidence\.jsonl is missing/m);
+    expect(on.status).toBe(1);
+  });
+
+  it("a demo-run.json that can't be read fails the cross-check", () => {
+    const r = cli(single({}, (d) => writeFileSync(join(d, "demo-run.json"), "{")));
+    expect(r.stdout).toMatch(/^FAIL cross-check: demo-run\.json can't be read/m);
+    expect(r.status).toBe(1);
   });
 });
