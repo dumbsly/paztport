@@ -1,0 +1,129 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+import { posix } from "node:path";
+import { encode } from "./b64url.ts";
+import { sha256, utf8 } from "./crypto.ts";
+import { canonicalize } from "./jcs.ts";
+
+export type FolderAccess = "read" | "write" | "exec";
+export type FolderRule = {
+  path: string;
+  access: FolderAccess[];
+  label?: "private" | "public" | "third-party";
+  destination?: "public" | "private";
+};
+export type LocalRules = { v: 1; folders: FolderRule[]; programs: string[] };
+
+/** Route prefix under which a session's local rules are pinned. */
+export const RULES_ROUTE_PREFIX = "rules:";
+
+/** Programs that can run other programs, write anywhere or reach the network; never allowed, even if listed. */
+export const NEVER_PROGRAMS: readonly string[] = [
+  "sh", "bash", "zsh", "dash", "ksh", "fish", "env", "xargs", "sudo", "su", "doas", "nohup", "timeout", "nice", "watch",
+  "exec", "eval", "python", "python3", "node", "deno", "bun", "perl", "ruby", "php", "lua", "awk", "gawk", "sed", "find",
+  "git", "make", "npm", "npx", "pip", "pip3", "osascript", "open", "xdg-open", "tee", "sort", "uniq",
+];
+
+const ACCESS: readonly string[] = ["read", "write", "exec"];
+const LABELS: readonly string[] = ["private", "public", "third-party"];
+const DESTINATIONS: readonly string[] = ["public", "private"];
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function bad(field: string, why: string): Error {
+  return new Error(`invalid local rules: ${field}: ${why}`);
+}
+
+/** Path with `.` and `..` resolved and no trailing slash; relative paths stay relative. */
+function normalPath(p: string): string {
+  return posix.normalize(p);
+}
+
+/** Throws unless value is well-formed local rules; returns a clean copy. */
+export function parseLocalRules(value: unknown): LocalRules {
+  if (!isObject(value)) {
+    throw bad("rules", "must be an object");
+  }
+  if (value.v !== 1) {
+    throw bad("v", "must be 1");
+  }
+  if (!Array.isArray(value.folders)) {
+    throw bad("folders", "must be an array");
+  }
+  if (!Array.isArray(value.programs)) {
+    throw bad("programs", "must be an array");
+  }
+  const seen = new Set<string>();
+  const folders = value.folders.map((item: unknown, i): FolderRule => {
+    const at = `folders[${i}]`;
+    if (!isObject(item)) {
+      throw bad(at, "must be an object");
+    }
+    if (typeof item.path !== "string" || item.path === "" || item.path.includes("\0")) {
+      throw bad(`${at}.path`, "must be a non-empty string");
+    }
+    const norm = normalPath(item.path);
+    if (!posix.isAbsolute(norm) && (norm === ".." || norm.startsWith("../"))) {
+      throw bad(`${at}.path`, "must not leave the working folder");
+    }
+    const key = norm.length > 1 && norm.endsWith("/") ? norm.slice(0, -1) : norm;
+    if (seen.has(key)) {
+      throw bad(`${at}.path`, "duplicate folder");
+    }
+    seen.add(key);
+    if (!Array.isArray(item.access) || item.access.length === 0) {
+      throw bad(`${at}.access`, "must be a non-empty array");
+    }
+    for (const a of item.access) {
+      if (typeof a !== "string" || !ACCESS.includes(a)) {
+        throw bad(`${at}.access`, "must be read, write or exec");
+      }
+    }
+    const access = item.access as FolderAccess[];
+    if (new Set(access).size !== access.length) {
+      throw bad(`${at}.access`, "must not repeat a value");
+    }
+    if (access.includes("write") && access.includes("exec")) {
+      throw bad(`${at}.access`, "write and exec cannot be combined");
+    }
+    const out: FolderRule = { path: item.path, access: [...access] };
+    if (item.label !== undefined) {
+      if (typeof item.label !== "string" || !LABELS.includes(item.label)) {
+        throw bad(`${at}.label`, "must be private, public or third-party");
+      }
+      out.label = item.label as FolderRule["label"];
+    }
+    if (item.destination !== undefined) {
+      if (typeof item.destination !== "string" || !DESTINATIONS.includes(item.destination)) {
+        throw bad(`${at}.destination`, "must be public or private");
+      }
+      out.destination = item.destination as FolderRule["destination"];
+    }
+    if (access.includes("write") && out.destination === undefined) {
+      throw bad(`${at}.destination`, "required when access includes write");
+    }
+    return out;
+  });
+  const programs = value.programs.map((p: unknown, i): string => {
+    const at = `programs[${i}]`;
+    if (typeof p !== "string" || p === "") {
+      throw bad(at, "must be a non-empty string");
+    }
+    if (p.includes("/") || p.includes("\0") || /\s/.test(p)) {
+      throw bad(at, "must be a bare program name");
+    }
+    if (NEVER_PROGRAMS.includes(p)) {
+      throw bad(at, `${p} is never allowed`);
+    }
+    return p;
+  });
+  return { v: 1, folders, programs };
+}
+
+/** Hash that pins a rule set: base64url SHA-256 of "local-rules\n" + JCS(rules). */
+export function rulesHash(rules: LocalRules): string {
+  return encode(sha256(utf8("local-rules\n" + canonicalize(rules))));
+}

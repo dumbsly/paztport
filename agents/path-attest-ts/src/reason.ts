@@ -16,6 +16,8 @@ export type ReasonCode =
   | "CLIENT_PATH_NOT_ALLOWED"
   | "INFLUENCE_MISMATCH"
   | "INFLUENCE_DENIED"
-  | "UNSAFE_SESSION";
+  | "UNSAFE_SESSION"
+  | "SCOPE_DENIED"
+  | "UNCHECKABLE";
 
 export type VerifyResult = { ok: boolean; reason: ReasonCode; suspectSvc: string; suspectInst: string };

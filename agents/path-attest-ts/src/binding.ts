@@ -25,6 +25,14 @@ export function bindMcpCall(toolName: string, toolCallId: string, args: unknown)
   return encode(sha256(utf8(`tools/call\n${toolName}\n${toolCallId}\n${canonicalize(args ?? {})}`)));
 }
 
+/** Local tool step binding: SHA-256(utf8("tool\n" + toolName + "\n" + JCS({ input, resolved }))), base64url. */
+export function bindLocalTool(toolName: string, input: unknown, resolved: unknown): string {
+  if (toolName.includes("\n")) {
+    throw new Error("toolName must not contain newlines");
+  }
+  return encode(sha256(utf8(`tool\n${toolName}\n${canonicalize({ input: input ?? {}, resolved: resolved ?? {} })}`)));
+}
+
 /** v2 result binding: SHA-256(utf8("result\n" + JCS(result without its "_meta" key))), base64url. */
 export function bindResult(result: Record<string, unknown>): string {
   const { _meta: _ignored, ...rest } = result;

@@ -86,6 +86,8 @@ const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK">, true> = {
   INFLUENCE_MISMATCH: true,
   INFLUENCE_DENIED: true,
   UNSAFE_SESSION: true,
+  SCOPE_DENIED: true,
+  UNCHECKABLE: true,
 };
 const RPC_ERRORS: Record<number, string> = {
   [JSON_RPC_ERROR_CODES.parseError]: "parse error",

@@ -19,3 +19,4 @@ export * from "./meta.ts";
 export * from "./session.ts";
 export * from "./attestation.ts";
 export * from "./verify-call.ts";
+export * from "./local-rules.ts";
