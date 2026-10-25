@@ -1154,7 +1154,8 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
       rmSync(join(d, "evidence.jsonl"));
       writeFileSync(join(d, "events.jsonl"), "");
     }));
-    expect(signed.stdout).toMatch(/^FAIL cross-check: the outcome log shows attested calls, but evidence\.jsonl is missing, empty or has no signed records$/m);
+    // the log also shows a server in enforce mode, which an off run can't have: a second reason
+    expect(signed.stdout).toMatch(/^FAIL cross-check: the outcome log shows attested calls, but evidence\.jsonl is missing, empty or has no signed records; demo-run\.json records Paztport off, but the outcome log shows the server in mode enforce/m);
     expect(signed.status).toBe(1);
     // an outcome log that can't be read can't show that there were none
     const unreadable = cli(single({ mode: "off" }, (d) => {
@@ -1186,6 +1187,32 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
       expect(gone.stdout).toMatch(new RegExp(`^FAIL cross-check: ${f.replace(".", "\\.")} can't be read, so the mode demo-run\\.json records can't be checked against it`, "m"));
       expect(gone.status).toBe(1);
     }
+  });
+
+  it("a run recorded as Paztport off whose outcome log or config shows Paztport on fails, so no unverified block passes", () => {
+    // every file edited to say off, the signed parts removed: only a server in enforce mode refuses calls
+    const stripped = (d: string) => {
+      const recs = jsonLines(join(d, "outcome.jsonl")).map((l) => JSON.parse(l));
+      writeFileSync(join(d, "outcome.jsonl"), recs.map(({ sess: _s, rid: _r, callId: _c, ...r }) => JSON.stringify(r)).join("\n") + "\n");
+      rmSync(join(d, "evidence.jsonl"), { force: true });
+      const events = jsonLines(join(d, "events.jsonl")).filter((l) => JSON.parse(l).type !== "local");
+      writeFileSync(join(d, "events.jsonl"), events.join("\n") + (events.length > 0 ? "\n" : ""));
+    };
+    const r = cli(single({ mode: "off" }, stripped));
+    expect(r.stdout).toMatch(/^FAIL cross-check: .*demo-run\.json records Paztport off, but the outcome log shows the server in mode enforce/m);
+    expect(r.status).toBe(1);
+    // a config that still starts the server attested contradicts an off run too
+    const cfg = cli(
+      single({ mode: "off" }, (d) => {
+        stripped(d);
+        const recs = jsonLines(join(d, "outcome.jsonl")).map((l) => ({ ...JSON.parse(l), mode: "off", verdict: "ALLOWED" }));
+        writeFileSync(join(d, "outcome.jsonl"), recs.map((x) => JSON.stringify(x)).join("\n") + "\n");
+        const c = JSON.parse(readFileSync(join(d, "config.json"), "utf8"));
+        writeFileSync(join(d, "config.json"), JSON.stringify({ ...c, servers: [{ id: "github", args: ["main.ts", "--mode", "enforce"], attested: true }] }));
+      }),
+    );
+    expect(cfg.stdout).toMatch(/^FAIL cross-check: .*config\.json starts the server attested/m);
+    expect(cfg.status).toBe(1);
   });
 
   it("the outcome demo-run.json records is scored again from the run's files, as the demo scored it", () => {

@@ -13,7 +13,8 @@ import { checkRun, hasEvidenceFile, reusedLocalSignatures, withProblems, type Ru
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
-import { checkRecords, readLocalFacts, readOutcomeLog, scoreRunFile, summarize, type ModeSummary, type ScoredRun } from "./score.ts";
+import { readLocalFacts, scoreRunFile, summarize, usableRecords, type ModeSummary, type ScoredRun } from "./score.ts";
+export { usableRecords };
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
 export type EvalOptions = {
@@ -136,15 +137,6 @@ function validate(o: EvalOptions): void {
   if (o.payloadFile !== undefined && !existsSync(o.payloadFile)) throw new Error(`payload file not found: ${o.payloadFile}`);
 }
 
-/** The records of a log that can be scored, or null when it cannot be read or used. */
-export function usableRecords(file: string): OutcomeRecord[] | null {
-  try {
-    const records = readOutcomeLog(file);
-    return checkRecords(records) === undefined ? records : null;
-  } catch {
-    return null;
-  }
-}
 
 /** The folder that holds an eval's keys: next to the results folder, never inside it. */
 export function keysDirFor(outDir: string): string {

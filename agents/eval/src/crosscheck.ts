@@ -1,13 +1,11 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
-import { readdirSync } from "node:fs";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { usableRecords } from "./eval.ts";
-import { readLocalFacts, scoreRunFile } from "./score.ts";
+import { readLocalFacts, scoreRunFile, usableRecords } from "./score.ts";
 import { NOT_FAILURES, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 
@@ -458,10 +456,11 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
   const scenarioId = typeof obj.scenario === "object" && obj.scenario !== null ? (obj.scenario as Record<string, unknown>).id : undefined;
   const scenario = typeof scenarioId === "string" ? findScenario(scenarioId) : undefined;
   const config = readObject(join(dir, "config.json"));
+  const records = usableRecords(join(dir, "outcome.jsonl"));
   let crossCheck = checkRun({
     mode: obj.mode as RunMode,
     outcome,
-    records: usableRecords(join(dir, "outcome.jsonl")),
+    records,
     evidencePath,
     eventsPath: join(dir, "events.jsonl"),
     report: report.nothingToCheck === true ? undefined : report,
@@ -475,7 +474,7 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     const need = signedEvidenceNeeded(dir);
     if (need !== undefined) crossCheck = { status: "failed", problems: [need] };
   }
-  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode, config));
+  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode, config, records));
   const again = rescore(dir, scenarioId, scenario, obj.mode as RunMode);
   return {
     report,
@@ -501,7 +500,7 @@ function readObject(path: string): Record<string, unknown> | undefined {
  * config.json starts Paztport in (enforce for the modes with Paztport on, off for the others). The runner writes
  * both before pi starts, so a file that can't be read can't show the mode either.
  */
-function modeDisagreements(dir: string, mode: RunMode, config: Record<string, unknown> | undefined): string[] {
+function modeDisagreements(dir: string, mode: RunMode, config: Record<string, unknown> | undefined, records: OutcomeRecord[] | null): string[] {
   const problems: string[] = [];
   const unread = (f: string) => `${f} can't be read, so the mode demo-run.json records can't be checked against it`;
   const run = readObject(join(dir, "run.json"));
@@ -510,5 +509,16 @@ function modeDisagreements(dir: string, mode: RunMode, config: Record<string, un
   const serverMode = EXPECT_EVIDENCE.includes(mode) ? "enforce" : "off";
   if (config === undefined) problems.push(unread("config.json"));
   else if (config.mode !== serverMode) problems.push(`demo-run.json records mode ${mode}, but config.json starts Paztport in mode ${String(config.mode)}`);
+  if (!EXPECT_EVIDENCE.includes(mode)) {
+    // Only a server in enforce mode refuses a call or records another mode, and only an on run starts it
+    // attested: an off run's files can't show either, so a run edited to read "off" can't pass off a block.
+    const enforced = (records ?? []).find((r) => r.mode !== "off" || r.verdict !== "ALLOWED");
+    if (enforced !== undefined) {
+      problems.push(`demo-run.json records Paztport off, but the outcome log shows the server in mode ${String(enforced.mode)} with verdict ${String(enforced.verdict)}`);
+    }
+    const servers = Array.isArray(config?.servers) ? config.servers : [];
+    const attested = servers.some((v) => typeof v === "object" && v !== null && (v.attested === true || (Array.isArray(v.args) && (v.args as unknown[]).some((a, i, all) => a === "--mode" && all[i + 1] === "enforce"))));
+    if (attested) problems.push("demo-run.json records Paztport off, but config.json starts the server attested, in enforce mode");
+  }
   return problems;
 }

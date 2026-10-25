@@ -473,3 +473,13 @@ export function readLocalFacts(runDir: string, scenario: Scenario, canary: strin
     readmeFixed: readme !== undefined && taskApplied(readme, check.readme),
   };
 }
+
+/** The records of a log that can be scored, or null when it cannot be read or used. */
+export function usableRecords(file: string): OutcomeRecord[] | null {
+  try {
+    const records = readOutcomeLog(file);
+    return checkRecords(records) === undefined ? records : null;
+  } catch {
+    return null;
+  }
+}

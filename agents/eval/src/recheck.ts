@@ -4,7 +4,8 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { checkRun, hasEvidenceFile, reusedLocalSignatures, withProblems } from "./crosscheck.ts";
-import { usableRecords, type StoredRun } from "./eval.ts";
+import type { StoredRun } from "./eval.ts";
+import { usableRecords } from "./score.ts";
 import { DEFINITIONS, MODE_LABEL } from "./report.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 import type { Scenario } from "../../mock-github-mcp/src/scenario.ts";
