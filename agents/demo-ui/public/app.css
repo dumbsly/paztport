@@ -394,6 +394,17 @@ dl.facts dd {
   margin: 0 0 0.8rem;
 }
 
+/* what the run is doing now, under the timer */
+.activity-line {
+  margin: -0.5rem 0 0.8rem;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tally-line {
+  margin: -0.5rem 0 0.8rem;
+}
+
 .badge {
   display: inline-block;
   font-size: 0.8rem;

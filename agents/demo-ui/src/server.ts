@@ -14,6 +14,7 @@ import { CLASSES_NOTE, DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/re
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
+import { activityText, FINISHED, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "./activity.ts";
 import { buildSteps, finalAnswer, PLAIN_CLASS, type Step } from "./steps.ts";
 
 export type DemoServerOptions = {
@@ -415,6 +416,24 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     run.clients.clear();
   }
 
+  /**
+   * One run's activity line (see activity.ts), sent as `activity` events only when it changes. `since` is when
+   * the run entered this state; the page counts the seconds from it. `where` places a run within an eval.
+   */
+  function activityFeed(run: ActiveRun, scenario: Scenario, where?: string) {
+    let current: Activity | undefined;
+    const send = (next: Activity) => {
+      if (run.finished || (current !== undefined && sameActivity(current, next))) return;
+      current = next;
+      emit(run, "activity", { state: next.state, text: activityText(next, where), since: Date.now() });
+    };
+    return {
+      start: () => send(STARTING),
+      event: (ev: unknown) => send(nextActivity(current ?? STARTING, ev, scenario)),
+      finished: () => send(FINISHED),
+    };
+  }
+
   function payloadFor(run: ActiveRun, entry: ScenarioEntry): { payload: Payload; payloadFile?: string } {
     const text = run.settings.payload;
     if (text === undefined) return { payload: { kind: "reference", sha256: sha256(readFileSync(entry.scenario.payloadFile)) } };
@@ -465,14 +484,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     };
     run.stepsSoFar = () => buildSteps(scenario, fromDisk(logs, dir), { complete: true });
     let pending: NodeJS.Immediate | undefined;
+    const activity = activityFeed(run, scenario);
     const onLine = (file: LineFile, line: string) => {
       if (file !== "transcript" && file !== "events" && file !== "outcome") return;
       run.started = true;
+      let parsed: unknown;
       try {
-        (logs[file] as unknown[]).push(JSON.parse(line));
+        parsed = JSON.parse(line);
       } catch {
         return;
       }
+      (logs[file] as unknown[]).push(parsed);
+      if (file === "transcript") activity.event(parsed);
       pending ??= setImmediate(() => {
         pending = undefined;
         emitSteps(false, false);
@@ -490,6 +513,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       ...(payloadFile !== undefined ? { payloadFile } : {}),
     };
     let result: RunResult;
+    activity.start();
     try {
       result = await doRunOnce(spec, onLine, run.ac.signal);
     } finally {
@@ -520,6 +544,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     } catch {
       // the run is shown either way; it just can't be reopened later
     }
+    activity.finished();
     finish(run, {
       ...result,
       name,
@@ -547,14 +572,37 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       timeoutMs,
       command: "demo",
     };
+    // each run's activity line, prefixed with where it is in the eval
+    let started = 0;
+    const withActivity: typeof runOnce = async (spec, onLine, signal) => {
+      started++;
+      const index = Number(/-(\d+)$/.exec(basename(spec.runDir))?.[1] ?? started);
+      const activity = activityFeed(run, entry.scenario, runWhere(started, settings.runs, MODE_LABEL[spec.mode], index));
+      activity.start();
+      const result = await doRunOnce(
+        spec,
+        (file, line) => {
+          onLine?.(file, line);
+          if (file !== "transcript") return;
+          try {
+            activity.event(JSON.parse(line));
+          } catch {
+            // a half-written line
+          }
+        },
+        signal,
+      );
+      activity.finished();
+      return result;
+    };
     let lastCount = -1;
     const poll = setInterval(() => {
       try {
-        const r = JSON.parse(readFileSync(join(dir, "results.json"), "utf8")) as { runs?: unknown[]; requested?: { runs?: number; modes?: unknown[] } };
+        const r = JSON.parse(readFileSync(join(dir, "results.json"), "utf8")) as { runs?: unknown[] };
         const completed = Array.isArray(r.runs) ? r.runs.length : 0;
         if (completed === lastCount) return;
         lastCount = completed;
-        emit(run, "progress", { completed, planned: settings.runs });
+        emit(run, "progress", { completed, planned: settings.runs, tally: tallyOf(r.runs) });
       } catch {
         // not written yet
       }
@@ -562,7 +610,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     try {
       const results: ResultsFile = await doRunEval(options, {
         signal: run.ac.signal,
-        ...(opts.deps?.runOnce ? { runOnce: opts.deps.runOnce } : {}),
+        runOnce: withActivity,
         checkModel: (m) => checkModelAvailable(m, doFetch),
         fetch: doFetch,
         log: (message) => emit(run, "progress", { message }),

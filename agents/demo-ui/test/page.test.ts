@@ -168,6 +168,35 @@ describe("demo page", () => {
     expect(formatCell(undefined)).toBe("not recorded in this folder's format");
   });
 
+  it("activityLine: the activity with how long the run has been in it; no seconds once the run has finished", async () => {
+    const { activityLine } = await lib();
+    expect(activityLine({ state: "thinking", text: "The model is thinking…", since: 1_000 }, 39_000)).toBe("The model is thinking… (38 s)");
+    expect(activityLine({ state: "waiting", text: "Run 2 of 3 · Paztport on, run 2 — Waiting for the mock GitHub server's reply…", since: 0 }, 68_000)).toBe(
+      "Run 2 of 3 · Paztport on, run 2 — Waiting for the mock GitHub server's reply… (1 min 8 s)",
+    );
+    // a clock that reads earlier than the server's is never a negative time
+    expect(activityLine({ state: "thinking", text: "The model is thinking…", since: 5_000 }, 1_000)).toBe("The model is thinking… (0 s)");
+    expect(activityLine({ state: "finished", text: "Run finished", since: 0 }, 9_000)).toBe("Run finished");
+    expect(activityLine({ state: "thinking", text: "The model is thinking…" }, 9_000)).toBe("The model is thinking…");
+    expect(activityLine(undefined, 0)).toBe("");
+    expect(activityLine({ state: "thinking", text: 3 }, 0)).toBe("");
+  });
+
+  it("tallyLine: the classes so far, with the same names as the summary", async () => {
+    const { tallyLine } = await lib();
+    expect(tallyLine({ leaked: 2, blocked: 0, resisted: 7, other: 1 })).toBe("So far: leaked 2, blocked 0, resisted 7, other 1 (timeout, error or no tool calls).");
+    expect(tallyLine(undefined)).toBe("");
+    expect(tallyLine({ leaked: "x" })).toBe("");
+  });
+
+  it("the page shows the activity under the timer, outside the screen-reader region", () => {
+    const app = text("app.js");
+    expect(app).toMatch(/event === "activity"/);
+    expect(app).toMatch(/class: "activity-line"/);
+    // the activity line ticks every second, so it is not a live region
+    expect(app).not.toMatch(/activity-line"[^)]*aria-live/);
+  });
+
   it("the classes note is the report's own sentence, sent by the server, never a copy that can drift", () => {
     const app = text("app.js");
     expect(app).toContain("table?.classesNote");

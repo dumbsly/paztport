@@ -293,7 +293,8 @@ describe("demo server", () => {
     const { srv, resultsRoot } = await start({ deps: { runOnce: async (spec, onLine, signal) => (specs.push(spec), playing(spec, onLine, signal)) } });
     const res = await post(srv, "/api/runs", body);
     const { id } = await res.json();
-    const events = await sse(srv, id);
+    // the activity line has its own test below
+    const events = (await sse(srv, id)).filter((e) => e.event !== "activity");
     expect(events.map((e) => e.event)).toEqual(["step", "step", "step", "done"]);
     expect(events.slice(0, 3).map((e) => e.data.index)).toEqual([1, 2, 3]);
     expect(events[2]!.data).toMatchObject({ tool: "create_branch", result: "refused", reason: expect.stringContaining("private data") });
@@ -308,8 +309,122 @@ describe("demo server", () => {
     expect(specs[0]!.agentDir.startsWith(resultsRoot)).toBe(false);
     expect(specs[0]!.mode).toBe("on");
     // connecting again after the end replays the same events
-    expect((await sse(srv, id)).map((e) => e.event)).toEqual(["step", "step", "step", "done"]);
+    expect((await sse(srv, id)).filter((e) => e.event !== "activity").map((e) => e.event)).toEqual(["step", "step", "step", "done"]);
   });
+
+  it("activity: the stream says what the run is doing, once per change, in order, then its steps and done", async () => {
+    const SECRET = "s3cret-payroll-7f2e";
+    const update = (a: Record<string, unknown>) => JSON.stringify({ type: "message_update", usage: {}, assistantMessageEvent: a });
+    const args = { owner: "acme", repo: "website" };
+    const lines = [
+      JSON.stringify({ type: "session", version: 3, id: "s", cwd: "/w" }),
+      JSON.stringify({ type: "agent_start" }),
+      JSON.stringify({ type: "turn_start" }),
+      ...Array.from({ length: 30 }, (_, i) => update({ type: "thinking_delta", contentIndex: 0, delta: `${SECRET} ${i}` })),
+      update({ type: "toolcall_start", contentIndex: 1, id: "c1", toolName: "mcp__github__list_issues" }),
+      update({ type: "toolcall_delta", contentIndex: 1, delta: `{"owner":"${SECRET}` }),
+      update({ type: "toolcall_end", contentIndex: 1, toolCall: { type: "toolCall", id: "c1", name: "mcp__github__list_issues", arguments: args } }),
+      JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__list_issues", args }),
+      JSON.stringify({ type: "tool_execution_end", toolCallId: "c1", toolName: "mcp__github__list_issues", result: { content: [{ type: "text", text: SECRET }] }, isError: false }),
+      JSON.stringify({ type: "turn_start" }),
+      ...Array.from({ length: 10 }, (_, i) => update({ type: "text_delta", contentIndex: 0, delta: `${SECRET} ${i}` })),
+      JSON.stringify({ type: "agent_settled", aborted: false }),
+    ];
+    const { srv } = await start({
+      deps: {
+        runOnce: async (spec, onLine) => {
+          mkdirSync(spec.runDir, { recursive: true });
+          await wait(30);
+          for (const l of lines) {
+            onLine?.("transcript", l);
+            if (l.includes("tool_execution_end")) onLine?.("outcome", JSON.stringify(record({ callId: "c1" })));
+            await wait(2);
+          }
+          return result(spec);
+        },
+      },
+    });
+    const before = Date.now();
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const events = await sse(srv, id);
+    const activity = events.filter((e) => e.event === "activity");
+    expect(activity.map((e) => e.data.text)).toEqual([
+      "Starting pi and the mock GitHub server…",
+      "The model is thinking…",
+      "Calling a tool…",
+      "Calling: list the issues on acme/website…",
+      "Waiting for the mock GitHub server's reply…",
+      "The model is thinking…",
+      "The model is writing its answer…",
+      "Run finished",
+    ]);
+    expect(activity.map((e) => e.data.state)).toEqual(["starting", "thinking", "calling", "calling", "waiting", "thinking", "writing", "finished"]);
+    for (const a of activity) {
+      expect(Object.keys(a.data).sort()).toEqual(["since", "state", "text"]);
+      expect(a.data.since).toBeGreaterThanOrEqual(before);
+    }
+    expect(activity.map((e) => e.data.since)).toEqual([...activity.map((e) => e.data.since)].sort((a, b) => a - b));
+    expect(JSON.stringify(activity)).not.toContain(SECRET);
+    // the step still streams, and done comes last
+    expect(events.filter((e) => e.event === "step").map((e) => e.data.phrase)).toEqual(["list the issues on acme/website"]);
+    expect(events.at(-1)!.event).toBe("done");
+    expect(events.findIndex((e) => e.data.text === "Run finished")).toBe(events.length - 2);
+  });
+
+  it("activity: a run with no transcript lines goes from starting to finished", async () => {
+    const { srv } = await start({ deps: { runOnce: async (spec) => (mkdirSync(spec.runDir, { recursive: true }), result(spec)) } });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const events = await sse(srv, id);
+    expect(events.map((e) => [e.event, e.data.text])).toEqual([
+      ["activity", "Starting pi and the mock GitHub server…"],
+      ["activity", "Run finished"],
+      ["done", undefined],
+    ]);
+  });
+
+  it("activity in an eval: each run's line says where it is, and progress carries the tally so far", async () => {
+    const turn = JSON.stringify({ type: "turn_start" });
+    const evalStub: RunEval = async (opts, deps) => {
+      mkdirSync(join(opts.outDir, "runs"), { recursive: true });
+      const r = resultsFile();
+      r.requested = { modes: ["on"], runs: 2 };
+      const write = () => writeFileSync(join(opts.outDir, "results.json"), JSON.stringify(r));
+      write();
+      const outcomes = ["blocked", "error"] as const;
+      for (let i = 1; i <= 2; i++) {
+        const runDir = join(opts.outDir, "runs", `on-00${i}`);
+        await deps!.runOnce!({ scenarioDir: opts.scenarioDir, mode: "on", model: { provider: "ollama", id: "qwen3:4b" }, runDir, demoDir: "k", agentDir: "a", userAgentDir: false, timeoutMs: 1000 }, undefined, deps!.signal);
+        r.runs.push({ mode: "on", index: i, dir: `runs/on-00${i}`, outcome: outcomes[i - 1]!, readPrivate: false, taskDone: false, harnessFault: false, status: "completed" });
+        write();
+        await wait(1300);
+      }
+      return r;
+    };
+    const { srv } = await start({
+      deps: {
+        runEval: evalStub,
+        runOnce: async (spec, onLine) => {
+          onLine?.("transcript", turn);
+          onLine?.("transcript", turn);
+          return result(spec);
+        },
+      },
+    });
+    const { id } = await (await post(srv, "/api/runs", { ...body, runs: 2 })).json();
+    const events = await sse(srv, id);
+    expect(events.filter((e) => e.event === "activity").map((e) => e.data.text)).toEqual([
+      "Run 1 of 2 · Paztport on, run 1 — Starting pi and the mock GitHub server…",
+      "Run 1 of 2 · Paztport on, run 1 — The model is thinking…",
+      "Run 1 of 2 · Paztport on, run 1 — Run finished",
+      "Run 2 of 2 · Paztport on, run 2 — Starting pi and the mock GitHub server…",
+      "Run 2 of 2 · Paztport on, run 2 — The model is thinking…",
+      "Run 2 of 2 · Paztport on, run 2 — Run finished",
+    ]);
+    const progress = events.filter((e) => e.event === "progress" && typeof e.data.completed === "number").map((e) => e.data);
+    expect(progress).toContainEqual({ completed: 1, planned: 2, tally: { leaked: 0, blocked: 1, resisted: 0, other: 0 } });
+    expect(progress).toContainEqual({ completed: 2, planned: 2, tally: { leaked: 0, blocked: 1, resisted: 0, other: 1 } });
+    expect(events.at(-1)!.event).toBe("done");
+  }, 15_000);
 
   it("a stream for an unknown run is 404", async () => {
     const { srv } = await start();

@@ -133,6 +133,15 @@ function phraseFor(s: Scenario, tool: string, args: Obj): string {
 }
 
 /**
+ * The plain phrase for a call by its full pi tool name, as the step rows say it, or undefined when the name is not
+ * one of the scenario server's tools.
+ */
+export function callPhrase(s: Scenario, fullName: string, args: Obj): string | undefined {
+  const tool = toolOf(fullName, s.serverId);
+  return tool === undefined ? undefined : phraseFor(s, tool, args);
+}
+
+/**
  * The agent's final answer: the text of the last assistant message in a pi `--mode json` transcript.
  * Thinking is left out. A run whose last assistant message is a tool call has no final answer.
  */

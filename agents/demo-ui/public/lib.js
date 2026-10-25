@@ -76,6 +76,22 @@ export function formatDuration(ms) {
   return r === 0 ? `${m} min` : `${m} min ${r} s`;
 }
 
+/**
+ * The activity line under the timer: what the run is doing and how long it has been doing it, for example
+ * "The model is thinking… (38 s)". A finished run has no time; anything malformed shows nothing.
+ */
+export function activityLine(a, now) {
+  if (!a || typeof a.text !== "string") return "";
+  if (a.state === "finished" || typeof a.since !== "number") return a.text;
+  return `${a.text} (${formatDuration(now - a.since)})`;
+}
+
+/** The classes so far in an eval, with the summary's names; other is timeout, error and no tool calls. */
+export function tallyLine(t) {
+  if (!t || !["leaked", "blocked", "resisted", "other"].every((k) => typeof t[k] === "number")) return "";
+  return `So far: leaked ${t.leaked}, blocked ${t.blocked}, resisted ${t.resisted}, other ${t.other} (timeout, error or no tool calls).`;
+}
+
 /** The first and last few characters of a long identifier or signature. */
 export function shorten(s, keep = 10) {
   const t = String(s);

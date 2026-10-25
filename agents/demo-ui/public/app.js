@@ -4,7 +4,7 @@
 // The demo page. It shows what the demo server sends and decides nothing the server already decided.
 // Model text, tool arguments and tool results are untrusted: they only ever go into the page as text.
 
-import { formatCell, formatDuration, keyFromHash, newestTiming, sha256Hex, shorten, sseParser } from "./lib.js";
+import { activityLine, formatCell, formatDuration, keyFromHash, newestTiming, sha256Hex, shorten, sseParser, tallyLine } from "./lib.js";
 
 const KEY = keyFromHash(location.hash);
 const MAX_PAYLOAD_BYTES = 64 * 1024;
@@ -529,6 +529,18 @@ function runPanel(id, settings, { primary }) {
   const say = (text) => {
     announce.textContent = text;
   };
+  // what the run is doing now, with its own seconds; not a live region, so it never talks over the steps
+  const activityEl = h("p", { class: "activity-line", hidden: true });
+  const tallyEl = h("p", { class: "note tally-line", hidden: true });
+  let activity;
+  const renderActivity = () => {
+    activityEl.textContent = finished ? "" : activityLine(activity, Date.now());
+    activityEl.hidden = activityEl.textContent === "";
+  };
+  const hideActivity = () => {
+    activityEl.hidden = true;
+    tallyEl.hidden = true;
+  };
   const cancel = h("button", { type: "button", class: "secondary" }, "Cancel this run");
   const saved = h("p", { class: "note" });
   const outcome = h("div", { class: "outcome" });
@@ -555,6 +567,8 @@ function runPanel(id, settings, { primary }) {
       single ? null : ["Runs", String(settings.runs)],
     ]),
     status,
+    activityEl,
+    tallyEl,
     announce,
     outcome,
     h("p", {}, cancel),
@@ -568,6 +582,7 @@ function runPanel(id, settings, { primary }) {
     if (finished) return;
     const count = single ? `, ${steps.size} step${steps.size === 1 ? "" : "s"} so far` : "";
     status.textContent = `Running for ${formatDuration(Date.now() - started)}${count}.`;
+    renderActivity();
   };
   const timer = setInterval(tick, 1000);
   tick();
@@ -588,6 +603,7 @@ function runPanel(id, settings, { primary }) {
     done = data;
     finished = true;
     clearInterval(timer);
+    hideActivity();
     cancel.hidden = true;
     status.textContent = statusText(data);
     say(statusText(data));
@@ -631,7 +647,14 @@ function runPanel(id, settings, { primary }) {
         renderSteps();
         tick();
         if (isNew && !finished) say(`Step ${data.index}: ${data.phrase}: ${data.result}${data.reason ? `, ${data.reason}` : ""}.`);
+      } else if (event === "activity" && isObj(data)) {
+        activity = data;
+        renderActivity();
       } else if (event === "progress" && isObj(data)) {
+        if (isObj(data.tally)) {
+          tallyEl.textContent = tallyLine(data.tally);
+          tallyEl.hidden = finished || tallyEl.textContent === "";
+        }
         progress.hidden = false;
         if (typeof data.message === "string") progress.textContent += `${data.message}\n`;
         if (typeof data.completed === "number") {
@@ -645,6 +668,7 @@ function runPanel(id, settings, { primary }) {
     onLost: (message) => {
       finished = true;
       clearInterval(timer);
+      hideActivity();
       cancel.hidden = true;
       status.textContent = message;
       say(message);
