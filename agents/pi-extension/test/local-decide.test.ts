@@ -125,6 +125,28 @@ describe("decideLocal", () => {
   it("emptyCommandIsOk", () => {
     expect(verdict(resolved([]))).toBe("OK");
   });
+  it("theCallsOwnReadLabelsCountWithTheSessionsInfluence", () => {
+    // a single call that reads a private folder and writes a public one (cat priv/x > website/leak.md)
+    const r = parseLocalRules({
+      v: 1,
+      folders: [
+        { path: ".", access: ["read"] },
+        { path: "priv", access: ["read"], label: "private" },
+        { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      ],
+      programs: ["cat", "grep"],
+    });
+    const copy = resolved([read("priv/x"), write("website/leak.md")], [{ name: "cat", via: "list" }]);
+    expect(verdict(copy, ["third-party"], true, r)).toBe("INFLUENCE_DENIED");
+    expect(verdict(copy, ["local-untrusted"], true, r)).toBe("INFLUENCE_DENIED");
+    // with nothing untrusted in the session the copy is allowed, as the server allows a private read then a public write
+    expect(verdict(copy, [], true, r)).toBe("OK");
+    expect(verdict(copy, ["private"], true, r)).toBe("OK");
+    // an unlabelled folder reads as local-untrusted, so reading it with private in the session counts too
+    expect(verdict(resolved([read("notes/a.md"), write("website/a.md")]), ["private"])).toBe("INFLUENCE_DENIED");
+    // a public read adds nothing that triggers the rule
+    expect(verdict(resolved([read("website/a.md"), write("website/b.md")]), ["private"])).toBe("OK");
+  });
 });
 
 describe("readLabels", () => {

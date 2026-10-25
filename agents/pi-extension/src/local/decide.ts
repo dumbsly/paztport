@@ -54,7 +54,11 @@ export function folderRuleFor(at: string, rules: LocalRules): FolderRule | undef
   return best;
 }
 
-/** The first matching rule wins: route, then uncheckable, then scope, then influence. */
+/**
+ * The first matching rule wins: route, then uncheckable, then scope, then influence. The influence rule is
+ * decided on the session's classes together with the call's own read labels (readLabels), so a single call
+ * that reads a private folder and writes a public one is decided as a read followed by a write would be.
+ */
 export function decideLocal(d: {
   routeAllowed: boolean;
   resolved: Resolved;
@@ -75,7 +79,8 @@ export function decideLocal(d: {
   ) {
     return "SCOPE_DENIED";
   }
-  if (classes.has("private") && (classes.has("third-party") || classes.has("local-untrusted"))) {
+  const all = new Set<InfluenceClass>([...classes, ...readLabels(resolved, rules)]);
+  if (all.has("private") && (all.has("third-party") || all.has("local-untrusted"))) {
     if (folders.some(({ p, rule }) => p.need === "write" && rule?.destination === "public")) {
       return "INFLUENCE_DENIED";
     }

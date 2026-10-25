@@ -21,6 +21,7 @@ import {
   decode,
   NonceCache,
   NONCE_TTL_MS,
+  parseLocalRules,
   rulesHash,
   verifyChainV2,
   type InfluenceEntry,
@@ -45,8 +46,9 @@ beforeAll(() => {
   const demo = setupDemo(tmp);
   material = loadClientMaterial(join(demo, "client"), join(demo, "client/local-tools"));
   ws = join(tmp, "ws");
-  for (const d of ["website", "notes", "secret"]) mkdirSync(join(ws, d), { recursive: true });
+  for (const d of ["website", "notes", "secret", "priv"]) mkdirSync(join(ws, d), { recursive: true });
   writeFileSync(join(ws, "website", "README.md"), "# Acme\n");
+  writeFileSync(join(ws, "priv", "x"), "SECRET\n");
   writeFileSync(join(ws, "notes", "a.md"), "note\n");
   secret = join(ws, "secret");
 });
@@ -55,7 +57,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 type Rig = { gate: LocalGate; influence: InfluenceStore; runs: RunState; eventsPath: string; evidencePath: string };
 
-function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog } = {}): Rig {
+function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[] } = {}): Rig {
   const eventsPath = join(tmp, `events-${n}.jsonl`);
   const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
   const influence = new InfluenceStore();
@@ -70,7 +72,7 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
     evidence: new EvidenceLog(evidencePath),
     now: () => 2_000,
     workspace: ws,
-    refused: [secret],
+    refused: opts.refused ?? [secret],
   });
   return { gate, influence, runs, eventsPath, evidencePath };
 }
@@ -153,6 +155,37 @@ describe("LocalGate verdicts", () => {
     expect(gate.check("write", { path: "notes/x.md", content: "x" }, "c4")).toEqual({ block: false });
     expect(gate.check("bash", { command: "cat website/README.md" }, "c5")).toEqual({ block: false });
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["OK", "INFLUENCE_DENIED", "INFLUENCE_DENIED", "OK", "OK"]);
+  });
+
+  it("aSingleCallCopyingPrivateToPublicCountsItsOwnReads", () => {
+    // review probe: one bash call that reads a private folder and writes a public one
+    const rulesWithRoot = (root: Record<string, unknown>) =>
+      parseLocalRules({
+        v: 1,
+        folders: [
+          { path: ".", access: ["read"], ...root },
+          { path: "priv", access: ["read"], label: "private" },
+          { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+        ],
+        programs: ["cat", "cp", "grep"],
+      });
+    const commands = ["cat priv/x > website/leak.md", "grep SECRET priv/x > website/l3.md"];
+    // grep reads below the working folder, so here no folder is refused (secret/ would refuse it as out of scope)
+    const gateWith = (root: Record<string, unknown>) => rig("enforce", { material: { ...material, rules: rulesWithRoot(root) }, refused: [] });
+    const tainted = gateWith({});
+    tainted.influence.recordClasses("github", ["third-party"], "h1");
+    for (const [i, command] of commands.entries()) {
+      expect(tainted.gate.check("bash", { command }, `c${i}`), command).toEqual({ block: true, reason: UNSAFE_TEXT });
+    }
+    expect(lines(tainted.eventsPath).map((e) => e.verdict)).toEqual(["INFLUENCE_DENIED", "INFLUENCE_DENIED"]);
+    // with nothing untrusted in the session or the call the same copy is allowed, as a private read and then a
+    // public write are on the server; bash always reads its working folder, so here the root carries a label
+    const clean = gateWith({ label: "public" });
+    for (const [i, command] of commands.entries()) {
+      expect(clean.gate.check("bash", { command }, `c${i}`), command).toEqual({ block: false });
+    }
+    // an unlabelled root reads as local-untrusted, so with it the copy is refused even in an empty session
+    expect(gateWith({}).gate.check("bash", { command: commands[0] }, "c9")).toEqual({ block: true, reason: UNSAFE_TEXT });
   });
 
   it("listedOtherToolHasOnlyItsRoute", () => {

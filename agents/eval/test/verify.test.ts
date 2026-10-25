@@ -2,16 +2,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { bindLocalTool, bindMcpCall, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/path-attest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
-import { EvidenceLog } from "../../pi-extension/src/evidence.ts";
+import { clientRecord, EvidenceLog } from "../../pi-extension/src/evidence.ts";
 import { InfluenceStore } from "../../pi-extension/src/influence.ts";
 import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
+import { LocalGate } from "../../pi-extension/src/local/gate.ts";
 import { RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
@@ -906,6 +907,52 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const ok = verifyEvidence(write(noRules, (rs) => { localOf(rs, "l_read").verdict = "OK"; }));
     expect(localResult(ok, "l_read")).toBe("BINDING_MISMATCH");
     expect(noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").every((x) => x.rulesHash === null)).toBe(true);
+  });
+
+  /**
+   * The evidence lines of one run in which the real LocalGate checks the calls `steps` makes, with the demo
+   * rules and a workspace of website/, notes/n.md and secret/ (refused).
+   */
+  function gateRun(steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void): string[] {
+    const dir = realpathSync.native(mkdtempSync(join(tmp, "gate-run-")));
+    const workspace = join(dir, "workspace");
+    for (const d of ["website", "notes", "secret"]) mkdirSync(join(workspace, d), { recursive: true });
+    writeFileSync(join(workspace, "notes", "n.md"), "note\n");
+    const material = loadClientMaterial(join(demo, "client"), join(demo, "client/local-tools"));
+    const evidencePath = join(dir, "evidence.jsonl");
+    const evidence = new EvidenceLog(evidencePath);
+    const influence = new InfluenceStore();
+    const runs = new RunState();
+    evidence.write(clientRecord(material));
+    const ts = Date.now();
+    runs.start(PROMPT, ts);
+    evidence.write({ v: 1, type: "run", rid: runs.current()!.rid, ts, prompt: PROMPT });
+    const gate = new LocalGate({
+      mode: "enforce",
+      material,
+      influence,
+      runs,
+      events: new EventLog(join(dir, "events.jsonl")),
+      evidence,
+      now: Date.now,
+      workspace,
+      refused: [join(workspace, "secret")],
+    });
+    steps(gate, influence, workspace);
+    return jsonLines(evidencePath);
+  }
+
+  it("aCallRefusedForItsOwnReadsVerifies", () => {
+    // private in the session, and the call itself reads an unlabelled folder (local-untrusted) into a public one
+    const lines = gateRun((gate, influence) => {
+      influence.recordClasses("github", ["private"], "h1");
+      gate.check("bash", { command: "cat notes/n.md > website/y.md" }, "l_copy");
+    });
+    const rs = lines.map((l) => JSON.parse(l));
+    expect(localOf(rs, "l_copy").verdict).toBe("INFLUENCE_DENIED");
+    const r = verifyEvidence(write(lines));
+    expect(bad(r.items)).toEqual([]);
+    expect(localResult(r, "l_copy")).toBe("REFUSED");
   });
 
   it("cliSaysLocalRefusalsAreSigned", () => {
