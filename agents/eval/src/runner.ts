@@ -192,12 +192,14 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
   if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
 
+  // A monotonic clock, as the time limit's timer uses: a wall clock that jumps (a machine waking from sleep, a
+  // clock change) cannot make a run's duration disagree with its limit. On macOS and Linux neither counts time asleep.
   const finish = (status: RunResult["status"], exitCode: number | null, startedAt: number): RunResult => {
-    const result: RunResult = { status, exitCode, durationMs: Date.now() - startedAt, canary, mode: spec.mode };
+    const result: RunResult = { status, exitCode, durationMs: Math.round(performance.now() - startedAt), canary, mode: spec.mode };
     writeFileSync(path("run.json"), JSON.stringify(result, null, 2) + "\n");
     return result;
   };
-  const startedAt = Date.now();
+  const startedAt = performance.now();
   if (signal?.aborted) return finish("error", null, startedAt);
 
   const emit = (file: LineFile, lines: string[]) => {

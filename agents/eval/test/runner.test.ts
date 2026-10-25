@@ -168,6 +168,25 @@ describe("runOnce", () => {
     for (const f of ["events.jsonl", "evidence.jsonl", "outcome.jsonl"]) expect(existsSync(join(c.spec.runDir, f))).toBe(true);
   });
 
+  it("durationUsesAMonotonicClock: a wall clock that jumps (a machine waking from sleep) does not change it", async () => {
+    // the wall clock jumps an hour forward after its first reading; the time limit's timer never sees that
+    const realNow = Date.now.bind(Date);
+    let readings = 0;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => realNow() + (readings++ > 0 ? 3_600_000 : 0));
+    let r;
+    const before = performance.now();
+    try {
+      r = await runOnce(mk().spec);
+    } finally {
+      now.mockRestore();
+    }
+    const elapsed = performance.now() - before;
+    expect(r.status).toBe("completed");
+    expect(r.durationMs).toBeGreaterThanOrEqual(0);
+    expect(r.durationMs).toBeLessThanOrEqual(Math.ceil(elapsed));
+    expect(Number.isInteger(r.durationMs)).toBe(true);
+  });
+
   it("absolutePathsInTheTranscriptAndStderrAreRedacted", async () => {
     const c = mk({}, "paths");
     const r = await runOnce(c.spec);

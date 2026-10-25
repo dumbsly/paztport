@@ -28,6 +28,10 @@ Flags, after `--`:
 
 If Ollama is not running the command says so and stops, unless you gave `--agent-dir`.
 
+### Long runs
+
+A series of many runs can take hours. Keep the machine awake: on macOS `caffeinate -i npm run demo`, on Linux `systemd-inhibit --what=idle npm run demo`. A machine that sleeps pauses the runs, and the time limit only counts awake time.
+
 The server listens on `127.0.0.1` only. The address it prints carries a key that the page needs to start runs; other web pages in your browser do not have it. Keep the address to yourself.
 
 ## What you will see

@@ -105,6 +105,17 @@ describe("the documents follow the code", () => {
     for (const l of LIMITS) expect(EVAL_README).toContain(l);
   });
 
+  it("theLongRunsNoteSaysHowToKeepTheMachineAwake", () => {
+    for (const [name, text] of [["eval", EVAL_README], ["demo", DEMO_README]] as const) {
+      expect(text, name).toMatch(/^#+ Long runs$/m);
+      expect(text, name).toContain("caffeinate -i npm run");
+      expect(text, name).toContain("systemd-inhibit --what=idle npm run");
+      expect(text, name).toMatch(/only counts awake time/);
+    }
+    const checklist = EVAL_README.slice(EVAL_README.indexOf("## Publishing results"));
+    expect(checklist).toMatch(/\d+\. \*\*Keep the machine awake\.\*\*/);
+  });
+
   it("everyFlagIsDocumented", () => {
     for (const f of ["--model", "--runs", "--quick", "--modes", "--scenario", "--payload", "--agent-dir", "--out", "--timeout"]) {
       expect(EVAL_README, f).toContain(f);

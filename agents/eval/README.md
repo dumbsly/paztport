@@ -70,6 +70,15 @@ Press Ctrl-C once. The current run is ended, the results so far are written with
 
 Exit codes: 0 finished; 1 finished but some evidence did not verify, or the eval did not finish; 2 a usage or setup problem; 130 interrupted.
 
+### Long runs
+
+A full eval can take hours. Keep the machine awake while it runs:
+
+- macOS: `caffeinate -i npm run eval -- --model ollama/qwen3:4b --runs 20`
+- Linux: `systemd-inhibit --what=idle npm run eval -- --model ollama/qwen3:4b --runs 20`
+
+A machine that sleeps pauses the runs, and the time limit only counts awake time. A run's duration in `run.json` is measured the same way.
+
 ### What is written
 
 ```
@@ -375,9 +384,10 @@ If you publish numbers from this tool, this is the checklist the author uses bef
 1. **Start from a fresh clone.** Clone the repository, run `npm ci` in `agents/`, and run the eval from there. Record the versions beside the table. `summary.md` and `results.json` already record pi, the extension, the mock server, Node, the operating system, CPU and memory, and, for an Ollama model, Ollama's version, the model's digest and, when it can be read, its context length. Where one of those shows "not recorded", add it by hand (for the digest, `ollama show <model>`; for the context length, the `num_ctx` your Ollama server uses).
 2. **Re-check the warning baseline.** Open the source page named in `eval/baselines/warning.json`, compare the example system prompt with `eval/baselines/warning.md` character for character, and if the page has changed, update `warning.md` and the `retrieved` date in `warning.json` before you run. Pages move.
 3. **Run 20 runs per mode.** Use all five modes and the same timeout throughout. `--quick` is for checking the setup, not for publishing.
-4. **Run `npm run verify -- <results folder>`.** It must exit 0. Read the "Evidence check" section of `summary.md` for any run that did not verify, and compare the key fingerprint as described [above](#checking-the-evidence-npm-run-verify).
-5. **Drop no runs.** The table counts every run, including `timeout` and `error`. If you ran again for any reason (for example Ollama stopped partway through), keep the first folder too and say why in the text next to the table. A re-run is a new eval in a new folder.
-6. **Look through the folder before you publish it.** After each run the runner replaces absolute paths in `transcript.jsonl` and `stderr.txt` with placeholders (`<run-dir>`, `<workspace>`, `<agents>`, `<home>`), and `results.json` stores the `command` with paths under `agents/` written relative to it (`./...`) and your home folder as `<home>`. That covers the paths the tool knows about, not every path a file might hold. Check these files by hand: each run's `transcript.jsonl` (a model or tool can echo a path the runner does not know), `results.json` (`command`), each run's `config.json` (it holds the absolute paths pi was started with, by design) and `stderr.txt`. A run cut off by a hard kill is not redacted. Editing paths in these files does not change scoring or `verify`: scoring reads only tool names and stop reasons from the transcript, and neither reads `config.json` or `stderr.txt`. If you edit anything, say what you edited. Never remove or change an outcome log or an evidence file.
-7. **Never publish keys.** The eval's keys are in `.keys-<name>`, next to the results folder and outside it, and are removed when the eval ends. After an interrupted or crashed eval, check that the folder is gone. Publish the results folder and nothing beside it.
-8. **Publish the whole folder somewhere off the repository.** Anyone should be able to download it and run `npm run verify` on it. Put only the summary table and the link to the folder in this repository, with the limits box from [above](#what-this-doesnt-show) next to the table.
-9. **Check the provider's terms**, as described [above](#model-providers-and-terms), for every hosted provider you tested, and say in the text which models were local and which hosted.
+4. **Keep the machine awake.** A full eval can take hours. Run it under `caffeinate -i` (macOS) or `systemd-inhibit --what=idle` (Linux), as in [Long runs](#long-runs). A machine that sleeps pauses the runs, and the time limit only counts awake time.
+5. **Run `npm run verify -- <results folder>`.** It must exit 0. Read the "Evidence check" section of `summary.md` for any run that did not verify, and compare the key fingerprint as described [above](#checking-the-evidence-npm-run-verify).
+6. **Drop no runs.** The table counts every run, including `timeout` and `error`. If you ran again for any reason (for example Ollama stopped partway through), keep the first folder too and say why in the text next to the table. A re-run is a new eval in a new folder.
+7. **Look through the folder before you publish it.** After each run the runner replaces absolute paths in `transcript.jsonl` and `stderr.txt` with placeholders (`<run-dir>`, `<workspace>`, `<agents>`, `<home>`), and `results.json` stores the `command` with paths under `agents/` written relative to it (`./...`) and your home folder as `<home>`. That covers the paths the tool knows about, not every path a file might hold. Check these files by hand: each run's `transcript.jsonl` (a model or tool can echo a path the runner does not know), `results.json` (`command`), each run's `config.json` (it holds the absolute paths pi was started with, by design) and `stderr.txt`. A run cut off by a hard kill is not redacted. Editing paths in these files does not change scoring or `verify`: scoring reads only tool names and stop reasons from the transcript, and neither reads `config.json` or `stderr.txt`. If you edit anything, say what you edited. Never remove or change an outcome log or an evidence file.
+8. **Never publish keys.** The eval's keys are in `.keys-<name>`, next to the results folder and outside it, and are removed when the eval ends. After an interrupted or crashed eval, check that the folder is gone. Publish the results folder and nothing beside it.
+9. **Publish the whole folder somewhere off the repository.** Anyone should be able to download it and run `npm run verify` on it. Put only the summary table and the link to the folder in this repository, with the limits box from [above](#what-this-doesnt-show) next to the table.
+10. **Check the provider's terms**, as described [above](#model-providers-and-terms), for every hosted provider you tested, and say in the text which models were local and which hosted.
