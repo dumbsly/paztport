@@ -268,7 +268,7 @@ type Checked = { recheck: Recheck; verifyStatus: VerifyStatus; verifyLine: strin
 /** The folder checked again now (see recheckResultsDir), reused until one of the files it reads changes. */
 const recheckCache = new Map<string, { sig: string; value: Checked }>();
 function checkNow(dir: string, results: Obj, scenario?: Scenario): Checked {
-  const sig = recheckSignature(dir);
+  const sig = recheckSignature(dir, scenario?.workspace?.publicFolders);
   const hit = recheckCache.get(dir);
   if (hit !== undefined && hit.sig === sig) return hit.value;
   let value: Checked;

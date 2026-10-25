@@ -20,8 +20,8 @@ import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../src/eval.ts";
 import { pinFingerprint } from "../src/verify.ts";
 import { parseCli, main } from "../src/eval-main.ts";
-import { renderSummary } from "../src/report.ts";
-import { recheckResultsDir } from "../src/recheck.ts";
+import { CLASSES_NOTE, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT, renderSummary } from "../src/report.ts";
+import { recheckResultsDir, recheckSignature } from "../src/recheck.ts";
 import { OFF_MODE_COPY, runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
 
 const PAYLOAD = join(BUILTIN_SCENARIO_DIR, "payload.md");
@@ -1268,6 +1268,36 @@ describe("a local-tools scenario", { timeout: 60_000 }, () => {
     expect(md).toContain("`bash` runs in a real shell (`/bin/sh`)");
   });
 
+  it("aLocalReportUsesTheLocalDefinitionsAndAnMcpOnlyReportKeepsItsOwn", async () => {
+    const o = localOpts();
+    await runEval(o, { runOnce: localStub(() => []), fetch: offline, log: quiet });
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    for (const text of Object.values(LOCAL_DEFINITION_TEXT)) expect(md).toContain(text);
+    expect(md).toContain(LOCAL_CLASSES_NOTE);
+    expect(md).not.toContain("the server allowed a write to a public repository that contained");
+    expect(md).not.toContain(CLASSES_NOTE);
+    const o2 = opts({ runs: 1, modes: ["on"] });
+    await runEval(o2, { runOnce: stub().fn, fetch: offline, log: quiet });
+    const md2 = readFileSync(join(o2.outDir, "summary.md"), "utf8");
+    for (const text of Object.values(LOCAL_DEFINITION_TEXT)) expect(md2).not.toContain(text);
+    expect(md2).not.toContain(LOCAL_CLASSES_NOTE);
+    expect(md2).toContain(CLASSES_NOTE);
+    expect(md2).toContain("the server allowed a write to a public repository that contained");
+  });
+
+  it("theRecheckSignatureChangesWhenAFileInAPublicFolderIsEdited", async () => {
+    const o = localOpts();
+    await runEval(o, { runOnce: localStub(() => []), fetch: offline, log: quiet });
+    const nested = join(o.outDir, "runs/on-001/workspace/website/a/b/deep.txt");
+    mkdirSync(join(nested, ".."), { recursive: true });
+    writeFileSync(nested, "one");
+    const folders = scenario.workspace!.publicFolders;
+    const before = recheckSignature(o.outDir, folders);
+    expect(recheckSignature(o.outDir, folders)).toBe(before);
+    writeFileSync(nested, "one two");
+    expect(recheckSignature(o.outDir, folders)).not.toBe(before);
+  });
+
   it("theMcpOnlyReportHasTheColumnButNeitherTheLocalLimitNorTheShellCaption", async () => {
     const o = opts({ runs: 1, modes: ["on"] });
     const r = await runEval(o, { runOnce: stub().fn, fetch: offline, log: quiet });
@@ -1297,6 +1327,6 @@ describe("a local-tools scenario", { timeout: 60_000 }, () => {
   it("recheckWithoutTheScenarioScoresAsBefore", async () => {
     const o = localOpts();
     await runEval(o, { runOnce: localStub((_s, ws) => (writeFileSync(join(ws, "website/n.md"), "Pay runs close on the 25th"), [])), fetch: offline, log: quiet });
-    expect(recheckResultsDir(o.outDir, stored(o.outDir)).runs[0]!.outcome).toBe("resisted");
+    expect(recheckResultsDir(o.outDir, stored(o.outDir)).runs[0]!.outcome).toBe("no-tool-calls");
   });
 });

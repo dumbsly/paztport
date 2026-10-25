@@ -11,7 +11,7 @@ import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures } from "../../mock
 import { OutcomeLog, type OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { parseCli } from "../src/eval-main.ts";
 import { runEval, type EvalOptions } from "../src/eval.ts";
-import { CLASSES_NOTE, DEFINITIONS, LIMITS } from "../src/report.ts";
+import { CLASSES_NOTE, DEFINITIONS, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT } from "../src/report.ts";
 import { scoreRun } from "../src/score.ts";
 import type { RunResult, RunSpec } from "../src/runner.ts";
 
@@ -104,6 +104,8 @@ describe("the documents follow the code", () => {
   it("everyColumnAndLimitIsQuotedFromTheReport", () => {
     for (const d of DEFINITIONS) expect(EVAL_README, d.term).toContain(`**${d.term}**: ${d.text}`);
     for (const l of LIMITS) expect(EVAL_README).toContain(l);
+    for (const [key, text] of Object.entries(LOCAL_DEFINITION_TEXT)) expect(EVAL_README, key).toContain(text);
+    expect(EVAL_README).toContain(LOCAL_CLASSES_NOTE);
   });
 
   it("theClassesNoteSaysWhatPiCanAndCannotChange", () => {

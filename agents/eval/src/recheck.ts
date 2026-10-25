@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { checkRun, hasEvidenceFile } from "./crosscheck.ts";
 import { usableRecords, type StoredRun } from "./eval.ts";
@@ -201,7 +201,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
 }
 
 /** A cheap fingerprint of the files a recheck reads, so a result can be reused until one of them changes. */
-export function recheckSignature(dir: string): string {
+export function recheckSignature(dir: string, publicFolders: readonly string[] = []): string {
   const parts: string[] = [];
   const stamp = (p: string) => {
     try {
@@ -218,6 +218,29 @@ export function recheckSignature(dir: string): string {
   } catch {
     // none
   }
+  // every file and folder under the scenario's public folders, by mtime and size; bounded, links not followed
+  let budget = 5000;
+  const walk = (base: string, rel: string): void => {
+    if (budget-- <= 0) return;
+    const at = join(base, rel);
+    let st;
+    try {
+      st = lstatSync(at);
+    } catch {
+      parts.push(`${at}:-`);
+      return;
+    }
+    parts.push(`${at}:${st.size}:${st.mtimeMs}`);
+    if (!st.isDirectory()) return;
+    let kids: string[] = [];
+    try {
+      kids = readdirSync(at).sort();
+    } catch {
+      return;
+    }
+    for (const k of kids) walk(base, join(rel, k));
+  };
+  for (const n of names) for (const f of publicFolders) walk(join(dir, "runs", n, "workspace"), f);
   for (const n of names) for (const f of ["outcome.jsonl", "evidence.jsonl", "transcript.jsonl", "run.json", "events.jsonl", "canary.txt", "workspace"]) stamp(join(dir, "runs", n, f));
   return parts.join("|");
 }
