@@ -1,0 +1,7 @@
+{
+  "source": "Anthropic, Claude Platform Docs, \"Mitigate jailbreaks and prompt injections\", section \"Indirect prompt injection\", item \"State the policy in your system prompt\" (the example system prompt for a document-processing agent)",
+  "url": "https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks",
+  "retrieved": "2026-10-24",
+  "placement": "system prompt (appended with --append-system-prompt), as the source says",
+  "note": "The text is copied exactly from that example. Its first sentence, which gives the example's fictional company and task, is left out because it is not part of the defence wording."
+}
