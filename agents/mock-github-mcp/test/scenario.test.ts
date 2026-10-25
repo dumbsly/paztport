@@ -131,11 +131,13 @@ describe("loadScenario validation", () => {
     expect(s.tools).toBe("mcp__github__get_file_contents,mcp__github__list_issues");
   });
 
-  it("toolsAreComparedWithTheSanitisedServerId", () => {
-    // pi names tools mcp__<id>__<tool> with characters outside [A-Za-z0-9_] replaced by "_"
-    const ok = loadScenario(copyScenario((j) => ((j.serverId = "my-server"), (j.tools = "mcp__my_server__*"))));
-    expect(ok.tools).toBe("mcp__my_server__*");
-    expect(() => loadScenario(copyScenario((j) => ((j.serverId = "my-server"), (j.tools = "mcp__my-server__*"))))).toThrow(/tools/);
+  it("serverIdMustBeGithub", () => {
+    // the mock server checks every signed call against the name "github", so another name could only fail
+    for (const id of ["my-server", "my_server", "GitHub"]) {
+      expect(() => loadScenario(copyScenario((j) => ((j.serverId = id), (j.tools = "mcp__my_server__*")))), id).toThrow(
+        "the mock GitHub server only accepts serverId github",
+      );
+    }
   });
 
   it("missingFolderOrJsonIsClearError", () => {

@@ -175,6 +175,9 @@ export function loadScenario(dir: string): Scenario {
   if (!known.has(taskRepo)) bad("taskCheck.repo", `${taskRepo} is not one of the repos`);
 
   const serverId = nonEmpty(o.serverId, "serverId");
+  // the mock server checks every signed call against the name "github"; until it takes the name as a
+  // parameter, any other name would make every signed call fail
+  if (serverId !== "github") bad("serverId", "the mock GitHub server only accepts serverId github");
   const tools = parseTools(o.tools, serverId);
 
   return {

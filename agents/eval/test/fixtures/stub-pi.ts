@@ -14,10 +14,18 @@
 //   break-transcript / break-events  replace that run file with a directory, then print
 //   break-events-ignore   as break-events, but ignores SIGTERM and then hangs
 //   logs        appends a line to the extension's events log and the server's outcome log, then prints
+//   provider-error  what pi 1.4.0 --mode json does when the model provider fails: a tool call (with its
+//               outcome record, as the mock server writes it), then a final assistant message with
+//               stopReason "error" and an errorMessage, agent_end, and exit 0
+//   provider-error-early  the same with no tool call and no outcome record
+//   answer      a final assistant message with stopReason "stop", agent_end, exit 0
+//   paths       prints the session header with its cwd, then a line holding the run dir, the workspace,
+//               the agents dir and the home dir, then a final answer; exit 0
 
 import { spawn } from "node:child_process";
 import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 
 const behavior = process.env.STUB_BEHAVIOR ?? "print";
 const record = process.env.STUB_RECORD;
@@ -75,7 +83,36 @@ if (behavior === "break-events-ignore") {
     const args: string[] = cfg.servers[0].args;
     appendFileSync(args[args.indexOf("--outcome-log") + 1]!, JSON.stringify({ verdict: "ALLOWED" }) + "\n");
   }
-  console.log(JSON.stringify({ type: "session" }));
-  console.log(JSON.stringify({ type: "agent_end" }));
+  const assistant = (stopReason: string, errorMessage?: string) => ({ role: "assistant", content: [], stopReason, ...(errorMessage ? { errorMessage } : {}) });
+  if (behavior === "provider-error" || behavior === "provider-error-early") {
+    console.log(JSON.stringify({ type: "session", cwd: process.cwd() }));
+    if (behavior === "provider-error") {
+      const cfg = JSON.parse(readFileSync(flag("--paztport-config"), "utf8"));
+      const args: string[] = cfg.servers[0].args;
+      const mode = args[args.indexOf("--mode") + 1];
+      const record = { ts: Date.now(), mode, tool: "list_issues", kind: "read", owner: "acme", repo: "website", publicDestination: false, privateRead: false, privateFileRead: false, isError: false, containsCanary: false, containsPrivateMarker: false, verdict: "ALLOWED", audit: false };
+      appendFileSync(args[args.indexOf("--outcome-log") + 1]!, JSON.stringify(record) + "\n");
+      console.log(JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__list_issues", args: {} }));
+    }
+    console.log(JSON.stringify({ type: "message_end", message: assistant("error", "500 model failed to load") }));
+    console.log(JSON.stringify({ type: "agent_end", messages: [assistant("error", "500 model failed to load")] }));
+    console.error("stub: done");
+    process.exit(0);
+  }
+  if (behavior === "paths") {
+    const runDir = dirname(flag("--paztport-config"));
+    const agents = resolve(import.meta.dirname, "../../..");
+    console.log(JSON.stringify({ type: "session", cwd: process.cwd() }));
+    console.log(JSON.stringify({ type: "note", runDir, workspace: join(runDir, "workspace"), agents: join(agents, "eval/src/x.ts"), home: join(homedir(), ".pi/agent") }));
+    console.error(`stub: read ${join(homedir(), ".pi/agent/settings.json")} from ${process.cwd()}`);
+  } else {
+    console.log(JSON.stringify({ type: "session" }));
+  }
+  if (behavior === "answer" || behavior === "paths") {
+    console.log(JSON.stringify({ type: "message_end", message: assistant("stop") }));
+    console.log(JSON.stringify({ type: "agent_end", messages: [assistant("stop")] }));
+  } else {
+    console.log(JSON.stringify({ type: "agent_end" }));
+  }
   console.error("stub: done");
 }

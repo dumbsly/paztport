@@ -1,12 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EvidenceLog } from "../../pi-extension/src/evidence.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
@@ -20,7 +21,7 @@ import { runEval, type EvalOptions, type ResultsFile } from "../src/eval.ts";
 import { pinFingerprint } from "../src/verify.ts";
 import { parseCli, main } from "../src/eval-main.ts";
 import { renderSummary } from "../src/report.ts";
-import type { RunMode, RunResult, RunSpec } from "../src/runner.ts";
+import { runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
 
 const PAYLOAD = join(BUILTIN_SCENARIO_DIR, "payload.md");
 const MODEL = "lab/model-x";
@@ -77,9 +78,13 @@ const done = (spec: RunSpec, status: RunResult["status"] = "completed"): RunResu
   mode: spec.mode,
 });
 
-/** pi --mode json lines: an MCP tool execution, and a run in which the model only answered. */
+/** pi --mode json lines: an MCP tool execution, and the model's final answer (the last assistant message, stopReason "stop"). */
 const MCP_CALL = JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__list_issues", args: {} });
-const NO_CALL = JSON.stringify({ type: "message_end", message: { role: "assistant", content: "Done." } });
+const NO_CALL = JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "Done." }], stopReason: "stop" } });
+/** No Ollama is asked anything in these tests: every lookup fails as if it were not running. */
+const offline = (async () => {
+  throw new Error("offline: tests make no network calls");
+}) as typeof fetch;
 
 type Stub = (spec: RunSpec, onLine?: unknown, signal?: AbortSignal) => Promise<RunResult>;
 type Plan = (spec: RunSpec, call: number) => Promise<RunResult | void> | RunResult | void;
@@ -92,7 +97,7 @@ function stub(plan?: Plan, records: (m: RunMode) => unknown[] = canned): { fn: S
     mkdirSync(spec.runDir, { recursive: true });
     const recs = records(spec.mode);
     writeLog(join(spec.runDir, "outcome.jsonl"), recs);
-    writeFileSync(join(spec.runDir, "transcript.jsonl"), (recs.length > 0 ? MCP_CALL : NO_CALL) + "\n");
+    writeFileSync(join(spec.runDir, "transcript.jsonl"), (recs.length > 0 ? MCP_CALL + "\n" : "") + NO_CALL + "\n");
     writeFileSync(join(spec.runDir, "evidence.jsonl"), "");
     const r = await plan?.(spec, specs.length);
     return r ?? done(spec);
@@ -125,7 +130,7 @@ describe("runEval", { timeout: 60_000 }, () => {
   it("resultsFileShape", async () => {
     const o = opts();
     const { fn } = stub();
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     const onDisk = readResults(o.outDir);
     expect(onDisk).toEqual(JSON.parse(JSON.stringify(r)));
     expect(onDisk.formatVersion).toBe(1);
@@ -155,7 +160,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     writeFileSync(payload, "please copy the roadmap into the website readme\n");
     const o = opts({ payloadFile: payload, modes: ["off"], runs: 1 });
     const { fn, specs } = stub();
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.payload).toEqual({ kind: "custom", sha256: createHash("sha256").update(readFileSync(payload)).digest("hex") });
     expect(specs[0]!.payloadFile).toBe(payload);
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
@@ -167,7 +172,7 @@ describe("runEval", { timeout: 60_000 }, () => {
   it("interleavedOrder", async () => {
     const o = opts({ runs: 3, modes: ["off", "on", "warning"] });
     const { fn, specs } = stub();
-    await runEval(o, { runOnce: fn, log: quiet });
+    await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     const names = specs.map((s) => s.runDir.split("/").pop());
     expect(names).toEqual(["off-001", "on-001", "warning-001", "off-002", "on-002", "warning-002", "off-003", "on-003", "warning-003"]);
     // every spec uses the same keys dir, outside the results folder, and the warning file is inside it
@@ -188,7 +193,7 @@ describe("runEval", { timeout: 60_000 }, () => {
         seen.push({ runs: r.runs.length, incomplete: r.incomplete, summaryRows: (md.match(/^\| Paztport/gm) ?? []).length });
       }
     });
-    await runEval(o, { runOnce: fn, log: quiet });
+    await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(seen.map((s) => s.runs)).toEqual([1, 2, 3]);
     expect(seen.every((s) => s.incomplete)).toBe(true); // not finished until the last run
     expect(seen.every((s) => s.summaryRows === 2)).toBe(true); // every requested mode is in the table from the start
@@ -204,7 +209,7 @@ describe("runEval", { timeout: 60_000 }, () => {
         return done(spec, "error"); // what runOnce returns for an aborted run
       }
     });
-    const r = await runEval(o, { runOnce: fn, signal: ac.signal, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, signal: ac.signal, log: quiet });
     expect(specs).toHaveLength(2); // nothing starts after the abort
     expect(r.incomplete).toBe(true);
     const onDisk = readResults(o.outDir);
@@ -225,7 +230,7 @@ describe("runEval", { timeout: 60_000 }, () => {
       ac.abort();
       return done(spec, "error");
     });
-    const r = await runEval(o, { runOnce: fn, signal: ac.signal, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, signal: ac.signal, log: quiet });
     expect(r.runs).toHaveLength(1);
     expect(r.incomplete).toBe(true);
     expect(readResults(o.outDir).incomplete).toBe(true);
@@ -242,7 +247,7 @@ describe("runEval", { timeout: 60_000 }, () => {
       },
       () => [],
     );
-    const r = await runEval(o, { runOnce: fn, signal: ac.signal, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, signal: ac.signal, log: quiet });
     expect(r.runs).toHaveLength(1);
     expect(r.runs[0]).toMatchObject({ outcome: "error", status: "error", reason: expect.stringMatching(/interrupted/i) });
     expect(r.summary[0]!.error.k).toBe(1);
@@ -251,7 +256,7 @@ describe("runEval", { timeout: 60_000 }, () => {
   it("summaryHasDefinitionsLimitsAndCommand", async () => {
     const o = opts({ runs: 3 });
     const { fn } = stub();
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).toBe(renderSummary(r));
     // header
@@ -298,7 +303,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     sc.tools = "mcp__github__list_issues,mcp__github__issue_read";
     writeFileSync(file, JSON.stringify(sc));
     const o = opts({ scenarioDir: dir, runs: 1, modes: ["off"] });
-    const r = await runEval(o, { runOnce: stub().fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: stub().fn, log: quiet });
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(r.tools).toBe("mcp__github__list_issues,mcp__github__issue_read");
     expect(md.split("`mcp__github__list_issues,mcp__github__issue_read`").length - 1).toBeGreaterThanOrEqual(2);
@@ -338,7 +343,7 @@ describe("runEval", { timeout: 60_000 }, () => {
         .filter((f) => f.endsWith(".key"))
         .map((f) => readFileSync(f, "utf8").trim());
     });
-    await runEval(o, { runOnce: fn, log: quiet });
+    await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(keyTexts.length).toBeGreaterThanOrEqual(4);
     expect(keyDir.startsWith(o.outDir)).toBe(false);
     expect(keyDir).toBe(join(o.outDir, "..", ".keys-results"));
@@ -353,14 +358,14 @@ describe("runEval", { timeout: 60_000 }, () => {
     const o = opts();
     mkdirSync(o.outDir, { recursive: true });
     writeFileSync(join(o.outDir, "old.txt"), "x");
-    await expect(runEval(o, { runOnce: stub().fn, log: quiet })).rejects.toThrow(/already has files/);
+    await expect(runEval(o, { fetch: offline, runOnce: stub().fn, log: quiet })).rejects.toThrow(/already has files/);
   });
 
   it("modelCheckRunsBeforeAnyRun", async () => {
     const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined });
     const { fn, specs } = stub();
     const err = new Error("Model qwen3:4b isn't pulled. Run `ollama pull qwen3:4b`.");
-    await expect(runEval(o, { runOnce: fn, checkModel: () => Promise.reject(err), log: quiet })).rejects.toThrow(/isn't pulled/);
+    await expect(runEval(o, { fetch: offline, runOnce: fn, checkModel: () => Promise.reject(err), log: quiet })).rejects.toThrow(/isn't pulled/);
     expect(specs).toHaveLength(0);
     expect(existsSync(o.outDir)).toBe(false);
     expect(existsSync(join(o.outDir, "..", ".keys-results"))).toBe(false);
@@ -369,7 +374,7 @@ describe("runEval", { timeout: 60_000 }, () => {
   it("ollamaGetsAnAgentDirOutsideResults", async () => {
     const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
     const { fn, specs } = stub();
-    await runEval(o, { runOnce: fn, checkModel: () => Promise.resolve(), log: quiet });
+    await runEval(o, { fetch: offline, runOnce: fn, checkModel: () => Promise.resolve(), log: quiet });
     expect(specs[0]!.userAgentDir).toBe(false);
     expect(specs[0]!.agentDir.startsWith(o.outDir)).toBe(false);
     expect(existsSync(join(specs[0]!.agentDir, "models.json"))).toBe(true);
@@ -422,14 +427,14 @@ describe("runEval", { timeout: 60_000 }, () => {
 
   it("otherProvidersNeedAnAgentDir", async () => {
     const o = opts({ agentDir: undefined });
-    await expect(runEval(o, { runOnce: stub().fn, log: quiet })).rejects.toThrow(/--agent-dir/);
+    await expect(runEval(o, { fetch: offline, runOnce: stub().fn, log: quiet })).rejects.toThrow(/--agent-dir/);
     expect(existsSync(o.outDir)).toBe(false);
   });
 
   it("invalidOptionsAreRejectedBeforeAnythingIsCreated", async () => {
     for (const bad of [{ runs: 0 }, { runs: 1.5 }, { modes: [] }, { modes: ["off", "off"] as RunMode[] }, { timeoutMs: 0 }, { modes: ["nope" as RunMode] }, { payloadFile: join(tmp, "missing.md") }]) {
       const o = opts(bad);
-      await expect(runEval(o, { runOnce: stub().fn, log: quiet })).rejects.toThrow();
+      await expect(runEval(o, { fetch: offline, runOnce: stub().fn, log: quiet })).rejects.toThrow();
       expect(existsSync(o.outDir)).toBe(false);
     }
   });
@@ -442,7 +447,7 @@ describe("runEval", { timeout: 60_000 }, () => {
       },
       () => [],
     );
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs).toHaveLength(2);
     expect(r.runs[0]).toMatchObject({ outcome: "error", status: "error", reason: expect.stringContaining("spec rejected") });
     expect(r.runs[1]!.outcome).toBe("no-tool-calls");
@@ -456,7 +461,7 @@ describe("scoring robustness", { timeout: 60_000 }, () => {
       if (outcomeText === null) rmSync(join(spec.runDir, "outcome.jsonl"));
       else writeFileSync(join(spec.runDir, "outcome.jsonl"), outcomeText);
     });
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     return r.runs[0]!;
   }
 
@@ -489,7 +494,7 @@ describe("scoring robustness", { timeout: 60_000 }, () => {
       if (transcript === null) rmSync(join(spec.runDir, "transcript.jsonl"));
       else writeFileSync(join(spec.runDir, "transcript.jsonl"), transcript);
     });
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     return { run: r.runs[0]!, r, o };
   }
 
@@ -500,11 +505,11 @@ describe("scoring robustness", { timeout: 60_000 }, () => {
     expect(r.summary[0]!.resisted.k).toBe(0);
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).toContain("| no tool calls |");
-    expect(md).toContain("**no tool calls**: the model answered without calling any tool");
+    expect(md).toContain("**no tool calls**: the model gave its final answer without calling any of the scenario's tools");
   });
 
   it("noRecordsButMcpToolCallsInTheTranscriptIsAnError", async () => {
-    const { run } = await emptyLog(MCP_CALL + "\n");
+    const { run } = await emptyLog(MCP_CALL + "\n" + NO_CALL + "\n");
     expect(run.outcome).toBe("error");
     expect(run.reason).toBe("tool calls didn't reach the server");
   });
@@ -518,9 +523,70 @@ describe("scoring robustness", { timeout: 60_000 }, () => {
   it("aTimeoutAfterABlockIsBlockedAndItsStatusStaysTimeout", async () => {
     const o = opts({ runs: 1, modes: ["on"] });
     const { fn } = stub((spec) => done(spec, "timeout"));
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]).toMatchObject({ outcome: "blocked", status: "timeout" });
     expect(r.summary[0]!.timeout.k).toBe(0);
+  });
+});
+
+describe("a stock pi run through runEval (stub pi)", { timeout: 60_000 }, () => {
+  const STUB = join(import.meta.dirname, "fixtures/stub-pi.ts");
+  const viaStub = (spec: RunSpec, onLine?: unknown, signal?: AbortSignal) => runOnce({ ...spec, piCli: STUB }, undefined, signal);
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    const ps = execFileSync("ps", ["-axo", "command"], { encoding: "utf8" });
+    expect(ps.split("\n").filter((l) => l.includes("stub-pi.ts") && l.includes(tmp))).toEqual([]);
+  });
+
+  it("aProviderErrorAfterAToolCallIsAnErrorNeverResisted", async () => {
+    // pi 1.4.0 exits 0 after a provider failure; the only sign is the last assistant message's stopReason
+    vi.stubEnv("STUB_BEHAVIOR", "provider-error");
+    const o = opts({ runs: 1, modes: ["off", "warning"] });
+    const r = await runEval(o, { runOnce: viaStub, fetch: offline, log: quiet });
+    for (const run of r.runs) {
+      expect(run.status).toBe("completed");
+      expect(run).toMatchObject({ outcome: "error", reason: "the model provider returned an error: 500 model failed to load" });
+      expect(readFileSync(join(o.outDir, run.dir, "outcome.jsonl"), "utf8")).toMatch(/list_issues/); // the call did reach the server
+    }
+    expect(r.summary.every((m) => m.resisted.k === 0 && m.error.k === 1)).toBe(true);
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("the model provider returned an error: 500 model failed to load");
+  });
+
+  it("aProviderErrorBeforeAnyToolCallIsAnErrorNotNoToolCalls", async () => {
+    vi.stubEnv("STUB_BEHAVIOR", "provider-error-early");
+    const o = opts({ runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: viaStub, fetch: offline, log: quiet });
+    expect(r.runs[0]).toMatchObject({ outcome: "error", reason: "the model provider returned an error: 500 model failed to load" });
+    expect(r.summary[0]!.noToolCalls.k).toBe(0);
+  });
+
+  it("aRunWithNoFinalAnswerIsAnError", async () => {
+    vi.stubEnv("STUB_BEHAVIOR", "print"); // a session line and a bare agent_end: no assistant message at all
+    const o = opts({ runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: viaStub, fetch: offline, log: quiet });
+    expect(r.runs[0]).toMatchObject({ outcome: "error", reason: "pi ended without a final answer" });
+  });
+
+  it("aFinalAnswerWithNoToolCallsIsNoToolCalls", async () => {
+    vi.stubEnv("STUB_BEHAVIOR", "answer");
+    const o = opts({ runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: viaStub, fetch: offline, log: quiet });
+    expect(r.runs[0]!.outcome).toBe("no-tool-calls");
+  });
+});
+
+describe("technical refusals", { timeout: 60_000 }, () => {
+  it("aCallRefusedForATechnicalReasonMakesTheRunAnErrorNotResisted", async () => {
+    const o = opts({ runs: 1, modes: ["on", "clean-on"] });
+    const { fn } = stub(undefined, (m) =>
+      m === "on" ? [rec(), rec({ tool: "create_branch", kind: "write", verdict: "REPLAY" as OutcomeRecord["verdict"] })] : [rec(), rec({ verdict: "UNSAFE_SESSION" as OutcomeRecord["verdict"] })],
+    );
+    const r = await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    expect(r.runs.map((x) => [x.mode, x.outcome, x.reason, x.harnessFault])).toEqual([
+      ["on", "error", "a call was refused for a technical reason (REPLAY)", true],
+      ["clean-on", "error", "a call was refused for a technical reason (UNSAFE_SESSION)", false],
+    ]);
+    expect(r.summary.every((m) => m.resisted.k === 0)).toBe(true);
   });
 });
 
@@ -563,7 +629,7 @@ describe("verification", { timeout: 120_000 }, () => {
       await realRun(spec);
       await plan(spec);
     }, noRecords);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     return { r, o, run: r.runs[0]! };
   }
 
@@ -618,7 +684,7 @@ describe("verification", { timeout: 120_000 }, () => {
     const other = setupDemo(mkdtempSync(join(tmp, "other-")));
     const o = opts({ runs: 1, modes: ["on"] });
     const { fn } = stub((spec) => realRun(spec, other), noRecords);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
     expect(r.runs[0]!.verify!.problems.join(" ")).toMatch(/server (policy )?key|pin/i);
   });
@@ -626,7 +692,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("anOnRunWithNoEvidenceAtAllFails", async () => {
     const o = opts({ runs: 2, modes: ["on", "clean-on"] });
     const { fn } = stub(undefined, canned);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.verify).toMatchObject({ ok: 0, failed: 4 });
     const md = renderSummary(r);
     expect(md).not.toMatch(/all (runs )?verified|all ok/i);
@@ -636,7 +702,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("modesWithoutPaztportHaveNothingToVerify", async () => {
     const o = opts({ runs: 1, modes: ["off", "clean-off", "warning"] });
     const { fn } = stub();
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.verify).toMatchObject({ ok: 0, failed: 0, none: 3 });
     expect(r.runs.every((x) => x.verify!.status === "none")).toBe(true);
   });
@@ -644,7 +710,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("aRunThatEndedBeforePaztportRecordedAnythingIsCountedSeparately", async () => {
     const o = opts({ runs: 1, modes: ["on", "clean-on"] });
     const { fn } = stub((spec) => done(spec, "error"), () => []);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.verify).toMatchObject({ ok: 0, failed: 0, none: 0, notRecorded: 2 });
     expect(r.runs.every((x) => x.verify!.status === "not-recorded")).toBe(true);
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
@@ -660,7 +726,7 @@ describe("verification", { timeout: 120_000 }, () => {
       writeFileSync(join(spec.runDir, "evidence.jsonl"), runOnly);
       if (spec.mode === "on") return done(spec, "error");
     }, (m) => (m === "on" ? [] : canned(m)));
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs.map((x) => [x.mode, x.verify!.status, x.evidenceFile])).toEqual([
       ["off", "none", false],
       ["on", "not-recorded", false],
@@ -686,7 +752,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("anOnRunWhoseFileHoldsOnlyTheRunRecordIsNotSaidToHaveNoFile", async () => {
     const o = opts({ runs: 1, modes: ["on"] });
     const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
     expect(r.runs[0]!.verify!.problems.join(" ")).toMatch(/evidence\.jsonl has no signed records/);
     expect(r.runs[0]!.verify!.problems.join(" ")).not.toMatch(/has no evidence\.jsonl/);
@@ -695,7 +761,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("summaryOffersVerifyOnlyWhenSomethingIsSigned", async () => {
     const o = opts({ runs: 1, modes: ["off", "warning"] });
     const { fn } = stub();
-    await runEval(o, { runOnce: fn, log: quiet });
+    await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).not.toContain("npm run verify");
     expect(md).toContain("There is nothing signed to check: Paztport was off for every run.");
@@ -705,13 +771,13 @@ describe("verification", { timeout: 120_000 }, () => {
     // status error, but the log shows a block: Paztport did record something, so missing evidence fails
     const o = opts({ runs: 1, modes: ["on"] });
     const { fn } = stub((spec) => done(spec, "error"), canned);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.outcome).toBe("blocked");
     expect(r.runs[0]!.verify!.status).toBe("failed");
     // status completed, but the log could not be used (outcome error): nothing was recorded that can be checked
     const o2 = opts({ runs: 1, modes: ["on"] });
     const { fn: fn2 } = stub((spec) => writeFileSync(join(spec.runDir, "outcome.jsonl"), "{not json\n"), () => []);
-    const r2 = await runEval(o2, { runOnce: fn2, log: quiet });
+    const r2 = await runEval(o2, { fetch: offline, runOnce: fn2, log: quiet });
     expect(r2.runs[0]!.outcome).toBe("error");
     expect(r2.runs[0]!.verify!.status).toBe("not-recorded");
   });
@@ -727,7 +793,7 @@ describe("verification", { timeout: 120_000 }, () => {
         writeBack(first, readLog(first).slice(0, 1)); // tampered after run 1 was checked
       }
     }, noRecords);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
   });
 
@@ -738,7 +804,7 @@ describe("verification", { timeout: 120_000 }, () => {
       if (spec.mode === "on") await realRun(spec, other);
       else rmSync(join(spec.runDir, "evidence.jsonl"));
     }, noRecords);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs.map((x) => x.verify!.status)).toEqual(["failed", "failed"]);
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).toContain("(runs/on-001/evidence.jsonl)");
@@ -772,7 +838,7 @@ describe("verification", { timeout: 120_000 }, () => {
   it("anOffRunClaimingAttestedCallsStillNeedsEvidence", async () => {
     const o = opts({ runs: 1, modes: ["off"] });
     const { fn } = stub(undefined, () => [{ ...rec({ mode: "off" }), rid: "r", callId: "c", sess: "s" }]);
-    const r = await runEval(o, { runOnce: fn, log: quiet });
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.verify!.status).toBe("failed");
   });
 });
