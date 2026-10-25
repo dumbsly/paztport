@@ -9,6 +9,7 @@ import { basename, dirname, extname, join, relative, resolve, sep } from "node:p
 import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
+import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
 import { DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
@@ -254,6 +255,35 @@ function verifyOf(runs: unknown[]): { verifyStatus: VerifyStatus; verifyLine: st
   if (ok === 0) return { verifyStatus: "nothing-to-check", verifyLine: "No run has evidence to check: Paztport was off." };
   const rest = none > 0 ? ` ${runsWord(none)} had Paztport off, so ${none === 1 ? "it has" : "they have"} nothing to check.` : "";
   return { verifyStatus: "verified", verifyLine: `${ok} of ${runs.length} runs have evidence that verified.${rest}` };
+}
+
+export const RECORDED_NOTE = "Recorded by the eval that wrote this folder.";
+export const CHECKED_NOTE =
+  "Checked now, from the files in this folder: each run re-scored from its outcome log and transcript, its evidence verified and compared with the outcome log and the server key, and the counts recomputed.";
+export const DISAGREE_NOTE =
+  "Where results.json and the files disagree, the table shows what the files say. A difference can mean a file was edited, or that the folder was written by an earlier version of the eval whose scoring rules differ.";
+
+type Checked = { recheck: Recheck; verifyStatus: VerifyStatus; verifyLine: string } | { error: string };
+/** The folder checked again now (see recheckResultsDir), reused until one of the files it reads changes. */
+const recheckCache = new Map<string, { sig: string; value: Checked }>();
+function checkNow(dir: string, results: Obj): Checked {
+  const sig = recheckSignature(dir);
+  const hit = recheckCache.get(dir);
+  if (hit !== undefined && hit.sig === sig) return hit.value;
+  let value: Checked;
+  try {
+    const recheck = recheckResultsDir(dir, results);
+    const v = verifyOf(recheck.runs);
+    // a failure verify finds outside any listed run (results.json itself, an unlisted run) fails the folder too
+    value =
+      recheck.problems.length > 0
+        ? { recheck, verifyStatus: "failed", verifyLine: `${v.verifyLine} ${recheck.problems.length === 1 ? "One more problem" : `${recheck.problems.length} more problems`}: ${recheck.problems.join("; ")}.` }
+        : { recheck, ...v };
+  } catch (e) {
+    value = { error: `This folder could not be checked again (${(e as Error).message}).` };
+  }
+  recheckCache.set(dir, { sig, value });
+  return value;
 }
 
 // --- the server ------------------------------------------------------------------------------------------------
@@ -627,6 +657,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     }
     const r = l.results;
     const runs = r.runs as unknown[];
+    const c = checkNow(f.dir, r);
+    const checked =
+      "error" in c
+        ? { error: c.error }
+        : { verifyStatus: c.verifyStatus, disagreements: c.recheck.disagreements.length, problems: c.recheck.problems.length };
     const ms = median(runs.flatMap((run) => (isObj(run) && typeof run.dir === "string" ? (durationOf(readJson(join(f.dir, run.dir, "run.json"))) ?? []) : [])));
     const modes = isObj(r.requested) && Array.isArray(r.requested.modes) ? r.requested.modes : undefined;
     return {
@@ -639,6 +674,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       payload: r.payload,
       incomplete: r.incomplete === true,
       runs: runs.length,
+      checked,
       ...(modes !== undefined ? { modes } : {}),
       ...(ms !== undefined ? { medianRunMs: ms } : {}),
     };
@@ -690,18 +726,36 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       return { status: 200, body: { ...l.run, name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
     }
     const results = l.results;
-    const v = verifyOf(results.runs as unknown[]);
-    // an older folder may not count runs that recorded nothing; that is shown as not recorded, never as 0
+    // what results.json says, as the eval recorded it; an older folder may not count runs that recorded
+    // nothing, which is shown as not recorded, never as 0
+    const stored = verifyOf(results.runs as unknown[]);
+    const recorded = { note: RECORDED_NOTE, summary: results.summary, verify: results.verify, runs: results.runs, ...stored };
+    const c = checkNow(folder.dir, results);
+    if ("error" in c) {
+      // nothing could be checked now: the stored figures are shown, labelled as recorded, and never as checked
+      return {
+        status: 200,
+        body: { ...results, name, ok: true, kind: "eval", ...stepsForRuns(folder, results), ...stored, verifyStatus: "unknown", recorded, check: { checkedNow: false, error: c.error }, refusalsNote: REFUSALS_NOTE },
+      };
+    }
+    const { recheck } = c;
     return {
       status: 200,
       body: {
         ...results,
         name,
-        ...folderVerify(folder.dir, v.verifyStatus),
+        ...folderVerify(folder.dir, c.verifyStatus),
         ok: true,
         kind: "eval",
         ...stepsForRuns(folder, results),
-        ...v,
+        // the table, the runs and the evidence check are what the files say now
+        summary: recheck.summary,
+        verify: recheck.verify,
+        runs: recheck.runs,
+        verifyStatus: c.verifyStatus,
+        verifyLine: c.verifyLine,
+        recorded,
+        check: { checkedNow: true, note: CHECKED_NOTE, disagreeNote: DISAGREE_NOTE, disagreements: recheck.disagreements, problems: recheck.problems, notes: recheck.notes },
         refusalsNote: REFUSALS_NOTE,
       },
     };

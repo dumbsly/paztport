@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { ResultsFile } from "../../eval/src/eval.ts";
+import { runEval, type ResultsFile } from "../../eval/src/eval.ts";
 import type { LineFile, RunResult, RunSpec } from "../../eval/src/runner.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
@@ -538,9 +538,16 @@ describe("demo server", () => {
     expect(got.stepsByRun["runs/on-001"]).toHaveLength(1);
     expect(got.stepsByRun["runs/on-001"][0]).toMatchObject({ result: "refused", phrase: "create the branch b in acme/website" });
     expect(got.serverKey).toBeUndefined();
-    expect(got.verify).toEqual({ ok: 0, failed: 0, none: 0 });
-    expect(got.verifyStatus).toBe("unknown");
-    expect(got.verifyLine).toMatch(/no evidence check/i);
+    // as recorded: the old folder's figures, with nothing missing read as 0
+    expect(got.recorded.verify).toEqual({ ok: 0, failed: 0, none: 0 });
+    expect(got.recorded.verifyStatus).toBe("unknown");
+    expect(got.recorded.verifyLine).toMatch(/no evidence check/i);
+    expect(got.recorded.note).toBe("Recorded by the eval that wrote this folder.");
+    // checked now: a Paztport-on block with no evidence and no server key to compare a pin with does not verify
+    expect(got.check.checkedNow).toBe(true);
+    expect(got.check.problems.join(" ")).toMatch(/no server key fingerprint/);
+    expect(got.runs[0].verify.status).toBe("failed");
+    expect(got.verifyStatus).toBe("failed");
     expect(got.refusalsNote).toMatch(/unsigned/i);
   });
 
@@ -551,6 +558,7 @@ describe("demo server", () => {
       mkdirSync(folder, { recursive: true });
       const r: any = resultsFile();
       r.runs = statuses.map((status, i) => ({ mode: status === "none" ? "off" : "on", index: i + 1, dir: `runs/x-${i}`, outcome: "error", readPrivate: false, taskDone: false, harnessFault: false, status: "error", verify: { status, problems: [] } }));
+      statuses.forEach((_s, i) => mkdirSync(join(folder, "runs", `x-${i}`), { recursive: true }));
       writeFileSync(join(folder, "results.json"), JSON.stringify(r));
     };
     make("partly", ["ok", "not-recorded", "none"]);
@@ -558,7 +566,8 @@ describe("demo server", () => {
     make("all-ok", ["ok", "ok", "none"]);
     make("off-only", ["none", "none"]);
     make("one-failed", ["ok", "failed", "not-recorded"]);
-    const get = async (name: string) => (await (await api(srv, `/api/results/${name}`)).json()) as { verifyStatus: string; verifyLine: string };
+    // these folders hold only results.json, so this is about the status as recorded; checked now, the runs' files are missing
+    const get = async (name: string) => ((await (await api(srv, `/api/results/${name}`)).json()) as { recorded: { verifyStatus: string; verifyLine: string } }).recorded;
     const cmd = async (name: string) => ((await (await api(srv, `/api/results/${name}`)).json()) as { verifyCommand?: string }).verifyCommand;
     expect(await cmd("partly")).toMatch(/^npm run verify -- /);
     expect(await cmd("all-ok")).toMatch(/^npm run verify -- /);
@@ -576,6 +585,67 @@ describe("demo server", () => {
     expect(off.verifyStatus).toBe("nothing-to-check");
     expect(off.verifyLine).toBe("No run has evidence to check: Paztport was off.");
     expect((await get("one-failed")).verifyStatus).toBe("failed");
+  });
+
+  it("an opened folder is checked again from its files, and an edited results.json is flagged", async () => {
+    const { srv, resultsRoot } = await start();
+    const out = join(resultsRoot, "edited");
+    // a real eval folder (stand-in runs): two Paztport-off runs that leaked
+    const runOnce = async (spec: RunSpec): Promise<RunResult> => {
+      mkdirSync(spec.runDir, { recursive: true });
+      writeFileSync(join(spec.runDir, "outcome.jsonl"), JSON.stringify(record({ mode: "off", tool: "create_branch", kind: "write", publicDestination: true, containsCanary: true })) + "\n");
+      writeFileSync(join(spec.runDir, "transcript.jsonl"), JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "stop" } }) + "\n");
+      writeFileSync(join(spec.runDir, "run.json"), JSON.stringify(result(spec)));
+      return result(spec);
+    };
+    const offline = (async () => {
+      throw new Error("offline");
+    }) as typeof fetch;
+    await runEval(
+      { model: "lab/m", runs: 2, modes: ["off"], scenarioDir: BUILTIN_SCENARIO_DIR, agentDir: join(resultsRoot, "..", "agent"), outDir: out, timeoutMs: 5000, command: "c" },
+      { runOnce, fetch: offline, log: () => {} },
+    );
+    const untouched = await (await api(srv, "/api/results/edited")).json();
+    expect(untouched.check).toMatchObject({ checkedNow: true, disagreements: [], problems: [] });
+    expect(untouched.recorded.note).toBe("Recorded by the eval that wrote this folder.");
+
+    // someone edits the stored figures: no leaks, every run verified
+    const rj = JSON.parse(readFileSync(join(out, "results.json"), "utf8"));
+    rj.summary[0].leaked.k = 0;
+    rj.summary[0].resisted.k = 2;
+    rj.verify = { ok: 2, failed: 0, none: 0, notRecorded: 0 };
+    for (const r of rj.runs) {
+      r.outcome = "resisted";
+      r.verify = { status: "ok", problems: [] };
+    }
+    writeFileSync(join(out, "results.json"), JSON.stringify(rj));
+
+    const got = await (await api(srv, "/api/results/edited")).json();
+    // the table and the runs are what the files say
+    expect(got.summary[0].leaked.k).toBe(2);
+    expect(got.summary[0].resisted.k).toBe(0);
+    expect(got.runs.map((r: any) => [r.outcome, r.verify.status])).toEqual([
+      ["leaked", "none"],
+      ["leaked", "none"],
+    ]);
+    expect(got.verify).toEqual({ ok: 0, failed: 0, none: 2, notRecorded: 0 });
+    expect(got.verifyStatus).toBe("nothing-to-check");
+    // what results.json says is kept, labelled as recorded
+    expect(got.recorded.summary[0].leaked.k).toBe(0);
+    expect(got.recorded.verifyStatus).toBe("verified");
+    // and the disagreement is stated plainly
+    expect(got.check.disagreements).toEqual(
+      expect.arrayContaining([
+        "results.json says off-001 was resisted; the files say leaked",
+        'results.json says off-001\'s evidence check was "verified"; the files say "nothing to check"',
+        'results.json says 0 of 2 "Paztport off" runs were leaked; the files say 2 of 2',
+        "results.json says 2 runs verified; the files say 0",
+      ]),
+    );
+    expect(got.check.disagreeNote).toMatch(/table shows what the files say/);
+    // the list says so too
+    const list = (await (await api(srv, "/api/results")).json()) as any[];
+    expect(list.find((e) => e.name === "edited").checked).toEqual({ verifyStatus: "nothing-to-check", disagreements: got.check.disagreements.length, problems: 0 });
   });
 
   it("the results list gives each folder's median run time, from run.json or the single run's result", async () => {
@@ -611,7 +681,7 @@ describe("demo server", () => {
   it("an empty verify list is not all verified", async () => {
     const { srv, resultsRoot } = await start();
     const folder = join(resultsRoot, "empty");
-    mkdirSync(folder, { recursive: true });
+    mkdirSync(join(folder, "runs"), { recursive: true });
     const r: any = resultsFile();
     r.runs = [];
     r.verify = { ok: 0, failed: 0, none: 0, notRecorded: 0 };

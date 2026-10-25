@@ -21,6 +21,7 @@ import { runEval, type EvalOptions, type ResultsFile } from "../src/eval.ts";
 import { pinFingerprint } from "../src/verify.ts";
 import { parseCli, main } from "../src/eval-main.ts";
 import { renderSummary } from "../src/report.ts";
+import { recheckResultsDir } from "../src/recheck.ts";
 import { runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
 
 const PAYLOAD = join(BUILTIN_SCENARIO_DIR, "payload.md");
@@ -1088,5 +1089,93 @@ describe("baseline", () => {
     expect(text.trim().length).toBeGreaterThan(40);
     expect(text).not.toMatch(/PLACEHOLDER/i);
     expect(text).toContain("untrusted data");
+  });
+});
+
+describe("recheckResultsDir", { timeout: 120_000 }, () => {
+  const stored = (out: string) => JSON.parse(readFileSync(join(out, "results.json"), "utf8")) as Record<string, unknown>;
+
+  it("anUntouchedFolderAgreesWithItsFiles", async () => {
+    const o = opts({ runs: 1, modes: ["off", "on", "clean-off", "warning"] });
+    const { fn } = stub(async (spec) => {
+      if (spec.mode === "on") await realRun(spec);
+    }, (m) => (m === "on" ? [] : canned(m)));
+    const r = await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const rc = recheckResultsDir(o.outDir, stored(o.outDir));
+    expect(rc.disagreements).toEqual([]);
+    expect(rc.problems).toEqual([]);
+    expect(rc.summary).toEqual(r.summary);
+    expect(rc.verify).toEqual(r.verify);
+    expect(rc.runs.map((x) => [x.dir, x.outcome, x.verify!.status])).toEqual(r.runs.map((x) => [x.dir, x.outcome, x.verify!.status]));
+  });
+
+  it("editedCountsInResultsJsonAreFlagged", async () => {
+    const o = opts({ runs: 2, modes: ["off", "on"] });
+    const { fn } = stub(async (spec) => {
+      if (spec.mode === "on") await realRun(spec);
+    }, (m) => (m === "on" ? [] : canned(m)));
+    await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const rj = stored(o.outDir) as any;
+    expect(rj.verify.ok).toBe(2);
+    rj.verify.ok = 4;
+    rj.verify.none = 0;
+    const off = rj.summary.find((s: any) => s.mode === "off");
+    off.leaked.k = 0;
+    off.resisted.k = 2;
+    rj.runs[0].outcome = "resisted";
+    writeFileSync(join(o.outDir, "results.json"), JSON.stringify(rj));
+    const rc = recheckResultsDir(o.outDir, rj);
+    expect(rc.disagreements).toEqual(
+      expect.arrayContaining([
+        "results.json says off-001 was resisted; the files say leaked",
+        'results.json says 0 of 2 "Paztport off" runs were leaked; the files say 2 of 2',
+        'results.json says 2 of 2 "Paztport off" runs were resisted; the files say 0 of 2',
+        "results.json says 4 runs verified; the files say 2",
+        "results.json says 0 runs had nothing to check; the files say 2",
+      ]),
+    );
+    expect(rc.summary.find((s) => s.mode === "off")!.leaked.k).toBe(2);
+  });
+
+  it("evidenceTamperedAfterTheEvalIsFailedNowWhateverResultsJsonSays", async () => {
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => realRun(spec), noRecords);
+    await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const file = join(o.outDir, "runs/on-001/evidence.jsonl");
+    writeFileSync(file, readFileSync(file, "utf8").replace('"owner":"acme"', '"owner":"acmf"'));
+    const rc = recheckResultsDir(o.outDir, stored(o.outDir));
+    expect(rc.runs[0]!.verify!.status).toBe("failed");
+    expect(rc.verify).toMatchObject({ ok: 0, failed: 1 });
+    expect(rc.disagreements).toEqual(expect.arrayContaining(['results.json says on-001\'s evidence check was "verified"; the files say "did not verify"', "results.json says 1 runs verified; the files say 0"]));
+  });
+
+  it("aRunFolderResultsJsonLeavesOutIsFlagged", async () => {
+    const o = opts({ runs: 2, modes: ["off"] });
+    await runEval(o, { runOnce: stub().fn, fetch: offline, log: quiet });
+    const rj = stored(o.outDir) as any;
+    rj.runs = rj.runs.slice(0, 1);
+    const rc = recheckResultsDir(o.outDir, rj);
+    expect(rc.disagreements).toContain("the folder has off-002, which results.json does not list or count");
+  });
+
+  it("aRescoredRunUsesTheTranscriptToo", async () => {
+    const o = opts({ runs: 1, modes: ["warning"] });
+    await runEval(o, { runOnce: stub().fn, fetch: offline, log: quiet });
+    // the stored run is resisted; the transcript now shows the provider failed
+    writeFileSync(join(o.outDir, "runs/warning-001/transcript.jsonl"), MCP_CALL + "\n" + JSON.stringify({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "boom" } }) + "\n");
+    const rc = recheckResultsDir(o.outDir, stored(o.outDir));
+    expect(rc.runs[0]).toMatchObject({ outcome: "error", reason: "the model provider returned an error: boom" });
+    expect(rc.disagreements).toContain("results.json says warning-001 was resisted; the files say error");
+  });
+
+  it("aMissingServerKeyCantBeComparedAndFails", async () => {
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => realRun(spec), noRecords);
+    await runEval(o, { runOnce: fn, fetch: offline, log: quiet });
+    const rj = stored(o.outDir) as any;
+    delete rj.serverKey;
+    const rc = recheckResultsDir(o.outDir, rj);
+    expect(rc.problems.join(" ")).toMatch(/no server key fingerprint/);
+    expect(rc.runs[0]!.verify!.status).toBe("failed");
   });
 });

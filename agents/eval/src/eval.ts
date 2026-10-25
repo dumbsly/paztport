@@ -131,7 +131,7 @@ function validate(o: EvalOptions): void {
 }
 
 /** The records of a log that can be scored, or null when it cannot be read or used. */
-function usableRecords(file: string): OutcomeRecord[] | null {
+export function usableRecords(file: string): OutcomeRecord[] | null {
   try {
     const records = readOutcomeLog(file);
     return checkRecords(records) === undefined ? records : null;

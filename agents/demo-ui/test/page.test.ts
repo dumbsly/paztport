@@ -119,6 +119,11 @@ describe("demo page", () => {
       "The outcome log shows signed calls, but the evidence file has no signed records.",
       "nothing signed to check",
       "The page itself loads nothing from the internet",
+      "results.json disagrees with the files",
+      "Results (checked now)",
+      "Checked now: ",
+      "Recorded by the eval that wrote this folder.",
+      "this page did those when you opened the folder",
     ]) {
       expect(page, s).toContain(s);
     }

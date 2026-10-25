@@ -901,7 +901,15 @@ function renderFolderList() {
     let status;
     if (!f.ok) status = `can't be read: ${f.error}`;
     else if (f.kind === "single") status = f.cancelled ? "cancelled" : f.status === "completed" ? "completed" : f.status === "timeout" ? "hit its time limit" : f.status === "error" ? "ended with an error" : NOT_IN_FORMAT;
-    else status = f.incomplete ? "not finished" : "complete";
+    else {
+      status = f.incomplete ? "not finished" : "complete";
+      // the server checks each folder again from its files when it lists it
+      if (isObj(f.checked) && typeof f.checked.error === "string") status += "; couldn't be checked now";
+      else if (isObj(f.checked)) {
+        status += `; checked now: ${VERIFY_LABEL[f.checked.verifyStatus] ?? "not recorded"}`;
+        if (f.checked.disagreements > 0) status += "; results.json disagrees with the files";
+      }
+    }
     return h(
       "tr",
       {},
@@ -1015,6 +1023,11 @@ function evalDetail(d, { nested }) {
   const v = isObj(d.verify) ? d.verify : undefined;
   const count = (k) => (v && typeof v[k] === "number" ? String(v[k]) : NOT_IN_FORMAT);
   const defs = state.setup?.table?.definitions ?? [];
+  const check = isObj(d.check) ? d.check : undefined;
+  const checkedNow = check?.checkedNow === true;
+  const recorded = isObj(d.recorded) ? d.recorded : undefined;
+  const recordedRuns = new Map((Array.isArray(recorded?.runs) ? recorded.runs.filter(isObj) : []).map((r) => [r.dir, r]));
+  const list = (items) => h("ul", {}, items.map((t) => h("li", {}, t)));
 
   add(box, [
     h(nested ? "h3" : "h2", {}, `Eval: ${modelName(d.model)}`),
@@ -1031,7 +1044,16 @@ function evalDetail(d, { nested }) {
       isObj(d.versions) ? ["Versions", `pi ${d.versions.pi}, Paztport extension ${d.versions.extension}, mock server ${d.versions.mockServer}, node ${d.versions.node}`] : null,
       d.command ? ["Command", h("code", {}, d.command)] : null,
     ]),
-    h("h3", {}, "Results"),
+    check && checkedNow ? h("p", { class: "note" }, check.note ?? "") : null,
+    check && !checkedNow
+      ? h("p", { class: "problem" }, `${check.error ?? "This folder could not be checked again."} The figures below are as recorded by the eval that wrote this folder; they were not checked now.`)
+      : null,
+    checkedNow && Array.isArray(check.disagreements) && check.disagreements.length > 0
+      ? h("div", { class: "notice" }, h("p", {}, "results.json disagrees with the files in this folder:"), list(check.disagreements), h("p", {}, check.disagreeNote ?? ""))
+      : null,
+    checkedNow && Array.isArray(check.problems) && check.problems.length > 0 ? h("div", { class: "problem" }, h("p", {}, "Problems found when checking the folder now:"), list(check.problems)) : null,
+    checkedNow && Array.isArray(check.notes) && check.notes.length > 0 ? h("details", {}, h("summary", {}, `Notes from the check (${check.notes.length})`), list(check.notes)) : null,
+    h("h3", {}, checkedNow ? "Results (checked now)" : "Results"),
     summaryTable(d),
     h("p", { class: "note" }, "leaked, blocked, resisted, timeout, error and no tool calls are separate classes: every run is in exactly one of them. The other columns can overlap them."),
     h(
@@ -1042,7 +1064,10 @@ function evalDetail(d, { nested }) {
       h("p", { class: "note" }, "Every class comes from the mock server's outcome log. Nothing is scored from what the model says it did."),
     ),
     h("h3", {}, "Evidence check"),
-    h("p", {}, h("span", { class: "badge" }, VERIFY_LABEL[d.verifyStatus] ?? "not recorded"), " ", d.verifyLine ?? ""),
+    h("p", {}, checkedNow ? "Checked now: " : "", h("span", { class: "badge" }, VERIFY_LABEL[d.verifyStatus] ?? "not recorded"), " ", d.verifyLine ?? ""),
+    recorded
+      ? h("p", { class: "note" }, `${recorded.note ?? "Recorded by the eval that wrote this folder."} `, h("span", { class: "badge" }, VERIFY_LABEL[recorded.verifyStatus] ?? "not recorded"), " ", recorded.verifyLine ?? "")
+      : null,
     facts([
       ["Verified", count("ok")],
       ["Did not verify", count("failed")],
@@ -1055,7 +1080,11 @@ function evalDetail(d, { nested }) {
       ? h(
           "p",
           { class: "note" },
-          withCode("`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; the eval scored each run when it finished and cross-checked the whole folder at the end. "),
+          withCode(
+            checkedNow
+              ? "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; this page did those when you opened the folder, and the figures above are the result. "
+              : "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; the eval scored each run when it finished and cross-checked the whole folder at the end. ",
+          ),
           d.refusalsNote ?? "",
         )
       : h(
@@ -1108,7 +1137,10 @@ function evalDetail(d, { nested }) {
                 runView.replaceChildren(runDetail(d, r));
                 runView.querySelector("h3")?.focus();
               });
-              return h("li", {}, button, `: ${bits}`, r.reason ? h("span", { class: "note" }, ` (${r.reason})`) : null);
+              const was = recordedRuns.get(r.dir);
+              const differs = checkedNow && was && (was.outcome !== r.outcome || (isObj(was.verify) && was.verify.status !== r.verify?.status));
+              const wasText = differs ? `results.json says ${[outcomeWord(was.outcome), RUN_VERIFY_LABEL[was.verify?.status]].filter(Boolean).join(" · ")}` : null;
+              return h("li", {}, button, `: ${bits}`, r.reason ? h("span", { class: "note" }, ` (${r.reason})`) : null, wasText ? h("span", { class: "problem" }, ` ${wasText}`) : null);
             }),
           ),
     );
