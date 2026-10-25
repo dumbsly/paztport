@@ -797,6 +797,9 @@ original policy, rebuilds the root, resets the mode to `enforce`, and runs:
 The attacks run inside the mesh, from `search`'s `/attack/*` endpoints (enabled
 only when `ATTACK_MODE=true`). Only the gateway port is exposed to the host.
 
+The agent demo is separate and needs Node 22.19+ and Ollama: from `agents/`, `npm run demo` opens a local page for one run ([agents/demo-ui](agents/demo-ui/README.md)).
+`npm run eval -- --model ollama/<model>` repeats the runs and writes a results table ([agents/eval](agents/eval/README.md)).
+
 **Configuration**
 
 | Variable | Default | Used by |
@@ -825,7 +828,10 @@ paztport/
 ├── responder/                quarantine controller (docker-java)
 ├── agents/                   TS protocol library + policy CLIs (agent/MCP demo, in progress)
 │   ├── mock-github-mcp/      mock GitHub MCP server (+ docs server), stdio, demo agent target
-│   └── pi-extension/         pi extension: stamps MCP calls, verifies responses, tracks influence
+│   ├── pi-extension/         pi extension: stamps MCP calls, verifies responses, tracks influence
+│   ├── eval/                 runs the agent many times per setting, scores from the outcome log, verify
+│   ├── demo-ui/              local web page: one run at a time, evidence per call, results folders
+│   └── scenarios/            scenario folders: repositories, planted text, scoring data
 └── scripts/
     ├── demo.sh               every scenario, pass/fail table
     ├── measure.sh            off vs enforce latency, header sizes

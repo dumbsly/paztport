@@ -287,7 +287,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     // tone: none of these words
     expect(md).not.toMatch(/attack|danger|unsafe|exploit|vulnerab|catastroph|dramatic/i);
     // never links the out-of-repo notes
-    expect(md).not.toContain("paztport_claude");
+    expect(md).not.toContain("paztport" + "_claude");
   });
 
   it("theToolsLineComesFromTheScenario", async () => {
