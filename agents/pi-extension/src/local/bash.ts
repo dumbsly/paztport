@@ -9,7 +9,7 @@ import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:f
 import { basename, join, resolve } from "node:path";
 import { isNeverProgram } from "@paztport/path-attest";
 import type { Need, Resolved, ResolvedPath, ResolvedProgram } from "./decide.ts";
-import { canonical, resolvePathArg, withSubtree, type PathContext } from "./paths.ts";
+import { canonical, resolvePathArg, withSubtree, WALK_LIMIT, type PathContext } from "./paths.ts";
 
 export type Redirect = { op: "<" | ">" | ">>" | "2>" | "2>>" | "&>"; target: string };
 export type SimpleCommand = { argv: string[]; redirects: Redirect[] };
@@ -359,11 +359,20 @@ function resolveProgram(name: string, ctx: PathContext & { pathDirs: readonly st
  * included. Every path also covers what lies below it. A path with a ".." component is
  * uncheckable (the shell follows symlinks before "..").
  *
+ * The working folder is always a read. When any command is ls, grep, a program not in
+ * READ_ONLY_PROGRAMS or a pathed program, it is walked too, whatever the flags say: these
+ * may read or write below it without naming a path. Every walked root (named operands,
+ * redirect targets, the working folder) is "refused" when a refused entry lies below it,
+ * gets each nested folder rule as an extra path, and is "uncheckable" when a symlink below
+ * it leads (canonically) out of it, a folder below cannot be read, or it holds more than
+ * `walkLimit` (default WALK_LIMIT) entries: grep -R, ls -L and cp -L follow links. Links
+ * that stay inside the root are fine. The check is conservative, not a guarantee.
+ *
  * A command list in which any command but the last writes is refused whole as
  * parse "error" (so UNCHECKABLE): an earlier write can change what later paths mean.
  * A redirect to exactly /dev/null records no path and does not count as a write.
  */
-export function resolveBash(command: string, ctx: PathContext & { pathDirs: readonly string[] }): Resolved {
+export function resolveBash(command: string, ctx: PathContext & { pathDirs: readonly string[]; walkLimit?: number }): Resolved {
   const refusal: Resolved = { paths: [], programs: [], parse: "error", readOnly: false };
   const parsed = parseBash(command);
   if ("error" in parsed) {
@@ -375,6 +384,8 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
   if (parsed.commands.slice(0, -1).some(writes)) {
     return refusal;
   }
+  // bash's walkers can follow symlinks (grep -R, ls -L, cp -L): every walked root has its links checked.
+  const subtree = { links: { limit: ctx.walkLimit ?? WALK_LIMIT } };
   const cwdPath = resolvePathArg(".", "read", ctx);
   const paths: ResolvedPath[] = [cwdPath];
   const programs: ResolvedProgram[] = [];
@@ -386,7 +397,7 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
       return;
     }
     const p = resolvePathArg(arg, need, ctx);
-    paths.push(...(p.at === "uncheckable" ? [p] : withSubtree(resolve(ctx.cwd, arg), p, ctx)));
+    paths.push(...(p.at === "uncheckable" ? [p] : withSubtree(resolve(ctx.cwd, arg), p, ctx, subtree)));
   };
   const looksLikePath = (v: string): boolean => v.includes("/") || v.startsWith(".") || v.startsWith("~") || existsHere(ctx.cwd, v);
   /** The value attached to an option: unjudgeable for a program that may write, a read path when it looks like one otherwise. */
@@ -450,7 +461,7 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
     }
   }
   if (walks) {
-    const sub = withSubtree(ctx.cwd, cwdPath, ctx);
+    const sub = withSubtree(ctx.cwd, cwdPath, ctx, subtree);
     paths.push(...(sub[0] === cwdPath ? sub.slice(1) : sub));
   }
   return { paths, programs, parse: "ok", readOnly };

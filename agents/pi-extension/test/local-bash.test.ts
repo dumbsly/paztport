@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLocalRules, type InfluenceClass } from "@paztport/path-attest";
 import { decideLocal } from "../src/local/decide.ts";
 import { parseBash, resolveBash, PINNED_PATH, READ_ONLY_PROGRAMS } from "../src/local/bash.ts";
-import type { PathContext } from "../src/local/paths.ts";
+import { resolveFileTool, type PathContext } from "../src/local/paths.ts";
 
 const rules = parseLocalRules({
   v: 1,
@@ -445,3 +445,87 @@ describe("resolveBash implicit working folder", () => {
   });
 });
 
+
+describe("resolveBash symlinks below a walked root", () => {
+  const linkRules = parseLocalRules({
+    v: 1,
+    folders: [
+      { path: ".", access: ["read"] },
+      { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      { path: "notes", access: ["read", "write"], destination: "private" },
+    ],
+    programs: rules.programs,
+  });
+  let n = 0;
+  /** A fresh workspace: website/README.md, notes/a, refused notes/secret/k, then `setup` adds links. */
+  const workspace = (setup: (ws: string) => void) => {
+    const ws = join(base, `links${n++}`);
+    for (const d of [join(ws, "website"), join(ws, "notes", "secret")]) mkdirSync(d, { recursive: true });
+    writeFileSync(join(ws, "website", "README.md"), "x");
+    writeFileSync(join(ws, "notes", "a"), "x");
+    writeFileSync(join(ws, "notes", "secret", "k"), "KEY=s3cret");
+    setup(ws);
+    const root = { ...ctx, cwd: ws, workspace: ws, rules: linkRules, refused: [join(ws, "notes", "secret")] };
+    return { root, site: { ...root, cwd: join(ws, "website") } };
+  };
+  const decide = (cmd: string, c: PathContext & { pathDirs: readonly string[]; walkLimit?: number }) =>
+    decideLocal({ routeAllowed: true, resolved: resolveBash(cmd, c), rules: linkRules, classes: new Set() });
+
+  it("aLinkOutOfTheWalkedRootMakesItUncheckable", () => {
+    const { root, site } = workspace((ws) => symlinkSync("../notes/secret", join(ws, "website", "lnk")));
+    for (const cmd of ["grep -rS KEY", "grep -RS KEY", "ls -RL", "grep -rS KEY .", "cp -rL . x"]) {
+      expect(resolveBash(cmd, site).paths, cmd).toContainEqual({ need: expect.any(String), at: "uncheckable" });
+      expect(decide(cmd, site), cmd).toBe("UNCHECKABLE");
+    }
+    // named roots and redirect targets walk too
+    expect(decide("grep -rS KEY website", root)).toBe("UNCHECKABLE");
+    expect(resolveBash("grep -rS KEY website", root).paths).toContainEqual({ need: "read", at: "uncheckable" });
+    expect(resolveBash("cp -r notes/a website", root).paths).toContainEqual({ need: "write", at: "uncheckable" });
+    // a plain read that does not walk keeps its old answer
+    expect(decide("cat README.md", site)).toBe("OK");
+  });
+  it("anyLinkLeavingTheRootCountsWhereverItPoints", () => {
+    const targets = (ws: string) => [join(ws, "notes", "a"), "/etc", join(ws, "nowhere")];
+    for (let i = 0; i < 3; i++) {
+      const { site } = workspace((ws) => {
+        mkdirSync(join(ws, "website", "deep", "er"), { recursive: true });
+        symlinkSync(targets(ws)[i] as string, join(ws, "website", "deep", "er", "l"));
+      });
+      expect(decide("grep -rS KEY", site), String(i)).toBe("UNCHECKABLE");
+    }
+  });
+  it("aLinkThatStaysBelowTheRootIsFine", () => {
+    const { site } = workspace((ws) => {
+      mkdirSync(join(ws, "website", "b"));
+      writeFileSync(join(ws, "website", "b", "f"), "x");
+      symlinkSync(join(ws, "website", "b"), join(ws, "website", "a"));
+      symlinkSync(".", join(ws, "website", "b", "self"));
+    });
+    expect(resolveBash("grep -rS KEY", site).paths).toEqual([{ need: "read", at: "website" }]);
+    expect(decide("grep -rS KEY", site)).toBe("OK");
+    expect(decide("ls -RL a", site)).toBe("OK");
+  });
+  it("moreEntriesThanTheBoundOrAnUnreadableFolderIsUncheckable", () => {
+    const { site } = workspace((ws) => {
+      writeFileSync(join(ws, "website", "f1"), "x");
+      writeFileSync(join(ws, "website", "f2"), "x");
+    });
+    expect(decide("grep -rS KEY", { ...site, walkLimit: 3 })).toBe("OK");
+    expect(decide("grep -rS KEY", { ...site, walkLimit: 2 })).toBe("UNCHECKABLE");
+    expect(decide("grep -rS KEY", site)).toBe("OK");
+    const { site: locked } = workspace((ws) => mkdirSync(join(ws, "website", "locked"), { mode: 0o000 }));
+    try {
+      if (process.getuid?.() !== 0) {
+        expect(decide("grep -rS KEY", locked)).toBe("UNCHECKABLE");
+      }
+    } finally {
+      chmodSync(join(locked.cwd, "locked"), 0o755);
+    }
+  });
+  it("pisOwnSearchToolsKeepTheirAnswer", () => {
+    const { site } = workspace((ws) => symlinkSync("../notes/secret", join(ws, "website", "lnk")));
+    const r = resolveFileTool("grep", { pattern: "KEY", path: "." }, site);
+    expect(r).toEqual({ paths: [{ need: "read", at: "website" }], programs: [], parse: "ok", readOnly: true });
+    expect(decideLocal({ routeAllowed: true, resolved: r, rules: linkRules, classes: new Set() })).toBe("OK");
+  });
+});

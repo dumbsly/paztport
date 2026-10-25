@@ -4,7 +4,7 @@
 // Disk-aware resolution of the paths pi's file tools are about to touch. When in
 // doubt the answer is "uncheckable" or "outside", never a guess.
 
-import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { LocalRules } from "@paztport/path-attest";
 import type { Need, Resolved, ResolvedPath } from "./decide.ts";
@@ -181,12 +181,60 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
   return { need, at: "outside" };
 }
 
+/** How many entries a walk for links may visit before the root counts as uncheckable. */
+export const WALK_LIMIT = 20_000;
+
+/**
+ * Whether every symlink below the canonical directory `root` points (canonically) inside it.
+ * Walks with lstat and never follows a link. False when a link leads out or cannot be resolved,
+ * a folder cannot be read, or there are more than `limit` entries.
+ */
+function linksStayInside(root: string, limit: number): boolean {
+  let seen = 0;
+  const pending: string[] = [];
+  try {
+    if (lstatSync(root).isDirectory()) {
+      pending.push(root);
+    }
+  } catch (e) {
+    // nothing there yet (a path about to be written): nothing to walk
+    const code = (e as NodeJS.ErrnoException).code;
+    return code === "ENOENT" || code === "ENOTDIR";
+  }
+  for (let dir = pending.pop(); dir !== undefined; dir = pending.pop()) {
+    try {
+      for (const name of readdirSync(dir)) {
+        if (++seen > limit) {
+          return false;
+        }
+        const entry = join(dir, name);
+        const st = lstatSync(entry);
+        if (st.isSymbolicLink()) {
+          if (!isUnder(canonical(entry), root)) {
+            return false;
+          }
+        } else if (st.isDirectory()) {
+          pending.push(entry);
+        }
+      }
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** `links`: the walker may follow symlinks (bash's grep -R, ls -L, cp -L), so check every link below the root. */
+export type SubtreeOptions = { links?: { limit: number } };
+
 /**
  * `base` (the resolution of `abs`) widened to everything below `abs`: a refused entry below
  * makes it "refused", a folder rule only reachable after folding makes it "uncheckable", and
- * every nested folder rule is added as an extra path with the same need.
+ * every nested folder rule is added as an extra path with the same need. With `links`, a
+ * symlink below that leads out of the root, an unreadable folder, or more entries than the
+ * limit also make it "uncheckable" (a base already "outside" or "refused" is not walked).
  */
-export function withSubtree(abs: string, base: ResolvedPath, ctx: PathContext): ResolvedPath[] {
+export function withSubtree(abs: string, base: ResolvedPath, ctx: PathContext, opts: SubtreeOptions = {}): ResolvedPath[] {
   const need = base.need;
   try {
     const cs = canonical(abs);
@@ -198,6 +246,9 @@ export function withSubtree(abs: string, base: ResolvedPath, ctx: PathContext): 
     }
     if (locs.some((l) => !isUnder(l.loc, cs) && isUnder(fold(l.loc), fold(cs)))) {
       // a folder rule lies below the root only after folding: its access and label cannot be judged
+      return [{ need, at: "uncheckable" }];
+    }
+    if (opts.links !== undefined && base.at !== "outside" && base.at !== "refused" && !linksStayInside(cs, opts.links.limit)) {
       return [{ need, at: "uncheckable" }];
     }
     const extra: ResolvedPath[] = [];
