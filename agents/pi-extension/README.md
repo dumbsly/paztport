@@ -119,8 +119,12 @@ sent.
   expired stamp, and don't last for the session; they come back as `Paztport refused this call:
   <CODE>`. **The wording only nudges the model.** Nothing makes the model end its turn or tell the
   user; it may retry or try something else. The refusal is the control: the refused call is not run,
-  whatever the model does next. Local failures, such as an unreachable server, a malformed
-  result, or no active run, come back as plain error text. A result that fails verification still
+  whatever the model does next. In production you would likely want more than a nudge: an automatic
+  pause on the first refusal that the model can't override, which stops the agent and hands control
+  to the user, who ends the session or chooses to continue it. Continuing would not clear what the
+  session has read, so writes the influence rule refuses stay refused. This proof of concept doesn't
+  pause; the model sees the refusal text and decides what to do next. Local failures, such as an
+  unreachable server, a malformed result, or no active run, come back as plain error text. A result that fails verification still
   reaches the model; it is recorded as `local-untrusted`.
 - **Details.** Paztport data goes in the tool result's `details`: the server, call id, rid, verdict
   and verification codes, the response's label classes, the session state, and influence **counts
