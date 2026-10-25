@@ -108,7 +108,8 @@ function userPrompt(v: unknown): string {
 /** The pi `--tools` value: a comma-separated list in which every entry names a tool of this scenario's server. */
 function parseTools(v: unknown, serverId: string): string {
   const text = nonEmpty(v, "tools");
-  const prefix = `mcp__${serverId}__`;
+  // pi names a tool mcp__<id>__<tool>, with every character outside [A-Za-z0-9_] replaced by "_"
+  const prefix = `mcp__${serverId}__`.replace(/[^A-Za-z0-9_]/g, "_");
   for (const entry of text.split(",")) {
     if (!entry.startsWith(prefix)) bad("tools", `every entry must start with ${prefix} (got "${entry}")`);
   }

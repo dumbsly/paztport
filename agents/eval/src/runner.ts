@@ -178,8 +178,9 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     "--no-session",
     "--mode", "json",
     // Nothing outside the run folder reaches the model: no AGENTS.md/CLAUDE.md from the cwd or its parents,
-    // no skills or prompt templates, and no user mcp.json (our extension starts the only MCP server).
-    "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp",
+    // no skills or prompt templates, no user mcp.json and no discovered extensions. The explicit -e extension
+    // still loads (checked against pi 1.4.0's --help) and starts the only MCP server.
+    "--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp", "--no-extensions",
     ...(spec.mode === "warning" ? ["--append-system-prompt", resolve(spec.warning!.file)] : []),
     "--",
     scenario.userPrompt,
@@ -235,8 +236,9 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   let escalation: NodeJS.Timeout | undefined;
   const terminate = (why: "timeout" | "abort" | "fault") => {
     if (why === "fault") faulted = true;
-    if (reason !== null || exited) return;
-    if (why !== "fault") reason = why;
+    else if (reason === null && !exited) reason = why;
+    // one SIGTERM and one SIGKILL timer per run, however many faults or signals follow
+    if (escalation !== undefined || exited) return;
     killGroup("SIGTERM");
     escalation = setTimeout(() => killGroup("SIGKILL"), KILL_GRACE_MS);
   };

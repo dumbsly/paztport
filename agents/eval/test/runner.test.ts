@@ -36,7 +36,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
   // no process started by a test may outlive it
   const ps = execFileSync("ps", ["-axo", "command"], { encoding: "utf8" });
-  const leaked = ps.split("\n").filter((l) => l.startsWith(`${process.execPath} -e `) && l.includes("paztport-stub-grandchild"));
+  const leaked = ps.split("\n").filter((l) => l.startsWith(`${process.execPath} `) && l.includes(tmp) && (l.includes("paztport-stub-grandchild") || l.includes("stub-pi.ts")));
   expect(leaked).toEqual([]);
 });
 
@@ -122,7 +122,7 @@ describe("runOnce", () => {
       expect(argv).toContain("--no-session");
       expect(flagValue(argv, "--mode")).toBe("json");
       // nothing outside the run folder reaches the model: no context files, skills, templates or user MCP config
-      for (const f of ["--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp"]) expect(argv, `${mode} ${f}`).toContain(f);
+      for (const f of ["--no-context-files", "--no-skills", "--no-prompt-templates", "--no-mcp", "--no-extensions"]) expect(argv, `${mode} ${f}`).toContain(f);
       expect(argv.at(-1)).toBe(scenario.userPrompt);
       expect(argv.at(-2)).toBe("--");
       if (want.warning) expect(flagValue(argv, "--append-system-prompt")).toBe(warningFile);
@@ -292,6 +292,21 @@ describe("runOnce", () => {
     expect(r.status).toBe("error");
     expect(readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8")).toContain("runner:");
   });
+
+  it("repeatedFaultsLeaveNoPendingEscalationTimers", async () => {
+    // pi ignores SIGTERM and the events file stays broken, so the poller faults every 100 ms. One SIGTERM and
+    // one SIGKILL timer is all a run may use; nothing may keep signalling the process group once it resolves.
+    const c = mk({}, "break-events-ignore");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("error");
+    const kill = vi.spyOn(process, "kill");
+    try {
+      await new Promise((done) => setTimeout(done, 800));
+      expect(kill.mock.calls.filter(([pid]) => typeof pid === "number" && pid < 0)).toEqual([]);
+    } finally {
+      kill.mockRestore();
+    }
+  }, 20_000);
 
   it("aFileSystemErrorOnTheEventsLogIsAnErrorResult", async () => {
     const c = mk({}, "break-events");

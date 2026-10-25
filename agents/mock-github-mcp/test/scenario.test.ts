@@ -131,6 +131,13 @@ describe("loadScenario validation", () => {
     expect(s.tools).toBe("mcp__github__get_file_contents,mcp__github__list_issues");
   });
 
+  it("toolsAreComparedWithTheSanitisedServerId", () => {
+    // pi names tools mcp__<id>__<tool> with characters outside [A-Za-z0-9_] replaced by "_"
+    const ok = loadScenario(copyScenario((j) => ((j.serverId = "my-server"), (j.tools = "mcp__my_server__*"))));
+    expect(ok.tools).toBe("mcp__my_server__*");
+    expect(() => loadScenario(copyScenario((j) => ((j.serverId = "my-server"), (j.tools = "mcp__my-server__*"))))).toThrow(/tools/);
+  });
+
   it("missingFolderOrJsonIsClearError", () => {
     expect(() => loadScenario(join(tmp, "does-not-exist"))).toThrow(/scenario\.json/);
     const dir = join(tmp, "notjson");

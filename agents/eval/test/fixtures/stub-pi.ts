@@ -12,6 +12,7 @@
 //   hang-detached-ignore  the same, and the stub ignores SIGTERM
 //   split       appends one events line in two writes, cut inside a multi-byte character, then prints
 //   break-transcript / break-events  replace that run file with a directory, then print
+//   break-events-ignore   as break-events, but ignores SIGTERM and then hangs
 //   logs        appends a line to the extension's events log and the server's outcome log, then prints
 
 import { spawn } from "node:child_process";
@@ -29,7 +30,14 @@ function flag(name: string): string {
   return i < 0 ? "" : (process.argv[i + 1] ?? "");
 }
 
-if (behavior === "fail") {
+if (behavior === "break-events-ignore") {
+  process.on("SIGTERM", () => {});
+  const file = join(dirname(flag("--paztport-config")), "events.jsonl");
+  rmSync(file);
+  mkdirSync(file);
+  console.log(JSON.stringify({ type: "session" }));
+  setInterval(() => {}, 1000);
+} else if (behavior === "fail") {
   console.error("stub: failing");
   process.exit(3);
 } else if (behavior.startsWith("hang")) {
