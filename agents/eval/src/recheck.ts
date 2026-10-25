@@ -149,6 +149,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       outcome: run.outcome,
       records: usableRecords(join(runDir, "outcome.jsonl")),
       evidencePath,
+      eventsPath: join(runDir, "events.jsonl"),
       report: run.evidenceFile ? reports.get(file) : undefined,
       expectedPin: pin ?? "",
     });

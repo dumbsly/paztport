@@ -235,7 +235,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
     const records = new Map<string, OutcomeRecord[] | null>();
 
     const assess = (r: StoredRun, report: VerifyReport | undefined): RunVerify =>
-      checkRun({ mode: r.mode, outcome: r.outcome, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), report, expectedPin });
+      checkRun({ mode: r.mode, outcome: r.outcome, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), eventsPath: join(out, r.dir, "events.jsonl"), report, expectedPin });
     const tally = () => {
       const t = { ok: 0, failed: 0, none: 0, notRecorded: 0 };
       for (const r of results.runs) {

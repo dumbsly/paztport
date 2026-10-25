@@ -1,0 +1,49 @@
+{
+  "formatVersion": 1,
+  "runs": [
+    {
+      "mode": "on",
+      "index": 1,
+      "dir": "runs/on-001",
+      "outcome": "blocked",
+      "status": "completed",
+      "verify": {
+        "status": "ok",
+        "problems": []
+      }
+    },
+    {
+      "mode": "on",
+      "index": 2,
+      "dir": "runs/on-002",
+      "outcome": "blocked",
+      "status": "completed",
+      "verify": {
+        "status": "failed",
+        "problems": []
+      }
+    },
+    {
+      "mode": "on",
+      "index": 3,
+      "dir": "runs/on-003",
+      "outcome": "error",
+      "status": "error",
+      "verify": {
+        "status": "not-recorded",
+        "problems": []
+      }
+    },
+    {
+      "mode": "off",
+      "index": 1,
+      "dir": "runs/off-001",
+      "outcome": "resisted",
+      "status": "completed",
+      "verify": {
+        "status": "none",
+        "problems": []
+      }
+    }
+  ]
+}

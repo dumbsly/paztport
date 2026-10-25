@@ -3,14 +3,16 @@
 
 // Usage: node eval/src/verify-main.ts <results-dir | evidence.jsonl>
 // Exit code: 0 if no file failed, 1 if any did, 2 on a usage error. A file with no signed records (only the
-// unsigned run record: the run ended before a session, or the signed records were cut away) is reported as
+// unsigned run record, and the client record written at session start: the run ended before a session, or
+// the signed records were cut away) is reported as
 // NOTHING TO CHECK, which is neither a pass nor a failure. Runs with Paztport off write no evidence file at
 // all. On its own a single file can't tell an on-run cut down to its run record from a run that ended before
 // a session; a results folder with its results.json can, because it says which runs had Paztport on and
 // whether their evidence was checked (see verifyResultsDir). In folder mode verify also
-// reads each run's outcome log: a run whose log shows signed calls must have signed evidence, whatever
-// results.json says, and an outcome log that exists but can't be read fails. It does not compare each
-// evidence record with the outcome log or re-score the run.
+// reads each run's outcome log and events log: a run whose outcome log shows signed calls, or whose events
+// log shows local tool calls made during a run, must have signed evidence, whatever results.json says, and
+// a log that exists but can't be read fails. It does not compare each evidence record with the logs or
+// re-score the run. Local refusals are signed, unlike the server's, and the output says which is which.
 
 import { statSync } from "node:fs";
 import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
@@ -20,9 +22,12 @@ function line(r: VerifyReport): string {
   if (r.nothingToCheck) return `NOTHING TO CHECK ${r.file} (no signed records: Paztport was off, or the run ended before a session)`;
   const pin = r.pins.length > 0 ? ` pin ${r.pins.join(",")}` : "";
   if (r.ok) {
-    const refused = r.items.filter((i) => i.result === "REFUSED").length;
-    // A server refusal carries no signature, so verify reports it as it is found and says so.
-    const note = refused > 0 ? `, ${refused} REFUSED (server refusal; refusals are not signed)` : "";
+    const refused = r.items.filter((i) => i.result === "REFUSED" && i.type !== "local").length;
+    const local = r.items.filter((i) => i.result === "REFUSED" && i.type === "local").length;
+    // A server refusal carries no signature, so verify reports it as it is found and says so. A local
+    // refusal is signed by the client and its verdict re-derived from the signed rules, so it says that.
+    const server = refused === 0 ? "" : `, ${refused} REFUSED (server refusal; ${local > 0 ? "not signed" : "refusals are not signed"})`;
+    const note = server + (local > 0 ? `, ${local} REFUSED (local refusal; signed)` : "");
     return `OK  ${r.file} (${r.items.length} items${note})${pin}`;
   }
   const first = r.items.find((i) => !NOT_FAILURES.includes(i.result))!;

@@ -1,0 +1,55 @@
+{
+  "file": "<fixture>/runs/on-001/evidence.jsonl",
+  "ok": true,
+  "items": [
+    {
+      "line": 1,
+      "type": "session",
+      "result": "OK"
+    },
+    {
+      "line": 2,
+      "type": "run",
+      "result": "OK"
+    },
+    {
+      "line": 3,
+      "type": "call",
+      "callId": "toolu_a",
+      "result": "OK"
+    },
+    {
+      "line": 4,
+      "type": "response",
+      "callId": "toolu_a",
+      "result": "OK"
+    },
+    {
+      "line": 5,
+      "type": "call",
+      "callId": "toolu_c",
+      "result": "OK"
+    },
+    {
+      "line": 6,
+      "type": "response",
+      "callId": "toolu_c",
+      "result": "OK"
+    },
+    {
+      "line": 7,
+      "type": "call",
+      "callId": "toolu_d",
+      "result": "OK"
+    },
+    {
+      "line": 8,
+      "type": "response",
+      "callId": "toolu_d",
+      "result": "REFUSED"
+    }
+  ],
+  "pins": [
+    "MGzlE8o1uqwiwIMj"
+  ]
+}
