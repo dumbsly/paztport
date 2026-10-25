@@ -31,7 +31,7 @@ import { McpClient } from "@earendil-works/pi-mcp";
 import { META_ATTESTATION, META_CHAIN, META_INFLUENCE, META_PROOF } from "@paztport/path-attest";
 import { loadConfig } from "../src/config.ts";
 import paztport from "../src/index.ts";
-import { CANARY, githubArgs, records, setupDemo } from "./helpers/demo.ts";
+import { CANARY, githubArgs, records, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 let tmp: string;
 let demo: string;
@@ -200,7 +200,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect(log.every((r) => r.rid === log[0]!.rid && typeof r.rid === "string")).toBe(true);
     const refused = toolResults(run).at(-1)!;
     expect(refused).toMatchObject({ toolName: "mcp__github__create_branch", isError: true });
-    expect(textOf(refused)).toBe("Paztport refused this call: INFLUENCE_DENIED");
+    expect(textOf(refused)).toBe(UNSAFE_TEXT);
   });
 
   it("sessionScenarioA_offLeaks", async () => {
@@ -279,7 +279,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
       ["create_branch", "INFLUENCE_DENIED"],
     ]);
     expect(log[2]!.rid).not.toBe(log[0]!.rid);
-    expect(textOf(toolResults(run).at(-1)!)).toBe("Paztport refused this call: INFLUENCE_DENIED");
+    expect(textOf(toolResults(run).at(-1)!)).toBe(UNSAFE_TEXT);
   });
 
   it("modelNeverSeesMeta", async () => {
@@ -342,6 +342,6 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     const [issues, notes, refused] = toolResults(run);
     expect(textOf(issues!)).toContain("Typo in README");
     expect(textOf(notes!)).toContain(CANARY);
-    expect(textOf(refused!)).toBe("Paztport refused this call: INFLUENCE_DENIED");
+    expect(textOf(refused!)).toBe(UNSAFE_TEXT);
   });
 });

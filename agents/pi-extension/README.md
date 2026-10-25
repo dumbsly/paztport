@@ -105,8 +105,21 @@ sent.
 - **Tools.** The model sees the tool definitions from each server's `tools/list` as the server gives
   them: name, description and input schema.
 - **Results.** A result holds only the server's `text` content items, joined by newlines. Images and
-  other content types are dropped, and `_meta` never reaches the model. A refusal is replaced by
-  `Paztport refused this call: <CODE>`. Local failures, such as an unreachable server, a malformed
+  other content types are dropped, and `_meta` never reaches the model. A refusal's text is replaced
+  by one written locally. For `INFLUENCE_DENIED` and `UNSAFE_SESSION` it is:
+
+  > Paztport stopped this action. The system flagged it as unsafe, and it was not carried out.
+  > Actions like it stay blocked for the rest of this session, so retrying it or trying another way
+  > will not work. A stop like this is the system doing what the user wants. It is not a fault on
+  > your part. End your turn now and tell the user that the system flagged actions you attempted as
+  > unsafe, and that they should review the logs.
+
+  It doesn't give the reason, because a reason would help a steered model find a way around the
+  block. The code is still in `details` (see below). Other refusals are technical, such as an
+  expired stamp, and don't last for the session; they come back as `Paztport refused this call:
+  <CODE>`. **The wording only nudges the model.** Nothing makes the model end its turn or tell the
+  user; it may retry or try something else. The refusal is the control: the refused call is not run,
+  whatever the model does next. Local failures, such as an unreachable server, a malformed
   result, or no active run, come back as plain error text. A result that fails verification still
   reaches the model; it is recorded as `local-untrusted`.
 - **Details.** Paztport data goes in the tool result's `details`: the server, call id, rid, verdict

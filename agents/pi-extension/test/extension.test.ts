@@ -20,7 +20,7 @@ import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
-import { CANARY, DOCS, githubArgs, records, setupDemo, STUB } from "./helpers/demo.ts";
+import { CANARY, DOCS, githubArgs, records, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
 type Result = AgentToolResult<CallOutcome["details"]>;
@@ -315,7 +315,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
 
     const refused = await pi.execute("mcp__github__create_branch", { ...LIST, branch: "leak" }, id());
     expect(refused.isError).toBe(true);
-    expect(refused.content).toEqual([{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }]);
+    expect(refused.content).toEqual([{ type: "text", text: UNSAFE_TEXT }]);
     expect(refused.details.verdict).toBe("INFLUENCE_DENIED");
     expect(refused.details.refused).toBe(true);
 
