@@ -3,10 +3,11 @@
 
 // Usage: node eval/src/verify-main.ts <results-dir | evidence.jsonl>
 // Exit code: 0 if no file failed, 1 if any did, 2 on a usage error. A file with no signed records (only the
-// unsigned run record: Paztport was off, or the run ended before a session) is reported as NOTHING TO CHECK,
-// which is neither a pass nor a failure. On its own a single file can't tell an off run from an on-run cut
-// down to its run record; a results folder with its results.json can, because it says which runs had
-// Paztport on and whether their evidence was checked (see verifyResultsDir). In folder mode verify also
+// unsigned run record: the run ended before a session, or the signed records were cut away) is reported as
+// NOTHING TO CHECK, which is neither a pass nor a failure. Runs with Paztport off write no evidence file at
+// all. On its own a single file can't tell an on-run cut down to its run record from a run that ended before
+// a session; a results folder with its results.json can, because it says which runs had Paztport on and
+// whether their evidence was checked (see verifyResultsDir). In folder mode verify also
 // reads each run's outcome log: a run whose log shows signed calls must have signed evidence, whatever
 // results.json says. It does not compare each evidence record with the outcome log or re-score the run.
 

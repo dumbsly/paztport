@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -375,6 +375,51 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(existsSync(join(specs[0]!.agentDir, "models.json"))).toBe(true);
   });
 
+  const jsonReply = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
+  const ollamaFetch = (async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.endsWith("/api/version")) return jsonReply({ version: "0.12.3" });
+    if (u.endsWith("/api/tags")) return jsonReply({ models: [{ name: "other:1b", digest: "ffff" }, { name: "qwen3:4b", model: "qwen3:4b", digest: "sha256-abc123" }] });
+    throw new Error("unexpected " + u);
+  }) as typeof fetch;
+
+  it("environmentIsRecordedAndShownInTheSummary", async () => {
+    const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: ollamaFetch, log: quiet });
+    expect(r.environment).toEqual({
+      os: { platform: platform(), release: release() },
+      arch: arch(),
+      cpu: cpus()[0]?.model ?? null,
+      memoryGb: Math.round(totalmem() / 2 ** 30),
+      node: process.version,
+      ollama: { version: "0.12.3", digest: "sha256-abc123" },
+    });
+    expect(readResults(o.outDir).environment).toEqual(r.environment);
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toContain(`- Machine: ${platform()} ${release()}, ${arch()}`);
+    expect(md).toContain(`${Math.round(totalmem() / 2 ** 30)} GB memory`);
+    expect(md).toContain("- Ollama: version 0.12.3, model digest sha256-abc123");
+  });
+
+  it("aFailedOllamaLookupIsRecordedAsNullAndDoesNotStopTheEval", async () => {
+    const down = (async () => {
+      throw new Error("refused");
+    }) as typeof fetch;
+    const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: down, log: quiet });
+    expect(r.environment!.ollama).toEqual({ version: null, digest: null });
+    expect(r.runs).toHaveLength(1);
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("- Ollama: version not recorded, model digest not recorded");
+  });
+
+  it("anotherProviderHasNoOllamaEntry", async () => {
+    const o = opts({ runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: stub().fn, fetch: ollamaFetch, log: quiet });
+    expect(r.environment).toBeDefined();
+    expect(r.environment).not.toHaveProperty("ollama");
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).not.toContain("- Ollama:");
+  });
+
   it("otherProvidersNeedAnAgentDir", async () => {
     const o = opts({ agentDir: undefined });
     await expect(runEval(o, { runOnce: stub().fn, log: quiet })).rejects.toThrow(/--agent-dir/);
@@ -719,6 +764,8 @@ describe("verification", { timeout: 120_000 }, () => {
     // folder mode checks signed calls against signed evidence, and says what it still does not do
     expect(md).toMatch(/every run whose outcome log shows signed calls has signed evidence/);
     expect(md).toMatch(/does not compare each evidence record with the outcome log, re-score the runs/);
+    // the eval scores each run as it finishes and cross-checks the folder at the end
+    expect(md).toMatch(/this eval scored each run when it finished and cross-checked the whole folder at the end/);
     expect(md).toMatch(/server key fingerprint/);
   });
 
@@ -754,6 +801,14 @@ describe("eval-main", { timeout: 60_000 }, () => {
     for (const argv of [[], ["--model", "nomodel"], ["--model", "a/b", "--runs", "0"], ["--model", "a/b", "--runs", "x"], ["--model", "a/b", "--quick", "--runs", "5"], ["--model", "a/b", "--modes", "off,nope"], ["--model", "a/b", "--timeout", "-1"], ["--model", "a/b", "--bogus"]]) {
       expect(() => parseCli(argv, {}), argv.join(" ")).toThrow();
     }
+  });
+
+  it("parseCliRefusesMistralsHostedApi", () => {
+    for (const m of ["mistral/mistral-large", "Mistral/x"]) {
+      expect(() => parseCli(["--model", m, "--agent-dir", "/a"], {}), m).toThrow("Mistral's hosted API is not permitted for this eval.");
+    }
+    // a local model whose name contains "mistral" is another matter
+    expect(parseCli(["--model", "ollama/mistral:7b"], {}).model).toBe("ollama/mistral:7b");
   });
 
   it("theCommandIsRecordedAsTyped", () => {

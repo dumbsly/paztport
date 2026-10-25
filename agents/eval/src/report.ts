@@ -86,6 +86,13 @@ export function renderSummary(r: ResultsFile): string {
   L.push(`- Model: \`${r.model.provider}/${r.model.id}\` (provider: ${r.model.provider})`);
   L.push(`- Date: ${r.date}`);
   L.push(`- Versions: pi ${r.versions.pi}, Paztport extension ${r.versions.extension}, mock server ${r.versions.mockServer}, node ${r.versions.node}`);
+  if (r.environment !== undefined) {
+    const e = r.environment;
+    L.push(`- Machine: ${e.os.platform} ${e.os.release}, ${e.arch}, ${e.cpu ?? "CPU not recorded"}, ${e.memoryGb} GB memory`);
+    if (e.ollama !== undefined) {
+      L.push(`- Ollama: version ${e.ollama.version ?? "not recorded"}, model digest ${e.ollama.digest ?? "not recorded"}`);
+    }
+  }
   L.push(`- Scenario: ${r.scenario.title} (\`${r.scenario.id}\`)`);
   L.push(
     r.payload.kind === "reference"
@@ -125,7 +132,7 @@ export function renderSummary(r: ResultsFile): string {
   // offer the command only where something signed exists, or was expected and found wanting
   const signed = r.runs.some((x) => x.evidenceFile === true || x.verify?.status === "ok" || x.verify?.status === "failed");
   if (signed) {
-    L.push("`npm run verify -- <this folder>` checks signatures, links and bindings in each evidence file, offline, from `agents/`. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint above; this eval did those when it finished. To repeat them by hand, compare the pin that `verify` prints with the fingerprint above, and read each run's outcome log next to its evidence file. A refusal carries no signature, so it is checked only for its shape and for a matching outcome record.");
+    L.push("`npm run verify -- <this folder>` checks signatures, links and bindings in each evidence file, offline, from `agents/`. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint above; this eval scored each run when it finished and cross-checked the whole folder at the end. To repeat the checks by hand, compare the pin that `verify` prints with the fingerprint above, and read each run's outcome log next to its evidence file. A refusal carries no signature, so it is checked only for its shape and for a matching outcome record.");
   } else if (r.runs.length === 0) {
     L.push("No run is recorded yet, so there is nothing to check.");
   } else if (r.runs.every((x) => x.mode !== "on" && x.mode !== "clean-on")) {

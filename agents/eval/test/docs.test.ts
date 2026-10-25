@@ -84,6 +84,11 @@ describe("build your own evaluation", { timeout: 60_000 }, () => {
     expect(readFileSync(join(out, "summary.md"), "utf8")).toContain("custom (not the reference text)");
   });
 
+  it("theGuideSaysTheServerNameIsFixed", () => {
+    expect(EVAL_README).toContain("Keep `serverId` as `github` and `tools` as `mcp__github__*`");
+    expect(EVAL_README).toContain("`mode` | string | Required.");
+  });
+
   it("theGuideNamesTheRulesTheLoaderEnforces", () => {
     for (const phrase of ["mcp__<serverId>__", 'must not start with "@"', "inside the scenario folder"]) {
       expect(EVAL_README).toContain(phrase);

@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameS
 import { basename, join, resolve } from "node:path";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
+import { collectEnvironment, type Environment } from "./environment.ts";
 import { checkRun, hasEvidenceFile, type RunVerify } from "./crosscheck.ts";
 import { checkModelAvailable, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { renderSummary } from "./report.ts";
@@ -39,6 +40,8 @@ export type ResultsFile = {
   payload: { kind: "reference" | "custom"; sha256: string };
   model: ModelRef;
   versions: { pi: string; extension: string; mockServer: string; node: string };
+  /** The machine and, for an ollama model, Ollama's version and the model's digest. Absent in folders written before it was recorded. */
+  environment?: Environment;
   tools: string;
   warning?: { source: string; url: string; retrieved: string; placement: string; note?: string };
   runs: StoredRun[];
@@ -56,6 +59,8 @@ export type ResultsFile = {
 export type EvalDeps = {
   runOnce?: typeof runOnce;
   checkModel?: typeof checkModelAvailable;
+  /** Used to ask Ollama for its version and the model's digest. */
+  fetch?: typeof fetch;
   signal?: AbortSignal;
   log?: (s: string) => void;
 };
@@ -188,6 +193,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
         mockServer: packageVersion("mock-github-mcp"),
         node: process.version,
       },
+      environment: await collectEnvironment(model, deps.fetch),
       tools: scenario.tools,
       ...(warning !== undefined ? { warning } : {}),
       runs: [],

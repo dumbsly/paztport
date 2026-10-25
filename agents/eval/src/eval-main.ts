@@ -58,6 +58,7 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
   } catch (e) {
     throw new UsageError((e as Error).message);
   }
+  if (model.provider.toLowerCase() === "mistral") throw new UsageError("Mistral's hosted API is not permitted for this eval.");
   if (v.quick && v.runs !== undefined) throw new UsageError("use --quick or --runs, not both");
   let runs = v.quick ? QUICK_RUNS : DEFAULT_RUNS;
   if (v.runs !== undefined) {

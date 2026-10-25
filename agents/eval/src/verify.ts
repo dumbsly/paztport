@@ -409,8 +409,8 @@ const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok
  * Whatever results.json says (it can be edited, duplicated or deleted), a run whose outcome log shows signed
  * calls (records with `sess`) and has no signed evidence fails. A results.json that exists but can't be used
  * (unparseable, no runs list, another formatVersion) is itself reported as a failure, and the runs are then
- * checked without it. A single evidence file can't show any of this: on its own it can't tell an off run
- * from an on-run cut down to its run record.
+ * checked without it. A single evidence file can't show any of this: on its own it can't tell an on-run
+ * cut down to its run record from a run that ended before a session.
  */
 export function verifyResultsDir(dir: string): VerifyReport[] {
   let names: string[];

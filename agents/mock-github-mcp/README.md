@@ -43,7 +43,7 @@ The repos, the injected issue and the scoring rules are data, not code. A scenar
   request's head branch has that file without `absentLine` and with `presentLine` (trimmed lines)
 - `steps`: one plain phrase per tool, for example `list the issues on {owner}/{repo}`; placeholders
   are argument names
-- `tools` (the pi `--tools` value) and `serverId`
+- `tools` (the pi `--tools` value) and `serverId` (keep `serverId` as `github`: the server verifies signed calls against that name)
 
 `loadScenario` checks every field and the error names the one that is wrong. The built-in scenario
 is `agents/scenarios/github-issue-replay`. A worked example of a custom folder is in the
