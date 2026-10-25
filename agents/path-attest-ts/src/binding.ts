@@ -25,7 +25,12 @@ export function bindMcpCall(toolName: string, toolCallId: string, args: unknown)
   return encode(sha256(utf8(`tools/call\n${toolName}\n${toolCallId}\n${canonicalize(args ?? {})}`)));
 }
 
-/** Local tool step binding: SHA-256(utf8("tool\n" + toolName + "\n" + JCS({ input, resolved }))), base64url. */
+/**
+ * Local tool step binding: SHA-256(utf8("tool\n" + toolName + "\n" + JCS({ input, resolved }))), base64url.
+ * The pi extension passes its signed decision as the third argument (it is named `resolved` in the hashed
+ * object): { callId, resolved, verdict, routeAllowed, rulesHash }, so the call id, what the gate resolved and
+ * what it decided are all covered by the stamp.
+ */
 export function bindLocalTool(toolName: string, input: unknown, resolved: unknown): string {
   if (toolName.includes("\n")) {
     throw new Error("toolName must not contain newlines");

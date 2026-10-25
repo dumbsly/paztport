@@ -41,13 +41,14 @@ import { decideLocal, type LocalVerdict, type Resolved } from "../../pi-extensio
  * 1. its fields are well formed (UNREADABLE), there is a verified client record (NO_CLIENT), and its
  *    (rid, call id) is new in the file (REPLAY);
  * 2. the origin stamp is svc "session", inst "pi-1" (BAD_ORIGIN), the step stamp is svc "pi", inst "pi-1",
- *    and the keyring's session and pi keys sign them (BAD_SIGNATURE);
+ *    and the keyring's session and pi keys sign them (BAD_SIGNATURE); a step signature already seen in the
+ *    file (the same signed step under another call id or rid) is REPLAY;
  * 3. the step follows the origin (BROKEN_LINK), both carry the record's rid (RID_MISMATCH) and an empty
  *    `sess` (SESSION_UNKNOWN);
  * 4. the step's time is the record's `now`, and the origin's time is the time of a run record for the rid
  *    (TIME_MISMATCH); the origin binds that run's prompt (PROMPT_MISMATCH);
- * 5. the step binds bindLocalTool(tool, input, { resolved, verdict, routeAllowed, rulesHash }), so the
- *    decision is signed as well as the call (BINDING_MISMATCH), and commits to the recorded influence
+ * 5. the step binds bindLocalTool(tool, input, { callId, resolved, verdict, routeAllowed, rulesHash }), so
+ *    the call id and the decision are signed as well as the call (BINDING_MISMATCH), and commits to the recorded influence
  *    (INFLUENCE_MISMATCH);
  * 6. `routeAllowed` is true exactly when there is a proof, and the proof proves `session/pi/local:<tool>`
  *    against the client root (BAD_PROOF); `rulesHash` is the client record's rules hash, or null when it has
@@ -158,10 +159,16 @@ function stampSigned(keyring: Record<string, string>, s: StampV2): boolean {
 }
 
 /**
- * Checks one local record (see the module comment). `seen` holds the (rid, call id) of every local record
- * read so far; `runOf` gives a rid's run, or undefined when it has none or its prompt is in dispute.
+ * What a file's local records have used so far: (rid, call id) pairs, and the signatures of verified step stamps.
+ * One per file.
  */
-export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: Set<string>): LocalResult {
+export type LocalSeen = { calls: Set<string>; steps: Set<string> };
+
+/**
+ * Checks one local record (see the module comment). `seen` is the file's LocalSeen, updated here; `runOf` gives
+ * a rid's run, or undefined when it has none or its prompt is in dispute.
+ */
+export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: LocalSeen): LocalResult {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
     return "UNREADABLE";
   }
@@ -186,10 +193,10 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
     return "NO_CLIENT";
   }
   const k = JSON.stringify([r.rid, r.callId]);
-  if (seen.has(k)) {
+  if (seen.calls.has(k)) {
     return "REPLAY";
   }
-  seen.add(k);
+  seen.calls.add(k);
   const [origin, step] = chain as [StampV2, StampV2];
   if (origin.svc !== "session" || origin.inst !== INST) {
     return "BAD_ORIGIN";
@@ -197,6 +204,11 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
   if (step.svc !== "pi" || step.inst !== INST || !stampSigned(client.keyring, origin) || !stampSigned(client.keyring, step)) {
     return "BAD_SIGNATURE";
   }
+  // the same signed step again, under another call id or rid
+  if (seen.steps.has(step.sig)) {
+    return "REPLAY";
+  }
+  seen.steps.add(step.sig);
   if (origin.prev !== "" || step.prev !== origin.sig) {
     return "BROKEN_LINK";
   }
@@ -216,7 +228,7 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
   const verdict = r.verdict as LocalVerdict;
   let bind: string;
   try {
-    bind = bindLocalTool(r.tool, r.input, { resolved: r.resolved, verdict, routeAllowed: r.routeAllowed, rulesHash: r.rulesHash });
+    bind = bindLocalTool(r.tool, r.input, { callId: r.callId, resolved: r.resolved, verdict, routeAllowed: r.routeAllowed, rulesHash: r.rulesHash });
   } catch {
     return "BINDING_MISMATCH";
   }

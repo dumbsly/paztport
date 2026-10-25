@@ -162,7 +162,8 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       eventsPath: join(runDir, "events.jsonl"),
       report: run.evidenceFile ? reports.get(file) : undefined,
       expectedPin: pin ?? "",
-      localTools: results.localTools === true,
+      // results.json can be edited: the scenario the folder is checked with also says whether it has local tools
+      localTools: results.localTools === true || localScenario !== undefined,
     });
     // what `npm run verify` fails on its own (an unreadable outcome log, for example) is a failure here too
     const vr = reports.get(file);

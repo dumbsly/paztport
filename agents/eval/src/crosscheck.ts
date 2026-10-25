@@ -228,11 +228,13 @@ export function reusedLocalSignatures(evidence: Map<string, string>): Map<string
   return out;
 }
 
-/** A run's check with more problems added: any problem fails it. */
+/** A run's check with more problems added: any problem fails it. A list already capped keeps one count of what it hides. */
 export function withProblems(v: RunVerify, more: string[] | undefined): RunVerify {
   if (more === undefined || more.length === 0) return v;
-  const problems = [...v.problems, ...more];
-  return { status: "failed", problems: problems.length > MAX_PROBLEMS ? [...problems.slice(0, MAX_PROBLEMS), `and ${problems.length - MAX_PROBLEMS} more`] : problems };
+  const tail = v.problems.length === MAX_PROBLEMS + 1 ? /^and (\d+) more$/.exec(v.problems[MAX_PROBLEMS]!) : null;
+  const shown = [...(tail !== null ? v.problems.slice(0, MAX_PROBLEMS) : v.problems), ...more];
+  const hidden = (tail !== null ? Number(tail[1]) : 0) + Math.max(0, shown.length - MAX_PROBLEMS);
+  return { status: "failed", problems: hidden > 0 ? [...shown.slice(0, MAX_PROBLEMS), `and ${hidden} more`] : shown };
 }
 
 /** Cross-checks the verified evidence against the outcome log. Returns the disagreements. */

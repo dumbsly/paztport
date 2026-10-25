@@ -56,8 +56,8 @@ function deepFreeze(v: unknown): void {
 /**
  * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
  * run is a signed client-mesh step: a v2 stamp with an empty `sess`, chained from the run's origin and
- * bound to the input and the decision (what the gate resolved, the verdict, whether the route is listed
- * and the rules' hash), written to the evidence file with the route proof and the influence. no-root mode has no rules to check against and refuses every call.
+ * bound to the input and the decision (the call id, what the gate resolved, the verdict, whether the route
+ * is listed and the rules' hash), written to the evidence file with the route proof and the influence. no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
@@ -118,9 +118,9 @@ export class LocalGate {
       const now = this.deps.now();
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
-      // the stamp binds the decision as well as the call: what was resolved, the verdict, whether the route
-      // is listed and which rules decided, so none of them can be changed in the evidence after signing
-      const bind = bindLocalTool(toolName, input, { resolved, verdict, routeAllowed, rulesHash: hash });
+      // the stamp binds the decision as well as the call: the call id, what was resolved, the verdict, whether
+      // the route is listed and which rules decided, so none of them can be changed in the evidence after signing
+      const bind = bindLocalTool(toolName, input, { callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash });
       const stamp = signStampV2({ svc: "pi", inst: INST, rid: run.rid, ts: now, sess: "", bind, infl: commitInfluence(entries), prev: origin.sig }, material.piKey);
       evidence.write({
         v: 1,

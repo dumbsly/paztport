@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { setupDemo } from "../../pi-extension/test/helpers/demo.ts";
-import { checkRun, reusedLocalSignatures } from "../src/crosscheck.ts";
+import { checkRun, reusedLocalSignatures, withProblems } from "../src/crosscheck.ts";
+import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { recheckResultsDir } from "../src/recheck.ts";
 import { verifyEvidence } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
@@ -128,6 +129,24 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
     expect(v.problems).toContain("evidence.jsonl has a local record for call l_leak (write) that the events log does not show");
   });
 
+  it("aSignedStepCopiedUnderANewCallIdFails", () => {
+    // review probe dupcall.ts, evidence and events edited to match
+    const v = check({
+      evidencePath: write(evidence, (rs) => rs.push({ ...structuredClone(localEvent(rs, "l_leak")), callId: "l_leak_dup" })),
+      eventsPath: write(events, (rs) => rs.push({ ...structuredClone(localEvent(rs, "l_leak")), callId: "l_leak_dup" })),
+    });
+    expect(v.status).toBe("failed");
+  });
+
+  it("extraProblemsKeepTheCountRight", () => {
+    const capped = { status: "failed" as const, problems: [...Array.from({ length: 10 }, (_, i) => `p${i}`), "and 5 more"] };
+    expect(withProblems(capped, ["x", "y"]).problems).toEqual([...Array.from({ length: 10 }, (_, i) => `p${i}`), "and 7 more"]);
+    const few = { status: "ok" as const, problems: [] };
+    expect(withProblems(few, ["x"])).toEqual({ status: "failed", problems: ["x"] });
+    const nine = { status: "failed" as const, problems: Array.from({ length: 9 }, (_, i) => `p${i}`) };
+    expect(withProblems(nine, ["a", "b", "c"]).problems).toEqual([...nine.problems, "a", "and 2 more"]);
+  });
+
   it("anEventWhoseToolDiffersFails", () => {
     const v = check({ eventsPath: write(events, (rs) => { localEvent(rs, "l_note").tool = "read"; }) });
     expect(v.status).toBe("failed");
@@ -192,6 +211,20 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
     expect(rc.runs.map((r) => r.verify!.status)).toEqual(["failed", "failed"]);
     expect(rc.runs[0]!.verify!.problems).toContain("a signed local step in evidence.jsonl also appears in runs/on-002's evidence");
     expect(rc.runs[1]!.verify!.problems).toContain("a signed local step in evidence.jsonl also appears in runs/on-001's evidence");
+  });
+
+  it("recheckTakesLocalToolsFromTheScenarioToo", () => {
+    // results.json can be edited to drop localTools; the scenario the folder is checked with still has it
+    const dir = join(tmp, "no-client-folder");
+    mkdirSync(join(dir, "runs", "on-001"), { recursive: true });
+    for (const f of ["events.jsonl", "outcome.jsonl"]) copyFileSync(join(local.runDir, f), join(dir, "runs", "on-001", f));
+    writeFileSync(join(dir, "runs", "on-001", "events.jsonl"), "");
+    writeFileSync(join(dir, "runs", "on-001", "evidence.jsonl"), evidence.filter((l) => !["client", "local"].includes(JSON.parse(l).type)).join("\n") + "\n");
+    const scenario = loadScenario(join(import.meta.dirname, "../../scenarios/github-issue-replay-local"));
+    const results = { formatVersion: 1, scenario: { id: scenario.id }, runs: [{ mode: "on", index: 1, dir: "runs/on-001", outcome: "blocked", status: "completed" }], serverKey: { fingerprint: pin } };
+    const need = "a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules";
+    expect(recheckResultsDir(dir, results).runs[0]!.verify!.problems).not.toContain(need);
+    expect(recheckResultsDir(dir, results, scenario).runs[0]!.verify!.problems).toContain(need);
   });
 
   it("aLocalToolsRunNeedsAClientRecordWithRules", () => {

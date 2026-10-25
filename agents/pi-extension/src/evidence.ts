@@ -29,7 +29,7 @@ export type EvidenceRecord =
   /**
    * One gated built-in tool call: what the gate saw (input, resolution, influence) and decided, signed
    * as a client-mesh step chained from the run's origin. `proof` is null when the route is not listed.
-   * The step stamp's bind is bindLocalTool(tool, input, { resolved, verdict, routeAllowed, rulesHash }),
+   * The step stamp's bind is bindLocalTool(tool, input, { callId, resolved, verdict, routeAllowed, rulesHash }),
    * so the decision is signed; `rulesHash` is rulesHash(rules) of the session's rules, null with none.
    */
   | {

@@ -18,7 +18,7 @@ import {
   type SessionReply,
   type SessionRequest,
 } from "@paztport/path-attest";
-import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
+import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSeen, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
@@ -248,7 +248,7 @@ function verifyFile(path: string, label: string): VerifyReport {
   const boundRids = new Set<string>();
   const firstRun = new Set<string>();
   let client: Client | undefined; // the latest client record
-  const localSeen = new Set<string>();
+  const localSeen: LocalSeen = { calls: new Set<string>(), steps: new Set<string>() };
 
   for (const { line, rec } of lines) {
     const type = rec.type as string;

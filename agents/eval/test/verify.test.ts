@@ -672,7 +672,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   /** Re-signs a local record's step stamp with the pi key over its (edited) fields, as a gate that decided wrongly would. */
   function resign(rec: any): void {
     const { sig: _sig, v: _v, ...fields } = rec.chain[1];
-    const bind = bindLocalTool(rec.tool, rec.input, { resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash });
+    const bind = bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash });
     rec.chain[1] = signStampV2({ ...fields, bind }, local.material.piKey);
   }
 
@@ -877,6 +877,24 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = verifyEvidence(write(localLines, (rs) => rs.push(structuredClone(localOf(rs, "l_read")))));
     expect(r.ok).toBe(false);
     expect(r.items.filter((i) => i.callId === "l_read").map((i) => i.result)).toEqual(["OK", "REPLAY"]);
+  });
+
+  it("theCallIdIsSigned", () => {
+    // a signed step moved to another call id
+    const moved = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_leak").callId = "l_other"; }));
+    expect(moved.ok).toBe(false);
+    expect(localResult(moved, "l_other")).toBe("BINDING_MISMATCH");
+  });
+
+  it("aSignedStepCopiedUnderANewCallIdIsAReplay", () => {
+    // review probe dupcall.ts: the same signed step again under a new call id, in the same file
+    const r = verifyEvidence(write(localLines, (rs) => rs.push({ ...structuredClone(localOf(rs, "l_leak")), callId: "l_leak_dup" })));
+    expect(r.ok).toBe(false);
+    expect(localResult(r, "l_leak")).toBe("REFUSED");
+    expect(localResult(r, "l_leak_dup")).toBe("REPLAY");
+    // and with its rid changed too
+    const rid = verifyEvidence(write(localLines, (rs) => rs.push({ ...structuredClone(localOf(rs, "l_leak")), callId: "l_leak_dup", rid: "other" })));
+    expect(localResult(rid, "l_leak_dup")).not.toMatch(/^(OK|REFUSED)$/);
   });
 
   it("withNoRulesEveryLocalCallMustBeAScopeRefusal", () => {
