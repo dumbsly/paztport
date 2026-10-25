@@ -78,7 +78,10 @@ describe("build your own evaluation", { timeout: 60_000 }, () => {
       writeFileSync(join(spec.runDir, "transcript.jsonl"), "");
       return { status: "completed", exitCode: 0, durationMs: 1, canary: "c0ffee", mode: spec.mode };
     };
-    const results = await runEval(o, { runOnce, checkModel: async () => {}, log: () => {} });
+    const offline = (async () => {
+      throw new Error("offline: tests make no network calls");
+    }) as typeof fetch;
+    const results = await runEval(o, { runOnce, checkModel: async () => {}, fetch: offline, log: () => {} });
     expect(results.payload).toEqual({ kind: "custom", sha256: createHash("sha256").update(payloadText).digest("hex") });
     expect(results.scenario.id).toBe(scenario.id);
     expect(readFileSync(join(out, "summary.md"), "utf8")).toContain("custom (not the reference text)");

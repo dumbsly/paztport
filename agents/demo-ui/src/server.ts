@@ -534,6 +534,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
         signal: run.ac.signal,
         ...(opts.deps?.runOnce ? { runOnce: opts.deps.runOnce } : {}),
         checkModel: (m) => checkModelAvailable(m, doFetch),
+        fetch: doFetch,
         log: (message) => emit(run, "progress", { message }),
       });
       run.started = true;

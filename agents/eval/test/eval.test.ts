@@ -5,7 +5,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { arch, cpus, platform, release, tmpdir, totalmem } from "node:os";
+import { arch, cpus, homedir, platform, release, tmpdir, totalmem } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -381,10 +381,15 @@ describe("runEval", { timeout: 60_000 }, () => {
   });
 
   const jsonReply = (body: unknown) => ({ ok: true, json: async () => body }) as Response;
-  const ollamaFetch = (async (url: string | URL | Request) => {
+  const showBodies: unknown[] = [];
+  const ollamaFetch = (async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     if (u.endsWith("/api/version")) return jsonReply({ version: "0.12.3" });
     if (u.endsWith("/api/tags")) return jsonReply({ models: [{ name: "other:1b", digest: "ffff" }, { name: "qwen3:4b", model: "qwen3:4b", digest: "sha256-abc123" }] });
+    if (u.endsWith("/api/show") && init?.method === "POST") {
+      showBodies.push(JSON.parse(String(init.body)));
+      return jsonReply({ parameters: "stop                           \"<|im_end|>\"\nnum_ctx                        8192\ntemperature 0.6" });
+    }
     throw new Error("unexpected " + u);
   }) as typeof fetch;
 
@@ -397,24 +402,86 @@ describe("runEval", { timeout: 60_000 }, () => {
       cpu: cpus()[0]?.model ?? null,
       memoryGb: Math.round(totalmem() / 2 ** 30),
       node: process.version,
-      ollama: { version: "0.12.3", digest: "sha256-abc123" },
+      ollama: { version: "0.12.3", digest: "sha256-abc123", contextLength: { tokens: 8192, source: "the model's num_ctx parameter" } },
     });
+    expect(showBodies.at(-1)).toEqual({ model: "qwen3:4b" });
     expect(readResults(o.outDir).environment).toEqual(r.environment);
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).toContain(`- Machine: ${platform()} ${release()}, ${arch()}`);
     expect(md).toContain(`${Math.round(totalmem() / 2 ** 30)} GB memory`);
-    expect(md).toContain("- Ollama: version 0.12.3, model digest sha256-abc123");
+    expect(md).toContain("- Ollama: version 0.12.3, model digest sha256-abc123, context length 8192 tokens (the model's num_ctx parameter)");
+    expect(md).toContain("A model whose context window is too short to hold the planted issue may never see it");
+  });
+
+  it("theContextLengthFallsBackToOllamaContextLengthAndOtherwiseIsNotRecorded", async () => {
+    const noCtx = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/api/show")) return jsonReply({ parameters: "temperature 0.6" });
+      return ollamaFetch(url, init);
+    }) as typeof fetch;
+    vi.stubEnv("OLLAMA_CONTEXT_LENGTH", "16384");
+    try {
+      const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
+      const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: noCtx, log: quiet });
+      expect(r.environment!.ollama!.contextLength).toEqual({ tokens: 16384, source: "OLLAMA_CONTEXT_LENGTH in the eval's environment" });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    vi.stubEnv("OLLAMA_CONTEXT_LENGTH", "");
+    try {
+      const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
+      const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: noCtx, log: quiet });
+      expect(r.environment!.ollama!.contextLength).toBeNull();
+      expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("context length not recorded");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("theCommandIsStoredWithoutTheUsersFolders", async () => {
+    const agents = join(import.meta.dirname, "../..");
+    const home = homedir();
+    const o = opts({ runs: 1, modes: ["off"], command: `npm run eval -- --model lab/model-x --out ${agents}/.demo/results/x --agent-dir ${home}/.pi/agent --payload '${home}/my file.md'` });
+    const r = await runEval(o, { runOnce: stub().fn, fetch: offline, log: quiet });
+    expect(r.command).toBe("npm run eval -- --model lab/model-x --out ./.demo/results/x --agent-dir <home>/.pi/agent --payload '<home>/my file.md'");
+    expect(readResults(o.outDir).command).toBe(r.command);
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).not.toContain(home);
+  });
+
+  it("agentDirFilesThatApplyToEveryRunAreNamedAndWarned", async () => {
+    const agentDir = join(tmp, `agent-files-${n++}`);
+    mkdirSync(agentDir, { recursive: true });
+    for (const f of ["SYSTEM.md", "settings.json", "models.json"]) writeFileSync(join(agentDir, f), "secret contents\n");
+    const o = opts({ runs: 1, modes: ["off"], agentDir });
+    const said: string[] = [];
+    const r = await runEval(o, { runOnce: stub().fn, fetch: offline, log: (s) => void said.push(s) });
+    expect(r.agentDirFiles).toEqual(["SYSTEM.md", "settings.json"]);
+    expect(said.filter((l) => l.includes("SYSTEM.md, settings.json"))).toHaveLength(1);
+    expect(said.join("\n")).toMatch(/applies them to every run/);
+    const raw = readFileSync(join(o.outDir, "results.json"), "utf8");
+    expect(raw).not.toContain("secret contents");
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toMatch(/SYSTEM\.md, settings\.json.*every run/);
+    // none of them: an empty list, and no warning
+    const plain = join(tmp, `agent-plain-${n++}`);
+    mkdirSync(plain, { recursive: true });
+    const said2: string[] = [];
+    const r2 = await runEval(opts({ runs: 1, modes: ["off"], agentDir: plain }), { runOnce: stub().fn, fetch: offline, log: (s) => void said2.push(s) });
+    expect(r2.agentDirFiles).toEqual([]);
+    expect(said2.join("\n")).not.toMatch(/every run/);
+    // without --agent-dir the field is absent
+    const r3 = await runEval(opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] }), { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: offline, log: quiet });
+    expect(r3).not.toHaveProperty("agentDirFiles");
   });
 
   it("aFailedOllamaLookupIsRecordedAsNullAndDoesNotStopTheEval", async () => {
     const down = (async () => {
       throw new Error("refused");
     }) as typeof fetch;
+    vi.stubEnv("OLLAMA_CONTEXT_LENGTH", "");
     const o = opts({ model: "ollama/qwen3:4b", agentDir: undefined, runs: 1, modes: ["off"] });
-    const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: down, log: quiet });
-    expect(r.environment!.ollama).toEqual({ version: null, digest: null });
+    const r = await runEval(o, { runOnce: stub().fn, checkModel: () => Promise.resolve(), fetch: down, log: quiet }).finally(() => vi.unstubAllEnvs());
+    expect(r.environment!.ollama).toEqual({ version: null, digest: null, contextLength: null });
     expect(r.runs).toHaveLength(1);
-    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("- Ollama: version not recorded, model digest not recorded");
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("- Ollama: version not recorded, model digest not recorded, context length not recorded");
   });
 
   it("anotherProviderHasNoOllamaEntry", async () => {
@@ -911,7 +978,7 @@ describe("eval-main", { timeout: 60_000 }, () => {
       return done(spec, "error");
     };
     const signals = new EventEmitter();
-    const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, log: quiet, signals });
+    const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, fetch: offline, log: quiet, signals });
     await running;
     expect(signals.listenerCount("SIGINT")).toBe(1);
     expect(signals.listenerCount("SIGTERM")).toBe(1);
@@ -935,7 +1002,7 @@ describe("eval-main", { timeout: 60_000 }, () => {
       return done(spec, "error");
     };
     const signals = new EventEmitter();
-    const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, log: quiet, signals });
+    const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, fetch: offline, log: quiet, signals });
     await running;
     signals.emit("SIGTERM");
     expect(await code).toBe(130);
@@ -959,6 +1026,7 @@ describe("eval-main", { timeout: 60_000 }, () => {
     const keys = join(out, "..", ".keys-results");
     const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], {
       runOnce: runner,
+      fetch: offline,
       log: quiet,
       signals,
       exit: (c) => void exits.push({ code: c, keysGone: !existsSync(keys) }),
@@ -984,7 +1052,7 @@ describe("eval-main", { timeout: 60_000 }, () => {
       return done(spec, "error");
     };
     const signals = new EventEmitter();
-    const code = main(["--model", "lab/m", "--runs", "1", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, log: quiet, signals });
+    const code = main(["--model", "lab/m", "--runs", "1", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, fetch: offline, log: quiet, signals });
     await running;
     signals.emit("SIGINT");
     expect(await code).toBe(130);
@@ -993,17 +1061,17 @@ describe("eval-main", { timeout: 60_000 }, () => {
 
   it("aFinishedEvalExitsZeroAndAFailedCheckExitsOne", async () => {
     const out = join(tmp, `case-${n++}`, "results");
-    const okCode = await main(["--model", "lab/m", "--runs", "1", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: stub().fn, log: quiet });
+    const okCode = await main(["--model", "lab/m", "--runs", "1", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: stub().fn, fetch: offline, log: quiet });
     expect(okCode).toBe(0);
     const out2 = join(tmp, `case-${n++}`, "results");
-    const failCode = await main(["--model", "lab/m", "--runs", "1", "--modes", "on", "--out", out2, "--agent-dir", join(tmp, "agent-x")], { runOnce: stub().fn, log: quiet });
+    const failCode = await main(["--model", "lab/m", "--runs", "1", "--modes", "on", "--out", out2, "--agent-dir", join(tmp, "agent-x")], { runOnce: stub().fn, fetch: offline, log: quiet });
     expect(failCode).toBe(1);
     expect(statSync(join(out2, "results.json")).size).toBeGreaterThan(0);
   });
 
   it("aSetupProblemExitsTwoWithOneLine", async () => {
     const msgs: string[] = [];
-    const code = await main(["--model", "lab/m"], { runOnce: stub().fn, log: (s) => void msgs.push(s) });
+    const code = await main(["--model", "lab/m"], { runOnce: stub().fn, fetch: offline, log: (s) => void msgs.push(s) });
     expect(code).toBe(2); // other providers need --agent-dir
     expect(msgs.join("\n")).toMatch(/--agent-dir/);
   });

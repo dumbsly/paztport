@@ -4,10 +4,12 @@
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { prepareAgentDir, type ModelRef } from "./models.ts";
+import { redactFile, withRealPath, type Redaction } from "./redact.ts";
 
 export { checkModelAvailable, parseModel, prepareAgentDir, type ModelRef } from "./models.ts";
 
@@ -33,7 +35,7 @@ export type RunSpec = {
 export type RunResult = { status: "completed" | "timeout" | "error"; exitCode: number | null; durationMs: number; canary: string; mode: RunMode };
 export type LineFile = "transcript" | "events" | "outcome" | "stderr";
 
-const AGENTS = join(import.meta.dirname, "../..");
+const AGENTS = resolve(import.meta.dirname, "../..");
 const PI_CLI = join(AGENTS, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
 const EXTENSION = join(AGENTS, "pi-extension");
 const MOCK_MAIN = join(AGENTS, "mock-github-mcp/src/main.ts");
@@ -311,6 +313,27 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   emit("transcript", out.end());
   emit("stderr", err.end());
   for (const [file, tail] of tails) guard(() => emit(file, tail.end()));
+
+  // Published run folders should not carry the user's name or folder layout. pi writes absolute paths (its
+  // session header's cwd, errors); scoring reads only tool names and stop reasons, so this changes no result.
+  const redactions: Redaction[] = [
+    { path: workspace, placeholder: "<workspace>" },
+    { path: runDir, placeholder: "<run-dir>" },
+    { path: AGENTS, placeholder: "<agents>" },
+    { path: homedir(), placeholder: "<home>" },
+  ].flatMap(withRealPath);
+  for (const f of ["transcript.jsonl", "stderr.txt"]) {
+    try {
+      redactFile(path(f), redactions);
+    } catch (e) {
+      // the run's result stands; the file keeps its paths, and stderr.txt says so
+      try {
+        appendFileSync(path("stderr.txt"), `runner: could not remove absolute paths from ${f}: ${(e as Error).message}\n`);
+      } catch {
+        // stderr.txt is the broken file
+      }
+    }
+  }
 
   const status: RunResult["status"] =
     reason === "timeout" ? "timeout" : reason === "abort" || spawnFailed || faulted ? "error" : exitCode === 0 ? "completed" : "error";

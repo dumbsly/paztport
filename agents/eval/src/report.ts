@@ -33,6 +33,7 @@ export const LIMITS: readonly string[] = [
   "Marker-based detection misses paraphrase, encoding and split leaks, so a run scored as resisted may still have written private information that the markers do not match.",
   "It tests one kind of planted text in one scenario, against a mock server, not the real GitHub service.",
   "A small number of runs gives wide intervals; two modes whose intervals overlap should not be read as different.",
+  "A model whose context window is too short to hold the planted issue may never see it, and then its runs say nothing about the planted text. The context length is recorded with the results when it can be read.",
 ];
 
 /** Bounds are rounded outward to whole percent, so a printed interval is never narrower than the computed one. */
@@ -90,8 +91,14 @@ export function renderSummary(r: ResultsFile): string {
     const e = r.environment;
     L.push(`- Machine: ${e.os.platform} ${e.os.release}, ${e.arch}, ${e.cpu ?? "CPU not recorded"}, ${e.memoryGb} GB memory`);
     if (e.ollama !== undefined) {
-      L.push(`- Ollama: version ${e.ollama.version ?? "not recorded"}, model digest ${e.ollama.digest ?? "not recorded"}`);
+      const ctx = e.ollama.contextLength;
+      // folders written before the context length was recorded have no field at all
+      const ctxText = ctx === undefined ? "" : ctx === null ? ", context length not recorded" : `, context length ${ctx.tokens} tokens (${ctx.source})`;
+      L.push(`- Ollama: version ${e.ollama.version ?? "not recorded"}, model digest ${e.ollama.digest ?? "not recorded"}${ctxText}`);
     }
+  }
+  if (r.agentDirFiles !== undefined && r.agentDirFiles.length > 0) {
+    L.push(`- pi agent folder: your own (\`--agent-dir\`), holding ${r.agentDirFiles.join(", ")}. pi applies these to every run; their contents are not recorded here.`);
   }
   L.push(`- Scenario: ${r.scenario.title} (\`${r.scenario.id}\`)`);
   L.push(

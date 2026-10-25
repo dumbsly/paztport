@@ -453,14 +453,17 @@ describe("demo server", () => {
 
   it("runs above one go through runEval for the chosen mode", async () => {
     const seen: any[] = [];
-    const evalStub: RunEval = async (opts) => {
+    const seenDeps: any[] = [];
+    const evalStub: RunEval = async (opts, deps) => {
       seen.push(opts);
+      seenDeps.push(deps);
       mkdirSync(opts.outDir, { recursive: true });
       const r = resultsFile();
       writeFileSync(join(opts.outDir, "results.json"), JSON.stringify(r));
       return r;
     };
-    const { srv, resultsRoot } = await start({ deps: { runEval: evalStub, runOnce: async () => { throw new Error("not for evals"); } } });
+    const injected = ollamaWith("qwen3:4b");
+    const { srv, resultsRoot } = await start({ deps: { runEval: evalStub, fetch: injected, runOnce: async () => { throw new Error("not for evals"); } } });
     const { id } = await (await post(srv, "/api/runs", { ...body, mode: "off", runs: 3 })).json();
     const events = await sse(srv, id);
     expect(events.at(-1)!.event).toBe("done");
@@ -472,6 +475,7 @@ describe("demo server", () => {
     expect(seen[0]).toMatchObject({ model: "ollama/qwen3:4b", runs: 3, modes: ["off"] });
     expect(seen[0].outDir.startsWith(resultsRoot)).toBe(true);
     expect(seen[0].agentDir).toBeUndefined();
+    expect(seenDeps[0].fetch).toBe(injected); // the environment lookup uses the server's fetch, not the global one
     const list = await (await api(srv, "/api/results")).json();
     expect(list.some((e: any) => e.ok && e.name === events.at(-1)!.data.name)).toBe(true);
   });

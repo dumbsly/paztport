@@ -87,7 +87,7 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
 }
 
 type Signals = { on(event: string, fn: () => void): unknown; off(event: string, fn: () => void): unknown };
-export type MainDeps = Pick<EvalDeps, "runOnce" | "checkModel" | "log"> & { signals?: Signals; exit?: (code: number) => void };
+export type MainDeps = Pick<EvalDeps, "runOnce" | "checkModel" | "fetch" | "log"> & { signals?: Signals; exit?: (code: number) => void };
 
 /**
  * Runs the eval. pi runs in its own process group, so Ctrl-C does not reach it; SIGINT and SIGTERM
@@ -125,7 +125,7 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   signals.on("SIGINT", onSignal);
   signals.on("SIGTERM", onSignal);
   try {
-    const results = await runEval(opts, { ...(deps.runOnce ? { runOnce: deps.runOnce } : {}), ...(deps.checkModel ? { checkModel: deps.checkModel } : {}), signal: ac.signal, log });
+    const results = await runEval(opts, { ...(deps.runOnce ? { runOnce: deps.runOnce } : {}), ...(deps.checkModel ? { checkModel: deps.checkModel } : {}), ...(deps.fetch ? { fetch: deps.fetch } : {}), signal: ac.signal, log });
     log(`Results: ${join(opts.outDir, "summary.md")}`);
     if (ac.signal.aborted) {
       log(`Not finished: ${results.runs.length} runs are recorded.`);

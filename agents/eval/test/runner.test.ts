@@ -3,7 +3,7 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
@@ -166,6 +166,24 @@ describe("runOnce", () => {
     expect(lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l).type)).toEqual(["session", "agent_end"]);
     expect(readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8")).toContain("stub: done");
     for (const f of ["events.jsonl", "evidence.jsonl", "outcome.jsonl"]) expect(existsSync(join(c.spec.runDir, f))).toBe(true);
+  });
+
+  it("absolutePathsInTheTranscriptAndStderrAreRedacted", async () => {
+    const c = mk({}, "paths");
+    const r = await runOnce(c.spec);
+    expect(r.status).toBe("completed");
+    const agents = join(import.meta.dirname, "../..");
+    const transcript = readFileSync(join(c.spec.runDir, "transcript.jsonl"), "utf8");
+    const stderr = readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8");
+    for (const text of [transcript, stderr]) {
+      for (const p of [c.spec.runDir, realpathSync(c.spec.runDir), agents, homedir()]) expect(text).not.toContain(p);
+    }
+    const [session, note] = lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l));
+    expect(session.cwd).toBe("<workspace>");
+    expect(note).toEqual({ type: "note", runDir: "<run-dir>", workspace: "<workspace>", agents: "<agents>/eval/src/x.ts", home: "<home>/.pi/agent" });
+    expect(stderr).toContain("stub: read <home>/.pi/agent/settings.json from <workspace>");
+    // scoring reads only tool names and stop reasons, so it is unaffected
+    expect(lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l).type)).toEqual(["session", "note", "message_end", "agent_end"]);
   });
 
   it("hostedKeysStrippedByDefault", async () => {

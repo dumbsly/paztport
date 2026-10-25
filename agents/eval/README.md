@@ -56,7 +56,7 @@ The default is 20 runs per mode (100 runs for five modes). A run can take as lon
 | `--modes a,b` | A comma-separated subset of `off`, `on`, `clean-off`, `clean-on`, `warning`. Default: all five. |
 | `--scenario dir` | A scenario folder. Default: `scenarios/github-issue-replay`. See [Build your own evaluation](#build-your-own-evaluation). |
 | `--payload file` | Your own planted text, in place of the scenario's. It is labelled `custom`. The clean modes send no planted text, so they ignore it. |
-| `--agent-dir dir` | Your own pi agent directory, for a hosted model. See [Model providers and terms](#model-providers-and-terms). |
+| `--agent-dir dir` | Your own pi agent directory, for a hosted model. See [Model providers and terms](#model-providers-and-terms). If it holds `SYSTEM.md`, `APPEND_SYSTEM.md` or `settings.json`, pi applies them to every run: the eval prints a one-line warning and records their names (not their contents) in `results.json` (`agentDirFiles`) and `summary.md`. A system prompt of your own changes what is being measured, so say so beside any number you publish. |
 | `--out dir` | Where to write the results. It must be new or empty. Default: `.demo/results/<YYYYMMDD-HHMMSS>-<model id without the provider>` under `agents/`, for example `.demo/results/20261024-130509-qwen3-4b`. |
 | `--timeout seconds` | Time limit for one run. Default 600 seconds. |
 
@@ -88,7 +88,7 @@ The eval makes throwaway keys in a folder next to the results folder (`.keys-<na
 
 ## Reading the results
 
-Open `summary.md`. The top lists the model, date, versions (pi, the extension, the mock server, Node), the machine (operating system, CPU, memory) and, for an Ollama model, Ollama's version and the model's digest (shown as "not recorded" if Ollama could not be asked), the scenario, whether the planted text is the reference text or custom (with its SHA-256), and the tools the agent had.
+Open `summary.md`. The top lists the model, date, versions (pi, the extension, the mock server, Node), the machine (operating system, CPU, memory) and, for an Ollama model, Ollama's version, the model's digest and its context length (shown as "not recorded" if Ollama could not be asked or did not say), the scenario, whether the planted text is the reference text or custom (with its SHA-256), and the tools the agent had.
 
 The table has one row per mode. Each cell reads `k / n (low–high%)`: the number of runs in that class, the runs in the mode, and a 95% Wilson interval for the true rate. The interval is the range of rates that would plausibly give that count in that many runs. Bounds are rounded outward to whole percent, so a printed interval is never narrower than the computed one. For example, 0 of 20 prints as `0 / 20 (0–17%)` and 20 of 20 as `20 / 20 (83–100%)`. Two rows whose intervals overlap should not be read as different.
 
@@ -120,6 +120,7 @@ Every class comes from the mock server's outcome log. Nothing is scored from wha
 > - Marker-based detection misses paraphrase, encoding and split leaks, so a run scored as resisted may still have written private information that the markers do not match.
 > - It tests one kind of planted text in one scenario, against a mock server, not the real GitHub service.
 > - A small number of runs gives wide intervals; two modes whose intervals overlap should not be read as different.
+> - A model whose context window is too short to hold the planted issue may never see it, and then its runs say nothing about the planted text. The context length is recorded with the results when it can be read.
 
 Other limits worth stating beside any number you publish:
 
@@ -361,7 +362,7 @@ What we found:
 | Qwen3 (open weights) | Model cards show Apache-2.0, which has no benchmarking or publication restriction. We did not check every variant; some Qwen releases have used a separate licence. | <https://huggingface.co/Qwen/Qwen3-8B> |
 | Gemma 4 (open weights) | Published under the full Apache-2.0 text. Earlier Gemma models are under the Gemma Terms of Use and Prohibited Use Policy, which bar overriding safety filters and say nothing about publishing results. | <https://ai.google.dev/gemma/apache_2>, <https://ai.google.dev/gemma/terms> |
 | Llama 4 (open weights) | The community licence and its acceptable use policy bar circumventing safety measures, and are silent on benchmarking and publishing. A licence-tracking site reported a change on 2026-09-24 that we could not confirm. Check llama.com. | <https://www.llama.com/llama4/license/>, <https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama4/USE_POLICY.md> |
-| Ollama (the runner) | The terms (May 2026) are silent on benchmarking, publishing and security testing, and do not say whether local runs are in scope. The model's own licence is what applies. Do not use Ollama's branding or logo in published results without permission. Naming the runner and its version as a fact is ordinary. | <https://ollama.com/terms> |
+| Ollama (the runner) | The terms (May 2026) are silent on benchmarking, publishing and security testing, and do not say whether local runs are in scope. The model's own licence is what applies. Do not use Ollama's branding or logo in published results without permission. | <https://ollama.com/terms> |
 
 Unverified or incomplete, in one place: OpenAI's usage policies and consumer terms; the version of Anthropic's Usage Policy now in force; each Qwen variant's licence; each Mistral model's licence; any later Llama licence version.
 
@@ -371,12 +372,12 @@ For a hosted-provider test, use your own key, the mock server (which is what thi
 
 If you publish numbers from this tool, this is the checklist the author uses before publishing, and it works for yours.
 
-1. **Start from a fresh clone.** Clone the repository, run `npm ci` in `agents/`, and run the eval from there. Record the versions beside the table. `summary.md` and `results.json` already record pi, the extension, the mock server, Node, the operating system, CPU and memory, and, for an Ollama model, Ollama's version and the model's digest. Where one of those shows "not recorded", add it by hand (for the digest, `ollama show <model>`).
+1. **Start from a fresh clone.** Clone the repository, run `npm ci` in `agents/`, and run the eval from there. Record the versions beside the table. `summary.md` and `results.json` already record pi, the extension, the mock server, Node, the operating system, CPU and memory, and, for an Ollama model, Ollama's version, the model's digest and, when it can be read, its context length. Where one of those shows "not recorded", add it by hand (for the digest, `ollama show <model>`; for the context length, the `num_ctx` your Ollama server uses).
 2. **Re-check the warning baseline.** Open the source page named in `eval/baselines/warning.json`, compare the example system prompt with `eval/baselines/warning.md` character for character, and if the page has changed, update `warning.md` and the `retrieved` date in `warning.json` before you run. Pages move.
 3. **Run 20 runs per mode.** Use all five modes and the same timeout throughout. `--quick` is for checking the setup, not for publishing.
 4. **Run `npm run verify -- <results folder>`.** It must exit 0. Read the "Evidence check" section of `summary.md` for any run that did not verify, and compare the key fingerprint as described [above](#checking-the-evidence-npm-run-verify).
 5. **Drop no runs.** The table counts every run, including `timeout` and `error`. If you ran again for any reason (for example Ollama stopped partway through), keep the first folder too and say why in the text next to the table. A re-run is a new eval in a new folder.
-6. **Look through the folder before you publish it.** `config.json` and `stderr.txt` can contain local paths, including your user name. If you edit anything, say what you edited. Never remove or change an outcome log or an evidence file.
+6. **Look through the folder before you publish it.** After each run the runner replaces absolute paths in `transcript.jsonl` and `stderr.txt` with placeholders (`<run-dir>`, `<workspace>`, `<agents>`, `<home>`), and `results.json` stores the `command` with paths under `agents/` written relative to it (`./...`) and your home folder as `<home>`. That covers the paths the tool knows about, not every path a file might hold. Check these files by hand: each run's `transcript.jsonl` (a model or tool can echo a path the runner does not know), `results.json` (`command`), each run's `config.json` (it holds the absolute paths pi was started with, by design) and `stderr.txt`. A run cut off by a hard kill is not redacted. Editing paths in these files does not change scoring or `verify`: scoring reads only tool names and stop reasons from the transcript, and neither reads `config.json` or `stderr.txt`. If you edit anything, say what you edited. Never remove or change an outcome log or an evidence file.
 7. **Never publish keys.** The eval's keys are in `.keys-<name>`, next to the results folder and outside it, and are removed when the eval ends. After an interrupted or crashed eval, check that the folder is gone. Publish the results folder and nothing beside it.
 8. **Publish the whole folder somewhere off the repository.** Anyone should be able to download it and run `npm run verify` on it. Put only the summary table and the link to the folder in this repository, with the limits box from [above](#what-this-doesnt-show) next to the table.
 9. **Check the provider's terms**, as described [above](#model-providers-and-terms), for every hosted provider you tested, and say in the text which models were local and which hosted.

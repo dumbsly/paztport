@@ -12,14 +12,22 @@ export type Environment = {
   /** Total memory in GB, rounded. */
   memoryGb: number;
   node: string;
-  ollama?: { version: string | null; digest: string | null };
+  /**
+   * `contextLength` is the context window Ollama gives the model, when it can be read: the model's num_ctx
+   * parameter, else OLLAMA_CONTEXT_LENGTH as set where the eval ran (Ollama uses that only if it was started
+   * with the same setting). null when neither is known; Ollama's own default then applies.
+   * Absent in folders written before it was recorded.
+   */
+  ollama?: { version: string | null; digest: string | null; contextLength?: { tokens: number; source: string } | null };
 };
 
 const OLLAMA = "http://127.0.0.1:11434";
 
-async function getJson(f: typeof fetch, path: string): Promise<unknown> {
+async function getJson(f: typeof fetch, path: string, body?: unknown): Promise<unknown> {
   try {
-    const res = await f(`${OLLAMA}${path}`, { signal: AbortSignal.timeout(2000) });
+    const init: RequestInit = { signal: AbortSignal.timeout(2000) };
+    if (body !== undefined) Object.assign(init, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    const res = await f(`${OLLAMA}${path}`, init);
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -27,7 +35,9 @@ async function getJson(f: typeof fetch, path: string): Promise<unknown> {
   }
 }
 
-/** Reads the machine, and for an ollama model asks Ollama for its version and the model's digest. Never throws. */
+const positiveInt = (s: string | undefined): number | undefined => (s !== undefined && /^\d+$/.test(s.trim()) && Number(s) > 0 ? Number(s) : undefined);
+
+/** Reads the machine, and for an ollama model asks Ollama for its version, the model's digest and its context length. Never throws. */
 export async function collectEnvironment(model: ModelRef, fetchImpl: typeof fetch = fetch): Promise<Environment> {
   const env: Environment = {
     os: { platform: platform(), release: release() },
@@ -41,9 +51,18 @@ export async function collectEnvironment(model: ModelRef, fetchImpl: typeof fetc
   const tags = (await getJson(fetchImpl, "/api/tags")) as { models?: { name?: unknown; model?: unknown; digest?: unknown }[] } | null;
   const want = model.id.includes(":") ? model.id : `${model.id}:latest`;
   const entry = Array.isArray(tags?.models) ? tags.models.find((m) => m && (m.name === want || m.model === want)) : undefined;
+  const show = (await getJson(fetchImpl, "/api/show", { model: model.id })) as { parameters?: unknown } | null;
+  const numCtx = typeof show?.parameters === "string" ? positiveInt(/^num_ctx\s+(\d+)\s*$/m.exec(show.parameters)?.[1]) : undefined;
+  const fromEnv = positiveInt(process.env.OLLAMA_CONTEXT_LENGTH);
   env.ollama = {
     version: typeof v?.version === "string" ? v.version : null,
     digest: typeof entry?.digest === "string" ? entry.digest : null,
+    contextLength:
+      numCtx !== undefined
+        ? { tokens: numCtx, source: "the model's num_ctx parameter" }
+        : fromEnv !== undefined
+          ? { tokens: fromEnv, source: "OLLAMA_CONTEXT_LENGTH in the eval's environment" }
+          : null,
   };
   return env;
 }

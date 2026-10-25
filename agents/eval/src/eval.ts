@@ -4,12 +4,14 @@
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { collectEnvironment, type Environment } from "./environment.ts";
 import { checkRun, hasEvidenceFile, type RunVerify } from "./crosscheck.ts";
 import { checkModelAvailable, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
+import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
 import { checkRecords, readOutcomeLog, scoreRunFile, summarize, type ModeSummary, type ScoredRun } from "./score.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
@@ -35,7 +37,13 @@ export type ResultsFile = {
   formatVersion: 1;
   incomplete: boolean;
   date: string;
+  /** The command as typed, with paths under agents/ written relative to it ("./...") and the home folder as `<home>`. */
   command: string;
+  /**
+   * With --agent-dir: which of the files pi applies to every run (SYSTEM.md, APPEND_SYSTEM.md, settings.json)
+   * that folder holds, by name only. Absent without --agent-dir, and in folders written before it was recorded.
+   */
+  agentDirFiles?: string[];
   scenario: { id: string; title: string };
   payload: { kind: "reference" | "custom"; sha256: string };
   model: ModelRef;
@@ -65,7 +73,14 @@ export type EvalDeps = {
   log?: (s: string) => void;
 };
 
-const AGENTS = join(import.meta.dirname, "../..");
+const AGENTS = resolve(import.meta.dirname, "../..");
+/** Files in a pi agent folder that change every run: the system prompt, an addition to it, and settings. */
+const AGENT_DIR_FILES = ["SYSTEM.md", "APPEND_SYSTEM.md", "settings.json"];
+
+/** The command for results.json: no user name or folder layout from absolute paths. */
+export function commandForResults(command: string): string {
+  return redactPaths(command, [...withRealPath({ path: AGENTS, placeholder: "." }), ...withRealPath({ path: homedir(), placeholder: "<home>" })]);
+}
 const SETUP_DEMO = join(AGENTS, "scripts/setup-demo.ts");
 const BASELINES = join(import.meta.dirname, "../baselines");
 const ALL_MODES: readonly RunMode[] = ["off", "on", "clean-off", "clean-on", "warning"];
@@ -165,6 +180,10 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
   // a missing Ollama or model is one plain message, before anything is created
   await (deps.checkModel ?? checkModelAvailable)(model);
   prepareAgentDir(agentDir, model, userAgentDir);
+  const agentDirFiles = userAgentDir ? AGENT_DIR_FILES.filter((f) => existsSync(join(agentDir, f))) : undefined;
+  if (agentDirFiles !== undefined && agentDirFiles.length > 0) {
+    log(`Your pi agent folder has ${agentDirFiles.join(", ")}; pi applies them to every run, and results.json names them.`);
+  }
 
   const keysDir = keysDirFor(out);
   mkdirSync(join(out, ".."), { recursive: true });
@@ -183,7 +202,8 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       formatVersion: 1,
       incomplete: true,
       date: new Date().toISOString(),
-      command: opts.command,
+      command: commandForResults(opts.command),
+      ...(agentDirFiles !== undefined ? { agentDirFiles } : {}),
       scenario: { id: scenario.id, title: scenario.title },
       payload: { kind: opts.payloadFile === undefined ? "reference" : "custom", sha256: sha256File(payloadFile) },
       model,
