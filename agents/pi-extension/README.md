@@ -198,12 +198,13 @@ workspace path written as `<workspace>` and the home folder as `<home>`, in keys
 Both the spelling pi was given and the real path behind any symlinks are recognised. A path is
 replaced only when it appears whole: after the start of a string, a space, a quote, a bracket, `=`,
 `:`, `,` or a shell operator, and followed by `/`, the end or one of those. A longer folder name
-(`proj.bak`) or a path that only contains the workspace partway through is left as it is. The
+(`proj.bak`), a path that only contains the workspace partway through, and a path glued to something
+else (`-I/path`, `file:///path`) are left as they are, and so is a case-changed spelling. The
 recorded input is an encoding, not a command to run: a `<` that was already in the input is written
-`<<`, so a single `<` always opens a placeholder and the original input can be read back exactly. A
-case-changed spelling of the workspace is not recognised and stays as written. The tool runs with the
-input as given. In eval and demo runs, `<home>` is the run's own home folder, which the runner gives
-pi, not yours. A call
+`<<`, so a single `<` always opens a placeholder. The input reads back exactly, except for which
+spelling of the workspace or home it used. An input with two keys that would encode to the same key
+is refused as `UNCHECKABLE` and is not signed. The tool runs with the input as given. In eval and
+demo runs, `<home>` is the run's own home folder, which the runner gives pi, not yours. A call
 whose input can't be signed (a lone surrogate, a number JSON can't hold) is refused as `UNCHECKABLE`
 and is not signed. In `no-root` mode, and for a call made before any user prompt, the call is refused
 with an event only: nothing is signed. The events log gets only the tool name, call id, rid and

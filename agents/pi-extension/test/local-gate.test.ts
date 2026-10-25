@@ -366,6 +366,16 @@ describe("LocalGate evidence", () => {
     expect(lines(evidencePath).map((r) => r.input)).toEqual([{ path: "<workspace>/website/README.md" }, { path: "<workspace>/website/README.md" }]);
   });
 
+  it("keysThatWouldMergeAreRefusedUnsigned", () => {
+    const link = join(tmp, "ws-link-2");
+    symlinkSync(ws, link);
+    const { gate, evidencePath, eventsPath } = rig("enforce", { home: join(tmp, "elsewhere"), workspace: link });
+    const out = gate.check("read", { path: "website/README.md", [link]: "A", [realpathSync(ws)]: "B" }, "c1");
+    expect(out).toEqual({ block: true, reason: UNCHECKABLE_TEXT });
+    expect(lines(evidencePath)).toEqual([]);
+    expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["UNCHECKABLE"]);
+  });
+
   it("aHomeThatCannotBeResolvedStillSigns", () => {
     // a dangling home folder is named by its given spelling instead of refusing every call
     const dangling = join(tmp, "dangling-home");

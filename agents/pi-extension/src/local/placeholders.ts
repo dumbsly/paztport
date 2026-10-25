@@ -22,15 +22,17 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\
  * ("proj.bak", "projx") is a different folder, and a path that only contains one partway through is left
  * alone. The longest spelling wins, so a workspace under home is named as the workspace.
  *
- * The encoding is reversible (see decodePlaceholders): a "<" already in the input is written "<<", so a
- * single "<" only ever opens a placeholder. The recorded input is this encoding, not a command to run.
+ * A "<" already in the input is written "<<", so a single "<" only ever opens a placeholder, and the input
+ * reads back exactly (see decodePlaceholders) except for which spelling of the workspace or home it used.
+ * Throws when two keys of one object would encode to the same key. The recorded input is this encoding,
+ * not a command to run.
  */
 export function encodePlaceholders<T>(v: T, places: Places): T {
   const spellings = new Map<string, string>();
   for (const [token, paths] of [["<workspace>", places.workspace], ["<home>", places.home]] as const) {
     for (const p of paths) {
-      // "/" alone is no prefix to replace; the first token named for a spelling keeps it
-      if (p.length > 1 && !spellings.has(p.replaceAll("<", "<<"))) spellings.set(p.replaceAll("<", "<<"), token);
+      // only absolute paths, and "/" alone is no prefix to replace; the first token named for a spelling keeps it
+      if (p.startsWith("/") && p.length > 1 && !spellings.has(p.replaceAll("<", "<<"))) spellings.set(p.replaceAll("<", "<<"), token);
     }
   }
   const alternatives = [...spellings.keys()].sort((a, b) => b.length - a.length).map(escapeRegExp);
@@ -42,14 +44,24 @@ export function encodePlaceholders<T>(v: T, places: Places): T {
   const copy = (x: unknown): unknown => {
     if (typeof x === "string") return str(x);
     if (Array.isArray(x)) return x.map(copy);
-    if (typeof x === "object" && x !== null) return Object.fromEntries(Object.entries(x).map(([k, e]) => [str(k), copy(e)]));
+    if (typeof x === "object" && x !== null) {
+      const out: Record<string, unknown> = {};
+      for (const [k, e] of Object.entries(x)) {
+        const key = str(k);
+        // two spellings of one folder as keys would merge and drop an entry from the signed record
+        if (Object.hasOwn(out, key)) throw new Error(`two keys encode to the same key: ${key}`);
+        Object.defineProperty(out, key, { value: copy(e), enumerable: true, writable: true, configurable: true });
+      }
+      return out;
+    }
     return x;
   };
   return copy(v) as T;
 }
 
 /**
- * The input encodePlaceholders was given, with each placeholder read back as the one path given here.
+ * An input encodePlaceholders could have been given, with each placeholder read back as the one path given
+ * here: exact, except that every spelling of a folder reads back as this one.
  * Throws on a "<" that opens neither "<<" nor a placeholder.
  */
 export function decodePlaceholders<T>(v: T, paths: { workspace: string; home: string }): T {

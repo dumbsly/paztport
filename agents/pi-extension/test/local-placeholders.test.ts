@@ -52,8 +52,14 @@ describe("encodePlaceholders", () => {
     expect(dec(e)).toEqual(v);
   });
 
-  it("ignoresTheRootAndEmptySpellings", () => {
-    expect(encodePlaceholders("/a/b", { workspace: ["/", ""], home: [] })).toBe("/a/b");
+  it("usesAbsoluteSpellingsOnly", () => {
+    expect(encodePlaceholders("/a/b", { workspace: ["/", "", "rel", "<<"], home: [] })).toBe("/a/b");
+    expect(encodePlaceholders("a<<<", { workspace: ["<<"], home: [] })).toBe("a<<<<<<");
+  });
+
+  it("refusesKeysThatWouldMerge", () => {
+    // two spellings of the workspace as keys would encode to one key and drop an entry from the record
+    expect(() => enc({ [`${ws}`]: "A", "/private/var/ws": "B" })).toThrow(/same key/);
   });
 });
 
