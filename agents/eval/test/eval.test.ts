@@ -3,7 +3,7 @@
 
 import { createHash } from "node:crypto";
 import { EventEmitter } from "node:events";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../src/eval.ts";
+import { pinFingerprint } from "../src/verify.ts";
 import { parseCli, main } from "../src/eval-main.ts";
 import { renderSummary } from "../src/report.ts";
 import type { RunMode, RunResult, RunSpec } from "../src/runner.ts";
@@ -76,6 +77,10 @@ const done = (spec: RunSpec, status: RunResult["status"] = "completed"): RunResu
   mode: spec.mode,
 });
 
+/** pi --mode json lines: an MCP tool execution, and a run in which the model only answered. */
+const MCP_CALL = JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__list_issues", args: {} });
+const NO_CALL = JSON.stringify({ type: "message_end", message: { role: "assistant", content: "Done." } });
+
 type Stub = (spec: RunSpec, onLine?: unknown, signal?: AbortSignal) => Promise<RunResult>;
 type Plan = (spec: RunSpec, call: number) => Promise<RunResult | void> | RunResult | void;
 
@@ -85,7 +90,9 @@ function stub(plan?: Plan, records: (m: RunMode) => unknown[] = canned): { fn: S
   const fn: Stub = async (spec) => {
     specs.push(spec);
     mkdirSync(spec.runDir, { recursive: true });
-    writeLog(join(spec.runDir, "outcome.jsonl"), records(spec.mode));
+    const recs = records(spec.mode);
+    writeLog(join(spec.runDir, "outcome.jsonl"), recs);
+    writeFileSync(join(spec.runDir, "transcript.jsonl"), (recs.length > 0 ? MCP_CALL : NO_CALL) + "\n");
     writeFileSync(join(spec.runDir, "evidence.jsonl"), "");
     const r = await plan?.(spec, specs.length);
     return r ?? done(spec);
@@ -211,6 +218,20 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(existsSync(specs[0]!.demoDir)).toBe(false);
   });
 
+  it("interruptingTheLastPlannedRunStillMakesTheEvalIncomplete", async () => {
+    const o = opts({ runs: 1, modes: ["off"] });
+    const ac = new AbortController();
+    const { fn } = stub((spec) => {
+      ac.abort();
+      return done(spec, "error");
+    });
+    const r = await runEval(o, { runOnce: fn, signal: ac.signal, log: quiet });
+    expect(r.runs).toHaveLength(1);
+    expect(r.incomplete).toBe(true);
+    expect(readResults(o.outDir).incomplete).toBe(true);
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toMatch(/not finished/i);
+  });
+
   it("interruptedRunWithNothingRecordedIsAnErrorWithAReason", async () => {
     const o = opts({ runs: 2, modes: ["warning"] });
     const ac = new AbortController();
@@ -239,7 +260,11 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(md).toContain(process.version);
     expect(md).toContain(r.payload.sha256);
     expect(md).toMatch(/reference/);
-    expect(md).toMatch(/only the mock GitHub tools/i);
+    // the tools line comes from the scenario, in the header and in the table caption
+    expect(md.split("`mcp__github__*`").length - 1).toBeGreaterThanOrEqual(2);
+    expect(md).toMatch(/only the (scenario's )?mock/i);
+    expect(md).toContain(r.serverKey.fingerprint);
+    expect(md).toMatch(/first sentence/);
     // table: whole-percent bounds, "k / n (lo–hi%)"
     expect(md).toMatch(/\| 3 \/ 3 \(\d+–\d+%\)/);
     expect(md).not.toMatch(/\d\.\d+%/);
@@ -265,6 +290,21 @@ describe("runEval", { timeout: 60_000 }, () => {
     expect(md).not.toContain("paztport_claude");
   });
 
+  it("theToolsLineComesFromTheScenario", async () => {
+    const dir = join(tmp, `scenario-${n++}`);
+    cpSync(BUILTIN_SCENARIO_DIR, dir, { recursive: true });
+    const file = join(dir, "scenario.json");
+    const sc = JSON.parse(readFileSync(file, "utf8")) as Record<string, unknown>;
+    sc.tools = "mcp__github__list_issues,mcp__github__issue_read";
+    writeFileSync(file, JSON.stringify(sc));
+    const o = opts({ scenarioDir: dir, runs: 1, modes: ["off"] });
+    const r = await runEval(o, { runOnce: stub().fn, log: quiet });
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(r.tools).toBe("mcp__github__list_issues,mcp__github__issue_read");
+    expect(md.split("`mcp__github__list_issues,mcp__github__issue_read`").length - 1).toBeGreaterThanOrEqual(2);
+    expect(md).not.toContain("mcp__github__*");
+  });
+
   it("summaryListsEveryRequestedModeEvenWithNoRuns", () => {
     const o = opts({ modes: ["off", "on"] });
     const base: ResultsFile = {
@@ -279,7 +319,8 @@ describe("runEval", { timeout: 60_000 }, () => {
       tools: "mcp__github__*",
       runs: [],
       summary: [],
-      verify: { ok: 0, failed: 0, none: 0 },
+      verify: { ok: 0, failed: 0, none: 0, notRecorded: 0 },
+      serverKey: { fingerprint: "abcdefghijklmnop" },
       requested: { modes: o.modes, runs: 2 },
     };
     const md = renderSummary(base);
@@ -359,7 +400,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     const r = await runEval(o, { runOnce: fn, log: quiet });
     expect(r.runs).toHaveLength(2);
     expect(r.runs[0]).toMatchObject({ outcome: "error", status: "error", reason: expect.stringContaining("spec rejected") });
-    expect(r.runs[1]!.outcome).toBe("resisted");
+    expect(r.runs[1]!.outcome).toBe("no-tool-calls");
   });
 });
 
@@ -396,9 +437,37 @@ describe("scoring robustness", { timeout: 60_000 }, () => {
     expect(run2.reason).toMatch(/verdict/);
   });
 
-  it("aMissingLogIsAnEmptyLogAsScoredByScore", async () => {
-    const run = await one(null);
-    expect(run.outcome).toBe("resisted");
+  async function emptyLog(transcript: string | null) {
+    const o = opts({ runs: 1, modes: ["warning"] });
+    const { fn } = stub((spec) => {
+      rmSync(join(spec.runDir, "outcome.jsonl"));
+      if (transcript === null) rmSync(join(spec.runDir, "transcript.jsonl"));
+      else writeFileSync(join(spec.runDir, "transcript.jsonl"), transcript);
+    });
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    return { run: r.runs[0]!, r, o };
+  }
+
+  it("noRecordsAndNoToolCallsIsNoToolCallsNeverResisted", async () => {
+    const { run, r, o } = await emptyLog(NO_CALL + "\n");
+    expect(run.outcome).toBe("no-tool-calls");
+    expect(r.summary[0]!.noToolCalls.k).toBe(1);
+    expect(r.summary[0]!.resisted.k).toBe(0);
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toContain("| no tool calls |");
+    expect(md).toContain("**no tool calls**: the model answered without calling any tool");
+  });
+
+  it("noRecordsButMcpToolCallsInTheTranscriptIsAnError", async () => {
+    const { run } = await emptyLog(MCP_CALL + "\n");
+    expect(run.outcome).toBe("error");
+    expect(run.reason).toBe("tool calls didn't reach the server");
+  });
+
+  it("noRecordsAndNoTranscriptIsAnError", async () => {
+    const { run } = await emptyLog(null);
+    expect(run.outcome).toBe("error");
+    expect(run.reason).toMatch(/transcript/);
   });
 
   it("aTimeoutAfterABlockIsBlockedAndItsStatusStaysTimeout", async () => {
@@ -527,6 +596,81 @@ describe("verification", { timeout: 120_000 }, () => {
     expect(r.runs.every((x) => x.verify!.status === "none")).toBe(true);
   });
 
+  it("aRunThatEndedBeforePaztportRecordedAnythingIsCountedSeparately", async () => {
+    const o = opts({ runs: 1, modes: ["on", "clean-on"] });
+    const { fn } = stub((spec) => done(spec, "error"), () => []);
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.verify).toMatchObject({ ok: 0, failed: 0, none: 0, notRecorded: 2 });
+    expect(r.runs.every((x) => x.verify!.status === "not-recorded")).toBe(true);
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toMatch(/2 runs with Paztport on ended before Paztport recorded anything/);
+    expect(md).not.toMatch(/2 runs had nothing to check/);
+  });
+
+  it("theEvidenceExemptionFollowsTheOutcomeNotTheStatus", async () => {
+    // status error, but the log shows a block: Paztport did record something, so missing evidence fails
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => done(spec, "error"), canned);
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.runs[0]!.outcome).toBe("blocked");
+    expect(r.runs[0]!.verify!.status).toBe("failed");
+    // status completed, but the log could not be used (outcome error): nothing was recorded that can be checked
+    const o2 = opts({ runs: 1, modes: ["on"] });
+    const { fn: fn2 } = stub((spec) => writeFileSync(join(spec.runDir, "outcome.jsonl"), "{not json\n"), () => []);
+    const r2 = await runEval(o2, { runOnce: fn2, log: quiet });
+    expect(r2.runs[0]!.outcome).toBe("error");
+    expect(r2.runs[0]!.verify!.status).toBe("not-recorded");
+  });
+
+  it("theFinalCheckReadsTheOutcomeLogsAsTheyAreOnDisk", async () => {
+    const o = opts({ runs: 2, modes: ["on"] });
+    let first!: RunSpec;
+    const { fn } = stub(async (spec, call) => {
+      if (call === 1) {
+        first = spec;
+        await realRun(spec);
+      } else {
+        writeBack(first, readLog(first).slice(0, 1)); // tampered after run 1 was checked
+      }
+    }, noRecords);
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.runs[0]!.verify!.status).toBe("failed");
+  });
+
+  it("evidenceFilesThatExistAreLinkedWhetherOrNotTheyVerify", async () => {
+    const other = setupDemo(mkdtempSync(join(tmp, "other-")));
+    const o = opts({ runs: 1, modes: ["on", "clean-on"] });
+    const { fn } = stub(async (spec) => {
+      if (spec.mode === "on") await realRun(spec, other);
+      else rmSync(join(spec.runDir, "evidence.jsonl"));
+    }, noRecords);
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.runs.map((x) => x.verify!.status)).toEqual(["failed", "failed"]);
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toContain("(runs/on-001/evidence.jsonl)");
+    expect(md).not.toContain("(runs/clean-on-001/evidence.jsonl)");
+  });
+
+  it("serverKeyFingerprintIsStoredAndMatchesTheEvidencePin", async () => {
+    const { r, o } = await evalOn(() => {});
+    expect(r.serverKey.fingerprint).toMatch(/^[A-Za-z0-9_-]{16}$/);
+    const session = readFileSync(join(o.outDir, "runs/on-001/evidence.jsonl"), "utf8")
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as { type: string; pin?: string })
+      .find((x) => x.type === "session")!;
+    expect(pinFingerprint(session.pin!)).toBe(r.serverKey.fingerprint);
+    expect(readResults(o.outDir).serverKey).toEqual(r.serverKey);
+  });
+
+  it("theRecheckParagraphSaysWhatVerifyDoesNotCheck", async () => {
+    const { o } = await evalOn(() => {});
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toMatch(/`npm run verify[^`]*` checks signatures, links and bindings/);
+    expect(md).toMatch(/does not compare[^.]*outcome logs/);
+    expect(md).toMatch(/server key fingerprint/);
+  });
+
   it("anOffRunClaimingAttestedCallsStillNeedsEvidence", async () => {
     const o = opts({ runs: 1, modes: ["off"] });
     const { fn } = stub(undefined, () => [{ ...rec({ mode: "off" }), rid: "r", callId: "c", sess: "s" }]);
@@ -607,6 +751,55 @@ describe("eval-main", { timeout: 60_000 }, () => {
     const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, log: quiet, signals });
     await running;
     signals.emit("SIGTERM");
+    expect(await code).toBe(130);
+    expect(readResults(out).incomplete).toBe(true);
+  });
+
+  it("aSecondSignalRemovesTheKeysBeforeExiting", async () => {
+    const out = join(tmp, `case-${n++}`, "results");
+    let started!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    let release!: () => void;
+    const hold = new Promise<void>((r) => (release = r));
+    const runner: Stub = async (spec) => {
+      mkdirSync(spec.runDir, { recursive: true });
+      started();
+      await hold;
+      return done(spec, "error");
+    };
+    const signals = new EventEmitter();
+    const exits: { code: number; keysGone: boolean }[] = [];
+    const keys = join(out, "..", ".keys-results");
+    const code = main(["--model", "lab/m", "--runs", "2", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], {
+      runOnce: runner,
+      log: quiet,
+      signals,
+      exit: (c) => void exits.push({ code: c, keysGone: !existsSync(keys) }),
+    });
+    await running;
+    expect(existsSync(keys)).toBe(true);
+    signals.emit("SIGINT");
+    signals.emit("SIGINT");
+    expect(exits).toEqual([{ code: 130, keysGone: true }]);
+    release();
+    expect(await code).toBe(130);
+  });
+
+  it("interruptingTheOnlyRunExits130", async () => {
+    const out = join(tmp, `case-${n++}`, "results");
+    let started!: () => void;
+    const running = new Promise<void>((r) => (started = r));
+    const runner: Stub = async (spec, _l, signal) => {
+      mkdirSync(spec.runDir, { recursive: true });
+      writeLog(join(spec.runDir, "outcome.jsonl"), canned("off"));
+      started();
+      await new Promise<void>((r) => signal!.addEventListener("abort", () => r(), { once: true }));
+      return done(spec, "error");
+    };
+    const signals = new EventEmitter();
+    const code = main(["--model", "lab/m", "--runs", "1", "--modes", "off", "--out", out, "--agent-dir", join(tmp, "agent-x")], { runOnce: runner, log: quiet, signals });
+    await running;
+    signals.emit("SIGINT");
     expect(await code).toBe(130);
     expect(readResults(out).incomplete).toBe(true);
   });

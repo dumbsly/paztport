@@ -3,5 +3,5 @@
   "url": "https://platform.claude.com/docs/en/test-and-evaluate/strengthen-guardrails/mitigate-jailbreaks",
   "retrieved": "2026-10-24",
   "placement": "system prompt (appended with --append-system-prompt), as the source says",
-  "note": "The text is copied exactly from that example. Its first sentence, which gives the example's fictional company and task, is left out because it is not part of the defence wording."
+  "note": "The text is the source's example system prompt with its first sentence, a fictional persona, left out. The rest is copied exactly."
 }

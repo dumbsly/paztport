@@ -11,8 +11,9 @@ import type { RunMode } from "./runner.ts";
  * - ok: the evidence file verified, and it agrees with the outcome log.
  * - failed: it did not verify, is missing when it should exist, or disagrees with the outcome log.
  * - none: nothing to check, and nothing was expected (the modes without Paztport).
+ * - not-recorded: a run with Paztport on that ended in error before anything was recorded, so there is no evidence.
  */
-export type RunVerify = { status: "ok" | "failed" | "none"; problems: string[] };
+export type RunVerify = { status: "ok" | "failed" | "none" | "not-recorded"; problems: string[] };
 
 /** `verify` reads what is in an evidence file; it cannot see a file that was removed or emptied. These checks can. */
 const EXPECT_EVIDENCE: readonly RunMode[] = ["on", "clean-on"];
@@ -102,19 +103,23 @@ function crossCheck(records: OutcomeRecord[], report: VerifyReport, evidencePath
  */
 export function checkRun(input: {
   mode: RunMode;
-  status: "completed" | "timeout" | "error";
+  /** The scored outcome. A run scored "error" with Paztport on and nothing recorded is not held against its missing evidence. */
+  outcome: string;
   records: OutcomeRecord[] | null;
   evidencePath: string;
   report: VerifyReport | undefined;
   expectedPin: string;
 }): RunVerify {
-  const { mode, status, records, report, expectedPin } = input;
+  const { mode, outcome, records, report, expectedPin } = input;
   const problems: string[] = [];
   const attested = records?.some((r) => typeof r.sess === "string") ?? false;
 
   if (report === undefined) {
     if (attested) problems.push("the outcome log shows attested calls, but evidence.jsonl is missing or empty");
-    else if (EXPECT_EVIDENCE.includes(mode) && status !== "error") problems.push("a run with Paztport on has no evidence.jsonl");
+    else if (EXPECT_EVIDENCE.includes(mode)) {
+      if (outcome === "error") return { status: "not-recorded", problems: [] };
+      problems.push("a run with Paztport on has no evidence.jsonl");
+    }
     return { status: problems.length > 0 ? "failed" : "none", problems };
   }
 

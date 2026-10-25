@@ -5,10 +5,11 @@
 //   [--payload file] [--agent-dir dir] [--out dir] [--timeout seconds]
 // Exit code: 0 finished, 1 finished but some evidence did not verify, 2 usage or setup problem, 130 interrupted.
 
+import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
-import { runEval, type EvalDeps, type EvalOptions } from "./eval.ts";
+import { keysDirFor, runEval, type EvalDeps, type EvalOptions } from "./eval.ts";
 import { parseModel, type RunMode } from "./runner.ts";
 
 const AGENTS = join(import.meta.dirname, "../..");
@@ -85,12 +86,12 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
 }
 
 type Signals = { on(event: string, fn: () => void): unknown; off(event: string, fn: () => void): unknown };
-export type MainDeps = Pick<EvalDeps, "runOnce" | "checkModel" | "log"> & { signals?: Signals };
+export type MainDeps = Pick<EvalDeps, "runOnce" | "checkModel" | "log"> & { signals?: Signals; exit?: (code: number) => void };
 
 /**
  * Runs the eval. pi runs in its own process group, so Ctrl-C does not reach it; SIGINT and SIGTERM
  * here abort the current run instead, and the results written so far are kept (incomplete: true).
- * A second signal stops at once.
+ * A second signal removes the eval's keys folder, then stops at once.
  */
 export async function main(argv: string[], deps: MainDeps = {}): Promise<number> {
   const log = deps.log ?? ((s: string) => void process.stderr.write(s + "\n"));
@@ -106,7 +107,17 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   const signals: Signals = deps.signals ?? process;
   let seen = 0;
   const onSignal = () => {
-    if (++seen > 1) process.exit(130);
+    if (++seen > 1) {
+      // stopping at once skips the eval's own clean-up, so the private keys are removed here first
+      const keys = keysDirFor(opts.outDir);
+      try {
+        rmSync(keys, { recursive: true, force: true });
+      } catch {
+        log(`Could not remove the keys folder; delete it yourself: ${keys}`);
+      }
+      (deps.exit ?? process.exit)(130);
+      return;
+    }
     log("Stopping: ending the current run and writing the results so far. Press Ctrl-C again to stop at once.");
     ac.abort();
   };
@@ -115,9 +126,13 @@ export async function main(argv: string[], deps: MainDeps = {}): Promise<number>
   try {
     const results = await runEval(opts, { ...(deps.runOnce ? { runOnce: deps.runOnce } : {}), ...(deps.checkModel ? { checkModel: deps.checkModel } : {}), signal: ac.signal, log });
     log(`Results: ${join(opts.outDir, "summary.md")}`);
+    if (ac.signal.aborted) {
+      log(`Not finished: ${results.runs.length} runs are recorded.`);
+      return 130;
+    }
     if (results.incomplete) {
       log(`Not finished: ${results.runs.length} runs are recorded.`);
-      return ac.signal.aborted ? 130 : 1;
+      return 1;
     }
     if (results.verify.failed > 0) {
       log(`${results.verify.failed} runs have evidence that did not verify; summary.md says which.`);

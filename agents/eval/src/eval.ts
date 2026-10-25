@@ -25,7 +25,11 @@ export type EvalOptions = {
   command: string;
 };
 /** A scored run as stored in results.json: the score, why it is an error if the cause is not its status, and the evidence check. */
-export type StoredRun = ScoredRun & { verify?: RunVerify };
+export type StoredRun = ScoredRun & {
+  verify?: RunVerify;
+  /** evidence.jsonl exists and has content. */
+  evidenceFile?: boolean;
+};
 export type ResultsFile = {
   formatVersion: 1;
   incomplete: boolean;
@@ -36,11 +40,16 @@ export type ResultsFile = {
   model: ModelRef;
   versions: { pi: string; extension: string; mockServer: string; node: string };
   tools: string;
-  warning?: { source: string; url: string; retrieved: string; placement: string };
+  warning?: { source: string; url: string; retrieved: string; placement: string; note?: string };
   runs: StoredRun[];
   summary: ModeSummary[];
-  /** Runs by evidence check: verified, not verified, and with nothing to check. */
-  verify: { ok: number; failed: number; none: number };
+  /**
+   * Runs by evidence check: verified, not verified, with nothing to check (Paztport off), and with
+   * Paztport on but ended in error before anything was recorded.
+   */
+  verify: { ok: number; failed: number; none: number; notRecorded: number };
+  /** Fingerprint of this eval's server policy public key: every evidence file must show it as its pin. */
+  serverKey: { fingerprint: string };
   /** What was asked for, so a table shows every requested mode and an unfinished eval says how far it got. */
   requested: { modes: RunMode[]; runs: number };
 };
@@ -83,7 +92,13 @@ function readWarning(): NonNullable<ResultsFile["warning"]> {
     if (typeof o[k] !== "string" || o[k] === "") throw new Error(`baselines/warning.json: ${k} must be a non-empty string`);
   }
   if (!existsSync(join(BASELINES, "warning.md"))) throw new Error("baselines/warning.md is missing");
-  return { source: o.source as string, url: o.url as string, retrieved: o.retrieved as string, placement: o.placement as string };
+  return {
+    source: o.source as string,
+    url: o.url as string,
+    retrieved: o.retrieved as string,
+    placement: o.placement as string,
+    ...(typeof o.note === "string" && o.note !== "" ? { note: o.note } : {}),
+  };
 }
 
 function validate(o: EvalOptions): void {
@@ -103,6 +118,12 @@ function usableRecords(file: string): OutcomeRecord[] | null {
   } catch {
     return null;
   }
+}
+
+/** The folder that holds an eval's keys: next to the results folder, never inside it. */
+export function keysDirFor(outDir: string): string {
+  const out = resolve(outDir);
+  return join(out, "..", `.keys-${basename(out)}`);
 }
 
 function makeKeys(dir: string): string {
@@ -140,9 +161,10 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
   await (deps.checkModel ?? checkModelAvailable)(model);
   prepareAgentDir(agentDir, model, userAgentDir);
 
-  const keysDir = join(out, "..", `.keys-${name}`);
+  const keysDir = keysDirFor(out);
   mkdirSync(join(out, ".."), { recursive: true });
   const expectedPin = makeKeys(keysDir);
+  const evidenceOf = (dir: string) => join(out, dir, "evidence.jsonl");
   mkdirSync(out, { recursive: true });
 
   try {
@@ -170,23 +192,31 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       ...(warning !== undefined ? { warning } : {}),
       runs: [],
       summary: [],
-      verify: { ok: 0, failed: 0, none: 0 },
+      verify: { ok: 0, failed: 0, none: 0, notRecorded: 0 },
+      serverKey: { fingerprint: expectedPin },
       requested: { modes: [...opts.modes], runs: opts.runs },
     };
     const planned = opts.runs * opts.modes.length;
     const records = new Map<string, OutcomeRecord[] | null>();
 
     const assess = (r: StoredRun, report: VerifyReport | undefined): RunVerify =>
-      checkRun({ mode: r.mode, status: r.status, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), report, expectedPin });
+      checkRun({ mode: r.mode, outcome: r.outcome, records: records.get(r.dir) ?? null, evidencePath: join(out, r.dir, "evidence.jsonl"), report, expectedPin });
     const tally = () => {
-      const t = { ok: 0, failed: 0, none: 0 };
-      for (const r of results.runs) if (r.verify !== undefined) t[r.verify.status]++;
+      const t = { ok: 0, failed: 0, none: 0, notRecorded: 0 };
+      for (const r of results.runs) {
+        const st = r.verify?.status;
+        if (st === "ok") t.ok++;
+        else if (st === "failed") t.failed++;
+        else if (st === "none") t.none++;
+        else if (st === "not-recorded") t.notRecorded++;
+      }
       return t;
     };
     const write = () => {
       results.summary = summarize(results.runs);
       results.verify = tally();
-      results.incomplete = results.runs.length < planned;
+      // a run that was interrupted is recorded, but the eval is still not finished, even if it was the last one
+      results.incomplete = results.runs.length < planned || deps.signal?.aborted === true;
       writeAtomic(join(out, "results.json"), JSON.stringify(results, null, 2) + "\n");
       writeAtomic(join(out, "summary.md"), renderSummary(results));
     };
@@ -220,7 +250,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
           result = { status: "error", exitCode: null, durationMs: 0, canary: "", mode };
         }
         const logFile = join(runDir, "outcome.jsonl");
-        const scored: StoredRun = scoreRunFile(logFile, result, index, dir);
+        const scored: StoredRun = scoreRunFile(logFile, result, index, dir, join(runDir, "transcript.jsonl"));
         if (scored.outcome === "error" && scored.reason === undefined) {
           scored.reason =
             thrown ??
@@ -231,20 +261,24 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
                 : `pi exited with code ${result.exitCode} (see stderr.txt)`);
         }
         records.set(dir, usableRecords(logFile));
-        const evidencePath = join(runDir, "evidence.jsonl");
-        scored.verify = assess(scored, hasEvidenceFile(evidencePath) ? verifyEvidence(evidencePath) : undefined);
+        const evidencePath = evidenceOf(dir);
+        scored.evidenceFile = hasEvidenceFile(evidencePath);
+        scored.verify = assess(scored, scored.evidenceFile ? verifyEvidence(evidencePath) : undefined);
         results.runs.push(scored);
         write();
         log(`[${results.runs.length}/${planned}] ${basename(dir)}: ${scored.outcome} (${scored.status}, ${Math.round(result.durationMs / 1000)}s)${scored.reason !== undefined ? ` - ${scored.reason}` : ""}`);
       }
     }
 
-    // The whole folder is checked once more at the end, from the files as they are now.
+    // The whole folder is checked once more at the end, from the files as they are now:
+    // evidence by verifyResultsDir, and each outcome log read again from disk.
     if (results.runs.length > 0) {
       const reports = new Map(verifyResultsDir(out).map((r) => [r.file, r]));
       for (const r of results.runs) {
         const file = `${r.dir}/evidence.jsonl`;
-        r.verify = assess(r, hasEvidenceFile(join(out, file)) ? reports.get(file) : undefined);
+        records.set(r.dir, usableRecords(join(out, r.dir, "outcome.jsonl")));
+        r.evidenceFile = hasEvidenceFile(evidenceOf(r.dir));
+        r.verify = assess(r, r.evidenceFile ? reports.get(file) : undefined);
       }
     }
     write();
