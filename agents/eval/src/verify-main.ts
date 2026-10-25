@@ -18,6 +18,9 @@
 // eval checks each of its runs: its evidence.jsonl is verified, then one more line says whether the events log,
 // the outcome log and the evidence agree, and whether the evidence is pinned to the server key demo-run.json
 // records. An older demo-run.json records no server key; the pins are then not compared, and a line says so.
+// The run is also scored again from its files, as the demo scored it; an outcome in demo-run.json that the files
+// don't give is one more FAIL line. When the scenario it names is not in agents/scenarios, a NOTE says the
+// outcome was not scored again.
 // The mode demo-run.json records must be the one run.json and config.json record, and whatever it says, a run
 // whose outcome log shows signed calls or whose events log shows local tool calls made during a run must have
 // signed evidence.
@@ -58,7 +61,7 @@ try {
   // a missing path is reported as an unreadable file below
 }
 if (isDir && isSingleRunDir(target)) {
-  const { report, crossCheck, noServerKey } = verifySingleRunDir(target);
+  const { report, crossCheck, noServerKey, outcome } = verifySingleRunDir(target);
   process.stdout.write(line(report) + "\n");
   if (noServerKey) process.stdout.write("NOTE demo-run.json records no server key fingerprint (an older run), so the evidence pin was not compared with it\n");
   const cross =
@@ -70,7 +73,10 @@ if (isDir && isSingleRunDir(target)) {
           ? "NOTHING TO CHECK cross-check (Paztport was off)"
           : "NOTHING TO CHECK cross-check (Paztport was on, but the run ended before anything was recorded)";
   process.stdout.write(cross + "\n");
-  process.exit(report.ok && crossCheck.status !== "failed" ? 0 : 1);
+  const rescoredDiffers = outcome !== undefined && "rescored" in outcome && outcome.rescored !== outcome.stored;
+  if (rescoredDiffers) process.stdout.write(`FAIL outcome: demo-run.json records the outcome ${outcome.stored}, but the run's files score it ${outcome.rescored}\n`);
+  if (outcome !== undefined && "notRescored" in outcome) process.stdout.write(`NOTE the outcome demo-run.json records (${outcome.stored}) was not scored again: ${outcome.notRescored}\n`);
+  process.exit(report.ok && crossCheck.status !== "failed" && !rescoredDiffers ? 0 : 1);
 }
 let reports: VerifyReport[];
 try {

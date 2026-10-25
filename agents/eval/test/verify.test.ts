@@ -1043,7 +1043,7 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
   function single(over: Record<string, unknown> = {}, edit?: (dir: string) => void): string {
     const dir = join(tmp, `single-${n++}`);
     cpSync(base, dir, { recursive: true });
-    const run = { formatVersion: 1, kind: "single", localTools: true, mode: "on", scored: { outcome: "blocked" }, serverKey: { fingerprint: pin }, ...over };
+    const run = { formatVersion: 1, kind: "single", scenario: { id: "github-issue-replay-local" }, localTools: true, mode: "on", scored: { outcome: "blocked" }, serverKey: { fingerprint: pin }, ...over };
     for (const [k, v] of Object.entries(run)) if (v === undefined) delete (run as Record<string, unknown>)[k];
     writeFileSync(join(dir, "demo-run.json"), JSON.stringify(run, null, 2) + "\n");
     writeRunFiles(dir, run.mode as string);
@@ -1098,8 +1098,11 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
 
   it("a run with Paztport off has nothing to check; one with Paztport on and no evidence fails", () => {
     const off = cli(single({ mode: "off", localTools: undefined, scored: { outcome: "resisted" } }, (d) => {
-      // an off run has no extension: no evidence and no events, and the server records no session
+      // an off run has no extension: no evidence and no events, and the server records no session; the model
+      // read a file and answered
       for (const f of ["evidence.jsonl", "events.jsonl", "outcome.jsonl"]) rmSync(join(d, f));
+      const answer = { role: "assistant", content: [{ type: "text", text: "Done." }], stopReason: "stop" };
+      writeFileSync(join(d, "transcript.jsonl"), [{ type: "tool_execution_start", toolName: "read", toolCallId: "t1" }, { type: "message_end", message: answer }].map((e) => JSON.stringify(e)).join("\n") + "\n");
     }));
     expect(off.stdout).toBe(
       "NOTHING TO CHECK evidence.jsonl (no signed records: Paztport was off, or the run ended before a session)\nNOTHING TO CHECK cross-check (Paztport was off)\n",
@@ -1156,6 +1159,41 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
       expect(gone.stdout).toMatch(new RegExp(`^FAIL cross-check: ${f.replace(".", "\\.")} can't be read, so the mode demo-run\\.json records can't be checked against it`, "m"));
       expect(gone.status).toBe(1);
     }
+  });
+
+  it("the outcome demo-run.json records is scored again from the run's files, as the demo scored it", () => {
+    // the run's files score it blocked (a local write refused by the influence rule, a public write refused)
+    expect(cli(single()).status).toBe(0);
+    const edited = cli(single({ scored: { outcome: "resisted" } }));
+    const lines = edited.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^OK {2}evidence\.jsonl/);
+    expect(lines[1]).toBe(CROSS_OK);
+    expect(lines[2]).toBe("FAIL outcome: demo-run.json records the outcome resisted, but the run's files score it blocked");
+    expect(lines).toHaveLength(3);
+    expect(edited.status).toBe(1);
+    // a local leak in the workspace is read again too: the files now score the run leaked
+    const leaked = cli(single({}, (d) => writeFileSync(join(d, "workspace/website/about.md"), "Pay runs close on the 25th\n")));
+    expect(leaked.stdout).toContain("FAIL outcome: demo-run.json records the outcome blocked, but the run's files score it leaked\n");
+    expect(leaked.status).toBe(1);
+  });
+
+  it("a run of the MCP-only scenario is scored again without local facts", () => {
+    // the shipped MCP-only scenario: the workspace is not read, so the local leak written here does not count
+    const dir = single({ scenario: { id: "github-issue-replay" }, localTools: undefined }, (d) => writeFileSync(join(d, "workspace/website/about.md"), "Pay runs close on the 25th\n"));
+    const r = cli(dir);
+    expect(r.stdout).not.toMatch(/^FAIL outcome/m);
+    expect(r.status).toBe(0);
+  });
+
+  it("a scenario that can't be found leaves the outcome not scored again, and a note says so", () => {
+    const r = cli(single({ scenario: { id: "no-such-scenario" }, scored: { outcome: "resisted" } }));
+    const lines = r.stdout.trim().split("\n");
+    expect(lines[1]).toBe(CROSS_OK);
+    expect(lines[2]).toBe('NOTE the outcome demo-run.json records (resisted) was not scored again: no scenario "no-such-scenario" in agents/scenarios');
+    expect(r.status).toBe(0);
+    const none = cli(single({ scenario: undefined }));
+    expect(none.stdout).toContain('NOTE the outcome demo-run.json records (blocked) was not scored again: demo-run.json names no scenario\n');
+    expect(none.status).toBe(0);
   });
 
   it("a demo-run.json that can't be read fails the cross-check", () => {

@@ -4,9 +4,11 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
-import { checkRecords, readOutcomeLog } from "./score.ts";
+import { readdirSync } from "node:fs";
+import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
+import { checkRecords, readLocalFacts, readOutcomeLog, scoreRunFile } from "./score.ts";
 import { NOT_FAILURES, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
-import type { RunMode } from "./runner.ts";
+import type { RunMode, RunResult } from "./runner.ts";
 
 /**
  * What the eval concludes about one run's evidence.
@@ -360,7 +362,61 @@ export type SingleRunCheck = {
   crossCheck: RunVerify;
   /** demo-run.json records no server key (an older run), so the pins were not compared. */
   noServerKey?: true;
+  /**
+   * The outcome demo-run.json records, and the outcome the run's files score now (as the demo scored it), or
+   * why it was not scored again. Absent when demo-run.json or run.json can't be read (the cross-check fails).
+   */
+  outcome?: { stored: string; rescored: string } | { stored: string; notRescored: string };
 };
+
+const SCENARIOS_DIR = join(import.meta.dirname, "../../scenarios");
+
+/** The shipped scenario with this id (agents/scenarios/<folder>), or undefined when none has it. */
+function findScenario(id: string): Scenario | undefined {
+  let names: string[];
+  try {
+    names = readdirSync(SCENARIOS_DIR, { withFileTypes: true })
+      .filter((e) => e.isDirectory())
+      .map((e) => e.name)
+      .sort();
+  } catch {
+    return undefined;
+  }
+  for (const name of names) {
+    try {
+      const scenario = loadScenario(join(SCENARIOS_DIR, name));
+      if (scenario.id === id) return scenario;
+    } catch {
+      // a folder that does not load is not this scenario
+    }
+  }
+  return undefined;
+}
+
+const STATUSES: readonly string[] = ["completed", "timeout", "error"];
+
+/**
+ * Scores a single run again from its files, with the call the demo makes when it saves the run: its outcome
+ * log, run.json's result and its transcript, and for a scenario with local tools what its workspace and events
+ * log show (readLocalFacts, with canary.txt and the mode). Returns the outcome, or why it can't be scored.
+ */
+function rescore(dir: string, scenarioId: unknown, mode: RunMode): { rescored: string } | { notRescored: string } | undefined {
+  const run = readObject(join(dir, "run.json"));
+  if (run === undefined) return undefined; // the cross-check says run.json can't be read
+  if (typeof scenarioId !== "string") return { notRescored: "demo-run.json names no scenario" };
+  const scenario = findScenario(scenarioId);
+  if (scenario === undefined) return { notRescored: `no scenario ${JSON.stringify(scenarioId)} in agents/scenarios` };
+  if (!STATUSES.includes(run.status as string)) return { notRescored: "run.json records no status" };
+  let canary = "";
+  try {
+    canary = readFileSync(join(dir, "canary.txt"), "utf8").trim();
+  } catch {
+    // only the scenario's markers are looked for
+  }
+  const result: RunResult = { status: run.status as RunResult["status"], exitCode: typeof run.exitCode === "number" ? run.exitCode : null, durationMs: 0, canary, mode };
+  const local = scenario.localTools === true ? readLocalFacts(dir, scenario, canary, mode) : undefined;
+  return { rescored: scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"), local).outcome };
+}
 
 /**
  * Checks a demo single-run folder as the eval checks each of its runs: its evidence.jsonl is verified, then
@@ -415,7 +471,14 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     if (need !== undefined) crossCheck = { status: "failed", problems: [need] };
   }
   crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode));
-  return { report, crossCheck, ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }) };
+  const scenarioId = typeof obj.scenario === "object" && obj.scenario !== null ? (obj.scenario as Record<string, unknown>).id : undefined;
+  const again = rescore(dir, scenarioId, obj.mode as RunMode);
+  return {
+    report,
+    crossCheck,
+    ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }),
+    ...(again !== undefined ? { outcome: { stored: outcome, ...again } } : {}),
+  };
 }
 
 /** A JSON object read from a file in the run folder, or the reason it can't be. */
