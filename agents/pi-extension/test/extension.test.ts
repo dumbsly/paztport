@@ -20,6 +20,7 @@ import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
+import { SCOPE_TEXT } from "../src/refusals.ts";
 import { CANARY, DOCS, githubArgs, records, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
@@ -68,6 +69,11 @@ class FakePi {
         return () => {};
       },
     } as unknown as ExtensionAPI;
+  }
+
+  /** The first handler's return value, for hooks whose result pi uses (tool_call, tool_result). */
+  async call(type: string, event: Record<string, unknown>): Promise<unknown> {
+    return (this.handlers.get(type) ?? [])[0]?.({ type, ...event }, this.ctx);
   }
 
   async emit(type: string, event: Record<string, unknown> = {}, ctx: ExtensionContext = this.ctx): Promise<void> {
@@ -716,5 +722,77 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(out.content).toEqual([{ type: "text", text: 'MCP server "github" is not connected' }]);
     expect(out.details.refused).toBe(true);
     await pi.emit("session_shutdown", { reason: "quit" }); // idempotent
+  });
+});
+
+describe("local gate wiring", { timeout: 30_000 }, () => {
+  /** A workspace with the demo folders and both logs inside its public folder, to tell "refused" from "outside". */
+  function local(mode = "enforce") {
+    const cwd = join(tmp, `local-ws-${n++}`);
+    mkdirSync(join(cwd, "website"), { recursive: true });
+    writeFileSync(join(cwd, "website", "README.md"), "# Acme\n");
+    const eventsLog = join(cwd, "website", "events.jsonl");
+    const evidenceLog = join(cwd, "website", "evidence.jsonl");
+    const raw = JSON.stringify({ mode, clientDir: join(demo, "client"), clientPolicyDir: join(demo, "client/local-tools"), servers: [], eventsLog, evidenceLog });
+    const { pi } = setup([], { cwd, raw });
+    return { pi, eventsLog, evidenceLog };
+  }
+  const toolCall = (pi: FakePi, toolName: string, input: Record<string, unknown>, extra: Record<string, unknown> = {}) =>
+    pi.call("tool_call", { toolName, toolCallId: id(), input, ...extra });
+
+  it("gatesBuiltinsAndRefusesOwnFiles", async () => {
+    const { pi, evidenceLog } = local();
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    expect(await toolCall(pi, "read", { path: "website/README.md" })).toBeUndefined();
+    expect(await toolCall(pi, "read", { path: "website/events.jsonl" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(await toolCall(pi, "read", { path: "website/evidence.jsonl" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(await toolCall(pi, "ls", { path: "website" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    // a call another tool made is checked the same way
+    expect(await toolCall(pi, "read", { path: "website/events.jsonl" }, { parentToolCallId: "toolu_parent" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(await toolCall(pi, "read", { path: "website/README.md" }, { parentToolCallId: "toolu_parent" })).toBeUndefined();
+    const evidence = records(evidenceLog);
+    expect(evidence.map((r) => r.type)).toEqual(["client", "run", "local", "local", "local", "local", "local", "local"]);
+    expect(evidence.filter((r) => r.type === "local").map((r) => r.verdict)).toEqual(["OK", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "OK"]);
+  });
+
+  it("toolResultRecordsLabels", async () => {
+    const { pi } = local();
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const readId = id();
+    expect(await pi.call("tool_call", { toolName: "read", toolCallId: readId, input: { path: "website/README.md" } })).toBeUndefined();
+    const result = { toolName: "read", input: {}, content: [{ type: "text", text: "# Acme" }], isError: false };
+    expect(await pi.call("tool_result", { ...result, toolCallId: readId, details: { truncation: 1 } })).toEqual({
+      details: { truncation: 1, paztport: { labels: ["public"] } },
+    });
+    // labels are taken once; a write records nothing
+    expect(await pi.call("tool_result", { ...result, toolCallId: readId, details: undefined })).toBeUndefined();
+    const writeId = id();
+    expect(await pi.call("tool_call", { toolName: "write", toolCallId: writeId, input: { path: "website/x.md", content: "x" } })).toBeUndefined();
+    expect(await pi.call("tool_result", { ...result, toolName: "write", toolCallId: writeId, details: undefined })).toBeUndefined();
+  });
+
+  it("offModeDoesNotGate", async () => {
+    const { pi, evidenceLog } = local("off");
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    expect(await toolCall(pi, "read", { path: "website/events.jsonl" })).toBeUndefined();
+    expect(records(evidenceLog).map((r) => r.type)).toEqual(["run"]);
+  });
+
+  it("failedStartRefusesEveryCall", async () => {
+    const { pi } = setup([], { raw: "{ not json" });
+    await expect(pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/refused to start/);
+    expect(await toolCall(pi, "read", { path: "README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(await toolCall(pi, "mcp__other__x", {})).toEqual({ block: true, reason: SCOPE_TEXT });
+  });
+
+  it("noConfigDoesNotGate", async () => {
+    const pi = new FakePi({}, workspace);
+    paztport(pi.api);
+    started.push(pi);
+    await pi.emit("session_start", { reason: "startup" });
+    expect(await toolCall(pi, "bash", { command: "curl x" })).toBeUndefined();
   });
 });

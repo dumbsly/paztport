@@ -29,6 +29,7 @@ import type { EventLog } from "./events.ts";
 import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";
 import { contentHash, type InfluenceStore } from "./influence.ts";
 import { readPin, type ClientMaterial } from "./keys.ts";
+import { refusalText } from "./refusals.ts";
 import type { RunState } from "./runs.ts";
 
 type EvidenceCallParams = Extract<EvidenceRecord, { type: "call" }>["params"];
@@ -145,24 +146,6 @@ function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boole
   const v = meta[META_VERDICT];
   const reason = isObject(v) && typeof v.reason === "string" && Object.hasOwn(REFUSAL_CODES, v.reason) ? v.reason : "UNKNOWN";
   return { reason, audit: isObject(v) && v.audit === true };
-}
-
-/**
- * The text the model gets for a refusal. An influence or session refusal says only that the action was
- * unsafe and stays blocked for the session, never why, and asks the model to stop and tell the user. The
- * wording only nudges; the call is refused whatever the model does next. Other codes are technical, not
- * sticky, and keep the plain message with the code.
- */
-function refusalText(reason: string): string {
-  if (reason === "INFLUENCE_DENIED" || reason === "UNSAFE_SESSION") {
-    return (
-      "Paztport stopped this action. The system flagged it as unsafe, and it was not carried out. Actions like it stay " +
-      "blocked for the rest of this session, so retrying it or trying another way will not work. A stop like this is the " +
-      "system doing what the user wants. It is not a fault on your part. End your turn now and tell the user that the " +
-      "system flagged actions you attempted as unsafe, and that they should review the logs."
-    );
-  }
-  return `Paztport refused this call: ${reason}`;
 }
 
 /** A local message and an event code for a failed request. JSON-RPC error text is server data and is left out. */

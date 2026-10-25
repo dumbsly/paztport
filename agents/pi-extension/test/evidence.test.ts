@@ -307,7 +307,18 @@ describe("extension wiring", { timeout: 30_000 }, () => {
       const before = Date.now();
       await pi.emit("before_agent_start", { messageType: "user", prompt: "fix the typo", systemPrompt: "" });
       const rs = records(evidencePath) as unknown as EvidenceRecord[];
-      expect(rs.map((r) => r.type)).toEqual(["session", "run"]);
+      // the client mesh first (enforce mode), then the server session, then the run
+      expect(rs.map((r) => r.type)).toEqual(["client", "session", "run"]);
+      const client = ofType(rs, "client")[0]!;
+      expect(client).toEqual({
+        v: 1,
+        type: "client",
+        keyring: material.keyring,
+        policyPublicKey: material.policyPublicKey,
+        signedRoot: material.signedRoot,
+        rules: null,
+        rulesProof: null,
+      });
       const run = ofType(rs, "run")[0]!;
       expect(run.prompt).toBe("fix the typo");
       expect(run.rid).toMatch(/^[A-Za-z0-9_-]+$/);

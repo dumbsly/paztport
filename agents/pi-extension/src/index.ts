@@ -3,14 +3,15 @@
 
 import { createHash } from "node:crypto";
 import type { Tool } from "@earendil-works/pi-mcp";
-import type { InfluenceClass } from "@paztport/path-attest";
-import type {
-  AgentToolResult,
-  ExtensionAPI,
-  ExtensionContext,
-  SessionEntry,
-  ToolAnnotations,
-  ToolDefinition,
+import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceClass } from "@paztport/path-attest";
+import {
+  getAgentDir,
+  type AgentToolResult,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type SessionEntry,
+  type ToolAnnotations,
+  type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { assertOutsideWorkspace, loadConfig, resolveConfigPath, type PaztportConfig } from "./config.ts";
 import { ServerConnection, type CallOutcome } from "./connection.ts";
@@ -18,6 +19,9 @@ import { EventLog } from "./events.ts";
 import { EvidenceLog } from "./evidence.ts";
 import { contentHash, InfluenceStore } from "./influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
+import { LocalGate } from "./local/gate.ts";
+import { canonical } from "./local/paths.ts";
+import { SCOPE_TEXT } from "./refusals.ts";
 import { SessionChain, type SessionView } from "./restore.ts";
 import { RunState } from "./runs.ts";
 
@@ -103,9 +107,44 @@ function classesOf(labels: unknown): InfluenceClass[] | undefined {
 }
 
 /**
+ * Canonical paths no local tool call may touch: the config, the client keys and policy, the pins, the
+ * logs, pi's session folder and pi's agent folder. A path that cannot be resolved is left out (the
+ * gate would otherwise find every path uncheckable).
+ */
+function refusedPaths(path: string, config: PaztportConfig, ctx: ExtensionContext): string[] {
+  const sm = ctx.sessionManager as Partial<ExtensionContext["sessionManager"]>;
+  const sessionDir = typeof sm.getSessionDir === "function" ? sm.getSessionDir() : undefined;
+  const all = [
+    path,
+    config.clientDir,
+    config.clientPolicyDir,
+    ...config.servers.map((s) => s.pin),
+    config.eventsLog,
+    config.evidenceLog,
+    sessionDir,
+    getAgentDir(),
+  ];
+  const out: string[] = [];
+  for (const p of all) {
+    // an in-memory session has "" for its folder, which would resolve to the cwd
+    if (typeof p !== "string" || p === "") {
+      continue;
+    }
+    try {
+      out.push(canonical(p));
+    } catch {
+      // cannot be resolved now: left out
+    }
+  }
+  return out;
+}
+
+/**
  * Makes pi a Paztport harness for the MCP servers named in the config (--paztport-config or
  * PAZTPORT_CONFIG): their tools are registered as `mcp__<server>__<tool>` and every call goes
- * through a {@link ServerConnection}. Without a config the extension does nothing.
+ * through a {@link ServerConnection}. Every other tool call, pi's built-in tools included, is checked
+ * by a {@link LocalGate} against the signed client rules. Without a config the extension does nothing;
+ * with a config that fails to load, every tool call but this extension's is refused.
  */
 export default function paztport(pi: ExtensionAPI): void {
   pi.registerFlag(FLAG, { description: "Path to the Paztport config (JSON); overrides PAZTPORT_CONFIG", type: "string" });
@@ -115,6 +154,10 @@ export default function paztport(pi: ExtensionAPI): void {
   let connections = new Map<string, ServerConnection>();
   /** The evidence file of the current session; a no-op log until a config is loaded. */
   let evidence = new EvidenceLog(undefined);
+  /** Checks every tool call but this extension's MCP calls; undefined without a config. */
+  let gate: LocalGate | undefined;
+  /** A config was named but did not load: every call the gate would check is refused. */
+  let failedStart = false;
   /** Every tool name this extension registered, to its server id and remote tool name. */
   const registered = new Map<string, { server: string; tool: string }>();
   /**
@@ -287,14 +330,47 @@ export default function paztport(pi: ExtensionAPI): void {
     ownCalls.clear();
     runs = new RunState();
     evidence = new EvidenceLog(undefined);
+    gate = undefined;
+    failedStart = false;
     const flag = pi.getFlag(FLAG);
     const path = resolveConfigPath(typeof flag === "string" ? flag : undefined, process.env);
     if (path === undefined) {
       return;
     }
-    const prepared = prepare(path, ctx);
+    let prepared: ReturnType<typeof prepare>;
+    try {
+      prepared = prepare(path, ctx);
+    } catch (e) {
+      // fail closed: a broken config must not leave pi's own tools ungated
+      failedStart = true;
+      throw e;
+    }
     const { config, events, material } = prepared;
     evidence = prepared.evidence;
+    if (config.mode === "enforce") {
+      const rules = material.rules ?? null;
+      const rulesRoute = rules !== null ? `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}` : undefined;
+      evidence.write({
+        v: 1,
+        type: "client",
+        keyring: material.keyring,
+        policyPublicKey: material.policyPublicKey,
+        signedRoot: material.signedRoot,
+        rules,
+        rulesProof: rulesRoute !== undefined && Object.hasOwn(material.proofs, rulesRoute) ? material.proofs[rulesRoute]! : null,
+      });
+    }
+    gate = new LocalGate({
+      mode: config.mode,
+      material,
+      influence,
+      runs,
+      events,
+      evidence,
+      now: Date.now,
+      workspace: ctx.cwd,
+      refused: refusedPaths(path, config, ctx),
+    });
     // before the tools are registered, so every call this session stamps carries the restored influence
     restoreInfluence(ctx.sessionManager, config);
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events, Date.now, evidence));
@@ -337,14 +413,39 @@ export default function paztport(pi: ExtensionAPI): void {
     }
   });
 
+  // Every call but this extension's MCP calls, including calls a tool makes itself (parentToolCallId):
+  // pi emits tool_call for those too, and they are checked the same way.
+  pi.on("tool_call", (event) => {
+    if (registered.has(event.toolName)) {
+      return undefined; // its ServerConnection stamps and the server checks it
+    }
+    if (failedStart) {
+      return { block: true, reason: SCOPE_TEXT };
+    }
+    if (gate === undefined) {
+      return undefined;
+    }
+    const r = gate.check(event.toolName, isObject(event.input) ? event.input : {}, event.toolCallId);
+    return r.block ? { block: true, reason: r.reason } : undefined;
+  });
+
   pi.on("tool_result", (event) => {
     if (ownCalls.delete(event.toolCallId)) {
-      return; // recorded (or not) by its ServerConnection
+      return undefined; // recorded (or not) by its ServerConnection
     }
     const name = event.toolName;
+    // taken for every result, so labels of a call whose result is handled below are not kept
+    const labels = gate?.labelsFor(event.toolCallId);
     if (isMcpTool(name)) {
       influence.recordUntrusted(`builtin:${name}`, hashContent(event.content));
+      return undefined;
     }
+    // undefined: refused (pi emits no tool_result for a blocked call), off mode, or no config
+    if (labels === undefined || name === "write" || name === "edit") {
+      return undefined;
+    }
+    influence.recordClasses(`local:${name}`, labels, hashContent(event.content));
+    return { details: { ...(isObject(event.details) ? event.details : {}), paztport: { labels } } };
   });
 
   pi.on("session_shutdown", async () => {
