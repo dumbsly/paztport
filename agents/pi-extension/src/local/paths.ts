@@ -123,7 +123,11 @@ function ruleLocations(ctx: PathContext, ws: string): RuleLoc[] {
     if (isAbsolute(rule.path)) {
       out.push({ loc: canonical(spelled), at: spelled });
     } else {
-      out.push({ loc: spelled === "." ? ws : canonical(join(ws, spelled)), at: spelled });
+      const loc = spelled === "." ? ws : canonical(join(ws, spelled));
+      // A relative rule that really lies outside the workspace (a symlink out) matches nothing.
+      if (isUnder(loc, ws)) {
+        out.push({ loc, at: spelled });
+      }
     }
   }
   return out;
@@ -161,10 +165,18 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
       best = l;
     }
   }
+  if (best !== undefined && locs.filter((l) => l.loc === best.loc).length > 1) {
+    // Two rules name the same real folder: which one governs would depend on their order.
+    return uncheckable;
+  }
   if (best !== undefined) {
     // Record `at` in the winning rule's own spelling so folderRuleFor finds it from the recorded value alone.
     const tail = relative(best.loc, c).split(sep).filter((x) => x !== "").join("/");
     return { need, at: tail === "" ? best.at : posix.join(best.at, tail) };
+  }
+  if (isUnder(c, ws)) {
+    const rel = relative(ws, c);
+    return { need, at: rel === "" ? "." : rel.split(sep).join("/") };
   }
   return { need, at: "outside" };
 }

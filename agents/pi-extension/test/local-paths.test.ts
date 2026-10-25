@@ -47,6 +47,10 @@ beforeAll(() => {
   symlinkSync(join(base, "nowhere"), join(ws, "website", "dangling"));
   symlinkSync(shared, join(ws, "sharedlink"));
   mkdirSync(join(ws, "docs"));
+  mkdirSync(join(base, "out"));
+  symlinkSync(join(base, "out"), join(ws, "notes2"));
+  symlinkSync(base, join(ws, "up"));
+  mkdirSync(join(ws, "s"));
   mkdirSync(join(ws, "c", "b"), { recursive: true });
   symlinkSync(join(ws, "c"), join(ws, "a"));
   mkdirSync(join(ws, "secrets", "keys"));
@@ -312,5 +316,54 @@ describe("round 2: folding and rule locations", () => {
     const r = resolveFileTool("grep", { path: "c" }, c);
     expect(r.paths).toEqual([{ need: "read", at: "c" }, { need: "read", at: "a/b" }]);
     expect(readLabels(r, c.rules)).toContain("private");
+  });
+});
+
+describe("round 3: symlinks out, duplicate locations, root tie", () => {
+  const withRules = (folders: unknown[]) => ({
+    ...ctx,
+    rules: parseLocalRules({ v: 1, folders, programs: [] }),
+    refused: [],
+  });
+  const verdictOf = (at: string, need: "read" | "write", c: PathContext) =>
+    decideLocal({ routeAllowed: true, resolved: { paths: [{ need, at }], programs: [], parse: "ok", readOnly: false }, rules: c.rules, classes: new Set() });
+  it("aRelativeRuleThatSymlinksOutOfTheWorkspaceMatchesNothing", () => {
+    const c = withRules([{ path: ".", access: ["read"] }, { path: "notes2", access: ["read", "write"], destination: "public" }]);
+    const a = resolvePathArg(join(base, "out", "x"), "write", c);
+    expect(a.at).toBe("outside");
+    expect(verdictOf(a.at, "write", c)).toBe("SCOPE_DENIED");
+  });
+  it("aSymlinkUpAndBackOutIsOutside", () => {
+    const c = withRules([{ path: ".", access: ["read", "write"], destination: "private" }, { path: "up/out", access: ["read", "write"], destination: "private" }]);
+    const a = resolvePathArg("../out/f", "write", c);
+    expect(a.at).toBe("outside");
+    expect(verdictOf(a.at, "write", c)).toBe("SCOPE_DENIED");
+  });
+  it("twoRulesForTheSameRealFolderAreUncheckableInEitherOrder", () => {
+    const real = { path: "c", access: ["read"] };
+    const alias = { path: "a", access: ["read", "write"], destination: "public" };
+    for (const folders of [[real, alias], [alias, real]]) {
+      const c = withRules([{ path: ".", access: ["read"] }, ...folders]);
+      const a = resolvePathArg("c/x", "write", c);
+      expect(a.at).toBe("uncheckable");
+      expect(verdictOf(a.at, "write", c)).toBe("UNCHECKABLE");
+    }
+  });
+  it("anInWorkspacePathWithNoCoveringRuleKeepsItsRelativeAtAndIsDenied", () => {
+    const c = withRules([{ path: "website", access: ["read"] }]);
+    const a = resolvePathArg("src/x.ts", "read", c);
+    expect(a.at).toBe("src/x.ts");
+    expect(verdictOf(a.at, "read", c)).toBe("SCOPE_DENIED");
+  });
+  it("aNamedOneCharacterFolderBeatsTheRootInEitherOrder", () => {
+    const root = { path: ".", access: ["read", "write"], destination: "public" };
+    const s = { path: "s", access: ["read"], label: "private" };
+    for (const folders of [[root, s], [s, root]]) {
+      const c = withRules(folders);
+      const w = resolvePathArg("s/x", "write", c);
+      expect(w.at).toBe("s/x");
+      expect(verdictOf(w.at, "write", c)).toBe("SCOPE_DENIED");
+      expect(readLabels({ paths: [{ need: "read", at: w.at }], programs: [], parse: "ok", readOnly: true }, c.rules)).toContain("private");
+    }
   });
 });

@@ -58,6 +58,15 @@ describe("folderRuleFor", () => {
     expect(folderRuleFor("/data/x", r)?.path).toBe("/data");
     expect(folderRuleFor("/etc/x", r)).toBeUndefined();
   });
+  it("aNamedOneCharacterFolderBeatsTheRootInEitherOrder", () => {
+    const root = { path: ".", access: ["read", "write"], destination: "public" };
+    const s = { path: "s", access: ["read"], label: "private" };
+    for (const folders of [[root, s], [s, root]]) {
+      const r = parseLocalRules({ v: 1, folders, programs: [] });
+      expect(folderRuleFor("s/x", r)?.path).toBe("s");
+      expect(folderRuleFor("t/x", r)?.path).toBe(".");
+    }
+  });
   it("givesNothingForMarkersOrDotDot", () => {
     expect(folderRuleFor("outside", rules)).toBeUndefined();
     expect(folderRuleFor("refused", rules)).toBeUndefined();

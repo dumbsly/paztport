@@ -44,9 +44,11 @@ export function folderRuleFor(at: string, rules: LocalRules): FolderRule | undef
       continue;
     }
     const match = f === "." || f === "/" || a === f || a.startsWith(`${f}/`);
-    if (match && f.length > bestLen) {
+    // The root "." counts as length 0, so any named folder beats it whatever the rule order.
+    const len = f === "." ? 0 : f.length;
+    if (match && len > bestLen) {
       best = rule;
-      bestLen = f.length;
+      bestLen = len;
     }
   }
   return best;
