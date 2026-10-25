@@ -397,7 +397,16 @@ describe("demo server", () => {
     expect(reopened.verifyCommand).toBe(done.verifyCommand);
   });
 
-  it("a run with no evidence file has no verify command", async () => {
+  it("a run with no evidence file, or only the run record Paztport off writes, has no verify command", async () => {
+    const offRun: RunOnce = async (spec, onLine, signal) => {
+      const r = await playing(spec, onLine, signal);
+      writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n");
+      return r;
+    };
+    const off = await start({ deps: { runOnce: offRun } });
+    const offDone = (await sse(off.srv, (await (await post(off.srv, "/api/runs", { ...body, mode: "off" })).json()).id)).at(-1)!.data;
+    expect(offDone.evidenceFile).toBe(false);
+    expect(offDone.verifyCommand).toBeUndefined();
     const { srv } = await start({ deps: { runOnce: playing } });
     const { id } = await (await post(srv, "/api/runs", { ...body, mode: "off" })).json();
     const done = (await sse(srv, id)).at(-1)!.data;

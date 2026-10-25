@@ -5,9 +5,94 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
 <title>Paztport demo</title>
+<link rel="stylesheet" href="app.css">
+<script type="module" src="app.js"></script>
 </head>
 <body>
-<p>The demo page is not built yet. The server is running; the page that drives it arrives in the next step.</p>
+<header class="top">
+  <div class="top-inner">
+    <h1>Paztport demo</h1>
+    <p class="lede">An agent works on a mock GitHub server. Each tool call is shown in plain words, with its evidence one click away.</p>
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" role="tab" id="tab-run" aria-selected="true" aria-controls="view-run">Run</button>
+      <button type="button" role="tab" id="tab-results" aria-selected="false" aria-controls="view-results" tabindex="-1">Results</button>
+    </div>
+  </div>
+</header>
+
+<main>
+  <p class="notice" id="page-problem" role="alert" hidden></p>
+  <noscript><p class="notice">This page needs JavaScript. It sends nothing off this machine; it only talks to the demo server that printed its address.</p></noscript>
+
+  <section id="view-run" role="tabpanel" aria-labelledby="tab-run">
+    <div id="setup-view" class="setup-grid">
+      <form id="setup" class="panel" novalidate>
+        <h2>Setup</h2>
+        <div class="field">
+          <label for="model">Model</label>
+          <select id="model" name="model"></select>
+          <p class="note" id="model-note" hidden></p>
+        </div>
+        <div class="field">
+          <label for="scenario">Scenario</label>
+          <select id="scenario" name="scenario"></select>
+        </div>
+        <fieldset>
+          <legend>Paztport</legend>
+          <label><input type="radio" name="mode" value="on" checked> on</label>
+          <label><input type="radio" name="mode" value="off"> off</label>
+        </fieldset>
+        <fieldset>
+          <legend>Planted text</legend>
+          <label><input type="radio" name="payload" value="reference" checked> reference (the scenario's own)</label>
+          <label><input type="radio" name="payload" value="custom"> custom</label>
+          <div class="custom-row" id="custom-row" hidden>
+            <label for="payload-file">custom</label>
+            <input type="file" id="payload-file" accept=".md,.txt,text/plain,text/markdown">
+            <p class="note" id="payload-note"></p>
+          </div>
+        </fieldset>
+        <div class="field">
+          <label for="runs">Runs</label>
+          <input type="number" id="runs" name="runs" min="1" max="100" step="1" value="1">
+        </div>
+        <dl class="facts" id="cost-note" aria-live="polite"></dl>
+        <div class="start-row">
+          <button type="submit" class="primary" id="start">Start</button>
+        </div>
+        <p class="problem" id="setup-error" role="alert" hidden></p>
+      </form>
+
+      <section class="panel what" aria-labelledby="what-heading">
+        <h2 id="what-heading">What will happen</h2>
+        <div id="what"></div>
+      </section>
+    </div>
+
+    <div id="run-view" hidden>
+      <div class="run-toolbar">
+        <button type="button" class="secondary" id="back-to-setup">New run</button>
+        <button type="button" class="secondary" id="compare" hidden>Run the same prompt with Paztport off</button>
+      </div>
+      <p class="notice" id="compare-note" hidden>These are two separate model runs; the model may behave differently in each, and the off run may not leak at all.</p>
+      <div class="compare-grid" id="run-panels"></div>
+    </div>
+  </section>
+
+  <section id="view-results" role="tabpanel" aria-labelledby="tab-results" hidden>
+    <div id="results-list" class="panel"></div>
+    <div id="results-detail" hidden></div>
+  </section>
+</main>
+
+<dialog class="drawer" id="drawer" aria-labelledby="drawer-title">
+  <div class="drawer-head">
+    <h2 id="drawer-title">Evidence</h2>
+    <button type="button" class="secondary" id="drawer-close">Close</button>
+  </div>
+  <div class="drawer-body" id="drawer-body"></div>
+</dialog>
 </body>
 </html>

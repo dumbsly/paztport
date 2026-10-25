@@ -117,10 +117,14 @@ function verifyCommand(target: string): string {
   return `npm run verify -- ${/^[A-Za-z0-9_./:@%+=,-]+$/.test(shown) ? shown : `'${shown.replace(/'/g, "'\\''")}'`}`;
 }
 
-/** The run's evidence file and the command that checks it, when there is one to check. */
+/**
+ * The run's evidence file and the command that checks it, when it holds something to check. With Paztport off
+ * the extension still writes the run's own record (the prompt), which carries no signature: that is not evidence.
+ */
 function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
   const file = join(runDir, "evidence.jsonl");
-  return hasContent(file) ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
+  const checkable = hasContent(file) && readJsonl(file).some((r) => !isObj(r) || r.type !== "run");
+  return checkable ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
 }
 
 const median = (xs: number[]): number | undefined => {
