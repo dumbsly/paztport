@@ -7,7 +7,8 @@ import { checkRun, hasEvidenceFile } from "./crosscheck.ts";
 import { usableRecords, type StoredRun } from "./eval.ts";
 import { DEFINITIONS, MODE_LABEL } from "./report.ts";
 import type { RunMode, RunResult } from "./runner.ts";
-import { scoreRunFile, summarize, type Count, type ModeSummary } from "./score.ts";
+import type { Scenario } from "../../mock-github-mcp/src/scenario.ts";
+import { readLocalFacts, scoreRunFile, summarize, type Count, type ModeSummary } from "./score.ts";
 import { NOT_FAILURES, verifyResultsDir } from "./verify.ts";
 
 /**
@@ -45,6 +46,15 @@ function readRunJson(runDir: string): Obj | undefined {
   }
 }
 
+/** The run's canary as the runner wrote it ("" when the file can't be read, which leaves only the scenario's markers). */
+function readCanary(runDir: string): string {
+  try {
+    return readFileSync(join(runDir, "canary.txt"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 /** Compares results.json's stored counts with the recomputed ones, mode by mode and column by column. */
 function compareSummaries(stored: unknown, now: ModeSummary[], out: string[]): void {
   const storedRows = new Map<string, Obj>();
@@ -73,8 +83,14 @@ function compareSummaries(stored: unknown, now: ModeSummary[], out: string[]): v
   }
 }
 
-/** Checks a results folder again from its files. `results` is its parsed results.json (an object with a runs list). */
-export function recheckResultsDir(dir: string, results: Obj): Recheck {
+/**
+ * Checks a results folder again from its files. `results` is its parsed results.json (an object with a runs
+ * list). `scenario` is the scenario the folder was run with; when it has local tools, each run's workspace and
+ * events log are read again for local leaks, blocks and scope refusals. Without it (or for an older folder
+ * whose results.json does not name that scenario) runs are scored as before, from the outcome log and transcript.
+ */
+export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario): Recheck {
+  const localScenario = scenario?.localTools === true && isObj(results.scenario) && results.scenario.id === scenario.id ? scenario : undefined;
   const problems: string[] = [];
   const disagreements: string[] = [];
   const notes: string[] = [];
@@ -112,9 +128,10 @@ export function recheckResultsDir(dir: string, results: Obj): Recheck {
     const index = typeof raw.index === "number" ? raw.index : i + 1;
     let run: StoredRun;
     if (!existsSync(runDir)) {
-      run = { mode, index, dir: rel, outcome: "error", readPrivate: false, taskDone: false, harnessFault: false, status: result.status, reason: "its folder isn't there" };
+      run = { mode, index, dir: rel, outcome: "error", readPrivate: false, taskDone: false, scopeRefused: false, harnessFault: false, status: result.status, reason: "its folder isn't there" };
     } else {
-      run = scoreRunFile(join(runDir, "outcome.jsonl"), result, index, rel, join(runDir, "transcript.jsonl"));
+      const local = localScenario === undefined ? undefined : readLocalFacts(runDir, localScenario, readCanary(runDir), mode);
+      run = scoreRunFile(join(runDir, "outcome.jsonl"), result, index, rel, join(runDir, "transcript.jsonl"), local);
       if (run.outcome === "error" && run.reason === undefined) {
         run.reason =
           raw.outcome === "error" && typeof raw.reason === "string"
@@ -201,6 +218,6 @@ export function recheckSignature(dir: string): string {
   } catch {
     // none
   }
-  for (const n of names) for (const f of ["outcome.jsonl", "evidence.jsonl", "transcript.jsonl", "run.json"]) stamp(join(dir, "runs", n, f));
+  for (const n of names) for (const f of ["outcome.jsonl", "evidence.jsonl", "transcript.jsonl", "run.json", "events.jsonl", "canary.txt", "workspace"]) stamp(join(dir, "runs", n, f));
   return parts.join("|");
 }

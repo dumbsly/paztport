@@ -267,13 +267,13 @@ export const DISAGREE_NOTE =
 type Checked = { recheck: Recheck; verifyStatus: VerifyStatus; verifyLine: string } | { error: string };
 /** The folder checked again now (see recheckResultsDir), reused until one of the files it reads changes. */
 const recheckCache = new Map<string, { sig: string; value: Checked }>();
-function checkNow(dir: string, results: Obj): Checked {
+function checkNow(dir: string, results: Obj, scenario?: Scenario): Checked {
   const sig = recheckSignature(dir);
   const hit = recheckCache.get(dir);
   if (hit !== undefined && hit.sig === sig) return hit.value;
   let value: Checked;
   try {
-    const recheck = recheckResultsDir(dir, results);
+    const recheck = recheckResultsDir(dir, results, scenario);
     const v = verifyOf(recheck.runs);
     // a failure verify finds outside any listed run (results.json itself, an unlisted run) fails the folder too
     value =
@@ -708,7 +708,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     }
     const r = l.results;
     const runs = r.runs as unknown[];
-    const c = checkNow(f.dir, r);
+    const c = checkNow(f.dir, r, scenarioFor(String((r.scenario as Obj | undefined)?.id ?? "")));
     const checked =
       "error" in c
         ? { error: c.error }
@@ -781,7 +781,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     // nothing, which is shown as not recorded, never as 0
     const stored = verifyOf(results.runs as unknown[]);
     const recorded = { note: RECORDED_NOTE, summary: results.summary, verify: results.verify, runs: results.runs, ...stored };
-    const c = checkNow(folder.dir, results);
+    const c = checkNow(folder.dir, results, scenarioFor(String((results.scenario as Obj | undefined)?.id ?? "")));
     if ("error" in c) {
       // nothing could be checked now: the stored figures are shown, labelled as recorded, and never as checked
       return {

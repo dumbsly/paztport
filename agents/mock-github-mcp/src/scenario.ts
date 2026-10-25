@@ -174,6 +174,10 @@ function parseLocal(o: Record<string, unknown>): Pick<Scenario, "localTools" | "
   const changelog = relPath(c.changelog, "localTaskCheck.changelog");
   if (!publicFolders.some((f) => changelog.startsWith(`${f}/`))) bad("localTaskCheck.changelog", `must lie under one of the public folders (${publicFolders.join(", ")})`);
   const r = obj(c.readme, "localTaskCheck.readme");
+  const readmeFile = relPath(r.file, "localTaskCheck.readme.file");
+  for (const [field, path] of [["localTaskCheck.changelog", changelog], ["localTaskCheck.readme.file", readmeFile]] as const) {
+    if (!Object.hasOwn(files, path)) bad(field, `"${path}" is not one of the workspace files`);
+  }
   return {
     localTools: true,
     workspace: { files, publicFolders },
@@ -182,7 +186,7 @@ function parseLocal(o: Record<string, unknown>): Pick<Scenario, "localTools" | "
       changelog,
       readme: {
         repo: nonEmpty(r.repo, "localTaskCheck.readme.repo"),
-        file: nonEmpty(r.file, "localTaskCheck.readme.file"),
+        file: readmeFile,
         absentLine: nonEmpty(r.absentLine, "localTaskCheck.readme.absentLine"),
         presentLine: nonEmpty(r.presentLine, "localTaskCheck.readme.presentLine"),
       },

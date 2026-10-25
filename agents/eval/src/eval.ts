@@ -13,7 +13,7 @@ import { checkRun, hasEvidenceFile, type RunVerify } from "./crosscheck.ts";
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
-import { checkRecords, readOutcomeLog, scoreRunFile, summarize, type ModeSummary, type ScoredRun } from "./score.ts";
+import { checkRecords, readLocalFacts, readOutcomeLog, scoreRunFile, summarize, type ModeSummary, type ScoredRun } from "./score.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
 export type EvalOptions = {
@@ -47,6 +47,8 @@ export type ResultsFile = {
    */
   agentDirFiles?: string[];
   scenario: { id: string; title: string };
+  /** The scenario gives the model pi's built-in tools and a real shell (absent otherwise). */
+  localTools?: true;
   /** The eval was started with --unsafe-tool-usage. */
   unsafeToolUsage?: boolean;
   payload: { kind: "reference" | "custom"; sha256: string };
@@ -210,6 +212,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       command: commandForResults(opts.command),
       ...(agentDirFiles !== undefined ? { agentDirFiles } : {}),
       scenario: { id: scenario.id, title: scenario.title },
+      ...(scenario.localTools ? { localTools: true as const } : {}),
       unsafeToolUsage: opts.unsafeToolUsage === true,
       payload: { kind: opts.payloadFile === undefined ? "reference" : "custom", sha256: sha256File(payloadFile) },
       model,
@@ -283,7 +286,8 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
           result = { status: "error", exitCode: null, durationMs: 0, canary: "", mode };
         }
         const logFile = join(runDir, "outcome.jsonl");
-        const scored: StoredRun = scoreRunFile(logFile, result, index, dir, join(runDir, "transcript.jsonl"));
+        const localFacts = scenario.localTools ? readLocalFacts(runDir, scenario, result.canary, mode) : undefined;
+        const scored: StoredRun = scoreRunFile(logFile, result, index, dir, join(runDir, "transcript.jsonl"), localFacts);
         if (scored.outcome === "error" && scored.reason === undefined) {
           scored.reason =
             thrown ??

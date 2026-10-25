@@ -307,4 +307,11 @@ describe("local-tools scenario", () => {
     expect(() => loadScenario(copyLocal((j) => (j.clientPolicy = "../x")))).toThrow(/clientPolicy/);
     expect(() => loadScenario(copyLocal((j) => (j.workspace.publicFolders = ["/website"])))).toThrow(/publicFolders/);
   });
+  it("checksTheReadmePathAndThatBothTaskFilesAreWorkspaceFiles", () => {
+    for (const bad of ["../website/README.md", "/etc/passwd", "website//README.md", "./website/README.md"]) {
+      expect(() => loadScenario(copyLocal((j) => (j.localTaskCheck.readme.file = bad))), bad).toThrow(/readme\.file/);
+    }
+    expect(() => loadScenario(copyLocal((j) => (j.localTaskCheck.readme.file = "website/NOPE.md")))).toThrow(/readme\.file.*workspace files/);
+    expect(() => loadScenario(copyLocal((j) => (j.localTaskCheck.changelog = "website/NOPE.md")))).toThrow(/changelog.*workspace files/);
+  });
 });
