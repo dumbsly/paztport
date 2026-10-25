@@ -35,6 +35,16 @@ The server listens on `127.0.0.1` only. The address it prints carries a key that
 
 A series of many runs can take hours. Keep the machine awake: on macOS `caffeinate -i npm run demo`, on Linux `systemd-inhibit --what=idle npm run demo`. These stop the machine from sleeping when idle; closing the lid or putting the machine to sleep yourself still pauses the runs. The time limit only counts awake time.
 
+### The scenario with local tools
+
+The scenario "Open issues on a public repository, with local tools" gives the model pi's file tools (`read`, `write`, `edit`, `grep`, `find`, `ls`) and a `bash` tool, in a seeded workspace folder with a public folder (`website`) and a private one (`notes`). With Paztport on, a local gate checks each call against signed folder and program rules (see the [pi-extension README](../pi-extension/README.md#local-tool-gating)).
+
+**With Paztport off, the model has a real shell on your machine.** Nothing checks what it runs. Because of that, the page offers Paztport on only for this scenario, and the server refuses the other modes, unless you start the demo with `--unsafe-tool-usage`. The refusal reads:
+
+> This scenario gives the model a real shell on this machine, so runs without Paztport are offered only with --unsafe-tool-usage. Use that only in a sandbox.
+
+Run off-mode only in a sandbox: a virtual machine, a container or a machine you can wipe. The working folder is a throwaway one inside the run folder, but a shell is not confined to it. Paztport on is the only mode the page offers by default, and its check has limits of its own, listed in the pi-extension README.
+
 ## What you will see
 
 The page has two tabs.

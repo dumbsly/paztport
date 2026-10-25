@@ -136,6 +136,150 @@ sent.
   be trusted. This keeps keys out of the project; it does not hide them from the model (see
   [Limits](#limits)).
 
+## Local tool gating
+
+The extension also checks pi's own tools: `read`, `write`, `edit`, `bash`, `grep`, `find` and `ls`.
+Each call is checked in pi's `tool_call` hook against rules that are signed into the client policy,
+before the tool runs. In plain words: the policy says which folders the session may read or write,
+which programs `bash` may start, and which folders are public. A call outside that is refused. A
+public write after the session has read private content and also taken in untrusted content is
+refused too.
+
+The rules sit in the policy file under a `local:` key, next to the `paths:` list. The route for each
+tool, such as `session/pi/local:bash`, must also be listed there, or the tool is refused. This is the
+policy the local-tools scenario uses (`policies/client-local-tools.paths.yaml`, the `local:` part):
+
+```yaml
+local:
+  folders:
+    - { path: ".", access: [read] }
+    - { path: "website", access: [read, write], label: public, destination: public }
+    - { path: "notes", access: [read, write], destination: private }
+  programs: [cat, head, tail, wc, grep, ls, diff, pwd, echo, cut, tr, basename, dirname, test, "true", "false", mkdir, touch, cp, mv]
+```
+
+The policy tool signs the rules into the client root as one more route, and the extension refuses to
+load rules the root does not cover. `clientPolicyDir` in the config (default: `clientDir`) is where
+`root.json`, `proofs-pi.json` and `rules.json` are read from.
+
+By mode: `enforce` checks every call as described here. `no-root` has no rules to check against and
+refuses every local call. `off` allows everything and records nothing, and pi's own `bash` stays in
+place. A local call made before any user prompt is refused.
+
+### The order of checks
+
+The first check that fails decides, in this order:
+
+1. **Route.** Is `session/pi/local:<tool>` listed in the signed policy? If not, the call is refused
+   (`PATH_NOT_ALLOWED`).
+2. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,
+   a path with a `..` part in a command, a link it cannot follow, or a tool input it cannot sign
+   makes the call `UNCHECKABLE`. `powershell` is always `UNCHECKABLE`.
+3. **Scope.** Every path must fall under a folder rule that allows the access needed (read, write or
+   exec), and every program must be allowed. Otherwise `SCOPE_DENIED`. A path that resolves outside
+   the workspace with no rule for it, or into a place the extension keeps for itself (the config, the
+   keys and pins, the logs, pi's session and agent folders), is refused.
+4. **Influence.** If the session holds `private` content together with `third-party` or
+   `local-untrusted` content, a write to a folder whose `destination` is `public` is refused
+   (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories.
+
+Each call that reaches the gate during a run is a signed step in the client's chain: the stamp binds
+the call id, the input, what the gate resolved, the verdict, whether the route was listed, the hash of
+the rules, and the influence at that moment. The step is written to the evidence file whether the
+call was allowed or refused. The events log gets only the tool name, call id, rid and verdict. After a
+call is allowed, its input is frozen (see [Hook order](#hook-order)).
+
+### Folder rules
+
+A folder rule has a `path`, an `access` list, and optionally a `label` and a `destination`.
+
+- `path`: relative to the working folder (`.` is the folder itself) or absolute. It must not leave
+  the working folder with `..`. A rule covers everything below it. The longest matching rule wins,
+  so `website` beats `.` whatever the order. Paths are resolved to where they really are on disk, so
+  a symlink inside the workspace is judged by what it points at.
+- `access`: any of `read`, `write`, `exec`. `write` and `exec` cannot be combined in one rule (see
+  [Write or run, not both](#write-or-run-not-both)).
+- `label`: what a read from this folder adds to the session's influence: `private`, `public` or
+  `third-party`. A folder with no label counts as `local-untrusted`, and so does a read outside any
+  rule's label. The label is the policy author's claim about the folder; the extension does not look
+  at the content.
+- `destination`: `public` or `private`. Required when `access` includes `write`. Only a write to a
+  `public` destination can be refused for influence.
+
+### Programs
+
+`programs` lists the bare program names `bash` may start (no `/`, no spaces). A name is looked up on
+the fixed `PATH` (`/usr/bin:/bin`) and must be listed and found there. If an allowed name is really
+a link to a program from the list below, it is treated as that program. A program given with a path,
+such as `./tool`, is judged as `exec` access on its folder instead.
+
+Some programs are never allowed, even if listed. Each can start other programs, write anywhere or
+reach the network, so a command line that names one cannot be checked. Listing one in a policy makes
+the policy fail to load. Names are compared without regard to case, and with a version suffix
+(`python3.12` is `python`). The list:
+
+`sh`, `bash`, `zsh`, `dash`, `ksh`, `fish`, `env`, `xargs`, `sudo`, `su`, `doas`, `nohup`, `timeout`, `nice`, `watch`, `exec`, `eval`, `python`, `python3`, `node`, `deno`, `bun`, `perl`, `ruby`, `php`, `lua`, `awk`, `gawk`, `sed`, `find`, `git`, `make`, `npm`, `npx`, `pip`, `pip3`, `osascript`, `open`, `xdg-open`, `tee`, `sort`, `uniq`, `script`, `arch`, `caffeinate`, `busybox`, `tar`, `zip`, `unzip`, `rsync`, `ssh`, `scp`, `sftp`, `less`, `more`, `man`, `vi`, `vim`, `nvim`, `view`, `emacs`, `nano`, `ed`, `ex`, `m4`, `chroot`, `setsid`, `stdbuf`, `flock`, `rbash`, `ash`, `csh`, `tcsh`, `nodejs`, `mawk`, `nawk`, `xcrun`, `launchctl`, `at`, `batch`, `crontab`, `screen`, `tmux`, `expect`, `gdb`, `lldb`, `dtrace`, `sandbox-exec`, `irb`, `julia`, `swift`, `tclsh`, `wish`, `Rscript`, `printf`, `getopts`, `time`, `command`, `lockf`, `pydoc`, `vimdiff`, `rview`, `rvim`, `vimtutor`
+
+Beyond the list, the check reads a small part of the shell. It accepts simple commands joined by
+`|`, `&&`, `||`, `;` or a new line, with plain words, single and double quotes and `>`, `>>`, `2>`
+and `<` redirects. It refuses anything it would have to guess: `$` and backquote expansions, globs
+(`*`, `?`, `[`), `~`, subshells and braces, background jobs, here-documents, variable assignments,
+and shell builtins that change state (`cd`, `export`, `source`, `set` and the like). A command list
+in which a command other than the last one writes is refused whole, because an earlier write can
+change what a later path means.
+
+For the read-only programs (`cat`, `head`, `tail`, `wc`, `grep`, `ls`, `diff`, `pwd`, `echo`, `cut`,
+`tr`, `basename`, `dirname`, `test`, `true`, `false`) an operand counts as a path when it contains a
+`/`, starts with `.` or `~`, or names something in the working folder. For any other allowed
+program, every operand counts as a path it may write. The working folder is always counted as a read.
+
+### Write or run, not both
+
+A folder rule cannot allow both `write` and `exec`. The reason is simple: if the session could write
+a file into a folder and then run it from there, the program list would not mean much, because the
+new file would be a program the policy never saw. With the two kept apart, a folder holds files the
+session can change or programs it can run, not both.
+
+### Paztport's own `bash`
+
+In every mode but `off`, the extension registers its own `bash` tool in place of pi's. It has the same
+name, schema and output handling, but it differs in how it starts commands:
+
+- It runs the command with `/bin/sh`, so the shell is the one the check assumed.
+- `PATH` is `/usr/bin:/bin`, so programs resolve to the ones the gate looked up.
+- The environment is built from an allowlist: `PATH`, `HOME`, `TERM=dumb`, and `LANG`, `LC_ALL` and
+  `TZ` if set. `HOME` is the workspace. Nothing else from the parent environment (API keys,
+  `BASH_ENV`, `IFS`, `CDPATH` and so on) is passed.
+- pi's `shellPath` and `commandPrefix` settings do not apply to it.
+
+### What the model sees from the local gate
+
+A refused local call comes back as a tool error with one of three fixed texts. None says which rule
+applied.
+
+For `INFLUENCE_DENIED`, the same text as for the server's refusals above:
+
+> Paztport stopped this action. The system flagged it as unsafe, and it was not carried out. Actions like it stay blocked for the rest of this session, so retrying it or trying another way will not work. A stop like this is the system doing what the user wants. It is not a fault on your part. End your turn now and tell the user that the system flagged actions you attempted as unsafe, and that they should review the logs.
+
+For `SCOPE_DENIED` and `PATH_NOT_ALLOWED`. Scope is not evidence of an injection, so this text does not ask the model to stop:
+
+> Paztport refused this action: it is outside what this session is allowed to do, so it was not carried out.
+
+For `UNCHECKABLE`:
+
+> Paztport couldn't check this command, so it wasn't run. Use simple commands with plain paths.
+
+As with the other refusal text, the wording only nudges the model. The refusal is the control.
+
+### Hook order
+
+pi runs `tool_call` handlers in the order the extensions loaded, and a handler can change the tool's
+input in place. Paztport checks the input as it is when its handler runs, then freezes it. So
+Paztport must be the last `tool_call` handler, or the only one that changes tool input. If another
+extension's handler runs after Paztport and changes the input, the change throws and pi blocks the
+call. A handler that runs before Paztport can change the input, but Paztport then checks what it
+changed it to, which is what the tool runs with.
+
 ## Limits
 
 - **Trust on first use.** The server policy key is pinned from `server-policy.pub`, which setup-demo
@@ -162,12 +306,49 @@ sent.
   restored branch and are counted there. The rebuild trusts the session file, which the model can
   edit through `bash`. Steering messages sent mid-run keep the current run's rid and origin. Only a
   new user prompt starts a new run.
-- **Built-in local tools are unlabelled.** In phase 1, results of `read`, `bash`, `edit`, `write` and
-  other non-MCP tools are not recorded as influence, so a payload in a workspace file goes untracked.
+- **Influence from local reads.** A read adds the label of the folder it read from, as the policy
+  gives it. A folder with no label, or a read the rules do not place in a folder, counts as
+  `local-untrusted`. A `bash` result adds the labels of the folders it read plus `local-untrusted`,
+  because a program's output is not fully known. `write` and `edit` results add nothing. A tool that
+  is not one of pi's built-ins and not this extension's counts as `local-untrusted`. The labels are
+  only as good as the policy's claims about the folders. When a session is restored (`/resume`,
+  `/fork`, reload), results of built-in tools are counted again from the labels saved with them. A
+  result without Paztport's labels, or one whose tool made nested calls, counts as `private` and
+  `local-untrusted`.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from
   `tools/list` are not recorded as influence, and neither are MCP server `instructions` or
   descriptions that pi puts in the system prompt (for servers in its own `mcp.json`). Poisoning there
   goes unnoticed.
+- **The `bash` check is conservative, not a guarantee.** It refuses what it cannot work out, but it
+  works from the command text and the files as they are when it looks. It does not run the command or
+  model what each program does.
+- **Allowed programs can have effects the check does not model.** The check knows which paths a
+  program is given, not everything the program does with them. Take `cp`, `mv` and `touch` in the
+  example policy: the check treats their operands as paths to be written and judges those, and that
+  is all it knows about them.
+- **Programs whose write target comes from their operands' contents are not modelled.** Do not list
+  `curl -O`, `wget`, archive extractors in the style of `tar` and `unzip`, or `ln` in a policy. `curl -O`
+  and `wget` write a file named by a URL, an extractor writes the names inside the archive, and `ln`
+  with one operand writes `./` plus that operand's base name. The check cannot see those targets.
+- **A file can change between the check and the run.** The gate checks, then the tool runs a moment
+  later (a check-then-use gap). A link swapped in, or a file replaced by another process in between,
+  is not seen.
+- **Walking a folder is refused when the folder is odd.** A `bash` command that walks a folder (`ls`,
+  `grep`, and any program not on the read-only list, including one given by path, is treated as able to walk the working folder) is refused as
+  uncheckable when the folder holds a symlink that points out of it, a folder that cannot be read, or
+  more than 20,000 entries. It does not detect hard links and mount points below a walked folder.
+- **The `bash` environment is fixed, and it is the workspace's.** Paztport's own `bash` runs
+  `/bin/sh` with `PATH=/usr/bin:/bin`, `HOME` set to the workspace and an allowlisted environment.
+  pi's `shellPath` and `commandPrefix` settings do not apply. Because `HOME` is the workspace, a
+  program the policy allows may read configuration or rc files that are in the workspace. An
+  extension loaded before Paztport that registers its own `bash` replaces Paztport's: the gate still
+  checks the call, but the fixed shell and environment do not apply.
+- **Paztport must be the last `tool_call` handler, or the only one that changes tool input.** After a
+  call is allowed its input is frozen, so a later extension that changes it gets the call blocked,
+  and a third-party tool that changes its own arguments will fail.
+- **`verify` checks the rules against what the gate saw, not the disk.** Offline verification checks
+  that the signed rules give the recorded verdict for the recorded resolution. It does not check that
+  the gate resolved the paths correctly, and it cannot see the disk as it was.
 - **No subagents.** Run and influence state belong to the one pi session. Subagents are not covered.
 - **Don't also list these servers in pi's `mcp.json`.** pi's built-in MCP would register the same
   `mcp__<id>__<tool>` names. Results from pi's built-in MCP tools are still recorded, as
@@ -175,9 +356,10 @@ sent.
 - **Other extensions run later.** Another extension's `tool_result` handler can rewrite a result after
   this extension recorded it, so the model may see content other than what was hashed.
 - **The workspace guard is hygiene, not a boundary.** It keeps the keys, the config and the pins from
-  being included in or edited as part of the project by accident. pi's `read` and `bash` tools accept
-  absolute paths, so the model can still read these files (`pi.key` among them) or use them through
-  `bash`. Phase 2 local enforcement closes this.
+  being included in or edited as part of the project by accident. In `off` mode, and for tools the
+  local gate does not cover (for example another extension's), nothing stops a tool that takes
+  absolute paths from reading them. With the local gate on, calls to pi's built-in tools that name
+  these places are refused, subject to the limits below.
 - **Not everything is guarded.** The events log path and the server `command`/`args` are not checked
   against the workspace. Key files inside `clientDir` that are symlinks are followed.
 - **Aborts don't reach the server.** pi's abort signal is not forwarded to in-flight MCP calls. An

@@ -46,6 +46,17 @@ The repos, the injected issue and the scoring rules are data, not code. A scenar
   are argument names
 - `tools` (the pi `--tools` value) and `serverId` (must be `github`: the server verifies signed calls against that name, and the loader refuses any other)
 
+### Local-tools fields
+
+Four optional fields turn a scenario into one where the agent also has pi's built-in file tools and `bash`. They come together: set one and `loadScenario` requires the other three.
+
+- `localTools`: must be `true`.
+- `workspace`: `files`, a map from workspace-relative path to the file's text, and `publicFolders`, a non-empty list of workspace-relative folders whose contents count as public. These files are seeded into the run's empty working folder.
+- `clientPolicy`: the name of the client policy the eval signs for the run, matching `[a-z0-9-]+`. The built-in local scenario uses `local-tools`.
+- `localTaskCheck`: `changelog`, a path to one of the `workspace.files` that lies under one of the `publicFolders`, and `readme` (`repo`, `file`, `absentLine`, `presentLine`). The task counts as done when the changelog gained a line and the README fix was made, either in the workspace file `readme.file` (which must be one of the `workspace.files`) or by a pull request. `readme.repo` must be one of the scenario's repos.
+
+Paths must be relative, with no `..`, `.` or empty parts. With `localTools`, `tools` may also name pi's built-in tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`), and `steps` may give a phrase for each of them (placeholders: the tool's own arguments, such as `{path}` or `{command}`). The shipped example is `agents/scenarios/github-issue-replay-local`.
+
 `loadScenario` checks every field and the error names the one that is wrong. The built-in scenario
 is `agents/scenarios/github-issue-replay`. A worked example of a custom folder is in the
 [eval README](../eval/README.md#build-your-own-evaluation).
@@ -132,4 +143,4 @@ content.
 - `agents/.demo/` holds private keys. Keep it outside any agent's workspace, so they are not part of
   the project the agent works on. That is hygiene, not a boundary: an agent with a shell or a file
   tool that takes absolute paths (pi's `read` and `bash` do) can still read the keys and sign with
-  them. Phase 2 local enforcement closes this.
+  them. With the local gate on, the pi extension refuses its tools' calls that name these paths (see the [pi-extension README](../pi-extension/README.md#local-tool-gating) for its limits).

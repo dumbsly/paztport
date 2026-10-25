@@ -9,6 +9,9 @@ import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures } from "../../mock-github-mcp/src/scenario.ts";
 import { OutcomeLog, type OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
+import { NEVER_PROGRAMS } from "../../path-attest-ts/src/local-rules.ts";
+import { localRefusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../../pi-extension/src/refusals.ts";
+import { OFF_MODE_COPY } from "../src/runner.ts";
 import { parseCli } from "../src/eval-main.ts";
 import { runEval, type EvalOptions } from "../src/eval.ts";
 import { CLASSES_NOTE, DEFINITIONS, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT } from "../src/report.ts";
@@ -19,6 +22,8 @@ const AGENTS = join(import.meta.dirname, "../..");
 const REPO = join(AGENTS, "..");
 const EVAL_README = readFileSync(join(AGENTS, "eval/README.md"), "utf8");
 const DEMO_README = readFileSync(join(AGENTS, "demo-ui/README.md"), "utf8");
+const PI_README = readFileSync(join(AGENTS, "pi-extension/README.md"), "utf8");
+const MOCK_README = readFileSync(join(AGENTS, "mock-github-mcp/README.md"), "utf8");
 
 /** The fenced block between `<!-- example:begin NAME -->` and `<!-- example:end NAME -->`. */
 function example(name: string): string {
@@ -202,6 +207,97 @@ describe("the documents follow the code", () => {
     }
     expect(EVAL_README).toContain("2026-10-24");
     expect(EVAL_README).toMatch(/not (been )?verified|unverified/i);
+  });
+});
+
+/** Collapses whitespace so a quote that the README wraps over lines still matches. */
+const flat = (t: string): string => t.replace(/\s+/g, " ");
+
+describe("the local gate documents", () => {
+  it("everyLocalSectionHeadingExists", () => {
+    for (const h of [
+      "## Local tool gating",
+      "### The order of checks",
+      "### Folder rules",
+      "### Programs",
+      "### Write or run, not both",
+      "### Paztport's own `bash`",
+      "### What the model sees from the local gate",
+      "### Hook order",
+    ]) {
+      expect(PI_README, h).toContain(`\n${h}\n`);
+    }
+    expect(DEMO_README).toMatch(/^### The scenario with local tools$/m);
+    expect(EVAL_README).toMatch(/^### Local-tools runs$/m);
+    expect(MOCK_README).toMatch(/^### Local-tools fields$/m);
+    expect(PI_README).toMatch(/^## Limits$/m);
+  });
+
+  it("theOffModeCopyIsVerbatimInTheDemoReadme", () => {
+    expect(OFF_MODE_COPY).toBe("This scenario gives the model a real shell on this machine, so runs without Paztport are offered only with --unsafe-tool-usage. Use that only in a sandbox.");
+    expect(flat(DEMO_README)).toContain(OFF_MODE_COPY);
+    expect(flat(EVAL_README)).toContain(OFF_MODE_COPY);
+  });
+
+  it("thePiReadmeQuotesTheThreeRefusalTexts", () => {
+    const quoted = (t: string): string => flat(PI_README).includes(`> ${t}`) ? t : "";
+    for (const t of [localRefusalText("INFLUENCE_DENIED"), SCOPE_TEXT, UNCHECKABLE_TEXT]) expect(quoted(t), t).toBe(t);
+  });
+
+  it("thePiReadmeListsEveryNeverProgram", () => {
+    for (const name of NEVER_PROGRAMS) expect(PI_README, name).toContain(`\`${name}\``);
+  });
+
+  it("guaranteeAppearsOnlyInANegatedSentence", () => {
+    for (const [name, text] of [["pi-extension", PI_README], ["mock", MOCK_README], ["eval", EVAL_README], ["demo", DEMO_README]] as const) {
+      const sentences = flat(text).split(/(?<=[.!?:])\s+/).filter((s) => /guarantee/i.test(s));
+      for (const s of sentences) expect(s, `${name}: ${s}`).toMatch(/\b(not|no|never|n't|cannot|without)\b|n\u2019t/i);
+    }
+    // the check itself fails an affirmative use
+    expect("The check is a guarantee.").not.toMatch(/\b(not|no|never|n't)\b/i);
+    expect(PI_README).toMatch(/conservative, not a guarantee/);
+  });
+
+  it("thePiReadmeStatesTheLimits", () => {
+    const t = flat(PI_README);
+    for (const phrase of [
+      "conservative, not a guarantee",
+      "effects the check does not model",
+      "`curl -O`",
+      "`wget`",
+      "`ln`",
+      "check-then-use",
+      "20,000 entries",
+      "hard links and mount points",
+      "`/bin/sh`",
+      "`PATH=/usr/bin:/bin`",
+      "`shellPath`",
+      "`commandPrefix`",
+      "`HOME` set to the workspace",
+      "registers its own `bash`",
+      "last `tool_call` handler",
+      "frozen",
+      "local-untrusted",
+      "not the disk",
+    ]) {
+      expect(t, phrase).toContain(phrase);
+    }
+    expect(PI_README).not.toContain("Built-in local tools are unlabelled");
+  });
+
+  it("theEvalReadmeStatesTheLocalRunLimits", () => {
+    const t = flat(EVAL_README);
+    for (const phrase of ["no witness besides the client", "`OLLAMA_HOST`", "`unsafeToolUsage`", "`--unsafe-tool-usage`", "Refused by scope"]) {
+      expect(t, phrase).toContain(phrase);
+    }
+  });
+
+  it("theMockReadmeNamesTheLocalFields", () => {
+    for (const f of ["localTools", "workspace", "publicFolders", "clientPolicy", "localTaskCheck"]) expect(MOCK_README, f).toContain(`\`${f}`);
+  });
+
+  it("noReadmeLinksTheDesignDocs", () => {
+    for (const t of [PI_README, MOCK_README, EVAL_README, DEMO_README]) expect(t).not.toContain("paztport" + "_claude");
   });
 });
 

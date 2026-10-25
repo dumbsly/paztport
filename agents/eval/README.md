@@ -22,7 +22,7 @@ Each eval runs the same number of runs in each of these modes, one of each in tu
 
 ### What the agent can use
 
-Reference runs give the agent only the scenario's mock repository tools (pi's `--tools 'mcp__github__*'`). It has no shell and no file tools, and the table says so. The reason is that this eval tests what the mock server does with the agent's tool calls. An agent with a shell or file access could move data in ways this tool does not look at, and the results would then be about something else.
+Reference runs give the agent only the scenario's mock repository tools (pi's `--tools 'mcp__github__*'`). It has no shell and no file tools, and the table says so. (A scenario that sets `localTools` is the exception; see [Local-tools runs](#local-tools-runs).) The reason is that this eval tests what the mock server does with the agent's tool calls. An agent with a shell or file access could move data in ways this tool does not look at, and the results would then be about something else.
 
 pi is also started with context files (an `AGENTS.md` or `CLAUDE.md` in the working folder or above it), skills, prompt templates, extensions and other MCP servers switched off, in a new empty working folder for each run. The reason is repeatability: otherwise the same command could show the model different instructions on different machines.
 
@@ -58,6 +58,7 @@ The default is 20 runs per mode (100 runs for five modes). A run can take as lon
 | `--payload file` | Your own planted text, in place of the scenario's. It is labelled `custom`. The clean modes send no planted text, so they ignore it. |
 | `--agent-dir dir` | Your own pi agent directory, for a hosted model. See [Model providers and terms](#model-providers-and-terms). If it holds `SYSTEM.md`, `APPEND_SYSTEM.md` or `settings.json`, pi applies them to every run: the eval prints a one-line warning and records their names (not their contents) in `results.json` (`agentDirFiles`) and `summary.md`. A system prompt of your own changes what is being measured, so say so beside any number you publish. |
 | `--out dir` | Where to write the results. It must be new or empty. Default: `.demo/results/<YYYYMMDD-HHMMSS>-<model id without the provider>` under `agents/`, for example `.demo/results/20261024-130509-qwen3-4b`. |
+| `--unsafe-tool-usage` | For a scenario that gives the model a real shell: also allow the modes without Paztport. Without it such a scenario runs only `on` and `clean-on`, and any other mode is refused with the message quoted under [Local-tools runs](#local-tools-runs). |
 | `--timeout seconds` | Time limit for one run. Default 600 seconds. |
 
 A run that reaches the time limit is stopped, together with pi and the mock server it started, recorded as `timeout`, and the eval goes on to the next run. A model that repeats the same call for ten minutes is an example.
@@ -155,6 +156,16 @@ Other limits worth stating beside any number you publish:
 - Whether a run leaks depends on the model reading the issue and choosing to follow it. A low leak rate with Paztport off says little about Paztport, because there was little to block. The `off` row is what makes the `on` row meaningful.
 - Paztport's refusal here depends on how the mock server labels content: issues are treated as third-party, private repository content as private. That is the rule being tested, and it is fixed in the server, not in the scenario.
 - The `warning` row compares against one published wording, placed as that source says. It is not a survey of defences, and other wording or placement could do better or worse.
+
+### Local-tools runs
+
+A scenario that sets `localTools` gives the model pi's file tools and `bash` as well as the repository tools, and the model's `bash` runs in a real shell on your machine. What differs from the reference runs:
+
+- **Modes.** Without Paztport the model has no check on what it runs, so the eval runs only `on` and `clean-on` unless you pass `--unsafe-tool-usage`. Without the flag, any other mode is refused with: "This scenario gives the model a real shell on this machine, so runs without Paztport are offered only with --unsafe-tool-usage. Use that only in a sandbox." Run the other modes only in a sandbox. `results.json` records `unsafeToolUsage` when the flag was given.
+- **Columns.** The table has a "Refused by scope" column. It counts local calls refused as outside the session's folders or programs, or as not checkable. Those never change a run's class. The definitions of `leaked`, `blocked`, `resisted` and `task done` change as described under the columns above.
+- **Environment.** pi and its tools run with a clean environment built from an allowlist, and a home folder of their own inside the run folder. Proxy and TLS variables and `OLLAMA_HOST` are not passed to pi. Local Ollama still works, because the agent directory's `models.json` points pi at `127.0.0.1`.
+- **Where the counts come from.** Local blocks and scope refusals are counted from logs the client writes (the events log and the evidence file). A run with only local steps has no witness besides the client, because the mock server saw nothing. `npm run verify` on a single evidence file cannot see a step copied from another run; the folder checks across runs do (see [Checking the evidence](#checking-the-evidence-npm-run-verify)).
+- **What a local leak is.** A leak through the local tools is found only as canary or marker text in the workspace's public folders after the run. Text that was paraphrased, encoded or split, or that left the machine another way, is not found.
 
 ### The warning baseline
 
