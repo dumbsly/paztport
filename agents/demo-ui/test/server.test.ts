@@ -816,7 +816,10 @@ describe("demo server", () => {
     const setup = await (await api(srv, "/api/setup")).json();
     expect(setup.plainClasses).toMatchObject({ private: "private data", "third-party": "text written by someone outside the project" });
     expect(setup.table.modeLabels).toMatchObject({ on: "Paztport on", off: "Paztport off" });
-    expect(setup.table.definitions.map((d: any) => d.key)).toEqual(["leaked", "blocked", "blockedWithPrivateText", "resisted", "readPrivate", "taskDone", "harnessFault", "scopeRefused", "timeout", "error", "noToolCalls"]);
+    // the scope column is a local-tools column: an MCP-only table reads as before
+    expect(setup.table.definitions.map((d: any) => d.key)).toEqual(["leaked", "blocked", "blockedWithPrivateText", "resisted", "readPrivate", "taskDone", "harnessFault", "timeout", "error", "noToolCalls"]);
+    expect(setup.table.localDefinitions.map((d: any) => d.key)).toEqual(["leaked", "blocked", "blockedWithPrivateText", "resisted", "readPrivate", "taskDone", "harnessFault", "scopeRefused", "timeout", "error", "noToolCalls"]);
+    expect(setup.table.localDefinitions.find((d: any) => d.key === "scopeRefused").term).toBe("refused by scope");
     expect(setup.table.limits.length).toBeGreaterThan(0);
     expect(setup.refusalsNote).toMatch(/unsigned/i);
     expect(setup.table.classesNote).toBe(CLASSES_NOTE);

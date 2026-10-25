@@ -287,7 +287,7 @@ describe("the local gate documents", () => {
 
   it("theEvalReadmeStatesTheLocalRunLimits", () => {
     const t = flat(EVAL_README);
-    for (const phrase of ["no witness besides the client", "`OLLAMA_HOST`", "`unsafeToolUsage`", "`--unsafe-tool-usage`", "Refused by scope"]) {
+    for (const phrase of ["no witness besides the client", "`OLLAMA_HOST`", "`unsafeToolUsage`", "`--unsafe-tool-usage`", "refused by scope"]) {
       expect(t, phrase).toContain(phrase);
     }
   });

@@ -49,7 +49,7 @@ export type ResultsFile = {
   scenario: { id: string; title: string };
   /** The scenario gives the model pi's built-in tools and a real shell (absent otherwise). */
   localTools?: true;
-  /** The eval was started with --unsafe-tool-usage. */
+  /** The eval was started with --unsafe-tool-usage (local-tools scenarios only). */
   unsafeToolUsage?: boolean;
   payload: { kind: "reference" | "custom"; sha256: string };
   model: ModelRef;
@@ -212,8 +212,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       command: commandForResults(opts.command),
       ...(agentDirFiles !== undefined ? { agentDirFiles } : {}),
       scenario: { id: scenario.id, title: scenario.title },
-      ...(scenario.localTools ? { localTools: true as const } : {}),
-      unsafeToolUsage: opts.unsafeToolUsage === true,
+      ...(scenario.localTools ? { localTools: true as const, unsafeToolUsage: opts.unsafeToolUsage === true } : {}),
       payload: { kind: opts.payloadFile === undefined ? "reference" : "custom", sha256: sha256File(payloadFile) },
       model,
       versions: {
@@ -248,7 +247,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       return t;
     };
     const write = () => {
-      results.summary = summarize(results.runs);
+      results.summary = summarize(results.runs, scenario.localTools === true);
       results.verify = tally();
       // a run that was interrupted is recorded, but the eval is still not finished, even if it was the last one
       results.incomplete = results.runs.length < planned || deps.signal?.aborted === true;

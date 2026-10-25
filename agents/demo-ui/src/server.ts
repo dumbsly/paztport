@@ -10,7 +10,7 @@ import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
-import { CLASSES_NOTE, DEFINITIONS, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_DEFINITION_TEXT, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL } from "../../eval/src/report.ts";
+import { CLASSES_NOTE, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL, tableDefinitions } from "../../eval/src/report.ts";
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
@@ -698,11 +698,11 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       plainClasses: PLAIN_CLASS,
       table: {
         modeLabels: MODE_LABEL,
-        definitions: DEFINITIONS,
+        definitions: tableDefinitions(false),
         limits: LIMITS,
         classesNote: CLASSES_NOTE,
-        // the wording of a table for a scenario with local tools: the same list, four definitions replaced, one limit added
-        localDefinitions: DEFINITIONS.map((d) => ({ ...d, text: LOCAL_DEFINITION_TEXT[d.key] ?? d.text })),
+        // the wording of a table for a scenario with local tools: the scope column added, four definitions replaced, one limit added
+        localDefinitions: tableDefinitions(true),
         localLimits: [...LIMITS, LOCAL_LIMIT],
         localClassesNote: LOCAL_CLASSES_NOTE,
       },

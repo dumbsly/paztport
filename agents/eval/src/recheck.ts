@@ -74,8 +74,9 @@ function compareSummaries(stored: unknown, now: ModeSummary[], out: string[]): v
     }
     if (a.n !== b.n) out.push(`results.json says "${label}" has ${String(a.n)} runs; the files say ${b.n}`);
     for (const d of DEFINITIONS) {
-      // a column an older folder does not have is not a disagreement; the page shows the recomputed one
-      if (!(d.key in a)) continue;
+      // a column an older folder does not have, or that this table has no longer, is not a disagreement; the page
+      // shows the recomputed one
+      if (!(d.key in a) || !(d.key in b)) continue;
       const k = isObj(a[d.key]) ? (a[d.key] as Obj).k : undefined;
       const want = (b[d.key] as Count).k;
       if (k !== want) out.push(`results.json says ${String(k ?? "nothing")} of ${String(a.n)} "${label}" runs were ${d.term}; the files say ${want} of ${b.n}`);
@@ -138,7 +139,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
     const index = typeof raw.index === "number" ? raw.index : i + 1;
     let run: StoredRun;
     if (!existsSync(runDir)) {
-      run = { mode, index, dir: rel, outcome: "error", readPrivate: false, taskDone: false, scopeRefused: false, harnessFault: false, status: result.status, reason: "its folder isn't there" };
+      run = { mode, index, dir: rel, outcome: "error", readPrivate: false, taskDone: false, ...(localScenario !== undefined ? { scopeRefused: false } : {}), harnessFault: false, status: result.status, reason: "its folder isn't there" };
     } else {
       const local = localScenario === undefined ? undefined : readLocalFacts(runDir, localScenario, readCanary(runDir), mode);
       run = scoreRunFile(join(runDir, "outcome.jsonl"), result, index, rel, join(runDir, "transcript.jsonl"), local);
@@ -188,7 +189,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
     if (!r.ok && !listed.has(owner)) problems.push(`npm run verify fails ${r.file}: ${r.problem ?? r.items.find((x) => !NOT_FAILURES.includes(x.result))?.result ?? "it does not verify"}`);
   }
 
-  const summary = summarize(runs);
+  const summary = summarize(runs, results.localTools === true || localScenario !== undefined);
   const verify = { ok: 0, failed: 0, none: 0, notRecorded: 0 };
   for (const r of runs) {
     const st = r.verify!.status;

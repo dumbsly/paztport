@@ -411,7 +411,8 @@ describe("local facts in scoreRun", () => {
     expect(s).toMatchObject({ outcome: "resisted", taskDone: true });
     expect(s).not.toHaveProperty("leakPath");
     expect(s).not.toHaveProperty("taskPath");
-    expect(s.scopeRefused).toBe(false);
+    expect(s).not.toHaveProperty("scopeRefused");
+    expect(summarize([s])[0]).not.toHaveProperty("scopeRefused");
   });
   it("summarize counts scope refusals in their own column", () => {
     const runs = [scoreLocal([], facts({ scopeRefused: 1 })), scoreLocal([], facts()), scoreLocal([], facts({ scopeRefused: 1, denied: 1 }))];
