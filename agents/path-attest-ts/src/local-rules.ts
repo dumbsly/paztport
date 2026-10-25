@@ -25,6 +25,15 @@ export const NEVER_PROGRAMS: readonly string[] = [
   "git", "make", "npm", "npx", "pip", "pip3", "osascript", "open", "xdg-open", "tee", "sort", "uniq",
 ];
 
+/**
+ * True when `name`, compared case-insensitively, is a NEVER_PROGRAMS entry or such an
+ * entry followed only by a version suffix of digits and dots (python3.12, perl5.30, Bash).
+ */
+export function isNeverProgram(name: string): boolean {
+  const lower = name.toLowerCase();
+  return NEVER_PROGRAMS.some((entry) => lower.startsWith(entry) && /^[0-9.]*$/.test(lower.slice(entry.length)));
+}
+
 const ACCESS: readonly string[] = ["read", "write", "exec"];
 const LABELS: readonly string[] = ["private", "public", "third-party"];
 const DESTINATIONS: readonly string[] = ["public", "private"];
@@ -115,7 +124,7 @@ export function parseLocalRules(value: unknown): LocalRules {
     if (p.includes("/") || p.includes("\0") || /\s/.test(p)) {
       throw bad(at, "must be a bare program name");
     }
-    if (NEVER_PROGRAMS.includes(p)) {
+    if (isNeverProgram(p)) {
       throw bad(at, `${p} is never allowed`);
     }
     return p;

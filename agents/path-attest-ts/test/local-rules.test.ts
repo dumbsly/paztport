@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { NEVER_PROGRAMS, RULES_ROUTE_PREFIX, parseLocalRules, rulesHash } from "../src/local-rules.ts";
+import { NEVER_PROGRAMS, isNeverProgram, RULES_ROUTE_PREFIX, parseLocalRules, rulesHash } from "../src/local-rules.ts";
 
 const demo = () => ({
   v: 1,
@@ -101,5 +101,24 @@ describe("rulesHash", () => {
 
   it("hasARoutePrefix", () => {
     expect(RULES_ROUTE_PREFIX).toBe("rules:");
+  });
+});
+
+describe("isNeverProgram", () => {
+  it("matchesCaseAndVersionSpellings", () => {
+    for (const n of ["bash", "Bash", "PYTHON3.12", "perl5.30", "python3", "sed"]) expect(isNeverProgram(n), n).toBe(true);
+  });
+  it("leavesOtherNamesAlone", () => {
+    for (const n of ["env2x", "cat", "pythonx", "node-gyp", "sh-ish"]) expect(isNeverProgram(n), n).toBe(false);
+  });
+  it("parseLocalRulesRefusesTheseSpellings", () => {
+    for (const n of ["Bash", "PYTHON3.12", "perl5.30"]) {
+      const r = demo();
+      r.programs.push(n);
+      expect(() => parseLocalRules(r), n).toThrow(/is never allowed/);
+    }
+    const ok = demo();
+    ok.programs.push("env2x");
+    expect(() => parseLocalRules(ok)).not.toThrow();
   });
 });
