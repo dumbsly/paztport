@@ -1,0 +1,154 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// Usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open]
+//   --agent-dir  use your own pi setup, which allows hosted models (the page shows each provider's terms note)
+//   --results    also list a results folder from somewhere else (for example a published one)
+//   --no-open    print the address and do not open a browser
+// Exit code: 0 on a clean stop, 1 when Ollama isn't running, 2 for a usage or setup problem.
+
+import { spawn, spawnSync } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { existsSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { parseArgs } from "node:util";
+import { startDemoServer, type DemoServer } from "./server.ts";
+
+const AGENTS = join(import.meta.dirname, "../..");
+const NODE_FLOOR = "22.19";
+const OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags";
+const USAGE = "usage: npm run demo -- [--agent-dir <your pi agent dir>] [--results <folder>] [--no-open]";
+
+export type Launched = DemoServer;
+export type LaunchDeps = {
+  fetch?: typeof fetch;
+  log?: (s: string) => void;
+  /** Opens the address in a browser. Tests pass a recorder; the default is best effort and never throws. */
+  opener?: (url: string) => void;
+  /** Makes the demo keys in `dir` if they are missing. */
+  ensureKeys?: (dir: string) => void;
+  paths?: { demoRoot: string; scenarioDir: string };
+  nodeVersion?: string;
+};
+
+/** True when `version` ("22.19.1") is at least `floor` ("22.19"). */
+export function nodeAtLeast(version: string, floor: string): boolean {
+  const v = version.split(".").map(Number);
+  const f = floor.split(".").map(Number);
+  for (let i = 0; i < f.length; i++) {
+    const a = v[i] ?? 0;
+    if (a !== f[i]) return a > f[i]!;
+  }
+  return true;
+}
+
+function defaultEnsureKeys(dir: string): void {
+  if (existsSync(join(dir, "client")) && existsSync(join(dir, "server"))) return;
+  const args = [join(AGENTS, "scripts/setup-demo.ts"), "--out", dir, ...(existsSync(dir) ? ["--force"] : [])];
+  const r = spawnSync(process.execPath, args, { encoding: "utf8" });
+  if (r.status !== 0) throw new Error(`Couldn't create the demo keys: ${(r.stderr || r.stdout || "setup-demo failed").trim()}`);
+}
+
+function defaultOpener(url: string): void {
+  const [cmd, args]: [string, string[]] =
+    process.platform === "darwin" ? ["open", [url]] : process.platform === "win32" ? ["cmd", ["/c", "start", "", url]] : ["xdg-open", [url]];
+  try {
+    const child = spawn(cmd, args, { stdio: "ignore", detached: true });
+    child.on("error", () => {});
+    child.unref();
+  } catch {
+    // the address is printed either way
+  }
+}
+
+async function ollamaUp(f: typeof fetch): Promise<boolean> {
+  try {
+    return (await f(OLLAMA_TAGS, { signal: AbortSignal.timeout(2000) })).ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Checks the setup, starts the server and opens the page. Returns the running server, or an exit code. */
+export async function launch(argv: string[], deps: LaunchDeps = {}): Promise<Launched | { exitCode: number }> {
+  const log = deps.log ?? ((s: string) => void process.stderr.write(s + "\n"));
+  let v;
+  try {
+    v = parseArgs({
+      args: argv,
+      strict: true,
+      allowPositionals: false,
+      options: { "agent-dir": { type: "string" }, results: { type: "string", multiple: true }, "no-open": { type: "boolean" } },
+    }).values;
+  } catch (e) {
+    log((e as Error).message);
+    log(USAGE);
+    return { exitCode: 2 };
+  }
+  if (!nodeAtLeast(deps.nodeVersion ?? process.versions.node, NODE_FLOOR)) {
+    log(`The demo needs Node ${NODE_FLOOR} or newer; this is Node ${deps.nodeVersion ?? process.versions.node}.`);
+    return { exitCode: 2 };
+  }
+  const extraResults = (v.results ?? []).map((p) => resolve(p));
+  for (const p of extraResults) {
+    let isDir = false;
+    try {
+      isDir = statSync(p).isDirectory();
+    } catch {
+      // reported below
+    }
+    if (!isDir) {
+      log(`${p} isn't a folder.`);
+      return { exitCode: 2 };
+    }
+  }
+  const userAgentDir = v["agent-dir"] !== undefined ? resolve(v["agent-dir"]) : undefined;
+  if (!(await ollamaUp(deps.fetch ?? fetch))) {
+    if (userAgentDir === undefined) {
+      log("Ollama isn't reachable at 127.0.0.1:11434. Start it with `ollama serve`, then run the demo again.");
+      return { exitCode: 1 };
+    }
+    log("Ollama isn't reachable at 127.0.0.1:11434, so local models can't be used. Hosted models from your agent dir still can.");
+  }
+
+  const demoRoot = deps.paths?.demoRoot ?? join(AGENTS, ".demo");
+  const keysDir = join(demoRoot, "demo-keys");
+  try {
+    (deps.ensureKeys ?? defaultEnsureKeys)(keysDir);
+  } catch (e) {
+    log((e as Error).message);
+    return { exitCode: 2 };
+  }
+  const key = randomBytes(32).toString("base64url");
+  const server = await startDemoServer({
+    resultsRoot: join(demoRoot, "results"),
+    demoDir: keysDir,
+    scenarioDir: deps.paths?.scenarioDir ?? join(AGENTS, "scenarios"),
+    key,
+    ...(userAgentDir !== undefined ? { userAgentDir } : {}),
+    extraResults,
+    ...(deps.fetch ? { deps: { fetch: deps.fetch } } : {}),
+  });
+  const url = `${server.url}/#key=${key}`;
+  log(`The demo is running at ${url}`);
+  log("The address carries a key that lets the page start runs. Keep it to yourself, and press Ctrl-C to stop the demo.");
+  if (userAgentDir !== undefined) log("You started the demo with your own pi agent dir. A hosted model receives the run's prompts and tool results under its provider's terms.");
+  if (!v["no-open"]) (deps.opener ?? defaultOpener)(url);
+  return { url, close: server.close };
+}
+
+if (import.meta.main) {
+  const r = await launch(process.argv.slice(2));
+  if ("exitCode" in r) {
+    process.exitCode = r.exitCode;
+  } else {
+    let stopping = false;
+    const stop = () => {
+      if (stopping) return;
+      stopping = true;
+      void r.close().then(() => process.exit(0));
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  }
+}

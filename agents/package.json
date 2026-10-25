@@ -1,8 +1,8 @@
 {
   "private": true,
   "type": "module",
-  "workspaces": ["path-attest-ts", "policy-tool-ts", "mock-github-mcp", "pi-extension", "eval"],
-  "scripts": {"test": "vitest run", "check": "tsc -p .", "setup-demo": "node scripts/setup-demo.ts", "verify": "node eval/src/verify-main.ts", "eval": "node eval/src/eval-main.ts"},
+  "workspaces": ["path-attest-ts", "policy-tool-ts", "mock-github-mcp", "pi-extension", "eval", "demo-ui"],
+  "scripts": {"test": "vitest run", "check": "tsc -p .", "setup-demo": "node scripts/setup-demo.ts", "verify": "node eval/src/verify-main.ts", "eval": "node eval/src/eval-main.ts", "demo": "node demo-ui/src/main.ts"},
   "engines": {"node": ">=22.19"},
   "devDependencies": {"typescript": "5.9.3", "vitest": "3.2.4", "@types/node": "22.18.0"}
 }
