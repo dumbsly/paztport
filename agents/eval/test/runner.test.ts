@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { checkModelAvailable, parseModel, prepareAgentDir } from "../src/models.ts";
-import { runOnce, type RunMode, type RunSpec } from "../src/runner.ts";
+import { OFF_MODE_COPY, runOnce, type RunMode, type RunSpec } from "../src/runner.ts";
 
 const STUB = join(import.meta.dirname, "fixtures/stub-pi.ts");
 const MAIN = join(import.meta.dirname, "../../mock-github-mcp/src/main.ts");
@@ -155,6 +155,77 @@ describe("runOnce", () => {
       else expect(server.args).not.toContain("--config");
       expect(r.canary).toBe(canary);
     }
+  });
+
+  describe("local-tools scenario", () => {
+    const LOCAL = join(import.meta.dirname, "../../scenarios/github-issue-replay-local");
+
+    /** A case whose stub variables travel in stub-env.json, since the run's environment is an allowlist. */
+    function mkLocal(over: Partial<RunSpec>): Case {
+      const c = mk({ scenarioDir: LOCAL, ...over });
+      mkdirSync(c.spec.runDir, { recursive: true });
+      const vars = Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith("STUB_")));
+      writeFileSync(join(c.spec.runDir, "stub-env.json"), JSON.stringify(vars));
+      return c;
+    }
+
+    it("seedsTheWorkspaceSetsThePolicyDirAndCleansTheEnvironment", async () => {
+      vi.stubEnv("GH_TOKEN", "ghp_secret");
+      vi.stubEnv("SSH_AUTH_SOCK", "/tmp/agent.sock");
+      vi.stubEnv("PATH", "/usr/bin:/bin");
+      vi.stubEnv("LANG", "en_US.UTF-8");
+      const c = mkLocal({ mode: "on" });
+      const r = await runOnce(c.spec);
+      expect(r.status).toBe("completed");
+      const rec = recorded(c);
+      const ws = join(c.spec.runDir, "workspace");
+      expect(rec.listing.sort()).toEqual(["notes", "website"]);
+      expect(readFileSync(join(ws, "website/CHANGELOG.md"), "utf8")).toBe("# Changelog\n");
+      expect(readFileSync(join(ws, "website/README.md"), "utf8")).toContain("Wellcome to the Acme website.");
+      expect(existsSync(join(ws, "notes/.keep"))).toBe(true);
+      const cfg = JSON.parse(readFileSync(join(c.spec.runDir, "config.json"), "utf8"));
+      expect(cfg.clientPolicyDir).toBe(join(demo, "client/local-tools"));
+      expect(flagValue(rec.argv, "--tools")).toBe("read,write,edit,bash,grep,find,ls,mcp__github__*");
+      expect(rec.env.GH_TOKEN).toBeUndefined();
+      expect(rec.env.SSH_AUTH_SOCK).toBeUndefined();
+      for (const k of KEYS) expect(rec.env[k], k).toBeUndefined();
+      expect(rec.env.HOME).toBe(join(c.spec.runDir, "home"));
+      expect(existsSync(join(c.spec.runDir, "home"))).toBe(true);
+      expect(rec.env.PI_CODING_AGENT_DIR).toBe(c.spec.agentDir);
+      expect(rec.env.PATH).toBe("/usr/bin:/bin");
+      expect(rec.env.LANG).toBe("en_US.UTF-8");
+      // macOS adds __CF_USER_TEXT_ENCODING to any process it starts
+      const extra = Object.keys(rec.env).filter((k) => !["HOME", "LANG", "PATH", "PI_CODING_AGENT_DIR", "LC_ALL", "TERM", "TZ", "TMPDIR", "__CF_USER_TEXT_ENCODING"].includes(k));
+      expect(extra).toEqual([]);
+    });
+
+    it("keepsTheHostedKeysForPiWhenTheAgentDirIsTheUsers", async () => {
+      const c = mkLocal({ mode: "on", userAgentDir: true });
+      await runOnce(c.spec);
+      expect(recorded(c).env.ANTHROPIC_API_KEY).toBe("secret-ANTHROPIC_API_KEY");
+    });
+
+    it("refusesModesWithoutPaztportUnlessUnsafe", async () => {
+      for (const mode of ["off", "clean-off", "warning"] as RunMode[]) {
+        const warning = join(tmp, "w.md");
+        writeFileSync(warning, "Careful.");
+        const c = mk({ scenarioDir: LOCAL, mode, warning: { file: warning } });
+        await expect(runOnce(c.spec), mode).rejects.toThrow(new Error(OFF_MODE_COPY));
+      }
+      const ok = mkLocal({ mode: "off", unsafeToolUsage: true });
+      expect((await runOnce(ok.spec)).status).toBe("completed");
+      expect(JSON.parse(readFileSync(join(ok.spec.runDir, "config.json"), "utf8")).clientPolicyDir).toBeDefined();
+    });
+
+    it("theReferenceScenarioKeepsTheOldEnvironmentAndConfig", async () => {
+      vi.stubEnv("GH_TOKEN", "ghp_secret");
+      const c = mk({ mode: "on" });
+      await runOnce(c.spec);
+      const rec = recorded(c);
+      expect(rec.env.GH_TOKEN).toBe("ghp_secret");
+      expect(JSON.parse(readFileSync(join(c.spec.runDir, "config.json"), "utf8"))).not.toHaveProperty("clientPolicyDir");
+      expect(existsSync(join(c.spec.runDir, "home"))).toBe(false);
+    });
   });
 
   it("writes the run files and run.json", async () => {

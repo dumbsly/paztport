@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { prepareAgentDir, type ModelRef } from "./models.ts";
@@ -31,6 +31,8 @@ export type RunSpec = {
   warning?: { file: string };
   /** Default: the installed pi 1.4.0 cli.js. */
   piCli?: string;
+  /** Allows the modes without Paztport on a scenario that gives the model a real shell. */
+  unsafeToolUsage?: boolean;
 };
 export type RunResult = { status: "completed" | "timeout" | "error"; exitCode: number | null; durationMs: number; canary: string; mode: RunMode };
 export type LineFile = "transcript" | "events" | "outcome" | "stderr";
@@ -41,6 +43,10 @@ const EXTENSION = join(AGENTS, "pi-extension");
 const MOCK_MAIN = join(AGENTS, "mock-github-mcp/src/main.ts");
 const MODES: readonly RunMode[] = ["off", "on", "clean-off", "clean-on", "warning"];
 const HOSTED_KEYS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY"];
+/** Environment variables pi keeps in a local-tools run (the run's own HOME and PI_CODING_AGENT_DIR are added). */
+const ENV_ALLOWLIST = ["PATH", "LANG", "LC_ALL", "TERM", "TZ", "TMPDIR"];
+/** What a run without Paztport on a local-tools scenario is refused with. */
+export const OFF_MODE_COPY = "This scenario gives the model a real shell on this machine, so runs without Paztport are offered only with --unsafe-tool-usage. Use that only in a sandbox.";
 const KILL_GRACE_MS = 5000;
 const CLOSE_GRACE_MS = 2000;
 const POLL_MS = 100;
@@ -129,6 +135,7 @@ function validate(spec: RunSpec): void {
 export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: string) => void, signal?: AbortSignal): Promise<RunResult> {
   validate(spec);
   const scenario = loadScenario(spec.scenarioDir);
+  if (scenario.localTools && spec.mode !== "on" && spec.mode !== "clean-on" && !spec.unsafeToolUsage) throw new Error(OFF_MODE_COPY);
   prepareAgentDir(spec.agentDir, spec.model, spec.userAgentDir);
 
   const runDir = resolve(spec.runDir);
@@ -137,6 +144,11 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   const workspace = join(runDir, "workspace");
   rmSync(workspace, { recursive: true, force: true });
   mkdirSync(workspace, { recursive: true });
+  for (const [rel, text] of Object.entries(scenario.workspace?.files ?? {})) {
+    const file = join(workspace, rel);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, text);
+  }
   const path = (name: string) => join(runDir, name);
   const enforced = spec.mode === "on" || spec.mode === "clean-on";
   // without Paztport nothing is signed, so those runs get no evidence log at all
@@ -163,6 +175,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
       {
         mode: enforced ? "enforce" : "off",
         clientDir: join(demoDir, "client"),
+        ...(scenario.localTools ? { clientPolicyDir: join(demoDir, "client", scenario.clientPolicy!) } : {}),
         eventsLog: path("events.jsonl"),
         ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
         servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
@@ -189,8 +202,19 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     "--",
     scenario.userPrompt,
   ];
-  const env: NodeJS.ProcessEnv = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
-  if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
+  let env: NodeJS.ProcessEnv;
+  if (scenario.localTools) {
+    // pi's tools run here as the user: build the environment from an allowlist, with a home of its own, so no
+    // token, agent socket or config of the user's reaches them
+    const home = path("home");
+    mkdirSync(home, { recursive: true });
+    env = { HOME: home, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+    for (const k of ENV_ALLOWLIST) if (process.env[k] !== undefined) env[k] = process.env[k];
+    if (spec.userAgentDir) for (const k of HOSTED_KEYS) if (process.env[k] !== undefined) env[k] = process.env[k];
+  } else {
+    env = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+    if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
+  }
 
   // A monotonic clock, as the time limit's timer uses: a wall clock that jumps (a machine waking from sleep, a
   // clock change) cannot make a run's duration disagree with its limit. On macOS and Linux neither counts time asleep.

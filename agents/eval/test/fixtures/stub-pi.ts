@@ -27,10 +27,22 @@ import { appendFileSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFile
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+// A local-tools run starts pi with an allowlisted environment, which has no STUB_* variables. The test then
+// leaves them in stub-env.json beside config.json; they are applied after the real environment is captured.
+const realEnv = { ...process.env };
+{
+  const i = process.argv.indexOf("--paztport-config");
+  const file = i < 0 ? "" : join(dirname(process.argv[i + 1] ?? ""), "stub-env.json");
+  try {
+    Object.assign(process.env, JSON.parse(readFileSync(file, "utf8")));
+  } catch {
+    // no such file: the variables came in the environment
+  }
+}
 const behavior = process.env.STUB_BEHAVIOR ?? "print";
 const record = process.env.STUB_RECORD;
 if (record) {
-  writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: process.env, cwd: process.cwd(), listing: readdirSync(process.cwd()) }));
+  writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: realEnv, cwd: process.cwd(), listing: readdirSync(process.cwd()) }));
 }
 
 function flag(name: string): string {

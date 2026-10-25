@@ -22,7 +22,7 @@ import { pinFingerprint } from "../src/verify.ts";
 import { parseCli, main } from "../src/eval-main.ts";
 import { renderSummary } from "../src/report.ts";
 import { recheckResultsDir } from "../src/recheck.ts";
-import { runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
+import { OFF_MODE_COPY, runOnce, type RunMode, type RunResult, type RunSpec } from "../src/runner.ts";
 
 const PAYLOAD = join(BUILTIN_SCENARIO_DIR, "payload.md");
 const MODEL = "lab/model-x";
@@ -144,6 +144,7 @@ describe("runEval", { timeout: 60_000 }, () => {
     for (const k of ["extension", "mockServer", "node"] as const) expect(onDisk.versions[k]).toMatch(/\S/);
     expect(onDisk.versions.node).toBe(process.version);
     expect(onDisk.tools).toBe("mcp__github__*");
+    expect(onDisk.unsafeToolUsage).toBe(false);
     expect(onDisk.runs).toHaveLength(10);
     expect(onDisk.summary.map((s) => s.mode)).toEqual(["off", "on", "clean-off", "clean-on", "warning"]);
     expect(onDisk.summary.every((s) => s.n === 2)).toBe(true);
@@ -944,6 +945,27 @@ describe("eval-main", { timeout: 60_000 }, () => {
       payloadFile: "/p.md",
       scenarioDir: "/s",
     });
+  });
+
+  it("localToolsScenarioDefaultsToTheOnModesAndGatesTheOthers", () => {
+    const local = join(import.meta.dirname, "../../scenarios/github-issue-replay-local");
+    expect(parseCli(["--model", "a/b", "--scenario", local], {})).toMatchObject({ modes: ["on", "clean-on"], unsafeToolUsage: false });
+    for (const m of ["off", "clean-off", "warning", "on,off"]) {
+      expect(() => parseCli(["--model", "a/b", "--scenario", local, "--modes", m], {}), m).toThrow(OFF_MODE_COPY);
+    }
+    expect(parseCli(["--model", "a/b", "--scenario", local, "--modes", "on,clean-on"], {}).unsafeToolUsage).toBe(false);
+    expect(parseCli(["--model", "a/b", "--scenario", local, "--unsafe-tool-usage"], {})).toMatchObject({ modes: ["off", "on", "clean-off", "clean-on", "warning"], unsafeToolUsage: true });
+    expect(parseCli(["--model", "a/b", "--scenario", local, "--unsafe-tool-usage", "--modes", "off"], {}).modes).toEqual(["off"]);
+    // the reference scenario is unaffected
+    expect(parseCli(["--model", "a/b"], {}).modes).toEqual(["off", "on", "clean-off", "clean-on", "warning"]);
+    expect(parseCli(["--model", "a/b", "--modes", "off"], {}).unsafeToolUsage).toBe(false);
+  });
+
+  it("runEvalRefusesOffModesOnALocalToolsScenarioWithoutTheFlag", async () => {
+    const local = join(import.meta.dirname, "../../scenarios/github-issue-replay-local");
+    const out = join(tmp, `case-${n++}`, "results");
+    const opts: EvalOptions = { model: MODEL, runs: 1, modes: ["off"], scenarioDir: local, outDir: out, timeoutMs: 1000, command: "x", agentDir: join(tmp, "agent-l") };
+    await expect(runEval(opts, { runOnce: async () => { throw new Error("must not run"); }, fetch: offline, log: quiet })).rejects.toThrow(OFF_MODE_COPY);
   });
 
   it("parseCliRejectsBadInput", () => {

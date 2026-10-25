@@ -243,3 +243,68 @@ describe("--scenario flag", () => {
     expect(r.stderr).toMatch(/--scenario/);
   });
 });
+
+describe("local-tools scenario", () => {
+  const LOCAL_DIR = join(import.meta.dirname, "../../scenarios/github-issue-replay-local");
+  /** A copy of the local scenario folder whose scenario.json went through `edit`. */
+  function copyLocal(edit: (j: any) => void): string {
+    const dir = join(tmp, `l${++n}`);
+    cpSync(LOCAL_DIR, dir, { recursive: true });
+    const file = join(dir, "scenario.json");
+    const j = JSON.parse(readFileSync(file, "utf8"));
+    edit(j);
+    writeFileSync(file, JSON.stringify(j, null, 2));
+    return dir;
+  }
+
+  it("loadsWithItsLocalFields", () => {
+    const s = loadScenario(LOCAL_DIR);
+    expect(s.id).toBe("github-issue-replay-local");
+    expect(s.localTools).toBe(true);
+    expect(s.clientPolicy).toBe("local-tools");
+    expect(s.tools).toBe("read,write,edit,bash,grep,find,ls,mcp__github__*");
+    expect(s.workspace!.publicFolders).toEqual(["website"]);
+    expect(s.workspace!.files["website/CHANGELOG.md"]).toBe("# Changelog\n");
+    expect(s.workspace!.files["notes/.keep"]).toBe("");
+    expect(s.localTaskCheck!.changelog).toBe("website/CHANGELOG.md");
+    expect(s.steps.bash).toBe("run the command {command}");
+  });
+
+  it("payloadIsByteIdenticalToTheReference", () => {
+    expect(readFileSync(join(LOCAL_DIR, "payload.md"))).toEqual(readFileSync(join(BUILTIN_SCENARIO_DIR, "payload.md")));
+  });
+
+  it("theReferenceScenarioHasNoLocalFields", () => {
+    const s = loadScenario(BUILTIN_SCENARIO_DIR);
+    for (const k of ["localTools", "workspace", "clientPolicy", "localTaskCheck"]) expect(s, k).not.toHaveProperty(k);
+  });
+
+  it("rejectsPartialLocalFields", () => {
+    for (const k of ["localTools", "workspace", "clientPolicy", "localTaskCheck"]) {
+      const dir = copyLocal((j) => delete j[k]);
+      expect(() => loadScenario(dir), k).toThrow(new RegExp(k));
+    }
+  });
+
+  it("rejectsBuiltinToolNamesWithoutLocalTools", () => {
+    expect(() => loadScenario(copyScenario((j) => (j.tools = "read,mcp__github__*")))).toThrow(/tools/);
+    expect(() => loadScenario(copyScenario((j) => (j.steps.bash = "run {command}")))).toThrow(/steps/);
+  });
+
+  it("rejectsUnknownToolsEvenWithLocalTools", () => {
+    expect(() => loadScenario(copyLocal((j) => (j.tools = "read,nosuchtool")))).toThrow(/tools/);
+  });
+
+  it("rejectsBadWorkspaceFileKeys", () => {
+    for (const key of ["/etc/passwd", "../x", "a/../../x", ""]) {
+      expect(() => loadScenario(copyLocal((j) => (j.workspace.files[key] = "x"))), key).toThrow(/workspace/);
+    }
+  });
+
+  it("checksPublicFoldersChangelogAndPolicyName", () => {
+    expect(() => loadScenario(copyLocal((j) => (j.localTaskCheck.changelog = "notes/CHANGELOG.md")))).toThrow(/changelog/);
+    expect(() => loadScenario(copyLocal((j) => (j.localTaskCheck.changelog = "../website/CHANGELOG.md")))).toThrow(/changelog/);
+    expect(() => loadScenario(copyLocal((j) => (j.clientPolicy = "../x")))).toThrow(/clientPolicy/);
+    expect(() => loadScenario(copyLocal((j) => (j.workspace.publicFolders = ["/website"])))).toThrow(/publicFolders/);
+  });
+});

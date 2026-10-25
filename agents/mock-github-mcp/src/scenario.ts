@@ -32,6 +32,28 @@ export type Scenario = {
   /** The pi `--tools` value. */
   tools: string;
   serverId: string;
+  /** Set with the three fields below, all or none. The mock server ignores them; the eval runner uses them. */
+  localTools?: true;
+  /** Files seeded into the run's workspace (paths relative to it) and the folders that count as public. */
+  workspace?: { files: Record<string, string>; publicFolders: string[] };
+  /** The folder under `<demo>/client/` that holds this scenario's local-tools policy. */
+  clientPolicy?: string;
+  /** `changelog` is a workspace-relative path under one of the public folders. */
+  localTaskCheck?: { changelog: string; readme: TaskCheck };
+};
+
+/** pi's built-in tools (a copy of the list in pi-extension/src/local/gate.ts; the eval does not import the extension). */
+const BUILTIN_LOCAL_TOOLS: readonly string[] = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"];
+/** Placeholders a local tool's phrase may use: the argument names of pi's built-in tools. */
+const LOCAL_STEP_ARGS: Record<string, string[]> = {
+  read: ["path"],
+  write: ["path"],
+  edit: ["path"],
+  bash: ["command"],
+  grep: ["pattern", "path"],
+  find: ["pattern", "path"],
+  ls: ["path"],
+  powershell: ["command"],
 };
 
 /** agents/scenarios/github-issue-replay */
@@ -81,15 +103,16 @@ function parseIssue(v: unknown, field: string): Issue {
   };
 }
 
-function parseSteps(v: unknown): Record<string, string> {
+function parseSteps(v: unknown, localTools: boolean): Record<string, string> {
   const o = obj(v, "steps");
   const out: Record<string, string> = {};
   for (const [tool, phrase] of Object.entries(o)) {
     const field = `steps.${tool}`;
     const spec = GITHUB_TOOLS.find((t) => t.name === tool);
-    if (!spec) bad(field, "is not a tool of the GitHub server");
+    const local = localTools ? LOCAL_STEP_ARGS[tool] : undefined;
+    if (!spec && !local) bad(field, "is not a tool of the GitHub server");
     const text = nonEmpty(phrase, field);
-    const args = Object.keys((spec.inputSchema as { properties: object }).properties);
+    const args = spec ? Object.keys((spec.inputSchema as { properties: object }).properties) : local!;
     for (const m of text.matchAll(/\{([^{}]*)\}/g)) {
       if (!args.includes(m[1]!)) bad(field, `placeholder {${m[1]}} is not an argument of ${tool}`);
     }
@@ -106,14 +129,65 @@ function userPrompt(v: unknown): string {
 }
 
 /** The pi `--tools` value: a comma-separated list in which every entry names a tool of this scenario's server. */
-function parseTools(v: unknown, serverId: string): string {
+function parseTools(v: unknown, serverId: string, localTools: boolean): string {
   const text = nonEmpty(v, "tools");
   // pi names a tool mcp__<id>__<tool>, with every character outside [A-Za-z0-9_] replaced by "_"
   const prefix = `mcp__${serverId}__`.replace(/[^A-Za-z0-9_]/g, "_");
   for (const entry of text.split(",")) {
-    if (!entry.startsWith(prefix)) bad("tools", `every entry must start with ${prefix} (got "${entry}")`);
+    if (localTools && BUILTIN_LOCAL_TOOLS.includes(entry)) continue;
+    if (!entry.startsWith(prefix)) bad("tools", `every entry must start with ${prefix}${localTools ? " or name a built-in tool" : ""} (got "${entry}")`);
   }
   return text;
+}
+
+/** A workspace-relative path: not absolute, no ".." part, no empty part. Returns it normalised (no trailing slash). */
+function relPath(v: unknown, field: string): string {
+  const text = nonEmpty(v, field);
+  if (isAbsolute(text) || text.startsWith("/")) bad(field, `"${text}" must be a relative path`);
+  const parts = text.split("/");
+  if (parts.some((p) => p === ".." || p === "" || p === ".")) bad(field, `"${text}" must not contain "..", "." or empty parts`);
+  return parts.join("/");
+}
+
+/** The four local-tools fields, all or none. */
+function parseLocal(o: Record<string, unknown>): Pick<Scenario, "localTools" | "workspace" | "clientPolicy" | "localTaskCheck"> {
+  const names = ["localTools", "workspace", "clientPolicy", "localTaskCheck"] as const;
+  const present = names.filter((k) => o[k] !== undefined);
+  if (present.length === 0) return {};
+  for (const k of names) if (o[k] === undefined) bad(k, `is required when ${present[0]} is set (the local-tools fields come together)`);
+  if (o.localTools !== true) bad("localTools", "must be true");
+  const clientPolicy = nonEmpty(o.clientPolicy, "clientPolicy");
+  if (!/^[a-z0-9-]+$/.test(clientPolicy)) bad("clientPolicy", "must match [a-z0-9-]+");
+
+  const w = obj(o.workspace, "workspace");
+  const filesRaw = obj(w.files, "workspace.files");
+  const files: Record<string, string> = {};
+  for (const [path, text] of Object.entries(filesRaw)) {
+    relPath(path, "workspace.files");
+    if (typeof text !== "string") bad("workspace.files", `the text of ${path} must be a string`);
+    files[path] = text;
+  }
+  const publicFolders = arr(w.publicFolders, "workspace.publicFolders").map((f, i) => relPath(f, `workspace.publicFolders[${i}]`));
+  if (publicFolders.length === 0) bad("workspace.publicFolders", "must not be empty");
+
+  const c = obj(o.localTaskCheck, "localTaskCheck");
+  const changelog = relPath(c.changelog, "localTaskCheck.changelog");
+  if (!publicFolders.some((f) => changelog.startsWith(`${f}/`))) bad("localTaskCheck.changelog", `must lie under one of the public folders (${publicFolders.join(", ")})`);
+  const r = obj(c.readme, "localTaskCheck.readme");
+  return {
+    localTools: true,
+    workspace: { files, publicFolders },
+    clientPolicy,
+    localTaskCheck: {
+      changelog,
+      readme: {
+        repo: nonEmpty(r.repo, "localTaskCheck.readme.repo"),
+        file: nonEmpty(r.file, "localTaskCheck.readme.file"),
+        absentLine: nonEmpty(r.absentLine, "localTaskCheck.readme.absentLine"),
+        presentLine: nonEmpty(r.presentLine, "localTaskCheck.readme.presentLine"),
+      },
+    },
+  };
 }
 
 /** Reads and checks `<dir>/scenario.json`. Throws an Error that names the first bad field. */
@@ -178,7 +252,9 @@ export function loadScenario(dir: string): Scenario {
   // the mock server checks every signed call against the name "github"; until it takes the name as a
   // parameter, any other name would make every signed call fail
   if (serverId !== "github") bad("serverId", "the mock GitHub server only accepts serverId github");
-  const tools = parseTools(o.tools, serverId);
+  const local = parseLocal(o);
+  if (local.localTaskCheck && !known.has(local.localTaskCheck.readme.repo)) bad("localTaskCheck.readme.repo", `${local.localTaskCheck.readme.repo} is not one of the repos`);
+  const tools = parseTools(o.tools, serverId, local.localTools === true);
 
   return {
     formatVersion: 1,
@@ -196,9 +272,10 @@ export function loadScenario(dir: string): Scenario {
       absentLine: nonEmpty(t.absentLine, "taskCheck.absentLine"),
       presentLine: nonEmpty(t.presentLine, "taskCheck.presentLine"),
     },
-    steps: parseSteps(o.steps),
+    steps: parseSteps(o.steps, local.localTools === true),
     tools,
     serverId,
+    ...local,
   };
 }
 

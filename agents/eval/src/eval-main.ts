@@ -3,22 +3,26 @@
 
 // Usage: node eval/src/eval-main.ts --model provider/id [--runs N | --quick] [--modes a,b] [--scenario dir]
 //   [--payload file] [--agent-dir dir] [--out dir] [--timeout seconds]
+//   [--unsafe-tool-usage]
 // Exit code: 0 finished, 1 finished but some evidence did not verify, 2 usage or setup problem, 130 interrupted.
 
 import { rmSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
+import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { keysDirFor, runEval, type EvalDeps, type EvalOptions } from "./eval.ts";
-import { parseModel, type RunMode } from "./runner.ts";
+import { OFF_MODE_COPY, parseModel, type RunMode } from "./runner.ts";
 
 const AGENTS = join(import.meta.dirname, "../..");
 const ALL_MODES: RunMode[] = ["off", "on", "clean-off", "clean-on", "warning"];
+/** The modes a scenario with a real shell runs without --unsafe-tool-usage. */
+const LOCAL_SAFE_MODES: RunMode[] = ["on", "clean-on"];
 const DEFAULT_RUNS = 20;
 const QUICK_RUNS = 3;
 const DEFAULT_TIMEOUT_S = 600;
 const USAGE = `usage: eval --model provider/id [--runs N | --quick] [--modes ${ALL_MODES.join(",")}]
-            [--scenario dir] [--payload file] [--agent-dir dir] [--out dir] [--timeout seconds]`;
+            [--scenario dir] [--payload file] [--agent-dir dir] [--out dir] [--timeout seconds]
+            [--unsafe-tool-usage]`;
 
 class UsageError extends Error {}
 
@@ -44,6 +48,7 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
         "agent-dir": { type: "string" },
         out: { type: "string" },
         timeout: { type: "string" },
+        "unsafe-tool-usage": { type: "boolean" },
       },
     }).values;
   } catch (e) {
@@ -65,9 +70,19 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
     runs = Number(v.runs);
     if (!/^\d+$/.test(v.runs) || runs < 1) throw new UsageError(`--runs must be a whole number of at least 1 (got "${v.runs}")`);
   }
-  const modes = v.modes === undefined ? [...ALL_MODES] : (v.modes.split(",").map((m) => m.trim()) as RunMode[]);
+  const scenarioDir = v.scenario !== undefined ? path(v.scenario) : BUILTIN_SCENARIO_DIR;
+  // a scenario that cannot be loaded is reported by the eval itself; here it only decides the defaults
+  let localTools = false;
+  try {
+    localTools = loadScenario(scenarioDir).localTools === true;
+  } catch {
+    // reported later
+  }
+  const unsafeToolUsage = v["unsafe-tool-usage"] === true;
+  const modes = v.modes === undefined ? (localTools && !unsafeToolUsage ? LOCAL_SAFE_MODES : [...ALL_MODES]) : (v.modes.split(",").map((m) => m.trim()) as RunMode[]);
   for (const m of modes) if (!ALL_MODES.includes(m)) throw new UsageError(`unknown mode "${m}" (modes: ${ALL_MODES.join(", ")})`);
   if (new Set(modes).size !== modes.length) throw new UsageError("--modes must not repeat a mode");
+  if (localTools && !unsafeToolUsage && modes.some((m) => !LOCAL_SAFE_MODES.includes(m))) throw new UsageError(OFF_MODE_COPY);
   const seconds = v.timeout === undefined ? DEFAULT_TIMEOUT_S : Number(v.timeout);
   if (!Number.isFinite(seconds) || seconds <= 0) throw new UsageError(`--timeout must be a positive number of seconds (got "${v.timeout}")`);
 
@@ -77,11 +92,12 @@ export function parseCli(argv: string[], ctx: { cwd?: string; now?: Date; npm?: 
     model: v.model,
     runs,
     modes,
-    scenarioDir: v.scenario !== undefined ? path(v.scenario) : BUILTIN_SCENARIO_DIR,
+    scenarioDir,
     ...(v.payload !== undefined ? { payloadFile: path(v.payload) } : {}),
     ...(v["agent-dir"] !== undefined ? { agentDir: path(v["agent-dir"]) } : {}),
     outDir,
     timeoutMs: seconds * 1000,
+    unsafeToolUsage,
     command: `${ctx.npm ? "npm run eval --" : "node eval/src/eval-main.ts"} ${argv.map(shellWord).join(" ")}`.trimEnd(),
   };
 }

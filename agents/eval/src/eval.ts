@@ -10,7 +10,7 @@ import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { collectEnvironment, type Environment } from "./environment.ts";
 import { checkRun, hasEvidenceFile, type RunVerify } from "./crosscheck.ts";
-import { checkModelAvailable, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
+import { checkModelAvailable, OFF_MODE_COPY, parseModel, prepareAgentDir, runOnce, type ModelRef, type RunMode, type RunResult, type RunSpec } from "./runner.ts";
 import { redactPaths, withRealPath } from "./redact.ts";
 import { renderSummary } from "./report.ts";
 import { checkRecords, readOutcomeLog, scoreRunFile, summarize, type ModeSummary, type ScoredRun } from "./score.ts";
@@ -26,6 +26,8 @@ export type EvalOptions = {
   outDir: string;
   timeoutMs: number;
   command: string;
+  /** Allows the modes without Paztport on a scenario that gives the model a real shell. Recorded in results.json. */
+  unsafeToolUsage?: boolean;
 };
 /** A scored run as stored in results.json: the score, why it is an error if the cause is not its status, and the evidence check. */
 export type StoredRun = ScoredRun & {
@@ -45,6 +47,8 @@ export type ResultsFile = {
    */
   agentDirFiles?: string[];
   scenario: { id: string; title: string };
+  /** The eval was started with --unsafe-tool-usage. */
+  unsafeToolUsage?: boolean;
   payload: { kind: "reference" | "custom"; sha256: string };
   model: ModelRef;
   versions: { pi: string; extension: string; mockServer: string; node: string };
@@ -171,6 +175,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
   const name = basename(out);
   const model = parseModel(opts.model);
   const scenario = loadScenario(opts.scenarioDir);
+  if (scenario.localTools && !opts.unsafeToolUsage && opts.modes.some((m) => m !== "on" && m !== "clean-on")) throw new Error(OFF_MODE_COPY);
   const wantsWarning = opts.modes.includes("warning");
   const warning = wantsWarning ? readWarning() : undefined;
   const userAgentDir = opts.agentDir !== undefined;
@@ -205,6 +210,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
       command: commandForResults(opts.command),
       ...(agentDirFiles !== undefined ? { agentDirFiles } : {}),
       scenario: { id: scenario.id, title: scenario.title },
+      unsafeToolUsage: opts.unsafeToolUsage === true,
       payload: { kind: opts.payloadFile === undefined ? "reference" : "custom", sha256: sha256File(payloadFile) },
       model,
       versions: {
@@ -264,6 +270,7 @@ export async function runEval(opts: EvalOptions, deps: EvalDeps = {}): Promise<R
           agentDir,
           userAgentDir,
           timeoutMs: opts.timeoutMs,
+          ...(opts.unsafeToolUsage ? { unsafeToolUsage: true } : {}),
           ...(opts.payloadFile !== undefined ? { payloadFile: resolve(opts.payloadFile) } : {}),
           ...(mode === "warning" ? { warning: { file: join(out, "warning.md") } } : {}),
         };
