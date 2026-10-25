@@ -3,7 +3,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -118,10 +118,12 @@ export function workspaceSlug(repo: string): string {
 
 /**
  * Copies a run's working folder (in the system temp folder) into the run folder as workspace/, links as
- * links, then removes it. Never throws: a copy that fails leaves no workspace/ at all, so scoring finds the
- * workspace unreadable rather than scoring a partial one, and stderr.txt says so.
+ * links, then removes it. The copy is made under another name beside it (.workspace-copy) and renamed to
+ * workspace/ only once it is whole, so a copy that fails is never where scoring reads: scoring finds the
+ * workspace unreadable rather than scoring a partial one, even when the partial copy can't be removed, and
+ * stderr.txt says so. Never throws. Exported for its tests.
  */
-function settleWorkspace(work: string, dest: string, stderrFile: string): void {
+export function settleWorkspace(work: string, dest: string, stderrFile: string): void {
   const note = (msg: string) => {
     try {
       appendFileSync(stderrFile, `runner: ${msg}\n`);
@@ -129,16 +131,19 @@ function settleWorkspace(work: string, dest: string, stderrFile: string): void {
       // stderr.txt is broken too
     }
   };
+  const staging = join(dirname(dest), ".workspace-copy");
   try {
     rmSync(dest, { recursive: true, force: true });
-    cpSync(work, dest, { recursive: true, verbatimSymlinks: true });
+    rmSync(staging, { recursive: true, force: true });
+    cpSync(work, staging, { recursive: true, verbatimSymlinks: true });
+    renameSync(staging, dest);
   } catch (e) {
     // the error names the temp folder, which the run folder never shows
     note(`could not copy the workspace into the run folder (${(e as NodeJS.ErrnoException).code ?? "error"}), so it is left out`);
     try {
-      rmSync(dest, { recursive: true, force: true });
+      rmSync(staging, { recursive: true, force: true });
     } catch {
-      note("and a partial copy of it could not be removed");
+      note("and its partial copy, .workspace-copy, could not be removed; it is never scored");
     }
   }
   try {
