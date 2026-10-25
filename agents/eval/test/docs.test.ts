@@ -279,6 +279,10 @@ describe("the local gate documents", () => {
       "frozen",
       "local-untrusted",
       "not the disk",
+      "own reads count too",
+      "`<workspace>`",
+      "`<home>`",
+      "refused with an event only",
     ]) {
       expect(t, phrase).toContain(phrase);
     }
@@ -287,7 +291,7 @@ describe("the local gate documents", () => {
 
   it("theEvalReadmeStatesTheLocalRunLimits", () => {
     const t = flat(EVAL_README);
-    for (const phrase of ["no witness besides the client", "`OLLAMA_HOST`", "`unsafeToolUsage`", "`--unsafe-tool-usage`", "refused by scope"]) {
+    for (const phrase of ["no witness besides the client", "`OLLAMA_HOST`", "`unsafeToolUsage`", "`--unsafe-tool-usage`", "refused by scope", "can read those keys and the agent directory"]) {
       expect(t, phrase).toContain(phrase);
     }
   });

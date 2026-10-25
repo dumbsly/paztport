@@ -174,20 +174,31 @@ The first check that fails decides, in this order:
    (`PATH_NOT_ALLOWED`).
 2. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,
    a path with a `..` part in a command, a link it cannot follow, or a tool input it cannot sign
-   makes the call `UNCHECKABLE`. `powershell` is always `UNCHECKABLE`.
+   makes the call `UNCHECKABLE`. `powershell` is `UNCHECKABLE` when its route is listed; when it is
+   not, the route check refuses it first (`PATH_NOT_ALLOWED`), as it does any unlisted tool.
 3. **Scope.** Every path must fall under a folder rule that allows the access needed (read, write or
    exec), and every program must be allowed. Otherwise `SCOPE_DENIED`. A path that resolves outside
    the workspace with no rule for it, or into a place the extension keeps for itself (the config, the
    keys and pins, the logs, pi's session and agent folders), is refused.
 4. **Influence.** If the session holds `private` content together with `third-party` or
    `local-untrusted` content, a write to a folder whose `destination` is `public` is refused
-   (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories.
+   (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories. The
+   call's own reads count too: the labels of the folders it reads are added to the session's for
+   this check, so one `bash` command that copies a `private` folder into a public one is decided as
+   a read followed by a write would be. `bash` always reads its working folder, so when that folder
+   has no label (it counts as `local-untrusted`), a `bash` command can't write to a public folder if
+   it reads a `private` folder or if the session holds `private` content.
 
-Each call that reaches the gate during a run is a signed step in the client's chain: the stamp binds
-the call id, the input, what the gate resolved, the verdict, whether the route was listed, the hash of
-the rules, and the influence at that moment. The step is written to the evidence file whether the
-call was allowed or refused. The events log gets only the tool name, call id, rid and verdict. After a
-call is allowed, its input is frozen (see [Hook order](#hook-order)).
+In `enforce` mode, each call that reaches the gate during a run is a signed step in the client's
+chain: the stamp binds the call id, the input, what the gate resolved, the verdict, whether the route
+was listed, the hash of the rules, and the influence at that moment. The step is written to the
+evidence file whether the call was allowed or refused. The input is bound and recorded with the
+workspace path written as `<workspace>` and the home folder as `<home>`, wherever either appears as a
+whole path in one of its strings (the workspace first); the tool runs with the input as given. A call
+whose input can't be signed (a lone surrogate, a number JSON can't hold) is refused as `UNCHECKABLE`
+and is not signed. In `no-root` mode, and for a call made before any user prompt, the call is refused
+with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
+verdict. After a call is allowed, its input is frozen (see [Hook order](#hook-order)).
 
 ### Folder rules
 
@@ -303,8 +314,10 @@ changed it to, which is what the tool runs with.
   can't be found there either, for example because that file was deleted, the summary may hold
   anything: it counts as `private` and `local-untrusted`, so public writes are refused (except in
   `off` mode). A compaction summary needs no such step: the entries it summarises are still on the
-  restored branch and are counted there. The rebuild trusts the session file, which the model can
-  edit through `bash`. Steering messages sent mid-run keep the current run's rid and origin. Only a
+  restored branch and are counted there. The rebuild trusts the session file. With the local gate
+  on, pi's session folder and file are refused to the gated tools, so the model can't edit the file
+  through them; in `off` mode, or through a tool the gate does not cover (another extension's), it
+  can. Steering messages sent mid-run keep the current run's rid and origin. Only a
   new user prompt starts a new run.
 - **Influence from local reads.** A read adds the label of the folder it read from, as the policy
   gives it. A folder with no label, or a read the rules do not place in a folder, counts as
@@ -313,8 +326,9 @@ changed it to, which is what the tool runs with.
   is not one of pi's built-ins and not this extension's counts as `local-untrusted`. The labels are
   only as good as the policy's claims about the folders. When a session is restored (`/resume`,
   `/fork`, reload), results of built-in tools are counted again from the labels saved with them. A
-  result without Paztport's labels, or one whose tool made nested calls, counts as `private` and
-  `local-untrusted`.
+  result without Paztport's labels, or one whose tool made nested calls (whatever the tool is
+  called), counts as `private` and `local-untrusted`. A restored `write` or `edit` result, and an
+  error result holding one of the local refusal texts, count for nothing, as they did live.
 - **Tool descriptions and server instructions are not tracked.** Descriptions and schemas from
   `tools/list` are not recorded as influence, and neither are MCP server `instructions` or
   descriptions that pi puts in the system prompt (for servers in its own `mcp.json`). Poisoning there
