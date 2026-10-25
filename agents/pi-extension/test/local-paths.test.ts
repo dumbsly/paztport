@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { parseLocalRules } from "@paztport/path-attest";
+import { decideLocal, folderRuleFor, readLabels } from "../src/local/decide.ts";
 import { canonical, piRewrites, resolveFileTool, resolvePathArg, type PathContext } from "../src/local/paths.ts";
 
 const rules = parseLocalRules({
@@ -23,7 +24,16 @@ let ws: string;
 let outside: string;
 let shared: string;
 let ctx: PathContext;
-let caseInsensitive = false;
+// Detected once at module load, on the temp volume, so skipIf can see it.
+const caseInsensitive = (() => {
+  const d = mkdtempSync(join(tmpdir(), "pz-case-"));
+  try {
+    writeFileSync(join(d, "aB"), "x");
+    return existsSync(join(d, "Ab"));
+  } finally {
+    rmSync(d, { recursive: true, force: true });
+  }
+})();
 
 beforeAll(() => {
   base = realpathSync.native(mkdtempSync(join(tmpdir(), "pz-paths-")));
@@ -36,7 +46,14 @@ beforeAll(() => {
   symlinkSync(outside, join(ws, "website", "link"));
   symlinkSync(join(base, "nowhere"), join(ws, "website", "dangling"));
   symlinkSync(shared, join(ws, "sharedlink"));
-  caseInsensitive = existsSync(join(ws, "WEBSITE", "README.md"));
+  mkdirSync(join(ws, "docs"));
+  mkdirSync(join(ws, "secrets", "keys"));
+  mkdirSync(join(ws, "tree", "deep"), { recursive: true });
+  mkdirSync(join(ws, "tree", "vault"), { recursive: true });
+  mkdirSync(join(ws, "tree", "noread"), { recursive: true });
+  writeFileSync(join(outside, "f2"), "x");
+  symlinkSync(outside, join(ws, "docs", "r\u202FAM.d"));
+  symlinkSync(outside, join(ws, "docs", "it\u2019s"));
   ctx = { cwd: ws, workspace: ws, rules, refused: [canonical(join(ws, "secrets"))] };
 });
 afterAll(() => rmSync(base, { recursive: true, force: true }));
@@ -105,12 +122,10 @@ describe("resolvePathArg", () => {
     expect(r("secrets").at).toBe("refused");
     expect(r("secretsx").at).toBe("secretsx");
   });
-  it("caseChangedPathResolvesToCanonicalCase", () => {
-    if (!caseInsensitive) return;
+  it.skipIf(!caseInsensitive)("caseChangedPathResolvesToCanonicalCase", () => {
     expect(r("Website/README.md").at).toBe("website/README.md");
   });
-  it("caseChangedPathIntoRefusedIsRefused", () => {
-    if (!caseInsensitive) return;
+  it.skipIf(!caseInsensitive)("caseChangedPathIntoRefusedIsRefused", () => {
     expect(r("SECRETS/key").at).toBe("refused");
     expect(r("Secrets").at).toBe("refused");
   });
@@ -132,7 +147,7 @@ describe("resolvePathArg", () => {
 
 describe("resolveFileTool", () => {
   it("lsWithoutPathChecksCwd", () => {
-    expect(resolveFileTool("ls", {}, ctx)).toEqual({ paths: [{ need: "read", at: "." }], programs: [], parse: "ok", readOnly: true });
+    expect(resolveFileTool("ls", {}, { ...ctx, refused: [] })).toEqual({ paths: [{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "notes" }], programs: [], parse: "ok", readOnly: true });
   });
   it("needsPerTool", () => {
     for (const t of ["read", "grep", "find", "ls"] as const) {
@@ -155,5 +170,104 @@ describe("resolveFileTool", () => {
   });
   it("aNonStringPathIsUncheckable", () => {
     expect(resolveFileTool("read", { path: 5 }, ctx).paths[0]?.at).toBe("uncheckable");
+  });
+});
+
+describe("resolveFileTool read variants", () => {
+  it("aPlantedNarrowNoBreakSpaceSymlinkMakesTheReadUncheckable", () => {
+    expect(resolveFileTool("read", { path: "docs/r AM.d/f" }, ctx).paths[0]?.at).toBe("uncheckable");
+  });
+  it("aPlantedCurlyQuoteSymlinkMakesTheReadUncheckable", () => {
+    expect(resolveFileTool("read", { path: "docs/it's/f" }, ctx).paths[0]?.at).toBe("uncheckable");
+  });
+  it("aMissingFileWithNoVariantIsJudgedNormally", () => {
+    expect(resolveFileTool("read", { path: "docs/none AM.d/f" }, ctx).paths[0]?.at).toBe("docs/none AM.d/f");
+  });
+  it("writeIsNotAffectedByReadVariants", () => {
+    expect(resolveFileTool("write", { path: "docs/r AM.d/f" }, ctx).paths[0]?.at).toBe("docs/r AM.d/f");
+  });
+});
+
+describe("searches walk everything below the root", () => {
+  const nested = () => {
+    const rs = parseLocalRules({
+      v: 1,
+      folders: [
+        { path: ".", access: ["read"] },
+        { path: "tree/vault", access: ["read"], label: "private" },
+        { path: "tree/noread", access: ["write"], destination: "private" },
+      ],
+      programs: [],
+    });
+    return { ...ctx, rules: rs, refused: [] };
+  };
+  it("aNestedRefusedEntryRefusesTheWholeSearch", () => {
+    const c = { ...ctx, refused: [canonical(join(ws, "secrets", "keys"))] };
+    for (const t of ["grep", "find", "ls"] as const) {
+      expect(resolveFileTool(t, { path: "." }, c).paths[0]?.at).toBe("refused");
+      expect(resolveFileTool(t, { path: "secrets" }, c).paths[0]?.at).toBe("refused");
+    }
+    expect(resolveFileTool("grep", { path: "website" }, c).paths[0]?.at).toBe("website");
+    expect(resolveFileTool("read", { path: "." }, c).paths[0]?.at).toBe(".");
+  });
+  it("nestedFolderRulesBecomeExtraReadPaths", () => {
+    const r = resolveFileTool("grep", { path: "." }, nested());
+    expect(r.paths).toEqual([
+      { need: "read", at: "." },
+      { need: "read", at: "tree/vault" },
+      { need: "read", at: "tree/noread" },
+    ]);
+    expect(resolveFileTool("ls", { path: "tree/vault" }, nested()).paths).toEqual([{ need: "read", at: "tree/vault" }]);
+    expect(resolveFileTool("find", { path: "website" }, nested()).paths).toHaveLength(1);
+  });
+  it("verdictAndLabelsSeeTheNestedFolders", () => {
+    const c = nested();
+    const r = resolveFileTool("grep", { path: "." }, c);
+    expect(readLabels(r, c.rules)).toContain("private");
+    expect(decideLocal({ routeAllowed: true, resolved: r, rules: c.rules, classes: new Set() })).toBe("SCOPE_DENIED");
+    const ok = resolveFileTool("grep", { path: "tree/vault" }, c);
+    expect(decideLocal({ routeAllowed: true, resolved: ok, rules: c.rules, classes: new Set() })).toBe("OK");
+    expect(readLabels(ok, c.rules)).toEqual(["private"]);
+  });
+  it("aNestedRefusedDirWithGrepDotIsScopeDenied", () => {
+    const c = { ...ctx, refused: [canonical(join(ws, "secrets", "keys"))] };
+    const r = resolveFileTool("grep", { path: "." }, c);
+    expect(decideLocal({ routeAllowed: true, resolved: r, rules: c.rules, classes: new Set() })).toBe("SCOPE_DENIED");
+  });
+});
+
+describe("case-insensitive volumes", () => {
+  const c2 = () => ({
+    ...ctx,
+    rules: parseLocalRules({
+      v: 1,
+      folders: [
+        { path: ".", access: ["read"] },
+        { path: "notes", access: ["read", "write"], destination: "private" },
+        { path: "notes/publish", access: ["read", "write"], destination: "public" },
+      ],
+      programs: [],
+    }),
+    refused: [join(ws, "secrets", "keys-later")],
+  });
+  it.skipIf(!caseInsensitive)("aTailThatMatchesARuleOnlyAfterFoldingIsUncheckable", () => {
+    expect(resolvePathArg("notes/PUBLISH/x", "write", c2()).at).toBe("uncheckable");
+    expect(resolvePathArg("notes/publish/x", "write", c2()).at).toBe("notes/publish/x");
+  });
+  it.skipIf(!caseInsensitive)("aTailThatMatchesARefusedEntryOnlyAfterFoldingIsRefused", () => {
+    expect(resolvePathArg("secrets/KEYS-LATER/a", "read", c2()).at).toBe("refused");
+  });
+});
+
+describe("absolute rules inside the workspace", () => {
+  it("stillMatch", () => {
+    const rs = parseLocalRules({
+      v: 1,
+      folders: [{ path: ".", access: ["read"] }, { path: join(ws, "notes"), access: ["read", "write"], destination: "private" }],
+      programs: [],
+    });
+    const at = resolvePathArg("notes/a.md", "write", { ...ctx, rules: rs }).at;
+    expect(at).toBe(join(ws, "notes", "a.md"));
+    expect(folderRuleFor(at, rs)?.destination).toBe("private");
   });
 });

@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // The pure verdict for a local tool call. No filesystem access here: the same
-// rule is reused by offline verification over a recorded resolution.
+// rule is reused by offline verification over a recorded resolution. It imports
+// only node:path's pure posix helpers, never node:fs.
 
 import { posix } from "node:path";
 import type { FolderRule, InfluenceClass, LocalRules } from "@paztport/path-attest";

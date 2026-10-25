@@ -101,9 +101,13 @@ describe("decideLocal", () => {
   it("privateDestinationIsOkUnderTheSameClasses", () => {
     expect(verdict(resolved([write("notes/a.md")]), ["private", "third-party"])).toBe("OK");
   });
-  it("aWriteFolderWithoutDestinationIsNotPublic", () => {
+  it("aWritableFolderWithoutDestinationIsNotPublic", () => {
+    // parseLocalRules requires a destination for write folders, so build the shape directly.
+    const r = { v: 1 as const, folders: [{ path: ".", access: ["read" as const, "write" as const] }], programs: [] };
+    expect(verdict(resolved([write("a")]), ["private", "third-party"], true, r)).toBe("OK");
+  });
+  it("aReadOnlyFolderCannotBeWritten", () => {
     const r = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }], programs: [] });
-    // read-only folder cannot be written at all
     expect(verdict(resolved([write("a")]), ["private", "third-party"], true, r)).toBe("SCOPE_DENIED");
   });
   it("readOfPublicFolderUnderFullInfluenceIsOk", () => {

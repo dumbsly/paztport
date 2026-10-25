@@ -4,7 +4,7 @@
 // Disk-aware resolution of the paths pi's file tools are about to touch. When in
 // doubt the answer is "uncheckable" or "outside", never a guess.
 
-import { lstatSync, realpathSync } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { LocalRules } from "@paztport/path-attest";
 import type { Need, Resolved, ResolvedPath } from "./decide.ts";
@@ -63,6 +63,71 @@ function isUnder(p: string, base: string): boolean {
   return p.startsWith(base.endsWith(sep) ? base : base + sep);
 }
 
+const fold = (s: string): string => s.normalize("NFC").toLowerCase();
+
+const caseCache = new Map<string, boolean>();
+
+/**
+ * Whether the volume holding `canonicalPath` ignores case, found by statting a
+ * case-flipped spelling of its nearest existing component. Unknown counts as
+ * case-insensitive, which only ever makes the checks stricter.
+ */
+function caseInsensitive(canonicalPath: string): boolean {
+  const cached = caseCache.get(canonicalPath);
+  if (cached !== undefined) {
+    return cached;
+  }
+  let result = true;
+  let p = canonicalPath;
+  for (;;) {
+    const parent = dirname(p);
+    if (parent === p) {
+      break;
+    }
+    const name = p.slice(parent.length === 1 ? 1 : parent.length + 1);
+    const flipped = [...name].map((ch) => (ch === ch.toLowerCase() ? ch.toUpperCase() : ch.toLowerCase())).join("");
+    if (flipped !== name) {
+      try {
+        const a = statSync(p);
+        let b;
+        try {
+          b = statSync(join(parent, flipped));
+        } catch {
+          result = false;
+          break;
+        }
+        result = a.ino === b.ino && a.dev === b.dev;
+      } catch {
+        result = true;
+      }
+      break;
+    }
+    p = parent;
+  }
+  caseCache.set(canonicalPath, result);
+  return result;
+}
+
+type RuleLoc = { loc: string; at: string; relative: boolean };
+
+/** Where each folder rule lies on disk (canonical), and the `at` spelling that names it. */
+function ruleLocations(ctx: PathContext, ws: string): RuleLoc[] {
+  const out: RuleLoc[] = [];
+  for (const rule of ctx.rules.folders) {
+    const spelled = posix.normalize(rule.path).replace(/(.)\/$/, "$1");
+    if (isAbsolute(rule.path)) {
+      try {
+        out.push({ loc: canonical(spelled), at: spelled, relative: false });
+      } catch {
+        // an unresolvable absolute rule matches nothing
+      }
+    } else {
+      out.push({ loc: spelled === "." ? ws : join(ws, spelled), at: spelled, relative: true });
+    }
+  }
+  return out;
+}
+
 /** Resolve one path argument the way pi's file tools would, to a workspace-relative or absolute `at`. */
 export function resolvePathArg(arg: string, need: Need, ctx: PathContext): ResolvedPath {
   const uncheckable: ResolvedPath = { need, at: "uncheckable" };
@@ -72,42 +137,59 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
   let c: string;
   let ws: string;
   let refused: string[];
+  let locs: RuleLoc[];
   try {
     c = canonical(resolve(ctx.cwd, arg));
     ws = canonical(ctx.workspace);
     refused = ctx.refused.map((r) => canonical(r));
+    locs = ruleLocations(ctx, ws);
   } catch {
     return uncheckable;
   }
-  if (refused.some((r) => isUnder(c, r))) {
+  const ci = caseInsensitive(ws);
+  if (refused.some((r) => isUnder(c, r) || (ci && isUnder(fold(c), fold(r))))) {
     return { need, at: "refused" };
+  }
+  // A spelling that reaches a folder rule only after case/Unicode folding cannot be judged.
+  if (ci && locs.some((l) => !isUnder(c, l.loc) && isUnder(fold(c), fold(l.loc)))) {
+    return uncheckable;
+  }
+  let best: RuleLoc | undefined;
+  for (const l of locs) {
+    if (isUnder(c, l.loc) && (best === undefined || l.loc.length > best.loc.length)) {
+      best = l;
+    }
+  }
+  if (best !== undefined && !best.relative) {
+    const tail = relative(best.loc, c).split(sep).filter((x) => x !== "").join("/");
+    return { need, at: tail === "" ? best.at : posix.join(best.at, tail) };
   }
   if (isUnder(c, ws)) {
     const rel = relative(ws, c);
     return { need, at: rel === "" ? "." : rel.split(sep).join("/") };
   }
-  let best: { len: number; at: string } | undefined;
-  for (const rule of ctx.rules.folders) {
-    if (!isAbsolute(rule.path)) {
-      continue;
-    }
-    const spelled = posix.normalize(rule.path).replace(/(.)\/$/, "$1");
-    let real: string;
-    try {
-      real = canonical(spelled);
-    } catch {
-      continue;
-    }
-    if (isUnder(c, real) && (best === undefined || real.length > best.len)) {
-      // Keep the rule's own spelling so the verdict can match the folder rule.
-      const tail = c.slice(real.length).split(sep).filter((s) => s !== "").join("/");
-      best = { len: real.length, at: tail === "" ? spelled : posix.join(spelled, tail) };
-    }
-  }
-  return { need, at: best?.at ?? "outside" };
+  return { need, at: "outside" };
 }
 
 const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+
+/** pi's read tool retries a missing path with these spellings (path-utils.ts, same order). */
+function piReadVariants(p: string): string[] {
+  const amPm = p.replace(/ (AM|PM)\./gi, "\u202F$1.");
+  const nfd = p.normalize("NFD");
+  const curly = p.replace(/'/g, "\u2019");
+  const nfdCurly = nfd.replace(/'/g, "\u2019");
+  return [amPm, nfd, curly, nfdCurly].filter((v) => v !== p);
+}
+
+function exists(p: string): boolean {
+  try {
+    accessSync(p, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** Resolution for one of pi's file tools. `read`, `grep`, `find`, `ls` need read; `write`, `edit` need write. */
 export function resolveFileTool(
@@ -118,10 +200,35 @@ export function resolveFileTool(
   const readOnly = READ_TOOLS.includes(tool);
   const need: Need = readOnly ? "read" : "write";
   const raw = input.path ?? ".";
+  const extra: ResolvedPath[] = [];
   let path: ResolvedPath = typeof raw === "string" ? resolvePathArg(raw, need, ctx) : { need, at: "uncheckable" };
   const pattern = tool === "grep" ? input.glob : tool === "find" ? input.pattern : undefined;
   if (typeof pattern === "string" && (pattern.includes("..") || pattern.startsWith("/"))) {
     path = { need, at: "uncheckable" };
   }
-  return { paths: [path], programs: [], parse: "ok", readOnly };
+  if (typeof raw === "string" && path.at !== "uncheckable") {
+    const abs = resolve(ctx.cwd, raw);
+    if (tool === "read" && !exists(abs) && piReadVariants(abs).some(exists)) {
+      // pi would open a different file than the one named; do not guess which.
+      path = { need, at: "uncheckable" };
+    } else if (tool === "grep" || tool === "find" || tool === "ls") {
+      // These walk everything below the root: refused entries and nested folders count too.
+      try {
+        const cs = canonical(abs);
+        const ws = canonical(ctx.workspace);
+        if (ctx.refused.some((r) => isUnder(canonical(r), cs))) {
+          path = { need, at: "refused" };
+        } else {
+          for (const l of ruleLocations(ctx, ws)) {
+            if (l.loc !== cs && isUnder(l.loc, cs)) {
+              extra.push({ need: "read", at: l.at });
+            }
+          }
+        }
+      } catch {
+        path = { need, at: "uncheckable" };
+      }
+    }
+  }
+  return { paths: [path, ...extra], programs: [], parse: "ok", readOnly };
 }
