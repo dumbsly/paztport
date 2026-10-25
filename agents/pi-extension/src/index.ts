@@ -257,6 +257,9 @@ export default function paztport(pi: ExtensionAPI): void {
       const evidenceLog = new EvidenceLog(config.evidenceLog);
       code = "WORKSPACE_GUARD";
       assertOutsideWorkspace(config.clientDir, ctx.cwd);
+      if (config.clientPolicyDir !== undefined) {
+        assertOutsideWorkspace(config.clientPolicyDir, ctx.cwd, "clientPolicyDir");
+      }
       for (const spec of config.servers) {
         if (spec.pin !== undefined) {
           // a missing pin leaves the server unsafe (PIN_MISSING); it is judged by where it would be
@@ -264,7 +267,7 @@ export default function paztport(pi: ExtensionAPI): void {
         }
       }
       code = "CLIENT_MATERIAL";
-      const material = loadClientMaterial(config.clientDir);
+      const material = loadClientMaterial(config.clientDir, config.clientPolicyDir);
       return { config, events, evidence: evidenceLog, material };
     } catch (e) {
       events?.emit({ type: "refused_start", code });

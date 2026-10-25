@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { buildPolicy, DEFAULT_DEPTH } from "@paztport/path-attest";
+import { buildPolicy, DEFAULT_DEPTH, parseLocalRules, RULES_ROUTE_PREFIX, rulesHash } from "@paztport/path-attest";
 import { parse } from "yaml";
 import { readKey, writeJson } from "./files.ts";
 
@@ -48,7 +48,7 @@ function main(): void {
   const depth = values.depth === undefined ? DEFAULT_DEPTH : Number(values.depth);
   if (!Number.isInteger(depth) || depth < 1) fail();
 
-  const doc = parse(readFileSync(paths, "utf8")) as { paths?: unknown };
+  const doc = parse(readFileSync(paths, "utf8")) as { paths?: unknown; local?: unknown };
   const routes = doc?.paths;
   if (
     !Array.isArray(routes) ||
@@ -59,7 +59,25 @@ function main(): void {
   }
   if (!(routes as string[][]).every((r) => r.every(validNode))) fail();
 
-  const { signedRoot, bundles } = buildPolicy(routes as string[][], depth, readKey(keyFile));
+  // A top-level `local:` block is parsed into the folder rules and bound into the root as one more route.
+  const allRoutes = [...(routes as string[][])];
+  let rules: ReturnType<typeof parseLocalRules> | undefined;
+  if (doc.local !== undefined) {
+    if (typeof doc.local !== "object" || doc.local === null || Array.isArray(doc.local)) {
+      console.error(`policy: ${paths} "local" must be a mapping`);
+      process.exit(2);
+    }
+    try {
+      rules = parseLocalRules({ v: 1, ...doc.local });
+    } catch (e) {
+      console.error(`policy: ${paths}: ${(e as Error).message}`);
+      process.exit(2);
+    }
+    allRoutes.push(["session", "pi", RULES_ROUTE_PREFIX + rulesHash(rules)]);
+  }
+
+  const { signedRoot, bundles } = buildPolicy(allRoutes, depth, readKey(keyFile));
+  if (rules !== undefined) writeJson(join(out, "rules.json"), rules);
   writeJson(join(out, "root.json"), signedRoot);
   for (const bundle of Object.values(bundles)) {
     writeJson(join(out, `proofs-${bundle.service}.json`), bundle);

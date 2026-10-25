@@ -1,0 +1,23 @@
+paths:
+  - [session, pi, "mcp:github.list_issues"]
+  - [session, pi, "mcp:github.issue_read"]
+  - [session, pi, "mcp:github.get_file_contents"]
+  - [session, pi, "mcp:github.search_repositories"]
+  - [session, pi, "mcp:github.create_branch"]
+  - [session, pi, "mcp:github.create_or_update_file"]
+  - [session, pi, "mcp:github.push_files"]
+  - [session, pi, "mcp:github.create_pull_request"]
+  - [session, pi, "mcp:github.add_issue_comment"]
+  - [session, pi, "local:read"]
+  - [session, pi, "local:write"]
+  - [session, pi, "local:edit"]
+  - [session, pi, "local:bash"]
+  - [session, pi, "local:grep"]
+  - [session, pi, "local:find"]
+  - [session, pi, "local:ls"]
+local:
+  folders:
+    - { path: ".", access: [read] }
+    - { path: "website", access: [read, write], label: public, destination: public }
+    - { path: "notes", access: [read, write], destination: private }
+  programs: [cat, head, tail, wc, grep, ls, diff, pwd, echo, cut, tr, basename, dirname, test, "true", "false", mkdir, touch, cp, mv]

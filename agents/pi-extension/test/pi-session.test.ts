@@ -323,6 +323,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect([...metaKeys]).toEqual(expect.arrayContaining([META_CHAIN, META_PROOF, META_INFLUENCE, META_ATTESTATION, "paztport/verdict"]));
     const client = join(demo, "client");
     for (const f of readdirSync(client)) {
+      if (f === "local-tools") continue; // the rules-bearing policy copy (root and proofs only; no keys)
       const raw = readFileSync(join(client, f), "utf8");
       if (f.endsWith(".json")) collect(JSON.parse(raw), true);
       else secrets.add(raw.trim());

@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -25,6 +26,22 @@ describe("setup-demo", () => {
     // the client policy private key only signs the client root; the server's signs session replies
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
     expect(existsSync(join(out, "server/policy.key"))).toBe(true);
+  });
+
+  it("setupBuildsLocalToolsPolicy", () => {
+    const out = join(tmp, "local");
+    const r = setup("--out", out);
+    expect(r.status, r.stderr).toBe(0);
+    const lt = join(out, "client/local-tools");
+    for (const f of ["root.json", "proofs-pi.json", "rules.json"]) expect(existsSync(join(lt, f)), f).toBe(true);
+    expect(existsSync(join(out, "client/policy.key"))).toBe(false);
+    expect(existsSync(join(lt, "policy.key"))).toBe(false);
+    // the base client root carries no rules route
+    const base = loadClientMaterial(join(out, "client"));
+    expect(Object.keys(base.proofs).some((k) => k.startsWith("session/pi/rules:"))).toBe(false);
+    expect(base.rules).toBeUndefined();
+    const m = loadClientMaterial(join(out, "client"), lt);
+    expect(Object.keys(m.proofs).filter((k) => k.startsWith("session/pi/rules:"))).toHaveLength(1);
   });
 
   it("setupRefusesOverwriteWithoutForce", () => {

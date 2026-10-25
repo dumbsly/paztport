@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Generates demo keys and signed policies: <out>/server (mcp-entry, github-tools) and <out>/client (session, pi),
-// plus <out>/client/server-policy.pub, the server policy public key the client pins. The client policy private
+// plus <out>/client/local-tools (the client root with the local folder rules), <out>/client/server-policy.pub, the server policy public key the client pins. The client policy private
 // key only signs the client root, so it is deleted once the root is built; the server's stays (it signs session
 // replies).
 // Refuses an existing <out> unless --force (which regenerates the keys in place).
@@ -51,6 +51,12 @@ if (existsSync(out) && !force) {
 }
 setup(join(out, "server"), "mcp-entry,github-tools", join(AGENTS, "policies/server.paths.yaml"));
 setup(join(out, "client"), "session,pi", join(AGENTS, "policies/client.paths.yaml"));
+// the same client policy key also signs a second root that binds the local folder rules (read by the pi extension)
+run(POLICY, [
+  "--paths", join(AGENTS, "policies/client-local-tools.paths.yaml"),
+  "--policy-key", join(out, "client/policy.key"),
+  "--out", join(out, "client/local-tools"),
+]);
 rmSync(join(out, "client/policy.key"));
 const serverRing = JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8")) as { policy: string };
 const pin = join(out, "client/server-policy.pub");

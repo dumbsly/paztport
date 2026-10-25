@@ -51,6 +51,29 @@ describe("loadClientMaterial", () => {
     expect(Object.keys(m).sort()).toEqual(["keyring", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
   });
 
+  it("loadsSignedLocalRules", () => {
+    const m = loadClientMaterial(client, join(client, "local-tools"));
+    expect(m.rules).toEqual({
+      v: 1,
+      folders: [
+        { path: ".", access: ["read"] },
+        { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+        { path: "notes", access: ["read", "write"], destination: "private" },
+      ],
+      programs: ["cat", "head", "tail", "wc", "grep", "ls", "diff", "pwd", "echo", "cut", "tr", "basename", "dirname", "test", "true", "false", "mkdir", "touch", "cp", "mv"],
+    });
+    expect(loadClientMaterial(client).rules).toBeUndefined();
+  });
+
+  it("editedRulesRejected", () => {
+    const dir = copy();
+    const lt = join(dir, "local-tools");
+    const rules = json(join(lt, "rules.json"));
+    rules.folders[1].label = "private";
+    writeFileSync(join(lt, "rules.json"), JSON.stringify(rules));
+    expect(() => loadClientMaterial(dir, lt)).toThrow(/not covered by the signed client root/);
+  });
+
   it("mismatchedKeyRejected", () => {
     for (const name of ["session", "pi"]) {
       const dir = copy();

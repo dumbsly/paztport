@@ -3,7 +3,7 @@
 
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { assertOutsideWorkspace, loadConfig, resolveConfigPath } from "../src/config.ts";
 
@@ -101,6 +101,21 @@ describe("resolveConfigPath", () => {
     expect(resolveConfigPath(undefined, { PAZTPORT_CONFIG: "/e.json" })).toBe("/e.json");
     expect(resolveConfigPath(undefined, {})).toBeUndefined();
     expect(resolveConfigPath("", { PAZTPORT_CONFIG: "" })).toBeUndefined();
+  });
+});
+
+describe("clientPolicyDir", () => {
+  it("resolvesRelativeToConfigFile", () => {
+    const path = write({ ...base, clientPolicyDir: "client/local-tools" });
+    expect(loadConfig(path).clientPolicyDir).toBe(join(dirname(path), "client/local-tools"));
+    expect(loadConfig(write(base)).clientPolicyDir).toBeUndefined();
+    expect(() => loadConfig(write({ ...base, clientPolicyDir: "" }))).toThrow(/clientPolicyDir/);
+  });
+
+  it("insideWorkspaceRefused", () => {
+    const ws = join(tmp, "ws-policy");
+    mkdirSync(join(ws, "policy"), { recursive: true });
+    expect(() => assertOutsideWorkspace(join(ws, "policy"), ws, "clientPolicyDir")).toThrow(/^clientPolicyDir .* is inside the workspace/);
   });
 });
 

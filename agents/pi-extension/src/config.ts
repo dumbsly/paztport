@@ -20,6 +20,8 @@ export type ServerSpec = {
 export type PaztportConfig = {
   mode: ExtensionMode;
   clientDir: string;
+  /** Where root.json, proofs-pi.json and rules.json are read from; defaults to clientDir. */
+  clientPolicyDir?: string;
   servers: ServerSpec[];
   eventsLog?: string;
   /** Opt-in evidence file for offline re-verification; holds tool arguments and results. */
@@ -101,6 +103,9 @@ export function loadConfig(path: string): PaztportConfig {
   const seen = new Set<string>();
   const servers = raw.servers.map((s: unknown, i: number) => parseServer(s, i, dir, clientDir, seen));
   const cfg: PaztportConfig = { mode: raw.mode as ExtensionMode, clientDir, servers };
+  if (raw.clientPolicyDir !== undefined) {
+    cfg.clientPolicyDir = resolve(dir, nonEmptyString(raw.clientPolicyDir, "clientPolicyDir"));
+  }
   if (raw.eventsLog !== undefined) {
     cfg.eventsLog = resolve(dir, nonEmptyString(raw.eventsLog, "eventsLog"));
   }
