@@ -1,13 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { OFF_MODE_COPY } from "../../eval/src/runner.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
-import { launch, nodeAtLeast, type LaunchDeps, type Launched } from "../src/main.ts";
+import { keysComplete, launch, nodeAtLeast, type LaunchDeps, type Launched } from "../src/main.ts";
 
 let tmp: string;
 let n = 0;
@@ -54,6 +54,23 @@ describe("demo launcher", () => {
     expect(nodeAtLeast("22.18.9", "22.19")).toBe(false);
     expect(nodeAtLeast("24.0.0", "22.19")).toBe(true);
     expect(nodeAtLeast("21.9.0", "22.19")).toBe(false);
+  });
+
+  it("demo keys made before the local-tools policy existed are not complete", () => {
+    // keys from an earlier version lack client/local-tools, and the extension then refuses to start
+    const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
+    try {
+      for (const f of ["client/root.json", "client/server-policy.pub", "server/root.json"]) {
+        mkdirSync(join(dir, f, ".."), { recursive: true });
+        writeFileSync(join(dir, f), "{}");
+      }
+      expect(keysComplete(dir)).toBe(false);
+      mkdirSync(join(dir, "client/local-tools"), { recursive: true });
+      writeFileSync(join(dir, "client/local-tools/rules.json"), "{}");
+      expect(keysComplete(dir)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("an old Node is one plain message and nothing starts", async () => {

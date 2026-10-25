@@ -43,8 +43,16 @@ export function nodeAtLeast(version: string, floor: string): boolean {
   return true;
 }
 
+/** Files setup-demo writes. Keys made by an earlier version can lack some, such as the local-tools policy. */
+const KEY_FILES = ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"];
+
+/** True when `dir` holds every file setup-demo writes, so the keys there can be used as they are. */
+export function keysComplete(dir: string): boolean {
+  return KEY_FILES.every((f) => existsSync(join(dir, f)));
+}
+
 function defaultEnsureKeys(dir: string): void {
-  if (existsSync(join(dir, "client")) && existsSync(join(dir, "server"))) return;
+  if (keysComplete(dir)) return;
   const args = [join(AGENTS, "scripts/setup-demo.ts"), "--out", dir, ...(existsSync(dir) ? ["--force"] : [])];
   const r = spawnSync(process.execPath, args, { encoding: "utf8" });
   if (r.status !== 0) throw new Error(`Couldn't create the demo keys: ${(r.stderr || r.stdout || "setup-demo failed").trim()}`);
