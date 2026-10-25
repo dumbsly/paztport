@@ -1,9 +1,9 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
-import { NOT_FAILURES, type VerifyReport } from "./verify.ts";
+import { NOT_FAILURES, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode } from "./runner.ts";
 
 /**
@@ -20,27 +20,17 @@ const EXPECT_EVIDENCE: readonly RunMode[] = ["on", "clean-on"];
 const MAX_PROBLEMS = 10;
 
 /**
- * True when the file exists and holds something besides the unsigned run record: a signed record, or a line
- * that `verify` will have to report. A file with only run records (Paztport off, or on and ended before a
- * session) is not evidence.
+ * True when the file exists, has bytes in it, and is not one `verify` reports as NOTHING TO CHECK (only the
+ * unsigned run record: Paztport off, or on and ended before a session). The eval, the page and the CLI all
+ * decide this the same way, from verifyEvidence.
  */
 export function hasEvidenceFile(path: string): boolean {
-  let text: string;
   try {
     if (statSync(path).size === 0) return false;
-    text = readFileSync(path, "utf8");
   } catch {
     return false;
   }
-  return text.split("\n").some((raw) => {
-    if (raw.trim() === "") return false;
-    try {
-      const rec: unknown = JSON.parse(raw);
-      return !(typeof rec === "object" && rec !== null && (rec as { type?: unknown }).type === "run");
-    } catch {
-      return true;
-    }
-  });
+  return verifyEvidence(path).nothingToCheck !== true;
 }
 
 type Ids = { rid: string; callId: string };
@@ -133,7 +123,7 @@ export function checkRun(input: {
     if (attested) problems.push("the outcome log shows attested calls, but evidence.jsonl is missing, empty or has no signed records");
     else if (EXPECT_EVIDENCE.includes(mode)) {
       if (outcome === "error") return { status: "not-recorded", problems: [] };
-      problems.push("a run with Paztport on has no evidence.jsonl");
+      problems.push(existsSync(input.evidencePath) && statSync(input.evidencePath).size > 0 ? "a run with Paztport on, but evidence.jsonl has no signed records" : "a run with Paztport on has no evidence.jsonl");
     }
     return { status: problems.length > 0 ? "failed" : "none", problems };
   }

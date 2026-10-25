@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
   bindPrompt,
@@ -60,7 +60,15 @@ export type VerifyItem = {
  * `nothingToCheck` marks a readable file with no session, call or response record: only the unsigned run
  * record, which Paztport writes before any session. It is not a failure, and not a pass either.
  */
-export type VerifyReport = { file: string; ok: boolean; items: VerifyItem[]; pins: string[]; nothingToCheck?: true };
+export type VerifyReport = {
+  file: string;
+  ok: boolean;
+  items: VerifyItem[];
+  pins: string[];
+  nothingToCheck?: true;
+  /** Why a file failed when the reason is about the file as a whole (folder mode: a run that needed signed evidence). */
+  problem?: string;
+};
 
 const META_VERDICT = "paztport/verdict";
 /** Results that are reported but do not make a file fail. */
@@ -326,33 +334,85 @@ export function verifyEvidence(file: string): VerifyReport {
   return verifyFile(file, file);
 }
 
+/** Modes in which Paztport signs, so a run in them can be expected to leave signed evidence. */
+const SIGNED_MODES: readonly string[] = ["on", "clean-on"];
+
+/** What a results folder's results.json says to expect of each run's evidence, by run folder name. */
+type Expectation = "none" | "maybe" | "signed";
+function expectations(dir: string): Map<string, Expectation> | undefined {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(join(dir, "results.json"), "utf8"));
+  } catch {
+    return undefined; // no results.json (or not one this can read): verify what exists, as for any folder
+  }
+  if (!isObject(raw) || !Array.isArray(raw.runs)) return undefined;
+  const out = new Map<string, Expectation>();
+  for (const r of raw.runs) {
+    if (!isObject(r) || !isString(r.dir) || !/^runs\/[^/]+$/.test(r.dir)) continue;
+    const status = isObject(r.verify) ? r.verify.status : undefined;
+    const expect: Expectation = !SIGNED_MODES.includes(String(r.mode)) ? "none" : status === "not-recorded" ? "maybe" : "signed";
+    out.set(r.dir.slice("runs/".length), expect);
+  }
+  return out;
+}
+
+const nothingToCheck = (file: string): VerifyReport => ({ file, ok: true, items: [], pins: [], nothingToCheck: true });
+const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem });
+
 /**
  * Every `runs/<name>/evidence.jsonl` under a results folder, in name order, each reported on its own.
  * Folder names are shown relative to the results folder.
+ *
+ * When the folder has a results.json, each run it lists is judged by what its mode and stored check lead
+ * one to expect: a run without Paztport, or with Paztport on but recorded as having ended before anything
+ * was recorded, may have no signed evidence (NOTHING TO CHECK); any other run with Paztport on must, so a
+ * missing, empty or run-record-only file fails. Evidence files results.json doesn't list are verified as
+ * they are. Without results.json, only the files that exist are verified. This is what a single evidence
+ * file cannot show on its own: verifying one file can't tell an off run from an on-run cut down to its
+ * run record.
  */
 export function verifyResultsDir(dir: string): VerifyReport[] {
   let names: string[];
   try {
     names = readdirSync(join(dir, "runs"), { withFileTypes: true })
       .filter((e) => e.isDirectory())
-      .map((e) => e.name)
-      .sort();
+      .map((e) => e.name);
   } catch {
     return [unreadable("runs", 0, "directory")];
   }
+  const expected = expectations(dir);
+  const all = [...new Set([...names, ...(expected?.keys() ?? [])])].sort();
   const reports: VerifyReport[] = [];
-  for (const name of names) {
+  for (const name of all) {
     const rel = `runs/${name}/evidence.jsonl`;
+    const expect = expected?.get(name);
+    let size: number | undefined;
     try {
-      readdirSync(join(dir, rel)); // exists as a directory: not a readable evidence file
-      reports.push(unreadable(rel, 0, "file"));
-      continue;
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") {
-        continue; // a run without evidence (nothing was attested) has nothing to verify
+      const st = statSync(join(dir, rel));
+      if (st.isDirectory()) {
+        reports.push(unreadable(rel, 0, "file")); // a directory where the evidence file should be
+        continue;
       }
+      size = st.size;
+    } catch {
+      size = undefined; // missing
     }
-    reports.push(verifyFile(join(dir, rel), rel));
+    if (size === undefined || size === 0) {
+      if (expect === undefined) {
+        if (size === 0) reports.push(verifyFile(join(dir, rel), rel)); // as before: an empty file verifies nothing
+        continue; // as before: a run without evidence is skipped
+      }
+      if (expect === "signed") reports.push(needsSigned(rel, `evidence.jsonl is ${size === undefined ? "missing" : "empty"}, but this run had Paztport on and results.json records its evidence as checked`));
+      else reports.push(nothingToCheck(rel));
+      continue;
+    }
+    const report = verifyFile(join(dir, rel), rel);
+    if (report.nothingToCheck && expect === "signed") {
+      reports.push(needsSigned(rel, "evidence.jsonl has no signed records, but this run had Paztport on and results.json records its evidence as checked"));
+    } else {
+      reports.push(report);
+    }
   }
   return reports;
 }

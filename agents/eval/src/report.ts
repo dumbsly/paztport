@@ -122,7 +122,17 @@ export function renderSummary(r: ResultsFile): string {
   if (r.verify.notRecorded > 0) parts.push(`${runs(r.verify.notRecorded)} with Paztport on ended before Paztport recorded anything.`);
   L.push(parts.join(" "), "");
   L.push(`Server policy key fingerprint: \`${r.serverKey.fingerprint}\` (the first 16 characters of the base64url SHA-256 of the public key text). Every evidence file must show this value as its pin.`, "");
-  L.push("`npm run verify -- <this folder>` checks signatures, links and bindings in each evidence file, offline, from `agents/`. It does not compare evidence files with the outcome logs or check the server key fingerprint above; this eval did both when it finished. To repeat them by hand, compare the pin that `verify` prints with the fingerprint above, and read each run's outcome log next to its evidence file. A refusal carries no signature, so it is checked only for its shape and for a matching outcome record.");
+  // offer the command only where something signed exists, or was expected and found wanting
+  const signed = r.runs.some((x) => x.evidenceFile === true || x.verify?.status === "ok" || x.verify?.status === "failed");
+  if (signed) {
+    L.push("`npm run verify -- <this folder>` checks signatures, links and bindings in each evidence file, offline, from `agents/`. It does not compare evidence files with the outcome logs or check the server key fingerprint above; this eval did both when it finished. To repeat them by hand, compare the pin that `verify` prints with the fingerprint above, and read each run's outcome log next to its evidence file. A refusal carries no signature, so it is checked only for its shape and for a matching outcome record.");
+  } else if (r.runs.length === 0) {
+    L.push("No run is recorded yet, so there is nothing to check.");
+  } else if (r.runs.every((x) => x.mode !== "on" && x.mode !== "clean-on")) {
+    L.push("There is nothing signed to check: Paztport was off for every run.");
+  } else {
+    L.push("There is nothing signed to check: no run recorded a signed session (Paztport was off, or the run ended before a session).");
+  }
   const failed = r.runs.filter((x) => x.verify?.status === "failed");
   if (failed.length > 0) {
     L.push("", "Runs whose evidence did not verify:", "");

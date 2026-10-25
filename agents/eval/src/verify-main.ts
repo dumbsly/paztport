@@ -4,12 +4,15 @@
 // Usage: node eval/src/verify-main.ts <results-dir | evidence.jsonl>
 // Exit code: 0 if no file failed, 1 if any did, 2 on a usage error. A file with no signed records (only the
 // unsigned run record: Paztport was off, or the run ended before a session) is reported as NOTHING TO CHECK,
-// which is neither a pass nor a failure.
+// which is neither a pass nor a failure. On its own a single file can't tell an off run from an on-run cut
+// down to its run record; a results folder with its results.json can, because it says which runs had
+// Paztport on and whether their evidence was checked (see verifyResultsDir).
 
 import { statSync } from "node:fs";
 import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";
 
 function line(r: VerifyReport): string {
+  if (r.problem !== undefined) return `FAIL ${r.file}: ${r.problem}`;
   if (r.nothingToCheck) return `NOTHING TO CHECK ${r.file} (no signed records: Paztport was off, or the run ended before a session)`;
   const pin = r.pins.length > 0 ? ` pin ${r.pins.join(",")}` : "";
   if (r.ok) {

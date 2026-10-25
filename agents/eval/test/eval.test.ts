@@ -624,6 +624,35 @@ describe("verification", { timeout: 120_000 }, () => {
     expect(md).not.toContain("evidence.jsonl)");
   });
 
+  it("anAttestedOnRunWithEvidenceCutDownToTheRunRecordFails", async () => {
+    const { run, o } = await evalOn((spec) => {
+      const file = join(spec.runDir, "evidence.jsonl");
+      writeFileSync(file, readFileSync(file, "utf8").split("\n").filter((l) => l.includes('"type":"run"')).join("\n") + "\n");
+    });
+    expect(run.verify!.status).toBe("failed");
+    expect(run.verify!.problems.join(" ")).toMatch(/no signed records/);
+    expect(run.evidenceFile).toBe(false);
+    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("npm run verify -- <this folder>");
+  });
+
+  it("anOnRunWhoseFileHoldsOnlyTheRunRecordIsNotSaidToHaveNoFile", async () => {
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n"));
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.runs[0]!.verify!.status).toBe("failed");
+    expect(r.runs[0]!.verify!.problems.join(" ")).toMatch(/evidence\.jsonl has no signed records/);
+    expect(r.runs[0]!.verify!.problems.join(" ")).not.toMatch(/has no evidence\.jsonl/);
+  });
+
+  it("summaryOffersVerifyOnlyWhenSomethingIsSigned", async () => {
+    const o = opts({ runs: 1, modes: ["off", "warning"] });
+    const { fn } = stub();
+    await runEval(o, { runOnce: fn, log: quiet });
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).not.toContain("npm run verify");
+    expect(md).toContain("There is nothing signed to check: Paztport was off for every run.");
+  });
+
   it("theEvidenceExemptionFollowsTheOutcomeNotTheStatus", async () => {
     // status error, but the log shows a block: Paztport did record something, so missing evidence fails
     const o = opts({ runs: 1, modes: ["on"] });

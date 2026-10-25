@@ -115,6 +115,7 @@ describe("demo page", () => {
       "not recorded in this folder's format",
       "custom",
       "Server's reply",
+      "The outcome log shows signed calls, but the evidence file has no signed records.",
       "nothing signed to check",
       "The page itself loads nothing from the internet",
     ]) {

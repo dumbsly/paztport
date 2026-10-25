@@ -463,6 +463,15 @@ function commandBlock(command) {
   return h("div", { class: "cmd" }, pre, button);
 }
 
+/** The outcome log or the events log shows calls made in a signed session. */
+function hasSignedCalls(steps) {
+  return (steps ?? []).some(
+    (s) => typeof s?.evidence?.outcome?.sess === "string" || (Array.isArray(s?.evidence?.events) && s.evidence.events.some((e) => isObj(e) && e.session === "attested")),
+  );
+}
+
+const SIGNED_BUT_MISSING = "The outcome log shows signed calls, but the evidence file has no signed records.";
+
 function verifySection(info) {
   const heading = h("h3", {}, "Check this run's evidence");
   if (info.verifyCommand) {
@@ -475,7 +484,11 @@ function verifySection(info) {
       info.refusalsNote ? h("p", { class: "note" }, info.refusalsNote) : null,
     );
   }
-  return h("section", {}, heading, h("p", { class: "muted" }, attestedMode(info.mode) ? "There is nothing signed to check: the run ended before Paztport recorded a session." : "Paztport was off for this run, so there is nothing signed to check."));
+  let text;
+  if (info.signedCalls) text = SIGNED_BUT_MISSING;
+  else if (attestedMode(info.mode)) text = "There is nothing signed to check: the run ended before Paztport recorded a session.";
+  else text = "Paztport was off for this run, so there is nothing signed to check.";
+  return h("section", {}, heading, h("p", { class: info.signedCalls ? "problem" : "muted" }, text));
 }
 
 // --- the run view -------------------------------------------------------------------------------------------
@@ -578,6 +591,7 @@ function runPanel(id, settings, { primary }) {
     cancel.hidden = true;
     status.textContent = statusText(data);
     say(statusText(data));
+    hideActiveNoticeIfIdle();
     if (data.name) saved.textContent = `Saved as ${data.name}. You can open it again under Results.`;
     after.replaceChildren();
     if (single) {
@@ -588,7 +602,7 @@ function runPanel(id, settings, { primary }) {
       renderSteps();
       if (data.started !== false) {
         add(outcome, outcomeLine(data.scored));
-        add(after, [answerSection(data.finalAnswer), verifySection({ ...ctx(), mode: settings.mode })]);
+        add(after, [answerSection(data.finalAnswer), verifySection({ ...ctx(), mode: settings.mode, signedCalls: hasSignedCalls([...steps.values()]) })]);
         if (primary && state.panels.length === 1) $("compare").hidden = false;
       }
     } else {
@@ -634,6 +648,7 @@ function runPanel(id, settings, { primary }) {
       cancel.hidden = true;
       status.textContent = message;
       say(message);
+      hideActiveNoticeIfIdle();
     },
   });
 
@@ -686,6 +701,11 @@ async function onCompare() {
   } finally {
     button.disabled = false;
   }
+}
+
+/** The "a run is still going" notice is about a run; once nothing is running it no longer applies. */
+function hideActiveNoticeIfIdle() {
+  if (!state.panels.some((p) => p.running())) $("active-run").hidden = true;
 }
 
 /** "New run" while a run is going: the server runs one at a time, so say so and offer to cancel it. */
@@ -832,6 +852,7 @@ function openDrawer(step, ctx, opener) {
       h("p", { class: "note" }, "Run it in the agents folder. It checks every signature, link and binding in this run's evidence file, offline."),
     ];
   } else if (!ctx.finished) check = h("p", { class: "muted" }, "The command appears when the run has finished.");
+  else if (hasSignedCalls([step])) check = h("p", { class: "problem" }, SIGNED_BUT_MISSING);
   else check = h("p", { class: "muted" }, attested ? "This run has nothing signed to check." : "Paztport was off for this run, so there is nothing signed to check.");
   sections.push(h("section", {}, h("h3", {}, "Check it yourself"), check));
 
@@ -955,7 +976,7 @@ function singleDetail(d) {
     outcomeLine(d.scored),
     table.table,
     answerSection(d.finalAnswer),
-    verifySection({ mode: d.mode, verifyCommand: d.verifyCommand, refusalsNote: d.refusalsNote }),
+    verifySection({ mode: d.mode, verifyCommand: d.verifyCommand, refusalsNote: d.refusalsNote, signedCalls: hasSignedCalls(d.steps) }),
   );
 }
 
@@ -1118,7 +1139,7 @@ function runDetail(d, r) {
       ? table.table
       : h("p", { class: "muted" }, problem ?? "This run's steps aren't available: the folder was opened without its run logs."),
     Array.isArray(steps) ? answerSection(d.answersByRun?.[r.dir]) : null,
-    verifySection({ mode: r.mode, verifyCommand: d.verifyCommands?.[r.dir], refusalsNote: d.refusalsNote }),
+    verifySection({ mode: r.mode, verifyCommand: d.verifyCommands?.[r.dir], refusalsNote: d.refusalsNote, signedCalls: hasSignedCalls(steps) }),
   );
 }
 

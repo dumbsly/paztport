@@ -396,6 +396,82 @@ describe("verifyEvidence: nothing to check", { timeout: 30_000 }, () => {
   });
 });
 
+describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
+  type Listed = { name: string; mode: string; status?: string; evidence?: string | null };
+  /** A results folder: results.json listing `runs`, and each run's evidence.jsonl (null: no file). */
+  function folder(runs: Listed[], unlisted: { name: string; evidence: string }[] = []): string {
+    const dir = join(tmp, `rj-${n++}`);
+    mkdirSync(join(dir, "runs"), { recursive: true });
+    const listed = runs.map((r) => ({ mode: r.mode, index: 1, dir: `runs/${r.name}`, outcome: "blocked", status: "completed", ...(r.status ? { verify: { status: r.status, problems: [] } } : {}) }));
+    writeFileSync(join(dir, "results.json"), JSON.stringify({ formatVersion: 1, runs: listed }));
+    for (const r of [...runs, ...unlisted]) {
+      mkdirSync(join(dir, "runs", r.name), { recursive: true });
+      if (r.evidence !== null && r.evidence !== undefined) writeFileSync(join(dir, "runs", r.name, "evidence.jsonl"), r.evidence);
+    }
+    return dir;
+  }
+  const good = () => genuine.join("\n") + "\n";
+  const runOnly = () => genuine.filter((l) => JSON.parse(l).type === "run").join("\n") + "\n";
+  const summary = (dir: string) => verifyResultsDir(dir).map((r) => [r.file, r.ok, r.nothingToCheck === true]);
+
+  it("anOffRunListedWithoutEvidenceIsNothingToCheck", () => {
+    const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }]);
+    expect(summary(dir)).toEqual([["runs/off-001/evidence.jsonl", true, true]]);
+    const cli = spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
+    expect(cli.status).toBe(0);
+    expect(cli.stdout).toMatch(/^NOTHING TO CHECK runs\/off-001\/evidence\.jsonl/);
+  });
+
+  it("aNotRecordedOnRunWithAnEmptyOrRunOnlyFileIsNothingToCheck", () => {
+    const dir = folder([
+      { name: "on-001", mode: "on", status: "ok", evidence: good() },
+      { name: "on-002", mode: "on", status: "not-recorded", evidence: "" },
+      { name: "on-003", mode: "clean-on", status: "not-recorded", evidence: runOnly() },
+      { name: "on-004", mode: "on", status: "not-recorded", evidence: null },
+    ]);
+    expect(summary(dir)).toEqual([
+      ["runs/on-001/evidence.jsonl", true, false],
+      ["runs/on-002/evidence.jsonl", true, true],
+      ["runs/on-003/evidence.jsonl", true, true],
+      ["runs/on-004/evidence.jsonl", true, true],
+    ]);
+    expect(spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" }).status).toBe(0);
+  });
+
+  it("anOnRunStoredOkOrFailedNeedsSignedEvidence", () => {
+    const dir = folder([
+      { name: "on-001", mode: "on", status: "ok", evidence: runOnly() },
+      { name: "on-002", mode: "on", status: "failed", evidence: null },
+      { name: "on-003", mode: "clean-on", status: "ok", evidence: "" },
+    ]);
+    const reports = verifyResultsDir(dir);
+    expect(reports.map((r) => [r.file, r.ok])).toEqual([
+      ["runs/on-001/evidence.jsonl", false],
+      ["runs/on-002/evidence.jsonl", false],
+      ["runs/on-003/evidence.jsonl", false],
+    ]);
+    expect(reports.every((r) => r.problem !== undefined && r.nothingToCheck === undefined)).toBe(true);
+    const cli = spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
+    expect(cli.status).toBe(1);
+    expect(cli.stdout).toMatch(/^FAIL runs\/on-001\/evidence\.jsonl: .*no signed records/m);
+    expect(cli.stdout).toMatch(/^FAIL runs\/on-002\/evidence\.jsonl: .*missing/m);
+  });
+
+  it("evidenceNotListedInResultsJsonIsVerifiedAsBefore", () => {
+    const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }], [{ name: "extra", evidence: good() }]);
+    expect(summary(dir)).toEqual([
+      ["runs/extra/evidence.jsonl", true, false],
+      ["runs/off-001/evidence.jsonl", true, true],
+    ]);
+    // without results.json a folder is read as before: only what exists, and a run with no file is skipped
+    const bare = join(tmp, `bare-${n++}`);
+    mkdirSync(join(bare, "runs", "a"), { recursive: true });
+    mkdirSync(join(bare, "runs", "b"), { recursive: true });
+    writeFileSync(join(bare, "runs", "a", "evidence.jsonl"), good());
+    expect(verifyResultsDir(bare).map((r) => r.file)).toEqual(["runs/a/evidence.jsonl"]);
+  });
+});
+
 describe("verify CLI", { timeout: 30_000 }, () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8" });
 
