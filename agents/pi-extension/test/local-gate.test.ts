@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -57,7 +57,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 type Rig = { gate: LocalGate; influence: InfluenceStore; runs: RunState; eventsPath: string; evidencePath: string };
 
-function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[]; home?: string } = {}): Rig {
+function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[]; home?: string; workspace?: string } = {}): Rig {
   const eventsPath = join(tmp, `events-${n}.jsonl`);
   const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
   const influence = new InfluenceStore();
@@ -71,7 +71,7 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
     events: opts.events ?? new EventLog(eventsPath),
     evidence: new EvidenceLog(evidencePath),
     now: () => 2_000,
-    workspace: ws,
+    workspace: opts.workspace ?? ws,
     refused: opts.refused ?? [secret],
     ...(opts.home !== undefined ? { home: opts.home } : {}),
   });
@@ -354,6 +354,25 @@ describe("LocalGate evidence", () => {
       expect(rec.chain[1].bind).toBe(bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }));
     }
     expect(recs[0]!.resolved.paths).toEqual([{ need: "read", at: "website/README.md" }]);
+  });
+
+  it("signedInputNamesTheWorkspaceAsGivenAndAsResolved", () => {
+    // pi tells the model the cwd as given; a symlinked spelling must be named too, not only the real path
+    const link = join(tmp, "ws-link");
+    symlinkSync(ws, link);
+    const { gate, evidencePath } = rig("enforce", { home: join(tmp, "elsewhere"), workspace: link });
+    gate.check("read", { path: `${link}/website/README.md` }, "c1");
+    gate.check("read", { path: `${realpathSync(ws)}/website/README.md` }, "c2");
+    expect(lines(evidencePath).map((r) => r.input)).toEqual([{ path: "<workspace>/website/README.md" }, { path: "<workspace>/website/README.md" }]);
+  });
+
+  it("aHomeThatCannotBeResolvedStillSigns", () => {
+    // a dangling home folder is named by its given spelling instead of refusing every call
+    const dangling = join(tmp, "dangling-home");
+    symlinkSync(join(tmp, "nowhere"), dangling);
+    const { gate, evidencePath } = rig("enforce", { home: dangling });
+    expect(gate.check("read", { path: "website/README.md" }, "c1").block).toBe(false);
+    expect(lines(evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
   });
 
   it("eventsNeverCarryPathsOrContent", () => {

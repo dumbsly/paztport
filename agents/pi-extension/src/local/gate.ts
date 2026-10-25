@@ -16,6 +16,7 @@ import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { decideLocal, readLabels, type LocalVerdict, type Resolved } from "./decide.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
+import { encodePlaceholders } from "./placeholders.ts";
 
 /** pi's built-in local tools. */
 export const BUILTIN_LOCAL_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"] as const;
@@ -56,34 +57,13 @@ function deepFreeze(v: unknown): void {
   }
 }
 
-/** Escapes `s` for use inside a RegExp. */
-const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * A copy of `v` in which every string names the canonical workspace path as "<workspace>" and then the home
- * folder as "<home>", wherever either appears as a whole path (followed by "/", the end, a space, a quote or a
- * shell or list delimiter): signed evidence is published, and its signed data can't be redacted afterwards.
- */
-export function withPlaceholders<T>(v: T, workspace: string, home: string): T {
-  const pairs: [string, string][] = [
-    [workspace, "<workspace>"],
-    [home, "<home>"],
-  ];
-  // "/" alone is no prefix to replace
-  const swaps = pairs.filter(([path]) => path.length > 1).map(([path, name]) => [new RegExp(`${escapeRegExp(path)}(?=$|[/\\s"'\`;|&<>()=:,])`, "g"), name] as const);
-  const copy = (x: unknown): unknown => {
-    if (typeof x === "string") {
-      return swaps.reduce((s, [re, name]) => s.replace(re, name), x);
-    }
-    if (Array.isArray(x)) {
-      return x.map(copy);
-    }
-    if (typeof x === "object" && x !== null) {
-      return Object.fromEntries(Object.entries(x).map(([k, e]) => [k, copy(e)]));
-    }
-    return x;
-  };
-  return copy(v) as T;
+/** A path and, when it resolves, its real path; a path that can't be resolved is named as given. */
+function spellings(path: string): string[] {
+  try {
+    return [path, canonical(path)];
+  } catch {
+    return [path];
+  }
 }
 
 /**
@@ -92,7 +72,7 @@ export function withPlaceholders<T>(v: T, workspace: string, home: string): T {
  * bound to the input and the decision (the call id, what the gate resolved, the verdict, whether the route
  * is listed and the rules' hash), written to the evidence file with the route proof and the influence. The
  * input is bound and recorded with the workspace and home folder paths replaced by "<workspace>" and "<home>"
- * (withPlaceholders); the tool runs with the input as given. no-root mode has no rules to check against and refuses every call.
+ * (encodePlaceholders, reversible); the tool runs with the input as given. no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
@@ -153,7 +133,7 @@ export class LocalGate {
       const now = this.deps.now();
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
-      const signedInput = withPlaceholders(input, canonical(this.deps.workspace), canonical(this.deps.home ?? homedir()));
+      const signedInput = encodePlaceholders(input, { workspace: spellings(this.deps.workspace), home: spellings(this.deps.home ?? homedir()) });
       // the stamp binds the decision as well as the call: the call id, what was resolved, the verdict, whether
       // the route is listed and which rules decided, so none of them can be changed in the evidence after signing
       const bind = bindLocalTool(toolName, signedInput, { callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash });
