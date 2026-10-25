@@ -65,7 +65,27 @@ function mk(over: Partial<RunSpec> = {}, behavior = "print"): Case {
   return { spec, record, pidfile };
 }
 
-const recorded = (c: Case) => JSON.parse(readFileSync(c.record, "utf8")) as { argv: string[]; env: Record<string, string>; cwd: string; listing: string[] };
+const recorded = (c: Case) => JSON.parse(readFileSync(c.record, "utf8")) as { argv: string[]; env: Record<string, string>; cwd: string; listing: string[]; piPackageReal?: string };
+const PI_PACKAGE = join(import.meta.dirname, "../../node_modules/@earendil-works/pi-coding-agent");
+/**
+ * pi's system prompt names its README, docs and examples from PI_PACKAGE_DIR: the run's pi must see its package
+ * through a link in a fresh, neutrally named temp folder, never under the repository, and the link must be gone.
+ */
+function expectNeutralPiPackage(c: Case): void {
+  const rec = recorded(c);
+  const dir = rec.env.PI_PACKAGE_DIR;
+  expect(dir).toBeDefined();
+  expect(basename(dir!)).toBe("pi-coding-agent");
+  expect(basename(dirname(dir!))).toMatch(/^pi-[A-Za-z0-9]{6}$/);
+  expect(inTmpdir(dirname(dir!))).toBe(true);
+  const agents = join(import.meta.dirname, "../..");
+  for (const repo of [agents, realpathSync(agents)]) expect(dir!.startsWith(repo)).toBe(false);
+  // during the run it was the real package, read through the link
+  expect(rec.piPackageReal).toBe(realpathSync(PI_PACKAGE));
+  expect(existsSync(dirname(dir!))).toBe(false);
+  // removing the link left the package itself alone
+  expect(existsSync(join(PI_PACKAGE, "package.json"))).toBe(true);
+}
 const lines = (file: string) => readFileSync(file, "utf8").split("\n").filter(Boolean);
 const alive = (pid: number) => {
   try {
@@ -214,8 +234,9 @@ describe("runOnce", () => {
       expect(rec.env.PATH).toBe("/usr/bin:/bin");
       expect(rec.env.LANG).toBe("en_US.UTF-8");
       // macOS adds __CF_USER_TEXT_ENCODING to any process it starts
-      const extra = Object.keys(rec.env).filter((k) => !["HOME", "LANG", "PATH", "PI_CODING_AGENT_DIR", "LC_ALL", "TERM", "TZ", "TMPDIR", "__CF_USER_TEXT_ENCODING"].includes(k));
+      const extra = Object.keys(rec.env).filter((k) => !["HOME", "LANG", "PATH", "PI_CODING_AGENT_DIR", "PI_PACKAGE_DIR", "LC_ALL", "TERM", "TZ", "TMPDIR", "__CF_USER_TEXT_ENCODING"].includes(k));
       expect(extra).toEqual([]);
+      expectNeutralPiPackage(c);
     });
 
     it("keepsTheHostedKeysForPiWhenTheAgentDirIsTheUsers", async () => {
@@ -328,12 +349,23 @@ describe("runOnce", () => {
     const ws = recorded(c).cwd;
     const created = join(link, basename(ws));
     expect(created).not.toBe(realpathSync(real) + sep + basename(ws));
+    const pkg = recorded(c).env.PI_PACKAGE_DIR!;
+    expect(pkg.startsWith(link + sep)).toBe(true);
     for (const text of [transcript, stderr]) {
-      for (const p of [c.spec.runDir, realpathSync(c.spec.runDir), agents, homedir(), created, ws, realpathSync(real)]) expect(text).not.toContain(p);
+      for (const p of [c.spec.runDir, realpathSync(c.spec.runDir), agents, homedir(), created, ws, realpathSync(real), pkg, dirname(pkg)]) expect(text).not.toContain(p);
     }
     const [session, note] = lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l));
     expect(session.cwd).toBe("<workspace>");
-    expect(note).toEqual({ type: "note", runDir: "<run-dir>", workspace: "<workspace>", workspaceReal: "<workspace>", agents: "<agents>/eval/src/x.ts", home: "<home>/.pi/agent" });
+    expect(note).toEqual({
+      type: "note",
+      runDir: "<run-dir>",
+      workspace: "<workspace>",
+      workspaceReal: "<workspace>",
+      agents: "<agents>/eval/src/x.ts",
+      home: "<home>/.pi/agent",
+      piReadme: "<pi-package>/README.md",
+      piDocs: "<pi-package>/docs",
+    });
     expect(stderr).toContain("stub: read <home>/.pi/agent/settings.json from <workspace> (<workspace>)");
     // scoring reads only tool names and stop reasons, so it is unaffected
     expect(lines(join(c.spec.runDir, "transcript.jsonl")).map((l) => JSON.parse(l).type)).toEqual(["session", "note", "message_end", "agent_end"]);
@@ -351,6 +383,18 @@ describe("runOnce", () => {
     const kept = recorded(user).env;
     for (const k of KEYS) expect(kept[k], k).toBe("secret-" + k);
     expect(kept.PI_CODING_AGENT_DIR).toBe(user.spec.agentDir);
+  });
+
+  it("piSeesItsPackageThroughANeutralTempFolderNotTheRepository", async () => {
+    vi.stubEnv("PI_PACKAGE_DIR", "/somewhere/else");
+    const c = mk();
+    expect((await runOnce(c.spec)).status).toBe("completed");
+    expectNeutralPiPackage(c);
+    // each run gets its own
+    const d = mk();
+    await runOnce(d.spec);
+    expectNeutralPiPackage(d);
+    expect(recorded(d).env.PI_PACKAGE_DIR).not.toBe(recorded(c).env.PI_PACKAGE_DIR);
   });
 
   it("cwdIsFreshWorkspaceWithoutKeys", async () => {

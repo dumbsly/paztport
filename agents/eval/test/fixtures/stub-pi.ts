@@ -21,12 +21,13 @@
 //   answer      a final assistant message with text and stopReason "stop", agent_end, exit 0
 //   paths       prints the session header with its cwd, then a line holding the run dir, the workspace (as
 //               created under the temp folder, and as the system resolves it), the agents dir and the home
-//               dir, then a final answer; exit 0
+//               dir, and pi's package folder ($PI_PACKAGE_DIR, as given and with its parent resolved), then a
+//               final answer; exit 0
 // With $STUB_TOUCH set, it first writes into its cwd: "files" writes stub-wrote.txt and a symlink link-out
 // pointing at /etc/hosts; "unreadable" does the same and adds unreadable.txt, a file no one may read.
 
 import { spawn } from "node:child_process";
-import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
@@ -45,7 +46,14 @@ const realEnv = { ...process.env };
 const behavior = process.env.STUB_BEHAVIOR ?? "print";
 const record = process.env.STUB_RECORD;
 if (record) {
-  writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: realEnv, cwd: process.cwd(), listing: readdirSync(process.cwd()) }));
+  // where pi's package folder resolves to, while the run is going (the runner removes its link at the end)
+  let piPackageReal: string | undefined;
+  try {
+    piPackageReal = realEnv.PI_PACKAGE_DIR === undefined ? undefined : realpathSync(realEnv.PI_PACKAGE_DIR);
+  } catch {
+    piPackageReal = undefined;
+  }
+  writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: realEnv, cwd: process.cwd(), listing: readdirSync(process.cwd()), piPackageReal }));
 }
 const touch = process.env.STUB_TOUCH;
 if (touch === "files" || touch === "unreadable") {
@@ -129,7 +137,11 @@ if (behavior === "break-events-ignore") {
     console.log(JSON.stringify({ type: "session", cwd: process.cwd() }));
     // the cwd as the runner created it (under the temp folder as $TMPDIR spells it) and as the system resolves it
     const created = join(tmpdir(), basename(process.cwd()));
-    console.log(JSON.stringify({ type: "note", runDir, workspace: created, workspaceReal: process.cwd(), agents: join(agents, "eval/src/x.ts"), home: join(homedir(), ".pi/agent") }));
+    // pi's package folder as the runner gives it (under the temp folder as $TMPDIR spells it) and as the system
+    // resolves its parent, as pi's system prompt would show them
+    const pkg = process.env.PI_PACKAGE_DIR ?? "";
+    const pkgReal = pkg === "" ? "" : join(realpathSync(dirname(pkg)), basename(pkg));
+    console.log(JSON.stringify({ type: "note", runDir, workspace: created, workspaceReal: process.cwd(), agents: join(agents, "eval/src/x.ts"), home: join(homedir(), ".pi/agent"), piReadme: join(pkg, "README.md"), piDocs: join(pkgReal, "docs") }));
     console.error(`stub: read ${join(homedir(), ".pi/agent/settings.json")} from ${process.cwd()} (${created})`);
   } else {
     console.log(JSON.stringify({ type: "session" }));

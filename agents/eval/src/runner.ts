@@ -3,7 +3,7 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { StringDecoder } from "node:string_decoder";
@@ -38,7 +38,8 @@ export type RunResult = { status: "completed" | "timeout" | "error"; exitCode: n
 export type LineFile = "transcript" | "events" | "outcome" | "stderr";
 
 const AGENTS = resolve(import.meta.dirname, "../..");
-const PI_CLI = join(AGENTS, "node_modules/@earendil-works/pi-coding-agent/dist/cli.js");
+const PI_PACKAGE = join(AGENTS, "node_modules/@earendil-works/pi-coding-agent");
+const PI_CLI = join(PI_PACKAGE, "dist/cli.js");
 const EXTENSION = join(AGENTS, "pi-extension");
 const MOCK_MAIN = join(AGENTS, "mock-github-mcp/src/main.ts");
 const MODES: readonly RunMode[] = ["off", "on", "clean-off", "clean-on", "warning"];
@@ -201,22 +202,44 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   const workspace = mkdtempSync(join(tmpdir(), `${workspaceSlug(scenario.taskCheck.repo)}-`));
   // both spellings, while the folder exists: macOS's temp folder is reached through a /var -> /private/var link
   const workspaceRedactions = withRealPath({ path: workspace, placeholder: "<workspace>" });
+  // pi's system prompt names its own README, docs and examples by its package folder (PI_PACKAGE_DIR when set,
+  // which pi 1.4.0 takes as given, without resolving links). pi sees the package through a link in a fresh,
+  // neutrally named temp folder, so the prompt names no path in the repository; the folder goes at the end.
+  let piHome: string | undefined;
   let settled = false;
   const settle = () => {
     if (settled) return;
     settled = true;
     liveWorkspaces.delete(workspace);
     settleWorkspace(workspace, path("workspace"), path("stderr.txt"));
+    if (piHome !== undefined) {
+      try {
+        rmSync(piHome, { recursive: true, force: true }); // removes the link, never what it points to
+      } catch (e) {
+        try {
+          appendFileSync(path("stderr.txt"), `runner: could not remove the run's temporary pi package link (${(e as NodeJS.ErrnoException).code ?? "error"})\n`);
+        } catch {
+          // stderr.txt is broken too
+        }
+      }
+    }
   };
   installExitHook();
   liveWorkspaces.set(workspace, settle);
   try {
-    return await runIn();
+    piHome = mkdtempSync(join(tmpdir(), "pi-"));
+    const piPackage = join(piHome, "pi-coding-agent");
+    symlinkSync(PI_PACKAGE, piPackage, "dir");
+    return await runIn(piPackage, [
+      { path: piPackage, placeholder: "<pi-package>" },
+      // as the system resolves the temp folder (macOS's /var -> /private/var); not the link's own target
+      { path: join(realpathSync(piHome), "pi-coding-agent"), placeholder: "<pi-package>" },
+    ]);
   } finally {
     settle();
   }
 
-  async function runIn(): Promise<RunResult> {
+  async function runIn(piPackage: string, piPackageRedactions: Redaction[]): Promise<RunResult> {
     for (const [rel, text] of Object.entries(scenario.workspace?.files ?? {})) {
       const file = join(workspace, rel);
       mkdirSync(dirname(file), { recursive: true });
@@ -280,11 +303,11 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
       // token, agent socket or config of the user's reaches them
       const home = path("home");
       mkdirSync(home, { recursive: true });
-      env = { HOME: home, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+      env = { HOME: home, PI_CODING_AGENT_DIR: resolve(spec.agentDir), PI_PACKAGE_DIR: piPackage };
       for (const k of ENV_ALLOWLIST) if (process.env[k] !== undefined) env[k] = process.env[k];
       if (spec.userAgentDir) for (const k of HOSTED_KEYS) if (process.env[k] !== undefined) env[k] = process.env[k];
     } else {
-      env = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir) };
+      env = { ...process.env, PI_CODING_AGENT_DIR: resolve(spec.agentDir), PI_PACKAGE_DIR: piPackage };
       if (!spec.userAgentDir) for (const k of HOSTED_KEYS) delete env[k];
     }
 
@@ -416,6 +439,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
     // session header's cwd, errors); scoring reads only tool names and stop reasons, so this changes no result.
     const redactions: Redaction[] = [
       ...workspaceRedactions,
+      ...piPackageRedactions,
       ...[
         { path: runDir, placeholder: "<run-dir>" },
         { path: AGENTS, placeholder: "<agents>" },
