@@ -1055,7 +1055,7 @@ function evalDetail(d, { nested }) {
       ? h(
           "p",
           { class: "note" },
-          withCode("`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. It does not compare evidence files with the outcome logs or check the server key fingerprint; the eval did both when it finished. "),
+          withCode("`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; the eval did those when it finished. "),
           d.refusalsNote ?? "",
         )
       : h(

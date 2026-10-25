@@ -6,7 +6,9 @@
 // unsigned run record: Paztport was off, or the run ended before a session) is reported as NOTHING TO CHECK,
 // which is neither a pass nor a failure. On its own a single file can't tell an off run from an on-run cut
 // down to its run record; a results folder with its results.json can, because it says which runs had
-// Paztport on and whether their evidence was checked (see verifyResultsDir).
+// Paztport on and whether their evidence was checked (see verifyResultsDir). In folder mode verify also
+// reads each run's outcome log: a run whose log shows signed calls must have signed evidence, whatever
+// results.json says. It does not compare each evidence record with the outcome log or re-score the run.
 
 import { statSync } from "node:fs";
 import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";

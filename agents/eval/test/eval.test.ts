@@ -632,7 +632,10 @@ describe("verification", { timeout: 120_000 }, () => {
     expect(run.verify!.status).toBe("failed");
     expect(run.verify!.problems.join(" ")).toMatch(/no signed records/);
     expect(run.evidenceFile).toBe(false);
-    expect(readFileSync(join(o.outDir, "summary.md"), "utf8")).toContain("npm run verify -- <this folder>");
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).toContain("npm run verify -- <this folder>");
+    expect(md).toContain("For a folder it also checks that every run whose outcome log shows signed calls has signed evidence.");
+    expect(md).not.toContain("It does not compare evidence files with the outcome logs");
   });
 
   it("anOnRunWhoseFileHoldsOnlyTheRunRecordIsNotSaidToHaveNoFile", async () => {
@@ -713,7 +716,9 @@ describe("verification", { timeout: 120_000 }, () => {
     const { o } = await evalOn(() => {});
     const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
     expect(md).toMatch(/`npm run verify[^`]*` checks signatures, links and bindings/);
-    expect(md).toMatch(/does not compare[^.]*outcome logs/);
+    // folder mode checks signed calls against signed evidence, and says what it still does not do
+    expect(md).toMatch(/every run whose outcome log shows signed calls has signed evidence/);
+    expect(md).toMatch(/does not compare each evidence record with the outcome log, re-score the runs/);
     expect(md).toMatch(/server key fingerprint/);
   });
 

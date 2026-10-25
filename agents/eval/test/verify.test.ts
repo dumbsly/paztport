@@ -397,7 +397,7 @@ describe("verifyEvidence: nothing to check", { timeout: 30_000 }, () => {
 });
 
 describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
-  type Listed = { name: string; mode: string; status?: string; evidence?: string | null };
+  type Listed = { name: string; mode: string; status?: string; evidence?: string | null; outcome?: string };
   /** A results folder: results.json listing `runs`, and each run's evidence.jsonl (null: no file). */
   function folder(runs: Listed[], unlisted: { name: string; evidence: string }[] = []): string {
     const dir = join(tmp, `rj-${n++}`);
@@ -407,9 +407,14 @@ describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
     for (const r of [...runs, ...unlisted]) {
       mkdirSync(join(dir, "runs", r.name), { recursive: true });
       if (r.evidence !== null && r.evidence !== undefined) writeFileSync(join(dir, "runs", r.name, "evidence.jsonl"), r.evidence);
+      if ("outcome" in r && r.outcome !== undefined) writeFileSync(join(dir, "runs", r.name, "outcome.jsonl"), r.outcome);
     }
     return dir;
   }
+  /** An outcome log as the mock server writes it with Paztport on (signed calls carry `sess`), or off. */
+  const signedLog = JSON.stringify({ ts: 1, mode: "enforce", tool: "create_branch", rid: "r", callId: "c", sess: "s", verdict: "INFLUENCE_DENIED" }) + "\n";
+  const offLog = JSON.stringify({ ts: 1, mode: "off", tool: "create_branch", verdict: "ALLOWED" }) + "\n";
+  const cli = (dir: string) => spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
   const good = () => genuine.join("\n") + "\n";
   const runOnly = () => genuine.filter((l) => JSON.parse(l).type === "run").join("\n") + "\n";
   const summary = (dir: string) => verifyResultsDir(dir).map((r) => [r.file, r.ok, r.nothingToCheck === true]);
@@ -455,6 +460,65 @@ describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
     expect(cli.status).toBe(1);
     expect(cli.stdout).toMatch(/^FAIL runs\/on-001\/evidence\.jsonl: .*no signed records/m);
     expect(cli.stdout).toMatch(/^FAIL runs\/on-002\/evidence\.jsonl: .*missing/m);
+  });
+
+  it("anUnreadableOrOtherVersionResultsJsonIsAFailureAndRunsAreStillChecked", () => {
+    const truncated = folder([{ name: "on-001", mode: "on", status: "ok", evidence: runOnly(), outcome: signedLog }]);
+    writeFileSync(join(truncated, "results.json"), '{"formatVersion":1,"runs":[{"mode":"on"');
+    const t = verifyResultsDir(truncated);
+    expect(t.map((r) => [r.file, r.ok])).toEqual([
+      ["results.json", false],
+      ["runs/on-001/evidence.jsonl", false],
+    ]);
+    expect(t[0]!.problem).toMatch(/results\.json can't be read .*runs were checked without it/);
+    expect(cli(truncated).status).toBe(1);
+
+    const v2 = folder([{ name: "off-001", mode: "off", status: "none", evidence: null, outcome: offLog }]);
+    writeFileSync(join(v2, "results.json"), JSON.stringify({ formatVersion: 2, runs: [{ mode: "off", dir: "runs/off-001" }] }));
+    const r2 = verifyResultsDir(v2);
+    expect(r2[0]).toMatchObject({ file: "results.json", ok: false, problem: expect.stringMatching(/formatVersion 2/) });
+    expect(cli(v2).status).toBe(1);
+
+    const noRuns = folder([]);
+    writeFileSync(join(noRuns, "results.json"), JSON.stringify({ formatVersion: 1 }));
+    expect(verifyResultsDir(noRuns)[0]).toMatchObject({ file: "results.json", ok: false });
+  });
+
+  it("signedCallsInTheOutcomeLogNeedSignedEvidenceWhateverResultsJsonSays", () => {
+    const cut = { evidence: runOnly(), outcome: signedLog };
+    const probes = {
+      flipmode: folder([{ name: "on-001", mode: "off", status: "none", ...cut }]),
+      flipstatus: folder([{ name: "on-001", mode: "on", status: "not-recorded", ...cut }]),
+      empty: folder([{ name: "on-001", mode: "off", status: "none", evidence: "", outcome: signedLog }]),
+      missing: folder([{ name: "on-001", mode: "off", status: "none", evidence: null, outcome: signedLog }]),
+      deleted: folder([{ name: "on-001", mode: "on", status: "ok", ...cut }]),
+    };
+    rmSync(join(probes.deleted, "results.json"));
+    const dupe = folder([{ name: "on-001", mode: "on", status: "ok", ...cut }]);
+    const rj = JSON.parse(readFileSync(join(dupe, "results.json"), "utf8"));
+    rj.runs.push({ ...rj.runs[0], mode: "off", verify: { status: "none", problems: [] } });
+    writeFileSync(join(dupe, "results.json"), JSON.stringify(rj));
+    for (const [name, dir] of Object.entries({ ...probes, dupe })) {
+      const reports = verifyResultsDir(dir);
+      expect(reports.map((r) => [r.file, r.ok]), name).toEqual([["runs/on-001/evidence.jsonl", false]]);
+      expect(reports[0]!.problem, name).toBe("the outcome log shows signed calls, but evidence.jsonl has no signed records");
+      expect(cli(dir).status, name).toBe(1);
+    }
+    // an honest off run: no signed calls, no evidence
+    const honest = folder([{ name: "off-001", mode: "off", status: "none", evidence: null, outcome: offLog }]);
+    expect(verifyResultsDir(honest).map((r) => [r.ok, r.nothingToCheck])).toEqual([[true, true]]);
+    expect(cli(honest).status).toBe(0);
+    const honestBare = folder([{ name: "off-001", mode: "off", evidence: runOnly(), outcome: offLog }]);
+    rmSync(join(honestBare, "results.json"));
+    expect(verifyResultsDir(honestBare).map((r) => [r.ok, r.nothingToCheck])).toEqual([[true, true]]);
+  });
+
+  it("aListedDirMustNameARunFolder", () => {
+    const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }]);
+    const rj = JSON.parse(readFileSync(join(dir, "results.json"), "utf8"));
+    for (const bad of ["runs/.", "runs/..", "runs/", "runs/a/b", "../runs/x"]) rj.runs.push({ mode: "on", dir: bad, verify: { status: "ok", problems: [] } });
+    writeFileSync(join(dir, "results.json"), JSON.stringify(rj));
+    expect(verifyResultsDir(dir).map((r) => r.file)).toEqual(["runs/off-001/evidence.jsonl"]);
   });
 
   it("evidenceNotListedInResultsJsonIsVerifiedAsBefore", () => {

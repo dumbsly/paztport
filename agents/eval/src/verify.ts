@@ -339,23 +339,59 @@ const SIGNED_MODES: readonly string[] = ["on", "clean-on"];
 
 /** What a results folder's results.json says to expect of each run's evidence, by run folder name. */
 type Expectation = "none" | "maybe" | "signed";
-function expectations(dir: string): Map<string, Expectation> | undefined {
+const STRICTNESS: Record<Expectation, number> = { none: 0, maybe: 1, signed: 2 };
+/**
+ * Reads results.json. A missing file is no problem (the folder is verified as any folder is). One that exists
+ * but can't be used is reported as a failure, and the runs are then checked without it.
+ */
+function expectations(dir: string): { expected?: Map<string, Expectation>; problem?: string } {
+  let text: string;
+  try {
+    text = readFileSync(join(dir, "results.json"), "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+    return { problem: `results.json can't be read (${(e as Error).message}); runs were checked without it` };
+  }
   let raw: unknown;
   try {
-    raw = JSON.parse(readFileSync(join(dir, "results.json"), "utf8"));
-  } catch {
-    return undefined; // no results.json (or not one this can read): verify what exists, as for any folder
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { problem: `results.json can't be read (${(e as Error).message}); runs were checked without it` };
   }
-  if (!isObject(raw) || !Array.isArray(raw.runs)) return undefined;
+  if (!isObject(raw) || !Array.isArray(raw.runs)) return { problem: "results.json can't be read (it has no list of runs); runs were checked without it" };
+  if (raw.formatVersion !== 1) return { problem: `results.json can't be read (formatVersion ${String(raw.formatVersion)}; this verify reads version 1); runs were checked without it` };
   const out = new Map<string, Expectation>();
   for (const r of raw.runs) {
-    if (!isObject(r) || !isString(r.dir) || !/^runs\/[^/]+$/.test(r.dir)) continue;
+    const m = isObject(r) && isString(r.dir) ? /^runs\/([^/]+)$/.exec(r.dir) : null;
+    if (!m || m[1] === "." || m[1] === "..") continue;
     const status = isObject(r.verify) ? r.verify.status : undefined;
-    const expect: Expectation = !SIGNED_MODES.includes(String(r.mode)) ? "none" : status === "not-recorded" ? "maybe" : "signed";
-    out.set(r.dir.slice("runs/".length), expect);
+    const expect: Expectation = !SIGNED_MODES.includes(String((r as Rec).mode)) ? "none" : status === "not-recorded" ? "maybe" : "signed";
+    // a run listed twice is held to the stricter of its entries
+    const before = out.get(m[1]!);
+    if (before === undefined || STRICTNESS[expect] > STRICTNESS[before]) out.set(m[1]!, expect);
   }
-  return out;
+  return { expected: out };
 }
+
+/** The run's outcome log shows calls made in a signed session (records carry `sess`). */
+function outcomeShowsSignedCalls(runDir: string): boolean {
+  let text: string;
+  try {
+    text = readFileSync(join(runDir, "outcome.jsonl"), "utf8");
+  } catch {
+    return false;
+  }
+  return text.split("\n").some((raw) => {
+    try {
+      const rec: unknown = JSON.parse(raw);
+      return isObject(rec) && isString(rec.sess);
+    } catch {
+      return false;
+    }
+  });
+}
+
+const SIGNED_CALLS_NO_EVIDENCE = "the outcome log shows signed calls, but evidence.jsonl has no signed records";
 
 const nothingToCheck = (file: string): VerifyReport => ({ file, ok: true, items: [], pins: [], nothingToCheck: true });
 const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem });
@@ -368,9 +404,13 @@ const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok
  * one to expect: a run without Paztport, or with Paztport on but recorded as having ended before anything
  * was recorded, may have no signed evidence (NOTHING TO CHECK); any other run with Paztport on must, so a
  * missing, empty or run-record-only file fails. Evidence files results.json doesn't list are verified as
- * they are. Without results.json, only the files that exist are verified. This is what a single evidence
- * file cannot show on its own: verifying one file can't tell an off run from an on-run cut down to its
- * run record.
+ * they are. Without results.json, only the files that exist are verified.
+ *
+ * Whatever results.json says (it can be edited, duplicated or deleted), a run whose outcome log shows signed
+ * calls (records with `sess`) and has no signed evidence fails. A results.json that exists but can't be used
+ * (unparseable, no runs list, another formatVersion) is itself reported as a failure, and the runs are then
+ * checked without it. A single evidence file can't show any of this: on its own it can't tell an off run
+ * from an on-run cut down to its run record.
  */
 export function verifyResultsDir(dir: string): VerifyReport[] {
   let names: string[];
@@ -381,9 +421,10 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
   } catch {
     return [unreadable("runs", 0, "directory")];
   }
-  const expected = expectations(dir);
-  const all = [...new Set([...names, ...(expected?.keys() ?? [])])].sort();
+  const { expected, problem } = expectations(dir);
   const reports: VerifyReport[] = [];
+  if (problem !== undefined) reports.push({ file: "results.json", ok: false, items: [{ line: 0, type: "file", result: "UNREADABLE" }], pins: [], problem });
+  const all = [...new Set([...names, ...(expected?.keys() ?? [])])].sort();
   for (const name of all) {
     const rel = `runs/${name}/evidence.jsonl`;
     const expect = expected?.get(name);
@@ -398,21 +439,23 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
     } catch {
       size = undefined; // missing
     }
-    if (size === undefined || size === 0) {
-      if (expect === undefined) {
-        if (size === 0) reports.push(verifyFile(join(dir, rel), rel)); // as before: an empty file verifies nothing
-        continue; // as before: a run without evidence is skipped
-      }
-      if (expect === "signed") reports.push(needsSigned(rel, `evidence.jsonl is ${size === undefined ? "missing" : "empty"}, but this run had Paztport on and results.json records its evidence as checked`));
-      else reports.push(nothingToCheck(rel));
+    const report = size === undefined || size === 0 ? undefined : verifyFile(join(dir, rel), rel);
+    if (report !== undefined && report.nothingToCheck !== true) {
+      reports.push(report);
       continue;
     }
-    const report = verifyFile(join(dir, rel), rel);
-    if (report.nothingToCheck && expect === "signed") {
-      reports.push(needsSigned(rel, "evidence.jsonl has no signed records, but this run had Paztport on and results.json records its evidence as checked"));
-    } else {
-      reports.push(report);
+    // no signed evidence: the outcome log decides first, whatever results.json says (it can be edited or deleted)
+    if (outcomeShowsSignedCalls(join(dir, "runs", name))) {
+      reports.push(needsSigned(rel, SIGNED_CALLS_NO_EVIDENCE));
+    } else if (expect === "signed") {
+      const what = report !== undefined ? "has no signed records" : size === 0 ? "is empty" : "is missing";
+      reports.push(needsSigned(rel, `evidence.jsonl ${what}, but this run had Paztport on and results.json records its evidence as checked`));
+    } else if (expect !== undefined || report !== undefined) {
+      reports.push(report ?? nothingToCheck(rel));
+    } else if (size === 0) {
+      reports.push(verifyFile(join(dir, rel), rel)); // as before: an empty file verifies nothing
     }
+    // else: not listed and no file, as before nothing to report
   }
   return reports;
 }
