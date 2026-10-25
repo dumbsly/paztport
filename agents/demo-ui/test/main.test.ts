@@ -69,6 +69,7 @@ describe("demo launcher", () => {
     expect(a.logs.join("\n")).toMatch(/Ollama isn't reachable at 127\.0\.0\.1:11434\. Start it with `ollama serve`/);
     expect(a.opened).toEqual([]);
     const b = deps({ fetch: down });
+    mkdirSync(join(tmp, "mine"), { recursive: true });
     const started = await ok(["--agent-dir", join(tmp, "mine"), "--no-open"], b.d);
     expect(started.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/#key=/);
   });
@@ -109,5 +110,13 @@ describe("demo launcher", () => {
     expect(await launch(["--results", join(tmp, "nope")], bad.d)).toEqual({ exitCode: 2 });
     expect(bad.logs.join("\n")).toMatch(/isn't a folder/);
     expect(await launch(["--bogus"], deps().d)).toEqual({ exitCode: 2 });
+  });
+
+  it("--agent-dir that isn't a folder is a plain usage error and nothing starts", async () => {
+    const bad = deps();
+    expect(await launch(["--agent-dir", join(tmp, "no-such-agent-dir")], bad.d)).toEqual({ exitCode: 2 });
+    expect(bad.logs.join("\n")).toMatch(/no-such-agent-dir isn't a folder/);
+    expect(bad.opened).toEqual([]);
+    expect(bad.keysFor).toEqual([]);
   });
 });

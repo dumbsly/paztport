@@ -1,12 +1,22 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
-import { buildSteps, PLAIN_CLASS, PLAIN_REASON, plainReason } from "../src/steps.ts";
+import { buildSteps, finalAnswer, PLAIN_CLASS, PLAIN_REASON, PLAIN_RULE, plainReason } from "../src/steps.ts";
 
 const scenario = loadScenario(BUILTIN_SCENARIO_DIR);
+const RECORDED = join(import.meta.dirname, "fixtures/recorded-on-run");
+const jsonl = (file: string) =>
+  readFileSync(join(RECORDED, file), "utf8")
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .map((l) => JSON.parse(l));
+/** A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-24), copied as recorded; only local paths in the transcript were replaced. */
+const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 
 const start = (id: string, tool: string, args: Record<string, unknown>) => ({ type: "tool_execution_start", toolCallId: id, toolName: `mcp__github__${tool}`, args });
 const toolcallEnd = (id: string, tool: string, args: Record<string, unknown>) => ({
@@ -175,5 +185,95 @@ describe("steps", () => {
   it("tolerates junk entries in the logs", () => {
     const steps = buildSteps(scenario, { transcript: [null, 4, "x", { type: 3 }], events: [null, "e"], outcome: [], evidence: [undefined] });
     expect(steps).toEqual([]);
+  });
+  it("recordedOnRun: a real run gives 19 steps, 4 refused with the plain influence reason, each with its callId", () => {
+    const steps = buildSteps(scenario, recorded(), { complete: true });
+    expect(steps).toHaveLength(19);
+    expect(steps.map((s) => s.index)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
+    const refused = steps.filter((s) => s.result === "refused");
+    expect(refused.map((s) => s.index)).toEqual([6, 7, 10, 13]);
+    for (const s of refused) {
+      expect(s.reason).toBe(PLAIN_REASON.INFLUENCE_DENIED);
+      expect(s.code).toBe("INFLUENCE_DENIED");
+      expect(s.rule).toBe(PLAIN_RULE.INFLUENCE_DENIED);
+      expect(s.evidence.outcome?.verdict).toBe("INFLUENCE_DENIED");
+    }
+    for (const s of steps) {
+      expect(s.evidence.callId).toMatch(/^call_/);
+      expect(s.evidence.rid).toBe("SEBOVYk8ykofwbK-L9PTnA");
+      expect(s.evidence.events.length).toBeGreaterThan(0);
+      expect(s.evidence.evidence.length).toBeGreaterThan(0);
+      expect(s.held).not.toContain("public content");
+      expect(s.phrase).not.toMatch(/ {2}|…| (in|on|of|for|from|into|to)$/);
+    }
+    expect(steps[14]!.phrase).toBe("read the top level of acme/website");
+    expect(steps[5]!.held).toEqual(["private data", "text written by someone outside the project"]);
+    expect(steps.filter((s) => s.result === "error").map((s) => s.index)).toEqual([17]);
+    expect(steps.filter((s) => s.result !== "refused").every((s) => s.code === undefined && s.rule === undefined)).toBe(true);
+  });
+
+  it("finalAnswer: the text of the last assistant message, never its thinking", () => {
+    const answer = finalAnswer(recorded().transcript);
+    expect(answer).toMatch(/^I have looked at the open issues in the `acme\/website` repository\./);
+    expect(answer).not.toMatch(/I've done my best/);
+    const msg = (content: unknown[]) => ({ type: "message_end", message: { role: "assistant", content } });
+    expect(finalAnswer([msg([{ type: "text", text: "first" }]), msg([{ type: "thinking", thinking: "x" }, { type: "text", text: "done." }])])).toBe("done.");
+    // a run that ended on a tool call has no final answer
+    expect(finalAnswer([msg([{ type: "text", text: "let me look" }, { type: "toolCall", id: "a", name: "mcp__github__list_issues", arguments: {} }])])).toBeUndefined();
+    expect(finalAnswer([{ type: "message_end", message: { role: "user", content: [{ type: "text", text: "hi" }] } }])).toBeUndefined();
+    expect(finalAnswer([null, 3, { type: "message_end" }])).toBeUndefined();
+  });
+
+  it("held never lists public content", () => {
+    const transcript = [start("p1", "search_repositories", { query: "acme" }), start("p2", "list_issues", { owner: "acme", repo: "website" })];
+    const events = [
+      { type: "response", callId: "p1", tool: "search_repositories", isError: false, classes: classes({ public: 2 }) },
+      { type: "response", callId: "p2", tool: "list_issues", isError: false, classes: classes({ public: 2, "third-party": 1 }) },
+    ];
+    const outcome = [rec({ callId: "p1", tool: "search_repositories", label: "public" }), rec({ callId: "p2", label: "third-party" })];
+    const steps = buildSteps(scenario, { transcript, events, outcome, evidence: [] });
+    expect(steps[1]!.held).toEqual([]);
+    const off = buildSteps(scenario, { transcript, events: [], outcome: outcome.map((o) => ({ ...o, callId: undefined, mode: "off" })), evidence: [] });
+    expect(off[1]!.held).toEqual([]);
+  });
+
+  it("an empty or missing placeholder argument gives a fallback phrase, never a gap", () => {
+    const transcript = [
+      start("f1", "get_file_contents", { owner: "acme", repo: "website", path: "" }),
+      start("f2", "get_file_contents", { owner: "acme", repo: "website" }),
+      start("f3", "create_branch", { owner: "acme", repo: "website", branch: "  " }),
+      start("f4", "search_repositories", {}),
+      start("f5", "create_branch", { branch: "b" }),
+    ];
+    const outcome = ["f1", "f2", "f3", "f4", "f5"].map((id) => rec({ callId: id }));
+    const steps = buildSteps(scenario, { transcript, events: [], outcome, evidence: [] });
+    expect(steps.map((s) => s.phrase)).toEqual([
+      "read the top level of acme/website",
+      "read the top level of acme/website",
+      "use the create_branch tool on acme/website",
+      "use the search_repositories tool",
+      "use the create_branch tool",
+    ]);
+  });
+
+  it("offRunPairsByToolName: a record pairs with the first unmatched call of the same tool", () => {
+    // two calls made in parallel can reach the server in the other order
+    const transcript = [
+      start("t1", "list_issues", { owner: "acme", repo: "website" }),
+      start("t2", "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" }),
+      start("t3", "list_issues", { owner: "acme", repo: "roadmap" }),
+    ];
+    const outcome = [
+      rec({ mode: "off", tool: "get_file_contents", repo: "payroll-notes", label: "private", privateRead: true }),
+      rec({ mode: "off", repo: "website", label: "third-party" }),
+      rec({ mode: "off", repo: "roadmap", isError: true }),
+    ];
+    const steps = buildSteps(scenario, { transcript, events: [], outcome, evidence: [] });
+    expect(steps.map((s) => [s.tool, s.evidence.outcome?.tool, s.evidence.outcome?.repo])).toEqual([
+      ["list_issues", "list_issues", "website"],
+      ["get_file_contents", "get_file_contents", "payroll-notes"],
+      ["list_issues", "list_issues", "roadmap"],
+    ]);
+    expect(steps.map((s) => s.result)).toEqual(["allowed", "allowed", "error"]);
   });
 });

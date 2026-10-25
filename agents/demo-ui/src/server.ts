@@ -8,10 +8,11 @@ import type { AddressInfo } from "node:net";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
+import { DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { buildSteps, type Step } from "./steps.ts";
+import { buildSteps, finalAnswer, PLAIN_CLASS, type Step } from "./steps.ts";
 
 export type DemoServerOptions = {
   /** Where single runs and evals are written, and where the results browser looks. */
@@ -39,6 +40,8 @@ type Sent = { event: string; data: unknown };
 type Obj = Record<string, unknown>;
 
 const PUBLIC_DIR = join(import.meta.dirname, "../public");
+/** `npm run verify` runs from here, so the commands the page shows are relative to it when they can be. */
+const AGENTS_DIR = resolve(import.meta.dirname, "../..");
 const OLLAMA_TAGS = "http://127.0.0.1:11434/api/tags";
 const DEFAULT_TIMEOUT_MS = 600_000;
 const MAX_RUNS = 100;
@@ -96,6 +99,45 @@ function readJsonl(file: string): unknown[] {
     }
   }
   return out;
+}
+
+/** The file exists and has content. */
+function hasContent(file: string): boolean {
+  try {
+    return statSync(file).size > 0;
+  } catch {
+    return false;
+  }
+}
+
+/** The command that checks a run's evidence, as typed in agents/. */
+function verifyCommand(target: string): string {
+  const rel = relative(AGENTS_DIR, target);
+  const shown = rel !== "" && !rel.startsWith("..") && !rel.split(sep).includes("..") ? rel : target;
+  return `npm run verify -- ${/^[A-Za-z0-9_./:@%+=,-]+$/.test(shown) ? shown : `'${shown.replace(/'/g, "'\\''")}'`}`;
+}
+
+/** The run's evidence file and the command that checks it, when there is one to check. */
+function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
+  const file = join(runDir, "evidence.jsonl");
+  return hasContent(file) ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
+}
+
+const median = (xs: number[]): number | undefined => {
+  if (xs.length === 0) return undefined;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : Math.round((s[mid - 1]! + s[mid]!) / 2);
+};
+const durationOf = (v: unknown): number | undefined => (isObj(v) && typeof v.durationMs === "number" && Number.isFinite(v.durationMs) && v.durationMs >= 0 ? v.durationMs : undefined);
+
+/** A JSON file, or undefined when it is missing or unreadable. */
+function readJson(file: string): unknown {
+  try {
+    return JSON.parse(readFileSync(file, "utf8"));
+  } catch {
+    return undefined;
+  }
 }
 
 function logsFromDir(dir: string): Logs {
@@ -185,18 +227,31 @@ function loadFolder(dir: string): Loaded {
   return { ok: true, kind: "eval", results: raw };
 }
 
-type VerifyStatus = "verified" | "failed" | "nothing-to-check" | "unknown";
-/** What the evidence checks add up to. An empty list is never "verified". */
+type VerifyStatus = "verified" | "failed" | "partly-checked" | "nothing-to-check" | "unknown";
+const runsWord = (n: number) => `${n} run${n === 1 ? "" : "s"}`;
+/**
+ * What the evidence checks add up to. An empty list is never "verified", and runs with Paztport on that ended
+ * before anything was recorded are counted on their own ("partly checked"), never folded into "verified".
+ */
 function verifyOf(runs: unknown[]): { verifyStatus: VerifyStatus; verifyLine: string } {
   if (runs.length === 0) return { verifyStatus: "nothing-to-check", verifyLine: "There are no runs in this folder, so there is nothing to check." };
   const checks = runs.map((r) => (isObj(r) && isObj(r.verify) ? r.verify.status : undefined));
   const missing = checks.filter((s) => s === undefined).length;
   if (missing > 0) return { verifyStatus: "unknown", verifyLine: `${missing} of ${runs.length} runs have no evidence check recorded.` };
-  const failed = checks.filter((s) => s === "failed").length;
-  const ok = checks.filter((s) => s === "ok").length;
+  const count = (st: string) => checks.filter((s) => s === st).length;
+  const [ok, failed, none, notRecorded] = [count("ok"), count("failed"), count("none"), count("not-recorded")];
   if (failed > 0) return { verifyStatus: "failed", verifyLine: `${failed} of ${runs.length} runs have evidence that did not verify.` };
-  if (ok === 0) return { verifyStatus: "nothing-to-check", verifyLine: "No run has evidence to check: Paztport was off, or nothing was recorded." };
-  return { verifyStatus: "verified", verifyLine: `${ok} of ${runs.length} runs have evidence that verified; the other ${runs.length - ok} have none to check.` };
+  if (notRecorded > 0) {
+    const parts = [
+      `${ok} of ${runs.length} runs have evidence that verified.`,
+      `${runsWord(notRecorded)} with Paztport on ended before Paztport recorded anything, so ${notRecorded === 1 ? "it has" : "they have"} nothing to check.`,
+    ];
+    if (none > 0) parts.push(`${runsWord(none)} had Paztport off.`);
+    return { verifyStatus: "partly-checked", verifyLine: parts.join(" ") };
+  }
+  if (ok === 0) return { verifyStatus: "nothing-to-check", verifyLine: "No run has evidence to check: Paztport was off." };
+  const rest = none > 0 ? ` ${runsWord(none)} had Paztport off, so ${none === 1 ? "it has" : "they have"} nothing to check.` : "";
+  return { verifyStatus: "verified", verifyLine: `${ok} of ${runs.length} runs have evidence that verified.${rest}` };
 }
 
 // --- the server ------------------------------------------------------------------------------------------------
@@ -209,6 +264,10 @@ type ActiveRun = {
   clients: Set<ServerResponse>;
   finished: boolean;
   cancelled: boolean;
+  /** The run got as far as producing output (a log line, or an eval's results file). */
+  started: boolean;
+  /** A single run's steps from what it has written so far (the files, or the lines seen when a file is missing). */
+  stepsSoFar?: () => Step[];
   finishedPromise: Promise<void>;
 };
 
@@ -291,6 +350,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       clients: new Set(),
       finished: false,
       cancelled: false,
+      started: false,
       finishedPromise: Promise.resolve(),
     };
     // reserved before the first await, so two requests at once cannot both start
@@ -341,7 +401,16 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       if (settings.runs === 1) await executeSingle(run, model, entry, name, dir, payload, payloadFile);
       else await executeEval(run, entry, name, dir, payloadFile);
     } catch (e) {
-      finish(run, { status: "error", error: `the run could not be started: ${(e as Error).message}`, name, cancelled: run.cancelled });
+      const message = (e as Error).message;
+      const started = run.started || (settings.runs > 1 && existsSync(join(dir, "results.json")));
+      const error = started ? `the run stopped with an error: ${message}` : `the run could not be started: ${message}`;
+      let steps: Step[] = [];
+      try {
+        if (started && run.stepsSoFar) steps = run.stepsSoFar();
+      } catch {
+        // the error is the message; steps are a bonus
+      }
+      finish(run, { status: "error", error, name, mode: settings.mode, cancelled: run.cancelled, steps });
     }
   }
 
@@ -351,18 +420,22 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     const scenario = entry.scenario;
     const logs: Logs = { transcript: [], events: [], outcome: [], evidence: [] };
     const sent = new Map<number, string>();
-    const emitSteps = (complete: boolean, authoritative: boolean) => {
+    const emitSteps = (complete: boolean, authoritative: boolean): { steps: Step[]; transcript: unknown[] } => {
       const use = authoritative ? fromDisk(logs, dir) : { ...logs, evidence: readJsonl(join(dir, "evidence.jsonl")) };
-      for (const step of buildSteps(scenario, use, { complete })) {
+      const steps = buildSteps(scenario, use, { complete });
+      for (const step of steps) {
         const text = JSON.stringify(step);
         if (sent.get(step.index) === text) continue;
         sent.set(step.index, text);
         emit(run, "step", step);
       }
+      return { steps, transcript: use.transcript };
     };
+    run.stepsSoFar = () => buildSteps(scenario, fromDisk(logs, dir), { complete: true });
     let pending: NodeJS.Immediate | undefined;
     const onLine = (file: LineFile, line: string) => {
       if (file !== "transcript" && file !== "events" && file !== "outcome") return;
+      run.started = true;
       try {
         (logs[file] as unknown[]).push(JSON.parse(line));
       } catch {
@@ -391,7 +464,10 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       if (pending) clearImmediate(pending);
       pending = undefined;
     }
-    emitSteps(true, true);
+    // the final list goes out whole in `done`, so the page can replace whatever it built from the stream
+    const final = emitSteps(true, true);
+    const answer = finalAnswer(final.transcript);
+    const evidence = evidenceOf(dir);
     const scored = scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"));
     const record = {
       formatVersion: 1,
@@ -404,13 +480,24 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       tools: scenario.tools,
       result,
       scored,
+      ...(answer !== undefined ? { finalAnswer: answer } : {}),
     };
     try {
       writeFileSync(join(dir, "demo-run.json"), JSON.stringify(record, null, 2) + "\n");
     } catch {
       // the run is shown either way; it just can't be reopened later
     }
-    finish(run, { ...result, name, scored, payload, refusalsNote: REFUSALS_NOTE, cancelled: run.cancelled });
+    finish(run, {
+      ...result,
+      name,
+      scored,
+      payload,
+      steps: final.steps,
+      ...(answer !== undefined ? { finalAnswer: answer } : {}),
+      ...evidence,
+      refusalsNote: REFUSALS_NOTE,
+      cancelled: run.cancelled,
+    });
   }
 
   async function executeEval(run: ActiveRun, entry: ScenarioEntry, name: string, dir: string, payloadFile: string | undefined): Promise<void> {
@@ -445,7 +532,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
         checkModel: (m) => checkModelAvailable(m, doFetch),
         log: (message) => emit(run, "progress", { message }),
       });
-      finish(run, { ...results, name, refusalsNote: REFUSALS_NOTE, cancelled: run.cancelled });
+      run.started = true;
+      finish(run, { ...results, name, ...verifyOf(results.runs), verifyCommand: verifyCommand(dir), refusalsNote: REFUSALS_NOTE, cancelled: run.cancelled });
     } finally {
       clearInterval(poll);
     }
@@ -503,6 +591,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       scenarios: scenarios.map((s) => ({ id: s.id, title: s.scenario.title, description: s.scenario.description, userPrompt: s.scenario.userPrompt })),
       toolsNote: TOOLS_NOTE,
       termsNotes,
+      plainClasses: PLAIN_CLASS,
+      table: { modeLabels: MODE_LABEL, definitions: DEFINITIONS, limits: LIMITS },
+      refusalsNote: REFUSALS_NOTE,
       ...(ollamaNote !== undefined ? { ollamaNote } : {}),
     };
   }
@@ -512,16 +603,35 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     if (!l.ok) return { name: f.name, ok: false, error: l.error };
     if (l.kind === "single") {
       const r = l.run;
-      return { name: f.name, ok: true, kind: "single", date: r.date, model: r.model, scenario: r.scenario, mode: r.mode };
+      const ms = durationOf(r.result);
+      return { name: f.name, ok: true, kind: "single", date: r.date, model: r.model, scenario: r.scenario, mode: r.mode, payload: r.payload, ...(ms !== undefined ? { medianRunMs: ms } : {}) };
     }
     const r = l.results;
-    return { name: f.name, ok: true, kind: "eval", date: r.date, model: r.model, scenario: r.scenario, incomplete: r.incomplete === true, runs: (r.runs as unknown[]).length };
+    const runs = r.runs as unknown[];
+    const ms = median(runs.flatMap((run) => (isObj(run) && typeof run.dir === "string" ? (durationOf(readJson(join(f.dir, run.dir, "run.json"))) ?? []) : [])));
+    const modes = isObj(r.requested) && Array.isArray(r.requested.modes) ? r.requested.modes : undefined;
+    return {
+      name: f.name,
+      ok: true,
+      kind: "eval",
+      date: r.date,
+      model: r.model,
+      scenario: r.scenario,
+      payload: r.payload,
+      incomplete: r.incomplete === true,
+      runs: runs.length,
+      ...(modes !== undefined ? { modes } : {}),
+      ...(ms !== undefined ? { medianRunMs: ms } : {}),
+    };
   }
 
-  function stepsForRuns(folder: Folder, results: Obj): { stepsByRun: Record<string, Step[]>; stepsErrors: Record<string, string> } {
+  type RunDetails = { stepsByRun: Record<string, Step[]>; stepsErrors: Record<string, string>; answersByRun: Record<string, string>; verifyCommands: Record<string, string> };
+  function stepsForRuns(folder: Folder, results: Obj): RunDetails {
     const scenario = scenarioFor(isObj(results.scenario) && typeof results.scenario.id === "string" ? results.scenario.id : "");
     const stepsByRun: Record<string, Step[]> = {};
     const stepsErrors: Record<string, string> = {};
+    const answersByRun: Record<string, string> = {};
+    const verifyCommands: Record<string, string> = {};
     for (const r of results.runs as unknown[]) {
       if (!isObj(r) || typeof r.dir !== "string") continue;
       const runDir = resolve(folder.dir, r.dir);
@@ -535,12 +645,17 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
         continue;
       }
       try {
-        stepsByRun[r.dir] = buildSteps(scenario, logsFromDir(runDir), { complete: true });
+        const logs = logsFromDir(runDir);
+        stepsByRun[r.dir] = buildSteps(scenario, logs, { complete: true });
+        const answer = finalAnswer(logs.transcript);
+        if (answer !== undefined) answersByRun[r.dir] = answer;
       } catch (e) {
         stepsErrors[r.dir] = `This run's logs couldn't be read (${(e as Error).message}).`;
       }
+      const ev = evidenceOf(runDir);
+      if (ev.verifyCommand !== undefined) verifyCommands[r.dir] = ev.verifyCommand;
     }
-    return { stepsByRun, stepsErrors };
+    return { stepsByRun, stepsErrors, answersByRun, verifyCommands };
   }
 
   function resultDetail(name: string): { status: number; body: unknown } {
@@ -550,16 +665,19 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     if (!l.ok) return { status: 200, body: { name, ok: false, error: l.error } };
     if (l.kind === "single") {
       const dir = folder.dir;
-      return { status: 200, body: { ...l.run, name, ok: true, kind: "single", steps: buildSteps(scenarioFor(String((l.run.scenario as Obj | undefined)?.id ?? "")), logsFromDir(dir), { complete: true }), refusalsNote: REFUSALS_NOTE } };
+      const logs = logsFromDir(dir);
+      const answer = finalAnswer(logs.transcript);
+      const steps = buildSteps(scenarioFor(String((l.run.scenario as Obj | undefined)?.id ?? "")), logs, { complete: true });
+      return { status: 200, body: { ...l.run, name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
     }
     const results = l.results;
-    const verify = isObj(results.verify) ? { notRecorded: 0, ...results.verify } : undefined;
+    // an older folder may not count runs that recorded nothing; that is shown as not recorded, never as 0
     return {
       status: 200,
       body: {
         ...results,
-        ...(verify !== undefined ? { verify } : {}),
         name,
+        verifyCommand: verifyCommand(folder.dir),
         ok: true,
         kind: "eval",
         ...stepsForRuns(folder, results),

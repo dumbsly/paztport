@@ -103,6 +103,18 @@ export async function launch(argv: string[], deps: LaunchDeps = {}): Promise<Lau
     }
   }
   const userAgentDir = v["agent-dir"] !== undefined ? resolve(v["agent-dir"]) : undefined;
+  if (userAgentDir !== undefined) {
+    let isDir = false;
+    try {
+      isDir = statSync(userAgentDir).isDirectory();
+    } catch {
+      // reported below
+    }
+    if (!isDir) {
+      log(`${userAgentDir} isn't a folder. --agent-dir must name your existing pi agent directory.`);
+      return { exitCode: 2 };
+    }
+  }
   if (!(await ollamaUp(deps.fetch ?? fetch))) {
     if (userAgentDir === undefined) {
       log("Ollama isn't reachable at 127.0.0.1:11434. Start it with `ollama serve`, then run the demo again.");

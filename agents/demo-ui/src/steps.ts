@@ -14,6 +14,10 @@ export type Step = {
   held: string[];
   result: "allowed" | "refused" | "error";
   reason?: string;
+  /** A refusal's reason code, e.g. INFLUENCE_DENIED. */
+  code?: string;
+  /** The rule behind a refusal, in plain words, when the code has one written. */
+  rule?: string;
   evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: unknown[] };
 };
 export type StepLogs = { transcript: unknown[]; events: unknown[]; outcome: OutcomeRecord[]; evidence: unknown[] };
@@ -34,6 +38,12 @@ export const PLAIN_REASON: Record<string, string> = {
   UNSAFE_SESSION: "a write in a session that couldn't prove where its requests came from",
 };
 
+export const PLAIN_RULE: Record<string, string> = {
+  INFLUENCE_DENIED:
+    "A write to a public repository is refused when what the agent has read so far includes private data together with text from someone outside the project or from an unverified source.",
+  UNSAFE_SESSION: "A write is refused when the session could not prove where its requests came from.",
+};
+
 /** The plain reason for a refusal code; a code without its own wording reads `refused: <CODE>`. */
 export function plainReason(code: string): string {
   return PLAIN_REASON[code] ?? `refused: ${code}`;
@@ -41,6 +51,12 @@ export function plainReason(code: string): string {
 
 /** Read order for `held`, so the same classes always come out in the same order. */
 const CLASS_ORDER: readonly InfluenceClass[] = ["private", "third-party", "local-untrusted", "public"];
+/** Public content is not worth listing as something the agent "already held". */
+const HELD_ORDER: readonly InfluenceClass[] = CLASS_ORDER.filter((c) => c !== "public");
+/** Phrases for a call whose argument has a known meaning when it is empty. */
+const EMPTY_ARG_PHRASES: Record<string, { arg: string; phrase: string }> = {
+  get_file_contents: { arg: "path", phrase: "read the top level of {owner}/{repo}" },
+};
 const MAX_ARG_CHARS = 80;
 
 type Obj = Record<string, unknown>;
@@ -91,13 +107,49 @@ function callsOf(transcript: unknown[], serverId: string): Call[] {
   return [...byId.values()];
 }
 
-function fill(template: string, args: Obj): string {
-  return template.replace(/\{([^{}]*)\}/g, (_m, key: string) => {
-    const v = args[key];
-    if (v === undefined || v === null) return "…";
-    const s = typeof v === "string" ? v : JSON.stringify(v);
-    return s.length > MAX_ARG_CHARS ? `${s.slice(0, MAX_ARG_CHARS)}…` : s;
-  });
+/** An argument as it goes into a phrase, or undefined when it is missing or blank. */
+function argText(v: unknown): string | undefined {
+  if (v === undefined || v === null) return undefined;
+  const s = (typeof v === "string" ? v : JSON.stringify(v)).replace(/\s+/g, " ").trim();
+  if (s === "") return undefined;
+  return s.length > MAX_ARG_CHARS ? `${s.slice(0, MAX_ARG_CHARS)}…` : s;
+}
+
+const placeholders = (template: string): string[] => [...template.matchAll(/\{([^{}]*)\}/g)].map((m) => m[1]!);
+const fill = (template: string, args: Obj): string => template.replace(/\{([^{}]*)\}/g, (_m, key: string) => argText(args[key])!);
+const complete = (template: string, args: Obj): boolean => placeholders(template).every((k) => argText(args[k]) !== undefined);
+
+/**
+ * The plain phrase for a call: the scenario's template when every argument it names is there; otherwise a
+ * phrase that leaves the missing argument out, so a phrase never has a gap or a dangling word.
+ */
+function phraseFor(s: Scenario, tool: string, args: Obj): string {
+  const template = s.steps[tool];
+  if (template !== undefined && complete(template, args)) return fill(template, args);
+  const known = EMPTY_ARG_PHRASES[tool];
+  if (template !== undefined && known && argText(args[known.arg]) === undefined && complete(known.phrase, args)) return fill(known.phrase, args);
+  const where = argText(args.owner) !== undefined && argText(args.repo) !== undefined ? ` on ${argText(args.owner)}/${argText(args.repo)}` : "";
+  return `use the ${tool} tool${where}`;
+}
+
+/**
+ * The agent's final answer: the text of the last assistant message in a pi `--mode json` transcript.
+ * Thinking is left out. A run whose last assistant message is a tool call has no final answer.
+ */
+export function finalAnswer(transcript: unknown[]): string | undefined {
+  for (let i = transcript.length - 1; i >= 0; i--) {
+    const ev = transcript[i];
+    if (!isObj(ev) || ev.type !== "message_end" || !isObj(ev.message) || ev.message.role !== "assistant") continue;
+    const content = Array.isArray(ev.message.content) ? ev.message.content.filter(isObj) : [];
+    if (content.some((c) => c.type === "toolCall")) return undefined;
+    const text = content
+      .filter((c) => c.type === "text" && typeof c.text === "string")
+      .map((c) => c.text as string)
+      .join("\n\n")
+      .trim();
+    return text === "" ? undefined : text;
+  }
+  return undefined;
 }
 
 function groupBy(items: unknown[]): Map<string, unknown[]> {
@@ -144,12 +196,14 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
   const hasErrorEvent = (id: string) => (events.get(id) ?? []).some((e) => (e as Obj).type === "error");
   const waiting = calls.filter((c) => !outcomeFor.has(c.id) && !hasErrorEvent(c.id));
   // a record that names a call the transcript lacks is not part of the by-order pairing
+  // each call takes the first unmatched record of the same tool, so calls that reached the server in another order still pair up
   const orderPool = spare.filter((o) => typeof o.callId !== "string");
   for (const c of waiting) {
-    const o = orderPool.shift();
-    if (!o) break;
-    outcomeFor.set(c.id, o);
-    taken.add(o);
+    const at = orderPool.findIndex((o) => o.tool === c.name);
+    if (at < 0) continue;
+    const [o] = orderPool.splice(at, 1);
+    outcomeFor.set(c.id, o!);
+    taken.add(o!);
   }
   // records nothing in the transcript accounts for
   const extra = outcomes.filter((o) => !taken.has(o));
@@ -168,9 +222,11 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
 
     let result: Step["result"] | undefined;
     let reason: string | undefined;
+    let code: string | undefined;
     if (o) {
       if (o.verdict !== "ALLOWED") {
         result = "refused";
+        code = o.verdict;
         reason = plainReason(o.verdict);
       } else if (o.isError) {
         result = "error";
@@ -180,6 +236,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       const verdict = str(response.verdict);
       if (verdict !== undefined && response.isError === true) {
         result = "refused";
+        code = verdict;
         reason = plainReason(verdict);
       } else if (response.isError === true) {
         result = "error";
@@ -205,14 +262,14 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       reason = "no answer was recorded before the run ended";
     }
     const rid = str(o?.rid) ?? str(response?.rid) ?? str((evs[0] as Obj | undefined)?.rid);
-    const template = s.steps[row.tool];
     steps.push({
       index: i + 1,
       tool: row.tool,
-      phrase: template !== undefined ? fill(template, row.args) : `use the ${row.tool} tool`,
-      held: CLASS_ORDER.filter((c) => before.includes(c)).map((c) => PLAIN_CLASS[c]),
+      phrase: phraseFor(s, row.tool, row.args),
+      held: HELD_ORDER.filter((c) => before.includes(c)).map((c) => PLAIN_CLASS[c]),
       result,
       ...(reason !== undefined ? { reason } : {}),
+      ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: PLAIN_RULE[code] } : {}) } : {}),
       evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: evidence.get(row.id) ?? [] },
     });
   });

@@ -353,6 +353,59 @@ describe("demo server", () => {
     expect(last.data).toMatchObject({ status: "error", error: "the run could not be started: bad spec" });
   });
 
+  it("a run that fails after it started says it stopped, not that it could not start, and keeps its steps", async () => {
+    const { srv } = await start({
+      deps: {
+        runOnce: async (spec, onLine) => {
+          mkdirSync(spec.runDir, { recursive: true });
+          onLine?.("transcript", JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__list_issues", args: { owner: "acme", repo: "website" } }));
+          onLine?.("outcome", JSON.stringify(record({ callId: "c1" })));
+          await wait(20);
+          throw new Error("disk full");
+        },
+      },
+    });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const last = (await sse(srv, id)).at(-1)!;
+    expect(last.event).toBe("done");
+    expect(last.data).toMatchObject({ status: "error", error: "the run stopped with an error: disk full" });
+    expect(last.data.steps.map((s: any) => s.phrase)).toEqual(["list the issues on acme/website"]);
+  });
+
+  it("done carries the final step list, the final answer and the verify command for this run", async () => {
+    const withAnswer: RunOnce = async (spec, onLine, signal) => {
+      const r = await playing(spec, onLine, signal);
+      const answer = { type: "message_end", message: { role: "assistant", content: [{ type: "text", text: "I could not open the pull request." }] } };
+      writeFileSync(join(spec.runDir, "transcript.jsonl"), readFileSync(join(spec.runDir, "transcript.jsonl"), "utf8") + JSON.stringify(answer) + "\n");
+      writeFileSync(join(spec.runDir, "evidence.jsonl"), JSON.stringify({ v: 1, type: "call", callId: "c3" }) + "\n");
+      return r;
+    };
+    const { srv } = await start({ deps: { runOnce: withAnswer } });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const done = (await sse(srv, id)).at(-1)!.data;
+    expect(done.steps.map((s: any) => [s.index, s.result])).toEqual([
+      [1, "allowed"],
+      [2, "allowed"],
+      [3, "refused"],
+    ]);
+    expect(done.steps[2]).toMatchObject({ code: "INFLUENCE_DENIED", rule: expect.stringMatching(/public repository/) });
+    expect(done.finalAnswer).toBe("I could not open the pull request.");
+    expect(done.verifyCommand).toMatch(/^npm run verify -- .*single-[^/]+\/evidence\.jsonl$/);
+    expect(done.evidenceFile).toBe(true);
+    const reopened = await (await api(srv, `/api/results/${done.name}`)).json();
+    expect(reopened.finalAnswer).toBe("I could not open the pull request.");
+    expect(reopened.verifyCommand).toBe(done.verifyCommand);
+  });
+
+  it("a run with no evidence file has no verify command", async () => {
+    const { srv } = await start({ deps: { runOnce: playing } });
+    const { id } = await (await post(srv, "/api/runs", { ...body, mode: "off" })).json();
+    const done = (await sse(srv, id)).at(-1)!.data;
+    expect(done.evidenceFile).toBe(false);
+    expect(done.verifyCommand).toBeUndefined();
+    expect(done.finalAnswer).toBeUndefined();
+  });
+
   it("a client that disconnects does not stop the run or leave the server holding it", async () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
@@ -398,6 +451,8 @@ describe("demo server", () => {
     const events = await sse(srv, id);
     expect(events.at(-1)!.event).toBe("done");
     expect(events.at(-1)!.data.formatVersion).toBe(1);
+    expect(events.at(-1)!.data.verifyStatus).toBe("nothing-to-check");
+    expect(events.at(-1)!.data.verifyLine).toMatch(/nothing to check/i);
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ model: "ollama/qwen3:4b", runs: 3, modes: ["off"] });
     expect(seen[0].outDir.startsWith(resultsRoot)).toBe(true);
@@ -464,9 +519,66 @@ describe("demo server", () => {
     expect(got.stepsByRun["runs/on-001"]).toHaveLength(1);
     expect(got.stepsByRun["runs/on-001"][0]).toMatchObject({ result: "refused", phrase: "create the branch b in acme/website" });
     expect(got.serverKey).toBeUndefined();
+    expect(got.verify).toEqual({ ok: 0, failed: 0, none: 0 });
     expect(got.verifyStatus).toBe("unknown");
     expect(got.verifyLine).toMatch(/no evidence check/i);
     expect(got.refusalsNote).toMatch(/unsigned/i);
+  });
+
+  it("verify status: on-runs that recorded nothing are counted on their own and make the folder partly checked", async () => {
+    const { srv, resultsRoot } = await start();
+    const make = (name: string, statuses: string[]) => {
+      const folder = join(resultsRoot, name);
+      mkdirSync(folder, { recursive: true });
+      const r: any = resultsFile();
+      r.runs = statuses.map((status, i) => ({ mode: status === "none" ? "off" : "on", index: i + 1, dir: `runs/x-${i}`, outcome: "error", readPrivate: false, taskDone: false, harnessFault: false, status: "error", verify: { status, problems: [] } }));
+      writeFileSync(join(folder, "results.json"), JSON.stringify(r));
+    };
+    make("partly", ["ok", "not-recorded", "none"]);
+    make("only-not-recorded", ["not-recorded"]);
+    make("all-ok", ["ok", "ok", "none"]);
+    make("off-only", ["none", "none"]);
+    make("one-failed", ["ok", "failed", "not-recorded"]);
+    const get = async (name: string) => (await (await api(srv, `/api/results/${name}`)).json()) as { verifyStatus: string; verifyLine: string };
+    const partly = await get("partly");
+    expect(partly.verifyStatus).toBe("partly-checked");
+    expect(partly.verifyLine).toBe("1 of 3 runs have evidence that verified. 1 run with Paztport on ended before Paztport recorded anything, so it has nothing to check. 1 run had Paztport off.");
+    expect((await get("only-not-recorded")).verifyStatus).toBe("partly-checked");
+    const ok = await get("all-ok");
+    expect(ok.verifyStatus).toBe("verified");
+    expect(ok.verifyLine).toBe("2 of 3 runs have evidence that verified. 1 run had Paztport off, so it has nothing to check.");
+    const off = await get("off-only");
+    expect(off.verifyStatus).toBe("nothing-to-check");
+    expect(off.verifyLine).toBe("No run has evidence to check: Paztport was off.");
+    expect((await get("one-failed")).verifyStatus).toBe("failed");
+  });
+
+  it("the results list gives each folder's median run time, from run.json or the single run's result", async () => {
+    const { srv, resultsRoot } = await start();
+    const folder = join(resultsRoot, "timed");
+    const r: any = resultsFile();
+    r.runs = [1, 2, 3].map((i) => ({ mode: "on", index: i, dir: `runs/on-00${i}`, outcome: "blocked", readPrivate: true, taskDone: false, harnessFault: false, status: "completed" }));
+    [60_000, 90_000, 30_000].forEach((ms, i) => {
+      mkdirSync(join(folder, "runs", `on-00${i + 1}`), { recursive: true });
+      writeFileSync(join(folder, "runs", `on-00${i + 1}`, "run.json"), JSON.stringify({ status: "completed", exitCode: 0, durationMs: ms, canary: "c", mode: "on" }));
+    });
+    writeFileSync(join(folder, "results.json"), JSON.stringify(r));
+    mkdirSync(join(resultsRoot, "untimed"), { recursive: true });
+    writeFileSync(join(resultsRoot, "untimed", "results.json"), JSON.stringify(resultsFile()));
+    const list = (await (await api(srv, "/api/results")).json()) as any[];
+    const by = Object.fromEntries(list.map((e) => [e.name, e]));
+    expect(by.timed.medianRunMs).toBe(60_000);
+    expect(by.untimed.medianRunMs).toBeUndefined();
+  });
+
+  it("setup carries the plain words and table wording the page shows", async () => {
+    const { srv } = await start();
+    const setup = await (await api(srv, "/api/setup")).json();
+    expect(setup.plainClasses).toMatchObject({ private: "private data", "third-party": "text written by someone outside the project" });
+    expect(setup.table.modeLabels).toMatchObject({ on: "Paztport on", off: "Paztport off" });
+    expect(setup.table.definitions.map((d: any) => d.key)).toEqual(["leaked", "blocked", "blockedWithPrivateText", "resisted", "readPrivate", "taskDone", "harnessFault", "timeout", "error", "noToolCalls"]);
+    expect(setup.table.limits.length).toBeGreaterThan(0);
+    expect(setup.refusalsNote).toMatch(/unsigned/i);
   });
 
   it("an empty verify list is not all verified", async () => {
