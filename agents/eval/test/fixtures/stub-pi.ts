@@ -18,7 +18,7 @@
 //               outcome record, as the mock server writes it), then a final assistant message with
 //               stopReason "error" and an errorMessage, agent_end, and exit 0
 //   provider-error-early  the same with no tool call and no outcome record
-//   answer      a final assistant message with stopReason "stop", agent_end, exit 0
+//   answer      a final assistant message with text and stopReason "stop", agent_end, exit 0
 //   paths       prints the session header with its cwd, then a line holding the run dir, the workspace,
 //               the agents dir and the home dir, then a final answer; exit 0
 
@@ -121,8 +121,9 @@ if (behavior === "break-events-ignore") {
     console.log(JSON.stringify({ type: "session" }));
   }
   if (behavior === "answer" || behavior === "paths") {
-    console.log(JSON.stringify({ type: "message_end", message: assistant("stop") }));
-    console.log(JSON.stringify({ type: "agent_end", messages: [assistant("stop")] }));
+    const answer = { ...assistant("stop"), content: [{ type: "text", text: "Done." }] };
+    console.log(JSON.stringify({ type: "message_end", message: answer }));
+    console.log(JSON.stringify({ type: "agent_end", messages: [answer] }));
   } else {
     console.log(JSON.stringify({ type: "agent_end" }));
   }
