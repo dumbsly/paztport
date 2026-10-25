@@ -197,7 +197,7 @@ describe("resolveBash", () => {
   it("devNullIsAllowedAndRecordsNoPath", () => {
     const r = resolveBash("ls website 2> /dev/null", ctx);
     expect(r.readOnly).toBe(true);
-    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }]);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
     expect(verdict("cat website/README.md 2>/dev/null")).toBe("OK");
     expect(verdict("cat < /dev/null")).toBe("OK");
     expect(verdict("echo hi > /dev/null; cat website/README.md")).toBe("OK");
@@ -206,7 +206,7 @@ describe("resolveBash", () => {
   it("fdDuplicationAddsNoPathAndStaysReadOnly", () => {
     const r = resolveBash("ls website 2>&1", ctx);
     expect(r.readOnly).toBe(true);
-    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }]);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
   });
   it("cpMakesBothWritePaths", () => {
     const r = resolveBash("cp notes/a website/b", ctx);
@@ -215,16 +215,16 @@ describe("resolveBash", () => {
     expect(r.paths).toContainEqual({ need: "write", at: "website/b" });
     expect(verdict("cp notes/a website/b")).toBe("OK");
   });
-  it("nonReadOnlyOptionsAreNotPathsButLongOptionValuesAre", () => {
-    expect(resolveBash("mkdir -p notes/x", ctx).paths).toEqual([{ need: "read", at: "." }, { need: "write", at: "notes/x" }]);
+  it("nonReadOnlyOperandsAreWritePathsAndAttachedOrLongOptionValuesAreUncheckable", () => {
+    expect(resolveBash("mkdir -p notes/x", ctx).paths).toEqual([{ need: "read", at: "." }, { need: "write", at: "notes/x" }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
     expect(resolveBash("cp --target-directory=website notes/a", ctx).paths).toContainEqual({ need: "write", at: "uncheckable" });
     expect(resolveBash("cp -tnotes/x a", ctx).paths).toContainEqual({ need: "write", at: "uncheckable" });
   });
   it("readOnlyArgumentIsAPathOnlyWhenItLooksLikeOneOrExists", () => {
     const r = resolveBash("grep needle run.sh", ctx);
-    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "run.sh" }]);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "run.sh" }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
     const r2 = resolveBash("grep -n needle", ctx);
-    expect(r2.paths).toEqual([{ need: "read", at: "." }]);
+    expect(r2.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
     expect(resolveBash("grep --file=notes/a x", ctx).paths).toContainEqual({ need: "read", at: "notes/a" });
     expect(resolveBash("cat -- -x", ctx).paths).toEqual([{ need: "read", at: "." }]);
   });
@@ -298,7 +298,7 @@ describe("resolveBash", () => {
     expect(resolveBash("head a", { ...ctx, pathDirs: [d] }).programs).toEqual([{ name: "head", via: "never" }]);
   });
   it("optionsEndAtTheFirstOperandOrDoubleDash", () => {
-    const w = (c: string) => resolveBash(c, ctx).paths.slice(1);
+    const w = (c: string) => resolveBash(c, ctx).paths.slice(1).filter((p) => p.need !== "read"); // the walk of the working folder adds reads
     expect(w("cp notes/a -evil")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "uncheckable" }, { need: "write", at: "-evil" }]);
     expect(w("cp notes/a --")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "--" }]);
     expect(w("mkdir -")).toEqual([{ need: "write", at: "-" }]);
@@ -406,21 +406,40 @@ describe("resolveBash implicit working folder", () => {
     ],
     programs: rules.programs,
   });
-  it("recursiveGrepAndLsWithNoPathWalkTheWorkingFolder", () => {
+  it("grepLsAndWritingProgramsAlwaysWalkTheWorkingFolder", () => {
     mkdirSync(join(ctx.cwd, "notes", "secret"), { recursive: true });
+    mkdirSync(join(ctx.cwd, "bin"), { recursive: true });
     const c = { ...ctx, rules: nested, refused: [join(ctx.cwd, "notes", "secret")] };
-    for (const cmd of ["grep -r KEY", "grep -rn KEY", "grep --recursive KEY", "grep -d recurse KEY", "ls -R", "ls"]) {
+    for (const cmd of [
+      "grep -r KEY", "grep -rn KEY", "grep -r .ecret", "grep --recur KEY", "grep --rec KEY", "grep --dir=recurse KEY", "grep --direc=recurse KEY", "grep -1r KEY",
+      "grep -r KEY > website/out", "grep -r KEY < website/README.md", "grep -rf website/README.md", "grep KEY website/README.md", "ls -R", "ls", "ls -R > website/out",
+      "ls website", "cp website/README.md website/b", "mkdir website/x",
+    ]) {
       const r = resolveBash(cmd, c);
       expect(r.paths, cmd).toContainEqual({ need: "read", at: "refused" });
       expect(decideLocal({ routeAllowed: true, resolved: r, rules: nested, classes: new Set() }), cmd).toBe("SCOPE_DENIED");
     }
   });
+  it("aPathedProgramWalksToo", () => {
+    const withExec = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }, { path: "bin", access: ["exec"] }, { path: "website", access: ["read"] }], programs: [] });
+    mkdirSync(join(ctx.cwd, "bin"), { recursive: true });
+    const c = { ...ctx, rules: withExec };
+    const r = resolveBash("./bin/run", c);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "exec", at: "bin/run" }, { need: "read", at: "bin" }, { need: "read", at: "website" }]);
+  });
   it("nestedFolderRulesBecomeExtraReadPaths", () => {
     const r = resolveBash("ls -R", ctx);
     expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }, { need: "read", at: "notes" }]);
   });
-  it("commandsThatCannotWalkTheFolderAreUnchanged", () => {
-    expect(resolveBash("grep -n needle", ctx).paths).toEqual([{ need: "read", at: "." }]);
+  it("grepFromTheRootRecordsTheNestedFolderRules", () => {
+    expect(resolveBash("grep KEY website/README.md", ctx).paths).toEqual([
+      { need: "read", at: "." }, { need: "read", at: "website/README.md" }, { need: "read", at: "website" }, { need: "read", at: "notes" },
+    ]);
+  });
+  it("otherReadOnlyProgramsKeepAPlainCwdRead", () => {
+    for (const c of ["cat run.sh", "head run.sh", "wc run.sh", "echo x", "diff run.sh run.sh", "test -f run.sh", "tr a b"]) {
+      expect(resolveBash(c, ctx).paths.filter((p) => p.at === "website" || p.at === "notes"), c).toEqual([]);
+    }
     expect(resolveBash("pwd", ctx).paths).toEqual([{ need: "read", at: "." }]);
     expect(resolveBash("cat < website/README.md", ctx).paths).not.toContainEqual({ need: "read", at: "notes" });
   });

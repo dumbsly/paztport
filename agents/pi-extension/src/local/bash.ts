@@ -305,20 +305,8 @@ function existsHere(cwd: string, arg: string): boolean {
   }
 }
 
-// Read-only programs that never walk the working folder on their own.
-const NEVER_WALKS: readonly string[] = ["pwd", "echo", "true", "false", "basename", "dirname", "test", "cat", "head", "tail", "wc", "cut", "tr", "diff"];
-
-/** Whether a command that names no path still reads the working folder: ls always, grep when told to recurse, anything that may write. */
-function walksCwd(argv: readonly string[], ro: boolean): boolean {
-  const name = argv[0] as string;
-  if (!ro) {
-    return true;
-  }
-  if (name === "grep") {
-    return argv.slice(1).some((a) => /^-[a-zA-Z]*[rR]/.test(a) || /^--(recursive|dereference-recursive)$/.test(a) || a === "recurse" || a === "--directories=recurse");
-  }
-  return !NEVER_WALKS.includes(name);
-}
+// Read-only programs that can read below the working folder without being told: ls, and grep whatever its flags are spelled like.
+const WALKERS: readonly string[] = ["ls", "grep"];
 
 const hasDotDot = (arg: string): boolean => arg.split("/").includes("..");
 
@@ -391,6 +379,7 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
   const paths: ResolvedPath[] = [cwdPath];
   const programs: ResolvedProgram[] = [];
   let readOnly = true;
+  let walks = false;
   const addPath = (arg: string, need: Need): void => {
     if (hasDotDot(arg)) {
       paths.push({ need, at: "uncheckable" });
@@ -409,7 +398,6 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
     }
   };
   for (const cmd of parsed.commands) {
-    const before = paths.length;
     const name = cmd.argv[0] as string;
     const program = resolveProgram(name, ctx, paths);
     if (!programs.some((p) => p.name === program.name && p.via === program.via)) {
@@ -456,11 +444,14 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
         addPath(arg, need);
       }
     }
-    if (paths.length === before && walksCwd(cmd.argv, roProgram)) {
-      // nothing named: the working folder itself is walked (grep -r KEY, ls -R)
-      const sub = withSubtree(ctx.cwd, cwdPath, ctx);
-      paths.push(...(sub[0] === cwdPath ? sub.slice(1) : sub));
+    // Unconditionally, whatever else was named or however flags are spelled: these may walk the working folder.
+    if (!roProgram || WALKERS.includes(name)) {
+      walks = true;
     }
+  }
+  if (walks) {
+    const sub = withSubtree(ctx.cwd, cwdPath, ctx);
+    paths.push(...(sub[0] === cwdPath ? sub.slice(1) : sub));
   }
   return { paths, programs, parse: "ok", readOnly };
 }
