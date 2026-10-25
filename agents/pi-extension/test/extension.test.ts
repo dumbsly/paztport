@@ -456,6 +456,37 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(records(outcome).at(-1)).toMatchObject({ tool: "create_branch", verdict: "ALLOWED" });
   });
 
+  it("restoresBuiltinToolInfluence", async () => {
+    // pi emits no tool_result for a call tool_call blocked (agent-loop.ts prepareToolCall: a block
+    // becomes createErrorToolResult(reason) at once), but the session keeps it as an error toolResult
+    // holding our refusal text. Restore must record nothing for it; a labelled result keeps its classes.
+    const text = (t: string) => [{ type: "text", text: t }];
+    const restore = async (branch: SessionEntry[], mode = "enforce") => {
+      const s = setup([github(), docs()], { mode });
+      s.pi.branch = branch;
+      await s.pi.emit("session_start", { reason: "resume" });
+      // the docs server is unattested: its live result adds one local-untrusted entry outside off mode
+      return (await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).details.influence;
+    };
+    const labelled = toolResultEntry("read", text("notes"), { paztport: { labels: ["local-untrusted"] } });
+    expect(await restore([labelled])).toEqual({ ...ZERO, "local-untrusted": 2 });
+    // a blocked call: the refusal text on an error result, whichever text it was
+    for (const t of [UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT]) {
+      expect(await restore([toolResultEntry("write", text(t), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+      expect(await restore([toolResultEntry("read", text(t), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    }
+    // the same text on a result that is not an error, or with more around it, is content
+    expect(await restore([toolResultEntry("read", text(SCOPE_TEXT))])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([toolResultEntry("read", text(`${SCOPE_TEXT} `), undefined, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    // unlabelled: it may hold anything
+    const unlabelled = toolResultEntry("read", text("notes"));
+    expect(await restore([unlabelled])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([unlabelled], "off")).toEqual(ZERO);
+    expect(await restore([labelled], "off")).toEqual(ZERO);
+    // write and edit record nothing live, so nothing here
+    expect(await restore([toolResultEntry("write", text("ok")), toolResultEntry("edit", text("ok"))])).toEqual({ ...ZERO, "local-untrusted": 1 });
+  });
+
   it("restoredBranchRecordedLikeLivePath", async () => {
     const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, ...extra });
     const branch = [
@@ -473,7 +504,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
       toolResultEntry("mcp__other__fetch", [{ type: "text", text: "built-in other" }], { server: "other", tool: "fetch" }),
       toolResultEntry("read_mcp_resource", [{ type: "text", text: "a resource" }], { server: "other", tool: "read_mcp_resource" }),
       toolResultEntry("mcp__other__empty", undefined),
-      // not MCP content
+      // a built-in result with no labels: it may hold anything (private and local-untrusted)
       toolResultEntry("bash", [{ type: "text", text: "local output" }]),
       { type: "message", id: "u", parentId: null, timestamp: new Date(0).toISOString(), message: { role: "user", content: "hi", timestamp: 0 } } as unknown as SessionEntry,
       { type: "model_change", id: "m", parentId: null, timestamp: new Date(0).toISOString(), provider: "p", modelId: "m" } as SessionEntry,
@@ -482,10 +513,10 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const enforce = setup([github(), docs()]);
     enforce.pi.branch = branch;
     await enforce.pi.emit("session_start", { reason: "reload" });
-    // two unsafe results of ours and four built-in MCP results, plus the live docs result (the docs
-    // server is unattested)
+    // two unsafe results of ours, four built-in MCP results and the unlabelled bash result (private
+    // too), plus the live docs result (the docs server is unattested)
     const a = await enforce.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
-    expect(a.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 7 });
+    expect(a.details.influence).toEqual({ ...ZERO, private: 2, "local-untrusted": 8 });
 
     // off mode records none of this extension's results (restored or live); the four built-in MCP
     // results still count

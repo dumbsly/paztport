@@ -23,7 +23,7 @@ import { loadClientMaterial, type ClientMaterial } from "./keys.ts";
 import { LocalGate } from "./local/gate.ts";
 import { canonical } from "./local/paths.ts";
 import { createGatedBash } from "./local/shell.ts";
-import { SCOPE_TEXT } from "./refusals.ts";
+import { isRefusalText, SCOPE_TEXT } from "./refusals.ts";
 import { SessionChain, type SessionView } from "./restore.ts";
 import { RunState } from "./runs.ts";
 
@@ -212,16 +212,43 @@ export default function paztport(pi: ExtensionAPI): void {
     registered.set(name, { server: serverId, tool: tool.name });
   }
 
+  /**
+   * Records one restored built-in tool result as the live tool_result did. Off mode records nothing.
+   * Labels in details.paztport give their classes (the source is local:<tool>, as live). pi emits no
+   * tool_result for a call tool_call blocked: it saves an error result holding our refusal text, which
+   * is not recorded. write and edit record nothing live. Any other result has no labels (this
+   * extension did not see it, or it came from another run) and may hold anything: private and
+   * local-untrusted.
+   */
+  function restoreLocal(toolName: string, m: Record<string, unknown>, mode: PaztportConfig["mode"]): void {
+    if (mode === "off") {
+      return;
+    }
+    const d = m.details;
+    const p = isObject(d) ? d.paztport : undefined;
+    const classes = isObject(p) ? classesOf(p.labels) : undefined;
+    const hash = hashContent(m.content);
+    if (classes !== undefined) {
+      influence.recordClasses(`local:${toolName}`, classes, hash);
+    } else if (!(m.isError === true && isRefusalText(m.content)) && toolName !== "write" && toolName !== "edit") {
+      influence.recordUnknown(`builtin:${toolName}`, hash);
+    }
+  }
+
   /** Records one restored tool result as the live path did; any other entry records nothing. */
   function restoreEntry(entry: SessionEntry, ids: Set<string>, mode: PaztportConfig["mode"]): void {
     if (entry.type !== "message") {
       return;
     }
     const m: unknown = entry.message;
-    if (!isObject(m) || m.role !== "toolResult" || typeof m.toolName !== "string" || !isMcpTool(m.toolName)) {
+    if (!isObject(m) || m.role !== "toolResult" || typeof m.toolName !== "string") {
       return;
     }
     const d = m.details;
+    if (!isMcpTool(m.toolName)) {
+      restoreLocal(m.toolName, m, mode);
+      return;
+    }
     if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
       // details.refused: an outcome the live path recorded nothing for (see CallOutcome)
       if (mode === "off" || d.refused === true) {
