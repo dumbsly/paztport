@@ -122,7 +122,12 @@ describe("the documents follow the code", () => {
       expect(text, name).toContain("caffeinate -i npm run");
       expect(text, name).toContain("systemd-inhibit --what=idle npm run");
       expect(text, name).toMatch(/only counts awake time/);
+      // the commands stop idle sleep only
+      expect(text, name).toContain("closing the lid or putting the machine to sleep yourself still pauses the runs");
     }
+    // the demo's security paragraph stays under "Run it", not inside the Long runs section
+    expect(DEMO_README.indexOf("The server listens on `127.0.0.1` only.")).toBeLessThan(DEMO_README.indexOf("### Long runs"));
+    expect(DEMO_README.indexOf("### Long runs")).toBeLessThan(DEMO_README.indexOf("## What you will see"));
     const checklist = EVAL_README.slice(EVAL_README.indexOf("## Publishing results"));
     expect(checklist).toMatch(/\d+\. \*\*Keep the machine awake\.\*\*/);
   });
