@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
-import { SCOPE_TEXT } from "../src/refusals.ts";
+import { SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
 import { CANARY, DOCS, githubArgs, records, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
@@ -786,6 +786,30 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     await expect(pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/refused to start/);
     expect(await toolCall(pi, "read", { path: "README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
     expect(await toolCall(pi, "mcp__other__x", {})).toEqual({ block: true, reason: SCOPE_TEXT });
+  });
+
+  it("throwAfterPrepareRefusesEveryCall", async () => {
+    // Steps after the config loads can throw too (restoring influence from the branch, reading pi's
+    // session folder). The evidence log cannot be used for this: its writes are best effort and never throw.
+    for (const broken of ["getBranch", "getSessionDir"] as const) {
+      const { pi } = local();
+      const sessionManager = { ...pi.ctx.sessionManager, [broken]: () => { throw new Error(`${broken} failed`); } };
+      await expect(pi.emit("session_start", { reason: "startup" }, { ...pi.ctx, sessionManager } as ExtensionContext)).rejects.toThrow(`${broken} failed`);
+      await pi.prompt("fix the typo");
+      expect(await toolCall(pi, "read", { path: "website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
+      expect(await toolCall(pi, "bash", { command: "cat website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    }
+  });
+
+  it("unresolvableRefusedEntryIsKept", async () => {
+    // a refused folder that cannot be resolved (here a symlink loop) is kept, so nothing can be checked
+    const { pi } = local();
+    const loop = join(tmp, `loop-${n++}`);
+    symlinkSync(loop, loop);
+    const sessionManager = { ...pi.ctx.sessionManager, getSessionDir: () => loop };
+    await pi.emit("session_start", { reason: "startup" }, { ...pi.ctx, sessionManager } as ExtensionContext);
+    await pi.prompt("fix the typo");
+    expect(await toolCall(pi, "read", { path: "website/README.md" })).toEqual({ block: true, reason: UNCHECKABLE_TEXT });
   });
 
   it("noConfigDoesNotGate", async () => {

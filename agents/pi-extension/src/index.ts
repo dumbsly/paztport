@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { createHash } from "node:crypto";
+import { resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
 import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceClass } from "@paztport/path-attest";
 import {
@@ -108,8 +109,8 @@ function classesOf(labels: unknown): InfluenceClass[] | undefined {
 
 /**
  * Canonical paths no local tool call may touch: the config, the client keys and policy, the pins, the
- * logs, pi's session folder and pi's agent folder. A path that cannot be resolved is left out (the
- * gate would otherwise find every path uncheckable).
+ * logs, pi's session folder and pi's agent folder. A path canonical() cannot resolve (a dangling link,
+ * no permission) is kept as resolved: the gate then finds every path uncheckable, which fails closed.
  */
 function refusedPaths(path: string, config: PaztportConfig, ctx: ExtensionContext): string[] {
   const sm = ctx.sessionManager as Partial<ExtensionContext["sessionManager"]>;
@@ -133,7 +134,7 @@ function refusedPaths(path: string, config: PaztportConfig, ctx: ExtensionContex
     try {
       out.push(canonical(p));
     } catch {
-      // cannot be resolved now: left out
+      out.push(resolve(p));
     }
   }
   return out;
@@ -156,7 +157,7 @@ export default function paztport(pi: ExtensionAPI): void {
   let evidence = new EvidenceLog(undefined);
   /** Checks every tool call but this extension's MCP calls; undefined without a config. */
   let gate: LocalGate | undefined;
-  /** A config was named but did not load: every call the gate would check is refused. */
+  /** A config was named and the session is not set up yet (or failed to): every call the gate would check is refused. */
   let failedStart = false;
   /** Every tool name this extension registered, to its server id and remote tool name. */
   const registered = new Map<string, { server: string; tool: string }>();
@@ -337,14 +338,10 @@ export default function paztport(pi: ExtensionAPI): void {
     if (path === undefined) {
       return;
     }
-    let prepared: ReturnType<typeof prepare>;
-    try {
-      prepared = prepare(path, ctx);
-    } catch (e) {
-      // fail closed: a broken config must not leave pi's own tools ungated
-      failedStart = true;
-      throw e;
-    }
+    // fail closed until the gate is built and influence restored: a throw on the way must not leave
+    // pi's own tools ungated
+    failedStart = true;
+    const prepared = prepare(path, ctx);
     const { config, events, material } = prepared;
     evidence = prepared.evidence;
     if (config.mode === "enforce") {
@@ -373,6 +370,7 @@ export default function paztport(pi: ExtensionAPI): void {
     });
     // before the tools are registered, so every call this session stamps carries the restored influence
     restoreInfluence(ctx.sessionManager, config);
+    failedStart = false;
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events, Date.now, evidence));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {

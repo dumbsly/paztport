@@ -10,7 +10,7 @@ import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
 import type { ClientMaterial } from "../keys.ts";
-import { localRefusalText } from "../refusals.ts";
+import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { decideLocal, readLabels, type LocalVerdict, type Resolved } from "./decide.ts";
@@ -19,9 +19,9 @@ import { resolveFileTool, type PathContext } from "./paths.ts";
 /** pi's built-in local tools. */
 export const BUILTIN_LOCAL_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"] as const;
 
-type FileTool = "read" | "write" | "edit" | "grep" | "find" | "ls";
-const FILE_TOOLS: readonly string[] = ["read", "write", "edit", "grep", "find", "ls"];
-const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+type FileTool = Exclude<(typeof BUILTIN_LOCAL_TOOLS)[number], "bash" | "powershell">;
+const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileTool => t !== "bash" && t !== "powershell");
+const READ_TOOLS: readonly string[] = FILE_TOOLS.filter((t) => t !== "write" && t !== "edit");
 const ROUTE_PREFIX = "session/pi/local:";
 const INST = "pi-1";
 
@@ -43,12 +43,26 @@ export type LocalGateDeps = {
   refused: readonly string[];
 };
 
+/** Freezes a JSON-like value and everything in it, so an in-place change throws in strict code. */
+function deepFreeze(v: unknown): void {
+  if (typeof v === "object" && v !== null && !Object.isFrozen(v)) {
+    Object.freeze(v);
+    for (const x of Object.values(v)) {
+      deepFreeze(x);
+    }
+  }
+}
+
 /**
  * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
  * run is a signed client-mesh step: a v2 stamp with an empty `sess`, chained from the run's origin and
  * bound to the input and what the gate resolved, written to the evidence file with the route proof,
  * the influence and the verdict. no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
+ *
+ * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
+ * unvalidated. So an allowed call's input is deep-frozen once checked: a later handler that changes it
+ * in place throws, and pi turns the throw into a blocked call. pi's built-in tools only read their params.
  */
 export class LocalGate {
   private readonly deps: LocalGateDeps;
@@ -59,8 +73,20 @@ export class LocalGate {
     this.deps = deps;
   }
 
-  /** Synchronous, so the verdict and its stamp commit to the influence and run current when the call was made. */
+  /**
+   * Synchronous, so the verdict and its stamp commit to the influence and run current when the call was
+   * made. Never throws: anything unexpected refuses the call with the scope text.
+   */
   check(toolName: string, input: Record<string, unknown>, toolCallId: string): { block: boolean; reason?: string } {
+    try {
+      return this.decide(toolName, input, toolCallId);
+    } catch {
+      this.labels.delete(toolCallId);
+      return { block: true, reason: SCOPE_TEXT };
+    }
+  }
+
+  private decide(toolName: string, input: Record<string, unknown>, toolCallId: string): { block: boolean; reason?: string } {
     const { mode, material, influence, runs, events, evidence } = this.deps;
     if (mode === "off") {
       return { block: false };
@@ -103,6 +129,7 @@ export class LocalGate {
     if (verdict !== "OK") {
       return { block: true, reason: localRefusalText(verdict) };
     }
+    deepFreeze(input);
     this.labels.set(toolCallId, labelsOf(toolName, resolved, rules!));
     return { block: false };
   }

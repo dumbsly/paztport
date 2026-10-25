@@ -4,7 +4,17 @@
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+  type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import {
   bindLocalTool,
   commitInfluence,
@@ -44,7 +54,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 type Rig = { gate: LocalGate; influence: InfluenceStore; runs: RunState; eventsPath: string; evidencePath: string };
 
-function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean } = {}): Rig {
+function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog } = {}): Rig {
   const eventsPath = join(tmp, `events-${n}.jsonl`);
   const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
   const influence = new InfluenceStore();
@@ -55,7 +65,7 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
     material: opts.material ?? material,
     influence,
     runs,
-    events: new EventLog(eventsPath),
+    events: opts.events ?? new EventLog(eventsPath),
     evidence: new EvidenceLog(evidencePath),
     now: () => 2_000,
     workspace: ws,
@@ -296,4 +306,80 @@ describe("LocalGate evidence", () => {
       expect(Object.keys(e).sort()).toEqual(["callId", "rid", "tool", "ts", "type", "verdict"]);
     }
   });
+});
+
+describe("LocalGate input", () => {
+  it("freezesAllowedInputOnly", () => {
+    const { gate, influence } = rig("enforce");
+    const allowed = { path: "website/README.md", content: "x", nested: { list: ["a"] } };
+    expect(gate.check("write", allowed, "c1").block).toBe(false);
+    expect(Object.isFrozen(allowed) && Object.isFrozen(allowed.nested) && Object.isFrozen(allowed.nested.list)).toBe(true);
+    expect(() => {
+      (allowed as Record<string, unknown>).path = "notes/x.md";
+    }).toThrow(TypeError);
+    taint(influence);
+    const refused = { path: "website/README.md", content: "x" };
+    expect(gate.check("write", refused, "c2").block).toBe(true);
+    expect(Object.isFrozen(refused)).toBe(false);
+    const off = { path: "website/README.md" };
+    expect(rig("off").gate.check("read", off, "c3").block).toBe(false);
+    expect(Object.isFrozen(off)).toBe(false);
+  });
+
+  it("anyThrowRefusesWithScopeText", () => {
+    const events = { emit: () => { throw new Error("raw internal detail"); } } as unknown as EventLog;
+    const { gate } = rig("enforce", { events });
+    expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(gate.labelsFor("c1")).toBeUndefined();
+  });
+});
+
+describe("pi's built-in tools with frozen input", () => {
+  // The gate deep-freezes an allowed call's input, and pi hands that object to execute. pi's built-ins
+  // only destructure and read their params (edit's prepareArguments, which does mutate, runs on the raw
+  // arguments before pi's validation clones them, so it never sees this object). Each tool is run here
+  // on frozen input: a write to it would throw a TypeError. PI_OFFLINE keeps grep and find from
+  // downloading rg or fd.
+  let dir: string;
+  beforeEach(() => {
+    vi.stubEnv("PI_OFFLINE", "1");
+    dir = mkdtempSync(join(tmp, "frozen-"));
+    writeFileSync(join(dir, "a.md"), "hello world\n");
+  });
+  afterEach(() => vi.unstubAllEnvs());
+
+  const frozen = <T>(v: T): T => {
+    const walk = (x: unknown) => {
+      if (typeof x === "object" && x !== null) {
+        Object.freeze(x);
+        Object.values(x).forEach(walk);
+      }
+    };
+    walk(v);
+    return v;
+  };
+  const MUTATION = /read[- ]only|not extensible|Cannot (assign|delete|add|define)/i;
+  const cases: [string, (cwd: string) => ToolDefinition<any, any>, Record<string, unknown>][] = [
+    ["read", (c) => createReadToolDefinition(c), { path: "a.md", offset: 1, limit: 5 }],
+    ["write", (c) => createWriteToolDefinition(c), { path: "b.md", content: "new\n" }],
+    ["edit", (c) => createEditToolDefinition(c), { path: "a.md", edits: [{ oldText: "hello", newText: "hi" }] }],
+    ["bash", (c) => createBashToolDefinition(c), { command: "cat a.md", timeout: 10 }],
+    ["grep", (c) => createGrepToolDefinition(c), { pattern: "world", path: ".", glob: "*.md", ignoreCase: true, limit: 5 }],
+    ["find", (c) => createFindToolDefinition(c), { pattern: "*.md", path: ".", limit: 5 }],
+    ["ls", (c) => createLsToolDefinition(c), { path: ".", limit: 5 }],
+  ];
+  for (const [name, make, input] of cases) {
+    it(`${name}DoesNotMutateItsInput`, async () => {
+      const params = frozen(structuredClone(input));
+      try {
+        const out = await make(dir).execute("t1", params, undefined, undefined, undefined as never);
+        expect(out.content.length).toBeGreaterThan(0);
+      } catch (e) {
+        // only a missing rg or fd (offline) may fail, never a write to the frozen input
+        expect(String((e as Error).message)).not.toMatch(MUTATION);
+        expect(["grep", "find"]).toContain(name);
+      }
+      expect(params).toEqual(input);
+    });
+  }
 });
