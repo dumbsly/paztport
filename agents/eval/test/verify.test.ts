@@ -513,6 +513,30 @@ describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
     expect(verifyResultsDir(honestBare).map((r) => [r.ok, r.nothingToCheck])).toEqual([[true, true]]);
   });
 
+  it("anOutcomeLogThatCantBeReadFailsLikeTheEvalDoes", () => {
+    // the eval scores such a log as an error; verify must not read it as "no signed calls"
+    const logs: Record<string, string> = {
+      malformed: offLog + '{"ts":1,"sess":"s"\n',
+      notAnObject: offLog + "[1]\n",
+      nonStringSess: JSON.stringify({ ts: 1, mode: "enforce", sess: 7 }) + "\n",
+      nullSess: JSON.stringify({ ts: 1, mode: "enforce", sess: null }) + "\n",
+    };
+    for (const [name, outcome] of Object.entries(logs)) {
+      const dir = folder([{ name: "on-001", mode: "on", status: "not-recorded", evidence: null, outcome }]);
+      const reports = verifyResultsDir(dir);
+      expect(reports.map((r) => [r.file, r.ok]), name).toEqual([["runs/on-001/evidence.jsonl", false]]);
+      expect(reports[0]!.problem, name).toMatch(/^the outcome log can't be read; /);
+      expect(cli(dir).status, name).toBe(1);
+    }
+    // an outcome log that is a directory can't be read either
+    const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }]);
+    mkdirSync(join(dir, "runs/off-001/outcome.jsonl"));
+    expect(verifyResultsDir(dir)[0]).toMatchObject({ ok: false, problem: expect.stringMatching(/^the outcome log can't be read; /) });
+    // blank lines and a missing log are fine
+    const blank = folder([{ name: "off-001", mode: "off", status: "none", evidence: null, outcome: "\n" + offLog + "\n" }]);
+    expect(verifyResultsDir(blank).map((r) => [r.ok, r.nothingToCheck])).toEqual([[true, true]]);
+  });
+
   it("aListedDirMustNameARunFolder", () => {
     const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }]);
     const rj = JSON.parse(readFileSync(join(dir, "results.json"), "utf8"));

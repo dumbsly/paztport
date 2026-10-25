@@ -11,7 +11,8 @@ import type { RunMode } from "./runner.ts";
  * - ok: the evidence file verified, and it agrees with the outcome log.
  * - failed: it did not verify, is missing when it should exist, or disagrees with the outcome log.
  * - none: nothing to check, and nothing was expected (the modes without Paztport).
- * - not-recorded: a run with Paztport on that ended in error before anything was recorded, so there is no evidence.
+ * - not-recorded: a run with Paztport on that ended in error or timed out before anything was recorded (its outcome
+ *   log is usable and shows no signed call), so there is no evidence.
  */
 export type RunVerify = { status: "ok" | "failed" | "none" | "not-recorded"; problems: string[] };
 
@@ -108,7 +109,7 @@ function crossCheck(records: OutcomeRecord[], report: VerifyReport, evidencePath
  */
 export function checkRun(input: {
   mode: RunMode;
-  /** The scored outcome. A run scored "error" with Paztport on and nothing recorded is not held against its missing evidence. */
+  /** The scored outcome. A run scored "error" or "timeout" with Paztport on and nothing recorded is not held against its missing evidence. */
   outcome: string;
   records: OutcomeRecord[] | null;
   evidencePath: string;
@@ -122,8 +123,11 @@ export function checkRun(input: {
   if (report === undefined || report.nothingToCheck === true) {
     if (attested) problems.push("the outcome log shows attested calls, but evidence.jsonl is missing, empty or has no signed records");
     else if (EXPECT_EVIDENCE.includes(mode)) {
-      if (outcome === "error") return { status: "not-recorded", problems: [] };
-      problems.push(existsSync(input.evidencePath) && statSync(input.evidencePath).size > 0 ? "a run with Paztport on, but evidence.jsonl has no signed records" : "a run with Paztport on has no evidence.jsonl");
+      // Only a run that ended early (error or timeout) with a usable log showing no signed call may have
+      // nothing recorded. A log that can't be used can't show that, so the missing evidence counts against it.
+      if ((outcome === "error" || outcome === "timeout") && records !== null) return { status: "not-recorded", problems: [] };
+      if (records === null) problems.push("the outcome log could not be used, and evidence.jsonl is missing, empty or has no signed records");
+      else problems.push(existsSync(input.evidencePath) && statSync(input.evidencePath).size > 0 ? "a run with Paztport on, but evidence.jsonl has no signed records" : "a run with Paztport on has no evidence.jsonl");
     }
     return { status: problems.length > 0 ? "failed" : "none", problems };
   }

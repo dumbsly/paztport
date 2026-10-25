@@ -9,7 +9,8 @@
 // a session; a results folder with its results.json can, because it says which runs had Paztport on and
 // whether their evidence was checked (see verifyResultsDir). In folder mode verify also
 // reads each run's outcome log: a run whose log shows signed calls must have signed evidence, whatever
-// results.json says. It does not compare each evidence record with the outcome log or re-score the run.
+// results.json says, and an outcome log that exists but can't be read fails. It does not compare each
+// evidence record with the outcome log or re-score the run.
 
 import { statSync } from "node:fs";
 import { NOT_FAILURES, verifyEvidence, verifyResultsDir, type VerifyReport } from "./verify.ts";

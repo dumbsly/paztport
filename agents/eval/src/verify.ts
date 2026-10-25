@@ -373,22 +373,35 @@ function expectations(dir: string): { expected?: Map<string, Expectation>; probl
   return { expected: out };
 }
 
-/** The run's outcome log shows calls made in a signed session (records carry `sess`). */
-function outcomeShowsSignedCalls(runDir: string): boolean {
+/**
+ * Whether the run's outcome log shows calls made in a signed session (records carry a string `sess`), as
+ * strictly as the eval reads the log: a missing log shows none, but one that exists and can't be read, has a
+ * line that is not a JSON object, or has a `sess` that is not a string, can't show that there were none,
+ * so it comes back as a problem.
+ */
+function outcomeShowsSignedCalls(runDir: string): boolean | { problem: string } {
   let text: string;
   try {
     text = readFileSync(join(runDir, "outcome.jsonl"), "utf8");
-  } catch {
-    return false;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    return { problem: `the outcome log can't be read; ${(e as Error).message}` };
   }
-  return text.split("\n").some((raw) => {
+  let signed = false;
+  const lines = text.split("\n");
+  for (const [i, raw] of lines.entries()) {
+    if (raw.trim() === "") continue;
+    let rec: unknown;
     try {
-      const rec: unknown = JSON.parse(raw);
-      return isObject(rec) && isString(rec.sess);
+      rec = JSON.parse(raw);
     } catch {
-      return false;
+      return { problem: `the outcome log can't be read; line ${i + 1} is not valid JSON` };
     }
-  });
+    if (!isObject(rec)) return { problem: `the outcome log can't be read; line ${i + 1} is not an outcome record` };
+    if ("sess" in rec && !isString(rec.sess)) return { problem: `the outcome log can't be read; line ${i + 1} has a sess that is not a string` };
+    if (isString(rec.sess)) signed = true;
+  }
+  return signed;
 }
 
 const SIGNED_CALLS_NO_EVIDENCE = "the outcome log shows signed calls, but evidence.jsonl has no signed records";
@@ -407,7 +420,8 @@ const needsSigned = (file: string, problem: string): VerifyReport => ({ file, ok
  * they are. Without results.json, only the files that exist are verified.
  *
  * Whatever results.json says (it can be edited, duplicated or deleted), a run whose outcome log shows signed
- * calls (records with `sess`) and has no signed evidence fails. A results.json that exists but can't be used
+ * calls (records with `sess`) and has no signed evidence fails, and so does one whose outcome log exists but
+ * can't be read (a bad line, a line that is not a record, a `sess` that is not a string). A results.json that exists but can't be used
  * (unparseable, no runs list, another formatVersion) is itself reported as a failure, and the runs are then
  * checked without it. A single evidence file can't show any of this: on its own it can't tell an on-run
  * cut down to its run record from a run that ended before a session.
@@ -445,7 +459,10 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
       continue;
     }
     // no signed evidence: the outcome log decides first, whatever results.json says (it can be edited or deleted)
-    if (outcomeShowsSignedCalls(join(dir, "runs", name))) {
+    const signed = outcomeShowsSignedCalls(join(dir, "runs", name));
+    if (typeof signed === "object") {
+      reports.push(needsSigned(rel, `${signed.problem}, so it can't show that this run made no signed calls`));
+    } else if (signed) {
       reports.push(needsSigned(rel, SIGNED_CALLS_NO_EVIDENCE));
     } else if (expect === "signed") {
       const what = report !== undefined ? "has no signed records" : size === 0 ? "is empty" : "is missing";

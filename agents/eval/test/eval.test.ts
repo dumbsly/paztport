@@ -774,12 +774,27 @@ describe("verification", { timeout: 120_000 }, () => {
     const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
     expect(r.runs[0]!.outcome).toBe("blocked");
     expect(r.runs[0]!.verify!.status).toBe("failed");
-    // status completed, but the log could not be used (outcome error): nothing was recorded that can be checked
+    // status error and nothing in a usable log: nothing was recorded that can be checked
     const o2 = opts({ runs: 1, modes: ["on"] });
-    const { fn: fn2 } = stub((spec) => writeFileSync(join(spec.runDir, "outcome.jsonl"), "{not json\n"), () => []);
+    const { fn: fn2 } = stub((spec) => done(spec, "error"), () => []);
     const r2 = await runEval(o2, { fetch: offline, runOnce: fn2, log: quiet });
     expect(r2.runs[0]!.outcome).toBe("error");
     expect(r2.runs[0]!.verify!.status).toBe("not-recorded");
+    // the log could not be used (outcome error): it can't show that nothing was signed, so missing evidence fails
+    const o3 = opts({ runs: 1, modes: ["on"] });
+    const { fn: fn3 } = stub((spec) => writeFileSync(join(spec.runDir, "outcome.jsonl"), "{not json\n"), () => []);
+    const r3 = await runEval(o3, { fetch: offline, runOnce: fn3, log: quiet });
+    expect(r3.runs[0]!.outcome).toBe("error");
+    expect(r3.runs[0]!.verify!.status).toBe("failed");
+    expect(r3.runs[0]!.verify!.problems.join(" ")).toMatch(/outcome log could not be used/);
+  });
+
+  it("anOnRunThatTimedOutBeforeAnySessionIsNotRecorded", async () => {
+    const o = opts({ runs: 1, modes: ["on"] });
+    const { fn } = stub((spec) => done(spec, "timeout"), () => []);
+    const r = await runEval(o, { fetch: offline, runOnce: fn, log: quiet });
+    expect(r.runs[0]).toMatchObject({ outcome: "timeout", verify: { status: "not-recorded", problems: [] } });
+    expect(r.verify).toMatchObject({ failed: 0, notRecorded: 1 });
   });
 
   it("theFinalCheckReadsTheOutcomeLogsAsTheyAreOnDisk", async () => {
