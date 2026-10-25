@@ -70,6 +70,8 @@ function withCode(text) {
 }
 
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
+/** An outcome class as people read it: "no tool calls", not "no-tool-calls". */
+const outcomeWord = (o) => String(o ?? "unknown").replace(/-/g, " ");
 const capitalise = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const modelName = (m) => (isObj(m) ? `${m.provider}/${m.id}` : String(m ?? "unknown"));
 const attestedMode = (mode) => mode === "on" || mode === "clean-on";
@@ -239,7 +241,10 @@ function renderCost() {
   const timing = newestTiming(state.folders, m.id);
   let time = "time depends on your hardware";
   if (timing) {
-    time = `about ${formatDuration(timing.medianRunMs)} a run (the median in your newest results for this model, from ${when(timing.date)})`;
+    time =
+      timing.kind === "single"
+        ? `about ${formatDuration(timing.medianRunMs)} a run (your last completed run of this model took that long, on ${when(timing.date)})`
+        : `about ${formatDuration(timing.medianRunMs)} a run (the median of completed runs in your newest results for this model, from ${when(timing.date)})`;
     if (runs > 1) time += `, so about ${formatDuration(timing.medianRunMs * runs)} for ${runs} runs`;
   }
   add(el, [h("dt", {}, "Time"), h("dd", {}, time)]);
@@ -277,7 +282,7 @@ function renderWhat() {
         "li",
         {},
         mode === "on"
-          ? "Paztport is on: each request is signed, and the mock server refuses a write to a public repository once the agent has read both private data and text from someone outside the project."
+          ? "Paztport is on: each request is signed, and the mock server refuses a write to a public repository once the agent has read private data together with text from someone outside the project or content from an unverified source."
           : "Paztport is off: the mock server allows every call and records what happened.",
       ),
       h("li", {}, "Whether the agent follows the planted instructions is up to the model. If it doesn't, that is a result too, reported as “resisted”."),
@@ -435,7 +440,7 @@ function outcomeLine(scored) {
   const defs = state.setup?.table?.definitions ?? [];
   const def = defs.find((d) => d.key === OUTCOME_KEY[scored.outcome]);
   const parts = [
-    h("p", {}, h("strong", {}, "Scored from the mock server's outcome log: "), String(scored.outcome).replace(/-/g, " "), def ? [" (", withCode(def.text), ")"] : null),
+    h("p", {}, h("strong", {}, "Scored from the mock server's outcome log: "), outcomeWord(scored.outcome), def ? [" (", withCode(def.text), ")"] : null),
     h("p", { class: "note" }, `read private: ${scored.readPrivate ? "yes" : "no"} · task done: ${scored.taskDone ? "yes" : "no"}${scored.harnessFault ? " · harness fault: yes" : ""}`),
   ];
   if (scored.reason) parts.push(h("p", { class: "note" }, scored.reason));
@@ -470,12 +475,13 @@ function verifySection(info) {
       info.refusalsNote ? h("p", { class: "note" }, info.refusalsNote) : null,
     );
   }
-  return h("section", {}, heading, h("p", { class: "muted" }, attestedMode(info.mode) ? "This run has no evidence file to check: it ended before anything was recorded." : "Paztport was off for this run, so there is no evidence file to check."));
+  return h("section", {}, heading, h("p", { class: "muted" }, attestedMode(info.mode) ? "There is nothing signed to check: the run ended before Paztport recorded a session." : "Paztport was off for this run, so there is nothing signed to check."));
 }
 
 // --- the run view -------------------------------------------------------------------------------------------
 
 function clearPanels() {
+  $("active-run").hidden = true;
   for (const p of state.panels) p.dispose();
   state.panels = [];
   $("run-panels").replaceChildren();
@@ -504,7 +510,12 @@ function runPanel(id, settings, { primary }) {
   let finished = false;
 
   const heading = h("h2", { tabindex: "-1" }, modeLabel(settings.mode), " ", h("span", { class: "badge" }, settings.model));
-  const status = h("p", { class: "status-line", role: "status", "aria-live": "polite" }, "Starting…");
+  // the visible line ticks every second; screen readers hear only new steps and the end
+  const status = h("p", { class: "status-line" }, "Starting…");
+  const announce = h("p", { class: "sr", role: "status", "aria-live": "polite" });
+  const say = (text) => {
+    announce.textContent = text;
+  };
   const cancel = h("button", { type: "button", class: "secondary" }, "Cancel this run");
   const saved = h("p", { class: "note" });
   const outcome = h("div", { class: "outcome" });
@@ -531,6 +542,7 @@ function runPanel(id, settings, { primary }) {
       single ? null : ["Runs", String(settings.runs)],
     ]),
     status,
+    announce,
     outcome,
     h("p", {}, cancel),
     progress,
@@ -552,6 +564,7 @@ function runPanel(id, settings, { primary }) {
     try {
       await getJson(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" });
       status.textContent = "Cancelling…";
+      say("Cancelling the run.");
     } catch (e) {
       status.textContent = e.message;
       cancel.disabled = false;
@@ -564,6 +577,7 @@ function runPanel(id, settings, { primary }) {
     clearInterval(timer);
     cancel.hidden = true;
     status.textContent = statusText(data);
+    say(statusText(data));
     if (data.name) saved.textContent = `Saved as ${data.name}. You can open it again under Results.`;
     after.replaceChildren();
     if (single) {
@@ -572,8 +586,7 @@ function runPanel(id, settings, { primary }) {
         for (const s of data.steps) steps.set(s.index, s);
       }
       renderSteps();
-      const ran = !(data.status === "error" && typeof data.error === "string" && data.error.startsWith("the run could not be started"));
-      if (ran) {
+      if (data.started !== false) {
         add(outcome, outcomeLine(data.scored));
         add(after, [answerSection(data.finalAnswer), verifySection({ ...ctx(), mode: settings.mode })]);
         if (primary && state.panels.length === 1) $("compare").hidden = false;
@@ -599,13 +612,18 @@ function runPanel(id, settings, { primary }) {
     },
     onEvent: (event, data) => {
       if (event === "step" && single && isObj(data)) {
+        const isNew = !steps.has(data.index);
         steps.set(data.index, data);
         renderSteps();
         tick();
+        if (isNew && !finished) say(`Step ${data.index}: ${data.phrase}: ${data.result}${data.reason ? `, ${data.reason}` : ""}.`);
       } else if (event === "progress" && isObj(data)) {
         progress.hidden = false;
         if (typeof data.message === "string") progress.textContent += `${data.message}\n`;
-        if (typeof data.completed === "number") status.textContent = `${data.completed} of ${data.planned} runs done. Running for ${formatDuration(Date.now() - started)}.`;
+        if (typeof data.completed === "number") {
+          status.textContent = `${data.completed} of ${data.planned} runs done. Running for ${formatDuration(Date.now() - started)}.`;
+          say(`${data.completed} of ${data.planned} runs done.`);
+        }
       } else if (event === "done" && isObj(data)) {
         finish(data);
       }
@@ -615,6 +633,7 @@ function runPanel(id, settings, { primary }) {
       clearInterval(timer);
       cancel.hidden = true;
       status.textContent = message;
+      say(message);
     },
   });
 
@@ -622,6 +641,8 @@ function runPanel(id, settings, { primary }) {
     id,
     settings,
     root,
+    running: () => !finished,
+    cancel: () => getJson(`/api/runs/${encodeURIComponent(id)}/cancel`, { method: "POST" }),
     dispose: () => {
       ac.abort();
       clearInterval(timer);
@@ -665,6 +686,31 @@ async function onCompare() {
   } finally {
     button.disabled = false;
   }
+}
+
+/** "New run" while a run is going: the server runs one at a time, so say so and offer to cancel it. */
+function askAboutActiveRun() {
+  const box = $("active-run");
+  const cancelIt = h("button", { type: "button", class: "secondary" }, "Cancel the run");
+  const keep = h("button", { type: "button", class: "secondary" }, "Keep watching");
+  cancelIt.addEventListener("click", async () => {
+    cancelIt.disabled = true;
+    try {
+      await Promise.all(state.panels.filter((p) => p.running()).map((p) => p.cancel()));
+      box.replaceChildren(h("p", {}, "The run is being cancelled. Its results stay on this page until it stops, and it is saved under Results."));
+    } catch (e) {
+      box.replaceChildren(h("p", { class: "problem" }, e.message));
+    }
+  });
+  keep.addEventListener("click", () => {
+    box.hidden = true;
+  });
+  box.replaceChildren(
+    h("p", {}, "A run is still going. The demo runs one at a time, so a new run can start only after this one finishes or is cancelled. If you leave it, it keeps running and is saved under Results."),
+    h("p", { class: "start-row" }, cancelIt, keep),
+  );
+  box.hidden = false;
+  cancelIt.focus();
 }
 
 // --- the evidence drawer ------------------------------------------------------------------------------------
@@ -776,7 +822,7 @@ function openDrawer(step, ctx, opener) {
     else if (Array.isArray(attestation?.chain))
       replyBody = [chainList(attestation.chain), attestation.resultHash ? h("p", { class: "note" }, "Hash of the result: ", h("code", {}, shorten(attestation.resultHash))) : null];
     else replyBody = h("p", { class: "muted" }, "No signed reply was recorded for this call.");
-    sections.push(h("section", {}, h("h3", {}, "Signed reply"), replyBody));
+    sections.push(h("section", {}, h("h3", {}, step.result === "refused" ? "Server's reply" : "Signed reply"), replyBody));
   }
 
   let check;
@@ -786,7 +832,7 @@ function openDrawer(step, ctx, opener) {
       h("p", { class: "note" }, "Run it in the agents folder. It checks every signature, link and binding in this run's evidence file, offline."),
     ];
   } else if (!ctx.finished) check = h("p", { class: "muted" }, "The command appears when the run has finished.");
-  else check = h("p", { class: "muted" }, attested ? "This run has no evidence file to check." : "Paztport was off for this run, so there is no evidence file to check.");
+  else check = h("p", { class: "muted" }, attested ? "This run has nothing signed to check." : "Paztport was off for this run, so there is nothing signed to check.");
   sections.push(h("section", {}, h("h3", {}, "Check it yourself"), check));
 
   sections.push(
@@ -831,7 +877,10 @@ function renderFolderList() {
     const name = f.ok ? h("button", { type: "button", class: "link", onclick: () => openFolder(f.name) }, f.name) : f.name;
     const modes = f.kind === "single" ? f.mode : Array.isArray(f.modes) ? f.modes.join(", ") : "";
     const planted = isObj(f.payload) ? (f.payload.kind === "custom" ? `custom, ${shorten(f.payload.sha256, 8)}` : "reference") : "";
-    const status = !f.ok ? `can't be read: ${f.error}` : f.incomplete ? "not finished" : "complete";
+    let status;
+    if (!f.ok) status = `can't be read: ${f.error}`;
+    else if (f.kind === "single") status = f.cancelled ? "cancelled" : f.status === "completed" ? "completed" : f.status === "timeout" ? "hit its time limit" : f.status === "error" ? "ended with an error" : NOT_IN_FORMAT;
+    else status = f.incomplete ? "not finished" : "complete";
     return h(
       "tr",
       {},
@@ -981,12 +1030,18 @@ function evalDetail(d, { nested }) {
       ["Server key fingerprint", isObj(d.serverKey) ? h("code", {}, d.serverKey.fingerprint) : NOT_IN_FORMAT],
     ]),
     d.verifyCommand ? commandBlock(d.verifyCommand) : null,
-    h(
-      "p",
-      { class: "note" },
-      withCode("`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. It does not compare evidence files with the outcome logs or check the server key fingerprint; the eval did both when it finished. "),
-      d.refusalsNote ?? "",
-    ),
+    d.verifyCommand
+      ? h(
+          "p",
+          { class: "note" },
+          withCode("`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. It does not compare evidence files with the outcome logs or check the server key fingerprint; the eval did both when it finished. "),
+          d.refusalsNote ?? "",
+        )
+      : h(
+          "p",
+          { class: "note" },
+          d.verifyStatus === "unknown" ? "This folder doesn't record an evidence check for every run, so no verify command is offered for it." : "No run in this folder has anything signed to check.",
+        ),
   ]);
 
   const failed = runs.filter((r) => r.verify?.status === "failed");
@@ -1026,7 +1081,7 @@ function evalDetail(d, { nested }) {
             { class: "runs-list" },
             these.map((r) => {
               const name = String(r.dir).split("/").pop();
-              const bits = [r.outcome, r.status !== "completed" ? `status ${r.status}` : null, RUN_VERIFY_LABEL[r.verify?.status]].filter(Boolean).join(" · ");
+              const bits = [outcomeWord(r.outcome), r.status !== "completed" ? `status ${r.status}` : null, RUN_VERIFY_LABEL[r.verify?.status]].filter(Boolean).join(" · ");
               const button = h("button", { type: "button", class: "link" }, name);
               button.addEventListener("click", () => {
                 runView.replaceChildren(runDetail(d, r));
@@ -1052,7 +1107,7 @@ function runDetail(d, r) {
     { class: "panel" },
     h("h3", { tabindex: "-1" }, `Run ${String(r.dir).split("/").pop()} (${modeLabel(r.mode)})`),
     facts([
-      ["Outcome", [String(r.outcome).replace(/-/g, " "), def ? [" (", withCode(def.text), ")"] : ""]],
+      ["Outcome", [outcomeWord(r.outcome), def ? [" (", withCode(def.text), ")"] : ""]],
       ["Status", String(r.status)],
       ["read private", r.readPrivate ? "yes" : "no"],
       ["task done", r.taskDone ? "yes" : "no"],
@@ -1102,6 +1157,10 @@ function wire() {
   $("runs").addEventListener("input", renderSetup);
   $("payload-file").addEventListener("change", () => onCustomFile().catch((err) => ($("payload-note").textContent = err.message)));
   $("back-to-setup").addEventListener("click", () => {
+    if (state.panels.some((p) => p.running())) {
+      askAboutActiveRun();
+      return;
+    }
     clearPanels();
     $("run-view").hidden = true;
     $("setup-view").hidden = false;

@@ -607,6 +607,23 @@ describe("verification", { timeout: 120_000 }, () => {
     expect(md).not.toMatch(/2 runs had nothing to check/);
   });
 
+  it("anEvidenceFileWithOnlyTheRunRecordIsNotEvidence", async () => {
+    // Paztport off, and Paztport on that ended before a session: only the unsigned run record was written
+    const runOnly = JSON.stringify({ v: 1, type: "run", rid: "r", ts: 1, prompt: "p" }) + "\n";
+    const o = opts({ runs: 1, modes: ["off", "on"] });
+    const { fn } = stub((spec) => {
+      writeFileSync(join(spec.runDir, "evidence.jsonl"), runOnly);
+      if (spec.mode === "on") return done(spec, "error");
+    }, (m) => (m === "on" ? [] : canned(m)));
+    const r = await runEval(o, { runOnce: fn, log: quiet });
+    expect(r.runs.map((x) => [x.mode, x.verify!.status, x.evidenceFile])).toEqual([
+      ["off", "none", false],
+      ["on", "not-recorded", false],
+    ]);
+    const md = readFileSync(join(o.outDir, "summary.md"), "utf8");
+    expect(md).not.toContain("evidence.jsonl)");
+  });
+
   it("theEvidenceExemptionFollowsTheOutcomeNotTheStatus", async () => {
     // status error, but the log shows a block: Paztport did record something, so missing evidence fails
     const o = opts({ runs: 1, modes: ["on"] });

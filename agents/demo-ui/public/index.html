@@ -24,7 +24,7 @@
 
 <main>
   <p class="notice" id="page-problem" role="alert" hidden></p>
-  <noscript><p class="notice">This page needs JavaScript. It sends nothing off this machine; it only talks to the demo server that printed its address.</p></noscript>
+  <noscript><p class="notice">This page needs JavaScript. The page itself loads nothing from the internet; it talks only to the demo server that printed its address.</p></noscript>
 
   <section id="view-run" role="tabpanel" aria-labelledby="tab-run">
     <div id="setup-view" class="setup-grid">
@@ -76,6 +76,7 @@
         <button type="button" class="secondary" id="back-to-setup">New run</button>
         <button type="button" class="secondary" id="compare" hidden>Run the same prompt with Paztport off</button>
       </div>
+      <div class="notice" id="active-run" role="alert" hidden></div>
       <p class="notice" id="compare-note" hidden>These are two separate model runs; the model may behave differently in each, and the off run may not leak at all.</p>
       <div class="compare-grid" id="run-panels"></div>
     </div>

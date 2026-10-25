@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
@@ -101,15 +102,6 @@ function readJsonl(file: string): unknown[] {
   return out;
 }
 
-/** The file exists and has content. */
-function hasContent(file: string): boolean {
-  try {
-    return statSync(file).size > 0;
-  } catch {
-    return false;
-  }
-}
-
 /** The command that checks a run's evidence, as typed in agents/. */
 function verifyCommand(target: string): string {
   const rel = relative(AGENTS_DIR, target);
@@ -118,13 +110,17 @@ function verifyCommand(target: string): string {
 }
 
 /**
- * The run's evidence file and the command that checks it, when it holds something to check. With Paztport off
- * the extension still writes the run's own record (the prompt), which carries no signature: that is not evidence.
+ * The run's evidence file and the command that checks it, when it holds something signed to check. A file
+ * with only the unsigned run record (an older Paztport-off run, or one that ended before a session) does not.
  */
 function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
   const file = join(runDir, "evidence.jsonl");
-  const checkable = hasContent(file) && readJsonl(file).some((r) => !isObj(r) || r.type !== "run");
-  return checkable ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
+  return hasEvidenceFile(file) ? { evidenceFile: true, verifyCommand: verifyCommand(file) } : { evidenceFile: false };
+}
+
+/** The folder's verify command, only when its runs have something that was, or should have been, checked. */
+function folderVerify(dir: string, status: VerifyStatus): { verifyCommand?: string } {
+  return status === "verified" || status === "partly-checked" || status === "failed" ? { verifyCommand: verifyCommand(dir) } : {};
 }
 
 const median = (xs: number[]): number | undefined => {
@@ -133,7 +129,9 @@ const median = (xs: number[]): number | undefined => {
   const mid = Math.floor(s.length / 2);
   return s.length % 2 === 1 ? s[mid]! : Math.round((s[mid - 1]! + s[mid]!) / 2);
 };
-const durationOf = (v: unknown): number | undefined => (isObj(v) && typeof v.durationMs === "number" && Number.isFinite(v.durationMs) && v.durationMs >= 0 ? v.durationMs : undefined);
+/** How long a completed run took; a run that timed out, failed or was cancelled says nothing about that. */
+const durationOf = (v: unknown): number | undefined =>
+  isObj(v) && v.status === "completed" && typeof v.durationMs === "number" && Number.isFinite(v.durationMs) && v.durationMs >= 0 ? v.durationMs : undefined;
 
 /** A JSON file, or undefined when it is missing or unreadable. */
 function readJson(file: string): unknown {
@@ -414,7 +412,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       } catch {
         // the error is the message; steps are a bonus
       }
-      finish(run, { status: "error", error, name, mode: settings.mode, cancelled: run.cancelled, steps });
+      finish(run, { status: "error", error, name, mode: settings.mode, started, cancelled: run.cancelled, steps, ...evidenceOf(dir) });
     }
   }
 
@@ -484,6 +482,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       tools: scenario.tools,
       result,
       scored,
+      cancelled: run.cancelled,
       ...(answer !== undefined ? { finalAnswer: answer } : {}),
     };
     try {
@@ -496,6 +495,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       name,
       scored,
       payload,
+      started: true,
       steps: final.steps,
       ...(answer !== undefined ? { finalAnswer: answer } : {}),
       ...evidence,
@@ -537,7 +537,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
         log: (message) => emit(run, "progress", { message }),
       });
       run.started = true;
-      finish(run, { ...results, name, ...verifyOf(results.runs), verifyCommand: verifyCommand(dir), refusalsNote: REFUSALS_NOTE, cancelled: run.cancelled });
+      const v = verifyOf(results.runs);
+      finish(run, { ...results, name, started: true, ...v, ...folderVerify(dir, v.verifyStatus), refusalsNote: REFUSALS_NOTE, cancelled: run.cancelled });
     } finally {
       clearInterval(poll);
     }
@@ -608,7 +609,20 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     if (l.kind === "single") {
       const r = l.run;
       const ms = durationOf(r.result);
-      return { name: f.name, ok: true, kind: "single", date: r.date, model: r.model, scenario: r.scenario, mode: r.mode, payload: r.payload, ...(ms !== undefined ? { medianRunMs: ms } : {}) };
+      const status = isObj(r.result) ? r.result.status : undefined;
+      return {
+        name: f.name,
+        ok: true,
+        kind: "single",
+        date: r.date,
+        model: r.model,
+        scenario: r.scenario,
+        mode: r.mode,
+        payload: r.payload,
+        ...(typeof status === "string" ? { status } : {}),
+        cancelled: r.cancelled === true,
+        ...(ms !== undefined && r.cancelled !== true ? { medianRunMs: ms } : {}),
+      };
     }
     const r = l.results;
     const runs = r.runs as unknown[];
@@ -675,17 +689,18 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       return { status: 200, body: { ...l.run, name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
     }
     const results = l.results;
+    const v = verifyOf(results.runs as unknown[]);
     // an older folder may not count runs that recorded nothing; that is shown as not recorded, never as 0
     return {
       status: 200,
       body: {
         ...results,
         name,
-        verifyCommand: verifyCommand(folder.dir),
+        ...folderVerify(folder.dir, v.verifyStatus),
         ok: true,
         kind: "eval",
         ...stepsForRuns(folder, results),
-        ...verifyOf(results.runs as unknown[]),
+        ...v,
         refusalsNote: REFUSALS_NOTE,
       },
     };
@@ -733,6 +748,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     }
     res.writeHead(200, {
       "content-type": TYPES[extname(file)] ?? "application/octet-stream",
+      // the page loads nothing from anywhere else, and no inline script or style
+      "content-security-policy": "default-src 'self'",
       "cache-control": "no-store",
       "x-content-type-options": "nosniff",
       "referrer-policy": "no-referrer",

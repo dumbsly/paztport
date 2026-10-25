@@ -15,7 +15,11 @@ const jsonl = (file: string) =>
     .split("\n")
     .filter((l) => l.trim() !== "")
     .map((l) => JSON.parse(l));
-/** A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-24), copied as recorded; only local paths in the transcript were replaced. */
+/**
+ * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-24). events, outcome and evidence are as
+ * recorded; the transcript is the recorded one with its thinking_delta and text_delta events removed (nothing reads
+ * them, and they were most of its size) and local paths replaced.
+ */
 const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 
 const start = (id: string, tool: string, args: Record<string, unknown>) => ({ type: "tool_execution_start", toolCallId: id, toolName: `mcp__github__${tool}`, args });
@@ -80,7 +84,7 @@ describe("steps", () => {
     const steps = buildSteps(scenario, attested());
     expect(steps.map((s) => s.tool)).toEqual(["list_issues", "get_file_contents", "create_branch"]);
     expect(steps.map((s) => s.result)).toEqual(["allowed", "allowed", "refused"]);
-    expect(steps[2]!.reason).toBe("a public write after the agent had read both private data and text from someone outside the project");
+    expect(steps[2]!.reason).toBe("a public write after the agent had read private data together with text from someone outside the project or content from an unverified source");
     expect(steps[0]!.reason).toBeUndefined();
     expect(steps[2]!.evidence.callId).toBe("c3");
     expect(steps[2]!.evidence.rid).toBe("r3");

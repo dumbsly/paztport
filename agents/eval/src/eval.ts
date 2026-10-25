@@ -27,7 +27,7 @@ export type EvalOptions = {
 /** A scored run as stored in results.json: the score, why it is an error if the cause is not its status, and the evidence check. */
 export type StoredRun = ScoredRun & {
   verify?: RunVerify;
-  /** evidence.jsonl exists and has content. */
+  /** evidence.jsonl exists and holds more than the unsigned run record (see hasEvidenceFile). */
   evidenceFile?: boolean;
 };
 export type ResultsFile = {

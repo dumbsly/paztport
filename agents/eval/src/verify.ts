@@ -55,8 +55,12 @@ export type VerifyItem = {
   callId?: string;
   result: "OK" | ReasonCode | "BAD_SESSION" | "NO_SESSION" | "PROMPT_MISMATCH" | "UNREADABLE" | "REFUSED" | "NO_RESPONSE" | "NO_CALL" | "DUPLICATE_RESPONSE" | "UNBOUND";
 };
-/** `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to. */
-export type VerifyReport = { file: string; ok: boolean; items: VerifyItem[]; pins: string[] };
+/**
+ * `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to.
+ * `nothingToCheck` marks a readable file with no session, call or response record: only the unsigned run
+ * record, which Paztport writes before any session. It is not a failure, and not a pass either.
+ */
+export type VerifyReport = { file: string; ok: boolean; items: VerifyItem[]; pins: string[]; nothingToCheck?: true };
 
 const META_VERDICT = "paztport/verdict";
 /** Results that are reported but do not make a file fail. */
@@ -312,7 +316,9 @@ function verifyFile(path: string, label: string): VerifyReport {
     }
   }
   items.sort((a, b) => a.line - b.line); // stable: a call's NO_RESPONSE follows its own item
-  return { file: label, ok: items.every((i) => NOT_FAILURES.includes(i.result)), items, pins: [...pins] };
+  const ok = items.every((i) => NOT_FAILURES.includes(i.result));
+  const nothingToCheck = ok && lines.every(({ rec }) => rec.type === "run");
+  return { file: label, ok, items, pins: [...pins], ...(nothingToCheck ? { nothingToCheck: true as const } : {}) };
 }
 
 /** Never throws. A missing file, a malformed line or an unknown record gives an UNREADABLE item. */

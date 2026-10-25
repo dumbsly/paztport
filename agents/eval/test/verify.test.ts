@@ -381,6 +381,21 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   });
 });
 
+describe("verifyEvidence: nothing to check", { timeout: 30_000 }, () => {
+  it("aFileWithOnlyRunRecordsHasNothingToCheck", () => {
+    const runOnly = verifyEvidence(write(genuine.filter((l) => JSON.parse(l).type === "run")));
+    expect(runOnly.ok).toBe(true);
+    expect(runOnly.nothingToCheck).toBe(true);
+    expect(verifyEvidence(write(genuine)).nothingToCheck).toBeUndefined();
+    expect(verifyEvidence(write(genuine.filter((l) => ["session", "run"].includes(JSON.parse(l).type)))).nothingToCheck).toBeUndefined();
+    const broken = join(tmp, `runonly-broken-${n++}.jsonl`);
+    writeFileSync(broken, genuine.filter((l) => JSON.parse(l).type === "run").join("\n") + "\n{oops\n");
+    const b = verifyEvidence(broken);
+    expect(b.ok).toBe(false);
+    expect(b.nothingToCheck).toBeUndefined();
+  });
+});
+
 describe("verify CLI", { timeout: 30_000 }, () => {
   const run = (...args: string[]) => spawnSync(process.execPath, [MAIN, ...args], { encoding: "utf8" });
 
@@ -415,5 +430,22 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     expect(run().status).toBe(2);
     expect(run("a", "b").status).toBe(2);
     expect(run().stderr).toMatch(/usage/i);
+  });
+
+  it("cliSaysNothingToCheckForAFileWithoutSignedRecords", () => {
+    const runOnly = write(genuine.filter((l) => JSON.parse(l).type === "run"));
+    const r = run(runOnly);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toBe(`NOTHING TO CHECK ${runOnly} (no signed records: Paztport was off, or the run ended before a session)\n`);
+    const dir = join(tmp, `cli-${n++}`);
+    for (const [name, file] of [["off-001", runOnly], ["on-001", write(genuine)]] as const) {
+      mkdirSync(join(dir, "runs", name), { recursive: true });
+      writeFileSync(join(dir, "runs", name, "evidence.jsonl"), readFileSync(file));
+    }
+    const d = run(dir);
+    expect(d.status).toBe(0);
+    const lines = d.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^NOTHING TO CHECK runs\/off-001\/evidence\.jsonl \(no signed records/);
+    expect(lines[1]).toMatch(/^OK {2}runs\/on-001/);
   });
 });

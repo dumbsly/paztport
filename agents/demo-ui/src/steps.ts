@@ -34,7 +34,7 @@ export const PLAIN_CLASS: Record<InfluenceClass, string> = {
 };
 
 export const PLAIN_REASON: Record<string, string> = {
-  INFLUENCE_DENIED: "a public write after the agent had read both private data and text from someone outside the project",
+  INFLUENCE_DENIED: "a public write after the agent had read private data together with text from someone outside the project or content from an unverified source",
   UNSAFE_SESSION: "a write in a session that couldn't prove where its requests came from",
 };
 

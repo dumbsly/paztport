@@ -19,13 +19,28 @@ export type RunVerify = { status: "ok" | "failed" | "none" | "not-recorded"; pro
 const EXPECT_EVIDENCE: readonly RunMode[] = ["on", "clean-on"];
 const MAX_PROBLEMS = 10;
 
-/** True when the file exists and has bytes in it. */
+/**
+ * True when the file exists and holds something besides the unsigned run record: a signed record, or a line
+ * that `verify` will have to report. A file with only run records (Paztport off, or on and ended before a
+ * session) is not evidence.
+ */
 export function hasEvidenceFile(path: string): boolean {
+  let text: string;
   try {
-    return statSync(path).size > 0;
+    if (statSync(path).size === 0) return false;
+    text = readFileSync(path, "utf8");
   } catch {
     return false;
   }
+  return text.split("\n").some((raw) => {
+    if (raw.trim() === "") return false;
+    try {
+      const rec: unknown = JSON.parse(raw);
+      return !(typeof rec === "object" && rec !== null && (rec as { type?: unknown }).type === "run");
+    } catch {
+      return true;
+    }
+  });
 }
 
 type Ids = { rid: string; callId: string };
@@ -114,8 +129,8 @@ export function checkRun(input: {
   const problems: string[] = [];
   const attested = records?.some((r) => typeof r.sess === "string") ?? false;
 
-  if (report === undefined) {
-    if (attested) problems.push("the outcome log shows attested calls, but evidence.jsonl is missing or empty");
+  if (report === undefined || report.nothingToCheck === true) {
+    if (attested) problems.push("the outcome log shows attested calls, but evidence.jsonl is missing, empty or has no signed records");
     else if (EXPECT_EVIDENCE.includes(mode)) {
       if (outcome === "error") return { status: "not-recorded", problems: [] };
       problems.push("a run with Paztport on has no evidence.jsonl");

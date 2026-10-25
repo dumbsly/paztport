@@ -131,6 +131,7 @@ describe("demo server", () => {
     expect((await api(srv, "/api/setup")).status).toBe(200);
     const page = await api(srv, "/", { key: null });
     expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toBe("default-src 'self'");
     expect(await page.text()).toContain("<html");
   });
 
@@ -343,6 +344,9 @@ describe("demo server", () => {
     const last = (await events).at(-1)!;
     expect(last.event).toBe("done");
     expect(last.data.cancelled).toBe(true);
+    const list = (await (await api(srv, "/api/results")).json()) as any[];
+    expect(list[0]).toMatchObject({ kind: "single", status: "error", cancelled: true });
+    expect(list[0].medianRunMs).toBeUndefined();
   });
 
   it("a runOnce that throws ends the stream with a plain error", async () => {
@@ -350,7 +354,7 @@ describe("demo server", () => {
     const { id } = await (await post(srv, "/api/runs", body)).json();
     const last = (await sse(srv, id)).at(-1)!;
     expect(last.event).toBe("done");
-    expect(last.data).toMatchObject({ status: "error", error: "the run could not be started: bad spec" });
+    expect(last.data).toMatchObject({ status: "error", error: "the run could not be started: bad spec", started: false, evidenceFile: false });
   });
 
   it("a run that fails after it started says it stopped, not that it could not start, and keeps its steps", async () => {
@@ -368,7 +372,7 @@ describe("demo server", () => {
     const { id } = await (await post(srv, "/api/runs", body)).json();
     const last = (await sse(srv, id)).at(-1)!;
     expect(last.event).toBe("done");
-    expect(last.data).toMatchObject({ status: "error", error: "the run stopped with an error: disk full" });
+    expect(last.data).toMatchObject({ status: "error", error: "the run stopped with an error: disk full", started: true, evidenceFile: false });
     expect(last.data.steps.map((s: any) => s.phrase)).toEqual(["list the issues on acme/website"]);
   });
 
@@ -390,6 +394,7 @@ describe("demo server", () => {
     ]);
     expect(done.steps[2]).toMatchObject({ code: "INFLUENCE_DENIED", rule: expect.stringMatching(/public repository/) });
     expect(done.finalAnswer).toBe("I could not open the pull request.");
+    expect(done.started).toBe(true);
     expect(done.verifyCommand).toMatch(/^npm run verify -- .*single-[^/]+\/evidence\.jsonl$/);
     expect(done.evidenceFile).toBe(true);
     const reopened = await (await api(srv, `/api/results/${done.name}`)).json();
@@ -462,6 +467,7 @@ describe("demo server", () => {
     expect(events.at(-1)!.data.formatVersion).toBe(1);
     expect(events.at(-1)!.data.verifyStatus).toBe("nothing-to-check");
     expect(events.at(-1)!.data.verifyLine).toMatch(/nothing to check/i);
+    expect(events.at(-1)!.data.verifyCommand).toBeUndefined();
     expect(seen).toHaveLength(1);
     expect(seen[0]).toMatchObject({ model: "ollama/qwen3:4b", runs: 3, modes: ["off"] });
     expect(seen[0].outDir.startsWith(resultsRoot)).toBe(true);
@@ -549,6 +555,12 @@ describe("demo server", () => {
     make("off-only", ["none", "none"]);
     make("one-failed", ["ok", "failed", "not-recorded"]);
     const get = async (name: string) => (await (await api(srv, `/api/results/${name}`)).json()) as { verifyStatus: string; verifyLine: string };
+    const cmd = async (name: string) => ((await (await api(srv, `/api/results/${name}`)).json()) as { verifyCommand?: string }).verifyCommand;
+    expect(await cmd("partly")).toMatch(/^npm run verify -- /);
+    expect(await cmd("all-ok")).toMatch(/^npm run verify -- /);
+    expect(await cmd("one-failed")).toMatch(/^npm run verify -- /);
+    expect(await cmd("only-not-recorded")).toMatch(/^npm run verify -- /);
+    expect(await cmd("off-only")).toBeUndefined();
     const partly = await get("partly");
     expect(partly.verifyStatus).toBe("partly-checked");
     expect(partly.verifyLine).toBe("1 of 3 runs have evidence that verified. 1 run with Paztport on ended before Paztport recorded anything, so it has nothing to check. 1 run had Paztport off.");
@@ -567,9 +579,11 @@ describe("demo server", () => {
     const folder = join(resultsRoot, "timed");
     const r: any = resultsFile();
     r.runs = [1, 2, 3].map((i) => ({ mode: "on", index: i, dir: `runs/on-00${i}`, outcome: "blocked", readPrivate: true, taskDone: false, harnessFault: false, status: "completed" }));
-    [60_000, 90_000, 30_000].forEach((ms, i) => {
+    // a timed-out run says nothing about how long a run takes, so it is left out
+    r.runs.push({ mode: "on", index: 4, dir: "runs/on-004", outcome: "timeout", readPrivate: false, taskDone: false, harnessFault: false, status: "timeout" });
+    [60_000, 90_000, 30_000, 600_000].forEach((ms, i) => {
       mkdirSync(join(folder, "runs", `on-00${i + 1}`), { recursive: true });
-      writeFileSync(join(folder, "runs", `on-00${i + 1}`, "run.json"), JSON.stringify({ status: "completed", exitCode: 0, durationMs: ms, canary: "c", mode: "on" }));
+      writeFileSync(join(folder, "runs", `on-00${i + 1}`, "run.json"), JSON.stringify({ status: i === 3 ? "timeout" : "completed", exitCode: 0, durationMs: ms, canary: "c", mode: "on" }));
     });
     writeFileSync(join(folder, "results.json"), JSON.stringify(r));
     mkdirSync(join(resultsRoot, "untimed"), { recursive: true });
@@ -625,7 +639,7 @@ describe("demo server", () => {
     const done = (await sse(srv, id)).at(-1)!.data;
     const list = (await (await api(srv, "/api/results")).json()) as { name: string; ok: boolean; kind?: string }[];
     expect(list).toHaveLength(1);
-    expect(list[0]).toMatchObject({ ok: true, kind: "single", name: done.name });
+    expect(list[0]).toMatchObject({ ok: true, kind: "single", name: done.name, status: "completed", cancelled: false });
     const got = await (await api(srv, `/api/results/${list[0]!.name}`)).json();
     expect(got.kind).toBe("single");
     expect(got.steps.map((s: any) => s.result)).toEqual(["allowed", "allowed", "refused"]);

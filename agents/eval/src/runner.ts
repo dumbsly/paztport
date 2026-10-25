@@ -136,12 +136,14 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
   rmSync(workspace, { recursive: true, force: true });
   mkdirSync(workspace, { recursive: true });
   const path = (name: string) => join(runDir, name);
-  for (const f of ["transcript.jsonl", "events.jsonl", "evidence.jsonl", "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
+  const enforced = spec.mode === "on" || spec.mode === "clean-on";
+  // without Paztport nothing is signed, so those runs get no evidence log at all
+  for (const f of ["transcript.jsonl", "events.jsonl", ...(enforced ? ["evidence.jsonl"] : []), "outcome.jsonl", "stderr.txt"]) writeFileSync(path(f), "");
+  if (!enforced) rmSync(path("evidence.jsonl"), { force: true });
 
   const canary = randomBytes(8).toString("hex");
   writeFileSync(path("canary.txt"), canary + "\n");
 
-  const enforced = spec.mode === "on" || spec.mode === "clean-on";
   const serverMode = enforced ? "enforce" : "off";
   const payloadArg = spec.mode === "clean-on" || spec.mode === "clean-off" ? "none" : spec.payloadFile ? resolve(spec.payloadFile) : undefined;
   const serverArgs = [
@@ -160,7 +162,7 @@ export async function runOnce(spec: RunSpec, onLine?: (file: LineFile, line: str
         mode: enforced ? "enforce" : "off",
         clientDir: join(demoDir, "client"),
         eventsLog: path("events.jsonl"),
-        evidenceLog: path("evidence.jsonl"),
+        ...(enforced ? { evidenceLog: path("evidence.jsonl") } : {}),
         servers: [{ id: scenario.serverId, command: process.execPath, args: serverArgs, attested: enforced }],
       },
       null,

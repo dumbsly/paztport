@@ -132,7 +132,11 @@ describe("runOnce", () => {
       expect(cfg.mode).toBe(want.ext);
       expect(cfg.clientDir).toBe(join(demo, "client"));
       expect(cfg.eventsLog).toBe(join(c.spec.runDir, "events.jsonl"));
-      expect(cfg.evidenceLog).toBe(join(c.spec.runDir, "evidence.jsonl"));
+      // without Paztport nothing is signed, so there is no evidence log and no evidence file
+      if (want.ext === "off") {
+        expect(cfg.evidenceLog, mode).toBeUndefined();
+        expect(existsSync(join(c.spec.runDir, "evidence.jsonl")), mode).toBe(false);
+      } else expect(cfg.evidenceLog, mode).toBe(join(c.spec.runDir, "evidence.jsonl"));
       expect(cfg.servers).toHaveLength(1);
       const server = cfg.servers[0];
       expect(server.id).toBe("github");

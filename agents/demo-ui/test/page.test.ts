@@ -87,6 +87,13 @@ describe("demo page", () => {
     }
   });
 
+  it("the page works under default-src 'self': no inline script or style", () => {
+    const html = text("index.html");
+    expect(html).not.toMatch(/<script(?![^>]*\bsrc=)[^>]*>/i);
+    expect(html).not.toMatch(/<style|\sstyle=|\son[a-z]+=/i);
+    expect(text("app.js")).not.toMatch(/setAttribute\(\s*["']style|["']style["']\s*:/);
+  });
+
   it("every file carries the license header, and the styles have a dark scheme", () => {
     for (const { f, t } of all()) expect(t, f).toContain("SPDX-License-Identifier: Apache-2.0");
     expect(text("app.css")).toMatch(/prefers-color-scheme:\s*dark/);
@@ -107,6 +114,9 @@ describe("demo page", () => {
       "uses your provider account; check its terms",
       "not recorded in this folder's format",
       "custom",
+      "Server's reply",
+      "nothing signed to check",
+      "The page itself loads nothing from the internet",
     ]) {
       expect(page, s).toContain(s);
     }
