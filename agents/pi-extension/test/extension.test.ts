@@ -457,7 +457,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
   });
 
   it("restoresBuiltinToolInfluence", async () => {
-    // pi emits no tool_result for a call tool_call blocked (agent-loop.ts prepareToolCall: a block
+    // pi emits no tool_result for a call that tool_call blocked (agent-loop.ts prepareToolCall: a block
     // becomes createErrorToolResult(reason) at once), but the session keeps it as an error toolResult
     // holding our refusal text. Restore must record nothing for it; a labelled result keeps its classes.
     const text = (t: string) => [{ type: "text", text: t }];
@@ -478,6 +478,14 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     // the same text on a result that is not an error, or with more around it, is content
     expect(await restore([toolResultEntry("read", text(SCOPE_TEXT))])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
     expect(await restore([toolResultEntry("read", text(`${SCOPE_TEXT} `), undefined, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    // labels come first: a labelled error result with a refusal's text still restores its classes
+    expect(await restore([toolResultEntry("read", text(SCOPE_TEXT), { paztport: { labels: ["private"] } }, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 1 });
+    // nested calls (ctx.executeTool) leave only a record on the parent: their results are unknown
+    const nested = { calls: [{ toolName: "read" }], complete: true };
+    const parent = toolResultEntry("codemode", text("done"), { paztport: { labels: ["local-untrusted"] } });
+    (parent as unknown as { message: Record<string, unknown> }).message.nestedCalls = nested;
+    expect(await restore([parent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 3 });
+    expect(await restore([parent], "off")).toEqual(ZERO);
     // unlabelled: it may hold anything
     const unlabelled = toolResultEntry("read", text("notes"));
     expect(await restore([unlabelled])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
@@ -841,6 +849,17 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     await pi.emit("session_start", { reason: "startup" }, { ...pi.ctx, sessionManager } as ExtensionContext);
     await pi.prompt("fix the typo");
     expect(await toolCall(pi, "read", { path: "website/README.md" })).toEqual({ block: true, reason: UNCHECKABLE_TEXT });
+  });
+
+  it("openSessionFileIsRefused", async () => {
+    const { pi } = local();
+    // inside the public folder, so only the refusal can stop a read of it
+    const file = join(pi.ctx.cwd, "website", "session.jsonl");
+    writeFileSync(file, "{}\n");
+    const sessionManager = { ...pi.ctx.sessionManager, getSessionFile: () => file };
+    await pi.emit("session_start", { reason: "startup" }, { ...pi.ctx, sessionManager } as ExtensionContext);
+    await pi.prompt("fix the typo");
+    expect(await toolCall(pi, "read", { path: "website/session.jsonl" })).toEqual({ block: true, reason: SCOPE_TEXT });
   });
 
   it("noConfigDoesNotGate", async () => {

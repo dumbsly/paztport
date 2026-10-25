@@ -47,9 +47,10 @@ const REFUSAL_TEXTS = new Set([UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT]);
 
 /** Whether a tool result's content is exactly one of the local refusal texts (the whole text, nothing more). */
 export function isRefusalText(content: unknown): boolean {
-  if (!Array.isArray(content) || content.length !== 1) {
-    return false;
-  }
-  const part: unknown = content[0];
-  return typeof part === "object" && part !== null && (part as { type?: unknown }).type === "text" && REFUSAL_TEXTS.has((part as { text?: unknown }).text as string);
+  const part: unknown = Array.isArray(content) && content.length === 1 ? content[0] : undefined;
+  return isObject(part) && part.type === "text" && typeof part.text === "string" && REFUSAL_TEXTS.has(part.text);
+}
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

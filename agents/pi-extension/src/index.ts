@@ -124,6 +124,8 @@ function refusedPaths(path: string, config: PaztportConfig, ctx: ExtensionContex
     config.eventsLog,
     config.evidenceLog,
     sessionDir,
+    // with --session <file> and --session-dir, the open file need not be under the folder
+    typeof sm.getSessionFile === "function" ? sm.getSessionFile() : undefined,
     getAgentDir(),
   ];
   const out: string[] = [];
@@ -215,7 +217,7 @@ export default function paztport(pi: ExtensionAPI): void {
   /**
    * Records one restored built-in tool result as the live tool_result did. Off mode records nothing.
    * Labels in details.paztport give their classes (the source is local:<tool>, as live). pi emits no
-   * tool_result for a call tool_call blocked: it saves an error result holding our refusal text, which
+   * tool_result for a call that tool_call blocked: it saves an error result holding our refusal text, which
    * is not recorded. write and edit record nothing live. Any other result has no labels (this
    * extension did not see it, or it came from another run) and may hold anything: private and
    * local-untrusted.
@@ -228,11 +230,20 @@ export default function paztport(pi: ExtensionAPI): void {
     const p = isObject(d) ? d.paztport : undefined;
     const classes = isObject(p) ? classesOf(p.labels) : undefined;
     const hash = hashContent(m.content);
-    if (classes !== undefined) {
-      influence.recordClasses(`local:${toolName}`, classes, hash);
-    } else if (!(m.isError === true && isRefusalText(m.content)) && toolName !== "write" && toolName !== "edit") {
+    const nested = isObject(m.nestedCalls) && (m.nestedCalls.complete === false || (Array.isArray(m.nestedCalls.calls) && m.nestedCalls.calls.length > 0));
+    if (nested) {
+      // pi saves no result for a nested call (ctx.executeTool), only this record on the parent, so
+      // what the nested calls returned (any built-in or MCP tool) is unknown
       influence.recordUnknown(`builtin:${toolName}`, hash);
     }
+    if (classes !== undefined) {
+      influence.recordClasses(`local:${toolName}`, classes, hash);
+      return;
+    }
+    if (nested || (m.isError === true && isRefusalText(m.content)) || toolName === "write" || toolName === "edit") {
+      return;
+    }
+    influence.recordUnknown(`builtin:${toolName}`, hash);
   }
 
   /** Records one restored tool result as the live path did; any other entry records nothing. */
