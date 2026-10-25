@@ -913,7 +913,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
    * The evidence lines of one run in which the real LocalGate checks the calls `steps` makes, with the demo
    * rules and a workspace of website/, notes/n.md and secret/ (refused).
    */
-  function gateRun(steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void): string[] {
+  function gateRun(steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void, opts: { home?: string } = {}): string[] {
     const dir = realpathSync.native(mkdtempSync(join(tmp, "gate-run-")));
     const workspace = join(dir, "workspace");
     for (const d of ["website", "notes", "secret"]) mkdirSync(join(workspace, d), { recursive: true });
@@ -937,6 +937,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       now: Date.now,
       workspace,
       refused: [join(workspace, "secret")],
+      home: opts.home ?? dir,
     });
     steps(gate, influence, workspace);
     return jsonLines(evidencePath);
@@ -953,6 +954,25 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = verifyEvidence(write(lines));
     expect(bad(r.items)).toEqual([]);
     expect(localResult(r, "l_copy")).toBe("REFUSED");
+  });
+
+  it("aRecordWithPlaceholdersForTheWorkspaceAndHomeVerifies", () => {
+    const lines = gateRun((gate, _influence, workspace) => {
+      gate.check("read", { path: `${workspace}/website/README.md` }, "l_abs");
+      gate.check("bash", { command: `cat ${join(workspace, "..", "elsewhere")}` }, "l_home");
+      gate.check("read", { path: `${join(workspace, "..")}/elsewhere` }, "l_out");
+    });
+    const rs = lines.map((l) => JSON.parse(l));
+    expect(localOf(rs, "l_abs").input).toEqual({ path: "<workspace>/website/README.md" });
+    expect(localOf(rs, "l_out").input).toEqual({ path: "<home>/elsewhere" });
+    expect(lines.join("\n")).not.toContain(tmp);
+    const r = verifyEvidence(write(lines));
+    expect(bad(r.items)).toEqual([]);
+    expect(r.items.filter((i) => i.type === "local").map((i) => [i.callId, i.result])).toEqual([
+      ["l_abs", "OK"],
+      ["l_home", "REFUSED"],
+      ["l_out", "REFUSED"],
+    ]);
   });
 
   it("cliSaysLocalRefusalsAreSigned", () => {

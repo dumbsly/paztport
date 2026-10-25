@@ -4,6 +4,7 @@
 // The local gate: every tool call that is not one of this extension's MCP tools is checked here, in
 // pi's tool_call hook, against the signed client rules before it runs.
 
+import { homedir } from "node:os";
 import { bindLocalTool, commitInfluence, influenceClasses, rulesHash, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/path-attest";
 import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
@@ -14,7 +15,7 @@ import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { decideLocal, readLabels, type LocalVerdict, type Resolved } from "./decide.ts";
-import { resolveFileTool, type PathContext } from "./paths.ts";
+import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
 
 /** pi's built-in local tools. */
 export const BUILTIN_LOCAL_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"] as const;
@@ -41,6 +42,8 @@ export type LocalGateDeps = {
   workspace: string;
   /** Absolute paths no call may touch (keys, config, logs, pi's own folders). */
   refused: readonly string[];
+  /** The home folder named "<home>" in signed input (default: the user's home folder). */
+  home?: string;
 };
 
 /** Freezes a JSON-like value and everything in it, so an in-place change throws in strict code. */
@@ -53,11 +56,43 @@ function deepFreeze(v: unknown): void {
   }
 }
 
+/** Escapes `s` for use inside a RegExp. */
+const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * A copy of `v` in which every string names the canonical workspace path as "<workspace>" and then the home
+ * folder as "<home>", wherever either appears as a whole path (followed by "/", the end, a space, a quote or a
+ * shell or list delimiter): signed evidence is published, and its signed data can't be redacted afterwards.
+ */
+export function withPlaceholders<T>(v: T, workspace: string, home: string): T {
+  const pairs: [string, string][] = [
+    [workspace, "<workspace>"],
+    [home, "<home>"],
+  ];
+  // "/" alone is no prefix to replace
+  const swaps = pairs.filter(([path]) => path.length > 1).map(([path, name]) => [new RegExp(`${escapeRegExp(path)}(?=$|[/\\s"'\`;|&<>()=:,])`, "g"), name] as const);
+  const copy = (x: unknown): unknown => {
+    if (typeof x === "string") {
+      return swaps.reduce((s, [re, name]) => s.replace(re, name), x);
+    }
+    if (Array.isArray(x)) {
+      return x.map(copy);
+    }
+    if (typeof x === "object" && x !== null) {
+      return Object.fromEntries(Object.entries(x).map(([k, e]) => [k, copy(e)]));
+    }
+    return x;
+  };
+  return copy(v) as T;
+}
+
 /**
  * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
  * run is a signed client-mesh step: a v2 stamp with an empty `sess`, chained from the run's origin and
  * bound to the input and the decision (the call id, what the gate resolved, the verdict, whether the route
- * is listed and the rules' hash), written to the evidence file with the route proof and the influence. no-root mode has no rules to check against and refuses every call.
+ * is listed and the rules' hash), written to the evidence file with the route proof and the influence. The
+ * input is bound and recorded with the workspace and home folder paths replaced by "<workspace>" and "<home>"
+ * (withPlaceholders); the tool runs with the input as given. no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
@@ -118,9 +153,10 @@ export class LocalGate {
       const now = this.deps.now();
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
+      const signedInput = withPlaceholders(input, canonical(this.deps.workspace), canonical(this.deps.home ?? homedir()));
       // the stamp binds the decision as well as the call: the call id, what was resolved, the verdict, whether
       // the route is listed and which rules decided, so none of them can be changed in the evidence after signing
-      const bind = bindLocalTool(toolName, input, { callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash });
+      const bind = bindLocalTool(toolName, signedInput, { callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash });
       const stamp = signStampV2({ svc: "pi", inst: INST, rid: run.rid, ts: now, sess: "", bind, infl: commitInfluence(entries), prev: origin.sig }, material.piKey);
       evidence.write({
         v: 1,
@@ -129,7 +165,7 @@ export class LocalGate {
         callId: toolCallId,
         rid: run.rid,
         now,
-        input,
+        input: signedInput,
         resolved,
         routeAllowed,
         rulesHash: hash,

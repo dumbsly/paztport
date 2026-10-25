@@ -57,7 +57,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 type Rig = { gate: LocalGate; influence: InfluenceStore; runs: RunState; eventsPath: string; evidencePath: string };
 
-function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[] } = {}): Rig {
+function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[]; home?: string } = {}): Rig {
   const eventsPath = join(tmp, `events-${n}.jsonl`);
   const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
   const influence = new InfluenceStore();
@@ -73,6 +73,7 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
     now: () => 2_000,
     workspace: ws,
     refused: opts.refused ?? [secret],
+    ...(opts.home !== undefined ? { home: opts.home } : {}),
   });
   return { gate, influence, runs, eventsPath, evidencePath };
 }
@@ -326,6 +327,29 @@ describe("LocalGate evidence", () => {
     }
     // one origin per run: every record chains from the same origin stamp
     expect(new Set(recs.map((x) => x.chain[0].sig)).size).toBe(1);
+  });
+
+  it("signedInputNamesTheWorkspaceAndHomeByPlaceholder", () => {
+    // the workspace lies under home here, so the workspace is replaced first
+    const { gate, evidencePath } = rig("enforce", { home: tmp });
+    const abs = { path: `${ws}/website/README.md` };
+    expect(gate.check("read", abs, "c1").block).toBe(false);
+    // the tool still runs with the input as given
+    expect(abs).toEqual({ path: `${ws}/website/README.md` });
+    gate.check("bash", { command: `cat ${ws}/website/README.md ${tmp}/other/x`, nested: [{ p: tmp }, 3, null] }, "c2");
+    gate.check("read", { path: `${ws}x/y` }, "c3");
+    const recs = lines(evidencePath);
+    expect(recs.map((r) => r.input)).toEqual([
+      { path: "<workspace>/website/README.md" },
+      { command: "cat <workspace>/website/README.md <home>/other/x", nested: [{ p: "<home>" }, 3, null] },
+      // a folder whose name only starts with the workspace's is not the workspace
+      { path: "<home>/wsx/y" },
+    ]);
+    for (const rec of recs) {
+      expect(JSON.stringify(rec)).not.toContain(tmp);
+      expect(rec.chain[1].bind).toBe(bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }));
+    }
+    expect(recs[0]!.resolved.paths).toEqual([{ need: "read", at: "website/README.md" }]);
   });
 
   it("eventsNeverCarryPathsOrContent", () => {
