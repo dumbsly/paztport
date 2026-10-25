@@ -301,6 +301,14 @@ describe("demo page", () => {
     expect(app).toContain("!step.local && (attested || reply)");
   });
 
+  it("an off run's local drawer says nothing was checked, and a local run's score names all three sources", () => {
+    const app = text("app.js");
+    expect(app).toContain("Paztport was off, so nothing was checked.");
+    expect(app).toContain("localSections(step, local, plain, attested)");
+    expect(app).toContain("Scored from the mock server's outcome log, the extension's events log and the workspace's public folders: ");
+    expect(app).toContain("Scored from the mock server's outcome log: ");
+  });
+
   it("the setup carries the local wording the page uses", async () => {
     const { startDemoServer: start } = await import("../src/server.ts");
     const local = await start({

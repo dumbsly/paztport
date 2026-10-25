@@ -473,7 +473,13 @@ function outcomeLine(scored, local) {
   const defs = tableText(local).definitions;
   const def = defs.find((d) => d.key === OUTCOME_KEY[scored.outcome]);
   const parts = [
-    h("p", {}, h("strong", {}, "Scored from the mock server's outcome log: "), outcomeWord(scored.outcome), def ? [" (", withCode(def.text), ")"] : null),
+    h(
+      "p",
+      {},
+      h("strong", {}, local ? "Scored from the mock server's outcome log, the extension's events log and the workspace's public folders: " : "Scored from the mock server's outcome log: "),
+      outcomeWord(scored.outcome),
+      def ? [" (", withCode(def.text), ")"] : null,
+    ),
     h("p", { class: "note" }, `read private: ${scored.readPrivate ? "yes" : "no"} · task done: ${scored.taskDone ? "yes" : "no"}${scored.harnessFault ? " · harness fault: yes" : ""}`),
   ];
   if (scored.reason) parts.push(h("p", { class: "note" }, scored.reason));
@@ -808,8 +814,11 @@ function chainList(chain) {
   );
 }
 
-/** The drawer sections for a local tool call: the rule that decided it, the local stamp chain, the route proof and what the agent held. */
-function localSections(step, record, plain) {
+/**
+ * The drawer sections for a local tool call: the rule that decided it, the local stamp chain, the route proof and
+ * what the agent held. `attested`: the run had Paztport on (with it off, nothing was checked).
+ */
+function localSections(step, record, plain, attested) {
   const detail = step.local;
   const out = [];
   out.push(
@@ -817,10 +826,14 @@ function localSections(step, record, plain) {
       "section",
       {},
       h("h3", {}, "What was checked"),
-      detail.checks.length
-        ? h("ul", {}, detail.checks.map((c) => h("li", {}, h("code", {}, c.what), ": ", c.rule)))
-        : h("p", { class: "muted" }, "No path or program was recorded for this call."),
-      h("p", { class: "note" }, "Decision: ", h("code", {}, detail.verdict), ". Rules are read from the signed rules in the evidence file; this page does not read the keys folder."),
+      attested
+        ? [
+            detail.checks.length
+              ? h("ul", {}, detail.checks.map((c) => h("li", {}, h("code", {}, c.what), ": ", c.rule)))
+              : h("p", { class: "muted" }, "No path or program was recorded for this call."),
+            h("p", { class: "note" }, "Decision: ", h("code", {}, detail.verdict), ". Rules are read from the signed rules in the evidence file; this page does not read the keys folder."),
+          ]
+        : h("p", { class: "muted" }, "Paztport was off, so nothing was checked."),
     ),
   );
   const proof = record?.proof;
@@ -904,7 +917,7 @@ function openDrawer(step, ctx, opener) {
   }
 
   const local = step.local ? evidence.find((r) => r.type === "local") : undefined;
-  if (step.local) sections.push(...localSections(step, local, plain));
+  if (step.local) sections.push(...localSections(step, local, plain, attested));
 
   // labels: from the signed reply when there is one, else what the logs recorded
   let labels = [];
