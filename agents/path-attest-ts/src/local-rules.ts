@@ -23,6 +23,10 @@ export const NEVER_PROGRAMS: readonly string[] = [
   "sh", "bash", "zsh", "dash", "ksh", "fish", "env", "xargs", "sudo", "su", "doas", "nohup", "timeout", "nice", "watch",
   "exec", "eval", "python", "python3", "node", "deno", "bun", "perl", "ruby", "php", "lua", "awk", "gawk", "sed", "find",
   "git", "make", "npm", "npx", "pip", "pip3", "osascript", "open", "xdg-open", "tee", "sort", "uniq",
+  "script", "arch", "caffeinate", "busybox", "tar", "zip", "unzip", "rsync", "ssh", "scp", "sftp", "less", "more", "man", "vi", "vim",
+  "nvim", "view", "emacs", "nano", "ed", "ex", "m4", "chroot", "setsid", "stdbuf", "flock", "rbash", "ash", "csh", "tcsh", "nodejs",
+  "mawk", "nawk", "xcrun", "launchctl", "at", "batch", "crontab", "screen", "tmux", "expect", "gdb", "lldb", "dtrace", "sandbox-exec",
+  "irb", "julia", "swift", "tclsh", "wish", "Rscript", "printf", "getopts",
 ];
 
 /**
@@ -31,7 +35,7 @@ export const NEVER_PROGRAMS: readonly string[] = [
  */
 export function isNeverProgram(name: string): boolean {
   const lower = name.toLowerCase();
-  return NEVER_PROGRAMS.some((entry) => lower.startsWith(entry) && /^[0-9.]*$/.test(lower.slice(entry.length)));
+  return NEVER_PROGRAMS.some((entry) => lower.startsWith(entry.toLowerCase()) && /^[0-9.]*$/.test(lower.slice(entry.length)));
 }
 
 const ACCESS: readonly string[] = ["read", "write", "exec"];

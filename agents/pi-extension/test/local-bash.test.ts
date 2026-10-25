@@ -70,11 +70,11 @@ describe("parseBash accepts", () => {
     expect(parseBash('echo "a\\"b\\\\"')).toEqual({ commands: [{ argv: ["echo", 'a"b\\'], redirects: [] }] });
   });
   it("everyRedirectOperator", () => {
-    const r = parseBash("a < i > o >> p 2> q 2>> r &> s 1> t 1>> u");
+    const r = parseBash("a < i > o >> p 2> q 2>> r 1> t 1>> u");
     expect(r).toEqual({
       commands: [{ argv: ["a"], redirects: [
         { op: "<", target: "i" }, { op: ">", target: "o" }, { op: ">>", target: "p" },
-        { op: "2>", target: "q" }, { op: "2>>", target: "r" }, { op: "&>", target: "s" },
+        { op: "2>", target: "q" }, { op: "2>>", target: "r" },
         { op: ">", target: "t" }, { op: ">>", target: "u" },
       ] }],
     });
@@ -138,6 +138,8 @@ describe("parseBash refuses", () => {
     ["readWrite", "cat <> x"],
     ["clobber", "cat >| x"],
     ["appendBoth", "cat &>> x"],
+    ["bothRedirect", "cat &> x"],
+    ["tildeMidWord", "cat a~b"],
     ["pipeStderr", "cat |& wc"],
     ["history", "cat !x"],
     ["comment", "cat a #x"],
@@ -190,7 +192,16 @@ describe("resolveBash", () => {
   });
   it("writeRedirectOutsideAllowedFoldersIsDenied", () => {
     expect(verdict("echo hi > top.txt")).toBe("SCOPE_DENIED");
-    expect(verdict("echo hi 2> /dev/null")).toBe("SCOPE_DENIED");
+    expect(verdict("echo hi > /dev/null2")).toBe("SCOPE_DENIED");
+  });
+  it("devNullIsAllowedAndRecordsNoPath", () => {
+    const r = resolveBash("ls website 2> /dev/null", ctx);
+    expect(r.readOnly).toBe(true);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "website" }]);
+    expect(verdict("cat website/README.md 2>/dev/null")).toBe("OK");
+    expect(verdict("cat < /dev/null")).toBe("OK");
+    expect(verdict("echo hi > /dev/null; cat website/README.md")).toBe("OK");
+    expect(verdict("echo hi > /dev/nullx")).toBe("SCOPE_DENIED");
   });
   it("fdDuplicationAddsNoPathAndStaysReadOnly", () => {
     const r = resolveBash("ls website 2>&1", ctx);
@@ -274,5 +285,84 @@ describe("resolveBash", () => {
     const both: InfluenceClass[] = ["private", "third-party"];
     expect(verdict("echo x >> website/CHANGELOG.md", both)).toBe("INFLUENCE_DENIED");
     expect(verdict("cat website/README.md", both)).toBe("OK");
+  });
+
+  it("versionSuffixedAndPathedNeverNames", () => {
+    expect(resolveBash("python3.12 x", ctx).programs).toEqual([{ name: "python3.12", via: "never" }]);
+    expect(resolveBash("/usr/bin/Perl5.30 x", ctx).programs).toEqual([{ name: "/usr/bin/Perl5.30", via: "never" }]);
+  });
+  it("aListedNameThatLinksToAProgramRunnerIsNever", () => {
+    const d = join(base, "bin3");
+    mkdirSync(d, { recursive: true });
+    symlinkSync(join(base, "bin", "bash"), join(d, "head"));
+    expect(resolveBash("head a", { ...ctx, pathDirs: [d] }).programs).toEqual([{ name: "head", via: "never" }]);
+  });
+  it("optionsEndAtTheFirstOperandOrDoubleDash", () => {
+    const w = (c: string) => resolveBash(c, ctx).paths.slice(1);
+    expect(w("cp notes/a -evil")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "-evil" }]);
+    expect(w("cp notes/a --")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "--" }]);
+    expect(w("mkdir -")).toEqual([{ need: "write", at: "-" }]);
+    expect(w("mkdir -p -- -x")).toEqual([{ need: "write", at: "-x" }]);
+    expect(w("cp -- notes/a website/b")).toEqual([{ need: "write", at: "notes/a" }, { need: "write", at: "website/b" }]);
+    expect(w("cp -r -- -")).toEqual([{ need: "write", at: "-" }]);
+    expect(verdict("mkdir -p website/x")).toBe("OK");
+  });
+  it("readOnlyOperandsAfterTheFirstOperandAreStillPaths", () => {
+    writeFileSync(join(ctx.cwd, "-name"), "x");
+    const r = resolveBash("cat run.sh -name", ctx);
+    expect(r.paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "run.sh" }, { need: "read", at: "-name" }]);
+    expect(resolveBash("cat -n run.sh", ctx).paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "run.sh" }]);
+  });
+  it("attachedShortOptionValues", () => {
+    expect(resolveBash("cp -t. notes/a", ctx).paths).toContainEqual({ need: "write", at: "uncheckable" });
+    expect(verdict("mv -t. notes/a")).toBe("UNCHECKABLE");
+    expect(verdict("cp -r notes/a website/b")).toBe("OK");
+    expect(resolveBash("grep -f.env x", ctx).paths).toContainEqual({ need: "read", at: ".env" });
+    expect(resolveBash("grep -f/etc/x y", ctx).paths).toContainEqual({ need: "read", at: "outside" });
+    expect(resolveBash("grep -fnotes/a y", ctx).paths).toContainEqual({ need: "read", at: "notes/a" });
+    expect(resolveBash("diff -Xrun.sh a", ctx).paths).toContainEqual({ need: "read", at: "run.sh" });
+    expect(resolveBash("head -n5 run.sh", ctx).paths).toEqual([{ need: "read", at: "." }, { need: "read", at: "run.sh" }]);
+  });
+  it("variableAssigningBuiltinsAreRefused", () => {
+    expect(verdict("printf -v PATH %s p; cat website/README.md")).toBe("UNCHECKABLE");
+    expect(verdict("getopts p PATH -p")).toBe("UNCHECKABLE");
+    for (const b of ["read", "shift", "fc", "history", "ulimit", "kill", "jobs", "times", "mapfile"]) expect(verdict(`${b} x`), b).toBe("UNCHECKABLE");
+  });
+  it("aCommandListWithAnEarlierWriteIsUncheckable", () => {
+    expect(verdict("cp notes/a website/b && cat website/b")).toBe("UNCHECKABLE");
+    expect(verdict("echo x > website/f; cat website/f")).toBe("UNCHECKABLE");
+    expect(verdict("echo x > website/f | cat")).toBe("UNCHECKABLE");
+    expect(verdict("echo x | cat > website/f")).toBe("OK");
+    expect(verdict("cat website/README.md && cp notes/a website/b")).toBe("OK");
+    expect(verdict("cat website/README.md | wc -l")).toBe("OK");
+  });
+});
+
+describe("resolveBash subtrees", () => {
+  const nested = parseLocalRules({
+    v: 1,
+    folders: [
+      { path: ".", access: ["read"] },
+      { path: "website", access: ["read", "write"], label: "public", destination: "public" },
+      { path: "notes", access: ["read", "write"], label: "private", destination: "private" },
+      { path: "notes/deep/vault", access: ["read"], label: "private" },
+    ],
+    programs: rules.programs,
+  });
+  it("aRefusedEntryBelowARecursiveRootIsRefused", () => {
+    mkdirSync(join(ctx.cwd, "notes", "deep", "vault"), { recursive: true });
+    mkdirSync(join(ctx.cwd, "notes", "secret"), { recursive: true });
+    const c = { ...ctx, rules: nested, refused: [join(ctx.cwd, "notes", "secret")] };
+    const r = resolveBash("grep -r KEY notes", c);
+    expect(r.paths).toContainEqual({ need: "read", at: "refused" });
+    expect(decideLocal({ routeAllowed: true, resolved: r, rules: nested, classes: new Set() })).toBe("SCOPE_DENIED");
+    expect(resolveBash("ls -R .", c).paths).toContainEqual({ need: "read", at: "refused" });
+  });
+  it("aNestedFolderRuleBelowTheRootIsAnExtraPathWithTheSameNeed", () => {
+    const c = { ...ctx, rules: nested };
+    expect(resolveBash("grep -r KEY notes/deep", c).paths).toContainEqual({ need: "read", at: "notes/deep/vault" });
+    expect(resolveBash("mv notes/deep website/n", c).paths).toContainEqual({ need: "write", at: "notes/deep/vault" });
+    expect(resolveBash("cp -R notes website/n", c).paths).toContainEqual({ need: "write", at: "notes/deep/vault" });
+    expect(resolveBash("echo x > notes/deep/f", c).paths).toContainEqual({ need: "write", at: "notes/deep/f" });
   });
 });

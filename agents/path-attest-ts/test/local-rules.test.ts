@@ -74,7 +74,7 @@ describe("parseLocalRules", () => {
 });
 
 describe("NEVER_PROGRAMS", () => {
-  it.each("sh bash zsh dash ksh fish env xargs sudo su doas nohup timeout nice watch exec eval python python3 node deno bun perl ruby php lua awk gawk sed find git make npm npx pip pip3 osascript open xdg-open tee sort uniq".split(" "))(
+  it.each("sh bash zsh dash ksh fish env xargs sudo su doas nohup timeout nice watch exec eval python python3 node deno bun perl ruby php lua awk gawk sed find git make npm npx pip pip3 osascript open xdg-open tee sort uniq script arch caffeinate busybox tar zip unzip rsync ssh scp sftp less more man vi vim nvim view emacs nano ed ex m4 chroot setsid stdbuf flock rbash ash csh tcsh nodejs mawk nawk xcrun launchctl at batch crontab screen tmux expect gdb lldb dtrace sandbox-exec irb julia swift tclsh wish Rscript printf getopts".split(" "))(
     "contains %s",
     (name) => {
       expect(NEVER_PROGRAMS).toContain(name);
@@ -106,7 +106,7 @@ describe("rulesHash", () => {
 
 describe("isNeverProgram", () => {
   it("matchesCaseAndVersionSpellings", () => {
-    for (const n of ["bash", "Bash", "PYTHON3.12", "perl5.30", "python3", "sed"]) expect(isNeverProgram(n), n).toBe(true);
+    for (const n of ["bash", "Bash", "PYTHON3.12", "perl5.30", "python3", "sed", "rscript", "RSCRIPT4.1", "Tar"]) expect(isNeverProgram(n), n).toBe(true);
   });
   it("leavesOtherNamesAlone", () => {
     for (const n of ["env2x", "cat", "pythonx", "node-gyp", "sh-ish"]) expect(isNeverProgram(n), n).toBe(false);

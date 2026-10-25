@@ -181,6 +181,37 @@ export function resolvePathArg(arg: string, need: Need, ctx: PathContext): Resol
   return { need, at: "outside" };
 }
 
+/**
+ * `base` (the resolution of `abs`) widened to everything below `abs`: a refused entry below
+ * makes it "refused", a folder rule only reachable after folding makes it "uncheckable", and
+ * every nested folder rule is added as an extra path with the same need.
+ */
+export function withSubtree(abs: string, base: ResolvedPath, ctx: PathContext): ResolvedPath[] {
+  const need = base.need;
+  try {
+    const cs = canonical(abs);
+    const ws = canonical(ctx.workspace);
+    const fold = folder(caseInsensitive(ws));
+    const locs = ruleLocations(ctx, ws);
+    if (ctx.refused.some((r) => isUnder(canonical(r), cs) || isUnder(fold(canonical(r)), fold(cs)))) {
+      return [{ need, at: "refused" }];
+    }
+    if (locs.some((l) => !isUnder(l.loc, cs) && isUnder(fold(l.loc), fold(cs)))) {
+      // a folder rule lies below the root only after folding: its access and label cannot be judged
+      return [{ need, at: "uncheckable" }];
+    }
+    const extra: ResolvedPath[] = [];
+    for (const l of locs) {
+      if (l.loc !== cs && isUnder(l.loc, cs)) {
+        extra.push({ need, at: l.at });
+      }
+    }
+    return [base, ...extra];
+  } catch {
+    return [{ need, at: "uncheckable" }];
+  }
+}
+
 const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
 
 /** pi's read tool retries a missing path with these spellings (path-utils.ts, same order). */
@@ -210,7 +241,7 @@ export function resolveFileTool(
   const readOnly = READ_TOOLS.includes(tool);
   const need: Need = readOnly ? "read" : "write";
   const raw = input.path ?? ".";
-  const extra: ResolvedPath[] = [];
+  let extra: ResolvedPath[] = [];
   let path: ResolvedPath = typeof raw === "string" ? resolvePathArg(raw, need, ctx) : { need, at: "uncheckable" };
   const pattern = tool === "grep" ? input.glob : tool === "find" ? input.pattern : undefined;
   if (typeof pattern === "string" && (pattern.includes("..") || pattern.startsWith("/"))) {
@@ -223,26 +254,7 @@ export function resolveFileTool(
       path = { need, at: "uncheckable" };
     } else if (tool === "grep" || tool === "find" || tool === "ls") {
       // These walk everything below the root: refused entries and nested folders count too.
-      try {
-        const cs = canonical(abs);
-        const ws = canonical(ctx.workspace);
-        const fold = folder(caseInsensitive(ws));
-        const locs = ruleLocations(ctx, ws);
-        if (ctx.refused.some((r) => isUnder(canonical(r), cs) || isUnder(fold(canonical(r)), fold(cs)))) {
-          path = { need, at: "refused" };
-        } else if (locs.some((l) => !isUnder(l.loc, cs) && isUnder(fold(l.loc), fold(cs)))) {
-          // a folder rule lies below the root only after folding: its access and label cannot be judged
-          path = { need, at: "uncheckable" };
-        } else {
-          for (const l of locs) {
-            if (l.loc !== cs && isUnder(l.loc, cs)) {
-              extra.push({ need: "read", at: l.at });
-            }
-          }
-        }
-      } catch {
-        path = { need, at: "uncheckable" };
-      }
+      [path, ...extra] = withSubtree(abs, path, ctx);
     }
   }
   return { paths: [path, ...extra], programs: [], parse: "ok", readOnly };

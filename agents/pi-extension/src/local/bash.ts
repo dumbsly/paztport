@@ -5,11 +5,11 @@
 // check, and the resolution of a command's programs and paths. Conservative, not a
 // guarantee: whatever cannot be resolved statically is refused, never guessed.
 
-import { accessSync, constants, lstatSync, statSync } from "node:fs";
+import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { isNeverProgram } from "@paztport/path-attest";
 import type { Need, Resolved, ResolvedPath, ResolvedProgram } from "./decide.ts";
-import { canonical, resolvePathArg, type PathContext } from "./paths.ts";
+import { canonical, resolvePathArg, withSubtree, type PathContext } from "./paths.ts";
 
 export type Redirect = { op: "<" | ">" | ">>" | "2>" | "2>>" | "&>"; target: string };
 export type SimpleCommand = { argv: string[]; redirects: Redirect[] };
@@ -20,11 +20,12 @@ export const PINNED_PATH = "/usr/bin:/bin";
 /** Programs that only read what their path arguments name. */
 export const READ_ONLY_PROGRAMS: readonly string[] = ["cat", "head", "tail", "wc", "grep", "ls", "diff", "pwd", "echo", "cut", "tr", "basename", "dirname", "test", "true", "false"];
 
-// Shell keywords and builtins that change shell state or run other code: not simple commands we can check.
+// Shell keywords and builtins that change shell state, assign variables (PATH included) or run other code: not simple commands we can check.
 const REFUSED_FIRST_WORDS: ReadonlySet<string> = new Set([
   "if", "then", "else", "elif", "fi", "for", "while", "until", "do", "done", "case", "esac", "in", "select", "function", "time", "coproc",
   "cd", "pushd", "popd", "source", ".", "export", "unset", "alias", "unalias", "set", "shopt", "declare", "local", "readonly", "typeset",
   "let", "umask", "hash", "builtin", "command", "type", "trap", "wait", "read", "mapfile", "readarray", "enable", "bind", "complete",
+  "printf", "getopts", "shift", "fc", "history", "ulimit", "kill", "jobs", "times",
 ]);
 
 type Failure = { error: string };
@@ -204,15 +205,6 @@ export function parseBash(command: string): { commands: SimpleCommand[] } | Fail
         i += 2;
         continue;
       }
-      if (next === ">" && command[i + 2] !== ">" && command[i + 2] !== "&" && command[i + 2] !== "(") {
-        const e = beginRedirect();
-        if (e) {
-          return e;
-        }
-        pending = "&>";
-        i += 2;
-        continue;
-      }
       return fail("background jobs are not supported");
     }
     if (c === "<") {
@@ -274,7 +266,7 @@ export function parseBash(command: string): { commands: SimpleCommand[] } | Fail
     if (c === "$" || c === "`" || c === "(" || c === ")" || c === "{" || c === "}" || c === "*" || c === "?" || c === "[" || c === "!") {
       return fail(`unsupported character ${c}`);
     }
-    if (!started && (c === "#" || c === "~")) {
+    if (c === "~" || (!started && c === "#")) {
       return fail(`unsupported character ${c}`);
     }
     word += c;
@@ -341,26 +333,57 @@ function resolveProgram(name: string, ctx: PathContext & { pathDirs: readonly st
   if (!ctx.rules.programs.includes(name)) {
     return { name, via: "missing" };
   }
-  return { name, via: ctx.pathDirs.some((d) => isExecutableFile(join(d, name))) ? "list" : "missing" };
+  const found = ctx.pathDirs.map((d) => join(d, name)).find(isExecutableFile);
+  if (found === undefined) {
+    return { name, via: "missing" };
+  }
+  try {
+    // an allowed name that is really a link to a program runner is that runner
+    if (isNeverProgram(basename(realpathSync(found)))) {
+      return { name, via: "never" };
+    }
+  } catch {
+    return { name, via: "missing" };
+  }
+  return { name, via: "list" };
 }
 
 /**
- * Programs and paths a `bash` command would use. Read-only programs treat an argument
+ * Programs and paths a `bash` command would use. Read-only programs treat an operand
  * as a path when it has a "/", starts with "." or "~", or exists in the working folder;
- * any other program treats every non-option argument as a path it may write. A path
- * with a ".." component is uncheckable (the shell follows symlinks before "..").
+ * any other program treats every operand as a path it may write. Options end at the
+ * first operand or at "--" (BSD getopt), so everything after is an operand, "-x" and "-"
+ * included. Every path also covers what lies below it. A path with a ".." component is
+ * uncheckable (the shell follows symlinks before "..").
+ *
+ * A command list in which any command but the last writes is refused whole as
+ * parse "error" (so UNCHECKABLE): an earlier write can change what later paths mean.
+ * A redirect to exactly /dev/null records no path and does not count as a write.
  */
 export function resolveBash(command: string, ctx: PathContext & { pathDirs: readonly string[] }): Resolved {
+  const refusal: Resolved = { paths: [], programs: [], parse: "error", readOnly: false };
   const parsed = parseBash(command);
   if ("error" in parsed) {
-    return { paths: [], programs: [], parse: "error", readOnly: false };
+    return refusal;
+  }
+  const isNull = (target: string): boolean => target === "/dev/null";
+  const writes = (cmd: SimpleCommand): boolean =>
+    !READ_ONLY_PROGRAMS.includes(cmd.argv[0] as string) || cmd.redirects.some((r) => r.op !== "<" && !isNull(r.target));
+  if (parsed.commands.slice(0, -1).some(writes)) {
+    return refusal;
   }
   const paths: ResolvedPath[] = [resolvePathArg(".", "read", ctx)];
   const programs: ResolvedProgram[] = [];
   let readOnly = true;
   const addPath = (arg: string, need: Need): void => {
-    paths.push(hasDotDot(arg) ? { need, at: "uncheckable" } : resolvePathArg(arg, need, ctx));
+    if (hasDotDot(arg)) {
+      paths.push({ need, at: "uncheckable" });
+      return;
+    }
+    const p = resolvePathArg(arg, need, ctx);
+    paths.push(...(p.at === "uncheckable" ? [p] : withSubtree(resolve(ctx.cwd, arg), p, ctx)));
   };
+  const looksLikePath = (v: string): boolean => v.includes("/") || v.startsWith(".") || v.startsWith("~") || existsHere(ctx.cwd, v);
   for (const cmd of parsed.commands) {
     const name = cmd.argv[0] as string;
     const program = resolveProgram(name, ctx, paths);
@@ -368,15 +391,15 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
       programs.push(program);
     }
     const roProgram = READ_ONLY_PROGRAMS.includes(name);
-    if (!roProgram) {
+    if (writes(cmd)) {
       readOnly = false;
     }
     for (const r of cmd.redirects) {
-      if (r.op !== "<") {
-        readOnly = false;
+      if (!isNull(r.target)) {
+        addPath(r.target, r.op === "<" ? "read" : "write");
       }
-      addPath(r.target, r.op === "<" ? "read" : "write");
     }
+    const need: Need = roProgram ? "read" : "write";
     let optionsEnded = false;
     for (const arg of cmd.argv.slice(1)) {
       let value = arg;
@@ -384,27 +407,32 @@ export function resolveBash(command: string, ctx: PathContext & { pathDirs: read
         optionsEnded = true;
         continue;
       }
-      if (arg === "-") {
-        continue;
-      }
-      if (!optionsEnded && arg.startsWith("-")) {
+      if (!optionsEnded && arg !== "-" && arg.startsWith("-")) {
         const eq = arg.indexOf("=");
-        if (arg.startsWith("--") && eq > 0) {
+        if (arg.startsWith("--")) {
+          if (eq < 0) {
+            continue;
+          }
           value = arg.slice(eq + 1);
+        } else if (!roProgram) {
+          // an attached short-option value ("-t.") could name a path: options must be given separately
+          if (arg.length > 2) {
+            paths.push({ need, at: "uncheckable" });
+          }
+          continue;
         } else {
-          // A bare option is never a path, but one that smuggles a path in ("-f/etc/x", "-t..") cannot be judged.
-          if (arg.includes("/") || arg.includes("..") || arg.includes("~")) {
-            paths.push({ need: roProgram ? "read" : "write", at: "uncheckable" });
+          for (let k = 2; k < arg.length; k++) {
+            if (looksLikePath(arg.slice(k))) {
+              addPath(arg.slice(k), "read");
+            }
           }
           continue;
         }
-      }
-      if (roProgram) {
-        if (value.includes("/") || value.startsWith(".") || value.startsWith("~") || existsHere(ctx.cwd, value)) {
-          addPath(value, "read");
-        }
       } else {
-        addPath(value, "write");
+        optionsEnded = true;
+      }
+      if (!roProgram || looksLikePath(value)) {
+        addPath(value, need);
       }
     }
   }
