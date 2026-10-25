@@ -263,7 +263,8 @@ describe("runOnce", () => {
       expect(existsSync(rec.cwd)).toBe(false);
     });
 
-    it("aWorkspaceThatCannotBeCopiedBackIsNotScoredAsIfItWereFine", async () => {
+    // a file mode of 000 does not stop root from reading it
+    it.skipIf(process.getuid?.() === 0)("aWorkspaceThatCannotBeCopiedBackIsNotScoredAsIfItWereFine", async () => {
       vi.stubEnv("STUB_TOUCH", "unreadable");
       const c = mkLocal({ mode: "on" });
       const r = await runOnce(c.spec);
@@ -448,6 +449,18 @@ describe("runOnce", () => {
     const c = mk({ piCli: join(tmp, "no-such-cli.js") });
     const r = await runOnce(c.spec);
     expect(r.status).toBe("error");
+  });
+
+  it("leavesOutWhatIsNotAFileAFolderOrALinkAndSaysSo", async () => {
+    vi.stubEnv("STUB_TOUCH", "special");
+    const c = mk();
+    expect((await runOnce(c.spec)).status).toBe("completed");
+    // the pipes are left out; everything else is copied
+    expect(copied(c.spec.runDir)).toEqual({ "stub-wrote.txt": "file", "link-out": "link -> /etc/hosts", "sub/kept.txt": "file" });
+    const stderr = readFileSync(join(c.spec.runDir, "stderr.txt"), "utf8");
+    expect(stderr).toContain("runner: left out of the workspace copy, as not a file, folder or link: pipe, sub/pipe\n");
+    expect(stderr).not.toContain(recorded(c).cwd);
+    expect(existsSync(recorded(c).cwd)).toBe(false);
   });
 
   it("copiesTheWorkspaceBackOnTimeoutAndOnAbort", async () => {

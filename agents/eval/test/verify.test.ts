@@ -1030,9 +1030,11 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
   // a demo single run keeps its files at the top of its folder, beside demo-run.json, with no runs/ folder
   let base: string;
+  let noRules: string; // a run whose client material has no local rules (every local call refused as out of scope)
   let pin: string;
   beforeAll(async () => {
     base = (await localRun(demo, join(tmp, "single-base"))).runDir;
+    noRules = (await localRun(demo, join(tmp, "single-norules"), { rules: false })).runDir;
     pin = pinFingerprint(readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim());
   }, 60_000);
   const cli = (dir: string) => spawnSync(process.execPath, [MAIN, dir], { encoding: "utf8" });
@@ -1040,9 +1042,9 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
    * A copy of the run as a demo single-run folder, with demo-run.json as the demo writes it, and run.json and
    * config.json as the runner writes them for its mode.
    */
-  function single(over: Record<string, unknown> = {}, edit?: (dir: string) => void): string {
+  function single(over: Record<string, unknown> = {}, edit?: (dir: string) => void, from = base): string {
     const dir = join(tmp, `single-${n++}`);
-    cpSync(base, dir, { recursive: true });
+    cpSync(from, dir, { recursive: true });
     const run = { formatVersion: 1, kind: "single", scenario: { id: "github-issue-replay-local" }, localTools: true, mode: "on", scored: { outcome: "blocked" }, serverKey: { fingerprint: pin }, ...over };
     for (const [k, v] of Object.entries(run)) if (v === undefined) delete (run as Record<string, unknown>)[k];
     writeFileSync(join(dir, "demo-run.json"), JSON.stringify(run, null, 2) + "\n");
@@ -1091,9 +1093,34 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     const lines = r.stdout.trim().split("\n");
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^OK {2}evidence\.jsonl/);
-    expect(lines[1]).toBe("NOTE demo-run.json records no server key fingerprint (an older run), so the evidence pin was not compared with it");
+    expect(lines[1]).toBe("NOTE demo-run.json records no server key fingerprint, so the evidence pin was not compared with one");
     expect(lines[2]).toBe(CROSS_OK);
     expect(r.status).toBe(0);
+    // evidence with no pin has nothing to compare, so there is no note
+    const empty = cli(single({ serverKey: undefined, scored: { outcome: "error" } }, (d) => {
+      for (const f of ["evidence.jsonl", "outcome.jsonl", "events.jsonl"]) writeFileSync(join(d, f), "");
+      writeFileSync(join(d, "run.json"), JSON.stringify({ status: "error", exitCode: 143, mode: "on" }));
+    }));
+    expect(empty.stdout).not.toContain("NOTE");
+    expect(empty.status).toBe(0);
+  });
+
+  it("a local-tools run is known from config.json or the scenario, not only from demo-run.json", () => {
+    // evidence whose client record has no local rules is accepted for a run without local tools
+    const why = "a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules";
+    const mcpOnly = { scenario: { id: "github-issue-replay" }, localTools: undefined };
+    expect(cli(single(mcpOnly, undefined, noRules)).status).toBe(0);
+    // the scenario it names has local tools
+    const byScenario = cli(single({ localTools: undefined }, undefined, noRules));
+    expect(byScenario.stdout).toMatch(new RegExp(`^FAIL cross-check: .*${why}`, "m"));
+    expect(byScenario.status).toBe(1);
+    // config.json started it with a local-tools policy
+    const byConfig = cli(single(mcpOnly, (d) => {
+      const cfg = JSON.parse(readFileSync(join(d, "config.json"), "utf8"));
+      writeFileSync(join(d, "config.json"), JSON.stringify({ ...cfg, clientPolicyDir: "x/local-tools" }));
+    }, noRules));
+    expect(byConfig.stdout).toMatch(new RegExp(`^FAIL cross-check: .*${why}`, "m"));
+    expect(byConfig.status).toBe(1);
   });
 
   it("a run with Paztport off has nothing to check; one with Paztport on and no evidence fails", () => {

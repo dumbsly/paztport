@@ -6,7 +6,8 @@ import { join } from "node:path";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { readdirSync } from "node:fs";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { checkRecords, readLocalFacts, readOutcomeLog, scoreRunFile } from "./score.ts";
+import { usableRecords } from "./eval.ts";
+import { readLocalFacts, scoreRunFile } from "./score.ts";
 import { NOT_FAILURES, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 
@@ -360,7 +361,7 @@ export type SingleRunCheck = {
   /** The run's evidence.jsonl, labelled with its path in the folder. */
   report: VerifyReport;
   crossCheck: RunVerify;
-  /** demo-run.json records no server key (an older run), so the pins were not compared. */
+  /** demo-run.json records no server key, and the evidence has pins, so they were not compared with one. */
   noServerKey?: true;
   /**
    * The outcome demo-run.json records, and the outcome the run's files score now (as the demo scored it), or
@@ -400,11 +401,10 @@ const STATUSES: readonly string[] = ["completed", "timeout", "error"];
  * log, run.json's result and its transcript, and for a scenario with local tools what its workspace and events
  * log show (readLocalFacts, with canary.txt and the mode). Returns the outcome, or why it can't be scored.
  */
-function rescore(dir: string, scenarioId: unknown, mode: RunMode): { rescored: string } | { notRescored: string } | undefined {
+function rescore(dir: string, scenarioId: unknown, scenario: Scenario | undefined, mode: RunMode): { rescored: string } | { notRescored: string } | undefined {
   const run = readObject(join(dir, "run.json"));
   if (run === undefined) return undefined; // the cross-check says run.json can't be read
   if (typeof scenarioId !== "string") return { notRescored: "demo-run.json names no scenario" };
-  const scenario = findScenario(scenarioId);
   if (scenario === undefined) return { notRescored: `no scenario ${JSON.stringify(scenarioId)} in agents/scenarios` };
   if (!STATUSES.includes(run.status as string)) return { notRescored: "run.json records no status" };
   let canary = "";
@@ -421,7 +421,8 @@ function rescore(dir: string, scenarioId: unknown, mode: RunMode): { rescored: s
 /**
  * Checks a demo single-run folder as the eval checks each of its runs: its evidence.jsonl is verified, then
  * checkRun compares the events log, the outcome log and the evidence, and the evidence's pin with the server
- * key fingerprint, using the mode, scored outcome and localTools demo-run.json records. demo-run.json can be
+ * key fingerprint, using the mode and scored outcome demo-run.json records; the run has local tools when
+ * demo-run.json, config.json (a client policy) or the scenario it names says so. demo-run.json can be
  * edited, so it is not trusted on its own: whatever mode it records, a run whose outcome log shows signed
  * calls or whose events log shows local tool calls made during a run must have signed evidence (as
  * verifyResultsDir decides it), and its mode must be the one run.json and config.json record. A demo-run.json
@@ -454,22 +455,19 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
   }
   const key = obj.serverKey;
   const fingerprint = typeof key === "object" && key !== null ? (key as Record<string, unknown>).fingerprint : undefined;
-  let records: OutcomeRecord[] | null;
-  try {
-    records = readOutcomeLog(join(dir, "outcome.jsonl"));
-    if (checkRecords(records) !== undefined) records = null;
-  } catch {
-    records = null;
-  }
+  const scenarioId = typeof obj.scenario === "object" && obj.scenario !== null ? (obj.scenario as Record<string, unknown>).id : undefined;
+  const scenario = typeof scenarioId === "string" ? findScenario(scenarioId) : undefined;
+  const config = readObject(join(dir, "config.json"));
   let crossCheck = checkRun({
     mode: obj.mode as RunMode,
     outcome,
-    records,
+    records: usableRecords(join(dir, "outcome.jsonl")),
     evidencePath,
     eventsPath: join(dir, "events.jsonl"),
-    report: hasEvidenceFile(evidencePath) ? verifyEvidence(evidencePath) : undefined,
+    report: report.nothingToCheck === true ? undefined : report,
     expectedPin: typeof fingerprint === "string" ? fingerprint : undefined,
-    localTools: obj.localTools === true,
+    // demo-run.json can be edited: the runner's config (a client policy for local tools) and the scenario say so too
+    localTools: obj.localTools === true || typeof config?.clientPolicyDir === "string" || scenario?.localTools === true,
     pinOwner: "the demo's",
   });
   // what demo-run.json says is not trusted on its own: the run's own logs say whether it must have signed evidence
@@ -477,18 +475,18 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     const need = signedEvidenceNeeded(dir);
     if (need !== undefined) crossCheck = { status: "failed", problems: [need] };
   }
-  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode));
-  const scenarioId = typeof obj.scenario === "object" && obj.scenario !== null ? (obj.scenario as Record<string, unknown>).id : undefined;
-  const again = rescore(dir, scenarioId, obj.mode as RunMode);
+  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode, config));
+  const again = rescore(dir, scenarioId, scenario, obj.mode as RunMode);
   return {
     report,
     crossCheck,
-    ...(typeof fingerprint === "string" ? {} : { noServerKey: true as const }),
+    // only evidence with a pin had one to compare
+    ...(typeof fingerprint !== "string" && report.pins.length > 0 ? { noServerKey: true as const } : {}),
     ...(again !== undefined ? { outcome: { stored: outcome, ...again } } : {}),
   };
 }
 
-/** A JSON object read from a file in the run folder, or the reason it can't be. */
+/** A JSON object read from a file in the run folder, or undefined when it can't be read or is not one. */
 function readObject(path: string): Record<string, unknown> | undefined {
   try {
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
@@ -503,13 +501,12 @@ function readObject(path: string): Record<string, unknown> | undefined {
  * config.json starts Paztport in (enforce for the modes with Paztport on, off for the others). The runner writes
  * both before pi starts, so a file that can't be read can't show the mode either.
  */
-function modeDisagreements(dir: string, mode: RunMode): string[] {
+function modeDisagreements(dir: string, mode: RunMode, config: Record<string, unknown> | undefined): string[] {
   const problems: string[] = [];
   const unread = (f: string) => `${f} can't be read, so the mode demo-run.json records can't be checked against it`;
   const run = readObject(join(dir, "run.json"));
   if (run === undefined) problems.push(unread("run.json"));
   else if (run.mode !== mode) problems.push(`demo-run.json records mode ${mode}, but run.json records mode ${String(run.mode)}`);
-  const config = readObject(join(dir, "config.json"));
   const serverMode = EXPECT_EVIDENCE.includes(mode) ? "enforce" : "off";
   if (config === undefined) problems.push(unread("config.json"));
   else if (config.mode !== serverMode) problems.push(`demo-run.json records mode ${mode}, but config.json starts Paztport in mode ${String(config.mode)}`);

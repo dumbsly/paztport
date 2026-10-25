@@ -24,9 +24,10 @@
 //               dir, and pi's package folder ($PI_PACKAGE_DIR, as given and with its parent resolved), then a
 //               final answer; exit 0
 // With $STUB_TOUCH set, it first writes into its cwd: "files" writes stub-wrote.txt and a symlink link-out
-// pointing at /etc/hosts; "unreadable" does the same and adds unreadable.txt, a file no one may read.
+// pointing at /etc/hosts; "unreadable" does the same and adds unreadable.txt, a file no one may read;
+// "special" does the same and adds sub/kept.txt and two named pipes, pipe and sub/pipe.
 
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { appendFileSync, chmodSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
@@ -56,9 +57,14 @@ if (record) {
   writeFileSync(record, JSON.stringify({ argv: process.argv.slice(2), env: realEnv, cwd: process.cwd(), listing: readdirSync(process.cwd()), piPackageReal }));
 }
 const touch = process.env.STUB_TOUCH;
-if (touch === "files" || touch === "unreadable") {
+if (touch === "files" || touch === "unreadable" || touch === "special") {
   writeFileSync("stub-wrote.txt", "written during the run\n");
   symlinkSync("/etc/hosts", "link-out");
+  if (touch === "special") {
+    mkdirSync("sub");
+    writeFileSync("sub/kept.txt", "kept\n");
+    for (const f of ["pipe", "sub/pipe"]) execFileSync("mkfifo", [f]);
+  }
   if (touch === "unreadable") {
     writeFileSync("unreadable.txt", "no one may read this\n");
     chmodSync("unreadable.txt", 0o000);

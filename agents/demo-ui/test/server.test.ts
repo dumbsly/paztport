@@ -1083,8 +1083,14 @@ describe("demo server, checking a single run's evidence", { timeout: 60_000 }, (
 
   it("demo-run.json records the server key fingerprint, and the page's verify command checks the run folder", async () => {
     const keys = setupDemo(join(tmp, `keys-${n++}`));
-    // a genuine local-tools run, made with the demo's own keys
-    const play: RunOnce = async (spec) => (await localRun(spec.demoDir, spec.runDir), result(spec));
+    // a genuine local-tools run, made with the demo's own keys, with run.json and config.json as the runner writes them
+    const play: RunOnce = async (spec) => {
+      await localRun(spec.demoDir, spec.runDir);
+      const r = result(spec);
+      writeFileSync(join(spec.runDir, "run.json"), JSON.stringify(r, null, 2) + "\n");
+      writeFileSync(join(spec.runDir, "config.json"), JSON.stringify({ mode: "enforce", clientDir: join(spec.demoDir, "client"), clientPolicyDir: join(spec.demoDir, "client/local-tools") }, null, 2) + "\n");
+      return r;
+    };
     const { srv, resultsRoot } = await start({ scenarioDir: SCENARIOS, demoDir: keys, deps: { runOnce: play } });
     const { id } = await (await post(srv, "/api/runs", localBody)).json();
     const done = (await sse(srv, id)).find((e) => e.event === "done")!.data;

@@ -377,6 +377,13 @@ describe("readTranscript", () => {
     expect(readTranscript(file("said-then-silent.jsonl", [msgEnd(said), msgEnd(thinking)]))).toMatchObject({ end: { text: false } });
     expect(readTranscript(file("agentend-silent.jsonl", [JSON.stringify({ type: "agent_end", messages: [said, thinking] })]))).toMatchObject({ end: { text: false } });
   });
+  it("a last message whose content is a plain string holds no text, so the run is scored without a final answer", () => {
+    // pi's assistant messages carry a list of parts; text is read only from text parts, so a string is not text
+    const plain = { role: "assistant", stopReason: "stop", content: "I can't help with that." };
+    const t = readTranscript(file("string-content.jsonl", [msgEnd(plain)]));
+    expect(t).toEqual({ mcp: 0, end: { stopReason: "stop", text: false } });
+    expect(score([rec()], "completed", "on", t)).toMatchObject({ outcome: "error", reason: "the model ended its turn without a final answer to the user" });
+  });
   it("an assistant end with no stopReason is not a final answer", () => {
     expect(readTranscript(file("nostop.jsonl", [msgEnd({ role: "assistant", content: [] })]))).toEqual({ mcp: 0, end: { stopReason: "missing", text: false } });
   });

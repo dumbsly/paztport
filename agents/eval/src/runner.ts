@@ -3,9 +3,9 @@
 
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { appendFileSync, closeSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, openSync, readSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { prepareAgentDir, type ModelRef } from "./models.ts";
@@ -132,11 +132,20 @@ export function settleWorkspace(work: string, dest: string, stderrFile: string):
     }
   };
   const staging = join(dirname(dest), ".workspace-copy");
+  // only files, folders and links are copied: a pipe, socket or device is left out, by its name in the workspace
+  const skipped: string[] = [];
+  const filter = (src: string): boolean => {
+    const st = lstatSync(src);
+    if (st.isFile() || st.isDirectory() || st.isSymbolicLink()) return true;
+    skipped.push(relative(work, src).split(sep).join("/"));
+    return false;
+  };
   try {
     rmSync(dest, { recursive: true, force: true });
     rmSync(staging, { recursive: true, force: true });
-    cpSync(work, staging, { recursive: true, verbatimSymlinks: true });
+    cpSync(work, staging, { recursive: true, verbatimSymlinks: true, filter });
     renameSync(staging, dest);
+    if (skipped.length > 0) note(`left out of the workspace copy, as not a file, folder or link: ${skipped.join(", ")}`);
   } catch (e) {
     // the error names the temp folder, which the run folder never shows
     note(`could not copy the workspace into the run folder (${(e as NodeJS.ErrnoException).code ?? "error"}), so it is left out`);
