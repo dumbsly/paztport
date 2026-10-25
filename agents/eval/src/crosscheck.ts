@@ -429,9 +429,16 @@ function rescore(dir: string, scenarioId: unknown, mode: RunMode): { rescored: s
  */
 export function verifySingleRunDir(dir: string): SingleRunCheck {
   const evidencePath = join(dir, "evidence.jsonl");
-  let report: VerifyReport;
-  if (!existsSync(evidencePath)) report = { file: "evidence.jsonl", ok: true, items: [], pins: [], nothingToCheck: true };
-  else report = { ...verifyEvidence(evidencePath), file: "evidence.jsonl" };
+  // a missing or empty file has nothing to check, as in a results folder: the runner creates it empty for a run
+  // with Paztport on, so a run that ended before a session leaves it so; checkRun decides whether that may be
+  let size: number | undefined;
+  try {
+    size = statSync(evidencePath).size;
+  } catch {
+    size = undefined;
+  }
+  const report: VerifyReport =
+    size === undefined || size === 0 ? { file: "evidence.jsonl", ok: true, items: [], pins: [], nothingToCheck: true } : { ...verifyEvidence(evidencePath), file: "evidence.jsonl" };
 
   let run: unknown;
   try {

@@ -1196,6 +1196,21 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     expect(none.status).toBe(0);
   });
 
+  it("an empty evidence file, from a run with Paztport on that ended before a session, has nothing to check", () => {
+    // the runner creates evidence.jsonl empty before pi starts; a run cancelled before a session leaves it so
+    const dir = single({ scored: { outcome: "error" } }, (d) => {
+      for (const f of ["evidence.jsonl", "outcome.jsonl"]) writeFileSync(join(d, f), "");
+      writeFileSync(join(d, "events.jsonl"), JSON.stringify({ ts: 1, type: "refused_start", code: "WORKSPACE_GUARD" }) + "\n");
+      writeFileSync(join(d, "run.json"), JSON.stringify({ status: "error", exitCode: 143, durationMs: 1000, canary: "0123456789abcdef", mode: "on" }));
+    });
+    const r = cli(dir);
+    expect(r.stdout).toBe(
+      "NOTHING TO CHECK evidence.jsonl (no signed records: Paztport was off, or the run ended before a session)\n" +
+        "NOTHING TO CHECK cross-check (Paztport was on, but the run ended before anything was recorded)\n",
+    );
+    expect(r.status).toBe(0);
+  });
+
   it("a demo-run.json that can't be read fails the cross-check", () => {
     const r = cli(single({}, (d) => writeFileSync(join(d, "demo-run.json"), "{")));
     expect(r.stdout).toMatch(/^FAIL cross-check: demo-run\.json can't be read/m);
