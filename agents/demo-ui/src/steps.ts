@@ -133,12 +133,12 @@ function phraseFor(s: Scenario, tool: string, args: Obj): string {
 }
 
 /**
- * The plain phrase for a call by its full pi tool name, as the step rows say it, or undefined when the name is not
- * one of the scenario server's tools.
+ * The plain phrase for a call by its full pi tool name, as the step rows say it, or undefined when the tool is not
+ * one the scenario has a step for. The model chooses the name, so a name the scenario does not know is never shown.
  */
 export function callPhrase(s: Scenario, fullName: string, args: Obj): string | undefined {
   const tool = toolOf(fullName, s.serverId);
-  return tool === undefined ? undefined : phraseFor(s, tool, args);
+  return tool === undefined || !Object.hasOwn(s.steps, tool) ? undefined : phraseFor(s, tool, args);
 }
 
 /**

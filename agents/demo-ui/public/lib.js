@@ -76,14 +76,58 @@ export function formatDuration(ms) {
   return r === 0 ? `${m} min` : `${m} min ${r} s`;
 }
 
+const ENDED = new Set(["finished", "stopped"]);
+const TRAIL = 3;
+
 /**
- * The activity line under the timer: what the run is doing and how long it has been doing it, for example
- * "The model is thinking… (38 s)". A finished run has no time; anything malformed shows nothing.
+ * The activity trail: what the run is doing now, then the two states before it. An entry keeps only the server's
+ * label, never model text. An event that repeats the top entry (a reconnect replaying the latest) changes nothing;
+ * a new run (starting, or another place in a series) starts a new trail. Returns the trail unchanged for anything
+ * malformed.
  */
-export function activityLine(a, now) {
-  if (!a || typeof a.text !== "string") return "";
-  if (a.state === "finished" || typeof a.since !== "number") return a.text;
-  return `${a.text} (${formatDuration(now - a.since)})`;
+export function pushActivity(trail, a, now) {
+  if (!a || typeof a.label !== "string" || typeof a.state !== "string") return trail;
+  const where = typeof a.where === "string" ? a.where : undefined;
+  const since = typeof a.since === "number" ? a.since : now;
+  const top = trail[0];
+  if (top && top.label === a.label && top.since === since && top.where === where) return trail;
+  const entry = { state: a.state, label: a.label, where, since };
+  if (!top || a.state === "starting" || top.where !== where) return [entry];
+  return [entry, { ...top, ended: since }, ...trail.slice(1)].slice(0, TRAIL);
+}
+
+/**
+ * The trail as lines of text. The top line has the place in a series and the seconds in this state (none once the
+ * run has ended). The lines below are past states: no trailing ellipsis, and the time they lasted, kept as it was
+ * when they ended, unless that was under a second.
+ */
+export function trailLines(trail, now) {
+  return trail.map((e, i) => {
+    if (i === 0) {
+      const time = ENDED.has(e.state) ? "" : ` (${formatDuration(now - e.since)})`;
+      return `${e.where !== undefined ? `${e.where} — ` : ""}${e.label}${time}`;
+    }
+    const lasted = typeof e.ended === "number" ? e.ended - e.since : 0;
+    return `${e.label.replace(/…$/, "")}${Math.round(lasted / 1000) >= 1 ? ` (${formatDuration(lasted)})` : ""}`;
+  });
+}
+
+/**
+ * The trail's elements, built with the page's element helper `h`. Plain paragraphs: no live region and no role,
+ * because the top line changes every second; the page's own status region announces steps and the end.
+ */
+export function activityView(h) {
+  const lines = [h("p", { class: "activity-line" }), h("p", { class: "activity-line past" }), h("p", { class: "activity-line past" })];
+  const root = h("div", { class: "activity-trail", hidden: true }, ...lines);
+  const render = (trail, now) => {
+    const text = trailLines(trail, now);
+    lines.forEach((el, i) => {
+      el.textContent = text[i] ?? "";
+      el.hidden = el.textContent === "";
+    });
+    root.hidden = text.length === 0;
+  };
+  return { root, lines, render };
 }
 
 /** The classes so far in an eval, with the summary's names; other is timeout, error and no tool calls. */

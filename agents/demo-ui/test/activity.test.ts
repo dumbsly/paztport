@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
-import { ACTIVITY, activityText, FINISHED, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "../src/activity.ts";
+import { ACTIVITY, endActivity, FINISHED, nextActivity, runWhere, sameActivity, STARTING, STOPPED, tallyOf, type Activity } from "../src/activity.ts";
 
 const scenario = loadScenario(BUILTIN_SCENARIO_DIR);
 const SECRET = "s3cret-payroll-7f2e";
@@ -35,6 +35,7 @@ describe("nextActivity", () => {
   it("uses the agreed wording for each state", () => {
     expect(STARTING).toEqual({ state: "starting", label: "Starting pi and the mock GitHub server…" });
     expect(FINISHED).toEqual({ state: "finished", label: "Run finished" });
+    expect(STOPPED).toEqual({ state: "stopped", label: "Run stopped" });
     expect(ACTIVITY).toEqual({
       starting: "Starting pi and the mock GitHub server…",
       thinking: "The model is thinking…",
@@ -42,6 +43,7 @@ describe("nextActivity", () => {
       calling: "Calling a tool…",
       waiting: "Waiting for the mock GitHub server's reply…",
       finished: "Run finished",
+      stopped: "Run stopped",
     });
   });
 
@@ -93,6 +95,40 @@ describe("nextActivity", () => {
     expect(nextActivity(writing, { type: "agent_end", messages: [], willRetry: false }, scenario)).toBe(writing);
     expect(nextActivity(writing, { type: "agent_settled", aborted: false }, scenario)).toEqual(FINISHED);
     expect(nextActivity(FINISHED, { type: "turn_start" }, scenario)).toBe(FINISHED);
+  });
+
+  it("an aborted settle is run stopped, never run finished, and stays there", () => {
+    const thinking: Activity = { state: "thinking", label: ACTIVITY.thinking };
+    expect(nextActivity(thinking, { type: "agent_settled", aborted: true }, scenario)).toEqual(STOPPED);
+    expect(nextActivity(STOPPED, { type: "turn_start" }, scenario)).toBe(STOPPED);
+    expect(nextActivity(STOPPED, { type: "agent_settled", aborted: false }, scenario)).toBe(STOPPED);
+  });
+
+  it("endActivity: only a completed run that was not cancelled is finished; a timeout, an error or a cancel is stopped", () => {
+    expect(endActivity("completed", false)).toEqual(FINISHED);
+    expect(endActivity("timeout", false)).toEqual(STOPPED);
+    expect(endActivity("error", false)).toEqual(STOPPED);
+    expect(endActivity("completed", true)).toEqual(STOPPED);
+  });
+
+  it("a tool name the scenario has no step for is never shown, however the model spells it", () => {
+    const calling: Activity = { state: "calling", label: ACTIVITY.calling };
+    const long = `${SECRET}-${"x".repeat(500)}`;
+    for (const name of [`mcp__github__${long}`, `mcp__other__${long}`, `mcp__github__constructor`, `mcp__github____proto__`]) {
+      const a = nextActivity(calling, update({ type: "toolcall_end", contentIndex: 1, toolCall: { type: "toolCall", id: "c", name, arguments: { owner: "acme", repo: "website" } } }), scenario);
+      expect(a.label).toBe("Calling a tool…");
+      expect(a.label).not.toContain(SECRET);
+    }
+  });
+
+  it("a long argument in the phrase is cut at the step rows' limit, so the label stays short", () => {
+    const calling: Activity = { state: "calling", label: ACTIVITY.calling };
+    const long = `${SECRET}${"y".repeat(5000)}`;
+    const a = nextActivity(calling, toolcallEnd("create_or_update_file", { owner: "acme", repo: "website", branch: long, path: long }), scenario);
+    expect(a.label).not.toContain(long);
+    expect(a.label.startsWith("Calling: write ")).toBe(true);
+    // two arguments of at most 80 characters and an ellipsis each, in a short fixed sentence
+    expect(a.label.length).toBeLessThanOrEqual("Calling: write  on  in acme/website…".length + 2 * 81);
   });
 
   it("ignores ends of blocks, other messages and anything that is not an event", () => {
@@ -188,10 +224,8 @@ describe("nextActivity", () => {
 });
 
 describe("where a run is, and the tally so far", () => {
-  it("activityText prefixes where the run is in an eval", () => {
-    expect(activityText(STARTING)).toBe("Starting pi and the mock GitHub server…");
+  it("runWhere says where a run is in an eval", () => {
     expect(runWhere(12, 100, "Paztport on", 3)).toBe("Run 12 of 100 · Paztport on, run 3");
-    expect(activityText({ state: "thinking", label: ACTIVITY.thinking }, runWhere(12, 100, "Paztport on", 3))).toBe("Run 12 of 100 · Paztport on, run 3 — The model is thinking…");
   });
 
   it("tallyOf counts leaked, blocked (with or without private text), resisted and other", () => {

@@ -14,7 +14,7 @@ import { CLASSES_NOTE, DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/re
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { activityText, FINISHED, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "./activity.ts";
+import { endActivity, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "./activity.ts";
 import { buildSteps, finalAnswer, PLAIN_CLASS, type Step } from "./steps.ts";
 
 export type DemoServerOptions = {
@@ -404,6 +404,8 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
   }
 
   function emit(run: ActiveRun, event: string, data: unknown): void {
+    // a client that connects late needs only what the run is doing now, not every state it passed through
+    if (event === "activity") run.buffer = run.buffer.filter((e) => e.event !== "activity");
     run.buffer.push({ event, data });
     for (const c of run.clients) c.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   }
@@ -419,18 +421,19 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
   /**
    * One run's activity line (see activity.ts), sent as `activity` events only when it changes. `since` is when
    * the run entered this state; the page counts the seconds from it. `where` places a run within an eval.
+   * `ended` takes the run's result, so a run that timed out, failed or was cancelled says it stopped.
    */
   function activityFeed(run: ActiveRun, scenario: Scenario, where?: string) {
     let current: Activity | undefined;
     const send = (next: Activity) => {
       if (run.finished || (current !== undefined && sameActivity(current, next))) return;
       current = next;
-      emit(run, "activity", { state: next.state, text: activityText(next, where), since: Date.now() });
+      emit(run, "activity", { state: next.state, label: next.label, since: Date.now(), ...(where !== undefined ? { where } : {}) });
     };
     return {
       start: () => send(STARTING),
       event: (ev: unknown) => send(nextActivity(current ?? STARTING, ev, scenario)),
-      finished: () => send(FINISHED),
+      ended: (result: RunResult) => send(endActivity(result.status, run.cancelled || run.ac.signal.aborted)),
     };
   }
 
@@ -544,7 +547,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     } catch {
       // the run is shown either way; it just can't be reopened later
     }
-    activity.finished();
+    activity.ended(result);
     finish(run, {
       ...result,
       name,
@@ -592,7 +595,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
         },
         signal,
       );
-      activity.finished();
+      activity.ended(result);
       return result;
     };
     let lastCount = -1;

@@ -394,11 +394,20 @@ dl.facts dd {
   margin: 0 0 0.8rem;
 }
 
-/* what the run is doing now, under the timer */
-.activity-line {
+/* what the run is doing now, under the timer, with the two states before it fainter below */
+.activity-trail {
   margin: -0.5rem 0 0.8rem;
-  color: var(--muted);
   font-variant-numeric: tabular-nums;
+}
+
+.activity-line {
+  margin: 0;
+}
+
+.activity-line.past {
+  color: var(--muted);
+  font-size: 0.92rem;
+  opacity: 0.8;
 }
 
 .tally-line {

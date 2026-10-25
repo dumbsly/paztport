@@ -334,7 +334,8 @@ describe("demo server", () => {
       deps: {
         runOnce: async (spec, onLine) => {
           mkdirSync(spec.runDir, { recursive: true });
-          await wait(30);
+          // the replay buffer keeps only the latest activity, so give the stream time to connect
+          await wait(150);
           for (const l of lines) {
             onLine?.("transcript", l);
             if (l.includes("tool_execution_end")) onLine?.("outcome", JSON.stringify(record({ callId: "c1" })));
@@ -348,7 +349,7 @@ describe("demo server", () => {
     const { id } = await (await post(srv, "/api/runs", body)).json();
     const events = await sse(srv, id);
     const activity = events.filter((e) => e.event === "activity");
-    expect(activity.map((e) => e.data.text)).toEqual([
+    expect(activity.map((e) => e.data.label)).toEqual([
       "Starting pi and the mock GitHub server…",
       "The model is thinking…",
       "Calling a tool…",
@@ -360,7 +361,8 @@ describe("demo server", () => {
     ]);
     expect(activity.map((e) => e.data.state)).toEqual(["starting", "thinking", "calling", "calling", "waiting", "thinking", "writing", "finished"]);
     for (const a of activity) {
-      expect(Object.keys(a.data).sort()).toEqual(["since", "state", "text"]);
+      // a single run has no "where"
+      expect(Object.keys(a.data).sort()).toEqual(["label", "since", "state"]);
       expect(a.data.since).toBeGreaterThanOrEqual(before);
     }
     expect(activity.map((e) => e.data.since)).toEqual([...activity.map((e) => e.data.since)].sort((a, b) => a - b));
@@ -368,14 +370,34 @@ describe("demo server", () => {
     // the step still streams, and done comes last
     expect(events.filter((e) => e.event === "step").map((e) => e.data.phrase)).toEqual(["list the issues on acme/website"]);
     expect(events.at(-1)!.event).toBe("done");
-    expect(events.findIndex((e) => e.data.text === "Run finished")).toBe(events.length - 2);
+    expect(events.findIndex((e) => e.data.label === "Run finished")).toBe(events.length - 2);
+    // connecting again after the end replays only the latest activity, then the steps and done
+    const again = await sse(srv, id);
+    expect(again.filter((e) => e.event === "activity").map((e) => e.data.label)).toEqual(["Run finished"]);
+    expect(again.at(-2)!.event).toBe("activity");
+    expect(again.at(-1)!.event).toBe("done");
+  });
+
+  it("activity: a run that hit its time limit, or was cancelled, ends at run stopped, never run finished", async () => {
+    const { srv } = await start({
+      deps: {
+        runOnce: async (spec, onLine) => {
+          await wait(150);
+          onLine?.("transcript", JSON.stringify({ type: "turn_start" }));
+          return result(spec, "timeout");
+        },
+      },
+    });
+    const { id } = await (await post(srv, "/api/runs", body)).json();
+    const activity = (await sse(srv, id)).filter((e) => e.event === "activity").map((e) => e.data.label);
+    expect(activity).toEqual(["Starting pi and the mock GitHub server…", "The model is thinking…", "Run stopped"]);
   });
 
   it("activity: a run with no transcript lines goes from starting to finished", async () => {
-    const { srv } = await start({ deps: { runOnce: async (spec) => (mkdirSync(spec.runDir, { recursive: true }), result(spec)) } });
+    const { srv } = await start({ deps: { runOnce: async (spec) => (mkdirSync(spec.runDir, { recursive: true }), await wait(150), result(spec)) } });
     const { id } = await (await post(srv, "/api/runs", body)).json();
     const events = await sse(srv, id);
-    expect(events.map((e) => [e.event, e.data.text])).toEqual([
+    expect(events.map((e) => [e.event, e.data.label])).toEqual([
       ["activity", "Starting pi and the mock GitHub server…"],
       ["activity", "Run finished"],
       ["done", undefined],
@@ -390,7 +412,8 @@ describe("demo server", () => {
       r.requested = { modes: ["on"], runs: 2 };
       const write = () => writeFileSync(join(opts.outDir, "results.json"), JSON.stringify(r));
       write();
-      const outcomes = ["blocked", "error"] as const;
+      const outcomes = ["blocked", "timeout"] as const;
+      await wait(150);
       for (let i = 1; i <= 2; i++) {
         const runDir = join(opts.outDir, "runs", `on-00${i}`);
         await deps!.runOnce!({ scenarioDir: opts.scenarioDir, mode: "on", model: { provider: "ollama", id: "qwen3:4b" }, runDir, demoDir: "k", agentDir: "a", userAgentDir: false, timeoutMs: 1000 }, undefined, deps!.signal);
@@ -406,19 +429,20 @@ describe("demo server", () => {
         runOnce: async (spec, onLine) => {
           onLine?.("transcript", turn);
           onLine?.("transcript", turn);
-          return result(spec);
+          await wait(20);
+          return result(spec, spec.runDir.endsWith("on-002") ? "timeout" : "completed");
         },
       },
     });
     const { id } = await (await post(srv, "/api/runs", { ...body, runs: 2 })).json();
     const events = await sse(srv, id);
-    expect(events.filter((e) => e.event === "activity").map((e) => e.data.text)).toEqual([
+    expect(events.filter((e) => e.event === "activity").map((e) => `${e.data.where} — ${e.data.label}`)).toEqual([
       "Run 1 of 2 · Paztport on, run 1 — Starting pi and the mock GitHub server…",
       "Run 1 of 2 · Paztport on, run 1 — The model is thinking…",
       "Run 1 of 2 · Paztport on, run 1 — Run finished",
       "Run 2 of 2 · Paztport on, run 2 — Starting pi and the mock GitHub server…",
       "Run 2 of 2 · Paztport on, run 2 — The model is thinking…",
-      "Run 2 of 2 · Paztport on, run 2 — Run finished",
+      "Run 2 of 2 · Paztport on, run 2 — Run stopped",
     ]);
     const progress = events.filter((e) => e.event === "progress" && typeof e.data.completed === "number").map((e) => e.data);
     expect(progress).toContainEqual({ completed: 1, planned: 2, tally: { leaked: 0, blocked: 1, resisted: 0, other: 0 } });
@@ -457,9 +481,12 @@ describe("demo server", () => {
     const events = sse(srv, id);
     await wait(50);
     expect((await post(srv, `/api/runs/${id}/cancel`)).status).toBe(200);
-    const last = (await events).at(-1)!;
+    const all = await events;
+    const last = all.at(-1)!;
     expect(last.event).toBe("done");
     expect(last.data.cancelled).toBe(true);
+    // a cancelled run did not finish
+    expect(all.filter((e) => e.event === "activity").at(-1)!.data.label).toBe("Run stopped");
     const list = (await (await api(srv, "/api/results")).json()) as any[];
     expect(list[0]).toMatchObject({ kind: "single", status: "error", cancelled: true });
     expect(list[0].medianRunMs).toBeUndefined();

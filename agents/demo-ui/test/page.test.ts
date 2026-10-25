@@ -168,18 +168,77 @@ describe("demo page", () => {
     expect(formatCell(undefined)).toBe("not recorded in this folder's format");
   });
 
-  it("activityLine: the activity with how long the run has been in it; no seconds once the run has finished", async () => {
-    const { activityLine } = await lib();
-    expect(activityLine({ state: "thinking", text: "The model is thinking…", since: 1_000 }, 39_000)).toBe("The model is thinking… (38 s)");
-    expect(activityLine({ state: "waiting", text: "Run 2 of 3 · Paztport on, run 2 — Waiting for the mock GitHub server's reply…", since: 0 }, 68_000)).toBe(
-      "Run 2 of 3 · Paztport on, run 2 — Waiting for the mock GitHub server's reply… (1 min 8 s)",
-    );
-    // a clock that reads earlier than the server's is never a negative time
-    expect(activityLine({ state: "thinking", text: "The model is thinking…", since: 5_000 }, 1_000)).toBe("The model is thinking… (0 s)");
-    expect(activityLine({ state: "finished", text: "Run finished", since: 0 }, 9_000)).toBe("Run finished");
-    expect(activityLine({ state: "thinking", text: "The model is thinking…" }, 9_000)).toBe("The model is thinking…");
-    expect(activityLine(undefined, 0)).toBe("");
-    expect(activityLine({ state: "thinking", text: 3 }, 0)).toBe("");
+  it("activity trail: the current state on top with its seconds, the two before it below, frozen", async () => {
+    const { pushActivity, trailLines } = await lib();
+    let t: unknown[] = [];
+    t = pushActivity(t, { state: "starting", label: "Starting pi and the mock GitHub server…", since: 0 }, 0);
+    t = pushActivity(t, { state: "thinking", label: "The model is thinking…", since: 400 }, 400);
+    expect(trailLines(t, 30_400)).toEqual(["The model is thinking… (30 s)", "Starting pi and the mock GitHub server"]);
+    t = pushActivity(t, { state: "calling", label: "Calling: read README.md in acme/payroll-notes…", since: 41_400 }, 41_400);
+    t = pushActivity(t, { state: "waiting", label: "Waiting for the mock GitHub server's reply…", since: 41_500 }, 41_500);
+    // at most three entries; an entry that lasted under a second has no time, a longer one keeps the time it had
+    expect(t).toHaveLength(3);
+    expect(trailLines(t, 43_500)).toEqual([
+      "Waiting for the mock GitHub server's reply… (2 s)",
+      "Calling: read README.md in acme/payroll-notes",
+      "The model is thinking (41 s)",
+    ]);
+    // the same event again (a reconnect replaying the latest) changes nothing
+    expect(pushActivity(t, { state: "waiting", label: "Waiting for the mock GitHub server's reply…", since: 41_500 }, 50_000)).toBe(t);
+    // a finished or stopped run has no seconds on top
+    expect(trailLines(pushActivity(t, { state: "finished", label: "Run finished", since: 44_000 }, 44_000), 99_000)[0]).toBe("Run finished");
+    expect(trailLines(pushActivity(t, { state: "stopped", label: "Run stopped", since: 44_000 }, 44_000), 99_000)[0]).toBe("Run stopped");
+    // anything malformed is left out
+    expect(pushActivity(t, { state: "thinking", label: 3 }, 0)).toBe(t);
+    expect(pushActivity(t, undefined, 0)).toBe(t);
+    expect(trailLines([], 0)).toEqual([]);
+  });
+
+  it("activity trail in a series: the place in the series is only on the top line, and a new run starts a new trail", async () => {
+    const { pushActivity, trailLines } = await lib();
+    const where1 = "Run 1 of 2 · Paztport on, run 1";
+    const where2 = "Run 2 of 2 · Paztport on, run 2";
+    let t: unknown[] = [];
+    t = pushActivity(t, { state: "starting", label: "Starting pi and the mock GitHub server…", since: 0, where: where1 }, 0);
+    t = pushActivity(t, { state: "thinking", label: "The model is thinking…", since: 5_000, where: where1 }, 5_000);
+    expect(trailLines(t, 8_000)).toEqual([`${where1} — The model is thinking… (3 s)`, "Starting pi and the mock GitHub server (5 s)"]);
+    t = pushActivity(t, { state: "finished", label: "Run finished", since: 9_000, where: where1 }, 9_000);
+    t = pushActivity(t, { state: "starting", label: "Starting pi and the mock GitHub server…", since: 9_100, where: where2 }, 9_100);
+    expect(trailLines(t, 10_000)).toEqual([`${where2} — Starting pi and the mock GitHub server… (1 s)`]);
+  });
+
+  it("activityView: the trail's elements are plain text with no live region or role, and a fainter style below the top", async () => {
+    const { activityView, pushActivity } = await lib();
+    type El = { tag: string; props: Record<string, unknown>; kids: El[]; textContent: string; hidden: boolean };
+    const made: El[] = [];
+    const h = (tag: string, props: Record<string, unknown>, ...kids: El[]): El => {
+      const el = { tag, props, kids, textContent: "", hidden: props.hidden === true };
+      made.push(el);
+      return el;
+    };
+    const view = activityView(h);
+    expect(made.length).toBeGreaterThan(1);
+    for (const el of made) {
+      expect(Object.keys(el.props)).not.toContain("aria-live");
+      expect(Object.keys(el.props)).not.toContain("role");
+      expect(Object.keys(el.props).some((k) => k.startsWith("on"))).toBe(false);
+    }
+    expect(view.root.hidden).toBe(true);
+    expect(view.lines).toHaveLength(3);
+    expect(view.lines[0].props.class).toBe("activity-line");
+    expect(view.lines.slice(1).every((l: El) => l.props.class === "activity-line past")).toBe(true);
+    let t: unknown[] = [];
+    t = pushActivity(t, { state: "starting", label: "Starting pi and the mock GitHub server…", since: 0 }, 0);
+    t = pushActivity(t, { state: "thinking", label: "The model is thinking…", since: 2_000 }, 2_000);
+    view.render(t, 40_000);
+    expect(view.root.hidden).toBe(false);
+    expect(view.lines.map((l: El) => [l.textContent, l.hidden])).toEqual([
+      ["The model is thinking… (38 s)", false],
+      ["Starting pi and the mock GitHub server (2 s)", false],
+      ["", true],
+    ]);
+    view.render([], 0);
+    expect(view.root.hidden).toBe(true);
   });
 
   it("tallyLine: the classes so far, with the same names as the summary", async () => {
@@ -189,12 +248,11 @@ describe("demo page", () => {
     expect(tallyLine({ leaked: "x" })).toBe("");
   });
 
-  it("the page shows the activity under the timer, outside the screen-reader region", () => {
+  it("the page builds the activity trail with activityView and feeds it activity events", () => {
     const app = text("app.js");
     expect(app).toMatch(/event === "activity"/);
-    expect(app).toMatch(/class: "activity-line"/);
-    // the activity line ticks every second, so it is not a live region
-    expect(app).not.toMatch(/activity-line"[^)]*aria-live/);
+    expect(app).toContain("activityView(h)");
+    expect(app).toContain("pushActivity(");
   });
 
   it("the classes note is the report's own sentence, sent by the server, never a copy that can drift", () => {

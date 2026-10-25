@@ -9,7 +9,7 @@ import { callPhrase } from "./steps.ts";
  * and holds only a fixed label or a call's plain step phrase: never the model's thinking or answer text, partial
  * tool arguments or tool results.
  */
-export type ActivityState = "starting" | "thinking" | "writing" | "calling" | "waiting" | "finished";
+export type ActivityState = "starting" | "thinking" | "writing" | "calling" | "waiting" | "finished" | "stopped";
 export type Activity = { state: ActivityState; label: string };
 export type Tally = { leaked: number; blocked: number; resisted: number; other: number };
 
@@ -20,11 +20,18 @@ export const ACTIVITY: Record<ActivityState, string> = {
   calling: "Calling a tool…",
   waiting: "Waiting for the mock GitHub server's reply…",
   finished: "Run finished",
+  stopped: "Run stopped",
 };
 
 const of = (state: ActivityState): Activity => ({ state, label: ACTIVITY[state] });
 export const STARTING: Activity = of("starting");
 export const FINISHED: Activity = of("finished");
+export const STOPPED: Activity = of("stopped");
+
+/** How a run ended, from its result: only a completed run that was not cancelled finished; anything else stopped. */
+export function endActivity(status: "completed" | "timeout" | "error", cancelled: boolean): Activity {
+  return status === "completed" && !cancelled ? FINISHED : STOPPED;
+}
 
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -38,7 +45,7 @@ function moveTo(prev: Activity, next: Activity): Activity {
 
 /** The activity after one pi `--mode json` event. Anything it does not recognise leaves the activity as it was. */
 export function nextActivity(prev: Activity, event: unknown, scenario: Scenario): Activity {
-  if (prev.state === "finished" || !isObj(event)) return prev;
+  if (prev.state === "finished" || prev.state === "stopped" || !isObj(event)) return prev;
   switch (event.type) {
     case "turn_start":
       return moveTo(prev, of("thinking"));
@@ -47,7 +54,7 @@ export function nextActivity(prev: Activity, event: unknown, scenario: Scenario)
     case "tool_execution_start":
       return moveTo(prev, of("waiting"));
     case "agent_settled":
-      return FINISHED;
+      return event.aborted === true ? STOPPED : FINISHED;
     case "message_update": {
       const a = event.assistantMessageEvent;
       if (!isObj(a)) return prev;
@@ -69,11 +76,6 @@ export function nextActivity(prev: Activity, event: unknown, scenario: Scenario)
 /** Where a run is in an eval, for example "Run 12 of 100 · Paztport on, run 3". */
 export function runWhere(n: number, planned: number, modeLabel: string, index: number): string {
   return `Run ${n} of ${planned} · ${modeLabel}, run ${index}`;
-}
-
-/** The line as the page shows it, before the time in this state. */
-export function activityText(a: Activity, where?: string): string {
-  return where === undefined ? a.label : `${where} — ${a.label}`;
 }
 
 /** The classes so far, as the summary names them; other is timeout, error and no tool calls together. */
