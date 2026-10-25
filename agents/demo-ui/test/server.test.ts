@@ -7,6 +7,7 @@ import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { runEval, type ResultsFile } from "../../eval/src/eval.ts";
+import { CLASSES_NOTE } from "../../eval/src/report.ts";
 import type { LineFile, RunResult, RunSpec } from "../../eval/src/runner.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
@@ -676,6 +677,7 @@ describe("demo server", () => {
     expect(setup.table.definitions.map((d: any) => d.key)).toEqual(["leaked", "blocked", "blockedWithPrivateText", "resisted", "readPrivate", "taskDone", "harnessFault", "timeout", "error", "noToolCalls"]);
     expect(setup.table.limits.length).toBeGreaterThan(0);
     expect(setup.refusalsNote).toMatch(/unsigned/i);
+    expect(setup.table.classesNote).toBe(CLASSES_NOTE);
   });
 
   it("an empty verify list is not all verified", async () => {

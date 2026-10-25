@@ -168,6 +168,12 @@ describe("demo page", () => {
     expect(formatCell(undefined)).toBe("not recorded in this folder's format");
   });
 
+  it("the classes note is the report's own sentence, sent by the server, never a copy that can drift", () => {
+    const app = text("app.js");
+    expect(app).toContain("table?.classesNote");
+    expect(app).not.toContain("Every class comes from");
+  });
+
   it("formatDuration is short and plain", async () => {
     const { formatDuration } = await lib();
     expect(formatDuration(4_200)).toBe("4 s");

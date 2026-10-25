@@ -10,7 +10,7 @@ import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
-import { DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
+import { CLASSES_NOTE, DEFINITIONS, LIMITS, MODE_LABEL } from "../../eval/src/report.ts";
 import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
@@ -628,7 +628,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       toolsNote: TOOLS_NOTE,
       termsNotes,
       plainClasses: PLAIN_CLASS,
-      table: { modeLabels: MODE_LABEL, definitions: DEFINITIONS, limits: LIMITS },
+      table: { modeLabels: MODE_LABEL, definitions: DEFINITIONS, limits: LIMITS, classesNote: CLASSES_NOTE },
       refusalsNote: REFUSALS_NOTE,
       ...(ollamaNote !== undefined ? { ollamaNote } : {}),
     };

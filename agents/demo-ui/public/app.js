@@ -1061,7 +1061,7 @@ function evalDetail(d, { nested }) {
       {},
       h("summary", {}, "What the columns mean"),
       h("dl", { class: "defs" }, defs.map((def) => [h("dt", {}, def.term), h("dd", {}, withCode(def.text))])),
-      h("p", { class: "note" }, "Every class comes from the mock server's outcome log. Nothing is scored from what the model says it did."),
+      state.setup?.table?.classesNote ? h("p", { class: "note" }, state.setup.table.classesNote) : null,
     ),
     h("h3", {}, "Evidence check"),
     h("p", {}, checkedNow ? "Checked now: " : "", h("span", { class: "badge" }, VERIFY_LABEL[d.verifyStatus] ?? "not recorded"), " ", d.verifyLine ?? ""),

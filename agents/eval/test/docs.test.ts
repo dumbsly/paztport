@@ -11,7 +11,7 @@ import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures } from "../../mock
 import { OutcomeLog, type OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { parseCli } from "../src/eval-main.ts";
 import { runEval, type EvalOptions } from "../src/eval.ts";
-import { DEFINITIONS, LIMITS } from "../src/report.ts";
+import { CLASSES_NOTE, DEFINITIONS, LIMITS } from "../src/report.ts";
 import { scoreRun } from "../src/score.ts";
 import type { RunResult, RunSpec } from "../src/runner.ts";
 
@@ -85,6 +85,7 @@ describe("build your own evaluation", { timeout: 60_000 }, () => {
     expect(results.payload).toEqual({ kind: "custom", sha256: createHash("sha256").update(payloadText).digest("hex") });
     expect(results.scenario.id).toBe(scenario.id);
     expect(readFileSync(join(out, "summary.md"), "utf8")).toContain("custom (not the reference text)");
+    expect(readFileSync(join(out, "summary.md"), "utf8")).toContain(CLASSES_NOTE);
   });
 
   it("theGuideSaysTheServerNameIsFixed", () => {
@@ -103,6 +104,16 @@ describe("the documents follow the code", () => {
   it("everyColumnAndLimitIsQuotedFromTheReport", () => {
     for (const d of DEFINITIONS) expect(EVAL_README, d.term).toContain(`**${d.term}**: ${d.text}`);
     for (const l of LIMITS) expect(EVAL_README).toContain(l);
+  });
+
+  it("theClassesNoteSaysWhatPiCanAndCannotChange", () => {
+    expect(CLASSES_NOTE).toBe(
+      "Every class comes from the mock server's outcome log, except that a run can also be marked an error from pi's own record (for example a model provider error or an answer cut off at the length limit). Nothing is scored from what the model says it did, and nothing in pi's record can give a run credit.",
+    );
+    expect(EVAL_README).toContain(CLASSES_NOTE);
+    for (const text of [EVAL_README, readFileSync(join(AGENTS, "eval/src/report.ts"), "utf8"), readFileSync(join(AGENTS, "demo-ui/public/app.js"), "utf8")]) {
+      expect(text).not.toContain("Every class comes from the mock server's outcome log. Nothing");
+    }
   });
 
   it("theLongRunsNoteSaysHowToKeepTheMachineAwake", () => {
