@@ -1042,3 +1042,31 @@ describe("demo server, scenario with local tools", () => {
     expect(done.steps[0]).toMatchObject({ tool: "bash", phrase: "run the command cat $HOME/x", result: "refused", reason: "couldn't be checked", code: "UNCHECKABLE" });
   });
 });
+
+describe("demo server, scoring a run with local tools", () => {
+  const SCENARIOS = join(import.meta.dirname, "../../scenarios");
+  const localBody = { ...body, scenario: "github-issue-replay-local" };
+
+  it("a local INFLUENCE_DENIED in the events log scores the run blocked, as the eval would, on the page and in demo-run.json", async () => {
+    const play: RunOnce = async (spec) => {
+      mkdirSync(join(spec.runDir, "workspace"), { recursive: true });
+      const transcript = [
+        JSON.stringify({ type: "tool_execution_start", toolCallId: "l1", toolName: "write", args: { path: "public/notes.md" } }),
+        JSON.stringify({ type: "message_end", message: { role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Done." }] } }),
+      ];
+      const events = [
+        JSON.stringify({ ts: 1, type: "local", tool: "write", callId: "l1", rid: "r1", verdict: "INFLUENCE_DENIED" }),
+        JSON.stringify({ ts: 2, type: "local", tool: "bash", callId: "l2", rid: "r2", verdict: "SCOPE_DENIED" }),
+      ];
+      writeFileSync(join(spec.runDir, "transcript.jsonl"), transcript.join("\n") + "\n");
+      writeFileSync(join(spec.runDir, "events.jsonl"), events.join("\n") + "\n");
+      return result(spec);
+    };
+    const { srv, resultsRoot } = await start({ scenarioDir: SCENARIOS, deps: { runOnce: play } });
+    const { id } = await (await post(srv, "/api/runs", localBody)).json();
+    const done = (await sse(srv, id)).find((e) => e.event === "done")!.data;
+    expect(done.scored).toMatchObject({ outcome: "blocked", scopeRefused: true });
+    const saved = JSON.parse(readFileSync(join(resultsRoot, done.name, "demo-run.json"), "utf8"));
+    expect(saved.scored).toEqual(done.scored);
+  });
+});

@@ -11,7 +11,7 @@ import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
 import { recheckResultsDir, recheckSignature, type Recheck } from "../../eval/src/recheck.ts";
 import { CLASSES_NOTE, LIMITS, LOCAL_CLASSES_NOTE, LOCAL_LIMIT, LOCAL_SHELL_CAPTION, MODE_LABEL, tableDefinitions } from "../../eval/src/report.ts";
-import { scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
+import { readLocalFacts, scoreRunFile, type ScoredRun } from "../../eval/src/score.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import { endActivity, nextActivity, runWhere, sameActivity, STARTING, tallyOf, type Activity } from "./activity.ts";
@@ -570,7 +570,9 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
     const answer = finalAnswer(final.transcript);
     const evidence = evidenceOf(dir);
     const refusedStart = refusedStartOf(dir);
-    const scored = scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"));
+    // a local-tools run is scored from its workspace and events log too, as the eval scores it
+    const localFacts = scenario.localTools === true ? readLocalFacts(dir, scenario, result.canary, result.mode) : undefined;
+    const scored = scoreRunFile(join(dir, "outcome.jsonl"), result, 1, ".", join(dir, "transcript.jsonl"), localFacts);
     const record = {
       formatVersion: 1,
       kind: "single",
