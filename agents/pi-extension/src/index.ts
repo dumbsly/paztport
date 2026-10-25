@@ -220,9 +220,10 @@ export default function paztport(pi: ExtensionAPI): void {
    * tool_result for a call that tool_call blocked: it saves an error result holding our refusal text, which
    * is not recorded. write and edit record nothing live. Any other result has no labels (this
    * extension did not see it, or it came from another run) and may hold anything: private and
-   * local-untrusted.
+   * local-untrusted. A result with nested calls has had them recorded by restoreEntry, and records nothing more
+   * unless it has labels.
    */
-  function restoreLocal(toolName: string, m: Record<string, unknown>, mode: PaztportConfig["mode"]): void {
+  function restoreLocal(toolName: string, m: Record<string, unknown>, mode: PaztportConfig["mode"], nested: boolean): void {
     if (mode === "off") {
       return;
     }
@@ -230,12 +231,6 @@ export default function paztport(pi: ExtensionAPI): void {
     const p = isObject(d) ? d.paztport : undefined;
     const classes = isObject(p) ? classesOf(p.labels) : undefined;
     const hash = hashContent(m.content);
-    const nested = isObject(m.nestedCalls) && (m.nestedCalls.complete === false || (Array.isArray(m.nestedCalls.calls) && m.nestedCalls.calls.length > 0));
-    if (nested) {
-      // pi saves no result for a nested call (ctx.executeTool), only this record on the parent, so
-      // what the nested calls returned (any built-in or MCP tool) is unknown
-      influence.recordUnknown(`builtin:${toolName}`, hash);
-    }
     if (classes !== undefined) {
       influence.recordClasses(`local:${toolName}`, classes, hash);
       return;
@@ -256,8 +251,14 @@ export default function paztport(pi: ExtensionAPI): void {
       return;
     }
     const d = m.details;
+    const nested = isObject(m.nestedCalls) && (m.nestedCalls.complete === false || (Array.isArray(m.nestedCalls.calls) && m.nestedCalls.calls.length > 0));
+    if (nested && mode !== "off") {
+      // pi saves no result for a nested call (ctx.executeTool), only this record on the parent, so what the
+      // nested calls returned (any built-in or MCP tool) is unknown, whatever the parent's name
+      influence.recordUnknown(`builtin:${m.toolName}`, hashContent(m.content));
+    }
     if (!isMcpTool(m.toolName)) {
-      restoreLocal(m.toolName, m, mode);
+      restoreLocal(m.toolName, m, mode, nested);
       return;
     }
     if (isObject(d) && typeof d.server === "string" && ids.has(d.server) && isObject(d.influence)) {
@@ -399,11 +400,12 @@ export default function paztport(pi: ExtensionAPI): void {
     });
     // before the tools are registered, so every call this session stamps carries the restored influence
     restoreInfluence(ctx.sessionManager, config);
-    failedStart = false;
     if (config.mode !== "off") {
-      // pi's own bash is replaced by one with a fixed shell, PATH and environment (mode off keeps pi's)
+      // pi's own bash is replaced by one with a fixed shell, PATH and environment (mode off keeps pi's);
+      // before failedStart is cleared, so a registration that throws leaves pi's own tools refused
       pi.registerTool(createGatedBash(ctx.cwd));
     }
+    failedStart = false;
     const fresh = config.servers.map((spec) => new ServerConnection(spec, config.mode, material, influence, runs, events, Date.now, evidence));
     const results = await Promise.allSettled(fresh.map((c) => c.connect()));
     if (gen !== generation) {

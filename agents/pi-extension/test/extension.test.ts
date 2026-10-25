@@ -486,6 +486,12 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     (parent as unknown as { message: Record<string, unknown> }).message.nestedCalls = nested;
     expect(await restore([parent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 3 });
     expect(await restore([parent], "off")).toEqual(ZERO);
+    // the same for a foreign tool with an mcp__ name: its nested calls are unknown (private and local-untrusted,
+    // the same entry as its own local-untrusted content)
+    const mcpParent = toolResultEntry("mcp__other__run", text("done"), { server: "other", tool: "run" });
+    (mcpParent as unknown as { message: Record<string, unknown> }).message.nestedCalls = nested;
+    expect(await restore([mcpParent])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([mcpParent], "off")).toEqual({ ...ZERO, "local-untrusted": 1 });
     // unlabelled: it may hold anything
     const unlabelled = toolResultEntry("read", text("notes"));
     expect(await restore([unlabelled])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
@@ -838,6 +844,15 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
       expect(await toolCall(pi, "read", { path: "website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
       expect(await toolCall(pi, "bash", { command: "cat website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
     }
+  });
+
+  it("aGatedBashThatFailsToRegisterLeavesEveryCallRefused", async () => {
+    const { pi } = local();
+    pi.throwOn.add("bash");
+    await expect(pi.emit("session_start", { reason: "startup" })).rejects.toThrow("cannot register bash");
+    await pi.prompt("fix the typo");
+    expect(await toolCall(pi, "read", { path: "website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(await toolCall(pi, "bash", { command: "cat website/README.md" })).toEqual({ block: true, reason: SCOPE_TEXT });
   });
 
   it("unresolvableRefusedEntryIsKept", async () => {

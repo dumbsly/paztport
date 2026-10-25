@@ -445,8 +445,10 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
   it("sessionBashIsPaztportsOwn", async () => {
     const run = await start("enforce", [say("Done.")], { local: true, files: LOCAL_FILES });
     const bash = run.session.getAllTools().find((t) => t.name === "bash");
-    expect(bash?.sourceInfo.source).not.toBe("builtin");
-    expect(bash?.sourceInfo.path).not.toContain("<builtin:");
+    // defined first, so a missing bash can't pass the checks below
+    expect(bash).toBeDefined();
+    expect(bash!.sourceInfo.source).not.toBe("builtin");
+    expect(bash!.sourceInfo.path).not.toContain("<builtin:");
   });
 
   it("sessionNestedCallIsGated", async () => {
