@@ -370,7 +370,7 @@ export type SingleRunCheck = {
 
 const SCENARIOS_DIR = join(import.meta.dirname, "../../scenarios");
 
-/** The shipped scenario with this id (agents/scenarios/<folder>), or undefined when none has it. */
+/** The shipped scenario with this id (poc-demos/agents-mcp/scenarios/<folder>), or undefined when none has it. */
 function findScenario(id: string): Scenario | undefined {
   let names: string[];
   try {

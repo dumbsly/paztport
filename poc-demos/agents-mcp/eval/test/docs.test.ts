@@ -19,7 +19,7 @@ import { scoreRun } from "../src/score.ts";
 import type { RunResult, RunSpec } from "../src/runner.ts";
 
 const AGENTS = join(import.meta.dirname, "../..");
-const REPO = join(AGENTS, "..");
+const REPO = join(AGENTS, "../..");
 const EVAL_README = readFileSync(join(AGENTS, "eval/README.md"), "utf8");
 const DEMO_README = readFileSync(join(AGENTS, "demo-ui/README.md"), "utf8");
 const PI_README = readFileSync(join(AGENTS, "pi-extension/README.md"), "utf8");

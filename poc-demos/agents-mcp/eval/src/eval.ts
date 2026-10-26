@@ -40,7 +40,7 @@ export type ResultsFile = {
   formatVersion: 1;
   incomplete: boolean;
   date: string;
-  /** The command as typed, with paths under agents/ written relative to it ("./...") and the home folder as `<home>`. */
+  /** The command as typed, with paths under poc-demos/agents-mcp/ written relative to it ("./...") and the home folder as `<home>`. */
   command: string;
   /**
    * With --agent-dir: which of the files pi applies to every run (SYSTEM.md, APPEND_SYSTEM.md, settings.json)

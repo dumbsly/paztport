@@ -12,7 +12,7 @@ Usage: ./run <command>
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
-  test         The name check, then the Java SDK, Java demo, TypeScript SDK and TypeScript demo suites.
+  test         The name and link checks, then the Java SDK, Java demo, TypeScript SDK and TypeScript demo suites.
                No Docker and no model.
 
 macOS and Linux; on Windows use WSL.
@@ -91,6 +91,7 @@ cmd_test() {
   need_java
   need_node
   bash poc-sdks/scripts/check-names.sh
+  node poc-sdks/scripts/check-links.mjs
   (cd poc-sdks/java && mvn -q install)
   (cd poc-demos/java-mesh && mvn -q test)
   install_ts_sdk

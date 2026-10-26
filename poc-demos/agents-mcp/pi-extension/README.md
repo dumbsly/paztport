@@ -18,20 +18,21 @@ Without a config the extension does nothing.
 
 ## Run it with stock pi
 
-From `agents/`:
+From `poc-demos/agents-mcp/`:
 
 ```sh
+(cd ../../poc-sdks/typescript && npm install --ignore-scripts)   # the SDK the packages here link
 npm install --ignore-scripts
-npm run setup-demo          # keys and policies in agents/.demo (server/ and client/)
+npm run setup-demo          # keys and policies in .demo (server/ and client/)
 ```
 
 Copy `examples/paztport.config.json` somewhere outside your workspace and replace the `/path/to/...`
-paths. Then start pi from a workspace **outside** `agents/.demo`. Any directory that contains the keys
-is refused, so `agents/` and the repo root are out too:
+paths. Then start pi from a workspace **outside** `poc-demos/agents-mcp/.demo`. Any directory that contains the keys
+is refused, so `poc-demos/agents-mcp/` and the repo root are out too:
 
 ```sh
 cd /path/to/workspace
-pi -e /path/to/paztport/agents/pi-extension --paztport-config /path/to/config.json
+pi -e /path/to/paztport/poc-demos/agents-mcp/pi-extension --paztport-config /path/to/config.json
 ```
 
 `PAZTPORT_CONFIG=/path/to/config.json` works in place of the flag. The flag wins when both are set.
@@ -44,7 +45,7 @@ then classify the run from the outcome log as the
 ```json
 {
   "mode": "enforce",
-  "clientDir": "/path/to/paztport/agents/.demo/client",
+  "clientDir": "/path/to/paztport/poc-demos/agents-mcp/.demo/client",
   "eventsLog": "/path/to/runs/events.jsonl",
   "servers": [
     { "id": "github", "command": "node", "args": ["…/main.ts", "--mode", "enforce", "…"], "attested": true },

@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Measures Paztport's verification overhead and header sizes against the running
-# stack, and prints the numbers reported in the README (§12).
+# stack, and prints the numbers reported under Measurements in this demo's README.
 #
 #   PAZTPORT_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
 #   PAZTPORT_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode

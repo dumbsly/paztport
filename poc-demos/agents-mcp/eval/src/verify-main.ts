@@ -20,7 +20,7 @@
 // records. A demo-run.json written before the demo recorded the server key has none; the pins are then not
 // compared, and when the evidence has pins a line says so.
 // The run is also scored again from its files, as the demo scored it; an outcome in demo-run.json that the files
-// don't give is one more FAIL line. When the scenario it names is not in agents/scenarios, a NOTE says the
+// don't give is one more FAIL line. When the scenario it names is not in poc-demos/agents-mcp/scenarios, a NOTE says the
 // outcome was not scored again.
 // The mode demo-run.json records must be the one run.json and config.json record, and whatever it says, a run
 // whose outcome log shows signed calls or whose events log shows local tool calls made during a run must have

@@ -12,20 +12,20 @@ Tool names and parameters match `github/github-mcp-server`: `list_issues`, `issu
 
 ## Run
 
-From `agents/`:
+From `poc-demos/agents-mcp/`:
 
 ```sh
-npm run setup-demo            # writes keys and policies to agents/.demo (refuses if it exists; --force regenerates)
+npm run setup-demo            # writes keys and policies to .demo (refuses if it exists; --force regenerates)
 node mock-github-mcp/src/main.ts --mode enforce --outcome-log run.jsonl --canary <secret>
 ```
 
 `main.ts` flags:
 
 - `--mode enforce|audit|off` (default `enforce`)
-- `--config <dir>`: server keys and policy (default `agents/.demo/server`; not needed in `off`)
+- `--config <dir>`: server keys and policy (default `poc-demos/agents-mcp/.demo/server`; not needed in `off`)
 - `--outcome-log <file>`: JSONL outcome log (appended; without it records stay in memory)
 - `--canary <s>`: the secret placed in both private READMEs (default: random)
-- `--scenario <dir>`: the scenario folder to load (default `agents/scenarios/github-issue-replay`; see below)
+- `--scenario <dir>`: the scenario folder to load (default `poc-demos/agents-mcp/scenarios/github-issue-replay`; see below)
 - `--payload <file>|none`: body of the injected issue (default: the scenario's `payload.md`; `none` drops the issue)
 
 ## Scenario folder
@@ -55,13 +55,13 @@ Four optional fields turn a scenario into one where the agent also has pi's buil
 - `clientPolicy`: the name of the client policy the eval signs for the run, matching `[a-z0-9-]+`. The built-in local scenario uses `local-tools`.
 - `localTaskCheck`: `changelog`, a path to one of the `workspace.files` that lies under one of the `publicFolders`, and `readme` (`repo`, `file`, `absentLine`, `presentLine`). The task counts as done when the changelog gained a line and the README fix was made, either in the workspace file `readme.file` (which must be one of the `workspace.files`) or by a pull request. `readme.repo` must be one of the scenario's repos.
 
-Paths must be relative, with no `..`, `.` or empty parts. With `localTools`, `tools` may also name pi's built-in tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`), and `steps` may give a phrase for each of them (placeholders: the tool's own arguments, such as `{path}` or `{command}`). The shipped example is `agents/scenarios/github-issue-replay-local`.
+Paths must be relative, with no `..`, `.` or empty parts. With `localTools`, `tools` may also name pi's built-in tools (`read`, `write`, `edit`, `bash`, `grep`, `find`, `ls`), and `steps` may give a phrase for each of them (placeholders: the tool's own arguments, such as `{path}` or `{command}`). The shipped example is `poc-demos/agents-mcp/scenarios/github-issue-replay-local`.
 
 `loadScenario` checks every field and the error names the one that is wrong. The built-in scenario
-is `agents/scenarios/github-issue-replay`. A worked example of a custom folder is in the
+is `poc-demos/agents-mcp/scenarios/github-issue-replay`. A worked example of a custom folder is in the
 [eval README](../eval/README.md#build-your-own-evaluation).
 
-The harness side lives in `agents/.demo/client`: the session and pi keys, the keyring, root and
+The harness side lives in `poc-demos/agents-mcp/.demo/client`: the session and pi keys, the keyring, root and
 proofs, and `server-policy.pub`, the server policy key the client pins. setup-demo deletes the
 client policy private key once it has signed the client root; the server's `policy.key` stays, since
 the server signs its session replies with it.
@@ -139,8 +139,8 @@ content.
   tools enabled in unsafe sessions, where no influence rule applies; the default disables every write.
 - Only the listed phrases and repo names are markers; other verbatim private lines are not detected.
 - The served-class union guards against under-reporting within one session; a new handshake resets it.
-- Run vitest from `agents/` (`npx vitest run mock-github-mcp`), not from this directory.
-- `agents/.demo/` holds private keys. Keep it outside any agent's workspace, so they are not part of
+- Run vitest from `poc-demos/agents-mcp/` (`npx vitest run mock-github-mcp`), not from this directory.
+- `poc-demos/agents-mcp/.demo/` holds private keys. Keep it outside any agent's workspace, so they are not part of
   the project the agent works on. That is hygiene, not a boundary: an agent with a shell or a file
   tool that takes absolute paths (pi's `read` and `bash` do) can still read the keys and sign with
   them. With the local gate on, the pi extension refuses its tools' calls that name these paths (see the [pi-extension README](../pi-extension/README.md#local-tool-gating) for its limits).

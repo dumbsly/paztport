@@ -108,7 +108,7 @@ function readJsonl(file: string): unknown[] {
   return out;
 }
 
-/** The command that checks a run's evidence, as typed in agents/. */
+/** The command that checks a run's evidence, as typed in poc-demos/agents-mcp/. */
 function verifyCommand(target: string): string {
   const rel = relative(AGENTS_DIR, target);
   const shown = rel !== "" && !rel.startsWith("..") && !rel.split(sep).includes("..") ? rel : target;

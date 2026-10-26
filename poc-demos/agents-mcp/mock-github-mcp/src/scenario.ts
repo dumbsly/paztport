@@ -56,7 +56,7 @@ const LOCAL_STEP_ARGS: Record<string, string[]> = {
   powershell: ["command"],
 };
 
-/** agents/scenarios/github-issue-replay */
+/** poc-demos/agents-mcp/scenarios/github-issue-replay */
 export const BUILTIN_SCENARIO_DIR: string = join(import.meta.dirname, "../../scenarios/github-issue-replay");
 
 class ScenarioError extends Error {}
