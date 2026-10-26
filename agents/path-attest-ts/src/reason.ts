@@ -21,8 +21,9 @@ export type ReasonCode =
   | "UNCHECKABLE";
 
 /**
- * A typed verification outcome. `suspectSvc`/`suspectInst` name the last service and instance that
- * provably sent the request, for the responder's quarantine decision. They are set only for `OK` and
+ * A typed verification outcome. `suspectSvc` names the last service that provably sent the request,
+ * proven by its key, and `suspectInst` the instance that service reported in its own stamp, for the
+ * responder's quarantine decision. They are set only for `OK` and
  * `PATH_NOT_ALLOWED`; every other rejection leaves them empty, because the name would be unsigned or
  * the genuine stamp would belong to another request. A stamp does not bind its receiver, so a chain
  * forwarded unchanged to another receiver can still blame its last signer.

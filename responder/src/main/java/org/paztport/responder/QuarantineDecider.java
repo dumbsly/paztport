@@ -15,6 +15,10 @@ import java.util.function.LongSupplier;
  * sliding window acts as a circuit breaker that escalates instead of acting once
  * a service has been quarantined too often.
  *
+ * <p>Instances are counted under {@code svc/inst}. The instance name is chosen
+ * by the service that signed it, so keying by it alone would let one service's
+ * events build up a count against another service's instance.
+ *
  * <p>Not thread-safe on its own; the event endpoint serialises calls.
  */
 public final class QuarantineDecider {
@@ -35,7 +39,8 @@ public final class QuarantineDecider {
         }
         long now = clock.getAsLong();
 
-        Deque<Long> rejections = rejectionsByInstance.computeIfAbsent(event.suspectInst(), k -> new ArrayDeque<>());
+        Deque<Long> rejections = rejectionsByInstance.computeIfAbsent(
+                event.suspectSvc() + "/" + event.suspectInst(), k -> new ArrayDeque<>());
         prune(rejections, now - config.windowMs());
         rejections.addLast(now);
 

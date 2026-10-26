@@ -70,6 +70,16 @@ class QuarantineDeciderTest {
     }
 
     @Test
+    void oneServicesEventsDoNotCountAgainstAnotherServicesInstance() {
+        QuarantineDecider d = decider();
+        // search names gateway's container gw1 as its own instance
+        d.observe(event("search", "gw1"));
+        d.observe(event("search", "gw1"));
+        assertEquals(QuarantineDecision.NONE, d.observe(event("gateway", "gw1")));
+        assertEquals(QuarantineDecision.QUARANTINE, d.observe(event("search", "gw1")));
+    }
+
+    @Test
     void instanceWindowResetsAfterAQuarantine() {
         QuarantineDecider d = decider();
         d.observe(event("search", "s1"));

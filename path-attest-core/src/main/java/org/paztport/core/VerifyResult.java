@@ -5,8 +5,10 @@ package org.paztport.core;
 
 /**
  * A typed verification outcome. {@code suspectSvc}/{@code suspectInst} name the
- * last service and instance that provably sent this request (for the
- * responder's quarantine decision). They are set only for {@code OK} and
+ * last service that provably sent this request, proven by its key, and the
+ * instance that service reported in its stamp (for the responder's quarantine
+ * decision). The instance is the key holder's own claim, not something the
+ * verifier can check. They are set only for {@code OK} and
  * {@code PATH_NOT_ALLOWED}; every other rejection leaves them empty, because
  * the name would be unsigned or the genuine stamp would belong to another
  * request. See {@link Verifier} for the forwarding case that is still blamed.

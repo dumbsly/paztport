@@ -458,7 +458,9 @@ Notes on the ordering:
   the responder.
 - Only `PATH_NOT_ALLOWED` names a suspect (the last stamp's service and instance).
   By step 7 the signatures verified, the links hold, and the chain is fresh, bound
-  to this exact request and unseen, so the last hop really sent it. Before that the
+  to this exact request and unseen, so the last hop really sent it. The **service**
+  is proven by its key. The **instance** is what that service's own key holder
+  wrote in its stamp, so it is a claim, not a proof. Before that the
   names are unsigned or unverified, or the genuine last stamp belongs to someone
   else's request (a replayed or altered capture), so the suspect is left empty
   rather than blaming an innocent signer.
@@ -583,9 +585,14 @@ Why each piece is there:
   running, so you keep a live specimen for forensics while a clean replacement
   serves traffic.
 - **Attribute to the instance.** Stamps carry the container hostname, so the
-  responder isolates one replica, not every pod in the service. Only
-  `PATH_NOT_ALLOWED` events carry a suspect; every other rejection leaves it empty
-  and takes the "ignore: can't attribute" branch.
+  responder isolates one replica, not every pod in the service. The service is
+  proven by its key, but the instance is reported by that service's own key
+  holder, so the responder acts only when the named container really runs the
+  named service (its Compose service label). Replacements carry the same label.
+  Counts are kept per service and instance, so one service's events can't build up
+  a count against another's container. Only `PATH_NOT_ALLOWED` events carry a
+  suspect; every other rejection leaves it empty and takes the "ignore: can't
+  attribute" branch.
 - **Require a threshold** (3 in 60 s). One bad event doesn't trigger action, and
   audit-mode events never do.
 - **Circuit breaker** (by default at most 2 quarantines per service per 10 min).
@@ -719,6 +726,10 @@ that the route taken is in a private, committed policy**.
   matching method and path can still give `PATH_NOT_ALLOWED` and name the innocent
   last signer. Binding the receiver into the stamp, or mTLS binding the caller,
   closes it.
+- **A compromised service can blame its own replicas.** The instance in a stamp is
+  reported by the service that signed it. The responder refuses a container that
+  doesn't run the named service, but a compromised service can still name any
+  replica of itself, and the responder will isolate that replica instead.
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS

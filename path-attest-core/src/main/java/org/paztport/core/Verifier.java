@@ -19,7 +19,10 @@ import java.util.stream.Collectors;
  * <p>A rejection names the last stamp's {@code svc}/{@code inst} as the suspect
  * only at {@link ReasonCode#PATH_NOT_ALLOWED} (and on success). By then the
  * signatures verified, the links hold, the chain is fresh, bound to this exact
- * request and unseen, so the last hop really sent it. Earlier failures leave
+ * request and unseen, so the last hop really sent it. Only the service is
+ * proven, by its key; the {@code inst} is whatever that service's key holder
+ * signed, so the responder checks it against the container before acting.
+ * Earlier failures leave
  * the suspect empty: the names are unsigned or unverified (a forged chain could
  * name anyone), or the genuine last stamp belongs to someone else's request (a
  * replayed or altered capture), and the responder quarantines whoever is named.
