@@ -31,11 +31,11 @@ at_least() {
 }
 
 need_java() {
-  command -v java >/dev/null 2>&1 || missing java 21 "https://adoptium.net or your package manager"
-  local major
-  major="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
-  [ -n "$major" ] && [ "$major" -ge 21 ] || missing java 21 "https://adoptium.net or your package manager"
+  # Maven decides which JDK builds the code (JAVA_HOME, PATH, platform lookups), so ask Maven, not PATH.
   command -v mvn >/dev/null 2>&1 || missing mvn 3.9 "https://maven.apache.org/download.cgi or your package manager"
+  local major
+  major="$(mvn -v 2>/dev/null | sed -n 's/^Java version: \([0-9]*\).*/\1/p' | head -n1)"
+  [ -n "$major" ] && [ "$major" -ge 21 ] || missing java 21 "https://adoptium.net or your package manager (mvn -v must report Java 21+)"
 }
 
 need_node() {
