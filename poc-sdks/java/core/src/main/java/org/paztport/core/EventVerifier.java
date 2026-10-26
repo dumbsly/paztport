@@ -1,27 +1,24 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.responder;
+package org.paztport.core;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.function.LongSupplier;
-import org.paztport.core.EventEnvelope;
-import org.paztport.core.Keyring;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
- * Decides whether an event body may reach the decider. Anyone on the mesh can
- * POST to the responder, so an event counts only if it is a signed
+ * Decides whether an event body may reach whatever acts on it. Anyone on the
+ * mesh can POST to the responder, so an event counts only if it is a signed
  * {@link EventEnvelope} from an allowed signer, fresh, and not seen before.
- * Every failure is a refusal (an empty result) that takes no decision; nothing
- * here throws on hostile input.
+ * Every failure is a typed {@link Refusal} that takes no decision; nothing here
+ * throws on hostile input. Core does no logging: the caller decides how to
+ * report a refusal, and must treat the signer in an {@link Outcome} as
+ * configuration-controlled only for the refusals that carry it.
  *
  * <p>The signature is checked over the payload string as received, and the event
  * is decoded from that same string. An event id is remembered only once the
@@ -29,65 +26,90 @@ import org.slf4j.LoggerFactory;
  * captured event cannot be replayed while its timestamp is still acceptable.
  * Parsing and the signature check run unlocked; only that memory is guarded.
  */
-public final class EventAuthenticator {
+public final class EventVerifier {
 
-    private static final Logger log = LoggerFactory.getLogger(EventAuthenticator.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** An event's {@code ts} may differ from now by at most this much, either way. */
     static final long WINDOW_MS = 30_000;
+
+    /** Why a body was refused. */
+    public enum Refusal {
+        MALFORMED_ENVELOPE,
+        SIGNER_NOT_ALLOWED,
+        /** Allowed by configuration but absent from the keyring. */
+        UNKNOWN_SIGNER,
+        BAD_SIGNATURE,
+        MALFORMED_EVENT,
+        NO_EVENT_ID,
+        OUTSIDE_WINDOW,
+        REPEATED_EVENT_ID
+    }
+
+    /**
+     * Either the verified event or a refusal. {@code signer} is set only for
+     * {@link Refusal#UNKNOWN_SIGNER} and {@link Refusal#BAD_SIGNATURE}, where
+     * it has already passed the allow-list; it is null otherwise, since a
+     * disallowed signer is attacker-chosen text.
+     */
+    public record Outcome(ResponderEvent event, Refusal refusal, String signer) {
+
+        public boolean accepted() {
+            return event != null;
+        }
+    }
 
     private final Keyring keyring;
     private final Set<String> allowedSigners;
     private final LongSupplier clock;
     private final Map<String, Long> seen = new HashMap<>();
 
-    public EventAuthenticator(Keyring keyring, Set<String> allowedSigners, LongSupplier clock) {
+    public EventVerifier(Keyring keyring, Set<String> allowedSigners, LongSupplier clock) {
         this.keyring = keyring;
         this.allowedSigners = Set.copyOf(allowedSigners);
         this.clock = clock;
     }
 
-    /** The verified event, or empty (and a logged reason) if the body must be refused. */
-    public Optional<ResponderEvent> accept(String body) {
+    /** The verified event, or the reason the body must be refused. */
+    public Outcome accept(String body) {
         EventEnvelope envelope;
         try {
             envelope = JSON.readValue(body, EventEnvelope.class);
         } catch (Exception e) {
-            return refuse("malformed envelope");
+            return refuse(Refusal.MALFORMED_ENVELOPE, null);
         }
         if (envelope == null || envelope.signer() == null || envelope.payload() == null || envelope.sig() == null) {
-            return refuse("malformed envelope");
+            return refuse(Refusal.MALFORMED_ENVELOPE, null);
         }
         if (!allowedSigners.contains(envelope.signer())) {
-            return refuse("signer not allowed");
+            return refuse(Refusal.SIGNER_NOT_ALLOWED, null);
         }
         PublicKey key = keyring.keyFor(envelope.signer());
         if (key == null) {
-            return refuse("unknown signer: " + envelope.signer());
+            return refuse(Refusal.UNKNOWN_SIGNER, envelope.signer());
         }
         if (!envelope.verifiesWith(key)) {
-            return refuse("bad signature from " + envelope.signer());
+            return refuse(Refusal.BAD_SIGNATURE, envelope.signer());
         }
         byte[] json = envelope.payloadBytes();
         ResponderEvent event;
         try {
             event = JSON.readValue(new String(json, StandardCharsets.UTF_8), ResponderEvent.class);
         } catch (Exception e) {
-            return refuse("malformed event");
+            return refuse(Refusal.MALFORMED_EVENT, null);
         }
         if (event == null || event.eventId() == null || event.eventId().isBlank()) {
-            return refuse("event has no id");
+            return refuse(Refusal.NO_EVENT_ID, null);
         }
 
         long now = clock.getAsLong();
         if (!withinWindow(now, event.ts())) {
-            return refuse("event outside the freshness window");
+            return refuse(Refusal.OUTSIDE_WINDOW, null);
         }
         if (!firstSighting(event.eventId(), now)) {
-            return refuse("repeated event id");
+            return refuse(Refusal.REPEATED_EVENT_ID, null);
         }
-        return Optional.of(event);
+        return new Outcome(event, null, null);
     }
 
     /**
@@ -107,8 +129,7 @@ public final class EventAuthenticator {
         return seen.putIfAbsent(eventId, now) == null;
     }
 
-    private static Optional<ResponderEvent> refuse(String why) {
-        log.warn("refused event: {}", why);
-        return Optional.empty();
+    private static Outcome refuse(Refusal why, String signer) {
+        return new Outcome(null, why, signer);
     }
 }

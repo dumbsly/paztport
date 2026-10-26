@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
+import org.paztport.core.KeyFiles;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
@@ -48,7 +49,7 @@ class ConfigLoaderTest {
         JSON.writeValue(dir.resolve("proofs-gateway.json").toFile(), bundle);
 
         // Load them back.
-        var priv = ConfigLoader.loadPrivateKey(dir.resolve("gateway.key"));
+        var priv = KeyFiles.loadPrivateKey(dir.resolve("gateway.key"));
         var loadedKeyring = ConfigLoader.loadKeyring(dir.resolve("keyring.json"));
         var policyKey = ConfigLoader.loadPolicyKey(dir.resolve("keyring.json"));
         var loadedRoot = ConfigLoader.loadSignedRoot(dir.resolve("root.json"));

@@ -1,24 +1,18 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.policy;
+package org.paztport.core;
 
 import java.security.PrivateKey;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.paztport.core.Crypto;
-import org.paztport.core.MerkleLeaf;
-import org.paztport.core.MerkleProof;
-import org.paztport.core.MerkleTree;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.SignedRoot;
 
 /**
  * Turns a list of allowed routes into a signed Merkle root and per-service proof
  * bundles. Pure logic; reading paths.yaml and writing files live in
- * {@link PolicyToolMain}.
+ * the policy tool.
  *
  * <p>Each route's proof is handed only to its second-to-last hop (the caller
  * that attaches it), so a service with no legitimate route to a destination is
@@ -37,7 +31,7 @@ public final class PolicyBuilder {
     }
 
     public static Result build(List<List<String>> routes, int depth, PrivateKey policyKey) {
-        List<String> routeStrings = routes.stream().map(r -> String.join("/", r)).toList();
+        List<String> routeStrings = routes.stream().map(r -> Routes.join(r)).toList();
         String rootId = deriveRootId(routeStrings);
 
         List<MerkleLeaf> leaves = routeStrings.stream()

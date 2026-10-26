@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -15,18 +15,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.Keyring;
-import org.paztport.core.MerkleLeaf;
-import org.paztport.core.MerkleTree;
-import org.paztport.core.PathChain;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.SignedRoot;
-import org.paztport.core.Stamp;
-import org.paztport.core.Verifier;
-import org.paztport.core.VerifierConfig;
-import org.paztport.core.VerifyRequest;
 
 class OutboundStamperTest {
 

@@ -14,6 +14,7 @@ import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import org.paztport.core.EventVerifier;
 import org.paztport.core.Keyring;
 import org.paztport.core.KeyringFile;
 import org.springframework.beans.factory.annotation.Value;
@@ -56,11 +57,11 @@ public class ResponderApplication {
     }
 
     @Bean
-    EventAuthenticator eventAuthenticator(
+    EventVerifier eventVerifier(
             @Value("${responder.keyring-path}") String keyringPath,
             @Value("${responder.allowed-signers}") Set<String> allowedSigners) throws IOException {
         KeyringFile file = new ObjectMapper().readValue(Path.of(keyringPath).toFile(), KeyringFile.class);
-        return new EventAuthenticator(Keyring.fromFile(file), allowedSigners, System::currentTimeMillis);
+        return new EventVerifier(Keyring.fromFile(file), allowedSigners, System::currentTimeMillis);
     }
 
     @Bean

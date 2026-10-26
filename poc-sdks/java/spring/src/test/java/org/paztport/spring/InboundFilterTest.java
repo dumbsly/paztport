@@ -23,6 +23,7 @@ import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.Keyring;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
+import org.paztport.core.OutboundStamper;
 import org.paztport.core.PathChain;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;

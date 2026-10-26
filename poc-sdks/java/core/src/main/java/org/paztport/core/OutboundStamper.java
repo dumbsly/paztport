@@ -1,19 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.core;
 
 import java.security.PrivateKey;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
-import org.paztport.core.MerkleProof;
-import org.paztport.core.PathChain;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.RequestBinding;
-import org.paztport.core.Stamp;
-import org.paztport.core.StampSigner;
 
 /**
  * Builds the outbound {@code X-Path-Chain} and {@code X-Path-Proof} headers for
@@ -78,8 +72,9 @@ public final class OutboundStamper {
 
         String proofHeader = null;
         if (bundle != null) {
-            String route = outgoing.stamps().stream().map(Stamp::svc).collect(Collectors.joining("/"))
-                    + "/" + target;
+            List<String> hops = new ArrayList<>(outgoing.stamps().stream().map(Stamp::svc).toList());
+            hops.add(target);
+            String route = Routes.join(hops);
             MerkleProof proof = bundle.proofFor(route);
             if (proof != null) {
                 proofHeader = proof.encode();

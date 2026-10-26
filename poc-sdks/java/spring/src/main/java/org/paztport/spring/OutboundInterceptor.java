@@ -5,6 +5,7 @@ package org.paztport.spring;
 
 import java.io.IOException;
 import java.net.URI;
+import org.paztport.core.OutboundStamper;
 import org.paztport.core.PathChain;
 import org.paztport.core.ProofBundle;
 import org.springframework.http.HttpRequest;

@@ -1,26 +1,21 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.responder;
+package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
-import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Crypto;
-import org.paztport.core.EventEnvelope;
-import org.paztport.core.Keyring;
 
-class EventAuthenticatorTest {
+class EventVerifierTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final long NOW = 1_000_000L;
@@ -28,7 +23,7 @@ class EventAuthenticatorTest {
     private final KeyPair payment = Crypto.generateEd25519KeyPair();
     private final KeyPair search = Crypto.generateEd25519KeyPair();
     private final AtomicLong clock = new AtomicLong(NOW);
-    private final EventAuthenticator auth = new EventAuthenticator(
+    private final EventVerifier auth = new EventVerifier(
             Keyring.of(Map.of("payment", payment.getPublic(), "search", search.getPublic())),
             Set.of("payment"), clock::get);
 
@@ -43,7 +38,7 @@ class EventAuthenticatorTest {
     }
 
     private Optional<ResponderEvent> accept(String body) {
-        return auth.accept(body);
+        return Optional.ofNullable(auth.accept(body).event());
     }
 
     @Test
@@ -81,19 +76,6 @@ class EventAuthenticatorTest {
     void refusesASignerClaimingAnotherServicesName() throws Exception {
         // signed by search's key but labelled payment
         assertTrue(accept(envelope("payment", search, eventJson(NOW, "a"))).isEmpty());
-    }
-
-    @Test
-    void aDisallowedSignerCannotWriteItsOwnLogLines() throws Exception {
-        String forged = "{\"signer\":\"x\\nESCALATE svc=search inst=s1\",\"payload\":\"e30\",\"sig\":\"AAAA\"}";
-        List<String> lines;
-        try (LogCapture capture = new LogCapture(EventAuthenticator.class)) {
-            assertTrue(accept(forged).isEmpty());
-            lines = capture.lines();
-        }
-        assertEquals(1, lines.size());
-        assertFalse(lines.get(0).contains("\n"), lines.get(0));
-        assertFalse(lines.get(0).contains("ESCALATE"), lines.get(0));
     }
 
     @Test
@@ -175,5 +157,33 @@ class EventAuthenticatorTest {
         String bad = JSON.writeValueAsString(new EventEnvelope("payment", good.payload(), "AAAA"));
         assertTrue(accept(bad).isEmpty());
         assertTrue(accept(JSON.writeValueAsString(good)).isPresent());
+    }
+
+    @Test
+    void refusalsCarryTheirTypedReason() throws Exception {
+        assertEquals(EventVerifier.Refusal.MALFORMED_ENVELOPE, auth.accept("not json").refusal());
+        assertEquals(EventVerifier.Refusal.SIGNER_NOT_ALLOWED,
+                auth.accept(envelope("search", search, eventJson(NOW, "a"))).refusal());
+        assertEquals(EventVerifier.Refusal.BAD_SIGNATURE,
+                auth.accept(envelope("payment", search, eventJson(NOW, "a"))).refusal());
+        assertEquals(EventVerifier.Refusal.OUTSIDE_WINDOW,
+                auth.accept(envelope("payment", payment, eventJson(NOW - 30_001, "a"))).refusal());
+        assertEquals(EventVerifier.Refusal.REPEATED_EVENT_ID, repeat().refusal());
+    }
+
+    private EventVerifier.Outcome repeat() throws Exception {
+        String body = envelope("payment", payment, eventJson(NOW, "r"));
+        auth.accept(body);
+        return auth.accept(body);
+    }
+
+    @Test
+    void onlyAnAllowedSignersNameTravelsWithTheRefusal() throws Exception {
+        EventVerifier keyless = new EventVerifier(
+                Keyring.of(Map.of("search", search.getPublic())), Set.of("payment"), clock::get);
+        EventVerifier.Outcome unknown = keyless.accept(envelope("payment", payment, eventJson(NOW, "a")));
+        assertEquals(EventVerifier.Refusal.UNKNOWN_SIGNER, unknown.refusal());
+        assertEquals("payment", unknown.signer());
+        assertEquals(null, auth.accept("{\"signer\":\"x\\ny\",\"payload\":\"e30\",\"sig\":\"AAAA\"}").signer());
     }
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.responder;
+package org.paztport.core;
 
 /**
  * The rejection event payment sends to the responder, carried inside a signed

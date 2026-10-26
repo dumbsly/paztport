@@ -10,8 +10,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.util.List;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
+import org.paztport.core.KeyFiles;
+import org.paztport.core.PolicyBuilder;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
 
@@ -33,8 +33,7 @@ public final class PolicyToolMain {
 
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth) throws IOException {
         List<List<String>> routes = PathsReader.parse(Files.readAllBytes(pathsYaml));
-        PrivateKey policyKey = Crypto.decodePrivateKey(
-                Base64Url.decode(Files.readString(keysDir.resolve("policy.key")).trim()));
+        PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
 
         PolicyBuilder.Result result = PolicyBuilder.build(routes, depth, policyKey);
 

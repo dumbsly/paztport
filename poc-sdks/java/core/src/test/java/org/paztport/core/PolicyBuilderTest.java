@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.policy;
+package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -12,8 +12,6 @@ import java.security.KeyPair;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Crypto;
-import org.paztport.core.MerkleProof;
 
 class PolicyBuilderTest {
 

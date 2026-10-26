@@ -4,8 +4,8 @@
 package org.paztport.core;
 
 import java.security.PublicKey;
+import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * The payment-side verifier. Runs a fixed sequence of checks and returns a
@@ -101,8 +101,9 @@ public final class Verifier {
         }
 
         // 7. Route rebuilt from the stamps plus this service, proven against the root.
-        String route = stamps.stream().map(Stamp::svc).collect(Collectors.joining("/"))
-                + "/" + cfg.receivingService();
+        List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
+        hops.add(cfg.receivingService());
+        String route = Routes.join(hops);
         if (!pathAllowed(req.proofHeader(), route)) {
             // Everything above held, so the last hop did sign this very request.
             return VerifyResult.reject(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());

@@ -4,6 +4,7 @@
 package org.paztport.responder;
 
 import java.util.concurrent.Executor;
+import org.paztport.core.ResponderEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

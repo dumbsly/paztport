@@ -9,6 +9,8 @@ import java.nio.file.Path;
 import java.util.Set;
 import java.util.UUID;
 import org.paztport.core.InMemoryNonceCache;
+import org.paztport.core.KeyFiles;
+import org.paztport.core.OutboundStamper;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.Verifier;
 import org.paztport.core.VerifierConfig;
@@ -36,7 +38,7 @@ public class PaztportAutoConfiguration {
         return new OutboundStamper(
                 props.getServiceName(),
                 instance(props),
-                ConfigLoader.loadPrivateKey(Path.of(props.getKeyPath())),
+                KeyFiles.loadPrivateKey(Path.of(props.getKeyPath())),
                 props.isOrigin(),
                 () -> UUID.randomUUID().toString(),
                 System::currentTimeMillis);
@@ -90,7 +92,7 @@ public class PaztportAutoConfiguration {
             return new ResponderEventPublisher(
                     responderUrl,
                     props.getServiceName(),
-                    ConfigLoader.loadPrivateKey(Path.of(eventKeyPath)),
+                    KeyFiles.loadPrivateKey(Path.of(eventKeyPath)),
                     System::currentTimeMillis);
         }
         return new LoggingEventPublisher();

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.Crypto;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
+import org.paztport.core.OutboundStamper;
 import org.paztport.core.PathChain;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.Stamp;

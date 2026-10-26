@@ -5,14 +5,12 @@ package org.paztport.search;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
+import org.paztport.core.KeyFiles;
 import org.paztport.core.PathChain;
 import org.paztport.core.RequestBinding;
 import org.paztport.core.Stamp;
@@ -55,7 +53,7 @@ public class AttackController {
         this.stampedClient = stampedClient;
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
-        this.searchKey = Crypto.decodePrivateKey(Base64Url.decode(Files.readString(Path.of(keyPath)).trim()));
+        this.searchKey = KeyFiles.loadPrivateKey(Path.of(keyPath));
         String host = System.getenv("HOSTNAME");
         this.inst = host != null && !host.isBlank() ? host : "search-attacker";
     }

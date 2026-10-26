@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.PrivateKey;
 import java.security.PublicKey;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
@@ -23,10 +22,6 @@ final class ConfigLoader {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private ConfigLoader() {
-    }
-
-    static PrivateKey loadPrivateKey(Path file) {
-        return Crypto.decodePrivateKey(Base64Url.decode(readString(file).trim()));
     }
 
     static Keyring loadKeyring(Path file) {
@@ -52,14 +47,6 @@ final class ConfigLoader {
     private static <T> T read(Path file, Class<T> type) {
         try {
             return JSON.readValue(Files.readAllBytes(file), type);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        }
-    }
-
-    private static String readString(Path file) {
-        try {
-            return Files.readString(file);
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
