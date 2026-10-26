@@ -3,6 +3,7 @@
 
 package org.paztport.spring;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -70,8 +71,8 @@ class InboundFilterTest {
         return new Verifier(cfg);
     }
 
-    private InboundFilter filter(VerificationMode mode, CaptureStore capture) {
-        return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, capture);
+    private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
+        return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, listener);
     }
 
     private OutboundStamper.StampedHeaders validHeaders() {
@@ -161,16 +162,47 @@ class InboundFilterTest {
     }
 
     @Test
-    void captureStoreRecordsTheReceivedRequestWhenEnabled() throws Exception {
-        CaptureStore store = new CaptureStore();
+    void aRegisteredListenerIsCalledOncePerRequestWithTheReceivedValues() throws Exception {
+        List<Object[]> calls = new ArrayList<>();
         OutboundStamper.StampedHeaders h = validHeaders();
 
-        filter(VerificationMode.ENFORCE, store)
+        filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) ->
+                calls.add(new Object[] {chain, proof, method, path, body}))
                 .doFilter(paymentRequest(h, TO_PAYMENT), new MockHttpServletResponse(), new MockFilterChain());
 
-        assertTrue(store.last().isPresent());
-        assertEquals(h.chainHeader(), store.last().get().chainHeader());
-        assertEquals("/pay", store.last().get().path());
+        assertEquals(1, calls.size());
+        Object[] call = calls.get(0);
+        assertEquals(h.chainHeader(), call[0]);
+        assertEquals(h.proofHeader(), call[1]);
+        assertEquals("POST", call[2]);
+        assertEquals("/pay", call[3]);
+        assertArrayEquals(TO_PAYMENT, (byte[]) call[4]);
+    }
+
+    @Test
+    void theListenerSeesARequestThatVerificationThenRejects() throws Exception {
+        List<String> order = new ArrayList<>();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        OutboundStamper.StampedHeaders h = validHeaders();
+
+        filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) -> order.add("listener"))
+                .doFilter(paymentRequest(h, "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)),
+                        response, new MockFilterChain());
+
+        assertEquals(403, response.getStatus());
+        assertEquals(List.of("listener"), order, "called before verification, even for a request that fails it");
+    }
+
+    @Test
+    void theFilterWorksWithNoListener() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter(VerificationMode.ENFORCE, null)
+                .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), response, chain);
+
+        assertEquals(200, response.getStatus());
+        assertNotNull(chain.getRequest());
     }
 
     @Test

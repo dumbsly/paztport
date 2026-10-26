@@ -1,9 +1,10 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.payment;
 
 import java.util.Base64;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
  * attestation model.
  */
 @RestController
+@ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
 public class DebugCaptureController {
 
     private final CaptureStore store;

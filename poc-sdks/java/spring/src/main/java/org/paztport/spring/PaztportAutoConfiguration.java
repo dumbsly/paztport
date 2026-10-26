@@ -104,27 +104,15 @@ public class PaztportAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
-    CaptureStore captureStore() {
-        return new CaptureStore();
-    }
-
-    @Bean
-    @ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
-    DebugCaptureController debugCaptureController(CaptureStore store) {
-        return new DebugCaptureController(store);
-    }
-
-    @Bean
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
             PaztportProperties props,
             org.springframework.beans.factory.ObjectProvider<Verifier> verifier,
             org.springframework.beans.factory.ObjectProvider<ModeHolder> modeHolder,
             org.springframework.beans.factory.ObjectProvider<EventPublisher> publisher,
-            org.springframework.beans.factory.ObjectProvider<CaptureStore> captureStore) {
+            org.springframework.beans.factory.ObjectProvider<ReceivedRequestListener> listener) {
         InboundFilter filter = new InboundFilter(
                 verifier.getIfAvailable(), props.getServiceName(), modeHolder.getIfAvailable(),
-                publisher.getIfAvailable(), captureStore.getIfAvailable());
+                publisher.getIfAvailable(), listener.getIfAvailable());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
 
-class EventsAndCaptureTest {
+class EventsTest {
 
     @Test
     void loggingPublisherFormatsAStructuredLine() {
@@ -38,18 +38,5 @@ class EventsAndCaptureTest {
     void logSafeCapsLongValues() {
         assertEquals("x".repeat(LogSafe.MAX_CHARS) + "...", LogSafe.of("x".repeat(10_000)));
         assertEquals("null", LogSafe.of(null));
-    }
-
-    @Test
-    void captureStoreKeepsTheLastRequest() {
-        CaptureStore store = new CaptureStore();
-        assertTrue(store.last().isEmpty());
-
-        store.record(new CapturedRequest("chainA", "proofA", "POST", "/pay", "bodyA".getBytes()));
-        store.record(new CapturedRequest("chainB", "proofB", "POST", "/pay", "bodyB".getBytes()));
-
-        assertTrue(store.last().isPresent());
-        assertEquals("chainB", store.last().get().chainHeader());
-        assertFalse(store.last().get().chainHeader().equals("chainA"));
     }
 }

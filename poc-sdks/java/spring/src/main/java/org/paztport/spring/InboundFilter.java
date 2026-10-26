@@ -34,16 +34,16 @@ public final class InboundFilter extends OncePerRequestFilter {
     private final String receiver;
     private final ModeHolder modeHolder;
     private final EventPublisher publisher;
-    private final CaptureStore captureStore;
+    private final ReceivedRequestListener listener;
 
     public InboundFilter(
             Verifier verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
-            CaptureStore captureStore) {
+            ReceivedRequestListener listener) {
         this.verifier = verifier;
         this.receiver = receiver;
         this.modeHolder = modeHolder;
         this.publisher = publisher;
-        this.captureStore = captureStore;
+        this.listener = listener;
     }
 
     @Override
@@ -64,9 +64,8 @@ public final class InboundFilter extends OncePerRequestFilter {
 
         setContextFromChain(chainHeader);
         try {
-            if (captureStore != null) {
-                captureStore.record(new CapturedRequest(chainHeader, proofHeader,
-                        request.getMethod(), request.getRequestURI(), body));
+            if (listener != null) {
+                listener.received(chainHeader, proofHeader, request.getMethod(), request.getRequestURI(), body);
             }
             if (verifier != null && modeHolder.get() != VerificationMode.OFF) {
                 VerificationMode mode = modeHolder.get();
