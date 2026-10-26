@@ -94,8 +94,13 @@ echo "bringing up the mesh..."
 remove_replacements                          # clear any stray replacements from a prior run
 PA_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
 export PA_ADMIN_TOKEN
-RESPONDER_URL="" docker compose up -d --build --force-recreate >/dev/null 2>&1  # fresh mesh, payment log-only
+# The policy files must exist before the first `up`: Docker creates a missing bind-mount
+# source as an empty directory, which the services then fail to read and the policy-tool
+# cannot overwrite. So write the policy and build the root before starting the mesh.
+for p in out/policy/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done   # leftovers from such a run
 write_paths            # restore original policy
+docker compose run --rm policy-tool >/dev/null 2>&1
+RESPONDER_URL="" docker compose up -d --build --force-recreate >/dev/null 2>&1  # fresh mesh, payment log-only
 rebuild_policy         # rebuild original root, recreate services (resets mode=enforce)
 
 echo "running scenarios..."
