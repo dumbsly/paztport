@@ -6,7 +6,7 @@ package org.paztport.spring;
 /**
  * Makes an event field safe to put in a log line. The suspect and {@code rid}
  * come from stamps, which say whatever their signer chose, and the
- * {@code PATH_ATTEST_EVENT} line is what operators and the demo read, so a raw
+ * {@code PAZTPORT_EVENT} line is what operators and the demo read, so a raw
  * newline would let a signer write lines of its own. Control and
  * line-separator characters are written as unicode escapes and the value is
  * capped in length. Only what is logged changes; what is signed, verified and

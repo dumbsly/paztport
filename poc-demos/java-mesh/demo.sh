@@ -92,8 +92,8 @@ echo "== Paztport demo =="
 echo "bringing up the mesh..."
 [ -f out/keys/keyring.json ] || docker compose run --rm keygen >/dev/null 2>&1
 remove_replacements                          # clear any stray replacements from a prior run
-PA_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
-export PA_ADMIN_TOKEN
+PAZTPORT_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
+export PAZTPORT_ADMIN_TOKEN
 # The policy files must exist before the first `up`: Docker creates a missing bind-mount
 # source as an empty directory, which the services then fail to read and the policy-tool
 # cannot overwrite. So write the policy and build the root before starting the mesh.
@@ -140,17 +140,17 @@ mreq POST "http://search:8080/attack/replay"
 check_reason "7  expired" 403 EXPIRED
 
 # 8 — scenarios 2-4 in audit mode: all pass, events logged, no quarantine
-mreq POST "http://payment:8080/admin/mode?value=audit" -H "X-Admin-Token: $PA_ADMIN_TOKEN"
+mreq POST "http://payment:8080/admin/mode?value=audit" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
 mreq POST "http://search:8080/attack/no-headers";    check_code "8a audit: no headers" 200
 mreq POST "http://search:8080/attack/forge-gateway";  check_code "8b audit: forged stamp" 200
 mreq GET  "http://gateway:8080/find"
 mreq POST "http://search:8080/attack/forward-stolen"; check_code "8c audit: forward stolen" 200
-if docker compose logs payment 2>/dev/null | grep -q "PATH_ATTEST_EVENT.*audit=true"; then
-  record PASS "8d audit: events logged" "found PATH_ATTEST_EVENT audit=true"
+if docker compose logs payment 2>/dev/null | grep -q "PAZTPORT_EVENT.*audit=true"; then
+  record PASS "8d audit: events logged" "found PAZTPORT_EVENT audit=true"
 else
   record FAIL "8d audit: events logged" "no audit events in payment logs"
 fi
-mreq POST "http://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: $PA_ADMIN_TOKEN"
+mreq POST "http://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
 
 # 10 — widen policy so gateway->search->payment is allowed; scenario 4 now passes
 write_paths widen

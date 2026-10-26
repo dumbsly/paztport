@@ -44,7 +44,7 @@ class OutboundInterceptorTest {
 
     @AfterEach
     void cleanup() {
-        PathAttestContext.clear();
+        PaztportContext.clear();
     }
 
     private OutboundStamper gatewayStamper() {
@@ -67,8 +67,8 @@ class OutboundInterceptorTest {
         OutboundInterceptor interceptor = new OutboundInterceptor(gatewayStamper(), gatewayBundle);
         MockClientHttpRequest request = run(interceptor, URI.create("http://orders:8080/orders"), "{}".getBytes());
 
-        String chain = request.getHeaders().getFirst(PathAttestHeaders.CHAIN);
-        String proof = request.getHeaders().getFirst(PathAttestHeaders.PROOF);
+        String chain = request.getHeaders().getFirst(PaztportHeaders.CHAIN);
+        String proof = request.getHeaders().getFirst(PaztportHeaders.PROOF);
 
         List<Stamp> stamps = PathChain.decode(chain).stamps();
         assertEquals("gateway", stamps.get(0).svc());
@@ -80,16 +80,16 @@ class OutboundInterceptorTest {
         // Simulate orders having received gateway's chain.
         MockClientHttpRequest gw = run(new OutboundInterceptor(gatewayStamper(), gatewayBundle),
                 URI.create("http://orders:8080/orders"), "{}".getBytes());
-        PathChain inbound = PathChain.decode(gw.getHeaders().getFirst(PathAttestHeaders.CHAIN));
-        PathAttestContext.setInboundChain(inbound);
+        PathChain inbound = PathChain.decode(gw.getHeaders().getFirst(PaztportHeaders.CHAIN));
+        PaztportContext.setInboundChain(inbound);
 
         MockClientHttpRequest request = run(new OutboundInterceptor(ordersStamper(), ordersBundle),
                 URI.create("http://payment:8080/pay"), "{\"amount\":1}".getBytes(StandardCharsets.UTF_8));
 
-        List<Stamp> stamps = PathChain.decode(request.getHeaders().getFirst(PathAttestHeaders.CHAIN)).stamps();
+        List<Stamp> stamps = PathChain.decode(request.getHeaders().getFirst(PaztportHeaders.CHAIN)).stamps();
         assertEquals(2, stamps.size());
         assertEquals("orders", stamps.get(1).svc());
-        assertTrue(request.getHeaders().getFirst(PathAttestHeaders.PROOF) != null);
+        assertTrue(request.getHeaders().getFirst(PaztportHeaders.PROOF) != null);
     }
 
     @Test
@@ -98,7 +98,7 @@ class OutboundInterceptorTest {
         // gateway -> payment is not a route gateway holds a proof for.
         MockClientHttpRequest request = run(interceptor, URI.create("http://payment:8080/pay"), "{}".getBytes());
 
-        assertNull(request.getHeaders().getFirst(PathAttestHeaders.PROOF));
+        assertNull(request.getHeaders().getFirst(PaztportHeaders.PROOF));
     }
 
     @Test

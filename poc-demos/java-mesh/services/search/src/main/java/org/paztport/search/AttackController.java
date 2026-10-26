@@ -17,8 +17,8 @@ import org.paztport.core.PathChain;
 import org.paztport.core.RequestBinding;
 import org.paztport.core.Stamp;
 import org.paztport.core.StampSigner;
-import org.paztport.spring.PathAttestContext;
-import org.paztport.spring.PathAttestHeaders;
+import org.paztport.spring.PaztportContext;
+import org.paztport.spring.PaztportHeaders;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
@@ -51,7 +51,7 @@ public class AttackController {
             RestClient stampedClient,
             StolenChainStore stolenChains,
             @Value("${downstream.payment-url}") String paymentUrl,
-            @Value("${path-attest.key-path}") String keyPath) throws Exception {
+            @Value("${paztport.key-path}") String keyPath) throws Exception {
         this.stampedClient = stampedClient;
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
@@ -85,11 +85,11 @@ public class AttackController {
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
         }
         // Let the normal interceptor append search's own stamp to the stolen chain.
-        PathAttestContext.setInboundChain(stolen);
+        PaztportContext.setInboundChain(stolen);
         try {
             return callPayment(stampedClient, null, null, BODY);
         } finally {
-            PathAttestContext.clear();
+            PaztportContext.clear();
         }
     }
 
@@ -130,10 +130,10 @@ public class AttackController {
                 .headers(h -> {
                     h.setContentType(MediaType.APPLICATION_JSON);
                     if (chain != null) {
-                        h.set(PathAttestHeaders.CHAIN, chain);
+                        h.set(PaztportHeaders.CHAIN, chain);
                     }
                     if (proof != null) {
-                        h.set(PathAttestHeaders.PROOF, proof);
+                        h.set(PaztportHeaders.PROOF, proof);
                     }
                 })
                 .body(body)

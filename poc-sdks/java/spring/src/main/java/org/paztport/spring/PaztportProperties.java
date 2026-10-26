@@ -6,9 +6,9 @@ package org.paztport.spring;
 import java.util.List;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
-/** Configuration for the path-attestation glue, bound from {@code path-attest.*}. */
-@ConfigurationProperties(prefix = "path-attest")
-public class PathAttestProperties {
+/** Configuration for the path-attestation glue, bound from {@code paztport.*}. */
+@ConfigurationProperties(prefix = "paztport")
+public class PaztportProperties {
 
     /** This service's name, used as the stamp svc and the verifier's receiving service. */
     private String serviceName;

@@ -21,7 +21,7 @@ import org.paztport.core.SignedRoot;
  * <pre>policy-tool [paths.yaml] [keysDir] [outDir]</pre>
  *
  * Reads the policy private key from {@code keysDir/policy.key}. Depth comes from
- * {@code PATH_ATTEST_PROOF_DEPTH} (default 8). Only root id and service names are
+ * {@code PAZTPORT_PROOF_DEPTH} (default 8). Only root id and service names are
  * logged, never salts or the tree.
  */
 public final class PolicyToolMain {
@@ -49,7 +49,7 @@ public final class PolicyToolMain {
         Path pathsYaml = Path.of(args.length > 0 ? args[0] : "policy/paths.yaml");
         Path keysDir = Path.of(args.length > 1 ? args[1] : "out/keys");
         Path outDir = Path.of(args.length > 2 ? args[2] : "out/policy");
-        int depth = Integer.parseInt(System.getenv().getOrDefault("PATH_ATTEST_PROOF_DEPTH", "8"));
+        int depth = Integer.parseInt(System.getenv().getOrDefault("PAZTPORT_PROOF_DEPTH", "8"));
 
         run(pathsYaml, keysDir, outDir, depth);
 

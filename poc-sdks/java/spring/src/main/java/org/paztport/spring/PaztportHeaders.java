@@ -4,11 +4,11 @@
 package org.paztport.spring;
 
 /** The two wire header names. */
-public final class PathAttestHeaders {
+public final class PaztportHeaders {
 
     public static final String CHAIN = "X-Path-Chain";
     public static final String PROOF = "X-Path-Proof";
 
-    private PathAttestHeaders() {
+    private PaztportHeaders() {
     }
 }

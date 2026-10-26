@@ -26,12 +26,12 @@ class EventsAndCaptureTest {
     @Test
     void loggingPublisherKeepsAForgedNewlineOnOneLine() {
         AttestationEvent event = new AttestationEvent(
-                "PATH_NOT_ALLOWED", "search", "s1\nPATH_ATTEST_EVENT reason=OK", "rid\r9", false);
+                "PATH_NOT_ALLOWED", "search", "s1\nPAZTPORT_EVENT reason=OK", "rid\r9", false);
         String line = LoggingEventPublisher.format(event);
 
         assertFalse(line.contains("\n"), line);
         assertFalse(line.contains("\r"), line);
-        assertTrue(line.contains("suspectInst=s1\\u000aPATH_ATTEST_EVENT"), line);
+        assertTrue(line.contains("suspectInst=s1\\u000aPAZTPORT_EVENT"), line);
     }
 
     @Test

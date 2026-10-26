@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Retains the last request a verifier received, so the demo can replay or mutate
  * a genuinely valid request. A demo harness simulating an on-the-wire capture;
- * not part of the attestation model. Enabled only when {@code path-attest.capture=true}.
+ * not part of the attestation model. Enabled only when {@code paztport.capture=true}.
  */
 public final class CaptureStore {
 

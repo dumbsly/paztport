@@ -24,11 +24,11 @@ import org.paztport.core.Verifier;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
-class PathAttestAutoConfigurationTest {
+class PaztportAutoConfigurationTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(PathAttestAutoConfiguration.class));
+            .withConfiguration(AutoConfigurations.of(PaztportAutoConfiguration.class));
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
@@ -49,10 +49,10 @@ class PathAttestAutoConfigurationTest {
     void callerGetsStamperAndRestClientCustomizerButNoVerifier(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(
-                        "path-attest.service-name=gateway",
-                        "path-attest.origin=true",
-                        "path-attest.key-path=" + dir.resolve("gateway.key"),
-                        "path-attest.proofs-path=" + dir.resolve("proofs-gateway.json"))
+                        "paztport.service-name=gateway",
+                        "paztport.origin=true",
+                        "paztport.key-path=" + dir.resolve("gateway.key"),
+                        "paztport.proofs-path=" + dir.resolve("proofs-gateway.json"))
                 .run(context -> {
                     assertThat(context).hasSingleBean(OutboundStamper.class);
                     assertThat(context).hasSingleBean(org.springframework.boot.web.client.RestClientCustomizer.class);
@@ -65,10 +65,10 @@ class PathAttestAutoConfigurationTest {
     void verifierServiceGetsVerifierAndFilterButNoStamper(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(
-                        "path-attest.service-name=payment",
-                        "path-attest.verify=true",
-                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
-                        "path-attest.root-path=" + dir.resolve("root.json"))
+                        "paztport.service-name=payment",
+                        "paztport.verify=true",
+                        "paztport.keyring-path=" + dir.resolve("keyring.json"),
+                        "paztport.root-path=" + dir.resolve("root.json"))
                 .run(context -> {
                     assertThat(context).hasSingleBean(Verifier.class);
                     assertThat(context).hasSingleBean(org.springframework.boot.web.servlet.FilterRegistrationBean.class);
@@ -77,16 +77,16 @@ class PathAttestAutoConfigurationTest {
     }
 
     private static final String[] VERIFIER_PROPS = {
-        "path-attest.service-name=payment", "path-attest.verify=true"};
+        "paztport.service-name=payment", "paztport.verify=true"};
 
     @Test
     void responderUrlWithoutAnEventKeyFailsAtStartup(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(
-                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
-                        "path-attest.root-path=" + dir.resolve("root.json"),
-                        "path-attest.responder-url=http://responder:8080")
+                        "paztport.keyring-path=" + dir.resolve("keyring.json"),
+                        "paztport.root-path=" + dir.resolve("root.json"),
+                        "paztport.responder-url=http://responder:8080")
                 .run(context -> assertThat(context).hasFailed());
     }
 
@@ -95,10 +95,10 @@ class PathAttestAutoConfigurationTest {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(
-                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
-                        "path-attest.root-path=" + dir.resolve("root.json"),
-                        "path-attest.responder-url=http://responder:8080",
-                        "path-attest.event-key-path=" + dir.resolve("gateway.key"))
+                        "paztport.keyring-path=" + dir.resolve("keyring.json"),
+                        "paztport.root-path=" + dir.resolve("root.json"),
+                        "paztport.responder-url=http://responder:8080",
+                        "paztport.event-key-path=" + dir.resolve("gateway.key"))
                 .run(context -> assertThat(context.getBean(EventPublisher.class))
                         .isInstanceOf(ResponderEventPublisher.class));
     }
@@ -108,8 +108,8 @@ class PathAttestAutoConfigurationTest {
         writeWorld(dir);
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(
-                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
-                        "path-attest.root-path=" + dir.resolve("root.json"))
+                        "paztport.keyring-path=" + dir.resolve("keyring.json"),
+                        "paztport.root-path=" + dir.resolve("root.json"))
                 .run(context -> assertThat(context.getBean(EventPublisher.class))
                         .isInstanceOf(LoggingEventPublisher.class));
     }

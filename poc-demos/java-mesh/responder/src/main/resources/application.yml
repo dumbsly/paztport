@@ -10,5 +10,5 @@ quarantine:
   quarantine-network: ${QUARANTINE_NETWORK:paztport-quarantine}
 
 responder:
-  keyring-path: ${PA_KEYRING_PATH:/config/keys/keyring.json}
+  keyring-path: ${PAZTPORT_KEYRING_PATH:/config/keys/keyring.json}
   allowed-signers: ${RESPONDER_ALLOWED_SIGNERS:payment}

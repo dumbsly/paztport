@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 /**
  * Exposes the last request a verifier received, for the demo's replay/mutate
- * harness. Present only when {@code path-attest.capture=true}; not part of the
+ * harness. Present only when {@code paztport.capture=true}; not part of the
  * attestation model.
  */
 @RestController

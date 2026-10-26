@@ -16,7 +16,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * Inbound half of the glue. Caches the body, stores the received chain in
- * {@link PathAttestContext} for outbound appends, and — on a verifying service —
+ * {@link PaztportContext} for outbound appends, and — on a verifying service —
  * applies the current {@link VerificationMode}:
  *
  * <ul>
@@ -54,8 +54,8 @@ public final class InboundFilter extends OncePerRequestFilter {
         byte[] body = CachedBodyHttpServletRequest.readAll(request);
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
 
-        String chainHeader = request.getHeader(PathAttestHeaders.CHAIN);
-        String proofHeader = request.getHeader(PathAttestHeaders.PROOF);
+        String chainHeader = request.getHeader(PaztportHeaders.CHAIN);
+        String proofHeader = request.getHeader(PaztportHeaders.PROOF);
 
         setContextFromChain(chainHeader);
         try {
@@ -79,7 +79,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             chain.doFilter(wrapped, response);
         } finally {
-            PathAttestContext.clear();
+            PaztportContext.clear();
         }
     }
 
@@ -88,14 +88,14 @@ public final class InboundFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            PathAttestContext.setInboundChain(PathChain.decode(chainHeader));
+            PaztportContext.setInboundChain(PathChain.decode(chainHeader));
         } catch (RuntimeException e) {
-            PathAttestContext.setInboundChain(null);
+            PaztportContext.setInboundChain(null);
         }
     }
 
     private static String currentRid() {
-        PathChain chain = PathAttestContext.inboundChain();
+        PathChain chain = PaztportContext.inboundChain();
         return (chain != null && !chain.stamps().isEmpty()) ? chain.stamps().get(0).rid() : "";
     }
 

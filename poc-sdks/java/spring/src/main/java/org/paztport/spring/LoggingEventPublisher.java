@@ -13,7 +13,7 @@ import org.slf4j.LoggerFactory;
  */
 public final class LoggingEventPublisher implements EventPublisher {
 
-    private static final Logger log = LoggerFactory.getLogger("PATH_ATTEST_EVENT");
+    private static final Logger log = LoggerFactory.getLogger("PAZTPORT_EVENT");
 
     @Override
     public void publish(AttestationEvent event) {
@@ -22,7 +22,7 @@ public final class LoggingEventPublisher implements EventPublisher {
 
     static String format(AttestationEvent e) {
         return String.format(
-                "PATH_ATTEST_EVENT reason=%s suspectSvc=%s suspectInst=%s rid=%s audit=%s",
+                "PAZTPORT_EVENT reason=%s suspectSvc=%s suspectInst=%s rid=%s audit=%s",
                 LogSafe.of(e.reason()), LogSafe.of(e.suspectSvc()), LogSafe.of(e.suspectInst()),
                 LogSafe.of(e.rid()), e.audit());
     }

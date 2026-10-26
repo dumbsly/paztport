@@ -5,7 +5,7 @@ package org.paztport.search;
 
 import java.util.List;
 import java.util.Map;
-import org.paztport.spring.PathAttestContext;
+import org.paztport.spring.PaztportContext;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -23,7 +23,7 @@ public class SearchController {
     @GetMapping("/search")
     public Map<String, Object> search(@RequestParam(required = false, defaultValue = "") String q) {
         // Remember the chain we were legitimately handed, for the attack demo.
-        stolenChains.record(PathAttestContext.inboundChain());
+        stolenChains.record(PaztportContext.inboundChain());
         return Map.of("query", q, "results", List.of());
     }
 }

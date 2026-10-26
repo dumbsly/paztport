@@ -17,7 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 // Verification disabled so the context loads without mounted key/root files; this
 // test covers the controller contract. End-to-end verification is proven by the
 // glue tests and the Docker scenario-1 run.
-@SpringBootTest(properties = "path-attest.verify=false")
+@SpringBootTest(properties = "paztport.verify=false")
 @AutoConfigureMockMvc
 class PaymentControllerTest {
 

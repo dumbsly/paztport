@@ -5,8 +5,8 @@
 # Measures Paztport's verification overhead and header sizes against the running
 # stack, and prints the numbers reported in the README (§12).
 #
-#   PA_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
-#   PA_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode
+#   PAZTPORT_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
+#   PAZTPORT_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode
 #
 # It runs the k6 load twice — payment in `off` mode (no verification) and
 # `enforce` mode — so the difference is the verifier's cost. Then it reads one
@@ -15,7 +15,7 @@
 set -u
 cd "$(dirname "$0")"
 
-: "${PA_ADMIN_TOKEN:?set PA_ADMIN_TOKEN to the token payment was started with}"
+: "${PAZTPORT_ADMIN_TOKEN:?set PAZTPORT_ADMIN_TOKEN to the token payment was started with}"
 
 MESH="paztport-mesh"
 CURL="curlimages/curl:latest"
@@ -27,9 +27,9 @@ mc() { docker run --rm --network "$MESH" "$CURL" -s "$@"; }
 set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
   local code
   code=$(mc -o /dev/null -w '%{http_code}' -X POST "http://payment:8080/admin/mode?value=$1" \
-    -H "X-Admin-Token: $PA_ADMIN_TOKEN")
+    -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN")
   if [ "$code" != "200" ]; then
-    echo "measure.sh: switching payment to $1 failed (HTTP $code); is PA_ADMIN_TOKEN the token payment was started with?" >&2
+    echo "measure.sh: switching payment to $1 failed (HTTP $code); is PAZTPORT_ADMIN_TOKEN the token payment was started with?" >&2
     exit 1
   fi
 }

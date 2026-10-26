@@ -56,7 +56,7 @@ class InboundFilterTest {
 
     @AfterEach
     void cleanup() {
-        PathAttestContext.clear();
+        PaztportContext.clear();
     }
 
     private Verifier paymentVerifier() {
@@ -81,9 +81,9 @@ class InboundFilterTest {
 
     private MockHttpServletRequest paymentRequest(OutboundStamper.StampedHeaders h, byte[] body) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
-        request.addHeader(PathAttestHeaders.CHAIN, h.chainHeader());
+        request.addHeader(PaztportHeaders.CHAIN, h.chainHeader());
         if (h.proofHeader() != null) {
-            request.addHeader(PathAttestHeaders.PROOF, h.proofHeader());
+            request.addHeader(PaztportHeaders.PROOF, h.proofHeader());
         }
         request.setContent(body);
         return request;
@@ -177,7 +177,7 @@ class InboundFilterTest {
         HttpServlet capturing = new HttpServlet() {
             @Override
             protected void service(HttpServletRequest req, HttpServletResponse res) {
-                seen[0] = PathAttestContext.inboundChain();
+                seen[0] = PaztportContext.inboundChain();
             }
         };
         MockFilterChain chain = new MockFilterChain(capturing);
@@ -209,7 +209,7 @@ class InboundFilterTest {
         filter(VerificationMode.ENFORCE, null)
                 .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), new MockHttpServletResponse(), new MockFilterChain());
 
-        org.junit.jupiter.api.Assertions.assertNull(PathAttestContext.inboundChain());
+        org.junit.jupiter.api.Assertions.assertNull(PaztportContext.inboundChain());
     }
 
     private static final class CollectingPublisher implements EventPublisher {

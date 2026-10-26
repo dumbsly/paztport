@@ -11,11 +11,11 @@ import org.paztport.core.PathChain;
  * next stamp. Calls are synchronous on the request thread, so a thread-local
  * is sufficient. The filter must {@link #clear()} in a finally block.
  */
-public final class PathAttestContext {
+public final class PaztportContext {
 
     private static final ThreadLocal<PathChain> INBOUND = new ThreadLocal<>();
 
-    private PathAttestContext() {
+    private PaztportContext() {
     }
 
     public static void setInboundChain(PathChain chain) {

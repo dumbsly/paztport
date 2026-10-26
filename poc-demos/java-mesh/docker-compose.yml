@@ -55,10 +55,10 @@ services:
         JAR: poc-demos/java-mesh/services/payment/target/payment.jar
     networks: [mesh]
     environment:
-      PATH_ATTEST_MODE: ${PATH_ATTEST_MODE:-enforce}
-      PA_ADMIN_TOKEN: ${PA_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
-      PA_CAPTURE: "true"   # demo harness: lets the attacker replay a real request
-      PA_EVENT_KEY_PATH: /config/keys/payment.key   # signs events; read only when RESPONDER_URL is set
+      PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
+      PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
+      PAZTPORT_CAPTURE: "true"   # demo harness: lets the attacker replay a real request
+      PAZTPORT_EVENT_KEY_PATH: /config/keys/payment.key   # signs events; read only when RESPONDER_URL is set
       RESPONDER_URL: ${RESPONDER_URL:-}   # empty = log only; the demo sets it for the quarantine scenarios
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
@@ -86,8 +86,8 @@ services:
     networks: [mesh]
     environment:
       ATTACK_MODE: "true"
-      PATH_ATTEST_KEY_PATH: /config/keys/search.key
-      PATH_ATTEST_PROOFS_PATH: /config/policy/proofs-search.json
+      PAZTPORT_KEY_PATH: /config/keys/search.key
+      PAZTPORT_PROOFS_PATH: /config/policy/proofs-search.json
     volumes:
       - ./out/keys/search.key:/config/keys/search.key:ro
       - ./out/policy/proofs-search.json:/config/policy/proofs-search.json:ro

@@ -15,7 +15,7 @@ import org.springframework.http.client.ClientHttpResponse;
 /**
  * Stamps every outbound RestClient request. The target service is taken from the
  * request URI host (Docker Compose service names equal hostnames), and the
- * inbound chain comes from {@link PathAttestContext}.
+ * inbound chain comes from {@link PaztportContext}.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
@@ -31,14 +31,14 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         URI uri = request.getURI();
-        PathChain inbound = PathAttestContext.inboundChain();
+        PathChain inbound = PaztportContext.inboundChain();
 
         OutboundStamper.StampedHeaders headers =
                 stamper.stamp(inbound, request.getMethod().name(), uri.getPath(), body, uri.getHost(), bundle);
 
-        request.getHeaders().set(PathAttestHeaders.CHAIN, headers.chainHeader());
+        request.getHeaders().set(PaztportHeaders.CHAIN, headers.chainHeader());
         if (headers.proofHeader() != null) {
-            request.getHeaders().set(PathAttestHeaders.PROOF, headers.proofHeader());
+            request.getHeaders().set(PaztportHeaders.PROOF, headers.proofHeader());
         }
         return execution.execute(request, body);
     }

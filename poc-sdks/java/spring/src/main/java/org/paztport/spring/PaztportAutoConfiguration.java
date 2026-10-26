@@ -21,18 +21,18 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 
 /**
- * Wires the inbound filter and outbound interceptor from {@code path-attest.*}.
+ * Wires the inbound filter and outbound interceptor from {@code paztport.*}.
  * Beans appear only when their inputs are configured, so each service holds only
  * what its role requires: callers get a stamper and interceptor, verifiers get a
  * Verifier, and every service gets the inbound filter.
  */
 @AutoConfiguration
-@EnableConfigurationProperties(PathAttestProperties.class)
-public class PathAttestAutoConfiguration {
+@EnableConfigurationProperties(PaztportProperties.class)
+public class PaztportAutoConfiguration {
 
     @Bean
-    @ConditionalOnProperty("path-attest.key-path")
-    OutboundStamper outboundStamper(PathAttestProperties props) {
+    @ConditionalOnProperty("paztport.key-path")
+    OutboundStamper outboundStamper(PaztportProperties props) {
         return new OutboundStamper(
                 props.getServiceName(),
                 instance(props),
@@ -43,22 +43,22 @@ public class PathAttestAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty("path-attest.proofs-path")
-    ProofBundle proofBundle(PathAttestProperties props) {
+    @ConditionalOnProperty("paztport.proofs-path")
+    ProofBundle proofBundle(PaztportProperties props) {
         return ConfigLoader.loadProofBundle(Path.of(props.getProofsPath()));
     }
 
     @Bean
-    @ConditionalOnProperty("path-attest.key-path")
-    RestClientCustomizer pathAttestRestClientCustomizer(
+    @ConditionalOnProperty("paztport.key-path")
+    RestClientCustomizer paztportRestClientCustomizer(
             OutboundStamper stamper, org.springframework.beans.factory.ObjectProvider<ProofBundle> bundle) {
         OutboundInterceptor interceptor = new OutboundInterceptor(stamper, bundle.getIfAvailable());
         return builder -> builder.requestInterceptor(interceptor);
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.verify", havingValue = "true")
-    Verifier verifier(PathAttestProperties props) {
+    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    Verifier verifier(PaztportProperties props) {
         VerifierConfig cfg = VerifierConfig.pinned(
                 ConfigLoader.loadKeyring(Path.of(props.getKeyringPath())),
                 ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
@@ -72,20 +72,20 @@ public class PathAttestAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.verify", havingValue = "true")
-    ModeHolder modeHolder(PathAttestProperties props) {
+    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    ModeHolder modeHolder(PaztportProperties props) {
         return new ModeHolder(VerificationMode.fromProperty(props.getMode()));
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.verify", havingValue = "true")
-    EventPublisher eventPublisher(PathAttestProperties props) {
+    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    EventPublisher eventPublisher(PaztportProperties props) {
         String responderUrl = props.getResponderUrl();
         if (responderUrl != null && !responderUrl.isBlank()) {
             String eventKeyPath = props.getEventKeyPath();
             if (eventKeyPath == null || eventKeyPath.isBlank()) {
                 throw new IllegalStateException(
-                        "path-attest.responder-url is set but path-attest.event-key-path is not");
+                        "paztport.responder-url is set but paztport.event-key-path is not");
             }
             return new ResponderEventPublisher(
                     responderUrl,
@@ -97,19 +97,19 @@ public class PathAttestAutoConfiguration {
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.verify", havingValue = "true")
-    AdminModeController adminModeController(ModeHolder modeHolder, PathAttestProperties props) {
+    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
+    AdminModeController adminModeController(ModeHolder modeHolder, PaztportProperties props) {
         return new AdminModeController(modeHolder, props.getAdminToken());
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.capture", havingValue = "true")
+    @ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
     CaptureStore captureStore() {
         return new CaptureStore();
     }
 
     @Bean
-    @ConditionalOnProperty(name = "path-attest.capture", havingValue = "true")
+    @ConditionalOnProperty(name = "paztport.capture", havingValue = "true")
     DebugCaptureController debugCaptureController(CaptureStore store) {
         return new DebugCaptureController(store);
     }
@@ -129,7 +129,7 @@ public class PathAttestAutoConfiguration {
         return registration;
     }
 
-    private static String instance(PathAttestProperties props) {
+    private static String instance(PaztportProperties props) {
         if (props.getInstance() != null && !props.getInstance().isBlank()) {
             return props.getInstance();
         }

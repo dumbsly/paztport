@@ -1,11 +1,11 @@
 server:
   port: 8080
 
-path-attest:
+paztport:
   service-name: gateway
   origin: true
-  key-path: ${PA_KEY_PATH:/config/keys/gateway.key}
-  proofs-path: ${PA_PROOFS_PATH:/config/policy/proofs-gateway.json}
+  key-path: ${PAZTPORT_KEY_PATH:/config/keys/gateway.key}
+  proofs-path: ${PAZTPORT_PROOFS_PATH:/config/policy/proofs-gateway.json}
 
 downstream:
   orders-url: ${ORDERS_URL:http://orders:8080}

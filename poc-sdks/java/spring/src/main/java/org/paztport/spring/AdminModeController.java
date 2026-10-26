@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
  * and back without restarting containers. {@code InboundFilter} skips
  * {@code /admin}, and every service shares one network, so a compromised peer
  * could otherwise turn verification off. Both verbs therefore need the
- * {@code X-Admin-Token} header to match {@code path-attest.admin-token}, compared
+ * {@code X-Admin-Token} header to match {@code paztport.admin-token}, compared
  * in constant time. With no token configured every request is refused. This is a
  * demo control channel; a real deployment would keep it on a separate management
  * network.
@@ -39,7 +39,7 @@ public class AdminModeController {
         boolean disabled = adminToken == null || adminToken.isBlank();
         this.token = disabled ? null : adminToken.getBytes(StandardCharsets.UTF_8);
         if (disabled) {
-            log.warn("path-attest.admin-token is not set; /admin/mode is disabled");
+            log.warn("paztport.admin-token is not set; /admin/mode is disabled");
         }
     }
 
