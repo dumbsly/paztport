@@ -6,18 +6,18 @@
 
     <parent>
         <groupId>org.paztport</groupId>
-        <artifactId>paztport-parent</artifactId>
+        <artifactId>paztport-sdk-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>path-attest-spring</artifactId>
-    <name>Path Attest Spring</name>
+    <artifactId>paztport-spring</artifactId>
+    <name>Paztport Spring</name>
     <description>Inbound verification filter and outbound stamping interceptor for Spring Boot.</description>
 
     <dependencies>
         <dependency>
             <groupId>org.paztport</groupId>
-            <artifactId>path-attest-core</artifactId>
+            <artifactId>paztport-core</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>

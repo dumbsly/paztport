@@ -6,12 +6,12 @@
 
     <parent>
         <groupId>org.paztport</groupId>
-        <artifactId>paztport-parent</artifactId>
+        <artifactId>paztport-sdk-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
     </parent>
 
-    <artifactId>path-attest-core</artifactId>
-    <name>Path Attest Core</name>
+    <artifactId>paztport-core</artifactId>
+    <name>Paztport Core</name>
     <description>Stamps, chain linking, request binding, salted Merkle proofs, and the verifier.</description>
 
     <dependencies>

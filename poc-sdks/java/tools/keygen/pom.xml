@@ -6,8 +6,9 @@
 
     <parent>
         <groupId>org.paztport</groupId>
-        <artifactId>paztport-parent</artifactId>
+        <artifactId>paztport-sdk-parent</artifactId>
         <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../pom.xml</relativePath>
     </parent>
 
     <artifactId>keygen</artifactId>
@@ -17,7 +18,7 @@
     <dependencies>
         <dependency>
             <groupId>org.paztport</groupId>
-            <artifactId>path-attest-core</artifactId>
+            <artifactId>paztport-core</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -65,7 +66,7 @@
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                                     <resource>META-INF/LICENSE</resource>
-                                    <file>${project.basedir}/../LICENSE</file>
+                                    <file>${project.basedir}/../../../../LICENSE</file>
                                 </transformer>
                             </transformers>
                         </configuration>

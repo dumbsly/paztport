@@ -1,5 +1,6 @@
 # Paztport local POC.
 #
+#   (cd ../../poc-sdks/java && mvn -q install -DskipTests)   # SDK jars and the tool images' jars
 #   mvn -q package -DskipTests
 #   docker compose run --rm keygen
 #   docker compose run --rm policy-tool
@@ -9,6 +10,12 @@
 # only the specific files its role needs. Callers see their own private key and
 # their own proofs; payment sees the public keyring and the signed root, plus its
 # own private key, which it uses only to sign the events it sends the responder.
+#
+# The build context is the repository root, because the keygen and policy-tool
+# jars are built under poc-sdks/java. The project name is pinned so container
+# labels (and so the responder's service lookups) don't depend on this folder's name.
+
+name: paztport
 
 services:
 
@@ -17,10 +24,10 @@ services:
   keygen:
     profiles: ["tools"]
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: keygen/target/keygen.jar
+        JAR: poc-sdks/java/tools/keygen/target/keygen.jar
     volumes:
       - ./out/keys:/out/keys
     command: ["/out/keys"]
@@ -28,10 +35,10 @@ services:
   policy-tool:
     profiles: ["tools"]
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: policy-tool/target/policy-tool.jar
+        JAR: poc-sdks/java/tools/policy-tool/target/policy-tool.jar
     volumes:
       - ./policy:/policy:ro
       - ./out/keys:/out/keys:ro
@@ -42,10 +49,10 @@ services:
 
   payment:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: services/payment/target/payment.jar
+        JAR: poc-demos/java-mesh/services/payment/target/payment.jar
     networks: [mesh]
     environment:
       PATH_ATTEST_MODE: ${PATH_ATTEST_MODE:-enforce}
@@ -60,10 +67,10 @@ services:
 
   orders:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: services/orders/target/orders.jar
+        JAR: poc-demos/java-mesh/services/orders/target/orders.jar
     networks: [mesh]
     volumes:
       - ./out/keys/orders.key:/config/keys/orders.key:ro
@@ -72,10 +79,10 @@ services:
 
   search:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: services/search/target/search.jar
+        JAR: poc-demos/java-mesh/services/search/target/search.jar
     networks: [mesh]
     environment:
       ATTACK_MODE: "true"
@@ -87,10 +94,10 @@ services:
 
   gateway:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: services/gateway/target/gateway.jar
+        JAR: poc-demos/java-mesh/services/gateway/target/gateway.jar
     networks: [mesh]
     ports:
       - "8080:8080"
@@ -101,10 +108,10 @@ services:
 
   responder:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
       args:
-        JAR: responder/target/responder.jar
+        JAR: poc-demos/java-mesh/responder/target/responder.jar
     networks: [mesh]
     environment:
       MESH_NETWORK: paztport-mesh

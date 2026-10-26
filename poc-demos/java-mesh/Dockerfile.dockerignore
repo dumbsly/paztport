@@ -1,0 +1,6 @@
+# The build context is the repository root (the tool jars live under
+# poc-sdks/java), so send only the built jars.
+*
+!poc-sdks/java/tools/*/target/*.jar
+!poc-demos/java-mesh/services/*/target/*.jar
+!poc-demos/java-mesh/responder/target/*.jar

@@ -7,10 +7,10 @@
 // Run (from a container on the mesh network):
 //   docker run --rm --network paztport-mesh \
 //     -e TARGET=http://gateway:8080/checkout -e VUS=10 -e DURATION=20s \
-//     -v "$PWD/scripts:/scripts:ro" grafana/k6 run /scripts/load.js
+//     -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js
 //
 // Compare payment in `off` vs `enforce` mode (toggle via POST /admin/mode) to
-// isolate the verifier's added latency. See scripts/measure.sh.
+// isolate the verifier's added latency. See measure.sh.
 
 import http from 'k6/http';
 import { check } from 'k6';

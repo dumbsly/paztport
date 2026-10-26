@@ -6,14 +6,14 @@
 # stack, and prints the numbers reported in the README (§12).
 #
 #   PA_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
-#   PA_ADMIN_TOKEN=<token> ./scripts/measure.sh   # same token, for /admin/mode
+#   PA_ADMIN_TOKEN=<token> ./measure.sh   # same token, for /admin/mode
 #
 # It runs the k6 load twice — payment in `off` mode (no verification) and
 # `enforce` mode — so the difference is the verifier's cost. Then it reads one
 # real captured request to report on-the-wire header sizes.
 
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 : "${PA_ADMIN_TOKEN:?set PA_ADMIN_TOKEN to the token payment was started with}"
 
@@ -40,7 +40,7 @@ run_load() { # echoes the RESULT line for the current mode
   done
   docker run --rm --network "$MESH" \
     -e TARGET=http://gateway:8080/checkout -e VUS="$VUS" -e DURATION="$DURATION" \
-    -v "$PWD/scripts:/scripts:ro" grafana/k6 run /scripts/load.js 2>/dev/null | grep RESULT
+    -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js 2>/dev/null | grep RESULT
 }
 
 echo "== latency: payment off vs enforce (VUS=$VUS DURATION=$DURATION) =="

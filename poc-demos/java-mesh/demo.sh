@@ -5,6 +5,7 @@
 # Paztport demo: runs every scenario and prints a pass/fail table.
 #
 # Prerequisites (see README):
+#   (cd ../../poc-sdks/java && mvn -q install -DskipTests)
 #   mvn -q package -DskipTests
 #
 # This script is idempotent. On each run it regenerates keys if missing,
@@ -13,7 +14,7 @@
 # throwaway curl container, so only the gateway port need ever be exposed.
 
 set -u
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")"
 
 MESH="paztport-mesh"
 CURL="curlimages/curl:latest"
