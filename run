@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The front door: check prerequisites, build what the demos need, and run them or every suite.
+set -euo pipefail
+cd "$(dirname "$0")"
+
+usage() {
+  cat <<'USAGE'
+Usage: ./run <command>
+
+  java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
+  agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
+  test         The name check, then the Java SDK, Java demo, TypeScript SDK and TypeScript demo suites.
+               No Docker and no model.
+
+macOS and Linux; on Windows use WSL.
+USAGE
+}
+
+# missing <tool> <min version> <where to get it>: one line, then stop before anything is built.
+missing() {
+  echo "missing: $1 $2 — $3"
+  exit 1
+}
+
+# at_least <found> <minimum>: true when the dotted version `found` is >= `minimum`.
+at_least() {
+  [ "$(printf '%s\n%s\n' "$2" "$1" | sort -V | head -n1)" = "$2" ]
+}
+
+need_java() {
+  command -v java >/dev/null 2>&1 || missing java 21 "https://adoptium.net or your package manager"
+  local major
+  major="$(java -version 2>&1 | sed -n '1s/.*version "\([0-9]*\).*/\1/p')"
+  [ -n "$major" ] && [ "$major" -ge 21 ] || missing java 21 "https://adoptium.net or your package manager"
+  command -v mvn >/dev/null 2>&1 || missing mvn 3.9 "https://maven.apache.org/download.cgi or your package manager"
+}
+
+need_node() {
+  command -v node >/dev/null 2>&1 || missing node 22.19 "https://nodejs.org"
+  at_least "$(node -v | sed 's/^v//')" 22.19 || missing node 22.19 "https://nodejs.org"
+  command -v npm >/dev/null 2>&1 || missing npm 10 "https://nodejs.org (it ships with node)"
+}
+
+need_docker() {
+  command -v docker >/dev/null 2>&1 || missing docker 24 "https://docs.docker.com/get-docker/"
+  docker info >/dev/null 2>&1 || missing docker 24 "start the Docker daemon (docker info must succeed)"
+}
+
+install_ts_sdk() {
+  # The demos link the SDK packages with file: paths, and those packages resolve their own dependencies only
+  # from the SDK workspace, so the SDK is installed first.
+  (cd poc-sdks/typescript && npm install --no-audit --no-fund)
+}
+
+install_ts_demo() {
+  (cd poc-demos/agents-mcp && npm install --no-audit --no-fund)
+}
+
+report_ollama() {
+  if curl -s -m 2 -o /dev/null http://localhost:11434; then
+    echo "ollama: reachable at http://localhost:11434 (pi picks its provider; this script never does)"
+  else
+    echo "ollama: unreachable at http://localhost:11434 (pi picks its provider; this script never does)"
+  fi
+}
+
+cmd_java_mesh() {
+  need_java
+  need_docker
+  (cd poc-sdks/java && mvn -q install -DskipTests)
+  (cd poc-demos/java-mesh && mvn -q package -DskipTests)
+  exec poc-demos/java-mesh/demo.sh
+}
+
+cmd_agents_mcp() {
+  need_node
+  install_ts_sdk
+  install_ts_demo
+  if [ ! -d poc-demos/agents-mcp/.demo ]; then
+    (cd poc-demos/agents-mcp && npm run setup-demo)
+  fi
+  report_ollama
+  cd poc-demos/agents-mcp
+  exec npm run demo
+}
+
+cmd_test() {
+  need_java
+  need_node
+  bash poc-sdks/scripts/check-names.sh
+  (cd poc-sdks/java && mvn -q install)
+  (cd poc-demos/java-mesh && mvn -q test)
+  install_ts_sdk
+  (cd poc-sdks/typescript && npm test)
+  install_ts_demo
+  (cd poc-demos/agents-mcp && npm test)
+  echo "all suites passed"
+}
+
+case "${2:-}" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+case "${1:-}" in
+  java-mesh) cmd_java_mesh ;;
+  agents-mcp) cmd_agents_mcp ;;
+  test) cmd_test ;;
+  -h|--help|help) usage ;;
+  "") usage ;;
+  *) usage >&2; exit 2 ;;
+esac

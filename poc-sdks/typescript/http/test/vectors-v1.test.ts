@@ -11,7 +11,7 @@ import type { ReasonCode } from "@paztport/core";
 import { bindHttp } from "../src/index.ts";
 
 type Keys = Record<string, { pub: string; priv: string }>;
-const v = JSON.parse(readFileSync(new URL("./vectors/v1.json", import.meta.url), "utf8"));
+const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v1.json", import.meta.url), "utf8"));
 const keys: Keys = v.keys;
 
 describe("Java-exported v1 vectors", () => {

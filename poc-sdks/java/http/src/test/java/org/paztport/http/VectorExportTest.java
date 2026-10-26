@@ -38,9 +38,12 @@ import org.paztport.core.VerifierConfig;
 import org.paztport.core.VerifyResult;
 
 /**
- * Exports v1 protocol test vectors for the TypeScript port. Runs only when
- * {@code -Dvectors.out=<file>} is given. Every verify case is first checked
- * against the Java Verifier, so the file can never record a wrong answer.
+ * Made the committed v1 file, {@code spec/vectors/v1.json}, and is kept only as the record of how. It is opt-in
+ * ({@code -Dpaztport.exportVectors=true}) and writes to {@code -Dvectors.out=<file>}, or to
+ * {@code target/v1-vectors.json} without it. It cannot reproduce the committed bytes: every run generates fresh
+ * keys and salts, so a new export is a different file, and replacing the committed one would change every
+ * recorded answer. Every verify case is first checked against the Java Verifier, so an export can never record
+ * a wrong answer.
  */
 class VectorExportTest {
 
@@ -143,7 +146,7 @@ class VectorExportTest {
     private MerkleTree tree;
 
     @Test
-    @EnabledIfSystemProperty(named = "vectors.out", matches = ".+")
+    @EnabledIfSystemProperty(named = "paztport.exportVectors", matches = "true")
     void export() throws IOException {
         keys.put("gateway", gateway);
         keys.put("orders", orders);
@@ -244,7 +247,7 @@ class VectorExportTest {
                 body, NOW, 1, ReasonCode.PATH_NOT_ALLOWED));
         out.put("verify", cases);
 
-        Path file = Path.of(System.getProperty("vectors.out"));
+        Path file = Path.of(System.getProperty("vectors.out", "target/v1-vectors.json"));
         Files.createDirectories(file.toAbsolutePath().getParent());
         ObjectMapper mapper = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
         Files.write(file, mapper.writeValueAsBytes(out));
