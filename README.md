@@ -456,11 +456,16 @@ The source repository bundles no third-party code. Built artifacts do, and
 [THIRD-PARTY.txt](THIRD-PARTY.txt) lists every runtime dependency with its license.
 All of them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence)
 or weak copyleft that is fine to redistribute unmodified (Logback, JNA, Jakarta
-Annotations). Regenerate the list after changing dependencies, from `poc-sdks/java`:
+Annotations). Regenerate the list after changing dependencies:
 
 ```bash
-mvn license:aggregate-add-third-party
+(cd poc-sdks/java && mvn install -DskipTests)   # the demo resolves the SDK from here
+poc-sdks/scripts/third-party.sh
 ```
+
+The script runs the license plugin in both Java trees, the SDK and the mesh demo
+(which alone brings docker-java, Bouncy Castle and the services' Spring Boot jars),
+and merges the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
 
 Bouncy Castle appears in the build only because `docker-java` uses it for Docker
 TLS in the responder. None of Paztport's own cryptography uses it; stamps,

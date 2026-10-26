@@ -78,16 +78,18 @@
         </pluginManagement>
 
         <plugins>
-            <!-- Regenerates THIRD-PARTY.txt from the real runtime dependency tree:
+            <!-- Lists this tree's runtime dependencies in target/THIRD-PARTY.txt:
                    mvn license:aggregate-add-third-party
-                 Not bound to a phase, so normal builds don't run it. -->
+                 poc-sdks/scripts/third-party.sh runs it here and in the demo, then merges
+                 both lists into the root THIRD-PARTY.txt. Not bound to a phase, so normal
+                 builds don't run it. -->
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
                 <version>2.4.0</version>
                 <inherited>false</inherited>
                 <configuration>
-                    <outputDirectory>${project.basedir}/../..</outputDirectory>
+                    <outputDirectory>${project.build.directory}</outputDirectory>
                     <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
                     <excludedScopes>test,system,provided</excludedScopes>
                     <excludedGroups>^org\.paztport</excludedGroups>
