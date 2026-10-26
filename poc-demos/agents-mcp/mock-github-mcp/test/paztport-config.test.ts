@@ -99,6 +99,20 @@ describe("loadServerConfig", () => {
     });
     expect(() => loadServerConfig(dir)).toThrow(/route proof/);
   });
+  it("loadServerConfigNamesTheRouteWhenItsProofDoesNotVerify", () => {
+    const message = "route proof for mcp-entry/github-tools does not verify against root.json";
+    const cfg = serverConfig();
+    const p = cfg.routeProof;
+    const flipped = (p.leafSalt[0] === "A" ? "B" : "A") + p.leafSalt.slice(1);
+    const wrongProof = writeDir(cfg, (f) => {
+      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, leafSalt: flipped } } };
+    });
+    expect(() => loadServerConfig(wrongProof)).toThrow(message);
+    const wrongRoot = writeDir(cfg, (f) => {
+      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, rootId: "vother" } } };
+    });
+    expect(() => loadServerConfig(wrongRoot)).toThrow(message);
+  });
   it("loadServerConfigRejectsRootNotSignedByPolicyKey", () => {
     const cfg = serverConfig();
     const forged = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, generateKeyPair().privateKey);

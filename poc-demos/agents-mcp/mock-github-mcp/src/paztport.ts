@@ -3,12 +3,12 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decode, keyPairMatches, parseProof, verifyProof, verifyRoot, type MerkleProof, type SignedRoot } from "@paztport/core";
+import { decode, keyPairMatches, parseProof, provesPath, routeOf, verifyRoot, type MerkleProof, type SignedRoot } from "@paztport/core";
 import type { ServerPolicy } from "@paztport/mcp";
 
 /** The two simulated services this server signs every response as, entry first. */
 const HOPS = ["mcp-entry", "github-tools"] as const;
-const ROUTE = HOPS.join("/");
+const ROUTE = routeOf(HOPS);
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").trim();
@@ -56,7 +56,7 @@ function validateServerConfig(cfg: ServerPolicy): void {
   } catch {
     throw new Error("root.json root is not valid base64url");
   }
-  if (cfg.routeProof.rootId !== cfg.signedRoot.rootId || !verifyProof(cfg.routeProof, ROUTE, rootBytes)) {
+  if (!provesPath(cfg.routeProof, ROUTE, rootBytes, cfg.signedRoot.rootId)) {
     throw new Error(`route proof for ${ROUTE} does not verify against root.json`);
   }
 }
