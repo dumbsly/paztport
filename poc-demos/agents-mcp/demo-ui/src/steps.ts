@@ -3,8 +3,7 @@
 
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { folderRuleFor, type Resolved } from "../../pi-extension/src/local/decide.ts";
-import { parseLocalRules, type InfluenceClass, type LocalRules } from "@paztport/core";
+import { folderRuleFor, parseLocalRules, type InfluenceClass, type LocalRules, type Resolved } from "@paztport/core";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
 export type Step = {

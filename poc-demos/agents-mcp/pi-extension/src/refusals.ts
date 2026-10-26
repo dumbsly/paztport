@@ -3,7 +3,7 @@
 
 // The texts the model is shown when Paztport refuses a call. They become the tool result.
 
-import type { LocalVerdict } from "./local/decide.ts";
+import type { LocalVerdict } from "@paztport/core";
 
 /** For an action outside the session's folders, programs or tools. Scope is not evidence of injection, so it does not ask the model to stop. */
 export const SCOPE_TEXT = "Paztport refused this action: it is outside what this session is allowed to do, so it was not carried out.";

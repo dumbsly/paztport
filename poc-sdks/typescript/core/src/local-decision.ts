@@ -6,7 +6,9 @@
 // only node:path's pure posix helpers, never node:fs.
 
 import { posix } from "node:path";
-import type { FolderRule, InfluenceClass, LocalRules } from "@paztport/core";
+import type { InfluenceClass } from "./influence.ts";
+import { publicWriteRefused } from "./influence-rule.ts";
+import type { FolderRule, LocalRules } from "./local-rules.ts";
 
 export type Need = "read" | "write" | "exec";
 
@@ -85,7 +87,7 @@ export function decideLocal(d: {
   if (readLabels(resolved, rules).includes("private")) {
     all.add("private");
   }
-  if (all.has("private") && (all.has("third-party") || all.has("local-untrusted"))) {
+  if (publicWriteRefused(all)) {
     if (folders.some(({ p, rule }) => p.need === "write" && rule?.destination === "public")) {
       return "INFLUENCE_DENIED";
     }
@@ -102,4 +104,25 @@ export function readLabels(resolved: Resolved, rules: LocalRules): InfluenceClas
     }
   }
   return [...out];
+}
+
+/** pi's built-in tools that only read. */
+const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+
+/**
+ * The classes an allowed call's result records: the labels of the folders a read tool read, those
+ * plus local-untrusted for bash (a program's output is not fully known), nothing for write and edit,
+ * and local-untrusted for any other tool.
+ */
+export function resultLabels(toolName: string, resolved: Resolved, rules: LocalRules): InfluenceClass[] {
+  if (READ_TOOLS.includes(toolName)) {
+    return readLabels(resolved, rules);
+  }
+  if (toolName === "bash") {
+    return [...new Set<InfluenceClass>([...readLabels(resolved, rules), "local-untrusted"])];
+  }
+  if (toolName === "write" || toolName === "edit") {
+    return [];
+  }
+  return ["local-untrusted"];
 }

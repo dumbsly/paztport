@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { parseLocalRules, type InfluenceClass } from "@paztport/core";
+import type { InfluenceClass } from "../src/influence.ts";
+import { parseLocalRules } from "../src/local-rules.ts";
 import {
   decideLocal,
   folderRuleFor,
@@ -10,7 +11,7 @@ import {
   type Resolved,
   type ResolvedPath,
   type ResolvedProgram,
-} from "../src/local/decide.ts";
+} from "../src/local-decision.ts";
 
 const rules = parseLocalRules({
   v: 1,

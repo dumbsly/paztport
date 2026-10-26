@@ -18,3 +18,6 @@ export * from "./verify-v2.ts";
 export * from "./session.ts";
 export * from "./attestation.ts";
 export * from "./local-rules.ts";
+export * from "./influence-rule.ts";
+export * from "./local-decision.ts";
+export * from "./local-step.ts";

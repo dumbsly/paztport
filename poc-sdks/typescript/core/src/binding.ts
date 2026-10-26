@@ -12,7 +12,7 @@ export function bindPrompt(text: string): string {
 
 /**
  * Local tool step binding: SHA-256(utf8("tool\n" + toolName + "\n" + JCS({ input, resolved }))), base64url.
- * The pi extension passes its signed decision as the third argument (it is named `resolved` in the hashed
+ * stampLocalStep passes the signed decision as the third argument (it is named `resolved` in the hashed
  * object): { callId, resolved, verdict, routeAllowed, rulesHash }, so the call id, what the gate resolved and
  * what it decided are all covered by the stamp.
  */

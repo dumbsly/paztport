@@ -5,7 +5,17 @@
 // pi's tool_call hook, against the signed client rules before it runs.
 
 import { homedir } from "node:os";
-import { bindLocalTool, commitInfluence, influenceClasses, rulesHash, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/core";
+import {
+  decideLocal,
+  influenceClasses,
+  resultLabels,
+  rulesHash,
+  stampLocalStep,
+  type InfluenceClass,
+  type LocalRules,
+  type LocalVerdict,
+  type Resolved,
+} from "@paztport/core";
 import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
@@ -14,7 +24,6 @@ import type { ClientMaterial } from "../keys.ts";
 import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
-import { decideLocal, readLabels, type LocalVerdict, type Resolved } from "./decide.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
 import { encodePlaceholders } from "./placeholders.ts";
 
@@ -23,7 +32,6 @@ export const BUILTIN_LOCAL_TOOLS = ["read", "write", "edit", "bash", "grep", "fi
 
 type FileTool = Exclude<(typeof BUILTIN_LOCAL_TOOLS)[number], "bash" | "powershell">;
 const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileTool => t !== "bash" && t !== "powershell");
-const READ_TOOLS: readonly string[] = FILE_TOOLS.filter((t) => t !== "write" && t !== "edit");
 const ROUTE_PREFIX = "session/pi/local:";
 const INST = "pi-1";
 
@@ -134,10 +142,24 @@ export class LocalGate {
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
       const signedInput = encodePlaceholders(input, { workspace: spellings(this.deps.workspace), home: spellings(this.deps.home ?? homedir()) });
-      // the stamp binds the decision as well as the call: the call id, what was resolved, the verdict, whether
-      // the route is listed and which rules decided, so none of them can be changed in the evidence after signing
-      const bind = bindLocalTool(toolName, signedInput, { callId: toolCallId, resolved, verdict, routeAllowed, rulesHash: hash });
-      const stamp = signStampV2({ svc: "pi", inst: INST, rid: run.rid, ts: now, sess: "", bind, infl: commitInfluence(entries), prev: origin.sig }, material.piKey);
+      const stamp = stampLocalStep(
+        {
+          svc: "pi",
+          inst: INST,
+          rid: run.rid,
+          ts: now,
+          prev: origin.sig,
+          toolName,
+          toolCallId,
+          input: signedInput,
+          resolved,
+          verdict,
+          listed: routeAllowed,
+          rulesHash: hash,
+          influence: entries,
+        },
+        material.piKey,
+      );
       evidence.write({
         v: 1,
         type: "local",
@@ -163,7 +185,7 @@ export class LocalGate {
       return { block: true, reason: localRefusalText(verdict) };
     }
     deepFreeze(input);
-    this.labels.set(toolCallId, labelsOf(toolName, resolved, rules!));
+    this.labels.set(toolCallId, resultLabels(toolName, resolved, rules!));
     return { block: false };
   }
 
@@ -193,22 +215,4 @@ export class LocalGate {
       return UNPARSED;
     }
   }
-}
-
-/**
- * The classes an allowed call's result records: the labels of the folders a read tool read, those
- * plus local-untrusted for bash (a program's output is not fully known), nothing for write and edit,
- * and local-untrusted for any other tool.
- */
-function labelsOf(toolName: string, resolved: Resolved, rules: LocalRules): InfluenceClass[] {
-  if (READ_TOOLS.includes(toolName)) {
-    return readLabels(resolved, rules);
-  }
-  if (toolName === "bash") {
-    return [...new Set<InfluenceClass>([...readLabels(resolved, rules), "local-untrusted"])];
-  }
-  if (toolName === "write" || toolName === "edit") {
-    return [];
-  }
-  return ["local-untrusted"];
 }

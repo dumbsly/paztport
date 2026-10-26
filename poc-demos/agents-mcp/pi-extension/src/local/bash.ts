@@ -7,8 +7,7 @@
 
 import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { isNeverProgram } from "@paztport/core";
-import type { Need, Resolved, ResolvedPath, ResolvedProgram } from "./decide.ts";
+import { isNeverProgram, type Need, type Resolved, type ResolvedPath, type ResolvedProgram } from "@paztport/core";
 import { canonical, resolvePathArg, withSubtree, WALK_LIMIT, type PathContext } from "./paths.ts";
 
 export type Redirect = { op: "<" | ">" | ">>" | "2>" | "2>>" | "&>"; target: string };

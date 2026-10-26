@@ -6,6 +6,7 @@ import {
   bindPrompt,
   canonicalize,
   commitInfluence,
+  decideLocal,
   decode,
   influenceClasses,
   parseInfluence,
@@ -20,10 +21,11 @@ import {
   verifyRoot,
   type InfluenceEntry,
   type LocalRules,
+  type LocalVerdict,
   type ReasonCode,
+  type Resolved,
   type StampV2,
 } from "@paztport/core";
-import { decideLocal, type LocalVerdict, type Resolved } from "../../pi-extension/src/local/decide.ts";
 
 /**
  * Offline checks of the pi extension's local steps (phase 2), used by verify.ts. The extension writes a

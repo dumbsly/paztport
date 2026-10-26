@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { InfluenceClass } from "@paztport/core";
+import { publicWriteRefused, type InfluenceClass } from "@paztport/core";
 import { GITHUB_TOOLS, type GithubTool } from "../src/github.ts";
 import { influenceDecision } from "../src/rules.ts";
 
@@ -45,5 +45,14 @@ describe("influenceDecision", () => {
       expect(influenceDecision(t, false, infl("third-party", "private"))).toBe("OK");
     }
     expect(influenceDecision(tool("get_file_contents"), true, infl("private", "third-party"))).toBe("OK");
+  });
+  it("publicWritesFollowTheCoreRule", () => {
+    const all: InfluenceClass[] = ["third-party", "private", "public", "local-untrusted"];
+    for (let mask = 0; mask < 2 ** all.length; mask++) {
+      const classes = new Set(all.filter((_, i) => mask & (1 << i)));
+      for (const t of WRITES) {
+        expect(influenceDecision(t, true, classes), [...classes].join(",")).toBe(publicWriteRefused(classes) ? "INFLUENCE_DENIED" : "OK");
+      }
+    }
   });
 });
