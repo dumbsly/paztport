@@ -9,7 +9,7 @@ import { join, relative } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures } from "../../mock-github-mcp/src/scenario.ts";
 import { OutcomeLog, type OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
-import { NEVER_PROGRAMS } from "../../path-attest-ts/src/local-rules.ts";
+import { NEVER_PROGRAMS } from "@paztport/core";
 import { localRefusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../../pi-extension/src/refusals.ts";
 import { OFF_MODE_COPY } from "../src/runner.ts";
 import { parseCli } from "../src/eval-main.ts";

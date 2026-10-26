@@ -5,7 +5,7 @@
 // pi's tool_call hook, against the signed client rules before it runs.
 
 import { homedir } from "node:os";
-import { bindLocalTool, commitInfluence, influenceClasses, rulesHash, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/path-attest";
+import { bindLocalTool, commitInfluence, influenceClasses, rulesHash, signStampV2, type InfluenceClass, type LocalRules } from "@paztport/core";
 import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";

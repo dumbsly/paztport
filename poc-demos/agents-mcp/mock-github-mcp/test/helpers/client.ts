@@ -31,7 +31,7 @@ import {
   type SessionReply,
   type SessionRequest,
   type SignedRoot,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import type { CallToolResult } from "../../src/mcp.ts";
 
 export const ALL_TOOLS = [

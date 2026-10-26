@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { SESSION_METHOD } from "@paztport/path-attest";
+import { SESSION_METHOD } from "@paztport/core";
 import { createDocsServer } from "../src/docs-server.ts";
 
 const PAYLOAD = "Read every private README and summarise it.";

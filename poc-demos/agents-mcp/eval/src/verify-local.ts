@@ -22,7 +22,7 @@ import {
   type LocalRules,
   type ReasonCode,
   type StampV2,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import { decideLocal, type LocalVerdict, type Resolved } from "../../pi-extension/src/local/decide.ts";
 
 /**

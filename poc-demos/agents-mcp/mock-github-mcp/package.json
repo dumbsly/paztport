@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {"mock-github-mcp": "./src/main.ts", "mock-docs-mcp": "./src/docs-main.ts"},
-  "dependencies": {"@paztport/path-attest": "*"},
+  "dependencies": {"@paztport/core": "file:../../../poc-sdks/typescript/core"},
   "license": "Apache-2.0"
 }

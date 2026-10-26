@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindResult } from "@paztport/path-attest";
+import { bindResult } from "@paztport/core";
 import { InfluenceStore, contentHash } from "../src/influence.ts";
 
 describe("InfluenceStore", () => {

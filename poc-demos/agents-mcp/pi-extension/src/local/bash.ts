@@ -7,7 +7,7 @@
 
 import { accessSync, constants, lstatSync, realpathSync, statSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
-import { isNeverProgram } from "@paztport/path-attest";
+import { isNeverProgram } from "@paztport/core";
 import type { Need, Resolved, ResolvedPath, ResolvedProgram } from "./decide.ts";
 import { canonical, resolvePathArg, withSubtree, WALK_LIMIT, type PathContext } from "./paths.ts";
 

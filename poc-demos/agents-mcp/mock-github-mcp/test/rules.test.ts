@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import type { InfluenceClass } from "@paztport/path-attest";
+import type { InfluenceClass } from "@paztport/core";
 import { GITHUB_TOOLS, type GithubTool } from "../src/github.ts";
 import { influenceDecision } from "../src/rules.ts";
 

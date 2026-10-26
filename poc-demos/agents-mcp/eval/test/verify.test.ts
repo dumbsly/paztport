@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bindLocalTool, bindMcpCall, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/path-attest";
+import { bindLocalTool, bindMcpCall, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/core";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
 import { EventLog } from "../../pi-extension/src/events.ts";
@@ -956,7 +956,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   function privateClient(): ClientMaterial {
     const dir = mkdtempSync(join(tmp, "priv-client-"));
     const tool = (script: string, args: string[]) => {
-      const r = spawnSync(process.execPath, [join(import.meta.dirname, "../../policy-tool-ts/src", script), ...args], { encoding: "utf8" });
+      const r = spawnSync(process.execPath, [join(import.meta.dirname, "../../node_modules/@paztport/policy-tool/src", script), ...args], { encoding: "utf8" });
       if (r.status !== 0) throw new Error(r.stderr || r.stdout);
     };
     const yaml = readFileSync(join(import.meta.dirname, "../../policies/client-local-tools.paths.yaml"), "utf8").replace(

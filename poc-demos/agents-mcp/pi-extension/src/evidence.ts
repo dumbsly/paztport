@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { appendFileSync } from "node:fs";
-import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceEntry, type LocalRules, type MerkleProof, type SessionRequest, type SignedRoot, type StampV2 } from "@paztport/path-attest";
+import { RULES_ROUTE_PREFIX, rulesHash, type InfluenceEntry, type LocalRules, type MerkleProof, type SessionRequest, type SignedRoot, type StampV2 } from "@paztport/core";
 import type { ClientMaterial } from "./keys.ts";
 import type { LocalVerdict, Resolved } from "./local/decide.ts";
 

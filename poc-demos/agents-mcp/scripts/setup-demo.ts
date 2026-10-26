@@ -14,8 +14,8 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 const AGENTS = join(import.meta.dirname, "..");
-const KEYGEN = join(AGENTS, "policy-tool-ts/src/keygen.ts");
-const POLICY = join(AGENTS, "policy-tool-ts/src/policy.ts");
+const KEYGEN = join(AGENTS, "node_modules/@paztport/policy-tool/src/keygen.ts");
+const POLICY = join(AGENTS, "node_modules/@paztport/policy-tool/src/policy.ts");
 
 function run(script: string, args: string[]): void {
   const r = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });

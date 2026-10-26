@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseLocalRules } from "@paztport/path-attest";
+import { parseLocalRules } from "@paztport/core";
 import { decideLocal, folderRuleFor, readLabels } from "../src/local/decide.ts";
 import { canonical, piRewrites, resolveFileTool, resolvePathArg, type PathContext } from "../src/local/paths.ts";
 

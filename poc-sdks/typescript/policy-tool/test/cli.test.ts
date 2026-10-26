@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { decode, sign, utf8, verify, verifyProof, verifyRoot } from "@paztport/path-attest";
-import type { MerkleProof, ProofBundle, SignedRoot } from "@paztport/path-attest";
+import { decode, sign, utf8, verify, verifyProof, verifyRoot } from "@paztport/core";
+import type { MerkleProof, ProofBundle, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -108,7 +108,7 @@ describe("policy-tool CLIs", () => {
   });
 
   it("policyReadsJavaKeyring", (ctx) => {
-    const p = resolve(here, "../../../out/keys/keyring.json");
+    const p = resolve(here, "../../../../out/keys/keyring.json");
     if (!existsSync(p)) ctx.skip();
     const ring = readKeyring(p);
     expect(typeof ring.policy).toBe("string");

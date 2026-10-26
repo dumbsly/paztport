@@ -6,7 +6,7 @@
 // only node:path's pure posix helpers, never node:fs.
 
 import { posix } from "node:path";
-import type { FolderRule, InfluenceClass, LocalRules } from "@paztport/path-attest";
+import type { FolderRule, InfluenceClass, LocalRules } from "@paztport/core";
 
 export type Need = "read" | "write" | "exec";
 

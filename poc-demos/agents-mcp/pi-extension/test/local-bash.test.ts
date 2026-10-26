@@ -5,7 +5,7 @@ import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, w
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { parseLocalRules, type InfluenceClass } from "@paztport/path-attest";
+import { parseLocalRules, type InfluenceClass } from "@paztport/core";
 import { decideLocal } from "../src/local/decide.ts";
 import { parseBash, resolveBash, PINNED_PATH, READ_ONLY_PROGRAMS } from "../src/local/bash.ts";
 import { resolveFileTool, type PathContext } from "../src/local/paths.ts";

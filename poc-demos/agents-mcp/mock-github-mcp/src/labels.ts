@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { InfluenceClass } from "@paztport/path-attest";
+import type { InfluenceClass } from "@paztport/core";
 import type { ToolOutcome } from "./github.ts";
 
 /** Influence class of the content a tool result carries into the agent's context. */

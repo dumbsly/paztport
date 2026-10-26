@@ -3,7 +3,7 @@
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { generateKeyPair } from "@paztport/path-attest";
+import { generateKeyPair } from "@paztport/core";
 import { writeJson, writePrivate } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c";

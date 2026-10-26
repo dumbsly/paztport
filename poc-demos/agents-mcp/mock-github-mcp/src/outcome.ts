@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { appendFileSync } from "node:fs";
-import type { InfluenceClass, ReasonCode } from "@paztport/path-attest";
+import type { InfluenceClass, ReasonCode } from "@paztport/core";
 import type { GithubState, PullRequest } from "./github.ts";
 import type { TaskCheck } from "./scenario.ts";
 

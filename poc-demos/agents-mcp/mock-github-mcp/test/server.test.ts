@@ -12,7 +12,7 @@ import {
   SESSION_METHOD,
   type InfluenceEntry,
   type SessionReply,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT, type ServerPaztportConfig } from "../src/paztport.ts";

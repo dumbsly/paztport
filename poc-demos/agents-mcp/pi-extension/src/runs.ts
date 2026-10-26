@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { bindPrompt, encode, randomBytes, signStampV2, type StampV2 } from "@paztport/path-attest";
+import { bindPrompt, encode, randomBytes, signStampV2, type StampV2 } from "@paztport/core";
 
 type Run = { rid: string; ts: number; bind: string };
 

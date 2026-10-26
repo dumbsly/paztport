@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import { resolve } from "node:path";
 import type { Tool } from "@earendil-works/pi-mcp";
-import type { InfluenceClass } from "@paztport/path-attest";
+import type { InfluenceClass } from "@paztport/core";
 import {
   getAgentDir,
   type AgentToolResult,

@@ -17,7 +17,7 @@ import {
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSeen, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**

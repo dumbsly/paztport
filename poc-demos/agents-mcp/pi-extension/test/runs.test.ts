@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, decode, generateKeyPair, signingBytesV2, verify } from "@paztport/path-attest";
+import { bindPrompt, decode, generateKeyPair, signingBytesV2, verify } from "@paztport/core";
 import { RunState } from "../src/runs.ts";
 
 const key = generateKeyPair();

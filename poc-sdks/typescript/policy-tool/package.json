@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "type": "module",
   "bin": {"paztport-keygen": "./src/keygen.ts", "paztport-policy": "./src/policy.ts"},
-  "dependencies": {"@paztport/path-attest": "*", "yaml": "2.8.1"},
+  "dependencies": {"@paztport/core": "file:../core", "yaml": "2.8.1"},
   "license": "Apache-2.0"
 }

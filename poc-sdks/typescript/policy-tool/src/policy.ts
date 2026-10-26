@@ -4,7 +4,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { buildPolicy, DEFAULT_DEPTH, parseLocalRules, RULES_ROUTE_PREFIX, rulesHash } from "@paztport/path-attest";
+import { buildPolicy, DEFAULT_DEPTH, parseLocalRules, RULES_ROUTE_PREFIX, rulesHash } from "@paztport/core";
 import { parse } from "yaml";
 import { readKey, writeJson } from "./files.ts";
 

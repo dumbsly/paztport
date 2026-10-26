@@ -6,7 +6,7 @@
 
 import { accessSync, constants, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
-import type { LocalRules } from "@paztport/path-attest";
+import type { LocalRules } from "@paztport/core";
 import type { Need, Resolved, ResolvedPath } from "./decide.ts";
 
 export type PathContext = { cwd: string; workspace: string; rules: LocalRules; refused: readonly string[] };

@@ -17,7 +17,7 @@ import {
   type LocalRules,
   type MerkleProof,
   type SignedRoot,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 
 export type ClientMaterial = {
   sessionKey: string;

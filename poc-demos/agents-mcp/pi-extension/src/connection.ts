@@ -23,7 +23,7 @@ import {
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";

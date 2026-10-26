@@ -26,7 +26,7 @@ import {
   verifyChainV2,
   type InfluenceEntry,
   type StampV2,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
 import { EvidenceLog } from "../src/evidence.ts";

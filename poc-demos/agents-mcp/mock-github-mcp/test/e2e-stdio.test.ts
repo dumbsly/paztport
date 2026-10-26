@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { META_ATTESTATION, META_CALL_ID, META_CHAIN, SESSION_METHOD, type InfluenceEntry, type SessionReply } from "@paztport/path-attest";
+import { META_ATTESTATION, META_CALL_ID, META_CHAIN, SESSION_METHOD, type InfluenceEntry, type SessionReply } from "@paztport/core";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT } from "../src/paztport.ts";
 import { makeClient } from "./helpers/client.ts";

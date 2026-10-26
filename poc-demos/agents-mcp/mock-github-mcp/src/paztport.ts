@@ -33,7 +33,7 @@ import {
   type SessionReply,
   type SessionRequest,
   type SignedRoot,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 import { InvalidParams, type CallToolResult } from "./mcp.ts";
 
 /** Refusal key on error results (re-exported from index.ts). */

@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, signRoot, verifyCall, verifyRoot, type InfluenceClass } from "@paztport/path-attest";
+import { buildPolicy, decode, generateKeyPair, META_ATTESTATION, signRoot, verifyCall, verifyRoot, type InfluenceClass } from "@paztport/core";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig, PaztportServer, type ServerPaztportConfig, type SessionRules } from "../src/paztport.ts";
 import { makeClient } from "./helpers/client.ts";
@@ -193,7 +193,7 @@ describe("loadServerConfig", () => {
   it("loadServerConfigReadsPolicyToolOutput", () => {
     const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
     dirs.push(dir);
-    const tool = (f: string) => join(import.meta.dirname, "../../policy-tool-ts/src", f);
+    const tool = (f: string) => join(import.meta.dirname, "../../node_modules/@paztport/policy-tool/src", f);
     writeFileSync(join(dir, "paths.yaml"), "paths:\n  - [mcp-entry, github-tools]\n");
     execFileSync("node", [tool("keygen.ts"), "--out", dir, "--services", "mcp-entry,github-tools"], { stdio: "pipe" });
     execFileSync("node", [tool("policy.ts"), "--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "policy.key"), "--out", dir], { stdio: "pipe" });

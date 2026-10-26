@@ -8,7 +8,7 @@ import {
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
-} from "@paztport/path-attest";
+} from "@paztport/core";
 
 /**
  * Hash of a tool result for influence entries: the library's bindResult,

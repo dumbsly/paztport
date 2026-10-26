@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair } from "@paztport/path-attest";
+import { generateKeyPair } from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection, type CallOutcome } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
