@@ -15,6 +15,8 @@
 set -u
 cd "$(dirname "$0")/.."
 
+: "${PA_ADMIN_TOKEN:?set PA_ADMIN_TOKEN to the token payment was started with}"
+
 MESH="paztport-mesh"
 CURL="curlimages/curl:latest"
 VUS="${VUS:-10}"
@@ -22,8 +24,17 @@ DURATION="${DURATION:-20s}"
 
 mc() { docker run --rm --network "$MESH" "$CURL" -s "$@"; }
 
-run_mode() { # $1 = off|enforce ; echoes the RESULT line
-  mc -X POST "http://payment:8080/admin/mode?value=$1" -H "X-Admin-Token: ${PA_ADMIN_TOKEN:-}" >/dev/null
+set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
+  local code
+  code=$(mc -o /dev/null -w '%{http_code}' -X POST "http://payment:8080/admin/mode?value=$1" \
+    -H "X-Admin-Token: $PA_ADMIN_TOKEN")
+  if [ "$code" != "200" ]; then
+    echo "measure.sh: switching payment to $1 failed (HTTP $code); is PA_ADMIN_TOKEN the token payment was started with?" >&2
+    exit 1
+  fi
+}
+
+run_load() { # echoes the RESULT line for the current mode
   for _ in $(seq 1 20); do
     mc -o /dev/null -X POST http://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}'
   done
@@ -33,8 +44,10 @@ run_mode() { # $1 = off|enforce ; echoes the RESULT line
 }
 
 echo "== latency: payment off vs enforce (VUS=$VUS DURATION=$DURATION) =="
-echo "off     $(run_mode off)"
-echo "enforce $(run_mode enforce)"
+set_mode off
+echo "off     $(run_load)"
+set_mode enforce
+echo "enforce $(run_load)"
 
 echo ""
 echo "== header sizes from one real request =="
@@ -52,6 +65,6 @@ print(f"total header bytes:   {len(chain)+len(proof)}")
 '
 
 # restore enforce
-mc -X POST "http://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: ${PA_ADMIN_TOKEN:-}" >/dev/null
+set_mode enforce
 echo ""
 echo "(payment restored to enforce)"

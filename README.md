@@ -799,10 +799,18 @@ mvn -q package -DskipTests              # build every module
 docker compose build keygen policy-tool # package the freshly built jars
 docker compose run --rm keygen          # per-service keys + keyring
 docker compose run --rm policy-tool     # signed root + per-service proof bundles
+export PA_ADMIN_TOKEN=$(openssl rand -hex 16)   # token for /admin/mode
 docker compose up -d --build            # the mesh + responder
 ./scripts/demo.sh                       # run every scenario, print pass/fail
+docker compose up -d --force-recreate payment   # back to your token (see below)
 ./scripts/measure.sh                    # optional: off vs enforce latency + header sizes
 ```
+
+`measure.sh` switches `payment` between `off` and `enforce` through `/admin/mode`,
+so it needs the token `payment` was started with, and it stops with an error if a
+switch is refused. `demo.sh` generates its own token on every run and leaves
+`payment` running with it, so after `demo.sh` recreate `payment` from a shell that
+has your `PA_ADMIN_TOKEN` (or re-run `docker compose up -d`) before `measure.sh`.
 
 `docker compose run` reuses an existing image and never rebuilds it. If you
 change and rebuild the Java code, run `docker compose build keygen policy-tool`
