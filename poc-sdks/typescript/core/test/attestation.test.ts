@@ -56,7 +56,7 @@ describe("verifyResponse", () => {
   it("neverReadsMetaFromTheResult", () => {
     const w = world();
     const { body, att } = w.response();
-    const r = verifyResponse(undefined, { ...body, _meta: { attestation: att } }, CALL, w.cfg());
+    const r = verifyResponse(undefined, { ...body, _meta: { "paztport/attestation": att } }, CALL, w.cfg());
     expect(r.result.reason).toBe("CHAIN_MISSING");
     expect(r.labels).toEqual([]);
   });
