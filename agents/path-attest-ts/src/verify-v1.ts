@@ -65,8 +65,9 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
   // Only PATH_NOT_ALLOWED names a suspect: by then the signatures, links, freshness, binding and
-  // replay checks held, so the last hop really sent this request. Earlier failures may carry an
-  // unsigned name or another service's genuine stamp from a replayed or altered capture.
+  // replay checks held, so the last hop's service really sent this request (its inst is that service's
+  // own claim). Earlier failures may carry an unsigned name or another service's genuine stamp from a
+  // replayed or altered capture.
   const fail = (reason: ReasonCode) => reject(reason);
 
   // 2. First stamp's svc is an allowed origin.

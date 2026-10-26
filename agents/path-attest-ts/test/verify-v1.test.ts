@@ -153,6 +153,7 @@ describe("verifyV1", () => {
       ["BAD_ORIGIN", verifyV1(w.req(w.validChain()), { ...w.cfg(), allowedOrigins: ["other"] })],
       ["BAD_SIGNATURE", verifyV1(w.req(w.validChain()), { ...w.cfg(), keyring: { ...w.cfg().keyring, orders: w.search.publicKey } })],
       ["BROKEN_LINK", verifyV1(w.req([w.gatewayStamp(), signStampV1({ svc: "orders", inst: "ord-1", rid: "rid-1", ts: NOW, bind: w.bindToPayment, prev: "x" }, w.orders.privateKey)]), w.cfg())],
+      ["RID_MISMATCH", verifyV1(w.req([w.gatewayStamp(), signStampV1({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW, bind: w.bindToPayment, prev: w.gatewayStamp().sig }, w.orders.privateKey)]), w.cfg())],
       ["EXPIRED", verifyV1(w.req(w.validChain()), { ...w.cfg(), now: NOW + 5001 })],
       ["BINDING_MISMATCH", verifyV1(w.req(w.validChain(), { body: utf8("x") }), w.cfg())],
     ];

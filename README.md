@@ -391,6 +391,8 @@ flowchart LR
 
     root --> payment["payment"]
     keyring --> payment
+    privkeys -->|"payment.key<br/>signs events only"| payment
+    keyring --> responder["responder"]
     bg --> gateway["gateway"]
     bo --> orders["orders"]
     bs --> search["search"]
@@ -401,6 +403,7 @@ flowchart LR
 | gateway / orders | Own private key; own proof bundle | Other services' keys, the tree, any salts but its own proofs' |
 | payment (verifier) | Public keyring, signed root, nonce cache; its own key, used only to sign events to the responder | Any other private key, the tree, salts, proofs |
 | search | Own private key; an **empty** bundle | Any proof for a route ending at `payment`, because none exists |
+| responder | Public keyring, to check that events are signed by `payment`; the Docker socket | Any private key, the root, the tree, salts, proofs |
 | policy-tool | The full tree and every salt | Nothing is mounted *from* it into services |
 
 In Compose this is enforced with per-file bind mounts. Each container sees only the
@@ -458,12 +461,13 @@ Notes on the ordering:
   the responder.
 - Only `PATH_NOT_ALLOWED` names a suspect (the last stamp's service and instance).
   By step 7 the signatures verified, the links hold, and the chain is fresh, bound
-  to this exact request and unseen, so the last hop really sent it. The **service**
-  is proven by its key. The **instance** is what that service's own key holder
-  wrote in its stamp, so it is a claim, not a proof. Before that the
-  names are unsigned or unverified, or the genuine last stamp belongs to someone
-  else's request (a replayed or altered capture), so the suspect is left empty
-  rather than blaming an innocent signer.
+  to this exact request and unseen, so the last hop's service really sent it. The
+  **service** is proven by its key. The **instance** is what that service's own key
+  holder wrote in its stamp, so it is a claim, not a proof; the responder acts only
+  when the named container really runs the named service (see §9). Before step 7
+  the names are unsigned or unverified, or the genuine last stamp belongs to
+  someone else's request (a replayed or altered capture), so the suspect is left
+  empty rather than blaming an innocent signer.
 
 ## 7. Threat model
 
@@ -854,6 +858,7 @@ The agent demo is separate and needs Node 22.19+ and Ollama: from `agents/`, `np
 | `PA_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment` (the demo generates one per run) |
 | `RESPONDER_URL` | empty, so events are only logged | verifiers (the demo sets it for scenario 9) |
 | `PA_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
+| `PA_KEYRING_PATH` | `/config/keys/keyring.json` | `payment` (verifies stamps), responder (verifies event signatures) |
 | `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |

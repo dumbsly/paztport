@@ -8,24 +8,26 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * The payment-side verifier. Runs the fixed sequence of checks from the spec and
- * returns a typed {@link VerifyResult}. Every branch fails closed: a parse error,
+ * The payment-side verifier. Runs a fixed sequence of checks and returns a
+ * typed {@link VerifyResult}. Every branch fails closed: a parse error,
  * missing header, unknown key, or expired stamp is a rejection, never a pass.
  *
  * <p>The route is always rebuilt from the stamps' authenticated {@code svc}
  * fields, never from any claimed field, then checked for membership against the
- * pinned root. Step 8 of the spec (mTLS caller identity) is deferred to phase 6.
+ * pinned root. Step 8, checking the last stamp's {@code svc} against the
+ * caller's mTLS identity, is not implemented.
  *
  * <p>A rejection names the last stamp's {@code svc}/{@code inst} as the suspect
  * only at {@link ReasonCode#PATH_NOT_ALLOWED} (and on success). By then the
  * signatures verified, the links hold, the chain is fresh, bound to this exact
- * request and unseen, so the last hop really sent it. Only the service is
- * proven, by its key; the {@code inst} is whatever that service's key holder
- * signed, so the responder checks it against the container before acting.
- * Earlier failures leave
- * the suspect empty: the names are unsigned or unverified (a forged chain could
- * name anyone), or the genuine last stamp belongs to someone else's request (a
- * replayed or altered capture), and the responder quarantines whoever is named.
+ * request and unseen, so the last stamp's service really sent it. Only the
+ * service is proven, by its key; the {@code inst} is whatever that service's
+ * key holder signed, so the responder checks it against the container before
+ * acting.
+ * Earlier failures leave the suspect empty: the names are unsigned or
+ * unverified (a forged chain could name anyone), or the genuine last stamp
+ * belongs to someone else's request (a replayed or altered capture), and the
+ * responder quarantines whoever is named.
  *
  * <p>One gap remains: a stamp does not bind which service it was meant for, so
  * a chain forwarded unchanged to another service whose method and path match
