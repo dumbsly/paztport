@@ -5,8 +5,8 @@
 # Measures Paztport's verification overhead and header sizes against the running
 # stack, and prints the numbers reported in the README (§12).
 #
-#   docker compose up -d --build   # stack must be running first
-#   ./scripts/measure.sh
+#   PA_ADMIN_TOKEN=<token> docker compose up -d --build   # stack must be running first
+#   PA_ADMIN_TOKEN=<token> ./scripts/measure.sh   # same token, for /admin/mode
 #
 # It runs the k6 load twice — payment in `off` mode (no verification) and
 # `enforce` mode — so the difference is the verifier's cost. Then it reads one
@@ -23,7 +23,7 @@ DURATION="${DURATION:-20s}"
 mc() { docker run --rm --network "$MESH" "$CURL" -s "$@"; }
 
 run_mode() { # $1 = off|enforce ; echoes the RESULT line
-  mc -X POST "http://payment:8080/admin/mode?value=$1" >/dev/null
+  mc -X POST "http://payment:8080/admin/mode?value=$1" -H "X-Admin-Token: ${PA_ADMIN_TOKEN:-}" >/dev/null
   for _ in $(seq 1 20); do
     mc -o /dev/null -X POST http://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}'
   done
@@ -52,6 +52,6 @@ print(f"total header bytes:   {len(chain)+len(proof)}")
 '
 
 # restore enforce
-mc -X POST "http://payment:8080/admin/mode?value=enforce" >/dev/null
+mc -X POST "http://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: ${PA_ADMIN_TOKEN:-}" >/dev/null
 echo ""
 echo "(payment restored to enforce)"
