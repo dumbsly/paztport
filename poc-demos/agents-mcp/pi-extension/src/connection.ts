@@ -3,27 +3,29 @@
 
 import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
 import {
-  bindMcpCall,
   commitInfluence,
   decode,
   encode,
-  META_CALL_ID,
-  META_CHAIN,
-  META_INFLUENCE,
-  META_PROOF,
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
   randomBytes,
-  SESSION_METHOD,
   signStampV2,
-  verifyResponse,
   verifySessionReply,
   type InfluenceClass,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
+import {
+  bindMcpCall,
+  META_CALL_ID,
+  META_CHAIN,
+  META_INFLUENCE,
+  META_PROOF,
+  SESSION_METHOD,
+  verifyMcpResponse,
+} from "@paztport/mcp";
 import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";
@@ -437,7 +439,7 @@ export class ServerConnection {
         const h = contentHash(raw);
         if (session === "attested" && reply !== undefined && rid !== undefined && reply.serverRoot !== null) {
           verifiedAt = this.now();
-          const v = verifyResponse(raw, { rid, toolCallId: callId }, {
+          const v = verifyMcpResponse(raw, { rid, toolCallId: callId }, {
             keyring: reply.serverKeyring,
             root: decode(reply.serverRoot.root),
             rootId: reply.serverRoot.rootId,

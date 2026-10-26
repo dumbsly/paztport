@@ -2,15 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindMcpCall } from "../src/binding.ts";
-import { generateKeyPair, randomBytes } from "../src/crypto.ts";
-import { commitInfluence, parseInfluence, type InfluenceEntry } from "../src/influence.ts";
-import { buildTree } from "../src/merkle.ts";
-import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "../src/meta.ts";
-import { NonceCache } from "../src/nonce.ts";
-import { parseStampsV2, signStampV2 } from "../src/stamp.ts";
-import { verifyCall } from "../src/verify-call.ts";
-import { NONCE_TTL_MS, type V2Config } from "../src/verify-v2.ts";
+import {
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV2, randomBytes, signStampV2,
+} from "@paztport/core";
+import type { InfluenceEntry, V2Config } from "@paztport/core";
+import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
 
 const NOW = 10_000_000;
 const SESS = "sess-1";

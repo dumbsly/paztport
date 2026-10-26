@@ -6,7 +6,6 @@ import { randomBytes, sha256, utf8 } from "./crypto.ts";
 import { bindResult } from "./binding.ts";
 import type { InfluenceClass } from "./influence.ts";
 import { canonicalize } from "./jcs.ts";
-import { META_ATTESTATION } from "./meta.ts";
 import type { MerkleProof } from "./merkle.ts";
 import type { VerifyResult } from "./reason.ts";
 import type { StampV2 } from "./stamp.ts";
@@ -29,12 +28,7 @@ export function bindResponse(resultHash: string, toolCallId: string, labels: Con
   return encode(sha256(utf8(resultHash + "\n" + toolCallId + "\n" + canonicalize(labels))));
 }
 
-function parseAttestation(result: Record<string, unknown>): ResponseAttestation | null {
-  const meta = result._meta;
-  if (typeof meta !== "object" || meta === null || Array.isArray(meta)) {
-    return null;
-  }
-  const att = (meta as Record<string, unknown>)[META_ATTESTATION];
+function parseAttestation(att: unknown): ResponseAttestation | null {
   if (typeof att !== "object" || att === null || Array.isArray(att)) {
     return null;
   }
@@ -58,6 +52,7 @@ function parseAttestation(result: Record<string, unknown>): ResponseAttestation 
 
 /** Never throws; labels are returned only when the whole response verifies for this call. */
 export function verifyResponse(
+  attestation: unknown,
   result: Record<string, unknown>,
   call: { rid: string; toolCallId: string },
   cfg: Omit<V2Config, "nonceKey">,
@@ -70,7 +65,7 @@ export function verifyResponse(
     if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n")) {
       return fail("CHAIN_MISSING");
     }
-    const att = parseAttestation(result);
+    const att = parseAttestation(attestation);
     if (att === null) {
       return fail("CHAIN_MISSING");
     }

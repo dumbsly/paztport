@@ -1,7 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { influenceClasses, SESSION_METHOD, type InfluenceClass, type InfluenceEntry, type ReasonCode } from "@paztport/core";
+import { influenceClasses, type InfluenceClass, type InfluenceEntry, type ReasonCode } from "@paztport/core";
+import { SESSION_METHOD } from "@paztport/mcp";
 import { GITHUB_TOOLS, type GithubState, type GithubTool } from "./github.ts";
 import { labelFor } from "./labels.ts";
 import { createMcpHandler, type CallToolResult, type McpToolSpec } from "./mcp.ts";

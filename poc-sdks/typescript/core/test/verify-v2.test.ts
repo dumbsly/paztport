@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindMcpCall, bindPrompt, bindResult } from "../src/binding.ts";
+import { bindPrompt, bindResult } from "../src/binding.ts";
 import { encode } from "../src/b64url.ts";
 import { generateKeyPair, randomBytes, sha256, utf8 } from "../src/crypto.ts";
 import { commitInfluence, type InfluenceEntry } from "../src/influence.ts";
@@ -25,7 +25,7 @@ function world() {
     8,
     "v1",
   );
-  const bind = bindMcpCall("create_pull_request", "call-1", { title: "t" });
+  const bind = bindPrompt("create_pull_request call-1");
   const mk = (
     svc: string,
     over: Partial<Omit<StampV2, "sig" | "v">>,
@@ -235,10 +235,6 @@ describe("verifyChainV2", () => {
       expect(r.reason).toBe("INFLUENCE_MISMATCH");
     }
   });
-  it("bindMcpCallRejectsNewlines", () => {
-    expect(() => bindMcpCall("a\nb", "c", {})).toThrow();
-    expect(() => bindMcpCall("a", "b\nc", {})).toThrow();
-  });
   it("nonFiniteNowIsExpired", () => {
     const w = world();
     for (const bad of [NaN, Infinity]) {
@@ -251,8 +247,5 @@ describe("verifyChainV2", () => {
     expect(bindPrompt("hi")).toBe(encode(sha256(utf8("prompt\nhi"))));
     expect(bindResult({ a: 1, _meta: { x: 1 } })).toBe(bindResult({ a: 1 }));
     expect(bindResult({ a: 1 })).toBe(encode(sha256(utf8('result\n{"a":1}'))));
-  });
-  it("bindPromptNotEqualBindMcpCall", () => {
-    expect(bindPrompt("tools/call\nt\nc1\n{}")).not.toBe(bindMcpCall("t", "c1", {}));
   });
 });

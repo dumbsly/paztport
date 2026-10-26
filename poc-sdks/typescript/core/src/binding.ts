@@ -10,14 +10,6 @@ export function bindPrompt(text: string): string {
   return encode(sha256(utf8("prompt\n" + text)));
 }
 
-/** v2 MCP tools/call binding over tool name, call id and canonical arguments. */
-export function bindMcpCall(toolName: string, toolCallId: string, args: unknown): string {
-  if (toolName.includes("\n") || toolCallId.includes("\n")) {
-    throw new Error("toolName and toolCallId must not contain newlines");
-  }
-  return encode(sha256(utf8(`tools/call\n${toolName}\n${toolCallId}\n${canonicalize(args ?? {})}`)));
-}
-
 /**
  * Local tool step binding: SHA-256(utf8("tool\n" + toolName + "\n" + JCS({ input, resolved }))), base64url.
  * The pi extension passes its signed decision as the third argument (it is named `resolved` in the hashed

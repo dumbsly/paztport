@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  bindMcpCall, bindPrompt, bindResponse, bindResult, commitInfluence, deriveSessionId, encode, signingBytesV2,
+  bindPrompt, bindResponse, bindResult, commitInfluence, deriveSessionId, encode, signingBytesV2,
 } from "../src/index.ts";
 
 /** n consecutive bytes starting at `start`, base64url. */
@@ -37,11 +37,6 @@ describe("v2 known-answer vectors", () => {
   it("bindResponse", () => {
     const labels = [{ cls: "third-party" as const, cid: "cid-1" }, { cls: "private" as const, cid: "cid-2" }];
     expect(bindResponse("result-hash", "call-1", labels)).toBe("8uSt7UKQxhX_wUTDkOHv-CWfU6QeBCJN9Gkb1K_WsNM");
-  });
-
-  it("bindMcpCall", () => {
-    const args = { title: "t", body: "b", draft: false, n: [1, 2.5] };
-    expect(bindMcpCall("create_pull_request", "call-1", args)).toBe("1dK9R69lTXmP45Z9HIVEmO9EtY_bRq68vJvEO_tdZv8");
   });
 
   it("bindPrompt", () => {

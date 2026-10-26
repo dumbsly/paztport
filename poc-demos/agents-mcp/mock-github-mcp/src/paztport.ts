@@ -4,12 +4,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  bindMcpCall,
   bindResponse,
   bindResult,
   decode,
   deriveSessionId,
-  META_ATTESTATION,
   newContentId,
   newNonce,
   NonceCache,
@@ -21,7 +19,6 @@ import {
   signStampV2,
   utf8,
   verify,
-  verifyCall,
   verifyProof,
   verifyRoot,
   type ContentLabel,
@@ -34,6 +31,7 @@ import {
   type SessionRequest,
   type SignedRoot,
 } from "@paztport/core";
+import { bindMcpCall, META_ATTESTATION, verifyCall } from "@paztport/mcp";
 import { InvalidParams, type CallToolResult } from "./mcp.ts";
 
 /** Refusal key on error results (re-exported from index.ts). */

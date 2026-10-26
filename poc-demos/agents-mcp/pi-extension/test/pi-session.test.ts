@@ -31,7 +31,7 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { McpClient } from "@earendil-works/pi-mcp";
-import { META_ATTESTATION, META_CHAIN, META_INFLUENCE, META_PROOF } from "@paztport/core";
+import { META_ATTESTATION, META_CHAIN, META_INFLUENCE, META_PROOF } from "@paztport/mcp";
 import { loadConfig } from "../src/config.ts";
 import paztport from "../src/index.ts";
 import { SCOPE_TEXT } from "../src/refusals.ts";

@@ -6,23 +6,17 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  bindMcpCall,
   bindPrompt,
   buildPolicy,
   commitInfluence,
   decode,
   generateKeyPair,
-  META_CALL_ID,
-  META_CHAIN,
-  META_INFLUENCE,
-  META_PROOF,
   newNonce,
   parseProof,
   NonceCache,
   NONCE_TTL_MS,
   signRoot,
   signStampV2,
-  verifyResponse,
   verifySessionReply,
   type ContentLabel,
   type InfluenceEntry,
@@ -32,6 +26,14 @@ import {
   type SessionRequest,
   type SignedRoot,
 } from "@paztport/core";
+import {
+  bindMcpCall,
+  META_CALL_ID,
+  META_CHAIN,
+  META_INFLUENCE,
+  META_PROOF,
+  verifyMcpResponse,
+} from "@paztport/mcp";
 import type { CallToolResult } from "../../src/mcp.ts";
 
 export const ALL_TOOLS = [
@@ -169,7 +171,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       if (sess === undefined) {
         throw new Error("no accepted session");
       }
-      const r = verifyResponse(result, call, {
+      const r = verifyMcpResponse(result, call, {
         keyring: serverKeyring,
         root: decode(serverRoot.root),
         rootId: serverRoot.rootId,

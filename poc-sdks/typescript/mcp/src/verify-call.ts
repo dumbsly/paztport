@@ -1,12 +1,10 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { parseInfluence, parseStampsV2, verifyChainV2 } from "@paztport/core";
+import type { InfluenceEntry, ReasonCode, V2Config, VerifyResult } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
-import { parseInfluence, type InfluenceEntry } from "./influence.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
-import type { ReasonCode, VerifyResult } from "./reason.ts";
-import { parseStampsV2 } from "./stamp.ts";
-import { verifyChainV2, type V2Config } from "./verify-v2.ts";
 
 export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[] };
 

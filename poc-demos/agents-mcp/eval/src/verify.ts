@@ -10,14 +10,13 @@ import {
   NonceCache,
   sha256,
   utf8,
-  verifyCall,
-  verifyResponse,
   verifyRoot,
   verifySessionReply,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
+import { verifyCall, verifyMcpResponse } from "@paztport/mcp";
 import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSeen, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
@@ -347,7 +346,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (hasRefusalShape(rec.result)) {
         add("REFUSED");
       } else {
-        const v = verifyResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId }, {
+        const v = verifyMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId }, {
           keyring: call.session.serverKeyring,
           root: call.session.serverRoot,
           rootId: call.session.serverRootId,

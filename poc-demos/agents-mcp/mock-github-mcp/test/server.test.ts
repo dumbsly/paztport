@@ -5,14 +5,16 @@ import { describe, expect, it } from "vitest";
 import {
   buildPolicy,
   generateKeyPair,
+  type InfluenceEntry,
+  type SessionReply,
+} from "@paztport/core";
+import {
   META_ATTESTATION,
   META_CALL_ID,
   META_CHAIN,
   META_PROOF,
   SESSION_METHOD,
-  type InfluenceEntry,
-  type SessionReply,
-} from "@paztport/core";
+} from "@paztport/mcp";
 import { createFixtures, PRIVATE_MARKERS } from "../src/fixtures.ts";
 import type { CallToolResult } from "../src/mcp.ts";
 import { META_VERDICT, type ServerPaztportConfig } from "../src/paztport.ts";
