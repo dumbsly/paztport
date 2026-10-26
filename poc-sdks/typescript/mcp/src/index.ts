@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from "./binding.ts";
+export * from "./client.ts";
 export * from "./meta.ts";
 export * from "./response.ts";
 export * from "./server.ts";

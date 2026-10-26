@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { bindPrompt, encode, randomBytes, signStampV2, type StampV2 } from "@paztport/core";
+import { bindPrompt, encode, mintOrigin, randomBytes, type StampV2 } from "@paztport/core";
 
 type Run = { rid: string; ts: number; bind: string };
 
@@ -31,10 +31,7 @@ export class RunState {
     if (cached !== undefined) {
       return cached;
     }
-    const stamp = signStampV2(
-      { svc: "session", inst, rid: run.rid, ts: run.ts, sess: serverSess, bind: run.bind, infl: "", prev: "" },
-      sessionKey,
-    );
+    const stamp = mintOrigin({ rid: run.rid, ts: run.ts, bind: run.bind, sess: serverSess, inst }, sessionKey);
     this.origins.set(key, stamp);
     return stamp;
   }

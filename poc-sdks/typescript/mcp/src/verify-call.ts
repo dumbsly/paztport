@@ -8,6 +8,11 @@ import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts"
 
 export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[] };
 
+/** The receiver a tools/call names at the end of its route: `mcp:<serverId>.<tool>`. */
+export function mcpReceiver(serverId: string, tool: string): string {
+  return `mcp:${serverId}.${tool}`;
+}
+
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
@@ -67,7 +72,7 @@ export function verifyCall(
         expectedBind,
         influence: influence ?? (rawInfluence as InfluenceEntry[]),
         proof,
-        receiver: `mcp:${ctx.serverId}.${params.name}`,
+        receiver: mcpReceiver(ctx.serverId, params.name),
       },
       { ...cfg, nonceKey: `${rid}|${callId}|req` },
     );

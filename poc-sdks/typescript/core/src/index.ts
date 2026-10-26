@@ -16,6 +16,7 @@ export * from "./verify-v1.ts";
 export * from "./influence.ts";
 export * from "./verify-v2.ts";
 export * from "./session.ts";
+export * from "./origin.ts";
 export * from "./attestation.ts";
 export * from "./local-rules.ts";
 export * from "./influence-rule.ts";
