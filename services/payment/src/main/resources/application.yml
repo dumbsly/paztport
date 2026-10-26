@@ -6,6 +6,7 @@ path-attest:
   verify: true
   mode: ${PATH_ATTEST_MODE:enforce}
   admin-token: ${PA_ADMIN_TOKEN:}
+  event-key-path: ${PA_EVENT_KEY_PATH:}
   capture: ${PA_CAPTURE:false}
   keyring-path: ${PA_KEYRING_PATH:/config/keys/keyring.json}
   root-path: ${PA_ROOT_PATH:/config/policy/root.json}

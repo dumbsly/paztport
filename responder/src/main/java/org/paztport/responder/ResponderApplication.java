@@ -8,8 +8,14 @@ import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.transport.DockerHttpClient;
 import com.github.dockerjava.zerodep.ZerodepDockerHttpClient;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import org.paztport.core.Keyring;
+import org.paztport.core.KeyringFile;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -47,6 +53,14 @@ public class ResponderApplication {
             @Value("${quarantine.mesh-network}") String meshNetwork,
             @Value("${quarantine.quarantine-network}") String quarantineNetwork) {
         return new DockerQuarantiner(docker, meshNetwork, quarantineNetwork);
+    }
+
+    @Bean
+    EventAuthenticator eventAuthenticator(
+            @Value("${responder.keyring-path}") String keyringPath,
+            @Value("${responder.allowed-signers}") Set<String> allowedSigners) throws IOException {
+        KeyringFile file = new ObjectMapper().readValue(Path.of(keyringPath).toFile(), KeyringFile.class);
+        return new EventAuthenticator(Keyring.fromFile(file), allowedSigners, System::currentTimeMillis);
     }
 
     @Bean

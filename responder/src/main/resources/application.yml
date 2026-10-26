@@ -8,3 +8,7 @@ quarantine:
   svc-window-ms: ${QUARANTINE_SVC_WINDOW_MS:600000}
   mesh-network: ${MESH_NETWORK:paztport-mesh}
   quarantine-network: ${QUARANTINE_NETWORK:paztport-quarantine}
+
+responder:
+  keyring-path: ${PA_KEYRING_PATH:/config/keys/keyring.json}
+  allowed-signers: ${RESPONDER_ALLOWED_SIGNERS:payment}

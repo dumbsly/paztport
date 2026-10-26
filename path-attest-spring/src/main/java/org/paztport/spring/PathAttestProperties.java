@@ -31,6 +31,9 @@ public class PathAttestProperties {
     /** If set, rejection events are also POSTed to this responder URL. */
     private String responderUrl;
 
+    /** Private key that signs events sent to the responder; required when {@code responderUrl} is set. */
+    private String eventKeyPath;
+
     /** Shared token for {@code /admin/mode}; unset or blank disables the endpoint. */
     private String adminToken;
 
@@ -106,6 +109,14 @@ public class PathAttestProperties {
 
     public void setResponderUrl(String responderUrl) {
         this.responderUrl = responderUrl;
+    }
+
+    public String getEventKeyPath() {
+        return eventKeyPath;
+    }
+
+    public void setEventKeyPath(String eventKeyPath) {
+        this.eventKeyPath = eventKeyPath;
     }
 
     public String getAdminToken() {

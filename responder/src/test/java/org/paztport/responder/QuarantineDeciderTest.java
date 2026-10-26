@@ -17,7 +17,7 @@ class QuarantineDeciderTest {
     }
 
     private static ResponderEvent event(String svc, String inst) {
-        return new ResponderEvent("PATH_NOT_ALLOWED", svc, inst, "rid", false);
+        return new ResponderEvent("PATH_NOT_ALLOWED", svc, inst, "rid", false, 0L, "e");
     }
 
     @Test
@@ -38,7 +38,7 @@ class QuarantineDeciderTest {
     @Test
     void auditEventsAreIgnored() {
         QuarantineDecider d = decider();
-        ResponderEvent audit = new ResponderEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", true);
+        ResponderEvent audit = new ResponderEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", true, 0L, "e");
         assertEquals(QuarantineDecision.NONE, d.observe(audit));
         assertEquals(QuarantineDecision.NONE, d.observe(audit));
         assertEquals(QuarantineDecision.NONE, d.observe(audit));

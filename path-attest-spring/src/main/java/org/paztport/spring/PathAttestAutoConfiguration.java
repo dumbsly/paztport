@@ -82,7 +82,16 @@ public class PathAttestAutoConfiguration {
     EventPublisher eventPublisher(PathAttestProperties props) {
         String responderUrl = props.getResponderUrl();
         if (responderUrl != null && !responderUrl.isBlank()) {
-            return new ResponderEventPublisher(responderUrl);
+            String eventKeyPath = props.getEventKeyPath();
+            if (eventKeyPath == null || eventKeyPath.isBlank()) {
+                throw new IllegalStateException(
+                        "path-attest.responder-url is set but path-attest.event-key-path is not");
+            }
+            return new ResponderEventPublisher(
+                    responderUrl,
+                    props.getServiceName(),
+                    ConfigLoader.loadPrivateKey(Path.of(eventKeyPath)),
+                    System::currentTimeMillis);
         }
         return new LoggingEventPublisher();
     }

@@ -21,7 +21,7 @@ class ResponderServiceTest {
     }
 
     private static ResponderEvent illicit(String inst) {
-        return new ResponderEvent("PATH_NOT_ALLOWED", "search", inst, "rid", false);
+        return new ResponderEvent("PATH_NOT_ALLOWED", "search", inst, "rid", false, 0L, "e");
     }
 
     @Test
@@ -56,7 +56,7 @@ class ResponderServiceTest {
     @Test
     void auditEventsDoNothing() {
         ResponderService service = service();
-        ResponderEvent audit = new ResponderEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", true);
+        ResponderEvent audit = new ResponderEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", true, 0L, "e");
         assertEquals(QuarantineDecision.NONE, service.handle(audit));
         assertEquals(QuarantineDecision.NONE, service.handle(audit));
         assertEquals(QuarantineDecision.NONE, service.handle(audit));

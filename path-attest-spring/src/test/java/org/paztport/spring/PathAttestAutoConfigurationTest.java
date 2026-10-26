@@ -75,4 +75,42 @@ class PathAttestAutoConfigurationTest {
                     assertThat(context).doesNotHaveBean(OutboundStamper.class);
                 });
     }
+
+    private static final String[] VERIFIER_PROPS = {
+        "path-attest.service-name=payment", "path-attest.verify=true"};
+
+    @Test
+    void responderUrlWithoutAnEventKeyFailsAtStartup(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(
+                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
+                        "path-attest.root-path=" + dir.resolve("root.json"),
+                        "path-attest.responder-url=http://responder:8080")
+                .run(context -> assertThat(context).hasFailed());
+    }
+
+    @Test
+    void responderUrlWithAnEventKeyGetsTheResponderPublisher(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(
+                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
+                        "path-attest.root-path=" + dir.resolve("root.json"),
+                        "path-attest.responder-url=http://responder:8080",
+                        "path-attest.event-key-path=" + dir.resolve("gateway.key"))
+                .run(context -> assertThat(context.getBean(EventPublisher.class))
+                        .isInstanceOf(ResponderEventPublisher.class));
+    }
+
+    @Test
+    void noResponderUrlNeedsNoEventKey(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(
+                        "path-attest.keyring-path=" + dir.resolve("keyring.json"),
+                        "path-attest.root-path=" + dir.resolve("root.json"))
+                .run(context -> assertThat(context.getBean(EventPublisher.class))
+                        .isInstanceOf(LoggingEventPublisher.class));
+    }
 }

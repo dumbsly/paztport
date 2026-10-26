@@ -399,7 +399,7 @@ flowchart LR
 | Component | Holds | Never holds |
 |---|---|---|
 | gateway / orders | Own private key; own proof bundle | Other services' keys, the tree, any salts but its own proofs' |
-| payment (verifier) | Public keyring, signed root, nonce cache | Any private key, the tree, salts, proofs |
+| payment (verifier) | Public keyring, signed root, nonce cache; its own key, used only to sign events to the responder | Any other private key, the tree, salts, proofs |
 | search | Own private key; an **empty** bundle | Any proof for a route ending at `payment`, because none exists |
 | policy-tool | The full tree and every salt | Nothing is mounted *from* it into services |
 
@@ -593,6 +593,12 @@ Why each piece is there:
   looks guilty. Past the limit the responder stops acting and logs `ESCALATE`.
   Repeated quarantines of one service are also the **reinfection signal**: if the
   replacement is flagged again, the image or an input is the problem, not the pod.
+- **Only signed events count.** Anyone on the mesh can reach the responder, so
+  `payment` signs each event with its own key (`PA_EVENT_KEY_PATH`) inside an
+  envelope, and the responder checks it against `keyring.json`. It refuses, with a
+  403 and no decision, any event that is unsigned, from a signer other than the
+  allowed ones (`payment` by default), badly signed, more than 30 s from the
+  responder's clock, or whose `eventId` it has already seen.
 
 ## 10. Modes and rollout
 
@@ -828,6 +834,8 @@ The agent demo is separate and needs Node 22.19+ and Ollama: from `agents/`, `np
 | `ATTACK_MODE` | `false` | search |
 | `PA_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment` (the demo generates one per run) |
 | `RESPONDER_URL` | empty, so events are only logged | verifiers (the demo sets it for scenario 9) |
+| `PA_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
+| `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |
 
