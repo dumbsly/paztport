@@ -5,7 +5,12 @@ import { verifyResponse } from "@paztport/core";
 import type { ContentLabel, V2Config, VerifyResult } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 
-/** Reads the attestation from `result._meta` and hands it to core's response check; never throws. */
+/**
+ * Reads the attestation from `result._meta` and hands it to core's response check; never throws. A recorded
+ * response is checked the same way, with the live window at the time the client recorded verifying it: the
+ * receiver records a response, so no stamp time is known to match, unlike a call, which verifyRecordedCall
+ * checks against the time its own hop stamped it.
+ */
 export function verifyMcpResponse(
   result: Record<string, unknown>,
   call: { rid: string; toolCallId: string },

@@ -7,8 +7,8 @@ import type { InfluenceEntry, OfflineConfig } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall } from "../src/index.ts";
 
 // Recorded long ago: offline the call is checked against the time recorded with it, not a clock.
-const RUN_TS = 1_000;
 const CALL_TS = 9_000_000;
+const RUN_TS = CALL_TS - 60_000;
 const SESS = "sess-1";
 const PROMPT = "fix the typo";
 const TOOL = "create_pull_request";
@@ -26,11 +26,11 @@ function world() {
     sess: SESS,
     seen,
   });
-  const params = (callId = "call-1", args: Record<string, unknown> = { title: "t" }): Record<string, unknown> => {
+  const params = (callId = "call-1", args: Record<string, unknown> = { title: "t" }, times = { run: RUN_TS, call: CALL_TS }): Record<string, unknown> => {
     const mk = (svc: string, ts: number, bind: string, i: string, prev: string) =>
       signStampV2({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, bind, infl: i, prev }, harness.privateKey);
-    const s0 = mk("session", RUN_TS, bindPrompt(PROMPT), "", "");
-    const s1 = mk("pi", CALL_TS, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
+    const s0 = mk("session", times.run, bindPrompt(PROMPT), "", "");
+    const s1 = mk("pi", times.call, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
     return {
       name: TOOL,
       arguments: args,
@@ -78,6 +78,34 @@ describe("verifyRecordedCall", () => {
     expect(verifyRecordedCall(w.params(), w.call, w.cfg(seen)).result.reason).toBe("OK");
     expect(verifyRecordedCall(w.params(), w.call, w.cfg(seen)).result.reason).toBe("REPLAY");
     expect([...seen]).toEqual(["rid-1|call-1|req"]);
+  });
+});
+
+describe("verifyRecordedCall: the run's lifetime", () => {
+  const at = (run: number, call: number) => {
+    const w = world();
+    return verifyRecordedCall(w.params("call-1", { title: "t" }, { run, call }), { ...w.call, stampedAt: call }, w.cfg()).result.reason;
+  };
+
+  it("aCallMoreThanThirtyMinutesIntoItsRunIsExpired", () => {
+    expect(at(CALL_TS - 1_800_000, CALL_TS)).toBe("OK");
+    expect(at(CALL_TS - 1_800_001, CALL_TS)).toBe("EXPIRED");
+  });
+
+  it("anOriginMoreThanFiveSecondsAfterItsCallIsExpired", () => {
+    expect(at(CALL_TS + 5_000, CALL_TS)).toBe("OK");
+    expect(at(CALL_TS + 5_001, CALL_TS)).toBe("EXPIRED");
+  });
+});
+
+describe("verifyRecordedCall: the library's order", () => {
+  it("theChainIsCheckedBeforeTheRecordsCallId", () => {
+    const w = world();
+    const p = w.params();
+    const chain = (p._meta as Record<string, unknown>)[META_CHAIN] as { sig: string }[];
+    chain[1]!.sig = (chain[1]!.sig[0] === "A" ? "B" : "A") + chain[1]!.sig.slice(1);
+    expect(verifyRecordedCall(p, { ...w.call, callId: "call-2" }, w.cfg()).result.reason).toBe("BAD_SIGNATURE");
+    expect(verifyRecordedCall(w.params(), { ...w.call, callId: "call-2" }, w.cfg()).result.reason).toBe("RID_MISMATCH");
   });
 });
 

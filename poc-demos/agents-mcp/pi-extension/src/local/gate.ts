@@ -6,8 +6,9 @@
 
 import { homedir } from "node:os";
 import {
-  decideLocal,
+  decideLocalCall,
   influenceClasses,
+  NOTHING_RESOLVED,
   resultLabels,
   rulesHash,
   stampLocalStep,
@@ -35,8 +36,6 @@ const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileT
 const ROUTE_PREFIX = "session/pi/local:";
 const INST = "pi-1";
 
-/** Nothing resolved: a tool with no paths of its own, or a call refused before resolution. */
-const NOTHING: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
 const UNPARSED: Resolved = { paths: [], programs: [], parse: "error", readOnly: false };
 
 export type LocalGateDeps = {
@@ -127,14 +126,14 @@ export class LocalGate {
     const proof = Object.hasOwn(material.proofs, route) ? material.proofs[route]! : null;
     const entries = influence.entries();
     const rules = material.rules;
-    let resolved = NOTHING;
-    let verdict: LocalVerdict = "SCOPE_DENIED";
-    if (rules !== undefined) {
-      if (proof !== null) {
-        resolved = this.resolve(toolName, input, rules);
-      }
-      verdict = decideLocal({ routeAllowed: proof !== null, resolved, rules, classes: influenceClasses(entries) });
-    }
+    const decided = decideLocalCall({
+      routeAllowed: proof !== null,
+      rules: rules ?? null,
+      classes: influenceClasses(entries),
+      resolve: () => this.resolve(toolName, input, rules!),
+    });
+    const resolved = decided.resolved;
+    let verdict: LocalVerdict = decided.verdict;
 
     try {
       const origin = runs.origin("", material.sessionKey, INST);
@@ -210,7 +209,7 @@ export class LocalGate {
         return typeof input.command === "string" ? resolveBash(input.command, { ...ctx, pathDirs: PINNED_PATH.split(":") }) : UNPARSED;
       }
       // another extension's tool or pi's built-in MCP: no paths of its own, so only its route decides
-      return NOTHING;
+      return NOTHING_RESOLVED;
     } catch {
       return UNPARSED;
     }

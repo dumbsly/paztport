@@ -30,6 +30,13 @@ export type OfflineConfig = Pick<V2Config, "keyring" | "root" | "rootId" | "allo
   seen: Set<string>;
   /** For a chain that never leaves one process, such as a client's local steps: who signs it and from which instance. */
   signers?: Signers;
+  /**
+   * The live window's limits that need no clock, for a chain the live verifier checked at its last stamp's time
+   * (a recorded call): the last stamp is at most `runMaxAgeMs` after the origin, and the origin at most
+   * `callMaxAgeMs` after the last stamp. Omitted, the chain's age is not limited.
+   */
+  runMaxAgeMs?: number;
+  callMaxAgeMs?: number;
 };
 
 /**
@@ -44,7 +51,8 @@ export type OfflineConfig = Pick<V2Config, "keyring" | "root" | "rootId" | "allo
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. in place of the live freshness window, which has no clock to be fresh against offline: the last stamp's
  *    time is the one recorded with it, and the origin's is one of the run's recorded times (TIME_MISMATCH);
- *    then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
+ *    with age limits, the last stamp is within the run's lifetime of the origin, and the origin not more than
+ *    the call window after it (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
  * 9. and commits to the influence (INFLUENCE_MISMATCH);
  * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
@@ -61,10 +69,17 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Ver
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
 
-  // 7. Recorded times, then the prompt.
+  // 7. Recorded times, the age limits, then the prompt.
   const t = input.recordedTs;
   if (t !== undefined && (last.ts !== t.last || (t.run !== undefined && !t.run.has(first.ts)))) {
     return reject("TIME_MISMATCH");
+  }
+  if (cfg.runMaxAgeMs !== undefined || cfg.callMaxAgeMs !== undefined) {
+    const runMax = cfg.runMaxAgeMs ?? Number.NaN;
+    const callMax = cfg.callMaxAgeMs ?? Number.NaN;
+    if (![runMax, callMax].every(Number.isFinite) || last.ts - first.ts > runMax || first.ts - last.ts > callMax) {
+      return reject("EXPIRED");
+    }
   }
   if (input.prompt === undefined || first.bind !== bindPrompt(input.prompt)) {
     return reject("PROMPT_MISMATCH");

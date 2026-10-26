@@ -3,7 +3,7 @@
 
 import {
   canonicalize,
-  decideLocal,
+  decideLocalCall,
   decode,
   influenceClasses,
   localStepBind,
@@ -49,9 +49,9 @@ import {
  *    `session/pi/local:<tool>` is proven against the client root, or not;
  * 3. `routeAllowed` is true exactly when the route is proven, and a route that is not has no proof (BAD_PROOF);
  *    `rulesHash` is the client record's rules hash, or null when it has no rules (RULES_MISMATCH);
- * 4. with the route not listed or no rules the gate resolves nothing, so `resolved` must be empty; and the
- *    verdict must be what the extension's own rule (decideLocal) gives for the recorded resolution and
- *    influence under the signed rules, or SCOPE_DENIED with no rules (VERDICT_MISMATCH).
+ * 4. `resolved` and the verdict are what the gate's own rule (decideLocalCall) gives for the recorded
+ *    resolution and influence under the signed rules: with the route not listed or no rules nothing is
+ *    resolved, and with no rules every call is SCOPE_DENIED (VERDICT_MISMATCH).
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
  * checked, unlike the server's.
  *
@@ -92,8 +92,6 @@ const SIGNERS = { svcs: [ORIGIN_SVC, "pi"], inst: INST };
 const VERDICTS: readonly string[] = ["OK", "PATH_NOT_ALLOWED", "SCOPE_DENIED", "UNCHECKABLE", "INFLUENCE_DENIED"] satisfies LocalVerdict[];
 const NEEDS: readonly string[] = ["read", "write", "exec"];
 const VIAS: readonly string[] = ["list", "folder", "never", "missing", "uncheckable"];
-/** What the gate records when it resolves nothing. */
-const NOTHING: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
 
 /** The verified client record, or undefined when it does not verify (see the module comment). */
 export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
@@ -204,14 +202,10 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
   if (r.rulesHash !== client.rulesHash) {
     return "RULES_MISMATCH";
   }
-  // with the route not listed or no rules, the gate resolves nothing
-  if ((!r.routeAllowed || client.rules === null) && canonicalize(r.resolved) !== canonicalize(NOTHING)) {
-    return "VERDICT_MISMATCH";
-  }
-  // no rules: the gate refuses every call as out of scope, and decideLocal has nothing to apply
-  const expected: LocalVerdict =
-    client.rules === null ? "SCOPE_DENIED" : decideLocal({ routeAllowed: r.routeAllowed, resolved: r.resolved, rules: client.rules, classes: influenceClasses(influence) });
-  if (expected !== verdict) {
+  // the gate's own rule, applied to what it recorded: with the route not listed or no rules it resolves nothing
+  const resolved = r.resolved;
+  const expected = decideLocalCall({ routeAllowed: r.routeAllowed, rules: client.rules, classes: influenceClasses(influence), resolve: () => resolved });
+  if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== verdict) {
     return "VERDICT_MISMATCH";
   }
   return verdict === "OK" ? "OK" : "REFUSED";

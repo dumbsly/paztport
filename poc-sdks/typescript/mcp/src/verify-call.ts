@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { parseInfluence, parseStampsV2, verifyChainOffline, verifyChainV2 } from "@paztport/core";
+import { CALL_MAX_AGE_MS, parseInfluence, parseStampsV2, RUN_MAX_AGE_MS, verifyChainOffline, verifyChainV2 } from "@paztport/core";
 import type { InfluenceEntry, OfflineConfig, ReasonCode, V2Config, V2Input, VerifyResult } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
@@ -111,13 +111,17 @@ export type RecordedCall = {
 
 /**
  * Offline check of a tools/call params object read back from a record set: the server-side check, with
- * verifyChainOffline in place of the live chain verifier. A chain for another call id than the record's is
- * RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
+ * verifyChainOffline in place of the live chain verifier. The calling hop recorded the call when it stamped it,
+ * so the live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the
+ * origin not after the call by more than the call window (EXPIRED). A chain that verifies but is for another
+ * call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
-  return checkCall(params, call.serverId, (input, nonceKey, callId) =>
-    callId !== call.callId
-      ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" }
-      : verifyChainOffline({ ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt }, { ...cfg, nonceKey }),
-  );
+  return checkCall(params, call.serverId, (input, nonceKey, callId) => {
+    const result = verifyChainOffline(
+      { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
+      { runMaxAgeMs: RUN_MAX_AGE_MS, callMaxAgeMs: CALL_MAX_AGE_MS, ...cfg, nonceKey },
+    );
+    return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" } : result;
+  });
 }

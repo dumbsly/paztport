@@ -95,6 +95,27 @@ export function decideLocal(d: {
   return "OK";
 }
 
+/** What a call resolves to when nothing is resolved: no paths, no programs. */
+export const NOTHING_RESOLVED: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
+
+/**
+ * The local gate's decision on a call: with no rules every call is out of scope; an unlisted route is not
+ * resolved; otherwise `resolve` gives what the call would touch, and decideLocal decides. The offline verifier
+ * passes the recorded resolution as `resolve`, and checks both what it returns and the verdict.
+ */
+export function decideLocalCall(d: {
+  routeAllowed: boolean;
+  rules: LocalRules | null;
+  classes: ReadonlySet<InfluenceClass>;
+  resolve: () => Resolved;
+}): { resolved: Resolved; verdict: LocalVerdict } {
+  if (d.rules === null) {
+    return { resolved: NOTHING_RESOLVED, verdict: "SCOPE_DENIED" };
+  }
+  const resolved = d.routeAllowed ? d.resolve() : NOTHING_RESOLVED;
+  return { resolved, verdict: decideLocal({ routeAllowed: d.routeAllowed, resolved, rules: d.rules, classes: d.classes }) };
+}
+
 /** The distinct label of the folder of every read path; an unlabelled folder (or none) reads as local-untrusted. */
 export function readLabels(resolved: Resolved, rules: LocalRules): InfluenceClass[] {
   const out = new Set<InfluenceClass>();

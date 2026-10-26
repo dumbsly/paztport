@@ -6,7 +6,9 @@ import type { InfluenceClass } from "../src/influence.ts";
 import { parseLocalRules } from "../src/local-rules.ts";
 import {
   decideLocal,
+  decideLocalCall,
   folderRuleFor,
+  NOTHING_RESOLVED,
   readLabels,
   type Resolved,
   type ResolvedPath,
@@ -164,5 +166,35 @@ describe("readLabels", () => {
   it("usesFolderLabelWhenSet", () => {
     const r = parseLocalRules({ v: 1, folders: [{ path: "secret", access: ["read"], label: "private" }], programs: [] });
     expect(readLabels(resolved([{ need: "read", at: "secret/k" }]), r)).toEqual(["private"]);
+  });
+});
+
+describe("decideLocalCall", () => {
+  const read = resolved([{ need: "read", at: "website/README.md" }], [], { readOnly: true });
+  const call = (routeAllowed: boolean, r: typeof rules | null, classes: InfluenceClass[] = []) => {
+    let resolvedTimes = 0;
+    const out = decideLocalCall({ routeAllowed, rules: r, classes: new Set(classes), resolve: () => (resolvedTimes++, read) });
+    return { ...out, resolvedTimes };
+  };
+
+  it("withNoRulesEveryCallIsOutOfScopeAndNothingIsResolved", () => {
+    for (const listed of [true, false]) {
+      expect(call(listed, null)).toEqual({ resolved: NOTHING_RESOLVED, verdict: "SCOPE_DENIED", resolvedTimes: 0 });
+    }
+  });
+
+  it("anUnlistedRouteIsNotResolved", () => {
+    expect(call(false, rules)).toEqual({ resolved: NOTHING_RESOLVED, verdict: "PATH_NOT_ALLOWED", resolvedTimes: 0 });
+  });
+
+  it("aListedRouteIsResolvedOnceAndDecidedByDecideLocal", () => {
+    expect(call(true, rules)).toEqual({ resolved: read, verdict: "OK", resolvedTimes: 1 });
+    const write = resolved([{ need: "write", at: "website/x.md" }]);
+    const out = decideLocalCall({ routeAllowed: true, rules, classes: new Set(["third-party"]), resolve: () => write });
+    expect(out.verdict).toBe(decideLocal({ routeAllowed: true, resolved: write, rules, classes: new Set(["third-party"]) }));
+  });
+
+  it("nothingResolvedIsTheEmptyResolution", () => {
+    expect(JSON.stringify(NOTHING_RESOLVED)).toBe('{"paths":[],"programs":[],"parse":"ok","readOnly":false}');
   });
 });

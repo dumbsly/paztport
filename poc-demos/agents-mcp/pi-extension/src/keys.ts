@@ -8,9 +8,9 @@ import {
   keyPairMatches,
   parseLocalRules,
   parseProof,
+  provesPath,
   RULES_ROUTE_PREFIX,
   rulesHash,
-  verifyProof,
   verifyRoot,
   type LocalRules,
   type MerkleProof,
@@ -120,7 +120,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     } catch (e) {
       throw new Error(`malformed proof for ${route} in proofs-pi.json: ${(e as Error).message}`);
     }
-    if (proof.rootId !== signedRoot.rootId || !verifyProof(proof, route, rootBytes)) {
+    if (!provesPath(proof, route, rootBytes, signedRoot.rootId)) {
       throw new Error(`proof for ${route} in proofs-pi.json does not verify against root.json`);
     }
     Object.defineProperty(proofs, route, { value: proof, enumerable: true, writable: true, configurable: true });

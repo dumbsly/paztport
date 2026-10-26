@@ -210,4 +210,36 @@ describe("verifyChainOffline", () => {
       expect(offline(stamps, { ...over, rid: undefined })).toBe(live(stamps, over));
     }
   });
+
+  it("ageBoundsNeedNoClock", () => {
+    const w = world();
+    const at = (originTs: number, stepTs: number) => {
+      const o = w.origin({ ts: originTs });
+      return verifyChainOffline(
+        w.input([o, w.step(o, { ts: stepTs })], { recordedTs: { last: stepTs } }),
+        w.cfg({ runMaxAgeMs: 1_800_000, callMaxAgeMs: 5_000 }),
+      ).reason;
+    };
+    // the call is made within the run's lifetime of its origin
+    expect(at(RUN_TS, RUN_TS + 1_800_000)).toBe("OK");
+    expect(at(RUN_TS, RUN_TS + 1_800_001)).toBe("EXPIRED");
+    // and its origin is no more than the call window after it
+    expect(at(RUN_TS + 5_000, RUN_TS)).toBe("OK");
+    expect(at(RUN_TS + 5_001, RUN_TS)).toBe("EXPIRED");
+    // without bounds a recorded chain has no age limit
+    const o = w.origin({ ts: RUN_TS });
+    expect(verifyChainOffline(w.input([o, w.step(o, { ts: RUN_TS + 9e9 })], { recordedTs: { last: RUN_TS + 9e9 } }), w.cfg()).reason).toBe("OK");
+    // a bound that isn't finite fails closed, as the live window does
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ runMaxAgeMs: NaN, callMaxAgeMs: 5_000 })).reason).toBe("EXPIRED");
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ runMaxAgeMs: 1_800_000, callMaxAgeMs: Infinity })).reason).toBe("EXPIRED");
+  });
+
+  it("ageIsCheckedAfterTheRecordedTimesAndBeforeThePrompt", () => {
+    const w = world();
+    const o = w.origin({ ts: RUN_TS });
+    const old = [o, w.step(o, { ts: RUN_TS + 1_800_001 })];
+    const cfg = () => w.cfg({ runMaxAgeMs: 1_800_000, callMaxAgeMs: 5_000 });
+    expect(verifyChainOffline(w.input(old, { recordedTs: { last: 0 } }), cfg()).reason).toBe("TIME_MISMATCH");
+    expect(verifyChainOffline(w.input(old, { recordedTs: { last: RUN_TS + 1_800_001 }, prompt: "other" }), cfg()).reason).toBe("EXPIRED");
+  });
 });
