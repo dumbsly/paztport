@@ -19,6 +19,14 @@ function run(script: string, args: string[]) {
   return spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
 }
 
+/** The repo root: the nearest folder above this test that holds both the SDK and the demo trees. */
+function repoRoot(): string {
+  for (let d = here; ; d = dirname(d)) {
+    if (existsSync(join(d, "poc-sdks")) && existsSync(join(d, "poc-demos"))) return d;
+    if (dirname(d) === d) throw new Error(`no repo root above ${here}`);
+  }
+}
+
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "paztport-cli-"));
 }
@@ -108,8 +116,10 @@ describe("policy-tool CLIs", () => {
   });
 
   it("policyReadsJavaKeyring", (ctx) => {
-    const p = resolve(here, "../../../../out/keys/keyring.json");
-    if (!existsSync(p)) ctx.skip();
+    // ./run test generates a Java keyring and names it here, so under ./run test this check runs or fails, never skips.
+    const named = process.env.PAZTPORT_JAVA_KEYRING;
+    const p = named ?? join(repoRoot(), "poc-demos/java-mesh/out/keys/keyring.json");
+    if (named === undefined && !existsSync(p)) ctx.skip();
     const ring = readKeyring(p);
     expect(typeof ring.policy).toBe("string");
     expect(Object.keys(ring.services).length).toBeGreaterThan(0);

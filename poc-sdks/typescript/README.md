@@ -8,8 +8,13 @@ so install it first.
 
 ```bash
 npm install
+npm run check   # tsc, for the type-level guards that vitest does not check
 npm test
 ```
+
+One test reads a keyring written by the Java keygen, from `PAZTPORT_JAVA_KEYRING`
+or else the Java demo's `out/keys/keyring.json`. With neither it skips; `./run test`
+writes one and names it, so there it always runs.
 
 ## @paztport/core
 

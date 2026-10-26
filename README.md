@@ -402,7 +402,7 @@ for the mesh demo, and Node 22.19 or newer with npm for the TypeScript side. mac
 and Linux; on Windows use WSL.
 
 ```bash
-./run test        # the name and link checks, then every suite; no Docker and no model
+./run test        # the name and link checks, the TypeScript type checks, then every suite; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ```

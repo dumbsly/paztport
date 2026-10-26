@@ -12,7 +12,7 @@ Usage: ./run <command>
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
-  test         The name and link checks, then the Java SDK, Java demo, TypeScript SDK and TypeScript demo suites.
+  test         The name and link checks, then the Java SDK, Java demo, TypeScript type checks, TypeScript SDK and TypeScript demo suites.
                No Docker and no model.
 
 macOS and Linux; on Windows use WSL.
@@ -32,10 +32,14 @@ at_least() {
 
 need_java() {
   # Maven decides which JDK builds the code (JAVA_HOME, PATH, platform lookups), so ask Maven, not PATH.
+  # A failing `mvn -v` leaves the version empty and reaches the missing: line instead of ending the script.
   command -v mvn >/dev/null 2>&1 || missing mvn 3.9 "https://maven.apache.org/download.cgi or your package manager"
-  local major
-  major="$(mvn -v 2>/dev/null | sed -n 's/^Java version: \([0-9]*\).*/\1/p' | head -n1)"
+  local version major
+  version="$(mvn -v 2>/dev/null || true)"
+  major="$(sed -n 's/^Java version: \([0-9]*\).*/\1/p' <<<"$version" | head -n1 || true)"
   [ -n "$major" ] && [ "$major" -ge 21 ] || missing java 21 "https://adoptium.net or your package manager (mvn -v must report Java 21+)"
+  # The same JDK runs the built jars, since the java on PATH may be a different one or none.
+  maven_java="$(sed -n 's/.*, runtime: \(.*\)$/\1/p' <<<"$version" | head -n1 || true)/bin/java"
 }
 
 need_node() {
@@ -90,13 +94,21 @@ cmd_agents_mcp() {
 cmd_test() {
   need_java
   need_node
+  [ -x "$maven_java" ] || missing java 21 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
   bash poc-sdks/scripts/check-names.sh
   node poc-sdks/scripts/check-links.mjs
   (cd poc-sdks/java && mvn -q install)
   (cd poc-demos/java-mesh && mvn -q test)
+  # The TS SDK's cross-language check reads a keyring the Java keygen writes, so it runs here instead of skipping.
+  test_keys="$(mktemp -d)"
+  trap 'rm -rf "$test_keys"' EXIT
+  "$maven_java" -jar poc-sdks/java/tools/keygen/target/keygen.jar "$test_keys" >/dev/null
   install_ts_sdk
-  (cd poc-sdks/typescript && npm test)
   install_ts_demo
+  # Type-check both workspaces first: vitest strips types, so type-level guards hold only under tsc.
+  (cd poc-sdks/typescript && npm run -s check)
+  (cd poc-demos/agents-mcp && npm run -s check)
+  (cd poc-sdks/typescript && PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" npm test)
   (cd poc-demos/agents-mcp && npm test)
   echo "all suites passed"
 }
