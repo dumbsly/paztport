@@ -27,6 +27,7 @@
 
     <modules>
         <module>core</module>
+        <module>http</module>
         <module>spring</module>
         <module>tools/keygen</module>
         <module>tools/policy-tool</module>

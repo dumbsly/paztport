@@ -22,6 +22,7 @@ import org.paztport.core.OutboundStamper;
 import org.paztport.core.PathChain;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.Stamp;
+import org.paztport.http.PaztportHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.client.ClientHttpResponse;

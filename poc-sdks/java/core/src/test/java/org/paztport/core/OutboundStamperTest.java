@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
@@ -46,14 +45,10 @@ class OutboundStamperTest {
         return new OutboundStamper("orders", "ord-1", orders.getPrivate(), false, () -> "rid-X", () -> 9L);
     }
 
-    private static byte[] body(String s) {
-        return s.getBytes(StandardCharsets.UTF_8);
-    }
-
     @Test
     void originProducesSingleStampWithFreshRidEmptyPrevAndItsProof() {
         OutboundStamper.StampedHeaders h =
-                gatewayStamper().stamp(null, "POST", "/orders", body("{}"), "orders", gatewayBundle);
+                gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
 
         List<Stamp> stamps = PathChain.decode(h.chainHeader()).stamps();
         assertEquals(1, stamps.size());
@@ -67,11 +62,11 @@ class OutboundStamperTest {
     @Test
     void appendLinksPrevAndCarriesOriginRidAndTs() {
         OutboundStamper.StampedHeaders gw =
-                gatewayStamper().stamp(null, "POST", "/orders", body("{}"), "orders", gatewayBundle);
+                gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
         PathChain inbound = PathChain.decode(gw.chainHeader());
 
         OutboundStamper.StampedHeaders h =
-                ordersStamper().stamp(inbound, "POST", "/pay", body("{\"amount\":1}"), "payment", ordersBundle);
+                ordersStamper().stamp(inbound, "bind:/pay", "payment", ordersBundle);
 
         List<Stamp> stamps = PathChain.decode(h.chainHeader()).stamps();
         assertEquals(2, stamps.size());
@@ -84,34 +79,33 @@ class OutboundStamperTest {
     @Test
     void nonOriginWithoutInboundChainFailsClosed() {
         assertThrows(IllegalStateException.class,
-                () -> ordersStamper().stamp(null, "POST", "/pay", body("{}"), "payment", ordersBundle));
+                () -> ordersStamper().stamp(null, "bind:/pay", "payment", ordersBundle));
     }
 
     @Test
     void noProofAttachedWhenBundleLacksTheRoute() {
         // gateway calling payment directly is not an allowed route; its bundle has no such proof.
         OutboundStamper.StampedHeaders h =
-                gatewayStamper().stamp(null, "POST", "/pay", body("{}"), "payment", gatewayBundle);
+                gatewayStamper().stamp(null, "bind:/pay", "payment", gatewayBundle);
         assertNull(h.proofHeader());
     }
 
     @Test
     void stamperOutputVerifiesEndToEndAtPayment() {
         // gateway -> orders -> payment, built entirely by the stamper, accepted by the core Verifier.
-        byte[] toPayment = body("{\"amount\":100}");
 
         OutboundStamper.StampedHeaders gw =
-                gatewayStamper().stamp(null, "POST", "/orders", body("{\"item\":\"x\"}"), "orders", gatewayBundle);
+                gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
         PathChain inbound = PathChain.decode(gw.chainHeader());
         OutboundStamper.StampedHeaders ord =
-                ordersStamper().stamp(inbound, "POST", "/pay", toPayment, "payment", ordersBundle);
+                ordersStamper().stamp(inbound, "bind:/pay", "payment", ordersBundle);
 
         VerifierConfig cfg = VerifierConfig.pinned(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                signedRoot, policy.getPublic(), Set.of("gateway"), 5000, "payment",
+                signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
                 new InMemoryNonceCache(), () -> NOW);
 
-        VerifyRequest req = new VerifyRequest(ord.chainHeader(), ord.proofHeader(), "POST", "/pay", toPayment);
+        VerifyRequest req = new VerifyRequest(ord.chainHeader(), ord.proofHeader(), "bind:/pay", "payment", null);
         assertTrue(new Verifier(cfg).verify(req).ok());
     }
 }

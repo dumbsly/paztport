@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.core;
+package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -20,6 +20,22 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.paztport.core.Base64Url;
+import org.paztport.core.Crypto;
+import org.paztport.core.InMemoryNonceCache;
+import org.paztport.core.Keyring;
+import org.paztport.core.MerkleHash;
+import org.paztport.core.MerkleLeaf;
+import org.paztport.core.MerkleProof;
+import org.paztport.core.MerkleTree;
+import org.paztport.core.PathChain;
+import org.paztport.core.ReasonCode;
+import org.paztport.core.SignedRoot;
+import org.paztport.core.Stamp;
+import org.paztport.core.StampSigner;
+import org.paztport.core.Verifier;
+import org.paztport.core.VerifierConfig;
+import org.paztport.core.VerifyResult;
 
 /**
  * Exports v1 protocol test vectors for the TypeScript port. Runs only when
@@ -111,11 +127,11 @@ class VectorExportTest {
         ring.forEach((svc, key) -> pubs.put(svc, keys.get(key).getPublic()));
         SignedRoot sr = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
         VerifierConfig cfg = VerifierConfig.pinned(Keyring.of(pubs), sr, policy.getPublic(), Set.copyOf(origins),
-                MAX_AGE, "payment", new InMemoryNonceCache(), () -> now);
+                MAX_AGE, new InMemoryNonceCache(), () -> now);
         Verifier verifier = new Verifier(cfg);
         VerifyResult last = null;
         for (int i = 0; i < uses; i++) {
-            last = verifier.verify(new VerifyRequest(chain, proof, method, path, body));
+            last = verifier.verify(HttpVerifyRequests.of(chain, proof, method, path, body, "payment"));
         }
         assertEquals(expected, last.reason(), "case " + name);
 

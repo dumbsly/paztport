@@ -12,7 +12,7 @@
 
     <artifactId>paztport-core</artifactId>
     <name>Paztport Core</name>
-    <description>Stamps, chain linking, request binding, salted Merkle proofs, and the verifier.</description>
+    <description>Stamps, chain linking, salted Merkle proofs, and the verifier.</description>
 
     <dependencies>
         <dependency>

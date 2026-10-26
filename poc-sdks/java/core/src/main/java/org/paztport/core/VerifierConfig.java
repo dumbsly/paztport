@@ -18,7 +18,6 @@ public record VerifierConfig(
         String rootId,
         Set<String> allowedOrigins,
         long maxAgeMs,
-        String receivingService,
         NonceCache nonceCache,
         LongSupplier clock) {
 
@@ -32,7 +31,6 @@ public record VerifierConfig(
             PublicKey policyKey,
             Set<String> allowedOrigins,
             long maxAgeMs,
-            String receivingService,
             NonceCache nonceCache,
             LongSupplier clock) {
         if (!signedRoot.verify(policyKey)) {
@@ -40,6 +38,6 @@ public record VerifierConfig(
         }
         return new VerifierConfig(
                 keyring, signedRoot.rootBytes(), signedRoot.rootId(),
-                allowedOrigins, maxAgeMs, receivingService, nonceCache, clock);
+                allowedOrigins, maxAgeMs, nonceCache, clock);
     }
 }

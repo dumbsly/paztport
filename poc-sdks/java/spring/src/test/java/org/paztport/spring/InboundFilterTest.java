@@ -29,6 +29,8 @@ import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
 import org.paztport.core.Verifier;
 import org.paztport.core.VerifierConfig;
+import org.paztport.http.PaztportHeaders;
+import org.paztport.http.RequestBinding;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -63,21 +65,21 @@ class InboundFilterTest {
     private Verifier paymentVerifier() {
         VerifierConfig cfg = VerifierConfig.pinned(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                signedRoot, policy.getPublic(), Set.of("gateway"), 5000, "payment",
+                signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
                 new InMemoryNonceCache(), () -> NOW);
         return new Verifier(cfg);
     }
 
     private InboundFilter filter(VerificationMode mode, CaptureStore capture) {
-        return new InboundFilter(paymentVerifier(), new ModeHolder(mode), events, capture);
+        return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, capture);
     }
 
     private OutboundStamper.StampedHeaders validHeaders() {
         var gw = new OutboundStamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .stamp(null, "POST", "/orders", "{}".getBytes(), "orders", gatewayBundle);
+                .stamp(null, RequestBinding.compute("POST", "/orders", "{}".getBytes()), "orders", gatewayBundle);
         PathChain inbound = PathChain.decode(gw.chainHeader());
         return new OutboundStamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L)
-                .stamp(inbound, "POST", "/pay", TO_PAYMENT, "payment", ordersBundle);
+                .stamp(inbound, RequestBinding.compute("POST", "/pay", TO_PAYMENT), "payment", ordersBundle);
     }
 
     private MockHttpServletRequest paymentRequest(OutboundStamper.StampedHeaders h, byte[] body) {
@@ -183,7 +185,7 @@ class InboundFilterTest {
         };
         MockFilterChain chain = new MockFilterChain(capturing);
 
-        new InboundFilter(null, null, null, null)
+        new InboundFilter(null, "payment", null, null, null)
                 .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), response, chain);
 
         assertEquals(200, response.getStatus());

@@ -11,7 +11,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
@@ -33,20 +32,20 @@ class VerifierTest {
 
     @Test
     void missingChainHeaderIsChainMissing() {
-        VerifyRequest req = new VerifyRequest(null, fx.validProofHeader(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(null, fx.validProofHeader(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
     }
 
     @Test
     void emptyChainIsChainMissing() {
         String empty = new PathChain(List.of()).encode();
-        VerifyRequest req = new VerifyRequest(empty, fx.validProofHeader(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(empty, fx.validProofHeader(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
     }
 
     @Test
     void unparseableChainIsChainMissing() {
-        VerifyRequest req = new VerifyRequest("!!!garbage!!!", fx.validProofHeader(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest("!!!garbage!!!", fx.validProofHeader(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
     }
 
@@ -95,8 +94,7 @@ class VerifierTest {
     @Test
     void bodyAlteredAfterLastStampIsBindingMismatch() {
         // Scenario 6: valid chain, but payment receives a different body.
-        byte[] altered = "{\"amount\":999}".getBytes(StandardCharsets.UTF_8);
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), fx.validProofHeader(), "POST", "/pay", altered);
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), fx.validProofHeader(), fx.bindToPayment() + "-altered", "payment", null);
         assertEquals(ReasonCode.BINDING_MISMATCH, fx.verifier().verify(req).reason());
     }
 
@@ -113,13 +111,13 @@ class VerifierTest {
         // Scenario 4: a real gateway->search chain forwarded on to payment, carrying
         // the only proof search holds (for gateway/search). No leaf to payment exists.
         VerifyRequest req = new VerifyRequest(
-                fx.gatewaySearchChainHeader(), fx.proofHeaderFor("gateway/search"), "POST", "/pay", fx.body());
+                fx.gatewaySearchChainHeader(), fx.proofHeaderFor("gateway/search"), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
     @Test
     void missingProofIsPathNotAllowed() {
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), null, "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), null, fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
@@ -128,7 +126,7 @@ class VerifierTest {
         // A proof whose rootId does not match the pinned root is rejected.
         MerkleProof valid = fx.tree.proofFor("gateway/orders/payment");
         MerkleProof wrongVersion = new MerkleProof(valid.leafSalt(), valid.siblings(), valid.dirs(), "v-OLD");
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), wrongVersion.encode(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), wrongVersion.encode(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
@@ -145,13 +143,13 @@ class VerifierTest {
         assertEquals("orders", ok.suspectSvc());
         assertEquals("ord-1", ok.suspectInst());
         VerifyResult notAllowed = fx.verifier().verify(
-                new VerifyRequest(fx.validChainHeader(), null, "POST", "/pay", fx.body()));
+                new VerifyRequest(fx.validChainHeader(), null, fx.bindToPayment(), "payment", null));
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, notAllowed.reason());
         assertEquals("orders", notAllowed.suspectSvc());
         assertEquals("ord-1", notAllowed.suspectInst());
 
         // Unsigned or unverified names stay empty.
-        assertNoSuspect(fx.verifier().verify(new VerifyRequest(null, fx.validProofHeader(), "POST", "/pay", fx.body())),
+        assertNoSuspect(fx.verifier().verify(new VerifyRequest(null, fx.validProofHeader(), fx.bindToPayment(), "payment", null)),
                 ReasonCode.CHAIN_MISSING);
         Stamp notOrigin = StampSigner.sign("search", "s-1", "rid-1", Fixture.NOW, "b", "", fx.search.getPrivate());
         assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(notOrigin)))),
@@ -174,9 +172,8 @@ class VerifierTest {
         Stamp old1 = StampSigner.sign("orders", "ord-1", "rid-1", Fixture.NOW - 6000, fx.bindToPayment(), old0.sig(), fx.orders.getPrivate());
         assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(old0, old1)))),
                 ReasonCode.EXPIRED);
-        byte[] altered = "{\"amount\":999}".getBytes(StandardCharsets.UTF_8);
         assertNoSuspect(fx.verifier().verify(
-                new VerifyRequest(fx.validChainHeader(), fx.validProofHeader(), "POST", "/pay", altered)),
+                new VerifyRequest(fx.validChainHeader(), fx.validProofHeader(), fx.bindToPayment() + "-altered", "payment", null)),
                 ReasonCode.BINDING_MISMATCH);
         Verifier verifier = fx.verifier();
         assertTrue(verifier.verify(fx.validRequest()).ok());
@@ -224,14 +221,14 @@ class VerifierTest {
     @ParameterizedTest
     @ValueSource(strings = {"svc", "inst", "rid", "ts", "bind", "prev", "sig"})
     void stampMissingAFieldIsChainMissing(String field) throws Exception {
-        VerifyRequest req = new VerifyRequest(chainWith(field, false), fx.validProofHeader(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(chainWith(field, false), fx.validProofHeader(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"svc", "inst", "rid", "ts", "bind", "prev", "sig"})
     void stampWithANullFieldIsChainMissing(String field) throws Exception {
-        VerifyRequest req = new VerifyRequest(chainWith(field, true), fx.validProofHeader(), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(chainWith(field, true), fx.validProofHeader(), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
     }
 
@@ -248,14 +245,14 @@ class VerifierTest {
     @ParameterizedTest
     @ValueSource(strings = {"leafSalt", "siblings", "dirs", "rootId"})
     void proofMissingAFieldIsPathNotAllowed(String field) throws Exception {
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, false), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, false), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"leafSalt", "siblings", "dirs", "rootId"})
     void proofWithANullFieldIsPathNotAllowed(String field) throws Exception {
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, true), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, true), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
@@ -263,7 +260,7 @@ class VerifierTest {
     void proofWithANullSiblingIsPathNotAllowed() throws Exception {
         ObjectNode proof = (ObjectNode) RAW.readTree(Json.write(fx.tree.proofFor("gateway/orders/payment")));
         ((ArrayNode) proof.get("siblings")).removeAll().addNull();
-        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), header(proof), "POST", "/pay", fx.body());
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), header(proof), fx.bindToPayment(), "payment", null);
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
@@ -293,12 +290,8 @@ class VerifierTest {
                 "orders", orders.getPublic(),
                 "search", search.getPublic()));
 
-        byte[] body() {
-            return "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
-        }
-
         String bindToPayment() {
-            return RequestBinding.compute("POST", "/pay", body());
+            return "bind-pay";
         }
 
         Stamp gatewayStamp() {
@@ -334,16 +327,16 @@ class VerifierTest {
         }
 
         VerifyRequest validRequest() {
-            return new VerifyRequest(validChainHeader(), validProofHeader(), "POST", "/pay", body());
+            return new VerifyRequest(validChainHeader(), validProofHeader(), bindToPayment(), "payment", null);
         }
 
         VerifyRequest requestWithChain(PathChain chain) {
-            return new VerifyRequest(chain.encode(), validProofHeader(), "POST", "/pay", body());
+            return new VerifyRequest(chain.encode(), validProofHeader(), bindToPayment(), "payment", null);
         }
 
         Verifier verifier() {
             VerifierConfig cfg = VerifierConfig.pinned(
-                    keyring, signedRoot, policy.getPublic(), Set.of("gateway"), 5000, "payment",
+                    keyring, signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
                     new InMemoryNonceCache(), () -> NOW);
             return new Verifier(cfg);
         }

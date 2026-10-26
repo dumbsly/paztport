@@ -12,6 +12,10 @@ import java.util.List;
  * typed {@link VerifyResult}. Every branch fails closed: a parse error,
  * missing header, unknown key, or expired stamp is a rejection, never a pass.
  *
+ * <p>The verifier is transport-neutral: the transport extension hands it the
+ * binding it computed for the request received and the receiving service's
+ * name, so nothing here rebinds a method, path or body.
+ *
  * <p>The route is always rebuilt from the stamps' authenticated {@code svc}
  * fields, never from any claimed field, then checked for membership against the
  * pinned root. Step 8, checking the last stamp's {@code svc} against the
@@ -89,9 +93,8 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.EXPIRED);
         }
 
-        // 5. Last stamp's bind matches the request actually received.
-        String rebound = RequestBinding.compute(req.method(), req.path(), req.body());
-        if (!rebound.equals(last.bind())) {
+        // 5. Last stamp's bind matches the binding computed from the request actually received.
+        if (!req.expectedBind().equals(last.bind())) {
             return VerifyResult.reject(ReasonCode.BINDING_MISMATCH);
         }
 
@@ -102,7 +105,7 @@ public final class Verifier {
 
         // 7. Route rebuilt from the stamps plus this service, proven against the root.
         List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
-        hops.add(cfg.receivingService());
+        hops.add(req.receiver());
         String route = Routes.join(hops);
         if (!pathAllowed(req.proofHeader(), route)) {
             // Everything above held, so the last hop did sign this very request.

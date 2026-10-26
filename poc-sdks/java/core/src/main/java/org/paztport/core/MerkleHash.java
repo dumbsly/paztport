@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets;
  * leaves are prefixed {@code 0x00}, internal nodes {@code 0x01}. Without this a
  * leaf could be reinterpreted as an internal node (a second-preimage attack).
  */
-final class MerkleHash {
+public final class MerkleHash {
 
     private static final byte LEAF = 0x00;
     private static final byte NODE = 0x01;
@@ -20,7 +20,7 @@ final class MerkleHash {
     }
 
     /** {@code SHA-256(0x00 || salt || path)}. */
-    static byte[] leaf(byte[] salt, String path) {
+    public static byte[] leaf(byte[] salt, String path) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(LEAF);
         out.write(salt, 0, salt.length);
@@ -30,7 +30,7 @@ final class MerkleHash {
     }
 
     /** {@code SHA-256(0x01 || left || right)}. */
-    static byte[] node(byte[] left, byte[] right) {
+    public static byte[] node(byte[] left, byte[] right) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(NODE);
         out.write(left, 0, left.length);

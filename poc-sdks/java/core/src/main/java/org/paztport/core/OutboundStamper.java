@@ -11,8 +11,8 @@ import java.util.function.Supplier;
 
 /**
  * Builds the outbound {@code X-Path-Chain} and {@code X-Path-Proof} headers for
- * one hop. Framework-neutral: the Spring interceptor feeds it the request
- * details and the inbound chain, and sets whatever it returns.
+ * one hop. Framework-neutral: the Spring interceptor feeds it the binding of the
+ * request it is sending and the inbound chain, and sets whatever it returns.
  *
  * <p>An origin service mints a fresh {@code rid}/{@code ts} and an empty
  * {@code prev}. A non-origin service appends to the chain it received, carrying
@@ -45,7 +45,7 @@ public final class OutboundStamper {
     }
 
     public StampedHeaders stamp(
-            PathChain inboundChain, String method, String path, byte[] body, String target, ProofBundle bundle) {
+            PathChain inboundChain, String bind, String target, ProofBundle bundle) {
         String rid;
         long ts;
         String prev;
@@ -66,7 +66,6 @@ public final class OutboundStamper {
             base = inboundChain;
         }
 
-        String bind = RequestBinding.compute(method, path, body);
         Stamp stamp = StampSigner.sign(svc, inst, rid, ts, bind, prev, key);
         PathChain outgoing = base.withAppended(stamp);
 

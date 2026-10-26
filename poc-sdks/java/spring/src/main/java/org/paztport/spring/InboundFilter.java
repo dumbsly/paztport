@@ -9,9 +9,10 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.paztport.core.PathChain;
-import org.paztport.core.VerifyRequest;
 import org.paztport.core.VerifyResult;
 import org.paztport.core.Verifier;
+import org.paztport.http.HttpVerifyRequests;
+import org.paztport.http.PaztportHeaders;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
@@ -30,12 +31,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public final class InboundFilter extends OncePerRequestFilter {
 
     private final Verifier verifier;
+    private final String receiver;
     private final ModeHolder modeHolder;
     private final EventPublisher publisher;
     private final CaptureStore captureStore;
 
-    public InboundFilter(Verifier verifier, ModeHolder modeHolder, EventPublisher publisher, CaptureStore captureStore) {
+    public InboundFilter(
+            Verifier verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
+            CaptureStore captureStore) {
         this.verifier = verifier;
+        this.receiver = receiver;
         this.modeHolder = modeHolder;
         this.publisher = publisher;
         this.captureStore = captureStore;
@@ -66,7 +71,8 @@ public final class InboundFilter extends OncePerRequestFilter {
             if (verifier != null && modeHolder.get() != VerificationMode.OFF) {
                 VerificationMode mode = modeHolder.get();
                 VerifyResult result = verifier.verify(
-                        new VerifyRequest(chainHeader, proofHeader, request.getMethod(), request.getRequestURI(), body));
+                        HttpVerifyRequests.of(
+                                chainHeader, proofHeader, request.getMethod(), request.getRequestURI(), body, receiver));
                 if (!result.ok()) {
                     publisher.publish(new AttestationEvent(
                             result.reason().name(), result.suspectSvc(), result.suspectInst(),

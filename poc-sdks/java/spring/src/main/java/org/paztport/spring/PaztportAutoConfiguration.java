@@ -67,7 +67,6 @@ public class PaztportAutoConfiguration {
                 ConfigLoader.loadPolicyKey(Path.of(props.getKeyringPath())),
                 Set.copyOf(props.getOrigins()),
                 props.getMaxAgeMs(),
-                props.getServiceName(),
                 new InMemoryNonceCache(),
                 System::currentTimeMillis);
         return new Verifier(cfg);
@@ -118,12 +117,13 @@ public class PaztportAutoConfiguration {
 
     @Bean
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
+            PaztportProperties props,
             org.springframework.beans.factory.ObjectProvider<Verifier> verifier,
             org.springframework.beans.factory.ObjectProvider<ModeHolder> modeHolder,
             org.springframework.beans.factory.ObjectProvider<EventPublisher> publisher,
             org.springframework.beans.factory.ObjectProvider<CaptureStore> captureStore) {
         InboundFilter filter = new InboundFilter(
-                verifier.getIfAvailable(), modeHolder.getIfAvailable(),
+                verifier.getIfAvailable(), props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), captureStore.getIfAvailable());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);

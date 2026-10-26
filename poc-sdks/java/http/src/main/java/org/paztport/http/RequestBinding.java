@@ -1,10 +1,12 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.core;
+package org.paztport.http;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
+import org.paztport.core.Base64Url;
+import org.paztport.core.Crypto;
 
 /**
  * Binds a stamp to the request a hop actually sent: {@code bind} is the
