@@ -456,6 +456,12 @@ Notes on the ordering:
   caller, needs mTLS and isn't implemented yet. It's a documented gap (see §14).
 - Every rejection returns a 403 with the reason code and publishes an event for
   the responder.
+- Only `PATH_NOT_ALLOWED` names a suspect (the last stamp's service and instance).
+  By step 7 the signatures verified, the links hold, and the chain is fresh, bound
+  to this exact request and unseen, so the last hop really sent it. Before that the
+  names are unsigned or unverified, or the genuine last stamp belongs to someone
+  else's request (a replayed or altered capture), so the suspect is left empty
+  rather than blaming an innocent signer.
 
 ## 7. Threat model
 
@@ -577,7 +583,9 @@ Why each piece is there:
   running, so you keep a live specimen for forensics while a clean replacement
   serves traffic.
 - **Attribute to the instance.** Stamps carry the container hostname, so the
-  responder isolates one replica, not every pod in the service.
+  responder isolates one replica, not every pod in the service. Only
+  `PATH_NOT_ALLOWED` events carry a suspect; every other rejection leaves it empty
+  and takes the "ignore: can't attribute" branch.
 - **Require a threshold** (3 in 60 s). One bad event doesn't trigger action, and
   audit-mode events never do.
 - **Circuit breaker** (by default at most 2 quarantines per service per 10 min).
@@ -700,6 +708,11 @@ that the route taken is in a private, committed policy**.
   that route (see §7).
 - **The caller-identity check is advisory without mTLS.** Until mTLS binds the last
   stamp to the real transport identity, verification step 8 is a gap.
+- **A forwarded chain can blame its last signer.** A stamp doesn't bind the service
+  it was meant for, so a chain forwarded unchanged to a different service with a
+  matching method and path can still give `PATH_NOT_ALLOWED` and name the innocent
+  last signer. Binding the receiver into the stamp, or mTLS binding the caller,
+  closes it.
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS

@@ -132,6 +132,57 @@ class VerifierTest {
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
+    private static void assertNoSuspect(VerifyResult r, ReasonCode expected) {
+        assertEquals(expected, r.reason());
+        assertEquals("", r.suspectSvc(), expected + " must not name a service");
+        assertEquals("", r.suspectInst(), expected + " must not name an instance");
+    }
+
+    @Test
+    void onlyPathNotAllowedAndOkNameTheLastStamp() {
+        // OK and PATH_NOT_ALLOWED: signed, linked, fresh, bound and unseen, so the last hop sent it.
+        VerifyResult ok = fx.verifier().verify(fx.validRequest());
+        assertEquals("orders", ok.suspectSvc());
+        assertEquals("ord-1", ok.suspectInst());
+        VerifyResult notAllowed = fx.verifier().verify(
+                new VerifyRequest(fx.validChainHeader(), null, "POST", "/pay", fx.body()));
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, notAllowed.reason());
+        assertEquals("orders", notAllowed.suspectSvc());
+        assertEquals("ord-1", notAllowed.suspectInst());
+
+        // Unsigned or unverified names stay empty.
+        assertNoSuspect(fx.verifier().verify(new VerifyRequest(null, fx.validProofHeader(), "POST", "/pay", fx.body())),
+                ReasonCode.CHAIN_MISSING);
+        Stamp notOrigin = StampSigner.sign("search", "s-1", "rid-1", Fixture.NOW, "b", "", fx.search.getPrivate());
+        assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(notOrigin)))),
+                ReasonCode.BAD_ORIGIN);
+        Stamp forged = StampSigner.sign("gateway", "evil", "rid-1", Fixture.NOW, fx.bindToPayment(), "", fx.search.getPrivate());
+        assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(forged)))),
+                ReasonCode.BAD_SIGNATURE);
+
+        Stamp s0 = fx.gatewayStamp();
+        Stamp unlinked = StampSigner.sign("orders", "ord-1", "rid-1", Fixture.NOW, fx.bindToPayment(),
+                Base64Url.encode("not-s0-sig".getBytes()), fx.orders.getPrivate());
+        assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(s0, unlinked)))),
+                ReasonCode.BROKEN_LINK);
+
+        // A genuine last stamp that belongs to someone else's request is not blamed.
+        Stamp otherRid = StampSigner.sign("orders", "ord-1", "rid-DIFFERENT", Fixture.NOW, fx.bindToPayment(), s0.sig(), fx.orders.getPrivate());
+        assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(s0, otherRid)))),
+                ReasonCode.RID_MISMATCH);
+        Stamp old0 = StampSigner.sign("gateway", "gw-1", "rid-1", Fixture.NOW - 6000, "bGW", "", fx.gateway.getPrivate());
+        Stamp old1 = StampSigner.sign("orders", "ord-1", "rid-1", Fixture.NOW - 6000, fx.bindToPayment(), old0.sig(), fx.orders.getPrivate());
+        assertNoSuspect(fx.verifier().verify(fx.requestWithChain(new PathChain(List.of(old0, old1)))),
+                ReasonCode.EXPIRED);
+        byte[] altered = "{\"amount\":999}".getBytes(StandardCharsets.UTF_8);
+        assertNoSuspect(fx.verifier().verify(
+                new VerifyRequest(fx.validChainHeader(), fx.validProofHeader(), "POST", "/pay", altered)),
+                ReasonCode.BINDING_MISMATCH);
+        Verifier verifier = fx.verifier();
+        assertTrue(verifier.verify(fx.validRequest()).ok());
+        assertNoSuspect(verifier.verify(fx.validRequest()), ReasonCode.REPLAY);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"svc", "inst", "rid", "ts", "bind", "prev", "sig"})
     void tamperingAnyLastStampFieldIsRejected(String field) {

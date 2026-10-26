@@ -15,6 +15,19 @@ import java.util.stream.Collectors;
  * <p>The route is always rebuilt from the stamps' authenticated {@code svc}
  * fields, never from any claimed field, then checked for membership against the
  * pinned root. Step 8 of the spec (mTLS caller identity) is deferred to phase 6.
+ *
+ * <p>A rejection names the last stamp's {@code svc}/{@code inst} as the suspect
+ * only at {@link ReasonCode#PATH_NOT_ALLOWED} (and on success). By then the
+ * signatures verified, the links hold, the chain is fresh, bound to this exact
+ * request and unseen, so the last hop really sent it. Earlier failures leave
+ * the suspect empty: the names are unsigned or unverified (a forged chain could
+ * name anyone), or the genuine last stamp belongs to someone else's request (a
+ * replayed or altered capture), and the responder quarantines whoever is named.
+ *
+ * <p>One gap remains: a stamp does not bind which service it was meant for, so
+ * a chain forwarded unchanged to another service whose method and path match
+ * can still yield {@code PATH_NOT_ALLOWED} naming its innocent last signer.
+ * Binding the receiver into the stamp, or mTLS caller identity (step 8), closes it.
  */
 public final class Verifier {
 
@@ -40,12 +53,10 @@ public final class Verifier {
         }
 
         Stamp last = stamps.get(stamps.size() - 1);
-        String suspectSvc = last.svc();
-        String suspectInst = last.inst();
 
         // 2. First stamp's svc is an allowed origin.
         if (!cfg.allowedOrigins().contains(stamps.get(0).svc())) {
-            return VerifyResult.reject(ReasonCode.BAD_ORIGIN, suspectSvc, suspectInst);
+            return VerifyResult.reject(ReasonCode.BAD_ORIGIN);
         }
 
         // 3. Every signature verifies, and each prev links to the previous sig.
@@ -53,11 +64,11 @@ public final class Verifier {
             Stamp s = stamps.get(i);
             PublicKey key = cfg.keyring().keyFor(s.svc());
             if (key == null || !signatureValid(key, s)) {
-                return VerifyResult.reject(ReasonCode.BAD_SIGNATURE, suspectSvc, suspectInst);
+                return VerifyResult.reject(ReasonCode.BAD_SIGNATURE);
             }
             String expectedPrev = i == 0 ? "" : stamps.get(i - 1).sig();
             if (!s.prev().equals(expectedPrev)) {
-                return VerifyResult.reject(ReasonCode.BROKEN_LINK, suspectSvc, suspectInst);
+                return VerifyResult.reject(ReasonCode.BROKEN_LINK);
             }
         }
 
@@ -65,33 +76,34 @@ public final class Verifier {
         String rid = stamps.get(0).rid();
         for (Stamp s : stamps) {
             if (!s.rid().equals(rid)) {
-                return VerifyResult.reject(ReasonCode.RID_MISMATCH, suspectSvc, suspectInst);
+                return VerifyResult.reject(ReasonCode.RID_MISMATCH);
             }
         }
         long age = cfg.clock().getAsLong() - stamps.get(0).ts();
         if (age > cfg.maxAgeMs()) {
-            return VerifyResult.reject(ReasonCode.EXPIRED, suspectSvc, suspectInst);
+            return VerifyResult.reject(ReasonCode.EXPIRED);
         }
 
         // 5. Last stamp's bind matches the request actually received.
         String rebound = RequestBinding.compute(req.method(), req.path(), req.body());
         if (!rebound.equals(last.bind())) {
-            return VerifyResult.reject(ReasonCode.BINDING_MISMATCH, suspectSvc, suspectInst);
+            return VerifyResult.reject(ReasonCode.BINDING_MISMATCH);
         }
 
         // 6. (rid, last svc) not seen before.
         if (cfg.nonceCache().seenBefore(rid, last.svc())) {
-            return VerifyResult.reject(ReasonCode.REPLAY, suspectSvc, suspectInst);
+            return VerifyResult.reject(ReasonCode.REPLAY);
         }
 
         // 7. Route rebuilt from the stamps plus this service, proven against the root.
         String route = stamps.stream().map(Stamp::svc).collect(Collectors.joining("/"))
                 + "/" + cfg.receivingService();
         if (!pathAllowed(req.proofHeader(), route)) {
-            return VerifyResult.reject(ReasonCode.PATH_NOT_ALLOWED, suspectSvc, suspectInst);
+            // Everything above held, so the last hop did sign this very request.
+            return VerifyResult.reject(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
         }
 
-        return VerifyResult.ok(suspectSvc, suspectInst);
+        return VerifyResult.ok(last.svc(), last.inst());
     }
 
     private static boolean signatureValid(PublicKey key, Stamp s) {
