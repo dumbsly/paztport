@@ -106,22 +106,22 @@ export function readLabels(resolved: Resolved, rules: LocalRules): InfluenceClas
   return [...out];
 }
 
-/** pi's built-in tools that only read. */
-const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
+/** What a local tool does: reads files, runs programs, writes files, or anything else. */
+export type LocalToolKind = "read" | "exec" | "write" | "other";
 
 /**
- * The classes an allowed call's result records: the labels of the folders a read tool read, those
- * plus local-untrusted for bash (a program's output is not fully known), nothing for write and edit,
- * and local-untrusted for any other tool.
+ * The classes an allowed call's result records: the labels of the folders a read read, those plus
+ * local-untrusted for an exec (a program's output is not fully known, even when it only reads), nothing
+ * for a write, and local-untrusted for any other tool.
  */
-export function resultLabels(toolName: string, resolved: Resolved, rules: LocalRules): InfluenceClass[] {
-  if (READ_TOOLS.includes(toolName)) {
+export function resultLabels(kind: LocalToolKind, resolved: Resolved, rules: LocalRules): InfluenceClass[] {
+  if (kind === "read") {
     return readLabels(resolved, rules);
   }
-  if (toolName === "bash") {
+  if (kind === "exec") {
     return [...new Set<InfluenceClass>([...readLabels(resolved, rules), "local-untrusted"])];
   }
-  if (toolName === "write" || toolName === "edit") {
+  if (kind === "write") {
     return [];
   }
   return ["local-untrusted"];

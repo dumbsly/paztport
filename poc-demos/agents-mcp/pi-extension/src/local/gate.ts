@@ -26,11 +26,11 @@ import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
 import { encodePlaceholders } from "./placeholders.ts";
+import { BUILTIN_LOCAL_TOOLS, toolKind, type BuiltinLocalTool } from "./tools.ts";
 
-/** pi's built-in local tools. */
-export const BUILTIN_LOCAL_TOOLS = ["read", "write", "edit", "bash", "grep", "find", "ls", "powershell"] as const;
+export { BUILTIN_LOCAL_TOOLS };
 
-type FileTool = Exclude<(typeof BUILTIN_LOCAL_TOOLS)[number], "bash" | "powershell">;
+type FileTool = Exclude<BuiltinLocalTool, "bash" | "powershell">;
 const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileTool => t !== "bash" && t !== "powershell");
 const ROUTE_PREFIX = "session/pi/local:";
 const INST = "pi-1";
@@ -185,7 +185,7 @@ export class LocalGate {
       return { block: true, reason: localRefusalText(verdict) };
     }
     deepFreeze(input);
-    this.labels.set(toolCallId, resultLabels(toolName, resolved, rules!));
+    this.labels.set(toolCallId, resultLabels(toolKind(toolName), resolved, rules!));
     return { block: false };
   }
 

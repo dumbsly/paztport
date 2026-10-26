@@ -7,6 +7,7 @@
 import { accessSync, constants, lstatSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import type { LocalRules, Need, Resolved, ResolvedPath } from "@paztport/core";
+import { toolKind } from "./tools.ts";
 
 export type PathContext = { cwd: string; workspace: string; rules: LocalRules; refused: readonly string[] };
 
@@ -262,8 +263,6 @@ export function withSubtree(abs: string, base: ResolvedPath, ctx: PathContext, o
   }
 }
 
-const READ_TOOLS: readonly string[] = ["read", "grep", "find", "ls"];
-
 /** pi's read tool retries a missing path with these spellings (path-utils.ts, same order). */
 function piReadVariants(p: string): string[] {
   const amPm = p.replace(/ (AM|PM)\./gi, "\u202F$1.");
@@ -288,7 +287,7 @@ export function resolveFileTool(
   input: Record<string, unknown>,
   ctx: PathContext,
 ): Resolved {
-  const readOnly = READ_TOOLS.includes(tool);
+  const readOnly = toolKind(tool) === "read";
   const need: Need = readOnly ? "read" : "write";
   const raw = input.path ?? ".";
   let extra: ResolvedPath[] = [];

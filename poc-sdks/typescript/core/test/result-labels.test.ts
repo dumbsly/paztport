@@ -26,19 +26,18 @@ const reads: Resolved = {
 };
 
 describe("resultLabels", () => {
-  it("readToolsCarryTheirFoldersLabels", () => {
-    for (const tool of ["read", "grep", "find", "ls"]) {
-      expect(resultLabels(tool, reads, rules)).toEqual(["public", "private"]);
-    }
+  it("aReadCarriesItsFoldersLabels", () => {
+    expect(resultLabels("read", reads, rules)).toEqual(["public", "private"]);
   });
-  it("bashAddsLocalUntrusted", () => {
-    expect(resultLabels("bash", reads, rules)).toEqual(["public", "private", "local-untrusted"]);
+  it("anExecAddsLocalUntrusted", () => {
+    expect(resultLabels("exec", reads, rules)).toEqual(["public", "private", "local-untrusted"]);
+    // read-only resolution doesn't change that: a program's output is not fully known
+    expect(resultLabels("exec", { ...reads, readOnly: true }, rules)).toEqual(["public", "private", "local-untrusted"]);
   });
-  it("writeAndEditCarryNothing", () => {
+  it("aWriteCarriesNothing", () => {
     expect(resultLabels("write", reads, rules)).toEqual([]);
-    expect(resultLabels("edit", reads, rules)).toEqual([]);
   });
   it("anyOtherToolIsLocalUntrusted", () => {
-    expect(resultLabels("some_extension_tool", reads, rules)).toEqual(["local-untrusted"]);
+    expect(resultLabels("other", reads, rules)).toEqual(["local-untrusted"]);
   });
 });
