@@ -140,9 +140,29 @@ describe("verifyV1", () => {
   it("suspectIsLastStamp", () => {
     const w = world();
     const r = verifyV1(w.req(w.validChain(), { body: utf8("x") }), w.cfg());
-    expect(r).toEqual({ ok: false, reason: "BINDING_MISMATCH", suspectSvc: "orders", suspectInst: "ord-1" });
+    expect(r).toEqual({ ok: false, reason: "BINDING_MISMATCH", suspectSvc: "", suspectInst: "" });
     const ok = verifyV1(w.req(w.validChain()), w.cfg());
     expect([ok.suspectSvc, ok.suspectInst]).toEqual(["orders", "ord-1"]);
+    const denied = verifyV1(w.req(w.validChain(), { proofHeader: "!!!" }), w.cfg());
+    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "orders", suspectInst: "ord-1" });
+  });
+  it("suspectIsEmptyForEveryOtherRejection", () => {
+    const w = world();
+    const cases: [string, ReturnType<typeof verifyV1>][] = [
+      ["CHAIN_MISSING", verifyV1(w.req(undefined), w.cfg())],
+      ["BAD_ORIGIN", verifyV1(w.req(w.validChain()), { ...w.cfg(), allowedOrigins: ["other"] })],
+      ["BAD_SIGNATURE", verifyV1(w.req(w.validChain()), { ...w.cfg(), keyring: { ...w.cfg().keyring, orders: w.search.publicKey } })],
+      ["BROKEN_LINK", verifyV1(w.req([w.gatewayStamp(), signStampV1({ svc: "orders", inst: "ord-1", rid: "rid-1", ts: NOW, bind: w.bindToPayment, prev: "x" }, w.orders.privateKey)]), w.cfg())],
+      ["EXPIRED", verifyV1(w.req(w.validChain()), { ...w.cfg(), now: NOW + 5001 })],
+      ["BINDING_MISMATCH", verifyV1(w.req(w.validChain(), { body: utf8("x") }), w.cfg())],
+    ];
+    const cfg = w.cfg();
+    verifyV1(w.req(w.validChain()), cfg);
+    cases.push(["REPLAY", verifyV1(w.req(w.validChain()), cfg)]);
+    for (const [reason, r] of cases) {
+      expect(r.reason).toBe(reason);
+      expect([reason, r.suspectSvc, r.suspectInst]).toEqual([reason, "", ""]);
+    }
   });
   it.each(["svc", "inst", "rid", "ts", "bind", "prev", "sig"] as const)("tampering %s is rejected", (field) => {
     const w = world();

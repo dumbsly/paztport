@@ -67,7 +67,10 @@ export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
 
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
-  const fail = (reason: ReasonCode) => reject(reason, last.svc, last.inst);
+  // Only PATH_NOT_ALLOWED names a suspect: by then the signatures, links, freshness, binding and
+  // replay checks held, so the last hop really sent this request. Earlier failures may carry an
+  // unsigned name or another service's genuine stamp from a replayed or altered capture.
+  const fail = (reason: ReasonCode) => reject(reason);
 
   // 2. No delimiter in any field.
   if (stamps.some((s) => [s.svc, s.inst, s.rid, s.sess, s.bind, s.infl, s.prev].some((f) => f.includes("|")))) {
@@ -135,7 +138,7 @@ export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
   // 11. Route proven against the root.
   const route = stamps.map((s) => s.svc).join("/") + (input.receiver !== undefined ? "/" + input.receiver : "");
   if (!pathAllowed(input.proof, route, cfg)) {
-    return fail("PATH_NOT_ALLOWED");
+    return reject("PATH_NOT_ALLOWED", last.svc, last.inst);
   }
 
   return { ok: true, reason: "OK", suspectSvc: last.svc, suspectInst: last.inst };

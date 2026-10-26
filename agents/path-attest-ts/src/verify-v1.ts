@@ -64,7 +64,10 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
 
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
-  const fail = (reason: ReasonCode) => reject(reason, last.svc, last.inst);
+  // Only PATH_NOT_ALLOWED names a suspect: by then the signatures, links, freshness, binding and
+  // replay checks held, so the last hop really sent this request. Earlier failures may carry an
+  // unsigned name or another service's genuine stamp from a replayed or altered capture.
+  const fail = (reason: ReasonCode) => reject(reason);
 
   // 2. First stamp's svc is an allowed origin.
   if (!cfg.allowedOrigins.includes(first.svc)) {
@@ -106,7 +109,7 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
   // 7. Route rebuilt from the stamps plus this service, proven against the root.
   const route = stamps.map((s) => s.svc).join("/") + "/" + cfg.receivingService;
   if (!pathAllowed(req.proofHeader, route, cfg)) {
-    return fail("PATH_NOT_ALLOWED");
+    return reject("PATH_NOT_ALLOWED", last.svc, last.inst);
   }
 
   return { ok: true, reason: "OK", suspectSvc: last.svc, suspectInst: last.inst };

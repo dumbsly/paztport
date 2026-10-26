@@ -155,12 +155,18 @@ describe("verifyCall", () => {
     const r = verifyCall(w.params({ name: "a|b", route: "session/pi/mcp:github.a|b" }), SERVER, w.cfg());
     expect(r.result.reason).toBe("CHAIN_MISSING");
   });
-  it("slashOrPipeInServerIdIsChainMissing", () => {
+  it("slashPipeOrDotInServerIdIsChainMissing", () => {
     const w = world();
-    for (const serverId of ["git/hub", "git|hub"]) {
+    for (const serverId of ["git/hub", "git|hub", "git.hub"]) {
       const r = verifyCall(w.params(), { serverId }, w.cfg());
       expect(r.result.reason, serverId).toBe("CHAIN_MISSING");
     }
+  });
+  it("dotInToolNameStillVerifies", () => {
+    const name = "repo.create";
+    const w = world([`session/pi/mcp:github.${name}`]);
+    const r = verifyCall(w.params({ name, route: `session/pi/mcp:github.${name}` }), SERVER, w.cfg());
+    expect(r.result.reason).toBe("OK");
   });
   it("parsesChainOnce", () => {
     const w = world();

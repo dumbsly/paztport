@@ -68,6 +68,32 @@ describe("verifyChainV2", () => {
     const r = verifyChainV2(w.input(w.chain()), w.cfg());
     expect(r).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
   });
+  it("suspectIsSetOnlyAtPathNotAllowed", () => {
+    const w = world();
+    const denied = verifyChainV2(w.input(w.chain(), { proof: w.tree.proofFor("session/pi/mcp:github.get_issue") }), w.cfg());
+    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1" });
+  });
+  it("suspectIsEmptyForEveryOtherRejection", () => {
+    const w = world();
+    const cfg = w.cfg();
+    verifyChainV2(w.input(w.chain()), cfg);
+    const cases: [string, ReturnType<typeof verifyChainV2>][] = [
+      ["CHAIN_MISSING", verifyChainV2(w.input([]), w.cfg())],
+      ["BAD_ORIGIN", verifyChainV2(w.input(w.chain()), w.cfg({ allowedOrigins: ["x"] }))],
+      ["BAD_SIGNATURE", verifyChainV2(w.input(w.chain()), w.cfg({ keyring: { session: w.harness.publicKey, pi: w.other.publicKey } }))],
+      ["BROKEN_LINK", verifyChainV2(w.input(w.chain({ prev: "x" })), w.cfg())],
+      ["RID_MISMATCH", verifyChainV2(w.input(w.chain({ rid: "rid-2" })), w.cfg())],
+      ["SESSION_UNKNOWN", verifyChainV2(w.input(w.chain()), w.cfg({ sess: "other" }))],
+      ["EXPIRED", verifyChainV2(w.input(w.chain()), w.cfg({ now: NOW + 10 * 60_000 * 60 }))],
+      ["BINDING_MISMATCH", verifyChainV2(w.input(w.chain(), { expectedBind: "zz" }), w.cfg())],
+      ["INFLUENCE_MISMATCH", verifyChainV2(w.input(w.chain(), { influence: [] }), w.cfg())],
+      ["REPLAY", verifyChainV2(w.input(w.chain()), cfg)],
+    ];
+    for (const [reason, r] of cases) {
+      expect(r.reason).toBe(reason);
+      expect([reason, r.suspectSvc, r.suspectInst]).toEqual([reason, "", ""]);
+    }
+  });
   it("notArray", () => {
     const w = world();
     expect(verifyChainV2(w.input({}), w.cfg()).reason).toBe("CHAIN_MISSING");

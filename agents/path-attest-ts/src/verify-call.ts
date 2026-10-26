@@ -36,7 +36,8 @@ export function verifyCall(
     if (!isObject(params) || typeof params.name !== "string" || !isObject(params._meta)) {
       return fail("CHAIN_MISSING");
     }
-    if (/[/|]/.test(params.name) || /[/|]/.test(ctx.serverId)) {
+    // `/` would inject route segments, `|` is the field delimiter, `.` would make the receiver ambiguous.
+    if (/[/|]/.test(params.name) || /[/|.]/.test(ctx.serverId)) {
       return fail("CHAIN_MISSING");
     }
     const meta = params._meta;
