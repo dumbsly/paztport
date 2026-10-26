@@ -27,6 +27,7 @@ import org.slf4j.LoggerFactory;
  * is decoded from that same string. An event id is remembered only once the
  * envelope has passed every other check, for twice the freshness window, so a
  * captured event cannot be replayed while its timestamp is still acceptable.
+ * Parsing and the signature check run unlocked; only that memory is guarded.
  */
 public final class EventAuthenticator {
 
@@ -48,7 +49,7 @@ public final class EventAuthenticator {
     }
 
     /** The verified event, or empty (and a logged reason) if the body must be refused. */
-    public synchronized Optional<ResponderEvent> accept(String body) {
+    public Optional<ResponderEvent> accept(String body) {
         EventEnvelope envelope;
         try {
             envelope = JSON.readValue(body, EventEnvelope.class);
@@ -80,14 +81,30 @@ public final class EventAuthenticator {
         }
 
         long now = clock.getAsLong();
-        if (Math.abs(now - event.ts()) > WINDOW_MS) {
+        if (!withinWindow(now, event.ts())) {
             return refuse("event outside the freshness window");
         }
-        seen.values().removeIf(receivedAt -> now - receivedAt > 2 * WINDOW_MS);
-        if (seen.putIfAbsent(event.eventId(), now) != null) {
+        if (!firstSighting(event.eventId(), now)) {
             return refuse("repeated event id");
         }
         return Optional.of(event);
+    }
+
+    /**
+     * Whether {@code ts} is at most {@link #WINDOW_MS} from {@code now}, for any
+     * two longs. {@code Math.abs(now - ts)} wraps for extreme values (and
+     * {@code Math.abs(Long.MIN_VALUE)} is negative); the larger minus the smaller
+     * always fits in an unsigned long, so it is compared unsigned.
+     */
+    static boolean withinWindow(long now, long ts) {
+        long gap = ts >= now ? ts - now : now - ts;
+        return Long.compareUnsigned(gap, WINDOW_MS) <= 0;
+    }
+
+    /** Remembers {@code eventId}; false if it was already remembered. Only this touches {@link #seen}. */
+    private synchronized boolean firstSighting(String eventId, long now) {
+        seen.values().removeIf(receivedAt -> now - receivedAt > 2 * WINDOW_MS);
+        return seen.putIfAbsent(eventId, now) == null;
     }
 
     private static Optional<ResponderEvent> refuse(String why) {

@@ -124,6 +124,25 @@ class EventAuthenticatorTest {
     }
 
     @Test
+    void timestampsAtTheExtremesAreRefused() throws Exception {
+        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "a"))).isEmpty());
+        assertTrue(accept(envelope("payment", payment, eventJson(Long.MAX_VALUE, "b"))).isEmpty());
+    }
+
+    @Test
+    void aTimestampWhoseDifferenceWrapsIsRefused() throws Exception {
+        // NOW - ts is exactly Long.MIN_VALUE, and Math.abs(Long.MIN_VALUE) is negative
+        assertTrue(accept(envelope("payment", payment, eventJson(NOW + Long.MIN_VALUE, "a"))).isEmpty());
+        // either one-sided difference wraps for these clock and ts pairs
+        clock.set(Long.MIN_VALUE);
+        assertTrue(accept(envelope("payment", payment, eventJson(Long.MAX_VALUE, "b"))).isEmpty());
+        clock.set(Long.MAX_VALUE);
+        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "c"))).isEmpty());
+        clock.set(0);
+        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "d"))).isEmpty());
+    }
+
+    @Test
     void refusesARepeatedEventId() throws Exception {
         String body = envelope("payment", payment, eventJson(NOW, "a"));
         assertTrue(accept(body).isPresent());
