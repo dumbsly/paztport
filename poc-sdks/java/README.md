@@ -29,11 +29,14 @@ The HTTP binding. `RequestBinding` computes `bind`, the base64url SHA-256 of
 
 ## paztport-spring
 
-Glue: an inbound servlet filter (verify, capture context) and an outbound
-`RestClient` interceptor (stamp through `OutboundStamper`, attach proof). It also
-holds the modes, the `/admin/mode` endpoint, the events sent to a responder, and
-an optional `ReceivedRequestListener` hook that lets an application observe each
-request the filter receives. It is configured through `paztport.*` properties.
+Glue: an inbound servlet filter (verify, and keep the received chain for the
+outbound calls) and an outbound `RestClient` interceptor (stamp through
+`OutboundStamper`, attach proof). It also holds the modes, the `/admin/mode`
+endpoint, the events sent to a responder, and an optional
+`ReceivedRequestListener` hook that lets an application observe each request the
+filter receives. The SDK captures nothing itself: the mesh demo's request capture,
+for its replay scenario, is a listener on that hook. It is configured through
+`paztport.*` properties.
 
 ## tools/keygen
 

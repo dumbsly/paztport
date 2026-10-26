@@ -26,7 +26,9 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *   <li>{@code ENFORCE} — verify, publish an event and return 403 on failure.</li>
  * </ul>
  *
- * A null verifier makes this a capture-only filter for non-verifying hops.
+ * A null verifier skips verification on non-verifying hops. A non-null
+ * {@link ReceivedRequestListener} is offered every request first, before any
+ * verification, so an application can observe traffic without the SDK knowing why.
  */
 public final class InboundFilter extends OncePerRequestFilter {
 

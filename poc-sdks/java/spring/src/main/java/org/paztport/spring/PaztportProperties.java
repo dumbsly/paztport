@@ -25,9 +25,6 @@ public class PaztportProperties {
     /** Verification mode for verifying services: off, audit, or enforce. */
     private String mode = "enforce";
 
-    /** Demo harness: retain the last received request so it can be replayed. */
-    private boolean capture = false;
-
     /** If set, rejection events are also POSTed to this responder URL. */
     private String responderUrl;
 
@@ -93,14 +90,6 @@ public class PaztportProperties {
 
     public void setMode(String mode) {
         this.mode = mode;
-    }
-
-    public boolean isCapture() {
-        return capture;
-    }
-
-    public void setCapture(boolean capture) {
-        this.capture = capture;
     }
 
     public String getResponderUrl() {
