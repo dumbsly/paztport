@@ -31,7 +31,7 @@ function setup(dir: string, services: string, paths: string): void {
   console.log(dir);
 }
 
-const USAGE = "Usage: node setup-demo.ts [--out agents/.demo] [--force]";
+const USAGE = "Usage: node setup-demo.ts [--out poc-demos/agents-mcp/.demo] [--force]";
 
 let out: string;
 let force: boolean;

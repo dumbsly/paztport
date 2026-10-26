@@ -93,7 +93,7 @@ function start(args: string[]): Session {
   };
 }
 
-/** The scenario A leak sequence, signed like the plan 1c harness once a session is accepted. */
+/** The scenario A leak sequence, signed like the pi extension's client harness once a session is accepted. */
 async function leakSequence(s: Session, attested: boolean) {
   const client = makeClient({ fromDir: join(demo, "client") });
   // the harness pins the server key from the client dir, as setup-demo wrote it

@@ -1245,7 +1245,7 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     const r = cli(single({ scenario: { id: "no-such-scenario" }, scored: { outcome: "resisted" } }));
     const lines = r.stdout.trim().split("\n");
     expect(lines[1]).toBe(CROSS_OK);
-    expect(lines[2]).toBe('NOTE the outcome demo-run.json records (resisted) was not scored again: no scenario "no-such-scenario" in agents/scenarios');
+    expect(lines[2]).toBe('NOTE the outcome demo-run.json records (resisted) was not scored again: no scenario "no-such-scenario" in poc-demos/agents-mcp/scenarios');
     expect(r.status).toBe(0);
     const none = cli(single({ scenario: undefined }));
     expect(none.stdout).toContain('NOTE the outcome demo-run.json records (blocked) was not scored again: demo-run.json names no scenario\n');

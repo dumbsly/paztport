@@ -9,7 +9,7 @@ export type Redaction = { path: string; placeholder: string };
 const escapeRegExp = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
- * Replaces each path with its placeholder, longest path first, so a run folder inside the agents folder
+ * Replaces each path with its placeholder, longest path first, so a run folder inside the agents-mcp folder
  * inside the home folder becomes `<run-dir>`, not `<home>/...`. A path matches only where it ends a name
  * (`/Users/ann` does not match inside `/Users/anna`). The JSON-escaped form of a path (backslashes doubled)
  * is replaced too. Empty paths and "/" are ignored.

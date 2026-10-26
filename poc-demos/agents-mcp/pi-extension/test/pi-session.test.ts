@@ -213,7 +213,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     const config = loadConfig(join(import.meta.dirname, "../examples/paztport.config.json"));
     expect(config.mode).toBe("enforce");
     expect(config.servers.map((s) => [s.id, s.attested, s.pin])).toEqual([
-      ["github", true, "/path/to/paztport/agents/.demo/client/server-policy.pub"],
+      ["github", true, "/path/to/paztport/poc-demos/agents-mcp/.demo/client/server-policy.pub"],
       ["docs", false, undefined],
     ]);
   });

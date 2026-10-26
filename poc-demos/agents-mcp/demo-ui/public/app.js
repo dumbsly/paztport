@@ -510,9 +510,9 @@ function hasSignedCalls(steps) {
 }
 
 const SIGNED_BUT_MISSING = "The outcome log shows signed calls, but the evidence file has no signed records.";
-const VERIFY_FILE_NOTE = "Run it in the agents folder. It checks the signatures, links and bindings in this run's evidence file, offline. It does not compare the evidence with the outcome log.";
+const VERIFY_FILE_NOTE = "Run it in the poc-demos/agents-mcp folder. It checks the signatures, links and bindings in this run's evidence file, offline. It does not compare the evidence with the outcome log.";
 const VERIFY_RUN_FOLDER_NOTE =
-  "Run it in the agents folder. It checks the signatures, links and bindings in this run's evidence file, offline, and that the evidence agrees with the events log, the outcome log and the server key the run recorded (an older run recorded none).";
+  "Run it in the poc-demos/agents-mcp folder. It checks the signatures, links and bindings in this run's evidence file, offline, and that the evidence agrees with the events log, the outcome log and the server key the run recorded (an older run recorded none).";
 /** A run inside an eval folder is checked by its evidence file; a single run by its folder, which adds the cross-check. */
 const namesEvidenceFile = (command) => /evidence\.jsonl'?$/.test(command);
 
@@ -987,7 +987,7 @@ function openDrawer(step, ctx, opener) {
   if (ctx.verifyCommand) {
     check = [
       commandBlock(ctx.verifyCommand),
-      h("p", { class: "note" }, "Run it in the agents folder. It checks every signature, link and binding in this run's evidence file, offline."),
+      h("p", { class: "note" }, "Run it in the poc-demos/agents-mcp folder. It checks every signature, link and binding in this run's evidence file, offline."),
     ];
   } else if (!ctx.finished) check = h("p", { class: "muted" }, "The command appears when the run has finished.");
   else if (hasSignedCalls([step])) check = h("p", { class: "problem" }, SIGNED_BUT_MISSING);
@@ -1230,8 +1230,8 @@ function evalDetail(d, { nested }) {
           { class: "note" },
           withCode(
             checkedNow
-              ? "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; this page did those when you opened the folder, and the figures above are the result. "
-              : "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the agents folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; the eval scored each run when it finished and cross-checked the whole folder at the end. ",
+              ? "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the poc-demos/agents-mcp folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; this page did those when you opened the folder, and the figures above are the result. "
+              : "`npm run verify` checks signatures, links and bindings in each evidence file, offline, from the poc-demos/agents-mcp folder. For a folder it also checks that every run whose outcome log shows signed calls has signed evidence. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint; the eval scored each run when it finished and cross-checked the whole folder at the end. ",
           ),
           d.refusalsNote ?? "",
         )

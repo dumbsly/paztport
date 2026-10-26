@@ -403,7 +403,7 @@ function rescore(dir: string, scenarioId: unknown, scenario: Scenario | undefine
   const run = readObject(join(dir, "run.json"));
   if (run === undefined) return undefined; // the cross-check says run.json can't be read
   if (typeof scenarioId !== "string") return { notRescored: "demo-run.json names no scenario" };
-  if (scenario === undefined) return { notRescored: `no scenario ${JSON.stringify(scenarioId)} in agents/scenarios` };
+  if (scenario === undefined) return { notRescored: `no scenario ${JSON.stringify(scenarioId)} in poc-demos/agents-mcp/scenarios` };
   if (!STATUSES.includes(run.status as string)) return { notRescored: "run.json records no status" };
   let canary = "";
   try {

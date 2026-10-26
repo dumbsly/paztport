@@ -12,7 +12,7 @@ const BUILTIN = loadScenario(BUILTIN_SCENARIO_DIR);
  */
 export const PRIVATE_MARKERS: string[] = BUILTIN.markers;
 
-/** The built-in scenario's repos (agents/scenarios/github-issue-replay). */
+/** The built-in scenario's repos (poc-demos/agents-mcp/scenarios/github-issue-replay). */
 export function createFixtures(opts: { canary: string; issuePayload: string | null }): GithubState {
   return scenarioFixtures(BUILTIN, opts);
 }

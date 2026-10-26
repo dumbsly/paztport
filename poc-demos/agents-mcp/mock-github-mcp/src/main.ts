@@ -15,8 +15,8 @@ import { serveStdio } from "./stdio.ts";
 const PKG = join(import.meta.dirname, "..");
 const USAGE =
   "Usage: node main.ts --mode <enforce|audit|off> [--config <dir>] [--outcome-log <file>] [--canary <s>] [--payload <file>|none] [--scenario <dir>]\n" +
-  "  --config defaults to agents/.demo/server (run `npm run setup-demo` in agents/ to create it)\n" +
-  "  --scenario defaults to agents/scenarios/github-issue-replay";
+  "  --config defaults to poc-demos/agents-mcp/.demo/server (run `npm run setup-demo` in poc-demos/agents-mcp/ to create it)\n" +
+  "  --scenario defaults to poc-demos/agents-mcp/scenarios/github-issue-replay";
 
 function usage(message?: string): never {
   if (message) console.error(message);

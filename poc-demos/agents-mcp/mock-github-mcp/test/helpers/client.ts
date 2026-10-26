@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Test-only simulator of the plan 1c client harness: never part of the server.
+// Test-only simulator of the pi extension's client harness: never part of the server.
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";

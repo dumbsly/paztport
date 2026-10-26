@@ -1,15 +1,15 @@
 {
   "mode": "enforce",
-  "clientDir": "/path/to/paztport/agents/.demo/client",
+  "clientDir": "/path/to/paztport/poc-demos/agents-mcp/.demo/client",
   "eventsLog": "/path/to/runs/events.jsonl",
   "servers": [
     {
       "id": "github",
       "command": "node",
       "args": [
-        "/path/to/paztport/agents/mock-github-mcp/src/main.ts",
+        "/path/to/paztport/poc-demos/agents-mcp/mock-github-mcp/src/main.ts",
         "--mode", "enforce",
-        "--config", "/path/to/paztport/agents/.demo/server",
+        "--config", "/path/to/paztport/poc-demos/agents-mcp/.demo/server",
         "--outcome-log", "/path/to/runs/outcome.jsonl"
       ],
       "attested": true
@@ -17,7 +17,7 @@
     {
       "id": "docs",
       "command": "node",
-      "args": ["/path/to/paztport/agents/mock-github-mcp/src/docs-main.ts"],
+      "args": ["/path/to/paztport/poc-demos/agents-mcp/mock-github-mcp/src/docs-main.ts"],
       "attested": false
     }
   ]

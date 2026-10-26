@@ -54,7 +54,7 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
  * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
- * Local steps (phase 2): `client` and `local` records are checked by verify-local.ts, whose comment lists
+ * Local steps: `client` and `local` records are checked by verify-local.ts, whose comment lists
  * the checks. A verified local step is OK when it was allowed and REFUSED when it was refused; local
  * refusals are signed and checked, unlike the server's. Verify does not look at the disk.
  *

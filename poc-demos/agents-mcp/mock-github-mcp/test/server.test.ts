@@ -51,7 +51,7 @@ function serverConfig(): ServerPolicy {
 type Call = { result: CallToolResult; params: Record<string, unknown>; verified?: string };
 
 /**
- * Drives the server over JSON-RPC like the plan 1c harness: once a session is accepted, every
+ * Drives the server over JSON-RPC like the pi extension's client harness: once a session is accepted, every
  * call is signed with the influence accumulated from verified responses so far.
  */
 function setup(o: { mode?: Mode; client?: Parameters<typeof makeClient>[0]; paztport?: boolean } = {}) {

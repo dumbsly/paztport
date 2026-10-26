@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Pinned bytes for cross-implementation conformance (plan 1b and any future v2 implementation
-// must reproduce these). Change only with a protocol change.
+// Pinned bytes for cross-implementation conformance (any v2 implementation must reproduce
+// these). Change only with a protocol change.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";

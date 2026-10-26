@@ -59,8 +59,14 @@ const anchorsOf = (file) => {
   return anchorCache.get(file);
 };
 
+const markdown = files.filter((f) => f.endsWith(".md"));
+if (!markdown.includes("README.md")) {
+  console.error(`check-links: no README.md at ${root} (found ${markdown.length} Markdown files); is this the repository root?`);
+  process.exit(1);
+}
+
 const problems = [];
-for (const file of files.filter((f) => f.endsWith(".md"))) {
+for (const file of markdown) {
   const text = prose(readFileSync(join(root, file), "utf8"));
   const targets = [
     ...[...text.matchAll(/\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)].map((m) => [m[1], m.index]),
@@ -98,3 +104,4 @@ if (problems.length > 0) {
   console.error(`check-links: ${problems.length} broken link(s)`);
   process.exit(1);
 }
+console.log(`check-links: ok, ${markdown.length} Markdown files`);

@@ -24,7 +24,7 @@ import {
 } from "@paztport/core";
 
 /**
- * Offline checks of the pi extension's local steps (phase 2), used by verify.ts. The extension writes a
+ * Offline checks of the pi extension's local steps, used by verify.ts. The extension writes a
  * `client` record (the client mesh: keyring, policy key, signed root, local rules and their proof) at session
  * start, and then one `local` record per gated built-in tool call.
  *
