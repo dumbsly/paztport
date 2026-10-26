@@ -2,29 +2,25 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import {
-  bindLocalTool,
-  bindPrompt,
   canonicalize,
-  commitInfluence,
   decideLocal,
   decode,
   influenceClasses,
+  localStepBind,
+  ORIGIN_SVC,
   parseInfluence,
   parseLocalRules,
-  parseProof,
   parseStampsV2,
+  provesPath,
   RULES_ROUTE_PREFIX,
   rulesHash,
-  signingBytesV2,
-  verify,
-  verifyProof,
+  verifyChainOffline,
   verifyRoot,
   type InfluenceEntry,
   type LocalRules,
   type LocalVerdict,
   type ReasonCode,
   type Resolved,
-  type StampV2,
 } from "@paztport/core";
 
 /**
@@ -40,41 +36,37 @@ import {
  *
  * A local record is checked against the latest client record before it, in this order (the first failure is
  * its result):
- * 1. its fields are well formed (UNREADABLE), there is a verified client record (NO_CLIENT), and its
- *    (rid, call id) is new in the file (REPLAY);
- * 2. the origin stamp is svc "session", inst "pi-1" (BAD_ORIGIN), the step stamp is svc "pi", inst "pi-1",
- *    and the keyring's session and pi keys sign them (BAD_SIGNATURE); a step signature already seen in the
- *    file (the same signed step under another call id or rid) is REPLAY;
- * 3. the step follows the origin (BROKEN_LINK), both carry the record's rid (RID_MISMATCH) and an empty
- *    `sess` (SESSION_UNKNOWN);
- * 4. the step's time is the record's `now`, and the origin's time is the time of a run record for the rid
- *    (TIME_MISMATCH); the origin binds that run's prompt (PROMPT_MISMATCH);
- * 5. the step binds bindLocalTool(tool, input, { callId, resolved, verdict, routeAllowed, rulesHash }), so
- *    the call id and the decision are signed as well as the call (BINDING_MISMATCH), and commits to the recorded influence
- *    (INFLUENCE_MISMATCH);
- * 6. `routeAllowed` is true exactly when there is a proof, and the proof proves `session/pi/local:<tool>`
- *    against the client root (BAD_PROOF); `rulesHash` is the client record's rules hash, or null when it has
- *    no rules (RULES_MISMATCH);
- * 7. with the route not listed or no rules the gate resolves nothing, so `resolved` must be empty; and the
+ * 1. its fields are well formed, and its chain is an origin and a step (UNREADABLE); there is a verified client
+ *    record (NO_CLIENT); the step's binding can be computed (BINDING_MISMATCH);
+ * 2. the chain, by verifyChainOffline in the library's order: the origin is svc "session", inst "pi-1"
+ *    (BAD_ORIGIN), the step is svc "pi", inst "pi-1", and the keyring's session and pi keys sign them
+ *    (BAD_SIGNATURE), the step follows the origin (BROKEN_LINK), both carry the record's rid (RID_MISMATCH) and
+ *    an empty `sess` (SESSION_UNKNOWN); the step's time is the record's `now`, and the origin's time is the time
+ *    of a run record for the rid (TIME_MISMATCH); the origin binds that run's prompt (PROMPT_MISMATCH); the step
+ *    binds localStepBind (the call, its id and the decision: what was resolved, the verdict, routeAllowed and
+ *    rulesHash), so none of them can be changed after signing (BINDING_MISMATCH), and commits to the recorded
+ *    influence (INFLUENCE_MISMATCH); its (rid, call id) is new in the file (REPLAY); and the route
+ *    `session/pi/local:<tool>` is proven against the client root, or not;
+ * 3. `routeAllowed` is true exactly when the route is proven, and a route that is not has no proof (BAD_PROOF);
+ *    `rulesHash` is the client record's rules hash, or null when it has no rules (RULES_MISMATCH);
+ * 4. with the route not listed or no rules the gate resolves nothing, so `resolved` must be empty; and the
  *    verdict must be what the extension's own rule (decideLocal) gives for the recorded resolution and
  *    influence under the signed rules, or SCOPE_DENIED with no rules (VERDICT_MISMATCH).
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
  * checked, unlike the server's.
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
- * that the gate saw the disk correctly. Freshness windows do not apply to local steps: they never cross a
- * boundary, so there is no receiver whose clock they must fit.
+ * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
+ * the times recorded with it.
  */
 export type LocalResult =
   | "OK"
   | "REFUSED"
   | "UNREADABLE"
-  | "PROMPT_MISMATCH"
   | ReasonCode
   | "BAD_CLIENT"
   | "NO_CLIENT"
   | "BAD_PROOF"
-  | "TIME_MISMATCH"
   | "RULES_MISMATCH"
   | "VERDICT_MISMATCH";
 
@@ -92,8 +84,11 @@ type Rec = Record<string, unknown>;
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
-const LOCAL_ROUTE_PREFIX = "session/pi/local:";
+/** The receiver a local tool's route names after the client's services. */
+const LOCAL_RECEIVER_PREFIX = "local:";
 const INST = "pi-1";
+/** A local step's chain: the run's origin, then the pi stamp, both from the one pi instance. */
+const SIGNERS = { svcs: [ORIGIN_SVC, "pi"], inst: INST };
 const VERDICTS: readonly string[] = ["OK", "PATH_NOT_ALLOWED", "SCOPE_DENIED", "UNCHECKABLE", "INFLUENCE_DENIED"] satisfies LocalVerdict[];
 const NEEDS: readonly string[] = ["read", "write", "exec"];
 const VIAS: readonly string[] = ["list", "folder", "never", "missing", "uncheckable"];
@@ -127,8 +122,7 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     if (r.rules !== null) {
       rules = parseLocalRules(r.rules); // throws on rules that don't parse
       hash = rulesHash(rules);
-      const proof = parseProof(r.rulesProof);
-      if (proof.rootId !== signedRoot.rootId || !verifyProof(proof, `session/pi/${RULES_ROUTE_PREFIX}${hash}`, root)) {
+      if (!provesPath(r.rulesProof, `session/pi/${RULES_ROUTE_PREFIX}${hash}`, root, signedRoot.rootId)) {
         return undefined;
       }
     } else if (r.rulesProof !== null) {
@@ -152,25 +146,11 @@ function isResolved(v: unknown): v is Resolved {
   );
 }
 
-function stampSigned(keyring: Record<string, string>, s: StampV2): boolean {
-  try {
-    return Object.hasOwn(keyring, s.svc) && verify(keyring[s.svc]!, signingBytesV2(s), decode(s.sig));
-  } catch {
-    return false;
-  }
-}
-
 /**
- * What a file's local records have used so far: (rid, call id) pairs, and the signatures of verified step stamps.
- * One per file.
+ * Checks one local record (see the module comment). `seen` is the file's set of spent nonce keys, shared with
+ * its calls and updated here; `runOf` gives a rid's run, or undefined when it has none or its prompt is in dispute.
  */
-export type LocalSeen = { calls: Set<string>; steps: Set<string> };
-
-/**
- * Checks one local record (see the module comment). `seen` is the file's LocalSeen, updated here; `runOf` gives
- * a rid's run, or undefined when it has none or its prompt is in dispute.
- */
-export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: LocalSeen): LocalResult {
+export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: Set<string>): LocalResult {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
     return "UNREADABLE";
   }
@@ -180,78 +160,46 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
   if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
     return "UNREADABLE";
   }
-  let chain: StampV2[];
   let influence: InfluenceEntry[];
   try {
-    chain = parseStampsV2(r.chain);
     influence = parseInfluence(r.influence);
+    if (parseStampsV2(r.chain).length !== 2) {
+      return "UNREADABLE";
+    }
   } catch {
-    return "UNREADABLE";
-  }
-  if (chain.length !== 2) {
     return "UNREADABLE";
   }
   if (client === undefined) {
     return "NO_CLIENT";
   }
-  const k = JSON.stringify([r.rid, r.callId]);
-  if (seen.calls.has(k)) {
-    return "REPLAY";
-  }
-  seen.calls.add(k);
-  const [origin, step] = chain as [StampV2, StampV2];
-  if (origin.svc !== "session" || origin.inst !== INST) {
-    return "BAD_ORIGIN";
-  }
-  if (step.svc !== "pi" || step.inst !== INST || !stampSigned(client.keyring, origin) || !stampSigned(client.keyring, step)) {
-    return "BAD_SIGNATURE";
-  }
-  // the same signed step again, under another call id or rid
-  if (seen.steps.has(step.sig)) {
-    return "REPLAY";
-  }
-  seen.steps.add(step.sig);
-  if (origin.prev !== "" || step.prev !== origin.sig) {
-    return "BROKEN_LINK";
-  }
-  if (origin.rid !== r.rid || step.rid !== r.rid) {
-    return "RID_MISMATCH";
-  }
-  if (origin.sess !== "" || step.sess !== "") {
-    return "SESSION_UNKNOWN";
-  }
-  const run = runOf(r.rid);
-  if (step.ts !== r.now || (run !== undefined && !run.ts.has(origin.ts))) {
-    return "TIME_MISMATCH";
-  }
-  if (run === undefined || origin.bind !== bindPrompt(run.prompt)) {
-    return "PROMPT_MISMATCH";
-  }
   const verdict = r.verdict as LocalVerdict;
   let bind: string;
   try {
-    bind = bindLocalTool(r.tool, r.input, { callId: r.callId, resolved: r.resolved, verdict, routeAllowed: r.routeAllowed, rulesHash: r.rulesHash });
+    bind = localStepBind({ toolName: r.tool, toolCallId: r.callId, input: r.input, resolved: r.resolved, verdict, listed: r.routeAllowed, rulesHash: r.rulesHash });
   } catch {
     return "BINDING_MISMATCH";
   }
-  if (step.bind !== bind) {
-    return "BINDING_MISMATCH";
+  const run = runOf(r.rid);
+  const v = verifyChainOffline(
+    {
+      stamps: r.chain,
+      expectedBind: bind,
+      influence,
+      proof: r.proof,
+      receiver: LOCAL_RECEIVER_PREFIX + r.tool,
+      rid: r.rid,
+      recordedTs: { last: r.now, ...(run !== undefined ? { run: run.ts } : {}) },
+      ...(run !== undefined ? { prompt: run.prompt } : {}),
+    },
+    { keyring: client.keyring, root: client.root, rootId: client.rootId, allowedOrigins: [ORIGIN_SVC], sess: "", seen, nonceKey: `${r.rid}|${r.callId}|local`, signers: SIGNERS },
+  );
+  // an unproven route is how a refusal for an unlisted tool verifies; anything else is the record's failure
+  if (v.reason !== "OK" && v.reason !== "PATH_NOT_ALLOWED") {
+    return v.reason;
   }
-  if (step.infl !== commitInfluence(influence)) {
-    return "INFLUENCE_MISMATCH";
-  }
-  if (r.routeAllowed !== (r.proof !== null)) {
+  const proven = v.reason === "OK";
+  if (proven !== r.routeAllowed || (!proven && r.proof !== null)) {
     return "BAD_PROOF";
-  }
-  if (r.proof !== null) {
-    try {
-      const proof = parseProof(r.proof);
-      if (proof.rootId !== client.rootId || !verifyProof(proof, LOCAL_ROUTE_PREFIX + r.tool, client.root)) {
-        return "BAD_PROOF";
-      }
-    } catch {
-      return "BAD_PROOF";
-    }
   }
   if (r.rulesHash !== client.rulesHash) {
     return "RULES_MISMATCH";

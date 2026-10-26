@@ -8,6 +8,7 @@ import { canonicalize } from "../src/jcs.ts";
 import { signRoot } from "../src/root.ts";
 import {
   deriveSessionId,
+  isAttestedSession,
   newNonce,
   sessionStatus,
   signSessionReply,
@@ -169,5 +170,32 @@ describe("session reply", () => {
     expect(stray.sig).not.toBe("stray");
     expect(stray).toEqual(clean); // Ed25519 is deterministic: same body, same signature
     expect(verifySessionReply(stray, w.req, w.serverPolicy.publicKey)).toBe(true);
+  });
+});
+
+describe("isAttestedSession", () => {
+  it("anAttestedReplyWithBothRootsIsAttested", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey)).toBe(true);
+  });
+  it("anyFlawIsNotAttested", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    // another pin, a tampered reply, an unsafe one
+    expect(isAttestedSession(w.req, reply, generateKeyPair().publicKey)).toBe(false);
+    expect(isAttestedSession(w.req, { ...reply, sess: "AAAA" }, w.serverPolicy.publicKey)).toBe(false);
+    const unsafe = signSessionReply({ ...w.body(), status: "unsafe" }, w.serverPolicy.privateKey);
+    expect(isAttestedSession(w.req, unsafe, w.serverPolicy.publicKey)).toBe(false);
+    // the reply binds the client root's signature, not its contents: those must verify against the client policy key
+    const swapped = { ...w.req, clientRoot: { ...w.clientRoot, root: encode(randomBytes(32)) } };
+    expect(isAttestedSession(swapped, reply, w.serverPolicy.publicKey)).toBe(false);
+    // no client root
+    const noClient = { ...w.req, clientRoot: null };
+    const body = w.body();
+    const sess = deriveSessionId(null, w.serverRoot.sig, noClient.nonce, body.nonce, noClient);
+    expect(isAttestedSession(noClient, signSessionReply({ ...body, sess, status: "unsafe" }, w.serverPolicy.privateKey), w.serverPolicy.publicKey)).toBe(false);
+    // what a recorded file may hold instead of a reply
+    expect(isAttestedSession(w.req, {} as SessionReply, w.serverPolicy.publicKey)).toBe(false);
   });
 });

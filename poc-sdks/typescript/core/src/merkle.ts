@@ -119,6 +119,16 @@ export function parseProof(value: unknown): MerkleProof {
   return { leafSalt: v.leafSalt, siblings: [...(v.siblings as string[])], dirs: v.dirs, rootId: v.rootId };
 }
 
+/** Whether `value` is a proof for the root named `rootId` that proves `path` against `root`. Never throws. */
+export function provesPath(value: unknown, path: string, root: Uint8Array, rootId: string): boolean {
+  try {
+    const proof = parseProof(value);
+    return proof.rootId === rootId && verifyProof(proof, path, root);
+  } catch {
+    return false;
+  }
+}
+
 export function encodeProof(p: MerkleProof): string {
   const ordered = { leafSalt: p.leafSalt, siblings: p.siblings, dirs: p.dirs, rootId: p.rootId };
   return encode(utf8(JSON.stringify(ordered)));

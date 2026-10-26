@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { parseInfluence, parseStampsV2, verifyChainV2 } from "@paztport/core";
-import type { InfluenceEntry, ReasonCode, V2Config, VerifyResult } from "@paztport/core";
+import { parseInfluence, parseStampsV2, verifyChainOffline, verifyChainV2 } from "@paztport/core";
+import type { InfluenceEntry, OfflineConfig, ReasonCode, V2Config, V2Input, VerifyResult } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
 
@@ -17,16 +17,15 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
+type ChainCheck = (input: V2Input, nonceKey: string, callId: string) => VerifyResult;
+
 /**
- * Server-side check of an MCP tools/call params object. Derives the binding, the receiver
- * `mcp:<serverId>.<name>` and the nonce key `rid|callId|req` itself. Never throws; influence
- * is returned only when the call verifies.
+ * Reads a tools/call params object once, derives the binding, the receiver `mcp:<serverId>.<name>` and the
+ * nonce key `rid|callId|req`, and hands them to `check`. Never throws; influence is returned only when the
+ * call verifies.
  */
-export function verifyCall(
-  params: unknown,
-  ctx: { serverId: string },
-  cfg: Omit<V2Config, "nonceKey">,
-): CallVerification {
+function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVerification {
   let rid = "";
   let callId = "";
   const fail = (reason: ReasonCode): CallVerification => ({
@@ -40,7 +39,7 @@ export function verifyCall(
       return fail("CHAIN_MISSING");
     }
     // `/` would inject route segments, `|` is the field delimiter, `.` would make the receiver ambiguous.
-    if (/[/|]/.test(params.name) || /[/|.]/.test(ctx.serverId)) {
+    if (/[/|]/.test(params.name) || /[/|.]/.test(serverId)) {
       return fail("CHAIN_MISSING");
     }
     const meta = params._meta;
@@ -49,7 +48,7 @@ export function verifyCall(
       return fail("CHAIN_MISSING");
     }
     callId = id;
-    // Read each _meta field once and parse once; verifyChainV2 re-parsing parsed values is idempotent.
+    // Read each _meta field once and parse once; the chain verifier re-parsing parsed values is idempotent.
     const stamps = parseStampsV2(meta[META_CHAIN]);
     rid = stamps[0]!.rid;
     const rawInfluence = meta[META_INFLUENCE];
@@ -58,7 +57,7 @@ export function verifyCall(
     try {
       influence = parseInfluence(rawInfluence);
     } catch {
-      // unparsable influence is rejected by verifyChainV2 in its own check order
+      // unparsable influence is rejected by the chain verifier in its own check order
     }
     let expectedBind: string;
     try {
@@ -66,15 +65,16 @@ export function verifyCall(
     } catch {
       return fail("BINDING_MISMATCH");
     }
-    const result = verifyChainV2(
+    const result = check(
       {
         stamps,
         expectedBind,
         influence: influence ?? (rawInfluence as InfluenceEntry[]),
         proof,
-        receiver: mcpReceiver(ctx.serverId, params.name),
+        receiver: mcpReceiver(serverId, params.name),
       },
-      { ...cfg, nonceKey: `${rid}|${callId}|req` },
+      `${rid}|${callId}|req`,
+      callId,
     );
     return result.ok
       ? { result, rid, callId, influence: influence! }
@@ -82,4 +82,42 @@ export function verifyCall(
   } catch {
     return fail("CHAIN_MISSING");
   }
+}
+
+/**
+ * Server-side check of an MCP tools/call params object. Derives the binding, the receiver
+ * `mcp:<serverId>.<name>` and the nonce key `rid|callId|req` itself. Never throws; influence
+ * is returned only when the call verifies.
+ */
+export function verifyCall(
+  params: unknown,
+  ctx: { serverId: string },
+  cfg: Omit<V2Config, "nonceKey">,
+): CallVerification {
+  return checkCall(params, ctx.serverId, (input, nonceKey) => verifyChainV2(input, { ...cfg, nonceKey }));
+}
+
+/** Where a recorded tools/call is filed, and what the record set says about its run. */
+export type RecordedCall = {
+  serverId: string;
+  /** The rid and call id the record files the call under; the call's chain must name them. */
+  rid: string;
+  callId: string;
+  /** When the calling hop stamped the call, as recorded. */
+  stampedAt: number;
+  /** The run's recorded prompt; undefined when the run has none or it is in dispute. */
+  prompt?: string;
+};
+
+/**
+ * Offline check of a tools/call params object read back from a record set: the server-side check, with
+ * verifyChainOffline in place of the live chain verifier. A chain for another call id than the record's is
+ * RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
+ */
+export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
+  return checkCall(params, call.serverId, (input, nonceKey, callId) =>
+    callId !== call.callId
+      ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" }
+      : verifyChainOffline({ ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt }, { ...cfg, nonceKey }),
+  );
 }

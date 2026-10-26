@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { concat, randomBytes, utf8 } from "../src/crypto.ts";
 import { decode, encode } from "../src/b64url.ts";
-import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, parseProof, verifyProof } from "../src/merkle.ts";
+import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, parseProof, provesPath, verifyProof } from "../src/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
@@ -101,5 +101,15 @@ describe("merkle", () => {
     expect(() => parseProof(bad)).toThrow();
     expect(() => parseProof({ ...proof, dirs: proof.dirs.toLowerCase() })).toThrow();
     expect(parseProof(proof)).toEqual(proof);
+  });
+  it("provesPathChecksTheRootIdAndNeverThrows", () => {
+    const t = buildTree(leaves(), 8, "v1");
+    const proof = t.proofFor("a/b");
+    expect(provesPath(proof, "a/b", t.root, "v1")).toBe(true);
+    expect(provesPath(proof, "a/c", t.root, "v1")).toBe(false);
+    expect(provesPath(proof, "a/b", t.root, "v2")).toBe(false);
+    for (const junk of [null, undefined, "junk", [], { ...proof, dirs: "X" }]) {
+      expect(provesPath(junk, "a/b", t.root, "v1")).toBe(false);
+    }
   });
 });

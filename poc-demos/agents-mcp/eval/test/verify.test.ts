@@ -893,7 +893,8 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = verifyEvidence(write(localLines, (rs) => rs.push({ ...structuredClone(localOf(rs, "l_leak")), callId: "l_leak_dup" })));
     expect(r.ok).toBe(false);
     expect(localResult(r, "l_leak")).toBe("REFUSED");
-    expect(localResult(r, "l_leak_dup")).toBe("REPLAY");
+    // the copy is also not bound to its new call id, and the library checks the binding before replay
+    expect(localResult(r, "l_leak_dup")).toBe("BINDING_MISMATCH");
     // and with its rid changed too
     const rid = verifyEvidence(write(localLines, (rs) => rs.push({ ...structuredClone(localOf(rs, "l_leak")), callId: "l_leak_dup", rid: "other" })));
     expect(localResult(rid, "l_leak_dup")).not.toMatch(/^(OK|REFUSED)$/);

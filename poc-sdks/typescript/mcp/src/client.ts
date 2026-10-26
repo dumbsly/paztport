@@ -12,6 +12,7 @@ import {
   type InfluenceEntry,
   type MerkleProof,
   type NonceCache,
+  type OfflineReasonCode,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
@@ -27,10 +28,10 @@ import { mcpReceiver } from "./verify-call.ts";
 const METHOD_NOT_FOUND = -32601;
 
 /**
- * Every refusal code the library defines (a server's verdicts are ReasonCodes). A Record, so tsc
- * flags a code added to the library and missing here.
+ * Every refusal code a live verifier can give (a server's verdicts are ReasonCodes; the offline-only
+ * codes are not among them). A Record, so tsc flags a code added to the library and missing here.
  */
-const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK">, true> = {
+const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK" | OfflineReasonCode>, true> = {
   CHAIN_MISSING: true,
   BAD_ORIGIN: true,
   BAD_SIGNATURE: true,

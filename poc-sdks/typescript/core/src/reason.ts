@@ -18,7 +18,12 @@ export type ReasonCode =
   | "INFLUENCE_DENIED"
   | "UNSAFE_SESSION"
   | "SCOPE_DENIED"
-  | "UNCHECKABLE";
+  | "UNCHECKABLE"
+  | "TIME_MISMATCH"
+  | "PROMPT_MISMATCH";
+
+/** Codes only the offline verifier of a recorded chain gives; no live verifier or server returns them. */
+export type OfflineReasonCode = "TIME_MISMATCH" | "PROMPT_MISMATCH";
 
 /**
  * A typed verification outcome. `suspectSvc` names the last service that provably sent the request,

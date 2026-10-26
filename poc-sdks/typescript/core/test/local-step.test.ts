@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { encode } from "../src/b64url.ts";
 import type { InfluenceEntry } from "../src/influence.ts";
-import { stampLocalStep } from "../src/local-step.ts";
+import { localStepBind, stampLocalStep } from "../src/local-step.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
 const key = (b: number) => encode(Uint8Array.from([...Buffer.from("302e020100300506032b657004220420", "hex"), ...new Array<number>(32).fill(b)]));
@@ -86,5 +86,26 @@ describe("stampLocalStep", () => {
     );
     expect(stamp.bind).toBe("LF1MWJUcFAoGc5VzK3WV2TH8YL9XlOOo6MHe_mbN-8o");
     expect(stamp.sig).toBe("KoYUeePtTZuhLo7Vhc2_FpGRs_BTL7aA4iQLIyRIfW1sPEtkykIpN3UzvehH_YXRs_gr86s8yHsMXYF5Ux-SCg");
+  });
+});
+
+describe("localStepBind", () => {
+  it("isTheBindingTheGatesStampCarries", () => {
+    const fields = {
+      ...step,
+      toolName: "read",
+      toolCallId: "call-1",
+      input: { path: "<workspace>/website/README.md" },
+      resolved: { paths: [{ need: "read" as const, at: "website/README.md" }], programs: [], parse: "ok" as const, readOnly: true },
+      verdict: "OK" as const,
+      listed: true,
+      rulesHash: HASH,
+    };
+    expect(localStepBind(fields)).toBe("jwh996pnIOX6duRgrsapCa2qnpdwrMiYVmW5VFxeEl4");
+    expect(localStepBind(fields)).toBe(stampLocalStep(fields, PI_KEY).bind);
+    // the call id and the decision are bound with the call
+    expect(localStepBind({ ...fields, toolCallId: "call-2" })).not.toBe(localStepBind(fields));
+    expect(localStepBind({ ...fields, listed: false })).not.toBe(localStepBind(fields));
+    expect(localStepBind({ ...fields, rulesHash: null })).not.toBe(localStepBind(fields));
   });
 });

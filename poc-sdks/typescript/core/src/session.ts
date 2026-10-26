@@ -106,3 +106,20 @@ export function verifySessionReply(reply: SessionReply, req: SessionRequest, pin
     return false;
   }
 }
+
+/**
+ * Whether a recorded handshake opened an attested session: the reply is attested and verifies against the
+ * pin, and both roots verify against their sides' policy keys. The reply binds the client root's signature
+ * but not its contents, so the client root is checked here too. Never throws.
+ */
+export function isAttestedSession(req: SessionRequest, reply: SessionReply, pinnedServerPolicyKey: string): boolean {
+  try {
+    return (
+      reply.status === "attested" &&
+      verifySessionReply(reply, req, pinnedServerPolicyKey) &&
+      sessionStatus(req, reply.serverRoot, reply.serverPolicyKey) === "attested"
+    );
+  } catch {
+    return false;
+  }
+}

@@ -4,29 +4,37 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
-  bindPrompt,
   decode,
   encode,
+  isAttestedSession,
   NonceCache,
+  ORIGIN_SVC,
   sha256,
   utf8,
-  verifyRoot,
-  verifySessionReply,
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
-import { META_VERDICT, verifyCall, verifyMcpResponse } from "@paztport/mcp";
-import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSeen, type NamedClient, type RunInfo } from "./verify-local.ts";
+import { hasRefusalShape, verifyMcpResponse, verifyRecordedCall } from "@paztport/mcp";
+import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
  * of ours: the pinned server key is in the file, and everything else is checked against it.
  *
+ * Every signature, link, binding, proof, influence, replay and session check is the library's: calls and local
+ * steps are recorded chains (verifyRecordedCall, verifyChainOffline), responses are checked as the client checked
+ * them (verifyMcpResponse at the recorded time), and sessions with isAttestedSession. What is here is reading the
+ * evidence format, matching records to each other, and the report. Of the library's codes, two are given only
+ * offline:
+ * - TIME_MISMATCH: a call or local step whose stamp time is not the record's `now`, or a local step whose origin
+ *   time is not its run's.
+ * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
+ *   record, or two that disagree); also a second run record for a rid with another prompt.
+ *
  * Results beyond the library's reason codes:
  * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
  * - NO_SESSION: a call or response whose server has no verified session before it.
- * - PROMPT_MISMATCH: the call chain's first stamp does not bind the run's recorded prompt.
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
@@ -43,23 +51,23 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSee
  * - NO_CLIENT: a local record with no verified client record before it.
  * - BAD_PROOF: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
  *   root, or whose signed `routeAllowed` does not match whether it has a proof.
- * - TIME_MISMATCH: a local record whose stamp time is not the record's `now`, or whose origin time is not its run's.
  * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
  * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
  * Local steps (phase 2): `client` and `local` records are checked by verify-local.ts, whose comment lists
  * the checks. A verified local step is OK when it was allowed and REFUSED when it was refused; local
- * refusals are signed and checked, unlike the server's. Verify does not look at the disk, and freshness
- * windows do not apply to local steps.
+ * refusals are signed and checked, unlike the server's. Verify does not look at the disk.
  *
- * Replay is checked over the whole file, not over a 15 second window: the library's nonce cache forgets
- * keys older than its TTL relative to the record being checked, which suits a live server but would let
- * a copy of a call pass once any later record is more than 15 seconds on. Offline there is nothing to
- * forget, so the whole file shares one cache, and a call whose (server, rid, call id) was already seen is REPLAY (a deliberate deviation from the live server).
+ * Replay is checked over the whole file, not over a 15 second window: a live nonce cache forgets keys older
+ * than its TTL, which suits a live server but would let a copy of a call pass once any later record is more
+ * than 15 seconds on. Offline there is nothing to forget, so calls and local steps share one set of spent
+ * nonce keys for the whole file, and responses one nonce cache that never forgets; a repeated session record
+ * resets neither.
  *
  * Calls are checked with serverId = the record's server id. The mock server checks calls with the
- * serverId "github", which is the record's server id in every shipped configuration. Freshness windows
- * are the library defaults.
+ * serverId "github", which is the record's server id in every shipped configuration. Calls have no freshness
+ * window offline: each is checked against the time recorded with it. Responses keep the library's window,
+ * at the time the client recorded verifying them.
  */
 export type VerifyItem = {
   line: number;
@@ -70,7 +78,6 @@ export type VerifyItem = {
     | ReasonCode
     | "BAD_SESSION"
     | "NO_SESSION"
-    | "PROMPT_MISMATCH"
     | "UNREADABLE"
     | "REFUSED"
     | "NO_RESPONSE"
@@ -126,54 +133,21 @@ function verifySession(r: Rec): Session | undefined {
     if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
       return undefined;
     }
-    if (reply.status !== "attested" || request.clientRoot === null || reply.serverRoot === null) {
-      return undefined;
-    }
-    if (!verifySessionReply(reply, request, r.pin)) {
-      return undefined;
-    }
-    // The reply binds the client root's signature but not its contents; the root itself must verify
-    // against the client policy key, which the session id does bind.
-    if (!verifyRoot(request.clientRoot, request.clientPolicyKey)) {
+    if (!isAttestedSession(request, reply, r.pin)) {
       return undefined;
     }
     return {
       clientKeyring: request.clientKeyring,
-      clientRoot: decode(request.clientRoot.root),
-      clientRootId: request.clientRoot.rootId,
+      clientRoot: decode(request.clientRoot!.root),
+      clientRootId: request.clientRoot!.rootId,
       serverKeyring: reply.serverKeyring,
-      serverRoot: decode(reply.serverRoot.root),
-      serverRootId: reply.serverRoot.rootId,
+      serverRoot: decode(reply.serverRoot!.root),
+      serverRootId: reply.serverRoot!.rootId,
       sess: reply.sess,
     };
   } catch {
     return undefined;
   }
-}
-
-/** The first stamp's binding of a call's chain, if it has one. */
-function firstBind(params: Rec): string | undefined {
-  const meta = params._meta;
-  const chain = isObject(meta) ? meta["paztport/chain"] : undefined;
-  const first: unknown = Array.isArray(chain) ? chain[0] : undefined;
-  return isObject(first) && isString(first.bind) ? first.bind : undefined;
-}
-
-/**
- * The mock server's refusal: isError true and a `_meta` that holds only a non-audit paztport/verdict.
- * Such a response is unsigned by design; it counts as a refusal only when it answers a verified call.
- */
-function hasRefusalShape(result: Rec): boolean {
-  const meta = result._meta;
-  if (result.isError !== true || !isObject(meta)) {
-    return false;
-  }
-  const keys = Object.keys(meta);
-  if (keys.length !== 1 || keys[0] !== META_VERDICT) {
-    return false;
-  }
-  const verdict = meta[META_VERDICT];
-  return isObject(verdict) && verdict.audit !== true;
 }
 
 function unreadable(file: string, line: number, type: string): VerifyReport {
@@ -235,8 +209,9 @@ function verifyFile(path: string, label: string): VerifyReport {
   };
 
   type CallEntry = { line: number; callId: string; ok: boolean; session: Session; responded: boolean };
-  // One cache for the whole file: a repeated session record must not reset replay protection.
-  const nonces = new NonceCache(Number.POSITIVE_INFINITY);
+  // Spent nonce keys for the whole file: a repeated session record must not reset replay protection.
+  const spent = new Set<string>(); // calls and local steps
+  const nonces = new NonceCache(Number.POSITIVE_INFINITY); // responses
   const sessions = new Map<string, Session | undefined>(); // the latest session record per server id
   const pins = new Set<string>();
   const calls = new Map<string, CallEntry>();
@@ -246,7 +221,6 @@ function verifyFile(path: string, label: string): VerifyReport {
   const boundRids = new Set<string>();
   const firstRun = new Set<string>();
   let client: Client | undefined; // the latest client record
-  const localSeen: LocalSeen = { calls: new Set<string>(), steps: new Set<string>() };
 
   for (const { line, rec } of lines) {
     const type = rec.type as string;
@@ -278,7 +252,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const result = verifyLocal(rec, client, runOf, localSeen);
+      const result = verifyLocal(rec, client, runOf, spent);
       add(result);
       if (result === "OK" || result === "REFUSED") {
         boundRids.add(rec.rid as string);
@@ -290,30 +264,20 @@ function verifyFile(path: string, label: string): VerifyReport {
         add("UNREADABLE");
       } else if (session === undefined) {
         add("NO_SESSION");
-      } else if (calls.has(key(server, rec.rid, rec.callId))) {
-        add("REPLAY"); // the same call again, whatever session record precedes it
       } else {
-        const v = verifyCall(params, { serverId: server }, {
-          keyring: session.clientKeyring,
-          root: session.clientRoot,
-          rootId: session.clientRootId,
-          allowedOrigins: ["session"],
-          sess: session.sess,
-          nonces,
-          now: rec.now,
-        });
-        let result: VerifyItem["result"];
-        if (v.result.reason !== "OK") {
-          result = v.result.reason;
-        } else if (v.rid !== rec.rid || v.callId !== rec.callId) {
-          result = "RID_MISMATCH";
-        } else {
-          const prompt = disputed.has(v.rid) ? undefined : prompts.get(v.rid);
-          result = prompt !== undefined && firstBind(params) === bindPrompt(prompt) ? "OK" : "PROMPT_MISMATCH";
-        }
+        const run = runOf(rec.rid);
+        const v = verifyRecordedCall(
+          params,
+          { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
+          { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: spent },
+        );
+        const result = v.result.reason;
         add(result);
+        // the first record of a call is the one its response answers
         const k = key(server, rec.rid, rec.callId);
-        calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
+        if (!calls.has(k)) {
+          calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
+        }
         if (result === "OK") {
           boundRids.add(rec.rid);
         }

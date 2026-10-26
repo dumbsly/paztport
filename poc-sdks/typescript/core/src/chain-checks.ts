@@ -1,0 +1,122 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+// The checks the live and the offline chain verifiers share, each written once. Internal: index.ts does not
+// export this module.
+
+import { decode } from "./b64url.ts";
+import { verify } from "./crypto.ts";
+import { commitInfluence, parseInfluence, type InfluenceEntry } from "./influence.ts";
+import { provesPath } from "./merkle.ts";
+import type { ReasonCode, VerifyResult } from "./reason.ts";
+import { parseStampsV2, signingBytesV2, type StampV2 } from "./stamp.ts";
+
+/**
+ * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
+ * checks held, so the last hop's service really sent this request (its inst is that service's own claim).
+ * Earlier failures may carry an unsigned name or another service's genuine stamp from a replayed or altered
+ * capture.
+ */
+export function reject(reason: ReasonCode): VerifyResult {
+  return { ok: false, reason, suspectSvc: "", suspectInst: "" };
+}
+
+/** The services that sign a chain that never leaves one process, in order, and the instance they all report. */
+export type Signers = { svcs: readonly string[]; inst: string };
+
+function signatureValid(publicKey: string, s: StampV2): boolean {
+  try {
+    return verify(publicKey, signingBytesV2(s), decode(s.sig));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Checks 1 to 6: the stamps parse (CHAIN_MISSING), no field holds the delimiter (BAD_SIGNATURE), the origin is
+ * allowed (BAD_ORIGIN), each stamp is signed by its service's key and links to the one before (BAD_SIGNATURE,
+ * BROKEN_LINK), every stamp carries `rid`, the origin's by default (RID_MISMATCH), and the session
+ * (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not one the
+ * expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the
+ * first failure.
+ */
+export function checkStamps(
+  value: unknown,
+  cfg: { keyring: Record<string, string>; allowedOrigins: string[]; sess: string },
+  rid?: string,
+  signers?: Signers,
+): StampV2[] | ReasonCode {
+  // 1. Parse.
+  let stamps: StampV2[];
+  try {
+    stamps = parseStampsV2(value);
+  } catch {
+    return "CHAIN_MISSING";
+  }
+  const first = stamps[0]!;
+
+  // 2. No delimiter in any field.
+  if (stamps.some((s) => [s.svc, s.inst, s.rid, s.sess, s.bind, s.infl, s.prev].some((f) => f.includes("|")))) {
+    return "BAD_SIGNATURE";
+  }
+
+  // 3. Origin.
+  if (!cfg.allowedOrigins.includes(first.svc) || (signers !== undefined && first.inst !== signers.inst)) {
+    return "BAD_ORIGIN";
+  }
+
+  // 4. Signatures and links.
+  for (let i = 0; i < stamps.length; i++) {
+    const s = stamps[i]!;
+    const key = Object.hasOwn(cfg.keyring, s.svc) ? cfg.keyring[s.svc] : undefined;
+    if (key === undefined || !signatureValid(key, s) || (signers !== undefined && (s.svc !== signers.svcs[i] || s.inst !== signers.inst))) {
+      return "BAD_SIGNATURE";
+    }
+    if (s.prev !== (i === 0 ? "" : stamps[i - 1]!.sig)) {
+      return "BROKEN_LINK";
+    }
+  }
+
+  // 5. Shared rid.
+  const want = rid ?? first.rid;
+  if (stamps.some((s) => s.rid !== want)) {
+    return "RID_MISMATCH";
+  }
+
+  // 6. Session.
+  if (stamps.some((s) => s.sess !== cfg.sess)) {
+    return "SESSION_UNKNOWN";
+  }
+  return stamps;
+}
+
+/** Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence (INFLUENCE_MISMATCH). */
+export function checkCommitments(last: StampV2, expectedBind: string, influence: InfluenceEntry[]): ReasonCode | undefined {
+  // 8. Binding.
+  if (last.bind !== expectedBind) {
+    return "BINDING_MISMATCH";
+  }
+
+  // 9. Influence commitment.
+  let committed: string;
+  try {
+    committed = commitInfluence(parseInfluence(influence));
+  } catch {
+    return "INFLUENCE_MISMATCH";
+  }
+  if (last.infl !== committed) {
+    return "INFLUENCE_MISMATCH";
+  }
+  return undefined;
+}
+
+/** Check 11 and the result: the chain's services, then the receiver, proven against the root (PATH_NOT_ALLOWED). */
+export function checkRoute(stamps: StampV2[], receiver: string | undefined, proof: unknown, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
+  const last = stamps[stamps.length - 1]!;
+  // 11. Route proven against the root.
+  const route = stamps.map((s) => s.svc).join("/") + (receiver !== undefined ? "/" + receiver : "");
+  if (!provesPath(proof, route, cfg.root, cfg.rootId)) {
+    return { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: last.svc, suspectInst: last.inst };
+  }
+  return { ok: true, reason: "OK", suspectSvc: last.svc, suspectInst: last.inst };
+}

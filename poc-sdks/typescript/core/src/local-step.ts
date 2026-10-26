@@ -34,12 +34,17 @@ export type LocalStepFields = {
  * so none of them can be changed in the evidence after signing.
  */
 export function stampLocalStep(f: LocalStepFields, privateKey: string): StampV2 {
-  const bind = bindLocalTool(f.toolName, f.input, {
+  const bind = localStepBind(f);
+  return signStampV2({ svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", bind, infl: commitInfluence(f.influence), prev: f.prev }, privateKey);
+}
+
+/** The binding a local step's stamp carries: the call and the decision on it. Throws if the input can't be bound. */
+export function localStepBind(f: Pick<LocalStepFields, "toolName" | "toolCallId" | "input" | "resolved" | "verdict" | "listed" | "rulesHash">): string {
+  return bindLocalTool(f.toolName, f.input, {
     callId: f.toolCallId,
     resolved: f.resolved,
     verdict: f.verdict,
     routeAllowed: f.listed,
     rulesHash: f.rulesHash,
   });
-  return signStampV2({ svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", bind, infl: commitInfluence(f.influence), prev: f.prev }, privateKey);
 }
