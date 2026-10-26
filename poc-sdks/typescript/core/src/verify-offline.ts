@@ -59,6 +59,7 @@ export type OfflineConfig = Pick<V2Config, "keyring" | "root" | "rootId" | "allo
  *     after its window cannot show;
  * 11. the route, the chain's services then the receiver, is proven against the root (PATH_NOT_ALLOWED).
  * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
+ * Omitting `recordedTs` skips the recorded-time check (TIME_MISMATCH), leaving only `cfg`'s age limits on the times.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): VerifyResult {
   // 1-6. Parse, delimiter, origin, signatures and links, the record's rid, session.

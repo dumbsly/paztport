@@ -96,6 +96,15 @@ describe("verifyRecordedCall: the run's lifetime", () => {
     expect(at(CALL_TS + 5_000, CALL_TS)).toBe("OK");
     expect(at(CALL_TS + 5_001, CALL_TS)).toBe("EXPIRED");
   });
+
+  it("explicitlyUndefinedLimitsStillGetTheDefaults", () => {
+    const w = world();
+    const cfg = { ...w.cfg(), runMaxAgeMs: undefined, callMaxAgeMs: undefined };
+    const late = (run: number, call: number) =>
+      verifyRecordedCall(w.params("call-1", { title: "t" }, { run, call }), { ...w.call, stampedAt: call }, cfg).result.reason;
+    expect(late(CALL_TS - 1_800_001, CALL_TS)).toBe("EXPIRED");
+    expect(late(CALL_TS + 5_001, CALL_TS)).toBe("EXPIRED");
+  });
 });
 
 describe("verifyRecordedCall: the library's order", () => {

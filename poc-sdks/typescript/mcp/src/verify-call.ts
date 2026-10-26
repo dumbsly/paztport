@@ -120,7 +120,7 @@ export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omi
   return checkCall(params, call.serverId, (input, nonceKey, callId) => {
     const result = verifyChainOffline(
       { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
-      { runMaxAgeMs: RUN_MAX_AGE_MS, callMaxAgeMs: CALL_MAX_AGE_MS, ...cfg, nonceKey },
+      { ...cfg, runMaxAgeMs: cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS, callMaxAgeMs: cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS, nonceKey },
     );
     return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" } : result;
   });
