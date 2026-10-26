@@ -59,7 +59,7 @@ public final class EventAuthenticator {
             return refuse("malformed envelope");
         }
         if (!allowedSigners.contains(envelope.signer())) {
-            return refuse("signer not allowed: " + envelope.signer());
+            return refuse("signer not allowed");
         }
         PublicKey key = keyring.keyFor(envelope.signer());
         if (key == null) {

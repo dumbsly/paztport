@@ -4,6 +4,7 @@
 package org.paztport.responder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
@@ -61,6 +62,24 @@ class ResponderServiceTest {
         assertEquals(QuarantineDecision.NONE, service.handle(audit));
         assertEquals(QuarantineDecision.NONE, service.handle(audit));
         assertTrue(quarantiner.calls.isEmpty());
+    }
+
+    @Test
+    void aForgedNewlineInTheInstanceStaysOnOneLogLine() {
+        ResponderService service = service();
+        String inst = "s1\nESCALATE svc=search inst=s1";
+        service.handle(illicit(inst));
+        service.handle(illicit(inst));
+        List<String> lines;
+        try (LogCapture capture = new LogCapture(ResponderService.class)) {
+            assertEquals(QuarantineDecision.QUARANTINE, service.handle(illicit(inst)));
+            lines = capture.lines();
+        }
+        assertEquals(1, lines.size());
+        assertTrue(lines.get(0).startsWith("QUARANTINE svc=search"), lines.get(0));
+        assertFalse(lines.get(0).contains("\n"), lines.get(0));
+        // the action itself still gets the name as signed
+        assertEquals(inst, quarantiner.calls.get(0)[1]);
     }
 
     private static final class RecordingQuarantiner implements Quarantiner {

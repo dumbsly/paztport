@@ -6,7 +6,11 @@ package org.paztport.spring;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Logs each event as a single structured line. No key material or proofs are logged. */
+/**
+ * Logs each event as a single structured line; every field goes through
+ * {@link LogSafe} so a signer can't break it into several. No key material or
+ * proofs are logged.
+ */
 public final class LoggingEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger("PATH_ATTEST_EVENT");
@@ -19,6 +23,7 @@ public final class LoggingEventPublisher implements EventPublisher {
     static String format(AttestationEvent e) {
         return String.format(
                 "PATH_ATTEST_EVENT reason=%s suspectSvc=%s suspectInst=%s rid=%s audit=%s",
-                e.reason(), e.suspectSvc(), e.suspectInst(), e.rid(), e.audit());
+                LogSafe.of(e.reason()), LogSafe.of(e.suspectSvc()), LogSafe.of(e.suspectInst()),
+                LogSafe.of(e.rid()), e.audit());
     }
 }

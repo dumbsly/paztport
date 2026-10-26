@@ -4,11 +4,13 @@
 package org.paztport.responder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -79,6 +81,19 @@ class EventAuthenticatorTest {
     void refusesASignerClaimingAnotherServicesName() throws Exception {
         // signed by search's key but labelled payment
         assertTrue(accept(envelope("payment", search, eventJson(NOW, "a"))).isEmpty());
+    }
+
+    @Test
+    void aDisallowedSignerCannotWriteItsOwnLogLines() throws Exception {
+        String forged = "{\"signer\":\"x\\nESCALATE svc=search inst=s1\",\"payload\":\"e30\",\"sig\":\"AAAA\"}";
+        List<String> lines;
+        try (LogCapture capture = new LogCapture(EventAuthenticator.class)) {
+            assertTrue(accept(forged).isEmpty());
+            lines = capture.lines();
+        }
+        assertEquals(1, lines.size());
+        assertFalse(lines.get(0).contains("\n"), lines.get(0));
+        assertFalse(lines.get(0).contains("ESCALATE"), lines.get(0));
     }
 
     @Test

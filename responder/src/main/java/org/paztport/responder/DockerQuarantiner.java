@@ -64,12 +64,13 @@ public final class DockerQuarantiner implements Quarantiner {
         try {
             suspect = docker.inspectContainerCmd(suspectInst).exec();
         } catch (NotFoundException e) {
-            log.warn("suspect container {} not found; nothing to quarantine", suspectInst);
+            log.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
             return;
         }
         Map<String, String> labels = suspect.getConfig() == null ? null : suspect.getConfig().getLabels();
         if (!runsService(labels, suspectSvc)) {
-            log.warn("refusing to quarantine {}: that container does not run {}", suspectInst, suspectSvc);
+            log.warn("refusing to quarantine {}: that container does not run {}",
+                    LogSafe.of(suspectInst), LogSafe.of(suspectSvc));
             return;
         }
         String id = suspect.getId();
@@ -84,7 +85,7 @@ public final class DockerQuarantiner implements Quarantiner {
         // Isolate: off the mesh, onto the quarantine network, still running.
         docker.disconnectFromNetworkCmd().withContainerId(id).withNetworkId(meshNetwork).exec();
         docker.connectToNetworkCmd().withContainerId(id).withNetworkId(quarantineNetwork).exec();
-        log.warn("isolated {} ({}) onto {}", suspectSvc, suspectInst, quarantineNetwork);
+        log.warn("isolated {} ({}) onto {}", LogSafe.of(suspectSvc), LogSafe.of(suspectInst), quarantineNetwork);
 
         // Replace: clone image/env/labels/binds straight onto the mesh under the
         // service alias (one step — a "none"-mode container cannot also join a
@@ -99,7 +100,7 @@ public final class DockerQuarantiner implements Quarantiner {
                 .withName(suspectSvc + "-repl-" + (System.nanoTime() % 1_000_000))
                 .exec();
         docker.startContainerCmd(replacement.getId()).exec();
-        log.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, suspectSvc);
+        log.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, LogSafe.of(suspectSvc));
     }
 
     /** Whether a container with these labels runs {@code svc}; a missing label or service is a no. */
