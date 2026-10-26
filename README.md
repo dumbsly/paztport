@@ -419,8 +419,8 @@ paztport/
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
 ├── run                       front door: java-mesh, agents-mcp, test
 ├── poc-sdks/
-│   ├── spec/vectors/         shared conformance vectors (v1, v2) that both SDKs test against
-│   ├── scripts/              name check, link check, tests for ./run
+│   ├── spec/vectors/         shared conformance vectors: v1, which both SDKs replay; v2, which the TypeScript SDK checks
+│   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
 │   └── typescript/           @paztport/core, @paztport/http, @paztport/mcp, policy-tool
 └── poc-demos/

@@ -8,7 +8,8 @@ policy, verification, influence and sessions. The demos in
   `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/http` and
   `@paztport/mcp` extensions, and the policy command-line tools.
-- [spec](spec/README.md): the shared conformance vectors that both SDKs test against.
+- [spec](spec/README.md): the shared conformance vectors: v1, which both SDKs replay,
+  and v2, which the TypeScript SDK checks.
 - `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
   `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 

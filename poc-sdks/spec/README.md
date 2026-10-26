@@ -4,8 +4,9 @@ The written protocol spec is coming in a later project. Until then, the
 on-the-wire format is in [poc-sdks](../README.md#on-the-wire), and the SDK code is
 the reference.
 
-`vectors/` holds the shared, language-neutral conformance vectors that both SDKs
-test against, so the two implementations are held to one set of recorded answers:
+`vectors/` holds the shared, language-neutral conformance vectors, so the
+implementations are held to one set of recorded answers. Both SDKs replay v1; only
+the TypeScript SDK implements v2 so far, so only it checks v2:
 
 - `v1.json`: keys, stamps, chains, request bindings, Merkle proofs and verify
   cases for the v1 format. The Java SDK (`paztport-http`) and the TypeScript SDK
