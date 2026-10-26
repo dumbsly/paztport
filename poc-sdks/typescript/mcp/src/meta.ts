@@ -8,3 +8,5 @@ export const META_INFLUENCE = "paztport/influence";
 export const META_CALL_ID = "paztport/callId";
 export const META_ATTESTATION = "paztport/attestation";
 export const SESSION_METHOD = "paztport/session";
+/** Carries a server refusal (or an audit-mode verdict) on a tools/call result. */
+export const META_VERDICT = "paztport/verdict";

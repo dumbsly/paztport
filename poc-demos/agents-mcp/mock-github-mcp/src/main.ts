@@ -5,8 +5,9 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
+import type { ServerPolicy } from "@paztport/mcp";
 import { OutcomeLog, type Mode } from "./outcome.ts";
-import { loadServerConfig, type ServerPaztportConfig } from "./paztport.ts";
+import { loadServerConfig } from "./paztport.ts";
 import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures, type Scenario } from "./scenario.ts";
 import { createGithubServer } from "./server.ts";
 import { serveStdio } from "./stdio.ts";
@@ -45,7 +46,7 @@ function main(): void {
   const canary = values.canary ?? randomBytes(8).toString("hex");
   if (canary === "") return usage("--canary must be non-empty");
 
-  let paztport: ServerPaztportConfig | null = null;
+  let paztport: ServerPolicy | null = null;
   if (mode !== "off") {
     const dir = values.config ?? join(PKG, "../.demo/server");
     try {

@@ -1,19 +1,25 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { influenceClasses, type InfluenceClass, type InfluenceEntry, type ReasonCode } from "@paztport/core";
-import { SESSION_METHOD } from "@paztport/mcp";
+import type { ReasonCode } from "@paztport/core";
+import {
+  decideServerCall,
+  McpServerSession,
+  META_VERDICT,
+  SESSION_METHOD,
+  type ServerCallCheck,
+  type ServerPolicy,
+  type SessionRules,
+} from "@paztport/mcp";
 import { GITHUB_TOOLS, type GithubState, type GithubTool } from "./github.ts";
 import { labelFor } from "./labels.ts";
 import { createMcpHandler, type CallToolResult, type McpToolSpec } from "./mcp.ts";
 import { taskDone, type Mode, type OutcomeLog } from "./outcome.ts";
-import { META_VERDICT, PaztportServer, type ServerPaztportConfig, type Session, type SessionRules } from "./paztport.ts";
-import { influenceDecision } from "./rules.ts";
 import type { TaskCheck } from "./scenario.ts";
 
 export type GithubServerOptions = {
   mode: Mode;
-  paztport: ServerPaztportConfig | null;
+  paztport: ServerPolicy | null;
   /**
    * Defaults to disabling every write tool in unsafe sessions. Caveat: custom rules that omit a write
    * tool leave it ungated whenever the session is not attested.
@@ -53,21 +59,11 @@ function isPrivateFile(tool: GithubTool, state: GithubState, args: Record<string
   return tool.name === "get_file_contents" && typeof args.path === "string" && args.path !== "" && isPrivate(state, args);
 }
 
-/**
- * The classes the influence rule sees in an attested session: the client's verified influence
- * plus every class this server served in the session. The union only adds classes, so the server
- * is stricter, never looser, than the harness: a client that fails to record a private (or
- * third-party) label cannot launder it past the rule.
- */
-function contextClasses(influence: InfluenceEntry[], session: Session): Set<InfluenceClass> {
-  return new Set([...influenceClasses(influence), ...session.served]);
-}
-
 export function createGithubServer(opts: GithubServerOptions): { handle(message: unknown): Promise<object | undefined>; state: GithubState } {
   const { mode, state, outcome, taskCheck } = opts;
   const now = opts.now ?? Date.now;
   const rules = opts.rules ?? DEFAULT_RULES;
-  const server = mode !== "off" && opts.paztport !== null ? new PaztportServer(opts.paztport, rules, now) : null;
+  const server = mode !== "off" && opts.paztport !== null ? new McpServerSession(opts.paztport, rules, now) : null;
   const tools = new Map<string, GithubTool>(GITHUB_TOOLS.map((t) => [t.name, t]));
   const specs: McpToolSpec[] = GITHUB_TOOLS.map((t) => ({
     name: t.name,
@@ -80,15 +76,22 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     const tool = tools.get(name)!;
     const args = isObject(params.arguments) ? params.arguments : {};
     let verdict: ReasonCode = "OK";
-    let call: ReturnType<PaztportServer["checkCall"]> | null = null;
+    let call: ServerCallCheck | null = null;
     const sess = mode !== "off" ? server?.session() : undefined;
     if (mode !== "off") {
       if (server !== null && sess?.status === "attested") {
         call = server.checkCall(params);
         verdict = call.reason;
-        if (verdict === "OK") verdict = influenceDecision(tool, isPublic(state, args), contextClasses(call.influence, sess));
-      } else if (rules.disabledWhenUnsafe.includes(tool.name)) {
-        verdict = "UNSAFE_SESSION";
+      }
+      if (verdict === "OK") {
+        verdict = decideServerCall({
+          tool: tool.name,
+          isWrite: tool.kind === "write",
+          publicDestination: isPublic(state, args),
+          session: sess,
+          clientInfluence: call?.influence ?? [],
+          rules,
+        });
       }
     }
     const verified = call !== null && call.reason === "OK" ? call : null;

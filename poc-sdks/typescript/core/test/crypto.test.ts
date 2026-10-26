@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair, sha256, sign, utf8, verify } from "../src/crypto.ts";
+import { generateKeyPair, keyPairMatches, sha256, sign, utf8, verify } from "../src/crypto.ts";
 
 describe("crypto", () => {
   it("sha256OfAbc", () => {
@@ -27,5 +27,17 @@ describe("crypto", () => {
   it("ed25519IsDeterministic", () => {
     const kp = generateKeyPair();
     expect(sign(kp.privateKey, utf8("m"))).toEqual(sign(kp.privateKey, utf8("m")));
+  });
+  it("keyPairMatchesOnlyItsOwnPair", () => {
+    const a = generateKeyPair();
+    const b = generateKeyPair();
+    expect(keyPairMatches(a.privateKey, a.publicKey)).toBe(true);
+    expect(keyPairMatches(a.privateKey, b.publicKey)).toBe(false);
+  });
+  it("keyPairMatchesFalseOnUnusableKeys", () => {
+    const a = generateKeyPair();
+    expect(keyPairMatches("not-a-key", a.publicKey)).toBe(false);
+    expect(keyPairMatches(a.privateKey, "not-a-key")).toBe(false);
+    expect(keyPairMatches(a.publicKey, a.publicKey)).toBe(false);
   });
 });

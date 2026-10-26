@@ -5,13 +5,11 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   decode,
+  keyPairMatches,
   parseLocalRules,
   parseProof,
   RULES_ROUTE_PREFIX,
   rulesHash,
-  sign,
-  utf8,
-  verify,
   verifyProof,
   verifyRoot,
   type LocalRules,
@@ -59,17 +57,6 @@ function str(v: unknown, what: string): string {
   return v;
 }
 
-const PROBE = utf8("paztport-pi-extension key probe");
-
-/** True when the private key signs a probe that the public key verifies. */
-function keysMatch(privateKey: string, publicKey: string): boolean {
-  try {
-    return verify(publicKey, PROBE, sign(privateKey, PROBE));
-  } catch {
-    return false;
-  }
-}
-
 /** Returns the trimmed key text of a pin file (the server policy public key). */
 export function readPin(path: string): string {
   try {
@@ -110,7 +97,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     if (!Object.hasOwn(keyring, svc)) {
       throw new Error(`keyring.json has no entry for ${svc}`);
     }
-    if (!keysMatch(key, keyring[svc]!)) {
+    if (!keyPairMatches(key, keyring[svc]!)) {
       throw new Error(`${svc}.key does not match its keyring.json entry`);
     }
   }

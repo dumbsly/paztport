@@ -23,6 +23,7 @@ import {
   META_CHAIN,
   META_INFLUENCE,
   META_PROOF,
+  META_VERDICT,
   SESSION_METHOD,
   verifyMcpResponse,
 } from "@paztport/mcp";
@@ -66,8 +67,6 @@ export type CallOutcome = {
   };
 };
 
-/** Where a server refusal is carried on a tools/call result. */
-const META_VERDICT = "paztport/verdict";
 const INST = "pi-1";
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 /**

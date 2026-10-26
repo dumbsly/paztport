@@ -8,9 +8,8 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { InfluenceEntry, SessionReply } from "@paztport/core";
-import { META_ATTESTATION, META_CALL_ID, META_CHAIN, SESSION_METHOD } from "@paztport/mcp";
+import { META_ATTESTATION, META_CALL_ID, META_CHAIN, META_VERDICT, SESSION_METHOD } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
-import { META_VERDICT } from "../src/paztport.ts";
 import { makeClient } from "./helpers/client.ts";
 
 const MAIN = join(import.meta.dirname, "../src/main.ts");

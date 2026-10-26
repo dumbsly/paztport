@@ -51,3 +51,14 @@ export function verify(publicKey: string, message: Uint8Array, signature: Uint8A
     return false;
   }
 }
+
+const KEY_PROBE = utf8("paztport key probe");
+
+/** True when the private key signs a probe that the public key verifies; false (never throws) for an unusable key. */
+export function keyPairMatches(privateKey: string, publicKey: string): boolean {
+  try {
+    return verify(publicKey, KEY_PROBE, sign(privateKey, KEY_PROBE));
+  } catch {
+    return false;
+  }
+}

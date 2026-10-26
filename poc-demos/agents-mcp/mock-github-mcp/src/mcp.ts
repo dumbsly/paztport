@@ -1,6 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { InvalidParams } from "@paztport/mcp";
+
 export type CallToolResult = {
   content: { type: "text"; text: string }[];
   isError?: boolean;
@@ -8,8 +10,8 @@ export type CallToolResult = {
   _meta?: Record<string, unknown>;
 };
 
-/** Thrown by an extra method to answer -32602 Invalid params; the message should name the bad field. */
-export class InvalidParams extends Error {}
+/** Thrown by an extra method to answer -32602 Invalid params; the message should name the bad field (the SDK's class, which its session handshake throws). */
+export { InvalidParams };
 
 export type McpToolSpec = {
   name: string;

@@ -16,7 +16,7 @@ import {
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
-import { verifyCall, verifyMcpResponse } from "@paztport/mcp";
+import { META_VERDICT, verifyCall, verifyMcpResponse } from "@paztport/mcp";
 import { verifyClient, verifyLocal, type Client, type LocalResult, type LocalSeen, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
@@ -95,7 +95,6 @@ export type VerifyReport = {
   problem?: string;
 };
 
-const META_VERDICT = "paztport/verdict";
 /** Results that are reported but do not make a file fail. */
 export const NOT_FAILURES: readonly string[] = ["OK", "REFUSED", "NO_RESPONSE", "UNBOUND"];
 

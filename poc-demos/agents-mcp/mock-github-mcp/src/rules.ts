@@ -1,7 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { publicWriteRefused, type InfluenceClass } from "@paztport/core";
+import type { InfluenceClass } from "@paztport/core";
+import { publicWriteDecision } from "@paztport/mcp";
 import type { GithubTool } from "./github.ts";
 
 /**
@@ -14,6 +15,5 @@ export function influenceDecision(
   destinationPublic: boolean,
   classes: Set<InfluenceClass>,
 ): "OK" | "INFLUENCE_DENIED" {
-  if (tool.kind !== "write" || !destinationPublic) return "OK";
-  return publicWriteRefused(classes) ? "INFLUENCE_DENIED" : "OK";
+  return publicWriteDecision(tool.kind === "write", destinationPublic, classes);
 }

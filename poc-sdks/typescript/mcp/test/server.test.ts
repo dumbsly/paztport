@@ -1,22 +1,24 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, signRoot, verifyRoot, type InfluenceClass } from "@paztport/core";
-import { META_ATTESTATION, verifyCall } from "@paztport/mcp";
-import type { CallToolResult } from "../src/mcp.ts";
-import { loadServerConfig, PaztportServer, type ServerPaztportConfig, type SessionRules } from "../src/paztport.ts";
-import { makeClient } from "./helpers/client.ts";
+import { describe, expect, it } from "vitest";
+import { buildPolicy, decode, generateKeyPair, verifyRoot, type InfluenceClass, type InfluenceEntry } from "@paztport/core";
+import {
+  decideServerCall,
+  McpServerSession,
+  META_ATTESTATION,
+  verifyCall,
+  type ServerPolicy,
+  type Session,
+  type SessionRules,
+} from "../src/index.ts";
+import { makeClient, type CallToolResult } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
 };
 
-function serverConfig(): ServerPaztportConfig {
+function serverConfig(): ServerPolicy {
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
@@ -29,6 +31,8 @@ function serverConfig(): ServerPaztportConfig {
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",
+    hops: ["mcp-entry", "github-tools"],
+    serverId: "github",
   };
 }
 
@@ -38,7 +42,7 @@ const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owne
 describe("session handshake", () => {
   it("attestedWhenBothRoots", () => {
     const cfg = serverConfig();
-    const srv = new PaztportServer(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, Date.now);
     const reply = srv.openSession(makeClient({ withRoot: true }).request());
     expect(reply.status).toBe("attested");
     expect(reply.disabled).toEqual([]);
@@ -48,7 +52,7 @@ describe("session handshake", () => {
     expect(srv.session()?.status).toBe("attested");
   });
   it("unsafeWithoutClientRootDisablesWrites", () => {
-    const srv = new PaztportServer(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const reply = srv.openSession(makeClient({ withRoot: false }).request());
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
@@ -56,7 +60,7 @@ describe("session handshake", () => {
   });
   it("replyVerifiesForClient", () => {
     const cfg = serverConfig();
-    const srv = new PaztportServer(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
     const reply = srv.openSession(client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
@@ -64,14 +68,14 @@ describe("session handshake", () => {
   });
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };
-    const srv = new PaztportServer(serverConfig(), rules, Date.now);
+    const srv = new McpServerSession(serverConfig(), rules, Date.now);
     const reply = srv.openSession(makeClient({ withRoot: false }).request());
     reply.disabled.push("list_issues");
     expect(rules.disabledWhenUnsafe).toEqual(["create_branch"]);
     expect(srv.openSession(makeClient({ withRoot: false }).request()).disabled).toEqual(["create_branch"]);
   });
   it("protoKeyInClientKeyringIsOrdinary", () => {
-    const srv = new PaztportServer(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = JSON.parse(JSON.stringify(makeClient().request()).replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",'));
     srv.openSession(req);
     const ring = srv.session()!.request.clientKeyring;
@@ -80,7 +84,7 @@ describe("session handshake", () => {
     expect(Object.keys(ring)).toContain("session");
   });
   it("malformedSessionRequestThrows", () => {
-    const srv = new PaztportServer(serverConfig(), RULES, Date.now);
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     for (const bad of [null, "x", {}, { clientRoot: null, clientPolicyKey: 1, clientKeyring: {}, nonce: "n" }, { clientRoot: null, clientPolicyKey: "k", clientKeyring: [], nonce: "n" }, { clientRoot: { rootId: "v" }, clientPolicyKey: "k", clientKeyring: {}, nonce: "n" }]) {
       expect(() => srv.openSession(bad)).toThrow();
     }
@@ -91,7 +95,7 @@ describe("session handshake", () => {
 describe("response attestation", () => {
   function setup() {
     const cfg = serverConfig();
-    const srv = new PaztportServer(cfg, RULES, Date.now);
+    const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
     const reply = srv.openSession(client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
@@ -188,109 +192,115 @@ describe("response attestation", () => {
   });
 });
 
-describe("loadServerConfig", () => {
-  const dirs: string[] = [];
-  afterAll(() => dirs.forEach((d) => rmSync(d, { recursive: true, force: true })));
-  it("loadServerConfigReadsPolicyToolOutput", () => {
-    const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
-    dirs.push(dir);
-    const tool = (f: string) => join(import.meta.dirname, "../../node_modules/@paztport/policy-tool/src", f);
-    writeFileSync(join(dir, "paths.yaml"), "paths:\n  - [mcp-entry, github-tools]\n");
-    execFileSync("node", [tool("keygen.ts"), "--out", dir, "--services", "mcp-entry,github-tools"], { stdio: "pipe" });
-    execFileSync("node", [tool("policy.ts"), "--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "policy.key"), "--out", dir], { stdio: "pipe" });
-    const cfg = loadServerConfig(dir);
-    expect(cfg.inst).toBe("mock-github-1");
-    expect(Object.keys(cfg.keyring).sort()).toEqual(["github-tools", "mcp-entry"]);
-    expect(verifyRoot(cfg.signedRoot, cfg.policyPublicKey)).toBe(true);
-    expect(cfg.routeProof.rootId).toBe(cfg.signedRoot.rootId);
-    // the loaded config drives a full handshake and a verifiable response
-    const srv = new PaztportServer(cfg, RULES, Date.now);
-    const client = makeClient();
+describe("call check", () => {
+  function attested(tools?: string[], over: Partial<ServerPolicy> = {}) {
+    const srv = new McpServerSession({ ...serverConfig(), ...over }, RULES, Date.now);
+    const client = makeClient({ tools });
     const reply = srv.openSession(client.request());
-    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
-    const out = srv.attest(srv.session()!, RESULT, CALL, "public");
-    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
-  });
-
-  /** Writes cfg in the policy-tool file layout, after `tweak` edits the file contents. */
-  function writeDir(cfg: ServerPaztportConfig, tweak: (files: Record<string, unknown>) => void = () => {}): string {
-    const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
-    dirs.push(dir);
-    const files: Record<string, unknown> = {
-      "keyring.json": { services: { ...cfg.keyring }, policy: cfg.policyPublicKey },
-      "policy.key": cfg.policyPrivateKey,
-      "mcp-entry.key": cfg.signingKeys["mcp-entry"],
-      "github-tools.key": cfg.signingKeys["github-tools"],
-      "root.json": cfg.signedRoot,
-      "proofs-mcp-entry.json": { proofs: { "mcp-entry/github-tools": cfg.routeProof } },
-    };
-    tweak(files);
-    mkdirSync(dir, { recursive: true });
-    for (const [name, v] of Object.entries(files)) {
-      writeFileSync(join(dir, name), typeof v === "string" ? v + "\n" : JSON.stringify(v));
-    }
-    return dir;
+    expect(client.acceptReply(reply, reply.serverPolicyKey)).toBe(true);
+    return { srv, client };
   }
+  it("checkCallNeedsAnAttestedSession", () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
+    srv.openSession(makeClient({ withRoot: false }).request());
+    expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
+  });
+  it("verifiedCallCarriesItsInfluence", () => {
+    const { srv, client } = attested();
+    const influence: InfluenceEntry[] = [{ cls: "private", src: "x", h: "h" }];
+    const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, influence, { rid: "rid-9", callId: "call-9" }));
+    expect(r).toMatchObject({ reason: "OK", rid: "rid-9", callId: "call-9", influence });
+    expect(r.session).toBe(srv.session());
+  });
+  it("pathNotAllowedIsReportedAsTheClients", () => {
+    const { srv, client } = attested(["list_issues"]);
+    const r = srv.checkCall(client.callParams("create_branch", { owner: "o", repo: "r", branch: "x" }, [{ cls: "private", src: "x", h: "h" }]));
+    expect(r.reason).toBe("CLIENT_PATH_NOT_ALLOWED");
+    expect(r.influence).toEqual([]);
+  });
+  it("checkCallUsesThePolicyServerId", () => {
+    // the client's routes name mcp:github.<tool>, so another server id is off the client's path
+    const { srv, client } = attested(undefined, { serverId: "elsewhere" });
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).reason).toBe("CLIENT_PATH_NOT_ALLOWED");
+  });
+  it("undecodableClientRootIsChainMissing", () => {
+    const { srv, client } = attested();
+    srv.session()!.request.clientRoot!.root = "not base64url!";
+    const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, []));
+    expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [] });
+  });
+  it("attestSignsThePolicyHops", () => {
+    const base = serverConfig();
+    const policy: ServerPolicy = {
+      ...base,
+      hops: ["edge", "tools"],
+      signingKeys: { edge: base.signingKeys["mcp-entry"]!, tools: base.signingKeys["github-tools"]! },
+    };
+    const srv = new McpServerSession(policy, RULES, Date.now);
+    srv.openSession(makeClient().request());
+    const att = (srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, any>)[META_ATTESTATION];
+    expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
+    expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
+  });
+});
 
-  it("loadServerConfigAcceptsConsistentFiles", () => {
-    const cfg = serverConfig();
-    expect(loadServerConfig(writeDir(cfg))).toEqual(cfg);
+describe("decideServerCall", () => {
+  const entry = (cls: InfluenceClass): InfluenceEntry => ({ cls, src: "x", h: "h" });
+  function sessions() {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    srv.openSession(makeClient().request());
+    const attested = srv.session()!;
+    srv.openSession(makeClient({ withRoot: false }).request());
+    const unsafe = srv.session()!;
+    expect([attested.status, unsafe.status]).toEqual(["attested", "unsafe"]);
+    return { srv, attested, unsafe };
+  }
+  const write = (session: Session | undefined, clientInfluence: InfluenceEntry[], over: Partial<Parameters<typeof decideServerCall>[0]> = {}) =>
+    decideServerCall({ tool: "create_branch", isWrite: true, publicDestination: true, session, clientInfluence, rules: RULES, ...over });
+
+  it("clientInfluenceAloneDecides", () => {
+    const { attested } = sessions();
+    expect(write(attested, [entry("private"), entry("third-party")])).toBe("INFLUENCE_DENIED");
+    expect(write(attested, [entry("private"), entry("local-untrusted")])).toBe("INFLUENCE_DENIED");
+    expect(write(attested, [entry("third-party"), entry("public")])).toBe("OK");
+    expect(write(attested, [])).toBe("OK");
   });
-  it("loadServerConfigRejectsMalformedProof", () => {
-    const dir = writeDir(serverConfig(), (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { leafSalt: 1 } } };
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/route proof/);
+  it("servedClassesCountWhenTheClientOmitsThem", () => {
+    const { srv, attested } = sessions();
+    srv.attest(attested, RESULT, CALL, "private");
+    expect(write(attested, [entry("third-party")])).toBe("INFLUENCE_DENIED");
+    expect(write(attested, [])).toBe("OK");
+    srv.attest(attested, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "third-party");
+    expect(write(attested, [])).toBe("INFLUENCE_DENIED");
   });
-  it("loadServerConfigRejectsProofForOtherRoute", () => {
-    const cfg = serverConfig();
-    const other = buildPolicy([["mcp-entry", "elsewhere"]], 8, cfg.policyPrivateKey);
-    const dir = writeDir(cfg, (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": other.bundles["mcp-entry"]!.proofs["mcp-entry/elsewhere"] } };
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/route proof/);
+  it("onlyPublicWritesAreDecided", () => {
+    const { attested } = sessions();
+    attested.served.add("private");
+    attested.served.add("third-party");
+    expect(write(attested, [], { publicDestination: false })).toBe("OK");
+    expect(write(attested, [], { tool: "list_issues", isWrite: false })).toBe("OK");
   });
-  it("loadServerConfigRejectsRootNotSignedByPolicyKey", () => {
-    const cfg = serverConfig();
-    const forged = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, generateKeyPair().privateKey);
-    const dir = writeDir(cfg, (f) => {
-      f["root.json"] = forged;
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/root\.json/);
+  it("attestedSessionIgnoresTheUnsafeGate", () => {
+    const { attested } = sessions();
+    expect(RULES.disabledWhenUnsafe).toContain("create_branch");
+    expect(write(attested, [])).toBe("OK");
   });
-  it("loadServerConfigRejectsMismatchedPolicyKey", () => {
-    const dir = writeDir(serverConfig(), (f) => {
-      f["policy.key"] = generateKeyPair().privateKey;
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/policy\.key/);
+  it("unsafeGateRefusesListedTools", () => {
+    const { unsafe } = sessions();
+    expect(write(unsafe, [])).toBe("UNSAFE_SESSION");
+    expect(write(unsafe, [], { publicDestination: false })).toBe("UNSAFE_SESSION");
+    // no handshake yet is gated the same way
+    expect(write(undefined, [])).toBe("UNSAFE_SESSION");
+    expect(write(unsafe, [], { tool: "list_issues", isWrite: false })).toBe("OK");
   });
-  it("loadServerConfigRejectsMismatchedSigningKeys", () => {
-    for (const svc of ["mcp-entry", "github-tools"]) {
-      const dir = writeDir(serverConfig(), (f) => {
-        f[`${svc}.key`] = generateKeyPair().privateKey;
-      });
-      expect(() => loadServerConfig(dir)).toThrow(new RegExp(`${svc}\\.key`));
-    }
-  });
-  it("loadServerConfigRejectsMissingKeyringEntry", () => {
-    const dir = writeDir(serverConfig(), (f) => {
-      delete (f["keyring.json"] as { services: Record<string, string> }).services["github-tools"];
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/github-tools/);
-  });
-  it("loadServerConfigRejectsUnusableKey", () => {
-    const dir = writeDir(serverConfig(), (f) => {
-      f["mcp-entry.key"] = "not-a-key";
-    });
-    expect(() => loadServerConfig(dir)).toThrow(/mcp-entry\.key/);
-  });
-  it("loadServerConfigKeyringProtoKeyIsOrdinary", () => {
-    const cfg = serverConfig();
-    const dir = writeDir(cfg);
-    const path = join(dir, "keyring.json");
-    writeFileSync(path, JSON.stringify({ services: { ...cfg.keyring }, policy: cfg.policyPublicKey }).replace('"services":{', '"services":{"__proto__":"x",'));
-    const loaded = loadServerConfig(dir);
-    expect(Object.hasOwn(loaded.keyring, "__proto__")).toBe(true);
-    expect(loaded.keyring["__proto__"]).toBe("x");
+  it("writeLeftOutOfTheUnsafeListIsUngated", () => {
+    const { unsafe } = sessions();
+    const rules: SessionRules = { disabledWhenUnsafe: ["create_pull_request"] };
+    unsafe.served.add("private");
+    unsafe.served.add("third-party");
+    expect(write(unsafe, [entry("private"), entry("third-party")], { rules })).toBe("OK");
+    expect(write(undefined, [entry("private"), entry("third-party")], { rules })).toBe("OK");
+    expect(write(unsafe, [], { rules, tool: "create_pull_request" })).toBe("UNSAFE_SESSION");
   });
 });
