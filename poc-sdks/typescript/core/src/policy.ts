@@ -5,6 +5,7 @@ import { buildTree, SALT_BYTES } from "./merkle.ts";
 import type { MerkleProof } from "./merkle.ts";
 import { randomBytes, sha256, utf8 } from "./crypto.ts";
 import { signRoot } from "./root.ts";
+import { routeOf } from "./routes.ts";
 import type { SignedRoot } from "./root.ts";
 
 export const DEFAULT_DEPTH = 8;
@@ -21,7 +22,7 @@ export function buildPolicy(
   depth: number,
   policyPrivateKey: string,
 ): { signedRoot: SignedRoot; bundles: Record<string, ProofBundle> } {
-  const routeStrings = routes.map((r) => r.join("/"));
+  const routeStrings = routes.map((r) => routeOf(r));
   const rootId = deriveRootId(routeStrings);
   const tree = buildTree(
     routeStrings.map((path) => ({ salt: randomBytes(SALT_BYTES), path })),

@@ -9,6 +9,7 @@ import { verify } from "./crypto.ts";
 import { commitInfluence, parseInfluence, type InfluenceEntry } from "./influence.ts";
 import { provesPath } from "./merkle.ts";
 import type { ReasonCode, VerifyResult } from "./reason.ts";
+import { routeOf } from "./routes.ts";
 import { parseStampsV2, signingBytesV2, type StampV2 } from "./stamp.ts";
 
 /**
@@ -114,7 +115,8 @@ export function checkCommitments(last: StampV2, expectedBind: string, influence:
 export function checkRoute(stamps: StampV2[], receiver: string | undefined, proof: unknown, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
   const last = stamps[stamps.length - 1]!;
   // 11. Route proven against the root.
-  const route = stamps.map((s) => s.svc).join("/") + (receiver !== undefined ? "/" + receiver : "");
+  const svcs = stamps.map((s) => s.svc);
+  const route = routeOf(receiver !== undefined ? [...svcs, receiver] : svcs);
   if (!provesPath(proof, route, cfg.root, cfg.rootId)) {
     return { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: last.svc, suspectInst: last.inst };
   }

@@ -6,6 +6,7 @@ import {
   commitInfluence,
   decode,
   newNonce,
+  routeOf,
   signStampV2,
   verifySessionReply,
   type ContentLabel,
@@ -143,7 +144,7 @@ export function toolCallProof(
   serverId: string,
   tool: string,
 ): MerkleProof | undefined {
-  const route = [...chainSvcs, mcpReceiver(serverId, tool)].join("/");
+  const route = routeOf([...chainSvcs, mcpReceiver(serverId, tool)]);
   return Object.hasOwn(proofs, route) ? proofs[route] : undefined;
 }
 

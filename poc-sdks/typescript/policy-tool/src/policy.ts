@@ -4,9 +4,12 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { buildPolicy, DEFAULT_DEPTH, parseLocalRules, RULES_ROUTE_PREFIX, rulesHash } from "@paztport/core";
+import { buildPolicy, DEFAULT_DEPTH, parseLocalRules, rulesHash, rulesRouteNodes } from "@paztport/core";
 import { parse } from "yaml";
 import { readKey, writeJson } from "./files.ts";
+
+/** The client chain a `local:` block is pinned under: the agents demo's client mesh, its run origin then pi. */
+const DEFAULT_CLIENT_CHAIN: readonly string[] = ["session", "pi"];
 
 const USAGE = "Usage: node policy.ts --paths <yaml> --policy-key <file> --out <dir> [--depth 8]";
 
@@ -73,7 +76,7 @@ function main(): void {
       console.error(`policy: ${paths}: ${(e as Error).message}`);
       process.exit(2);
     }
-    allRoutes.push(["session", "pi", RULES_ROUTE_PREFIX + rulesHash(rules)]);
+    allRoutes.push(rulesRouteNodes(DEFAULT_CLIENT_CHAIN, rulesHash(rules)));
   }
 
   const { signedRoot, bundles } = buildPolicy(allRoutes, depth, readKey(keyFile));

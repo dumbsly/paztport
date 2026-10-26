@@ -23,3 +23,4 @@ export * from "./local-rules.ts";
 export * from "./influence-rule.ts";
 export * from "./local-decision.ts";
 export * from "./local-step.ts";
+export * from "./routes.ts";

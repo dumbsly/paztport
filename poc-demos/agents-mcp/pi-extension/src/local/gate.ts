@@ -10,6 +10,7 @@ import {
   influenceClasses,
   NOTHING_RESOLVED,
   resultLabels,
+  routeOf,
   rulesHash,
   stampLocalStep,
   type InfluenceClass,
@@ -21,7 +22,7 @@ import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
-import type { ClientMaterial } from "../keys.ts";
+import { CLIENT_CHAIN, type ClientMaterial } from "../keys.ts";
 import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
@@ -33,7 +34,8 @@ export { BUILTIN_LOCAL_TOOLS };
 
 type FileTool = Exclude<BuiltinLocalTool, "bash" | "powershell">;
 const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileTool => t !== "bash" && t !== "powershell");
-const ROUTE_PREFIX = "session/pi/local:";
+/** The receiver a local tool's route names after the client chain. */
+const LOCAL_RECEIVER_PREFIX = "local:";
 const INST = "pi-1";
 
 const UNPARSED: Resolved = { paths: [], programs: [], parse: "error", readOnly: false };
@@ -122,7 +124,7 @@ export class LocalGate {
       return { block: true, reason: localRefusalText("SCOPE_DENIED") };
     }
 
-    const route = ROUTE_PREFIX + toolName;
+    const route = routeOf([...CLIENT_CHAIN, LOCAL_RECEIVER_PREFIX + toolName]);
     const proof = Object.hasOwn(material.proofs, route) ? material.proofs[route]! : null;
     const entries = influence.entries();
     const rules = material.rules;

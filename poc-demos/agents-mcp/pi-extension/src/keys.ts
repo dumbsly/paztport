@@ -8,14 +8,18 @@ import {
   keyPairMatches,
   parseLocalRules,
   parseProof,
+  ORIGIN_SVC,
   provesPath,
-  RULES_ROUTE_PREFIX,
   rulesHash,
+  rulesRoute,
   verifyRoot,
   type LocalRules,
   type MerkleProof,
   type SignedRoot,
 } from "@paztport/core";
+
+/** The client chain on every stamped call: the run's origin, then pi. Local rules are pinned under it too. */
+export const CLIENT_CHAIN: readonly string[] = [ORIGIN_SVC, "pi"];
 
 export type ClientMaterial = {
   sessionKey: string;
@@ -134,7 +138,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
       throw new Error(`malformed rules.json in ${policyDir}: ${(e as Error).message}`);
     }
     // proofs were verified above, so a present key is a proof against the signed root
-    if (!Object.hasOwn(proofs, `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}`)) {
+    if (!Object.hasOwn(proofs, rulesRoute(CLIENT_CHAIN, rulesHash(rules)))) {
       throw new Error("rules.json is not covered by the signed client root");
     }
     material.rules = rules;

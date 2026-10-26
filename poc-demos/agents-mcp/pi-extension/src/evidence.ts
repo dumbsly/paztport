@@ -3,8 +3,8 @@
 
 import { appendFileSync } from "node:fs";
 import {
-  RULES_ROUTE_PREFIX,
   rulesHash,
+  rulesRoute,
   type InfluenceEntry,
   type LocalRules,
   type LocalVerdict,
@@ -14,7 +14,7 @@ import {
   type SignedRoot,
   type StampV2,
 } from "@paztport/core";
-import type { ClientMaterial } from "./keys.ts";
+import { CLIENT_CHAIN, type ClientMaterial } from "./keys.ts";
 
 /**
  * Everything a third party needs to re-verify a run offline: public keys, signed roots, chains,
@@ -64,7 +64,7 @@ export type ClientRecord = Extract<EvidenceRecord, { type: "client" }>;
 /** The client record for a session's material, as the extension writes it at session_start in enforce mode. */
 export function clientRecord(material: ClientMaterial): ClientRecord {
   const rules = material.rules ?? null;
-  const route = rules !== null ? `session/pi/${RULES_ROUTE_PREFIX}${rulesHash(rules)}` : undefined;
+  const route = rules !== null ? rulesRoute(CLIENT_CHAIN, rulesHash(rules)) : undefined;
   return {
     v: 1,
     type: "client",

@@ -12,8 +12,8 @@ import {
   parseLocalRules,
   parseStampsV2,
   provesPath,
-  RULES_ROUTE_PREFIX,
   rulesHash,
+  rulesRoute,
   verifyChainOffline,
   verifyRoot,
   type InfluenceEntry,
@@ -120,7 +120,7 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     if (r.rules !== null) {
       rules = parseLocalRules(r.rules); // throws on rules that don't parse
       hash = rulesHash(rules);
-      if (!provesPath(r.rulesProof, `session/pi/${RULES_ROUTE_PREFIX}${hash}`, root, signedRoot.rootId)) {
+      if (!provesPath(r.rulesProof, rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
         return undefined;
       }
     } else if (r.rulesProof !== null) {

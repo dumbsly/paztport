@@ -7,6 +7,7 @@ import { verify } from "./crypto.ts";
 import { decodeProof, verifyProof } from "./merkle.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { ReasonCode, VerifyResult } from "./reason.ts";
+import { routeOf } from "./routes.ts";
 import { signingBytesV1, type StampV1 } from "./stamp.ts";
 
 export type V1Config = {
@@ -116,7 +117,7 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
   }
 
   // 7. Route rebuilt from the stamps plus this service, proven against the root.
-  const route = stamps.map((s) => s.svc).join("/") + "/" + req.receiver;
+  const route = routeOf([...stamps.map((s) => s.svc), req.receiver]);
   if (!pathAllowed(req.proofHeader, route, cfg)) {
     return reject("PATH_NOT_ALLOWED", last.svc, last.inst);
   }

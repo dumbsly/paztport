@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
-import { encode, NonceCache, NONCE_TTL_MS, ORIGIN_SVC, randomBytes, type InfluenceClass, type SessionReply, type SessionRequest } from "@paztport/core";
+import { encode, NonceCache, NONCE_TTL_MS, randomBytes, type InfluenceClass, type SessionReply, type SessionRequest } from "@paztport/core";
 import {
   classifySessionError,
   classifySessionReply,
@@ -19,7 +19,7 @@ import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";
 import type { InfluenceStore } from "./influence.ts";
-import { readPin, type ClientMaterial } from "./keys.ts";
+import { CLIENT_CHAIN, readPin, type ClientMaterial } from "./keys.ts";
 import { refusalText } from "./refusals.ts";
 import type { RunState } from "./runs.ts";
 
@@ -57,8 +57,6 @@ export type CallOutcome = {
 
 const SVC = "pi";
 const INST = "pi-1";
-/** The client chain on every stamped call: the run's origin, then pi. */
-const CHAIN_SVCS = [ORIGIN_SVC, SVC];
 /** The server hop a verified response must start at. */
 const SERVER_ORIGINS = ["mcp-entry"];
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -291,7 +289,7 @@ export class ServerConnection {
         return fail("no active run: a tool call needs a user prompt first; nothing was sent", "NO_ACTIVE_RUN");
       }
       const rid = run.rid;
-      const proof = toolCallProof(this.material.proofs, CHAIN_SVCS, server, tool);
+      const proof = toolCallProof(this.material.proofs, CLIENT_CHAIN, server, tool);
       if (proof === undefined) {
         return fail(`no policy proof for tool "${tool}"; nothing was sent`, "NO_PROOF", { rid });
       }
