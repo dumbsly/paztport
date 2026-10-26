@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { InfluenceClass } from "../src/influence.ts";
-import { publicWriteRefused } from "../src/influence-rule.ts";
+import { publicWriteRefused, type InfluenceFact } from "../src/influence-rule.ts";
 import { decideLocal } from "../src/local-decision.ts";
 import { parseLocalRules } from "../src/local-rules.ts";
 
@@ -45,11 +45,39 @@ describe("publicWriteRefused", () => {
   });
 
   it.each(TABLE)("%j refused: %s", (classes, refused) => {
-    expect(publicWriteRefused(new Set(classes))).toBe(refused);
+    expect(publicWriteRefused(classes.map((cls) => ({ cls })))).toBe(refused);
   });
 
   it.each(TABLE)("decideLocal on a public write agrees for %j", (classes, refused) => {
     const resolved = { paths: [{ need: "write" as const, at: "website/a.md" }], programs: [], parse: "ok" as const, readOnly: false };
     expect(decideLocal({ routeAllowed: true, resolved, rules, classes: new Set(classes) })).toBe(refused ? "INFLUENCE_DENIED" : "OK");
+  });
+
+  it("without owners the rule is the class rule", () => {
+    for (const [classes] of TABLE) {
+      const set = new Set(classes);
+      expect(publicWriteRefused(classes.map((cls) => ({ cls })))).toBe(set.has("private") && (set.has("third-party") || set.has("local-untrusted")));
+    }
+  });
+
+  const TP = { cls: "third-party" } as const;
+  const LU = { cls: "local-untrusted" } as const;
+  const PUB = { cls: "public" } as const;
+  const P = (owner?: string): InfluenceFact => (owner === undefined ? { cls: "private" } : { cls: "private", owner });
+  const OWNED: [string, InfluenceFact[], string | undefined, boolean][] = [
+    ["own private data, untrusted content", [TP, P("alice")], "alice", false],
+    ["someone else's private data", [TP, P("bob")], "alice", true],
+    ["private data with no owner", [TP, P()], "alice", true],
+    ["unknown destination owner", [TP, P("alice")], undefined, true],
+    ["local-untrusted counts as untrusted", [LU, P("bob")], "alice", true],
+    ["no untrusted content", [P("bob")], "alice", false],
+    ["no private data", [TP], "alice", false],
+    ["one foreign entry is enough", [TP, P("alice"), P("bob")], "alice", true],
+    ["public is not private", [TP, PUB], "alice", false],
+    ["an empty owner is unknown on both sides", [TP, P("")], "", true],
+    ["nothing at all", [], "alice", false],
+  ];
+  it.each(OWNED)("%s", (_name, influence, destinationOwner, refused) => {
+    expect(publicWriteRefused(influence, destinationOwner)).toBe(refused);
   });
 });

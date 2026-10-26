@@ -6,7 +6,6 @@ import {
   bindResult,
   decode,
   deriveSessionId,
-  influenceClasses,
   newContentId,
   newNonce,
   NonceCache,
@@ -19,6 +18,7 @@ import {
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
+  type InfluenceFact,
   type MerkleProof,
   type ReasonCode,
   type ResponseAttestation,
@@ -210,23 +210,24 @@ export class McpServerSession {
 }
 
 /**
- * The classes the influence rule sees in an attested session: the client's verified influence
- * plus every class this server served in the session. The union only adds classes, so the server
- * is stricter, never looser, than the harness: a client that fails to record a private (or
- * third-party) label cannot launder it past the rule.
+ * What the influence rule sees in an attested session: the client's verified influence plus every
+ * class this server served in the session. A served class carries no owner. The union only adds
+ * facts, so the server is stricter, never looser, than the harness: a client that fails to record a
+ * private (or third-party) label cannot launder it past the rule.
  */
-function contextClasses(influence: InfluenceEntry[], session: Session): Set<InfluenceClass> {
-  return new Set([...influenceClasses(influence), ...session.served]);
+function contextInfluence(influence: InfluenceEntry[], session: Session): InfluenceFact[] {
+  return [...influence, ...[...session.served].map((cls) => ({ cls }))];
 }
 
 /** The influence rule applied to a tool call: only a write to a public destination is decided by it. */
 export function publicWriteDecision(
   isWrite: boolean,
   publicDestination: boolean,
-  classes: ReadonlySet<InfluenceClass>,
+  influence: readonly InfluenceFact[],
+  destinationOwner?: string,
 ): "OK" | "INFLUENCE_DENIED" {
   if (!isWrite || !publicDestination) return "OK";
-  return publicWriteRefused(classes) ? "INFLUENCE_DENIED" : "OK";
+  return publicWriteRefused(influence, destinationOwner) ? "INFLUENCE_DENIED" : "OK";
 }
 
 /**
@@ -242,10 +243,11 @@ export function decideServerCall(opts: {
   session: Session | undefined;
   clientInfluence: InfluenceEntry[];
   rules: SessionRules;
+  destinationOwner?: string;
 }): "OK" | "UNSAFE_SESSION" | "INFLUENCE_DENIED" {
   const { session } = opts;
   if (session?.status === "attested") {
-    return publicWriteDecision(opts.isWrite, opts.publicDestination, contextClasses(opts.clientInfluence, session));
+    return publicWriteDecision(opts.isWrite, opts.publicDestination, contextInfluence(opts.clientInfluence, session), opts.destinationOwner);
   }
   return opts.rules.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
 }

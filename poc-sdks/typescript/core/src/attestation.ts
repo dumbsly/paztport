@@ -11,7 +11,7 @@ import type { VerifyResult } from "./reason.ts";
 import type { StampV2 } from "./stamp.ts";
 import { verifyChainV2, type V2Config } from "./verify-v2.ts";
 
-export type ContentLabel = { cls: InfluenceClass; cid: string };
+export type ContentLabel = { cls: InfluenceClass; cid: string; owner?: string };
 export type ResponseAttestation = { chain: StampV2[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
 
 const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
@@ -45,7 +45,10 @@ function parseAttestation(att: unknown): ResponseAttestation | null {
     if (typeof o.cls !== "string" || !CLASSES.includes(o.cls) || typeof o.cid !== "string") {
       return null;
     }
-    labels.push({ cls: o.cls as InfluenceClass, cid: o.cid });
+    if (o.owner !== undefined && (typeof o.owner !== "string" || o.owner === "")) {
+      return null;
+    }
+    labels.push(o.owner === undefined ? { cls: o.cls as InfluenceClass, cid: o.cid } : { cls: o.cls as InfluenceClass, cid: o.cid, owner: o.owner });
   }
   return { chain: a.chain as StampV2[], proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
 }

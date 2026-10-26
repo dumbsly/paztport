@@ -15,5 +15,9 @@ export function influenceDecision(
   destinationPublic: boolean,
   classes: Set<InfluenceClass>,
 ): "OK" | "INFLUENCE_DENIED" {
-  return publicWriteDecision(tool.kind === "write", destinationPublic, classes);
+  return publicWriteDecision(
+    tool.kind === "write",
+    destinationPublic,
+    [...classes].map((cls) => ({ cls })),
+  );
 }

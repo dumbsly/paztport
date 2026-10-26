@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { commitInfluence, influenceClasses, type InfluenceEntry } from "../src/influence.ts";
+import { commitInfluence, influenceClasses, normalizeInfluence, parseInfluence, type InfluenceEntry } from "../src/influence.ts";
 
 const a: InfluenceEntry = { cls: "third-party", src: "web:example.com", h: "hhh1" };
 const b: InfluenceEntry = { cls: "private", src: "file:notes", h: "hhh2" };
@@ -33,5 +33,21 @@ describe("influence", () => {
   it("nonAdjacentDuplicatesCollapse", () => {
     expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, a, b]));
     expect(commitInfluence([a, b, a])).toBe(commitInfluence([a, b]));
+  });
+  it("normalizeInfluence sorts owner after cid, absent first", () => {
+    const x = { cls: "private", src: "s", h: "h", cid: "c" } as const;
+    const y = { ...x, owner: "bob" };
+    const z = { ...x, owner: "alice" };
+    expect(normalizeInfluence([y, x, z])).toEqual([x, z, y]);
+  });
+  it("an entry with an owner commits differently; entries without one commit as before", () => {
+    const e = [{ cls: "private", src: "s", h: "h" }] as InfluenceEntry[];
+    expect(commitInfluence(e)).not.toBe(commitInfluence([{ ...e[0]!, owner: "alice" }]));
+  });
+  it("parseInfluence keeps a string owner and rejects an empty, non-string or lone-surrogate one", () => {
+    expect(parseInfluence([{ cls: "private", src: "s", h: "h", owner: "alice" }])[0]!.owner).toBe("alice");
+    for (const owner of ["", 7, "\uD800"]) {
+      expect(() => parseInfluence([{ cls: "private", src: "s", h: "h", owner }])).toThrow();
+    }
   });
 });

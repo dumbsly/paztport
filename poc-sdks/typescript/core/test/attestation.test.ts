@@ -33,14 +33,14 @@ function world() {
     ...over,
   });
   const labels: ContentLabel[] = [{ cls: "third-party", cid: newContentId() }];
-  const response = (): { body: Record<string, unknown>; att: unknown } => {
+  const response = (withLabels: unknown[] = labels): { body: Record<string, unknown>; att: unknown } => {
     const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
     const resultHash = bindResult(body);
     const mk = (svc: string, bind: string, prev: string) =>
       signStampV2({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, bind, infl: "", prev }, keys.privateKey);
     const s0 = mk("mcp-entry", "b0", "");
-    const s1 = mk("github-tools", bindResponse(resultHash, "call-1", labels), s0.sig);
-    return { body, att: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels, resultHash } };
+    const s1 = mk("github-tools", bindResponse(resultHash, "call-1", withLabels as ContentLabel[]), s0.sig);
+    return { body, att: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels: withLabels, resultHash } };
   };
   return { keys, tree, cfg, labels, response };
 }
@@ -73,5 +73,18 @@ describe("response binding", () => {
     const body = { content: [{ type: "text", text: "x" }] };
     expect(bindResult({ ...body, _meta: { a: 1 } })).toBe(bindResult({ ...body, _meta: { b: [2] } }));
     expect(bindResult({ ...body, _meta: { a: 1 } })).toBe(bindResult(body));
+  });
+  it("a label may carry an owner, and gets it back", () => {
+    const w = world();
+    const labels = [{ cls: "private", cid: "c1", owner: "alice" }];
+    const { body, att } = w.response(labels);
+    const r = verifyResponse(att, body, CALL, w.cfg());
+    expect(r.result.ok).toBe(true);
+    expect(r.labels).toEqual(labels);
+  });
+  it("a label with a non-string owner is CHAIN_MISSING", () => {
+    const w = world();
+    const { body, att } = w.response([{ cls: "private", cid: "c1", owner: 3 }]);
+    expect(verifyResponse(att, body, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
 });

@@ -51,7 +51,7 @@ describe("influenceDecision", () => {
     for (let mask = 0; mask < 2 ** all.length; mask++) {
       const classes = new Set(all.filter((_, i) => mask & (1 << i)));
       for (const t of WRITES) {
-        expect(influenceDecision(t, true, classes), [...classes].join(",")).toBe(publicWriteRefused(classes) ? "INFLUENCE_DENIED" : "OK");
+        expect(influenceDecision(t, true, classes), [...classes].join(",")).toBe(publicWriteRefused([...classes].map((cls) => ({ cls }))) ? "INFLUENCE_DENIED" : "OK");
       }
     }
   });

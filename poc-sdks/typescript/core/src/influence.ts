@@ -6,23 +6,26 @@ import { sha256, utf8 } from "./crypto.ts";
 import { canonicalize } from "./jcs.ts";
 
 export type InfluenceClass = "third-party" | "private" | "public" | "local-untrusted";
-export type InfluenceEntry = { cls: InfluenceClass; src: string; h: string; cid?: string };
+export type InfluenceEntry = { cls: InfluenceClass; src: string; h: string; cid?: string; owner?: string };
 
 function cmp(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-/** Sorts by h, cls, src, then cid (absent first), and removes all exact duplicates. */
+function cmpOptional(a: string | undefined, b: string | undefined): number {
+  return a === undefined ? (b === undefined ? 0 : -1) : b === undefined ? 1 : cmp(a, b);
+}
+
+/** Sorts by h, cls, src, cid, then owner (absent first), and removes all exact duplicates. */
 export function normalizeInfluence(entries: InfluenceEntry[]): InfluenceEntry[] {
   const sorted = entries
-    .map((e): InfluenceEntry => (e.cid === undefined ? { cls: e.cls, src: e.src, h: e.h } : { cls: e.cls, src: e.src, h: e.h, cid: e.cid }))
-    .sort(
-      (a, b) =>
-        cmp(a.h, b.h) ||
-        cmp(a.cls, b.cls) ||
-        cmp(a.src, b.src) ||
-        (a.cid === undefined ? (b.cid === undefined ? 0 : -1) : b.cid === undefined ? 1 : cmp(a.cid, b.cid)),
-    );
+    .map((e): InfluenceEntry => {
+      const base: InfluenceEntry = { cls: e.cls, src: e.src, h: e.h };
+      if (e.cid !== undefined) base.cid = e.cid;
+      if (e.owner !== undefined) base.owner = e.owner;
+      return base;
+    })
+    .sort((a, b) => cmp(a.h, b.h) || cmp(a.cls, b.cls) || cmp(a.src, b.src) || cmpOptional(a.cid, b.cid) || cmpOptional(a.owner, b.owner));
   const seen = new Set<string>();
   return sorted.filter((e) => {
     const k = canonicalize(e);
@@ -53,13 +56,17 @@ export function parseInfluence(value: unknown): InfluenceEntry[] {
     if (o.cid !== undefined && typeof o.cid !== "string") {
       throw new Error("malformed influence cid");
     }
-    for (const f of [o.src, o.h, o.cid]) {
+    if (o.owner !== undefined && (typeof o.owner !== "string" || o.owner === "")) {
+      throw new Error("malformed influence owner");
+    }
+    for (const f of [o.src, o.h, o.cid, o.owner]) {
       if (typeof f === "string" && LONE_SURROGATE.test(f)) {
         throw new Error("lone surrogate in influence entry");
       }
     }
     const base = { cls: o.cls as InfluenceClass, src: o.src, h: o.h };
-    return o.cid === undefined ? base : { ...base, cid: o.cid as string };
+    const entry: InfluenceEntry = o.cid === undefined ? base : { ...base, cid: o.cid as string };
+    return o.owner === undefined ? entry : { ...entry, owner: o.owner as string };
   });
 }
 

@@ -87,7 +87,7 @@ export function decideLocal(d: {
   if (readLabels(resolved, rules).includes("private")) {
     all.add("private");
   }
-  if (publicWriteRefused(all)) {
+  if (publicWriteRefused([...all].map((cls) => ({ cls })))) {
     if (folders.some(({ p, rule }) => p.need === "write" && rule?.destination === "public")) {
       return "INFLUENCE_DENIED";
     }

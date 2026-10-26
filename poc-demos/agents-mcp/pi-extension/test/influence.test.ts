@@ -59,6 +59,12 @@ describe("InfluenceStore", () => {
     expect(e.map((x) => x.h)).toEqual(["A", "M", "Z"]);
   });
 
+  it("a label's owner becomes the entry's owner", () => {
+    const s = new InfluenceStore();
+    s.recordLabels("github", [{ cls: "private", cid: "c", owner: "alice" }], "h");
+    expect(s.entries()).toEqual([{ cls: "private", src: "server:github", h: "h", cid: "c", owner: "alice" }]);
+  });
+
   it("summaryHasNoHashes", () => {
     const s = new InfluenceStore();
     s.recordLabels("github", [{ cls: "third-party", cid: "CID-SECRET" }], "HASH-SECRET");

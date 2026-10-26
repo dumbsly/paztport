@@ -30,7 +30,7 @@ export class InfluenceStore {
 
   recordLabels(serverId: string, labels: ContentLabel[], contentHash: string): void {
     for (const l of labels) {
-      this.all.push({ cls: l.cls, src: `server:${serverId}`, h: contentHash, cid: l.cid });
+      this.all.push({ cls: l.cls, src: `server:${serverId}`, h: contentHash, cid: l.cid, ...(l.owner === undefined ? {} : { owner: l.owner }) });
     }
   }
 

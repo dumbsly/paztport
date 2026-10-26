@@ -274,6 +274,17 @@ describe("decideServerCall", () => {
     srv.attest(attested, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "third-party");
     expect(write(attested, [])).toBe("INFLUENCE_DENIED");
   });
+  it("the owner of private data must be the destination owner", () => {
+    const { attested } = sessions();
+    const mine: InfluenceEntry[] = [entry("third-party"), { ...entry("private"), owner: "alice" }];
+    expect(write(attested, mine, { destinationOwner: "alice" })).toBe("OK");
+    expect(write(attested, mine, { destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
+  });
+  it("a served private class has no owner, so it is refused", () => {
+    const { srv, attested } = sessions();
+    srv.attest(attested, RESULT, CALL, "private");
+    expect(write(attested, [entry("third-party")], { destinationOwner: "alice" })).toBe("INFLUENCE_DENIED");
+  });
   it("onlyPublicWritesAreDecided", () => {
     const { attested } = sessions();
     attested.served.add("private");
