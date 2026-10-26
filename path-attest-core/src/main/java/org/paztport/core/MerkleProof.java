@@ -5,6 +5,7 @@ package org.paztport.core;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * A membership proof for one route, carried in {@code X-Path-Proof}. Padded to a
@@ -12,7 +13,8 @@ import java.util.List;
  *
  * <p>{@code dirs} has one character per level: {@code 'L'} means the working
  * hash is the left input at that level (sibling on the right), {@code 'R'} the
- * reverse.
+ * reverse. Every field is required; a null field or sibling is rejected at
+ * construction, so a decoded proof is never partly empty.
  */
 public record MerkleProof(String leafSalt, List<String> siblings, String dirs, String rootId) {
 
@@ -21,6 +23,9 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
     private static final int HASH_BYTES = 32;
 
     public MerkleProof {
+        Objects.requireNonNull(leafSalt, "leafSalt");
+        Objects.requireNonNull(dirs, "dirs");
+        Objects.requireNonNull(rootId, "rootId");
         siblings = List.copyOf(siblings);
     }
 

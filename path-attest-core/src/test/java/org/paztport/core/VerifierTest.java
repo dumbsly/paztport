@@ -7,6 +7,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
@@ -146,6 +150,70 @@ class VerifierTest {
         };
         VerifyRequest req = fx.requestWithChain(new PathChain(List.of(s0, tampered)));
         assertFalse(fx.verifier().verify(req).ok(), "tampering " + field + " must be rejected");
+    }
+
+    private static final ObjectMapper RAW = new ObjectMapper();
+
+    private static String header(JsonNode node) throws Exception {
+        return Base64Url.encode(RAW.writeValueAsBytes(node));
+    }
+
+    /** The valid chain as raw JSON with one field of the last stamp removed or set to JSON null. */
+    private String chainWith(String field, boolean asNull) throws Exception {
+        ArrayNode stamps = (ArrayNode) RAW.readTree(Json.write(fx.validChain().stamps()));
+        ObjectNode last = (ObjectNode) stamps.get(stamps.size() - 1);
+        if (asNull) {
+            last.putNull(field);
+        } else {
+            last.remove(field);
+        }
+        return header(stamps);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"svc", "inst", "rid", "ts", "bind", "prev", "sig"})
+    void stampMissingAFieldIsChainMissing(String field) throws Exception {
+        VerifyRequest req = new VerifyRequest(chainWith(field, false), fx.validProofHeader(), "POST", "/pay", fx.body());
+        assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"svc", "inst", "rid", "ts", "bind", "prev", "sig"})
+    void stampWithANullFieldIsChainMissing(String field) throws Exception {
+        VerifyRequest req = new VerifyRequest(chainWith(field, true), fx.validProofHeader(), "POST", "/pay", fx.body());
+        assertEquals(ReasonCode.CHAIN_MISSING, fx.verifier().verify(req).reason());
+    }
+
+    private String proofWith(String field, boolean asNull) throws Exception {
+        ObjectNode proof = (ObjectNode) RAW.readTree(Json.write(fx.tree.proofFor("gateway/orders/payment")));
+        if (asNull) {
+            proof.putNull(field);
+        } else {
+            proof.remove(field);
+        }
+        return header(proof);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"leafSalt", "siblings", "dirs", "rootId"})
+    void proofMissingAFieldIsPathNotAllowed(String field) throws Exception {
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, false), "POST", "/pay", fx.body());
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"leafSalt", "siblings", "dirs", "rootId"})
+    void proofWithANullFieldIsPathNotAllowed(String field) throws Exception {
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), proofWith(field, true), "POST", "/pay", fx.body());
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
+    }
+
+    @Test
+    void proofWithANullSiblingIsPathNotAllowed() throws Exception {
+        ObjectNode proof = (ObjectNode) RAW.readTree(Json.write(fx.tree.proofFor("gateway/orders/payment")));
+        ((ArrayNode) proof.get("siblings")).removeAll().addNull();
+        VerifyRequest req = new VerifyRequest(fx.validChainHeader(), header(proof), "POST", "/pay", fx.body());
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, fx.verifier().verify(req).reason());
     }
 
     /** A valid scenario-1 world: keys, a salted tree, a signed root, and a configured verifier. */

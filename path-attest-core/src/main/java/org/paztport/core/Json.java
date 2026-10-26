@@ -14,7 +14,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 final class Json {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true)
+            // A missing or null record component is malformed, not a default of 0 or null.
+            .configure(DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES, true)
+            .configure(DeserializationFeature.FAIL_ON_NULL_CREATOR_PROPERTIES, true)
+            .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true);
 
     private Json() {
     }
