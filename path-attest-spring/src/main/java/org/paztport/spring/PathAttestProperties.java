@@ -31,6 +31,9 @@ public class PathAttestProperties {
     /** If set, rejection events are also POSTed to this responder URL. */
     private String responderUrl;
 
+    /** Shared token for {@code /admin/mode}; unset or blank disables the endpoint. */
+    private String adminToken;
+
     /** Path to this service's private key (stamping services only). */
     private String keyPath;
 
@@ -103,6 +106,14 @@ public class PathAttestProperties {
 
     public void setResponderUrl(String responderUrl) {
         this.responderUrl = responderUrl;
+    }
+
+    public String getAdminToken() {
+        return adminToken;
+    }
+
+    public void setAdminToken(String adminToken) {
+        this.adminToken = adminToken;
     }
 
     public String getKeyPath() {

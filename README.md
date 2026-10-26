@@ -727,6 +727,10 @@ that the route taken is in a private, committed policy**.
 - **The nonce cache is in-memory and unbounded** in this POC. The freshness window
   means it only *needs* to remember about 5 s of requests, and a real deployment
   would use a shared, expiring store.
+- **The admin endpoint is a demo control channel.** `/admin/mode` switches a
+  verifier between `off`, `audit` and `enforce`. It is protected only by a shared
+  token (`X-Admin-Token`, set with `PA_ADMIN_TOKEN`), and refuses everything when no
+  token is set. A real deployment would put it on a separate management network.
 - **The demo includes a replay harness.** `payment` can retain its last request
   (`/debug/last-request`, only when `PA_CAPTURE=true`) so the demo can replay and
   mutate a genuinely valid request. It simulates an on-the-wire capture and isn't
@@ -822,6 +826,7 @@ The agent demo is separate and needs Node 22.19+ and Ollama: from `agents/`, `np
 | `PATH_ATTEST_ORIGINS` | `gateway` | verifiers |
 | `PATH_ATTEST_PROOF_DEPTH` | `8` | policy-tool |
 | `ATTACK_MODE` | `false` | search |
+| `PA_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment` (the demo generates one per run) |
 | `RESPONDER_URL` | empty, so events are only logged | verifiers (the demo sets it for scenario 9) |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |

@@ -89,8 +89,8 @@ public class PathAttestAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "path-attest.verify", havingValue = "true")
-    AdminModeController adminModeController(ModeHolder modeHolder) {
-        return new AdminModeController(modeHolder);
+    AdminModeController adminModeController(ModeHolder modeHolder, PathAttestProperties props) {
+        return new AdminModeController(modeHolder, props.getAdminToken());
     }
 
     @Bean
