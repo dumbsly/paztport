@@ -3,7 +3,6 @@
 
 import { decode } from "./b64url.ts";
 import { decodeChainV1 } from "./chain.ts";
-import { bindHttp } from "./binding.ts";
 import { verify } from "./crypto.ts";
 import { decodeProof, verifyProof } from "./merkle.ts";
 import type { NonceCache } from "./nonce.ts";
@@ -16,12 +15,21 @@ export type V1Config = {
   rootId: string;
   allowedOrigins: string[];
   maxAgeMs: number;
-  receivingService: string;
   nonces: NonceCache;
   now: number;
 };
 
-export type V1Request = { chainHeader?: string; proofHeader?: string; method: string; path: string; body: Uint8Array };
+/**
+ * What the receiver saw: the two headers, the binding it computed for the request, and its own service name.
+ * `peer` is the authenticated transport peer's service name, supplied by the transport extension (e.g. from mTLS); not checked yet.
+ */
+export type V1Request = {
+  chainHeader?: string;
+  proofHeader?: string;
+  expectedBind: string;
+  receiver: string;
+  peer?: string;
+};
 
 function reject(reason: ReasonCode, suspectSvc = "", suspectInst = ""): VerifyResult {
   return { ok: false, reason, suspectSvc, suspectInst };
@@ -98,7 +106,7 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
   }
 
   // 5. Last stamp's bind matches the request actually received.
-  if (bindHttp(req.method, req.path, req.body) !== last.bind) {
+  if (req.expectedBind !== last.bind) {
     return fail("BINDING_MISMATCH");
   }
 
@@ -108,7 +116,7 @@ export function verifyV1(req: V1Request, cfg: V1Config): VerifyResult {
   }
 
   // 7. Route rebuilt from the stamps plus this service, proven against the root.
-  const route = stamps.map((s) => s.svc).join("/") + "/" + cfg.receivingService;
+  const route = stamps.map((s) => s.svc).join("/") + "/" + req.receiver;
   if (!pathAllowed(req.proofHeader, route, cfg)) {
     return reject("PATH_NOT_ALLOWED", last.svc, last.inst);
   }

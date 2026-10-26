@@ -4,10 +4,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindHttp, decode, decodeChainV1, decodeProof, encode, encodeChainV1, leafHash, nodeHash,
+  NonceCache, decode, decodeChainV1, decodeProof, encode, encodeChainV1, leafHash, nodeHash,
   sign, signingBytesV1, verifyProof, verifyRoot, verifyV1,
-} from "../src/index.ts";
-import type { ReasonCode } from "../src/index.ts";
+} from "@paztport/core";
+import type { ReasonCode } from "@paztport/core";
+import { bindHttp } from "../src/index.ts";
 
 type Keys = Record<string, { pub: string; priv: string }>;
 const v = JSON.parse(readFileSync(new URL("./vectors/v1.json", import.meta.url), "utf8"));
@@ -59,9 +60,8 @@ describe("Java-exported v1 vectors", () => {
         {
           chainHeader: c.chainHeader ?? undefined,
           proofHeader: c.proofHeader ?? undefined,
-          method: c.method,
-          path: c.path,
-          body: decode(c.body),
+          expectedBind: bindHttp(c.method, c.path, decode(c.body)),
+          receiver: c.receivingService,
         },
         {
           keyring: ring,
@@ -69,7 +69,6 @@ describe("Java-exported v1 vectors", () => {
           rootId: v.merkle.rootId,
           allowedOrigins: c.allowedOrigins,
           maxAgeMs: c.maxAgeMs,
-          receivingService: c.receivingService,
           nonces,
           now: c.now,
         },

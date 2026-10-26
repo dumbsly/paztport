@@ -3,9 +3,8 @@
 
 import { describe, expect, it } from "vitest";
 import { encode } from "../src/b64url.ts";
-import { bindHttp } from "../src/binding.ts";
 import { decodeChainV1, encodeChainV1 } from "../src/chain.ts";
-import { generateKeyPair, randomBytes, utf8 } from "../src/crypto.ts";
+import { concat, generateKeyPair, randomBytes, sha256, utf8 } from "../src/crypto.ts";
 import { buildTree, encodeProof } from "../src/merkle.ts";
 import { NonceCache } from "../src/nonce.ts";
 import { signRoot } from "../src/root.ts";
@@ -15,6 +14,11 @@ import { decode } from "../src/b64url.ts";
 import { verifyRoot } from "../src/root.ts";
 
 const NOW = 1_000_000;
+
+// Core takes the expected binding as an input, so the test builds it independently of any transport package.
+function bindHttp(method: string, path: string, body: Uint8Array): string {
+  return encode(sha256(concat(utf8(method), new Uint8Array([0x0a]), utf8(path), new Uint8Array([0x0a]), body)));
+}
 const routes = ["gateway/orders/payment", "gateway/orders", "gateway/search"];
 
 function world() {
@@ -39,18 +43,16 @@ function world() {
     rootId: signedRoot.rootId,
     allowedOrigins: ["gateway"],
     maxAgeMs: 5000,
-    receivingService: "payment",
     nonces: new NonceCache(60_000),
     now: NOW,
   });
   const proof = encodeProof(tree.proofFor("gateway/orders/payment"));
-  const req = (chain: StampV1[] | undefined, over: Record<string, unknown> = {}) => ({
+  const req = (chain: StampV1[] | undefined, over: { chainHeader?: string; proofHeader?: string; body?: Uint8Array } = {}) => ({
     chainHeader: chain ? encodeChainV1(chain) : undefined,
     proofHeader: proof,
-    method: "POST",
-    path: "/pay",
-    body,
-    ...over,
+    expectedBind: bindHttp("POST", "/pay", over.body ?? body),
+    receiver: "payment",
+    ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== "body")),
   });
   return { gateway, orders, search, tree, body, bindToPayment, gatewayStamp, validChain, cfg, proof, req };
 }

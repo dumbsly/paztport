@@ -20,6 +20,8 @@ export type V2Input = {
   influence: InfluenceEntry[];
   proof: unknown;
   receiver?: string;
+  /** The authenticated transport peer's service name, supplied by the transport extension (e.g. from mTLS); not checked yet. */
+  peer?: string;
 };
 
 export type V2Config = {
