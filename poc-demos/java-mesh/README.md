@@ -433,8 +433,8 @@ Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 
 runtime) with k6 driving the legitimate path at 10 virtual users, via
 [measure.sh](measure.sh), mutual TLS on every hop. `payment` is switched between
 `off`, where Paztport is off on that hop, and `enforce`, with everything else
-identical. Each mode first gets a 10 s warm-up that is thrown away, so neither pays
-for the JVMs' and the connections' warm-up. Then three rounds each run both modes
+identical. Each mode first gets a 10 s warm-up that is thrown away, so neither
+carries most of the JVMs' and the connections' warm-up. Then three rounds each run both modes
 for 20 s, the leading mode alternating (`off` then `enforce`, `enforce` then `off`,
 `off` then `enforce`), so drift over the session doesn't favour one mode. The
 table gives each mode's median over its three runs, with the three runs' range. No
@@ -479,12 +479,13 @@ Caveats:
 - **Single host, loopback networking.** These numbers show feasibility. They
   aren't a production SLA.
 - **`off` vs `enforce` measures one hop's Paztport work and its caller's check of
-  it, nothing else.** Both runs
-  include mutual TLS on every hop, the request stamps `gateway` and `orders` sign,
-  `orders`' response stamp and `gateway`'s check of it, so none of those is in the
-  difference, and none is measured on its own. Only `payment` verifies requests in
-  this topology, so a design that verifies at every hop multiplies that cost by the
-  number of verifying hops.
+  it, nothing else.** Both runs include mutual TLS on every hop, the request stamps
+  `gateway` and `orders` sign, `orders`' verification of the chain it receives from
+  `gateway` (it doesn't enforce, but runs the full live order to decide its own
+  attestation), `orders`' response stamp and `gateway`'s check of it, so none of
+  those is in the difference, and none is measured on its own. Only `payment`'s
+  work is switched here, so a design that verifies at every hop pays that cost
+  once per verifying hop.
 - **Means and maxima are left out.** In this session every timed run, in both
   modes, had a maximum of about 1 s (one 2.8 s), which pulled the means to
   16–21 ms. The stalls appear just as much with Paztport off, so they aren't

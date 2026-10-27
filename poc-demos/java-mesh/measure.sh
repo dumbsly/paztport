@@ -14,8 +14,10 @@
 # payment's request verification, payment's signing of its response, and orders'
 # check of that response stamp, which in `off` finds no stamp and stops at once.
 # Everything else is in both runs and so cancels out: mutual TLS on every hop, the
-# request stamps gateway and orders sign, orders' response stamp and gateway's
-# check of it. Neither those costs nor mutual TLS are isolated here.
+# request stamps gateway and orders sign, orders' verification of the chain it
+# receives from gateway (it doesn't enforce, but runs the full live order to
+# decide its own attestation), orders' response stamp and gateway's check of it.
+# Neither those costs nor mutual TLS are isolated here.
 #
 # Method: first a discarded warm-up in each mode (WARMUP each), so neither mode
 # pays the JVMs' and the connections' warm-up; then ROUNDS rounds of one run per
@@ -92,7 +94,7 @@ for mode in ("off", "enforce"):
     r = runs[mode]
     print(f"median of {len(r)} {mode} runs: p50={statistics.median(x[0] for x in r):.2f}ms "
           f"p99={statistics.median(x[1] for x in r):.2f}ms worst fail={max(x[2] for x in r):.2f}%")
-'
+' || exit 1
 
 echo ""
 echo "== header sizes from one real request =="
