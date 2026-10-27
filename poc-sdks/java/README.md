@@ -69,11 +69,19 @@ Glue, configured through `paztport.*` properties.
   such a service also needs a keyring, a root and the policy pin
   (`paztport.policy-key-path`), or it refuses to start. Influence it can't read is
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
-  refused the request first.
-- **Response attestation.** A service with a stamp key attests each response whose
-  request chain parsed as v3 and verified there, or was not checked there: one
-  stamp over the status, the body and the labels its handler added with
-  `PaztportContext.label`, sent as `X-Path-Response`. Refusals and audit-mode
+  refused the request first. An origin (`paztport.origin=true`) starts every
+  request tree afresh: it ignores the chain and the influence a request brings.
+- **Response attestation.** A service attests a response only to a request whose
+  chain passed the full live order there: its own verifier, itself as receiver, the
+  request's proof and influence, and the peer under mutual TLS. That needs a stamp
+  key and a keyring, root and policy pin, and holds whether or not the service
+  verifies requests: where `paztport.verify` is false, or the mode is `off`, the
+  filter verifies the chain for attestation alone, and a failure only withholds the
+  attestation. The reason is that a response stamp is shaped like a request stamp:
+  attesting a chain nobody checked would let whoever sent it mint stamps under the
+  service's key. An origin never attests, nor does a service with no verifier.
+  The stamp binds the status, the body and the labels its handler added with
+  `PaztportContext.label`, and is sent as `X-Path-Response`. Refusals and audit-mode
   failures are not attested. The stamp covers the whole body, so the body is held
   until the handler returns. An async response is not attested: its body is sent
   whole when the async work completes, with no `X-Path-Response`.
@@ -82,7 +90,9 @@ Glue, configured through `paztport.*` properties.
   Wherever there is a keyring, a root and the policy pin, it checks the response's
   attestation: verified labels become influence entries, and any other response
   becomes one `local-untrusted` entry (`src` `http:<target>`, `h` the result
-  hash).
+  hash). The verifier's replay cache forgets a key after
+  `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call window,
+  which the verifier requires, and never so late that it grows without end.
 - **The context scope.** Influence is recorded only inside a `PaztportContext`
   scope. The filter opens one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still
@@ -91,10 +101,13 @@ Glue, configured through `paztport.*` properties.
   service presents on its calls and its events. On a request that came with a
   client certificate, `PeerIdentity` makes the verifier's peer: the subject's
   common name when there is exactly one, else `""`, at the TCP address the
-  connection came from. Responses are checked with no peer.
+  connection came from. A certificate that names no service is still a peer, so the
+  check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
+  Responses are checked with no peer.
 - **Modes and events.** `/admin/mode`, the events sent to a responder, one
-  `PAZTPORT_TRACE` log line per request verified and per response received (with
-  `reason=-` where no verifier is configured to check it), and an optional
+  `PAZTPORT_TRACE` log line per request verified, including one verified only to
+  decide attestation, and per response received (with `reason=-` where no verifier
+  is configured to check it), and an optional
   `ReceivedRequestListener` hook that lets an application observe each request the
   filter receives. The SDK captures nothing itself: the mesh demo's request
   capture, for its replay scenario, is a listener on that hook.
@@ -106,7 +119,8 @@ One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
 - a per-service Ed25519 stamp key (`<svc>.key`) and a policy key (`policy.key`);
 - `keyring.json`, signed by the policy key, and `policy.pub`, the pin;
 - one CA per run, named by `--org` (default `shop`), whose key is written alone to
-  `ca/ca.key`, so it is never in `tls/`, the directory services mount from;
+  `ca/ca.key`, outside `tls/`, so it sits apart from the certificates and keys that
+  services mount (each service mounts only its own files, one by one);
 - `tls/ca.crt`, and `tls/<name>.crt` and `.key` for every service and every
   TLS-only name (default `operator` and `responder`), which get a certificate but
   no stamp key, so they never enter the keyring. Certificates are ECDSA P-256 with

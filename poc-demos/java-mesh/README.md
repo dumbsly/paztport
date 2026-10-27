@@ -71,6 +71,7 @@ sequenceDiagram
     C->>G: POST /checkout (mTLS)
     Note over G: mint rid<br/>s0 = Sign(k_gateway, …, rcv = orders, prev = empty)
     G->>O: POST /orders (mTLS)<br/>X-Path-Chain = [s0]<br/>X-Path-Proof = proof(gateway/orders)
+    Note over O: check [s0] as receiver orders, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
     Note over O: s1 = Sign(k_orders, …, rcv = payment, prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders/payment)
     O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders/payment)
     Note over P: the twelve checks: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders/payment against the root,<br/>and the peer: the last signer is orders
@@ -89,8 +90,8 @@ service from the request URI host (Compose service names double as hostnames),
 takes the inbound chain and the influence so far from a request-scoped context,
 and attaches the proof for `(chain so far) + target` if this hop holds one. The
 inbound filter caches the body, records the received chain for later appends,
-runs verification on verifying services, and attests the responses of every
-service that holds a stamp key.
+runs verification on verifying services, and attests responses: every service but
+the origin attests its answer to a request whose chain verified there.
 
 A response is attested by one more stamp on the chain the request arrived with,
 naming the caller as its receiver and binding the status, the body and any content
@@ -232,20 +233,25 @@ Notes on the ordering:
 
 ## Response attestation
 
-Every service holds a stamp key, so each attests what it answers whenever the
-request came with a chain: `X-Path-Response` carries one stamp on that chain, back
-to the caller, binding the status, the body and the content labels. `gateway` is
-the origin, and the client's requests to it carry no chain, so its answers are not
-attested. The caller checks
-it against the chain and the proof it sent, with itself as the receiver and no
-peer, since TLS hostname verification already authenticated the server it called.
-`gateway`, `orders` and `search` each hold the keyring, the root and the pin, so
-each checks every response it gets.
+A service attests what it answers with `X-Path-Response`: one stamp on the chain
+the request arrived with, back to the caller, binding the status, the body and the
+content labels. The caller checks it against the chain and the proof it sent, with
+itself as the receiver and no peer, since TLS hostname verification already
+authenticated the server it called. `gateway`, `orders` and `search` each hold the
+keyring, the root and the pin, so each checks every response it gets.
 
-- A service attests only a request whose chain verified there, or that it did not
-  check (`orders`, which doesn't verify, or `payment` in `off`). A refusal, or a
-  request that failed in `audit`, is answered without an attestation: the stamp
-  would vouch for a chain the service knows to be bad.
+- **Origins never attest, and a hop attests only a chain it verified.** A response
+  stamp is shaped like a request stamp, so attesting a chain nobody checked would
+  let anyone mint stamps under the service's key: a forged one-stamp chain with an
+  empty signature would come back as a genuine origin stamp. So `orders` and
+  `search`, which don't refuse requests, still run the full live order on each
+  request's chain, with their own trust material, themselves as receiver and the
+  peer their client certificate names, and attest only when it passes; a failure
+  just leaves the answer unattested. `payment` attests what it verified, and, in
+  `off`, verifies for attestation alone. A refusal, or a request that failed in
+  `audit`, is answered without an attestation. `gateway` is the origin: it starts
+  each request tree with no chain and no influence, whatever a request carries, and
+  never attests.
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
@@ -273,6 +279,7 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 | Keep a valid chain, swap the body | Last stamp's `bind` no longer matches | 6: `BINDING_MISMATCH` |
 | Hold a chain and use it later | Stamps older than the freshness window | 7: `EXPIRED` |
 | Send another service's fresh chain from its own connection | The last signer must be the service its client certificate names | `PEER_MISMATCH` (the SDK's mutual TLS test) |
+| Send a hop a forged chain, so that its response stamp becomes one the attacker can start a chain with | A hop attests only a chain that passed the live order there, and `gateway`, the origin, never attests | No `X-Path-Response` (the SDK's attestation tests) |
 | Keep attacking | Instance isolated and replaced after a threshold | 9: quarantine |
 
 **Not defended by design:** a compromised hop that sits on a *valid* route can
@@ -549,7 +556,7 @@ exposed to the host.
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
-| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services; `payment`'s attests its responses |
+| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services; each but `gateway`, the origin, attests its responses with it |
 | `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `search` | `gateway`, `orders`, `search` |
 | `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` in every `application.yml` but `search`'s; Compose sets it for `search` | the four services (requests at `payment`, responses at the callers), responder (event signatures) |
 | `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` in every service's `application.yml` but `search`'s; Compose sets it for `search` | the four services |

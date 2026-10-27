@@ -11,7 +11,9 @@
 # service gets its own TLS certificate and key and the CA certificate, since
 # every hop is mutual TLS. Callers see their own stamp key and their own proofs,
 # plus the public keyring, the signed root and the policy pin (policy.pub) to
-# check the responses they get back. Payment sees the same public files to
+# check the responses they get back, and, for orders and search, the chains of
+# the requests they answer: a hop attests only a chain it verified, and gateway,
+# the origin, never attests. Payment sees the same public files to
 # verify requests, and its own stamp key, which attests its responses and signs
 # the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
 # is mounted nowhere.

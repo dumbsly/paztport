@@ -252,7 +252,9 @@ A response carries the answering service's attestation in one header, also the b
 | `X-Path-Response` | The JSON object `{ "stamp": <v3 stamp>, "labels": [ ... ] }`, the labels written as in an MCP attestation. |
 
 The response stamp is one more stamp on the request chain the answering service received, so it needs no proof
-of its own: the caller already holds the proof for the request's route.
+of its own: the caller already holds the proof for the request's route. Because it is shaped like a request stamp,
+a service attests only a chain that verified there, and an origin never attests
+([verification.md](verification.md#http-requests-and-responses) has the rule).
 
 | Field | Value |
 |---|---|

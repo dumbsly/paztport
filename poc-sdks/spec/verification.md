@@ -189,19 +189,28 @@ mesh's services pin one policy key, root and keyring in advance, and `sess` is `
 it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an unreadable proof
 is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it does not
 verify: dropping it could hide `private` content from the rule. The Java SDK answers it
-`400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first.
+`400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first. An origin starts a
+new request tree, so it carries neither the chain nor the influence a request brings, and has nothing to drop.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
 passes it as `peer`: `peer.svc` is the certificate subject's common name when it has exactly one, and `""`
 otherwise, so a certificate with none or several fails check 12 (`PEER_MISMATCH`) rather than picking one;
 `peer.inst` is the TCP address the connection came from. With no client certificate there is no peer.
 
-**A response, at the caller.** The answering service attests a response only when it holds a stamp key and the
-request's chain parsed as v3 and either verified there or was not checked there. It never attests a refusal, or
-a request that failed in audit mode: the stamp would vouch for a chain it knows to be bad. The caller checks
-`X-Path-Response` with `stamps` = the chain it sent then the response stamp, `receiver` = its own name,
-`receiverInRoute = false`, `proof` = the proof it sent, `influence = []`,
-`nonceKey = <rid>|<target>|resp` and no peer. In order:
+**Who attests.** A service attests a response only when the request's chain passed the live order, 1 to 12, at
+that service, as for a request at the receiver above: its own pinned material, `receiver` = its own name, the
+request's proof and influence, and the peer when there is one. This holds whether or not the service refuses
+requests that fail: one that does not enforce MUST still run the live order before it attests, and a failure there
+only withholds the attestation. A response stamp is shaped like a request stamp, so attesting a chain nobody
+checked would let anyone mint stamps under the service's key: on a forged one-stamp chain with an empty `sig`,
+the response is a valid origin stamp from the answering service. So a service with nothing to verify with never
+attests, and an origin, which starts each request tree afresh, never attests. Nor is a refusal attested, or a
+request that failed in audit mode. A service runs the live order at most once per request, since it spends the
+request's nonce key.
+
+**A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
+response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
+`influence = []`, `nonceKey = <rid>|<target>|resp` and no peer. In order:
 
 1. The header is present and decodes to an object with a `stamp` and an array of well-formed `labels`
    (`CHAIN_MISSING`).
