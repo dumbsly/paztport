@@ -81,12 +81,14 @@ public class AttackController {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
         }
-        // Let the normal interceptor append search's own stamp to the stolen chain.
+        // Let the normal interceptor append search's own stamp to the stolen chain. The rest of the context
+        // belongs to the filter serving this request, so only the chain is swapped, and it is put back after.
+        List<StampV3> previous = PaztportContext.inboundChain();
         PaztportContext.setInboundChain(stolen);
         try {
             return callPayment(stampedClient, null, null, null, BODY);
         } finally {
-            PaztportContext.clear();
+            PaztportContext.setInboundChain(previous);
         }
     }
 

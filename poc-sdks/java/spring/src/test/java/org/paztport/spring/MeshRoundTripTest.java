@@ -160,9 +160,16 @@ class MeshRoundTripTest {
 
         assertEquals(Map.of("q", "café x"), body);
         List<String> lines = traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
-        assertEquals(2, lines.size(), lines.toString());
-        for (String line : lines) {
+        List<String> requests = lines.stream().filter(l -> l.startsWith("PAZTPORT_TRACE request ")).toList();
+        List<String> responses = lines.stream().filter(l -> l.startsWith("PAZTPORT_TRACE response ")).toList();
+        assertEquals(2, requests.size(), lines.toString());
+        for (String line : requests) {
             assertTrue(line.contains(" reason=OK receiver=localhost ✓ peer=none "), line);
+        }
+        // Each request's answer comes back attested, and each caller verifies it.
+        assertEquals(2, responses.size(), lines.toString());
+        for (String line : responses) {
+            assertTrue(line.contains(" from=localhost reason=OK receiver=localhost ✓ "), line);
         }
     }
 }

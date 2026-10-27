@@ -40,4 +40,20 @@
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The embedded-server tests start Tomcat, which loads its native library, and Mockito,
+                 which attaches byte-buddy's agent at runtime. Allowing both up front keeps the JVM's
+                 warnings about them out of the test output; class sharing is off because the agent
+                 extends the boot class path, which class sharing would otherwise warn about. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--enable-native-access=ALL-UNNAMED -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

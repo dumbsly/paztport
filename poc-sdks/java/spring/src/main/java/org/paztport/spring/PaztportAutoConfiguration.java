@@ -29,6 +29,8 @@ import org.springframework.core.Ordered;
  * what its role requires: callers get a stamper and interceptor, a service with
  * a keyring, a root and the policy pin gets a VerifierV3, and every service gets
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
+ * Wherever there is a VerifierV3, the interceptor also checks every response it
+ * gets, and wherever there is a stamper, the filter attests the responses it sends.
  *
  * <p>The verifier is pinned: the keyring and the root must both verify under
  * {@code policy.pub}, or the context fails to start. Inside one mesh a request
@@ -59,8 +61,11 @@ public class PaztportAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    RestClientCustomizer paztportRestClientCustomizer(StamperV3 stamper, ObjectProvider<ProofBundle> bundle) {
-        OutboundInterceptor interceptor = new OutboundInterceptor(stamper, bundle.getIfAvailable());
+    RestClientCustomizer paztportRestClientCustomizer(
+            StamperV3 stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<VerifierV3> verifier,
+            PaztportProperties props) {
+        OutboundInterceptor interceptor = new OutboundInterceptor(
+                stamper, bundle.getIfAvailable(), verifier.getIfAvailable(), props.getServiceName());
         return builder -> builder.requestInterceptor(interceptor);
     }
 
@@ -122,7 +127,8 @@ public class PaztportAutoConfiguration {
             ObjectProvider<VerifierV3> verifier,
             ObjectProvider<ModeHolder> modeHolder,
             ObjectProvider<EventPublisher> publisher,
-            ObjectProvider<ReceivedRequestListener> listener) {
+            ObjectProvider<ReceivedRequestListener> listener,
+            ObjectProvider<StamperV3> stamper) {
         VerifierV3 requestVerifier = null;
         if (props.isVerify()) {
             requestVerifier = verifier.getIfAvailable();
@@ -133,7 +139,7 @@ public class PaztportAutoConfiguration {
         }
         InboundFilter filter = new InboundFilter(
                 requestVerifier, props.getServiceName(), modeHolder.getIfAvailable(),
-                publisher.getIfAvailable(), listener.getIfAvailable());
+                publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");

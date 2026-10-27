@@ -4,6 +4,8 @@
 package org.paztport.spring;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -12,11 +14,13 @@ import java.io.IOException;
 import java.util.List;
 import java.util.TreeSet;
 import org.paztport.core.Chains;
+import org.paztport.core.ContentLabel;
 import org.paztport.core.Influence;
 import org.paztport.core.InfluenceEntry;
 import org.paztport.core.ParsedChain;
 import org.paztport.core.Peer;
 import org.paztport.core.StampV3;
+import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierV3;
 import org.paztport.core.VerifyInputV3;
 import org.paztport.core.VerifyResult;
@@ -25,6 +29,7 @@ import org.paztport.http.PaztportHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
+import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
  * Inbound half of the glue. Caches the body, stores the received v3 chain and influence in {@link PaztportContext}
@@ -32,13 +37,23 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <ul>
  *   <li>{@code OFF} — skip verification, pass through.</li>
- *   <li>{@code AUDIT} — verify, publish an event on failure, always pass through.</li>
+ *   <li>{@code AUDIT} — verify, publish an event on failure, and pass through, unless the influence cannot be
+ *       read: that is answered 400 in every mode, as below.</li>
  *   <li>{@code ENFORCE} — verify, publish an event and return 403 on failure.</li>
  * </ul>
  *
  * The influence the handler starts from is the verified entries when the request verified, and otherwise the
  * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
- * from the rule: wherever it was not verified, it is answered {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
+ * from the rule: in every mode, it is answered {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
+ *
+ * <p>A service holding a stamp key attests what it answers: one stamp on the chain it received, back to the caller,
+ * binding the status, the body and the labels the handler gave it ({@link PaztportContext#label}), sent as
+ * {@code X-Path-Response}. It attests only a request whose chain verified here or was not checked here (a
+ * non-verifying service, or mode {@code OFF}); a request it refused or that failed in {@code AUDIT} gets no
+ * attestation, because the stamp would vouch for a chain this service knows to be bad. The body is held until the
+ * handler returns, since the stamp covers all of it. A handler that throws sends no attestation, and a body the
+ * container writes afterwards (an error page after {@code sendError}) is not the one attested; either way the
+ * caller cannot verify it and counts it as untrusted.
  *
  * <p>A null verifier skips verification on non-verifying hops. A non-null {@link ReceivedRequestListener} is
  * offered every request first, before any verification, so an application can observe traffic without the SDK
@@ -47,21 +62,25 @@ import org.springframework.web.filter.OncePerRequestFilter;
 public final class InboundFilter extends OncePerRequestFilter {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final VerifierV3 verifier;
     private final String receiver;
     private final ModeHolder modeHolder;
     private final EventPublisher publisher;
     private final ReceivedRequestListener listener;
+    private final StamperV3 stamper;
 
+    /** {@code verifier} is null on a hop that does not verify, {@code stamper} on one that does not attest. */
     public InboundFilter(
             VerifierV3 verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
-            ReceivedRequestListener listener) {
+            ReceivedRequestListener listener, StamperV3 stamper) {
         this.verifier = verifier;
         this.receiver = receiver;
         this.modeHolder = modeHolder;
         this.publisher = publisher;
         this.listener = listener;
+        this.stamper = stamper;
     }
 
     @Override
@@ -84,13 +103,16 @@ public final class InboundFilter extends OncePerRequestFilter {
 
         // A pooled thread starts clean even if something escaped an earlier request's finally.
         PaztportContext.clear();
-        PaztportContext.setInboundChain(parseChain(chainHeader));
+        List<StampV3> inbound = parseChain(chainHeader);
+        PaztportContext.setInboundChain(inbound);
         try {
             if (listener != null) {
                 listener.received(chainHeader, proofHeader, influenceHeader, request.getMethod(), target, body);
             }
             VerificationMode mode = verifier == null ? VerificationMode.OFF : modeHolder.get();
             List<InfluenceEntry> influence;
+            // True when the chain verified here or was not checked here: the chains this service may attest onto.
+            boolean vouchable = true;
             if (mode != VerificationMode.OFF) {
                 // Peer stays null until the transport authenticates one.
                 Peer peer = null;
@@ -103,6 +125,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                     TRACE.info(traceLine(currentRid(), result, receiver, peer, influence));
                 }
                 if (!result.ok()) {
+                    vouchable = false;
                     publisher.publish(new AttestationEvent(
                             result.reason().name(), result.suspectSvc(), result.suspectInst(),
                             currentRid(), mode == VerificationMode.AUDIT));
@@ -119,9 +142,35 @@ public final class InboundFilter extends OncePerRequestFilter {
                 return;
             }
             PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
-            chain.doFilter(wrapped, response);
+            if (stamper == null || inbound == null || !vouchable) {
+                chain.doFilter(wrapped, response);
+                return;
+            }
+            ContentCachingResponseWrapper cached = new ContentCachingResponseWrapper(response);
+            chain.doFilter(wrapped, cached);
+            attest(cached, inbound);
+            cached.copyBodyToResponse();
         } finally {
             PaztportContext.clear();
+        }
+    }
+
+    /**
+     * Sets {@code X-Path-Response} over the status and the body the handler left in {@code cached}. The chain the
+     * handler was given is used, not whatever the context holds now, so a handler cannot steer what is vouched
+     * for. A rid or label the binding cannot carry leaves the response unattested rather than failing it.
+     */
+    private void attest(ContentCachingResponseWrapper cached, List<StampV3> inbound) {
+        if (cached.isCommitted()) {
+            return;
+        }
+        List<ContentLabel> labels = PaztportContext.labels();
+        try {
+            String hash = HttpV3.resultHash(cached.getStatus(), cached.getContentAsByteArray());
+            StampV3 stamp = stamper.respond(inbound, hash, inbound.get(0).rid(), labels);
+            cached.setHeader(PaztportHeaders.RESPONSE, HttpV3.encodeResponse(stamp, labels));
+        } catch (IllegalArgumentException e) {
+            // Unattested: the caller records the response as local-untrusted.
         }
     }
 
@@ -168,12 +217,16 @@ public final class InboundFilter extends OncePerRequestFilter {
                 classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 
+    /** The suspect is whatever its signer chose, so the body is written by an encoder, never by formatting. */
     private static void reject(HttpServletResponse response, VerifyResult result) throws IOException {
+        ObjectNode body = JSON.createObjectNode()
+                .put("reason", result.reason().name())
+                .put("suspectSvc", result.suspectSvc())
+                .put("suspectInst", result.suspectInst());
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
-        response.getWriter().write(String.format(
-                "{\"reason\":\"%s\",\"suspectSvc\":\"%s\",\"suspectInst\":\"%s\"}",
-                result.reason(), result.suspectSvc(), result.suspectInst()));
+        response.setCharacterEncoding("UTF-8");
+        response.getWriter().write(JSON.writeValueAsString(body));
     }
 
     private static void unreadableInfluence(HttpServletResponse response) throws IOException {
