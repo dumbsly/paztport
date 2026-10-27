@@ -16,9 +16,9 @@ import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.PaztportContext;
+import org.paztport.spring.PooledTlsClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.web.client.RestClientSsl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -50,12 +50,12 @@ public class AttackController {
             StolenChainStore stolenChains,
             @Value("${downstream.payment-url}") String paymentUrl,
             @Value("${paztport.key-path}") String keyPath,
-            RestClientSsl ssl,
-            @Value("${paztport.tls-bundle}") String tlsBundle) throws Exception {
+            PooledTlsClient tls) throws Exception {
         this.stampedClient = stampedClient;
-        // Built apart from the shared builder, so it never gets the stamping interceptor. Payment requires a
-        // client certificate, and the attacker can only present its own: every attack arrives as search.
-        this.rawClient = RestClient.builder().apply(ssl.fromBundle(tlsBundle)).build();
+        // Built apart from the shared builder, so it never gets the stamping interceptor, but on the starter's
+        // pooled client, so it reuses connections like every other call. Payment requires a client certificate,
+        // and the attacker can only present its own: every attack arrives as search.
+        this.rawClient = tls.builder().build();
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
         this.searchKey = KeyFiles.loadPrivateKey(Path.of(keyPath));
@@ -119,12 +119,13 @@ public class AttackController {
                 "{\"amount\":999999}".getBytes(StandardCharsets.UTF_8));
     }
 
+    /** The exchange closes the response, read or not, so an unread refusal does not hold a pooled connection. */
     private CapturedView fetchCaptured() {
         return rawClient.get()
                 .uri(paymentUrl + "/debug/last-request")
                 .exchange((request, response) -> response.getStatusCode().is2xxSuccessful()
                         ? json.readValue(response.getBody(), CapturedView.class)
-                        : null, false);
+                        : null);
     }
 
     private record CapturedView(
@@ -150,6 +151,6 @@ public class AttackController {
                 .body(body)
                 .exchange((request, response) -> ResponseEntity
                         .status(response.getStatusCode())
-                        .body(new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)), false);
+                        .body(new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
     }
 }
