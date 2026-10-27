@@ -28,6 +28,8 @@ import org.bouncycastle.asn1.x509.KeyPurposeId;
 import org.bouncycastle.asn1.x509.KeyUsage;
 import org.bouncycastle.cert.X509v3CertificateBuilder;
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter;
+import org.bouncycastle.cert.jcajce.JcaX509CertificateHolder;
+import org.bouncycastle.cert.jcajce.JcaX509ExtensionUtils;
 import org.bouncycastle.cert.jcajce.JcaX509v3CertificateBuilder;
 import org.bouncycastle.operator.ContentSigner;
 import org.bouncycastle.operator.OperatorCreationException;
@@ -58,8 +60,12 @@ public final class TlsIssuer {
     public static Ca newCa(String org, Duration validity) {
         try {
             KeyPair keys = newKeyPair();
+            requireLabel(org);
             X500Name subject = new X500Name("CN=" + org + " CA");
             X509v3CertificateBuilder b = builder(subject, subject, keys, validity);
+            JcaX509ExtensionUtils ids = new JcaX509ExtensionUtils();
+            b.addExtension(Extension.subjectKeyIdentifier, false, ids.createSubjectKeyIdentifier(keys.getPublic()));
+            b.addExtension(Extension.authorityKeyIdentifier, false, ids.createAuthorityKeyIdentifier(keys.getPublic()));
             b.addExtension(Extension.basicConstraints, true, new BasicConstraints(0));
             b.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.keyCertSign | KeyUsage.cRLSign));
             return new Ca(sign(b, keys.getPrivate()), keys);
@@ -74,9 +80,15 @@ public final class TlsIssuer {
      */
     public static Issued issue(Ca ca, String name, Duration validity, String... extraSans) {
         try {
+            requireLabel(name);
             KeyPair keys = newKeyPair();
-            X500Name issuer = new X500Name(ca.cert().getSubjectX500Principal().getName());
+            // The issuer is the CA certificate's own encoded subject, so it matches byte for byte.
+            X500Name issuer = new JcaX509CertificateHolder(ca.cert()).getSubject();
             X509v3CertificateBuilder b = builder(issuer, new X500Name("CN=" + name), keys, validity);
+            JcaX509ExtensionUtils ids = new JcaX509ExtensionUtils();
+            b.addExtension(Extension.subjectKeyIdentifier, false, ids.createSubjectKeyIdentifier(keys.getPublic()));
+            b.addExtension(Extension.authorityKeyIdentifier, false,
+                    ids.createAuthorityKeyIdentifier(ca.cert().getPublicKey()));
             List<GeneralName> sans = new ArrayList<>();
             sans.add(new GeneralName(GeneralName.dNSName, name));
             for (String san : extraSans) {
@@ -91,6 +103,16 @@ public final class TlsIssuer {
             return new Issued(sign(b, ca.keys().getPrivate()), keys);
         } catch (IOException | GeneralSecurityException | OperatorCreationException e) {
             throw new IllegalStateException("could not issue a certificate for " + name, e);
+        }
+    }
+
+    /**
+     * Names become a certificate subject and a file name, so only plain labels are allowed: a comma would let a
+     * name add RDNs ({@code a,O=x}) and a slash would leave the output directory.
+     */
+    static void requireLabel(String name) {
+        if (name == null || !name.matches("[A-Za-z0-9_.-]+") || name.equals(".") || name.equals("..")) {
+            throw new IllegalArgumentException("not a plain name (letters, digits, '-', '_', '.'): " + name);
         }
     }
 

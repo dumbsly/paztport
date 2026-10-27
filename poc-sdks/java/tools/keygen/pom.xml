@@ -29,7 +29,18 @@
             <!-- Builds the X.509 certificates; the JDK has no public API for it. Keygen only: the SDK needs none. -->
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.78.1</version>
+            <version>1.80</version>
+        </dependency>
+        <dependency>
+            <!-- bcpkix 1.80 would pull 1.80.2 of these two; pinned to 1.80, as the mesh demo does, so one version ships. -->
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcutil-jdk18on</artifactId>
+            <version>1.80</version>
+        </dependency>
+        <dependency>
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcprov-jdk18on</artifactId>
+            <version>1.80</version>
         </dependency>
 
         <dependency>
@@ -70,7 +81,7 @@
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>org.paztport.keygen.KeygenMain</mainClass>
                                 </transformer>
-                                <!-- Every bundled library is Apache-2.0: keep one LICENSE, merge all NOTICEs. -->
+                                <!-- Keep one Apache LICENSE and merge the Apache NOTICEs. Bouncy Castle's MIT-style licence is listed in THIRD-PARTY.txt. -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
                                     <projectName>Paztport</projectName>

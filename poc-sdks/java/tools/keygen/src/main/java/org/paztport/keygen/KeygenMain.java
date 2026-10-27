@@ -13,6 +13,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -27,7 +28,9 @@ import org.paztport.core.KeyringFile;
  *
  * Defaults to {@code out/keys}, the four POC services, the TLS-only names {@code operator} and
  * {@code responder} (they speak mTLS but sign no stamps, so stay out of the keyring), and org {@code shop}.
- * One CA is made per run and every certificate is issued from it. Only names are logged; private key material
+ * One CA is made per run and every certificate is issued from it. {@code tls/} holds {@code ca.crt} and the leaf
+ * certificates and keys, and is what gets mounted; the CA key is written alone to {@code ca/ca.key}. {@code ca} is
+ * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are logged; private key material
  * never is.
  */
 public final class KeygenMain {
@@ -41,6 +44,19 @@ public final class KeygenMain {
     }
 
     public static void run(Path outDir, List<String> services, List<String> tlsOnly, String org) throws IOException {
+        List<String> names = new ArrayList<>(services);
+        names.addAll(tlsOnly);
+        Set<String> seen = new HashSet<>();
+        for (String name : names) {
+            TlsIssuer.requireLabel(name);
+            if (name.equals("ca")) {
+                throw new IllegalArgumentException("'ca' is reserved for the certificate authority");
+            }
+            if (!seen.add(name)) {
+                throw new IllegalArgumentException("duplicate name: " + name);
+            }
+        }
+        TlsIssuer.requireLabel(org);
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
@@ -55,9 +71,9 @@ public final class KeygenMain {
         Path tls = Files.createDirectories(outDir.resolve("tls"));
         TlsIssuer.Ca ca = TlsIssuer.newCa(org, TLS_VALIDITY);
         Files.writeString(tls.resolve("ca.crt"), TlsIssuer.pem(ca.cert()));
-        writeSecret(tls.resolve("ca.key"), TlsIssuer.pem(ca.keys().getPrivate()));
-        List<String> names = new ArrayList<>(services);
-        names.addAll(tlsOnly);
+        // Its own directory: tls/ is mounted into containers, and the CA key must never be.
+        writeSecret(Files.createDirectories(outDir.resolve("ca")).resolve("ca.key"),
+                TlsIssuer.pem(ca.keys().getPrivate()));
         for (String name : names) {
             TlsIssuer.Issued leaf = TlsIssuer.issue(ca, name, TLS_VALIDITY);
             Files.writeString(tls.resolve(name + ".crt"), TlsIssuer.pem(leaf.cert()));
@@ -86,18 +102,24 @@ public final class KeygenMain {
         Files.writeString(file, content);
     }
 
-    public static void main(String[] args) throws IOException {
+    /** Parsed command line. */
+    record Args(Path outDir, List<String> services, List<String> tlsOnly, String org) {
+    }
+
+    /** {@code --tls-only} with no names means none; leaving it out means the defaults, whatever the flag order. */
+    static Args parse(String[] args) {
         List<String> positional = new ArrayList<>();
         List<String> tlsOnly = new ArrayList<>();
         String org = "shop";
+        boolean sawTlsOnly = false;
         boolean inTlsOnly = false;
         for (int i = 0; i < args.length; i++) {
             if (args[i].equals("--tls-only")) {
+                sawTlsOnly = true;
                 inTlsOnly = true;
             } else if (args[i].equals("--org")) {
                 if (i + 1 >= args.length) {
-                    System.err.println("keygen: --org needs a name");
-                    System.exit(2);
+                    throw new IllegalArgumentException("--org needs a name");
                 }
                 org = args[++i];
                 inTlsOnly = false;
@@ -107,11 +129,21 @@ public final class KeygenMain {
                 positional.add(args[i]);
             }
         }
-        Path outDir = Path.of(positional.isEmpty() ? "out/keys" : positional.get(0));
-        List<String> services = positional.size() > 1 ? positional.subList(1, positional.size()) : DEFAULT_SERVICES;
+        return new Args(Path.of(positional.isEmpty() ? "out/keys" : positional.get(0)),
+                positional.size() > 1 ? List.copyOf(positional.subList(1, positional.size())) : DEFAULT_SERVICES,
+                sawTlsOnly ? tlsOnly : DEFAULT_TLS_ONLY, org);
+    }
 
-        run(outDir, services, inTlsOnly || !tlsOnly.isEmpty() ? tlsOnly : DEFAULT_TLS_ONLY, org);
-        System.out.println("keygen: wrote signed keyring, policy pin, " + services.size()
-                + " service keys, policy key and TLS certificates to " + outDir);
+    public static void main(String[] args) throws IOException {
+        try {
+            Args a = parse(args);
+            run(a.outDir(), a.services(), a.tlsOnly(), a.org());
+            System.out.println("keygen: wrote signed keyring, policy pin, " + a.services().size()
+                    + " service keys, policy key and TLS certificates to " + a.outDir());
+        } catch (IllegalArgumentException e) {
+            System.err.println("keygen: " + e.getMessage());
+            System.err.println("usage: keygen [outDir] [service...] [--tls-only name...] [--org name]");
+            System.exit(2);
+        }
     }
 }

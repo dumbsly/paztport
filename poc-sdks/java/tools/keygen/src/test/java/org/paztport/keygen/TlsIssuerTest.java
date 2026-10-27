@@ -5,6 +5,7 @@ package org.paztport.keygen;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Duration;
@@ -73,5 +74,23 @@ class TlsIssuerTest {
         assertTrue(TlsIssuer.pem(ca.cert()).startsWith("-----BEGIN CERTIFICATE-----\n"));
         assertTrue(TlsIssuer.pem(ca.keys().getPrivate()).startsWith("-----BEGIN PRIVATE KEY-----\n"));
         assertTrue(TlsIssuer.pem(ca.keys().getPrivate()).trim().endsWith("-----END PRIVATE KEY-----"));
+    }
+
+    @Test
+    void nameIsALabelSoItCannotInjectSubjectFields() {
+        TlsIssuer.Ca ca = TlsIssuer.newCa("shop", VALID);
+        assertThrows(IllegalArgumentException.class, () -> TlsIssuer.issue(ca, "a,O=x", VALID));
+        assertThrows(IllegalArgumentException.class, () -> TlsIssuer.newCa("a,O=x", VALID));
+    }
+
+    @Test
+    void leafAndCaCarryLinkingKeyIdentifiers() {
+        TlsIssuer.Ca ca = TlsIssuer.newCa("shop", VALID);
+        TlsIssuer.Issued leaf = TlsIssuer.issue(ca, "orders", VALID);
+
+        assertTrue(ca.cert().getExtensionValue("2.5.29.14") != null, "CA SKI");
+        assertTrue(leaf.cert().getExtensionValue("2.5.29.14") != null, "leaf SKI");
+        assertTrue(leaf.cert().getExtensionValue("2.5.29.35") != null, "leaf AKI");
+        assertEquals(ca.cert().getSubjectX500Principal(), leaf.cert().getIssuerX500Principal());
     }
 }

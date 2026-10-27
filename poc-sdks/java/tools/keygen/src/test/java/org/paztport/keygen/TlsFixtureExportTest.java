@@ -18,7 +18,7 @@ import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
  * "foreign" CA and its {@code orders} certificate share a name with the real ones, to test that a certificate is
  * trusted for its issuer and not its name. These are test material only; real runs use {@link KeygenMain}.
  */
-class TlsFixtureExport {
+class TlsFixtureExportTest {
 
     private static final Duration CENTURY = Duration.ofDays(365L * 100);
 

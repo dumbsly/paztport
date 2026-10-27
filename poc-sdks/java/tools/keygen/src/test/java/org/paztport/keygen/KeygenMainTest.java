@@ -4,6 +4,7 @@
 package org.paztport.keygen;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -108,7 +109,8 @@ class KeygenMainTest {
             assertTrue(Files.readString(dir.resolve("tls/" + name + ".key")).startsWith("-----BEGIN PRIVATE KEY-----"));
         }
         assertTrue(Files.exists(dir.resolve("tls/ca.crt")));
-        assertTrue(Files.exists(dir.resolve("tls/ca.key")));
+        assertTrue(!Files.exists(dir.resolve("tls/ca.key")), "the CA key must not sit in the mounted tls/ directory");
+        assertTrue(Files.exists(dir.resolve("ca/ca.key")));
     }
 
     @Test
@@ -117,8 +119,31 @@ class KeygenMainTest {
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
 
         Set<PosixFilePermission> ownerOnly = PosixFilePermissions.fromString("rw-------");
-        for (String name : List.of("ca", "gateway", "operator", "responder")) {
+        for (String name : List.of("gateway", "operator", "responder")) {
             assertEquals(ownerOnly, Files.getPosixFilePermissions(dir.resolve("tls/" + name + ".key")), name);
         }
+        assertEquals(ownerOnly, Files.getPosixFilePermissions(dir.resolve("ca/ca.key")));
+    }
+
+    @Test
+    void tlsOnlyMeansTheSameWhicheverSideOfOrgItIsOn() {
+        assertEquals(List.of("operator", "responder"), KeygenMain.parse(new String[] {"out"}).tlsOnly());
+        assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only"}).tlsOnly());
+        assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "--org", "x", "a", "--tls-only"}).tlsOnly());
+        assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "--org", "x"}).tlsOnly());
+        assertEquals(List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--org", "x", "--tls-only", "v"}).tlsOnly());
+        assertEquals(List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).tlsOnly());
+        assertEquals("x", KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).org());
+    }
+
+    @Test
+    void refusesTheReservedNameDuplicatesAndNonLabels(@TempDir Path dir) {
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("ca"), List.of(), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a"), List.of("ca"), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a", "a"), List.of(), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a"), List.of("a"), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a,O=x"), List.of(), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("../a"), List.of(), "shop"));
+        assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a"), List.of(), "sh op"));
     }
 }
