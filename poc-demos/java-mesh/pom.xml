@@ -10,7 +10,7 @@
     <packaging>pom</packaging>
 
     <name>Paztport Java Mesh Demo Parent</name>
-    <description>The Java mesh demo: four Spring Boot services and a quarantine responder on the Paztport SDK, and a partner organisation's PSP.</description>
+    <description>The Java mesh demo: the shop's Spring Boot services and a quarantine responder on the Paztport SDK, and a partner organisation's PSP.</description>
     <inceptionYear>2026</inceptionYear>
 
     <organization>
@@ -30,6 +30,9 @@
         <module>services/orders</module>
         <module>services/payment</module>
         <module>services/search</module>
+        <module>services/tickets</module>
+        <module>services/assistant</module>
+        <module>services/mailer</module>
         <module>responder</module>
         <module>psp</module>
     </modules>

@@ -3,6 +3,8 @@
 
 package org.paztport.orders;
 
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.stereotype.Component;
 
@@ -21,5 +23,17 @@ public class OrderBook {
     /** The order with this id, or null when there is none. */
     public Order byId(String id) {
         return id == null ? null : orders.get(id);
+    }
+
+    /** Every order placed with this address, after trimming and lower-casing it, in id order; none for null. */
+    public List<Order> byEmail(String email) {
+        if (email == null) {
+            return List.of();
+        }
+        String wanted = email.trim().toLowerCase(Locale.ROOT);
+        return orders.values().stream()
+                .filter(o -> o.email().equals(wanted))
+                .sorted((a, b) -> a.id().compareTo(b.id()))
+                .toList();
     }
 }

@@ -4,16 +4,28 @@
 package org.paztport.orders;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.paztport.core.InfluenceClass;
+import org.paztport.spring.PaztportContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
-/** Appends its stamp (via the interceptor) and calls payment. */
+/**
+ * Appends its stamp (via the interceptor) and calls payment; and answers reads of the order book.
+ *
+ * <p>An order is private to the customer who placed it, so every read labels its answer {@code private} with that
+ * customer as owner. The label goes back attested, so whoever read it carries it on every call after: a later write
+ * somewhere public is then judged knowing whose data shaped it.
+ */
 @RestController
 public class OrdersController {
 
@@ -29,6 +41,26 @@ public class OrdersController {
         this.http = http;
         this.book = book;
         this.paymentUrl = paymentUrl;
+    }
+
+    /** One order, labelled with its customer; {@code 404} when there is none. */
+    @GetMapping("/orders/{id}")
+    public ResponseEntity<?> byId(@PathVariable String id) {
+        OrderBook.Order order = book.byId(id);
+        if (order == null) {
+            return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
+        }
+        PaztportContext.label(InfluenceClass.PRIVATE, order.customer());
+        return ResponseEntity.ok(order);
+    }
+
+    /** The orders placed with an address, labelled with their customer when there is one. */
+    @GetMapping("/orders")
+    public Map<String, List<OrderBook.Order>> byEmail(@RequestParam String email) {
+        List<OrderBook.Order> found = book.byEmail(email);
+        found.stream().map(OrderBook.Order::customer).distinct()
+                .forEach(customer -> PaztportContext.label(InfluenceClass.PRIVATE, customer));
+        return Map.of("orders", found);
     }
 
     @PostMapping("/orders")

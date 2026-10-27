@@ -15,7 +15,9 @@
 # plus the public keyring, the signed root and the policy pin (policy.pub) to
 # check the responses they get back, and, for orders and search, the chains of
 # the requests they answer: a hop attests only a chain it verified, and gateway,
-# the origin, never attests. Payment sees the same public files to
+# the origin, never attests. Tickets, the assistant and the mailer verify every
+# request, with the same public files; the mailer calls nobody, so it holds a
+# stamp key (to attest its answers) and no proofs. Payment sees the same public files to
 # verify requests, and its own stamp key, which attests its responses and signs
 # the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
 # is mounted nowhere.
@@ -26,6 +28,11 @@
 # CA certificate, and its proofs for the boundary route payment->psp; the PSP
 # holds the shop's policy pin and CA certificate, and its own policy private key,
 # which signs its session replies. Neither sees the other's routes or keys.
+#
+# The six services a support ticket passes through (gateway, tickets,
+# assistant, orders, payment, mailer) allow a request tree 30 s from the
+# gateway's stamp (PAZTPORT_RUN_MAX_AGE_MS): five hops started cold can take
+# longer than 5 s. Each stamp is still refused once it is 5 s old.
 #
 # The build context is the repository root, because the keygen and policy-tool
 # jars are built under poc-sdks/java. The project name is pinned so container
@@ -97,6 +104,7 @@ services:
     networks: [mesh, psp]   # the shop's egress: the one service that reaches the PSP
     environment:
       PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
       PAZTPORT_CAPTURE: "true"   # demo harness: lets the attacker replay a real request
       PAZTPORT_KEY_PATH: /config/keys/payment.key   # attests payment's responses
@@ -128,6 +136,8 @@ services:
       args:
         JAR: poc-demos/java-mesh/services/orders/target/orders.jar
     networks: [mesh]
+    environment:
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
     volumes:
       - ./out/keys/orders.key:/config/keys/orders.key:ro
       - ./out/policy/proofs-orders.json:/config/policy/proofs-orders.json:ro
@@ -163,6 +173,69 @@ services:
       - ./out/keys/tls/search.key:/config/tls/search.key:ro
       - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
 
+  # --- the support desk: tickets, the assistant (scripted: no model) and the mailer ---
+
+  mailer:
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-demos/java-mesh/services/mailer/target/mailer.jar
+    networks: [mesh]
+    environment:
+      PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
+    volumes:
+      - ./out/keys/mailer.key:/config/keys/mailer.key:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/mailer.crt:/config/tls/mailer.crt:ro
+      - ./out/keys/tls/mailer.key:/config/tls/mailer.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
+
+  assistant:
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-demos/java-mesh/services/assistant/target/assistant.jar
+    networks: [mesh]
+    environment:
+      PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
+    volumes:
+      - ./out/keys/assistant.key:/config/keys/assistant.key:ro
+      - ./out/policy/proofs-assistant.json:/config/policy/proofs-assistant.json:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/assistant.crt:/config/tls/assistant.crt:ro
+      - ./out/keys/tls/assistant.key:/config/tls/assistant.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
+    depends_on: [orders, payment, mailer]
+
+  tickets:
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-demos/java-mesh/services/tickets/target/tickets.jar
+    networks: [mesh]
+    environment:
+      PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
+    volumes:
+      - ./out/keys/tickets.key:/config/keys/tickets.key:ro
+      - ./out/policy/proofs-tickets.json:/config/policy/proofs-tickets.json:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/tickets.crt:/config/tls/tickets.crt:ro
+      - ./out/keys/tls/tickets.key:/config/tls/tickets.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
+    depends_on: [assistant]
+
   gateway:
     build:
       context: ../..
@@ -172,6 +245,8 @@ services:
     networks: [mesh]
     ports:
       - "8080:8080"
+    environment:
+      PAZTPORT_RUN_MAX_AGE_MS: "30000"
     volumes:
       - ./out/keys/gateway.key:/config/keys/gateway.key:ro
       - ./out/policy/proofs-gateway.json:/config/policy/proofs-gateway.json:ro
@@ -181,7 +256,7 @@ services:
       - ./out/keys/tls/gateway.crt:/config/tls/gateway.crt:ro
       - ./out/keys/tls/gateway.key:/config/tls/gateway.key:ro
       - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
-    depends_on: [orders, search]
+    depends_on: [orders, search, tickets]
 
   # --- the PSP: another organisation ---
 

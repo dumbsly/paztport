@@ -1,0 +1,43 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+
+server:
+  port: 8080
+  # Mutual TLS: every caller presents a certificate from the mesh CA, and the
+  # filter takes the service it names as the sender.
+  ssl:
+    bundle: mesh
+    client-auth: need
+
+spring:
+  ssl:
+    bundle:
+      pem:
+        mesh:
+          keystore:
+            certificate: file:/config/tls/assistant.crt
+            private-key: file:/config/tls/assistant.key
+          truststore:
+            certificate: file:/config/tls/ca.crt
+
+paztport:
+  service-name: assistant
+  # Every request is verified, and refused unless it verifies, so the
+  # influence the assistant starts from is the one tickets committed to.
+  verify: true
+  mode: enforce
+  admin-token: ${PAZTPORT_ADMIN_TOKEN:}
+  key-path: ${PAZTPORT_KEY_PATH:/config/keys/assistant.key}
+  proofs-path: ${PAZTPORT_PROOFS_PATH:/config/policy/proofs-assistant.json}
+  # The keyring, root and pin check the requests the assistant gets and the
+  # responses it gets back: only an attested response's labels (the order's
+  # owner, say) are carried on to the calls after it.
+  keyring-path: ${PAZTPORT_KEYRING_PATH:/config/keys/keyring.json}
+  root-path: ${PAZTPORT_ROOT_PATH:/config/policy/root.json}
+  policy-key-path: ${PAZTPORT_POLICY_KEY_PATH:/config/keys/policy.pub}
+  tls-bundle: mesh
+
+downstream:
+  orders-url: ${ORDERS_URL:https://orders:8080}
+  payment-url: ${PAYMENT_URL:https://payment:8080}
+  mailer-url: ${MAILER_URL:https://mailer:8080}

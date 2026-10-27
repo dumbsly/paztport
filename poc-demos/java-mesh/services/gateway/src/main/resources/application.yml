@@ -31,6 +31,7 @@ paztport:
 downstream:
   orders-url: ${ORDERS_URL:https://orders:8080}
   search-url: ${SEARCH_URL:https://search:8080}
+  tickets-url: ${TICKETS_URL:https://tickets:8080}
 
 # The demo's customers, each logged in with a fixed bearer token.
 demo:

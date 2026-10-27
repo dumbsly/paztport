@@ -3,3 +3,8 @@ paths:
   - [gateway, orders]
   - [gateway, search]
   - [payment, psp]
+  - [gateway, tickets]
+  - [gateway, tickets, assistant]
+  - [gateway, tickets, assistant, orders]
+  - [gateway, tickets, assistant, payment]
+  - [gateway, tickets, assistant, mailer]
