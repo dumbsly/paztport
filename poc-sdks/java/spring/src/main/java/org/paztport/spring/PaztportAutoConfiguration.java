@@ -4,8 +4,13 @@
 package org.paztport.spring;
 
 import java.net.InetAddress;
+import java.net.URI;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import org.paztport.core.InMemoryNonceCache;
@@ -51,6 +56,10 @@ import org.springframework.web.client.RestClient;
  * {@link PooledTlsClient}, so their connections are pooled and reused rather
  * than opened per call. A bundle that does not exist fails the context at
  * startup.
+ *
+ * <p>Setting {@code paztport.boundary.url} makes this service the egress to a
+ * partner organisation, with a {@link BoundaryClient} that presents its own
+ * bundle, {@code paztport.boundary.tls-bundle}.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -105,6 +114,54 @@ public class PaztportAutoConfiguration {
     @ConditionalOnProperty("paztport.tls-bundle")
     RestClientCustomizer paztportTlsRestClientCustomizer(PooledTlsClient tls) {
         return builder -> builder.requestFactory(tls.requestFactory());
+    }
+
+    /**
+     * The egress's client to the partner. Everything it needs is checked first, and the context fails naming
+     * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. It
+     * builds its own TLS client from {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's
+     * CA is trusted only on calls to the partner. The context closes it on shutdown.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.boundary.url")
+    BoundaryClient paztportBoundaryClient(PaztportProperties props, ObjectProvider<StamperV3> stamper,
+            ObjectProvider<ProofBundle> bundle, ObjectProvider<SslBundles> ssl) {
+        PaztportProperties.Boundary b = props.getBoundary();
+        Map<String, String> needed = new LinkedHashMap<>();
+        needed.put("paztport.key-path", props.getKeyPath());
+        needed.put("paztport.proofs-path", props.getProofsPath());
+        needed.put("paztport.keyring-path", props.getKeyringPath());
+        needed.put("paztport.root-path", props.getRootPath());
+        needed.put("paztport.policy-key-path", props.getPolicyKeyPath());
+        needed.put("paztport.boundary.partner", b.getPartner());
+        needed.put("paztport.boundary.url", b.getUrl());
+        needed.put("paztport.boundary.tls-bundle", b.getTlsBundle());
+        needed.put("paztport.boundary.partner-policy-key-path", b.getPartnerPolicyKeyPath());
+        List<String> missing = new ArrayList<>();
+        needed.forEach((name, value) -> {
+            if (value == null || value.isBlank()) {
+                missing.add(name);
+            }
+        });
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("paztport.boundary.url is set but these are not: "
+                    + String.join(", ", missing));
+        }
+        SslBundles bundles = ssl.getIfAvailable();
+        if (bundles == null) {
+            throw new IllegalStateException(
+                    "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
+        }
+        return new BoundaryClient(
+                stamper.getObject(),
+                bundle.getObject(),
+                ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
+                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
+                ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
+                b.getPartner(),
+                URI.create(b.getUrl()),
+                ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
+                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())));
     }
 
     @Bean

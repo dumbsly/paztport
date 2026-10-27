@@ -1,0 +1,345 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package org.paztport.spring;
+
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.List;
+import java.util.Objects;
+import java.util.TreeSet;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+import org.paztport.core.Base64Url;
+import org.paztport.core.Crypto;
+import org.paztport.core.InfluenceClass;
+import org.paztport.core.InfluenceEntry;
+import org.paztport.core.KeyringFile;
+import org.paztport.core.ProofBundle;
+import org.paztport.core.ReasonCode;
+import org.paztport.core.ReplyCheck;
+import org.paztport.core.SessionRequest;
+import org.paztport.core.Sessions;
+import org.paztport.core.SignedRoot;
+import org.paztport.core.StampV3;
+import org.paztport.core.StamperV3;
+import org.paztport.http.HttpSessions;
+import org.paztport.http.HttpV3;
+import org.paztport.http.PaztportHeaders;
+import org.paztport.http.RequestBinding;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/**
+ * The egress: the one way a request leaves this organisation for a partner. The partner must not see the internal
+ * chain, which is the map the protocol keeps private, so this sends one boundary stamp instead, signed with this
+ * service's key over the request it sends, in a session opened with the partner.
+ *
+ * <p>The boundary stamp vouches for the request that led to it, so it is signed only over a chain that passed the
+ * full live order at this hop: {@link PaztportContext#verifiedChain()}, which only the inbound filter sets, and only
+ * from the result that decides attestation. With no request scope, or with no verified chain (an origin, a hop
+ * that is off, a chain that failed in audit, a hop with no verifier), {@link #post} throws before anything is sent,
+ * the handshake included, so a request this service never accepted cannot even make it open a session.
+ *
+ * <p>The session is opened on the first call and shared by every call after it, since the partner keeps one per
+ * peer and a new handshake replaces the old one: concurrent first calls wait for the one handshake in flight rather
+ * than each replacing the session the others are using. The partner's reply is checked against its pinned policy
+ * key. A reply that is genuine gives an attested or an unsafe session, as it says. Anything else (a reply this side
+ * cannot use, an HTTP error, no answer) may have left an attested session open at the partner that this side
+ * cannot stamp for, so every call would be refused: the request is sent again with no root and a fresh nonce,
+ * which asks for an unsafe session, and its {@code sess} is taken as unsafe whatever the reply says. A handshake
+ * holds every first caller, so it is given a timeout where the calls themselves are not.
+ *
+ * <p>In an attested session a call carries the boundary stamp, the proof for {@code <this service>/<partner>}, and
+ * the influence with its owners, so the partner can apply the owner-aware rule. In an unsafe session it carries
+ * only the session id: the partner would not verify a stamp, and the owners in the influence are private.
+ *
+ * <p>The partner does not attest what it answers, so every reply is recorded as one {@code local-untrusted} entry,
+ * as any unattested response is. A {@code 403 SESSION_UNKNOWN} means the partner no longer knows the session (it
+ * restarted, or the session was replaced), so it is dropped and the next call opens a new one; the refused call is
+ * not retried, since it may have changed something.
+ *
+ * <p>Each handshake logs one {@code PAZTPORT_TRACE session} line and each call one {@code PAZTPORT_TRACE boundary}
+ * line. It owns its TLS client, built from the partner's bundle, and closes it with itself.
+ */
+public final class BoundaryClient implements AutoCloseable {
+
+    /** The message every refusal by the guard carries. */
+    static final String NO_VERIFIED_CHAIN = "no verified chain: nothing is signed at the boundary";
+
+    /** Long enough for a handshake on a loaded partner, short enough that a silent one does not hold every caller. */
+    static final Duration HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
+
+    private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    /** What a session id must look like before it goes in a header: base64url, as every derived id is. */
+    private static final Pattern SESSION_ID = Pattern.compile("[A-Za-z0-9_-]{1,128}");
+
+    /** A session with the partner: its id, and whether calls in it are stamped. */
+    private record Session(String sess, boolean attested) {
+    }
+
+    /** The partner's answer: its status and body, and whether the call went out in an attested session. */
+    public record Response(int status, byte[] body, boolean attested) {
+    }
+
+    private final StamperV3 stamper;
+    private final ProofBundle bundle;
+    private final SignedRoot ownRoot;
+    private final KeyringFile ownKeyring;
+    private final String ownPolicyKey;
+    private final String partner;
+    private final URI partnerUrl;
+    private final String pinnedPartnerKey;
+    private final PooledTlsClient tls;
+    private final AtomicReference<Session> session = new AtomicReference<>();
+    private final Object handshake = new Object();
+
+    /**
+     * @param stamper this service's stamper; the boundary stamp is signed with its key
+     * @param bundle this service's proofs, which must hold {@code <this service>/<partner>}
+     * @param ownRoot this organisation's signed root, sent in the handshake
+     * @param ownKeyring this organisation's signed keyring, sent in the handshake
+     * @param ownPolicyKey this organisation's policy public key, under which the root and keyring verify
+     * @param partner the partner's entry service, the boundary stamp's receiver
+     * @param partnerUrl the partner's base URL: a scheme and an authority, with no path
+     * @param pinnedPartnerKey the partner's policy public key, pinned at onboarding
+     * @param tls the client that presents this service's certificate to the partner; closed with this one
+     */
+    public BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
+            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls) {
+        this.stamper = Objects.requireNonNull(stamper, "stamper");
+        this.bundle = Objects.requireNonNull(bundle, "bundle");
+        this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
+        this.ownKeyring = Objects.requireNonNull(ownKeyring, "ownKeyring");
+        this.ownPolicyKey = Objects.requireNonNull(ownPolicyKey, "ownPolicyKey");
+        this.partner = Objects.requireNonNull(partner, "partner");
+        this.partnerUrl = Objects.requireNonNull(partnerUrl, "partnerUrl");
+        this.pinnedPartnerKey = Objects.requireNonNull(pinnedPartnerKey, "pinnedPartnerKey");
+        this.tls = Objects.requireNonNull(tls, "tls");
+        if (partner.isEmpty()) {
+            throw new IllegalArgumentException("the partner's entry service must be named");
+        }
+        if (partnerUrl.getScheme() == null || partnerUrl.getRawAuthority() == null
+                || !(partnerUrl.getRawPath() == null || partnerUrl.getRawPath().isEmpty()
+                        || partnerUrl.getRawPath().equals("/"))
+                || partnerUrl.getRawQuery() != null || partnerUrl.getRawFragment() != null) {
+            throw new IllegalArgumentException("the partner URL must be a scheme and an authority only: "
+                    + partnerUrl);
+        }
+        // A root or keyring the partner cannot verify could never open an attested session, so it fails here.
+        if (!ownKeyring.verifies(ownPolicyKey)
+                || !ownRoot.verify(Crypto.decodePublicKey(Base64Url.decode(ownPolicyKey)))) {
+            throw new IllegalArgumentException("the root and keyring must both verify under the policy key");
+        }
+    }
+
+    /**
+     * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none.
+     *
+     * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
+     * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
+     *     there is no request scope; or when no session could be opened
+     * @throws IllegalArgumentException with nothing sent, when {@code path} would leave the partner's origin or
+     *     would not be sent as given
+     * @throws UncheckedIOException when the call itself fails
+     */
+    public Response post(String path, byte[] json) {
+        // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
+        List<StampV3> verified = PaztportContext.isOpen() ? PaztportContext.verifiedChain() : null;
+        if (verified == null || verified.isEmpty()) {
+            throw new IllegalStateException(NO_VERIFIED_CHAIN);
+        }
+        List<InfluenceEntry> influence = PaztportContext.influence();
+        Objects.requireNonNull(json, "json");
+        URI target = target(path);
+        String bind = RequestBinding.compute("POST", path, json);
+
+        Session current = session();
+        HttpRequest.Builder request = HttpRequest.newBuilder(target)
+                .header("Content-Type", "application/json")
+                .header(PaztportHeaders.SESSION, current.sess())
+                .POST(HttpRequest.BodyPublishers.ofByteArray(json));
+        List<InfluenceEntry> sent = List.of();
+        if (current.attested()) {
+            StamperV3.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, influence, bundle);
+            request.header(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
+            if (stamped.proof() != null) {
+                request.header(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
+            }
+            String influenceHeader = HttpV3.encodeInfluence(influence);
+            if (influenceHeader != null) {
+                request.header(PaztportHeaders.INFLUENCE, influenceHeader);
+            }
+            sent = influence;
+        }
+
+        HttpResponse<byte[]> response;
+        try {
+            response = send(request.build());
+        } catch (IOException e) {
+            throw new UncheckedIOException("the call to " + partner + " failed", e);
+        }
+        int status = response.statusCode();
+        byte[] body = response.body() == null ? new byte[0] : response.body();
+        // The partner does not attest its answers, so what it says counts as untrusted content.
+        PaztportContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:" + partner,
+                HttpV3.resultHash(status, body), null, null));
+        if (status == 403 && ReasonCode.SESSION_UNKNOWN.name().equals(reason(body))) {
+            // Only the session this call used: one a concurrent call has opened since is left alone.
+            session.compareAndSet(current, null);
+        }
+        if (TRACE.isInfoEnabled()) {
+            TRACE.info(boundaryLine(verified.get(0).rid(), partner, current.attested(), status, sent));
+        }
+        return new Response(status, body, current.attested());
+    }
+
+    /**
+     * The partner URL with {@code path} on it, refused unless the request line will carry exactly {@code path}, so
+     * the binding covers what the partner receives, and the call cannot be pointed at another host.
+     */
+    private URI target(String path) {
+        Objects.requireNonNull(path, "path");
+        if (!path.startsWith("/") || path.startsWith("//")) {
+            throw new IllegalArgumentException("the path must start with a single '/'");
+        }
+        URI uri = URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + path);
+        String sent = uri.getRawQuery() == null ? uri.getRawPath() : uri.getRawPath() + "?" + uri.getRawQuery();
+        if (!Objects.equals(uri.getRawAuthority(), partnerUrl.getRawAuthority()) || !path.equals(sent)) {
+            throw new IllegalArgumentException("the path would not be sent as given");
+        }
+        return uri;
+    }
+
+    /** The current session, opened if there is none; one handshake at a time, and only when still needed. */
+    private Session session() {
+        Session s = session.get();
+        if (s != null) {
+            return s;
+        }
+        synchronized (handshake) {
+            s = session.get();
+            if (s == null) {
+                s = open();
+                session.set(s);
+            }
+            return s;
+        }
+    }
+
+    /**
+     * Opens a session: the full request, then, if its reply cannot be used, the replacement with no root. Logs the
+     * first reply's check ({@code -} when there was no reply to check) and the status the session ends with.
+     */
+    private Session open() {
+        SessionRequest full = new SessionRequest(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
+                Sessions.newNonce());
+        ReplyCheck check = null;
+        try {
+            JsonNode reply = handshake(full);
+            check = Sessions.checkReply(reply, full, pinnedPartnerKey);
+            if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
+                // The check derived the same id from both sides' inputs, so it is a real session id.
+                Session s = new Session(reply.get("sess").textValue(), check == ReplyCheck.ATTESTED);
+                trace(check.name(), s);
+                return s;
+            }
+        } catch (IOException e) {
+            // No usable answer: the partner may still have opened a session, so it is replaced as below.
+        }
+        SessionRequest replacement = new SessionRequest(null, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
+                Sessions.newNonce());
+        JsonNode reply;
+        try {
+            reply = handshake(replacement);
+        } catch (IOException e) {
+            throw new IllegalStateException("no session could be opened with " + partner, e);
+        }
+        // Trusted either way, as unsafe: nothing is signed or carried in it, so only the id is taken from it.
+        JsonNode sess = reply == null ? null : reply.get("sess");
+        if (sess == null || !sess.isTextual() || !SESSION_ID.matcher(sess.textValue()).matches()) {
+            throw new IllegalStateException("no session could be opened with " + partner);
+        }
+        Session s = new Session(sess.textValue(), false);
+        trace(check == null ? "-" : check.name(), s);
+        return s;
+    }
+
+    /**
+     * Sends one handshake and reads its reply: the JSON, or null for a body that is not one JSON value. Any status
+     * but 200, and no answer within the timeout, is an {@link IOException}.
+     */
+    private JsonNode handshake(SessionRequest req) throws IOException {
+        byte[] body = JSON.writeValueAsBytes(req.toJson());
+        HttpResponse<byte[]> response = send(HttpRequest.newBuilder(
+                        URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + HttpSessions.PATH))
+                .header("Content-Type", "application/json")
+                .timeout(HANDSHAKE_TIMEOUT)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .build());
+        if (response.statusCode() != 200) {
+            throw new IOException("the session handshake was answered " + response.statusCode());
+        }
+        try {
+            return JSON.readTree(response.body());
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private HttpResponse<byte[]> send(HttpRequest request) throws IOException {
+        try {
+            return tls.httpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted", e);
+        }
+    }
+
+    /** The {@code reason} of a JSON refusal body, or null when there is none. */
+    private static String reason(byte[] body) {
+        try {
+            JsonNode node = JSON.readTree(body);
+            JsonNode reason = node == null ? null : node.get("reason");
+            return reason != null && reason.isTextual() ? reason.textValue() : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    private void trace(String check, Session s) {
+        if (TRACE.isInfoEnabled()) {
+            TRACE.info(String.format("PAZTPORT_TRACE session partner=%s check=%s status=%s", LogSafe.of(partner),
+                    check, s.attested() ? "attested" : "unsafe"));
+        }
+    }
+
+    /**
+     * {@code PAZTPORT_TRACE boundary rid=… receiver=… session=attested|unsafe status=… classes=…|classes=-}. The
+     * classes are those of the influence the call carried, so an unsafe session's are always {@code -}. The rid
+     * comes from the request, so it goes through {@link LogSafe}, as do the receiver and the classes.
+     */
+    static String boundaryLine(String rid, String receiver, boolean attested, int status,
+            List<InfluenceEntry> sent) {
+        TreeSet<String> classes = new TreeSet<>();
+        sent.forEach(e -> classes.add(e.cls().wire()));
+        return String.format("PAZTPORT_TRACE boundary rid=%s receiver=%s session=%s status=%d classes=%s",
+                rid.isEmpty() ? "-" : LogSafe.of(rid), LogSafe.of(receiver), attested ? "attested" : "unsafe",
+                status, classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
+    }
+
+    /** Closes the TLS client; calls after this fail. */
+    @Override
+    public void close() {
+        tls.close();
+    }
+}

@@ -71,6 +71,64 @@ public class PaztportProperties {
      */
     private String tlsBundle;
 
+    /** The partner organisation this service calls across the boundary, if it is the egress. */
+    private final Boundary boundary = new Boundary();
+
+    /**
+     * {@code paztport.boundary.*}: where the partner is, what is pinned for it, and the bundle presented to it. Set
+     * {@code url} only on the egress service; it then needs every other field here, and its own stamp key, proofs,
+     * keyring, root and policy key.
+     */
+    public static class Boundary {
+
+        /** The partner's entry service: the boundary stamp's receiver and the {@code src} of what it answers. */
+        private String partner;
+
+        /** The partner's base URL, a scheme and an authority only; setting it makes this service the egress. */
+        private String url;
+
+        /**
+         * The Spring Boot SSL bundle presented to the partner. It is its own, apart from {@code paztport.tls-bundle},
+         * so that the partner's CA is trusted only on calls to the partner, and the shop's only inside the shop.
+         */
+        private String tlsBundle;
+
+        /** Path to the partner's policy public key, pinned out of band; its session replies must be signed by it. */
+        private String partnerPolicyKeyPath;
+
+        public String getPartner() {
+            return partner;
+        }
+
+        public void setPartner(String partner) {
+            this.partner = partner;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getTlsBundle() {
+            return tlsBundle;
+        }
+
+        public void setTlsBundle(String tlsBundle) {
+            this.tlsBundle = tlsBundle;
+        }
+
+        public String getPartnerPolicyKeyPath() {
+            return partnerPolicyKeyPath;
+        }
+
+        public void setPartnerPolicyKeyPath(String partnerPolicyKeyPath) {
+            this.partnerPolicyKeyPath = partnerPolicyKeyPath;
+        }
+    }
+
     public String getServiceName() {
         return serviceName;
     }
@@ -205,5 +263,9 @@ public class PaztportProperties {
 
     public void setTlsBundle(String tlsBundle) {
         this.tlsBundle = tlsBundle;
+    }
+
+    public Boundary getBoundary() {
+        return boundary;
     }
 }
