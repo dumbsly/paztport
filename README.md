@@ -160,15 +160,18 @@ Why it's built this way:
   accepted once, and the 5 s freshness window bounds how long anything needs to be
   remembered.
 
-The table is the v1 stamp, which the Java mesh signs. The current version, v3, which the
-TypeScript SDK and the agents demo sign, adds four fields: a version `v`, the session `sess`, an
-influence commitment `infl`, and the receiver `rcv`, the hop each stamp was handed to. A v3 stamp's
-`ts` is also its own signing time, not the origin's carried unchanged as in v1. Binding the
+The table is the v1 stamp, the first mesh format, now kept only for the conformance vectors. The
+current version, v3, which the Java mesh signs over HTTP and the TypeScript SDK and the agents demo
+sign over MCP, adds four fields: a version `v`, the session `sess`, an influence commitment `infl`,
+and the receiver `rcv`, the hop each stamp was handed to. A v3 stamp's `ts` is also its own signing
+time, not the origin's carried unchanged as in v1. Binding the
 receiver changes who a rejection names. A chain forwarded unchanged to another service now fails
 `BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last
-signer. And when the transport authenticates the sender, as mTLS does, the verifier checks that
-the sender is the last signer and names that authenticated sender in every result. Without one, as
-before, only an allowed request or a `PATH_NOT_ALLOWED` names a suspect: the last signer.
+signer. And when the transport authenticates the sender, as mTLS does in the Java mesh, the
+verifier checks that the sender is the last signer and names that authenticated sender in every
+result. Without one, as before, only an allowed request or a `PATH_NOT_ALLOWED` names a suspect:
+the last signer. Over HTTP, v3 also binds a request's query string, and a response comes back with
+a stamp of its own that its caller checks.
 
 ### 2.2 Proof of legitimacy: the salted Merkle tree
 
@@ -330,26 +333,28 @@ that the route taken is in a private, committed policy**.
 - **Position, not trust.** A compromised hop on a valid route can still misuse
   that route (see the Java demo's
   [threat model](poc-demos/java-mesh/README.md#threat-model)).
-- **The caller-identity check is advisory without mTLS.** Until mTLS binds the last
-  stamp to the real transport identity,
-  [verification step 8](poc-demos/java-mesh/README.md#the-verification-pipeline)
-  is a gap. v3 verifiers check a transport peer when one is supplied
-  (`PEER_MISMATCH`), but no transport in this repository supplies one yet: the agents
-  demo runs over stdio, which has no TLS, and the Java mesh still runs v1.
+- **The caller-identity check needs an authenticated transport.** A v3 verifier
+  checks that the last signer is the transport's authenticated sender
+  (`PEER_MISMATCH`) only when it is given one. The Java mesh gives it one: every hop
+  is mutual TLS, and `payment` takes the service named in the client certificate as
+  the sender ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)).
+  The agents demo runs over stdio, which has no TLS, so there the check is skipped
+  and the last signer is known only by its signature.
 - **A forwarded chain can blame its last signer, in v1.** A v1 stamp doesn't bind the
   service it was meant for, so a chain forwarded unchanged to a different service
   with a matching method and path can still give `PATH_NOT_ALLOWED` and name the
-  innocent last signer. v3 stamps, which the TypeScript SDK and the agents demo sign,
-  bind the receiver, so there such a chain is `BINDING_MISMATCH` and names no one.
-  The Java mesh still runs v1, so the limit stands there.
-- **A compromised service can blame its own replicas.** The instance in a stamp is
-  reported by the service that signed it. The responder refuses a container that
-  doesn't run the named service, but a compromised service can still name any
-  replica of itself, and the responder will isolate that replica instead. A v3
-  verifier given an authenticated transport peer names the sender's own address
-  instead, but no transport here supplies a peer yet, so the limit stands. Even with
-  one, a certificate is per service, so the responder still checks that the
-  container runs the named service.
+  innocent last signer. Every demo now signs v3, which binds the receiver, so there
+  such a chain is `BINDING_MISMATCH` and names no one. The limit stands only for v1
+  chains, which no demo sends any more.
+- **A compromised service can blame its own replicas, without a peer.** The
+  instance in a stamp is reported by the service that signed it. The responder
+  refuses a container that doesn't run the named service, but a compromised service
+  can still name any replica of itself. In the Java mesh, under mutual TLS, a
+  rejection names the sender's own TCP address instead, which the responder
+  resolves to a container on the mesh network, so a replica can only be blamed for
+  what it sent. That rests on the address being the sender's: behind a proxy or
+  NAT it would name the proxy. A certificate is per service, not per container, so
+  the responder still checks that the container runs the named service.
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS
@@ -362,7 +367,7 @@ that the route taken is in a private, committed policy**.
 - **The responder mounts the Docker socket**, which is host-level control.
   Acceptable for a local demo only; never do this in a real deployment.
 - **The nonce cache is in-memory and unbounded** in this POC. The freshness window
-  means it only *needs* to remember about 5 s of requests, and a real deployment
+  means it only *needs* to remember twice the 5 s window, and a real deployment
   would use a shared, expiring store.
 - **The admin endpoint is a demo control channel.** `/admin/mode` switches a
   verifier between `off`, `audit` and `enforce`. It is protected only by a shared
@@ -437,7 +442,7 @@ paztport/
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
 ├── run                       front door: java-mesh, agents-mcp, test
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and shared conformance vectors: v1, which both SDKs replay; v2 and v3, which the TypeScript SDK checks
+│   ├── spec/                 the protocol spec, and shared conformance vectors: v1, v2 and v3, which both SDKs replay (Java all of v2 but its MCP bindings); http-v3, Java's only
 │   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
 │   └── typescript/           @paztport/core, @paztport/http, @paztport/mcp, policy-tool
@@ -483,9 +488,10 @@ poc-sdks/scripts/third-party.sh
 ```
 
 The script runs the license plugin in both Java trees, the SDK and the mesh demo
-(which alone brings docker-java, Bouncy Castle and the services' Spring Boot jars),
-and merges the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
+(which alone brings docker-java and the services' Spring Boot jars), and merges the
+two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
 
-Bouncy Castle appears in the build only because `docker-java` uses it for Docker
-TLS in the responder. None of Paztport's own cryptography uses it; stamps,
-hashing, and salts all come from the JDK.
+Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
+build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
+responder. None of Paztport's own cryptography uses it; stamps, hashing, salts and
+the certificates' signatures all come from the JDK.

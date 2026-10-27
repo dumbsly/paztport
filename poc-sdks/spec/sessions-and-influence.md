@@ -181,8 +181,8 @@ An influence entry is a JSON object:
 | Field | Required | Rule |
 |---|---|---|
 | `cls` | yes | One of the four classes. |
-| `src` | yes | A string naming the source, for example `server:<serverId>` or `web:example.com`. |
-| `h` | yes | A string identifying the content, such as a hash of it; the agents demo uses the result binding. |
+| `src` | yes | A string naming the source, for example `server:<serverId>`, `web:example.com` or, for an HTTP response, `http:<target>`. |
+| `h` | yes | A string identifying the content, such as a hash of it; the agents demo uses the result binding, and the Java SDK an HTTP response's result hash. |
 | `cid` | no | A string: the content id from the label the entry came from. |
 | `owner` | no | A **non-empty** string: an opaque id of whose data this is. |
 
@@ -217,7 +217,7 @@ owner's sort position and the with-and-without case.
 
 A server labels the content of each result it attests. A label is `{ "cls": ..., "cid": ..., "owner": ... }`:
 
-- `cls` is one of the four classes, and `cid` a fresh content id (the SDK uses 16 random bytes, base64url);
+- `cls` is one of the four classes, and `cid` a fresh content id (both SDKs use 16 random bytes, base64url);
 - `owner`, when present, MUST be non-empty, and the server MUST take it from its own records of whose data it
   served, never from the content.
 

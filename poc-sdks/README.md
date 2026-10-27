@@ -8,8 +8,9 @@ policy, verification, influence and sessions. The demos in
   `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/http` and
   `@paztport/mcp` extensions, and the policy command-line tools.
-- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v1, which
-  both SDKs replay, and v2 and v3, which the TypeScript SDK checks.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v1, v2 and
+  v3, which both SDKs replay (the Java SDK all of v2 but its MCP bindings), and v3 over HTTP, which only
+  the Java SDK speaks.
 - `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
   `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
@@ -33,14 +34,16 @@ A v3 stamp is a JSON object, and a chain is an array of them, origin first:
   `bind` binds what the hop sent.
 - `prev` is the previous stamp's `sig`, or the empty string at the origin.
 
-Over MCP, the chain, the route proof, the influence and the call id travel in the `tools/call` request's
-`_meta`, and a result carries the server's response chain and content labels. A live verifier accepts v3 only;
-v2 records are accepted only offline, marked legacy.
+Over MCP (the TypeScript SDK), the chain, the route proof, the influence and the call id travel in the
+`tools/call` request's `_meta`, and a result carries the server's response chain and content labels. Over HTTP
+(the Java SDK), the chain, the proof and the influence travel in the `X-Path-Chain`, `X-Path-Proof` and
+`X-Path-Influence` headers, and a response carries one more stamp on the request chain, back to the caller, in
+`X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A live verifier accepts v3 only; v2 records are accepted
+only offline, marked legacy.
 
-v1, which the Java SDK speaks, travels in the `X-Path-Chain` and `X-Path-Proof` headers, and its stamps sign
+v1, the first HTTP mesh format, is kept for its conformance vectors only. Its stamps sign
 `svc|inst|rid|ts|bind|prev`, with no receiver ([wire.md](spec/wire.md#v1-the-http-mesh-format)). Binary values
 are base64url without padding, in every version.
 
 The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig" }`, where `sig` is the policy key's
-Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) written by the TypeScript tools is signed by the
-same key; the Java keygen's keyrings aren't signed yet.
+Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) is signed by the same key, by both SDKs' tools.

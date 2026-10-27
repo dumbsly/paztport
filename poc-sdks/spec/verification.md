@@ -1,13 +1,15 @@
 # Verification
 
 How a receiver checks a chain: the live order, freshness and replay, the receiver and peer checks, who a result
-names, the offline order for recorded chains, and the reason codes. The bytes are in [wire.md](wire.md).
+names, the MCP and HTTP checks around the live order, the offline order for recorded chains, and the reason
+codes. The bytes are in [wire.md](wire.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Inputs](#inputs) · [The live order](#the-live-order) · [Freshness and replay](#freshness-and-replay) ·
 [Receivers, the peer and attribution](#receivers-the-peer-and-attribution) ·
-[The MCP server and client](#the-mcp-server-and-client) · [Offline verification](#offline-verification) ·
+[The MCP server and client](#the-mcp-server-and-client) · [HTTP requests and responses](#http-requests-and-responses) ·
+[Offline verification](#offline-verification) ·
 [The legacy rule](#the-legacy-rule) · [v1](#v1) · [Reason codes](#reason-codes) ·
 [Guidance for a responder](#guidance-for-a-responder)
 
@@ -74,6 +76,11 @@ Why this order:
 | `RUN_MAX_AGE_MS` | `1800000` (30 min) | How long a run's origin stays usable. An agent run reuses one origin for many calls, so the origin may be older than one call window. |
 | `NONCE_TTL_MS` | `15000` (15 s) | How long a nonce cache remembers a key. It MUST be at least 2 × `CALL_MAX_AGE_MS`. |
 
+Inside one HTTP mesh a request tree is a single call, not a run, so a mesh verifier MAY set `RUN_MAX_AGE_MS` to
+`CALL_MAX_AGE_MS`: the origin's stamp is then held to the call window too. The Java mesh does: both are
+`paztport.max-age-ms` (5000), unless `paztport.run-max-age-ms` sets the run's apart. Its stamps carry `sess = ""`,
+since a mesh opens no session.
+
 The nonce key names the request and the direction, so a call, its response and a local step with the same ids
 can't spend each other's keys:
 
@@ -82,11 +89,14 @@ can't spend each other's keys:
 | MCP tool call (server side) | `<rid>|<callId>|req` |
 | MCP response (client side) | `<rid>|<callId>|resp` |
 | Local step | `<rid>|<callId>|local` |
-| v1 HTTP hop | `<rid>|<last svc>` |
+| HTTP request (receiver side) | `<rid>|<last svc>|req` |
+| HTTP response (caller side) | `<rid>|<target>|resp` |
+| v1 HTTP hop (`v1.json` only) | `<rid>|<last svc>` |
 
 `<rid>` is the origin's `rid` and `<callId>` the call's `paztport/callId` (for a local step, the tool call id).
-The vectors' v3 HTTP-hop case uses `<rid>|<last svc>|req`; no SDK verifies v3 over HTTP yet
-([wire.md](wire.md#http-v1)).
+`<last svc>` is the request chain's last signer, and `<target>` the service the caller sent the request to.
+An HTTP call has no call id, so its keys name the pair of services instead: a service calls a given receiver at
+most once per request tree, and a second call is `REPLAY`.
 
 ## Receivers, the peer and attribution
 
@@ -165,6 +175,45 @@ these codes, and MUST replace anything else, `OK` included, with `UNKNOWN`:
 That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH` and
 `PROMPT_MISMATCH`.
 
+## HTTP requests and responses
+
+Only the Java SDK implements this section ([wire.md](wire.md#http-v3) has the headers). There is no handshake: a
+mesh's services pin one policy key, root and keyring in advance, and `sess` is `""`.
+
+**A request, at the receiver.** The receiver runs the live order, 1 to 12, with `receiver` = its own name,
+`receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
+`influence` = `X-Path-Influence` (`[]` when absent), `proof` = `X-Path-Proof` and
+`nonceKey = <rid>|<last svc>|req`. A header that is present but does not decode is left to the check that reads
+it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an unreadable proof
+is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it does not
+verify: dropping it could hide `private` content from the rule. The Java SDK answers it
+`400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first.
+
+**The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
+passes it as `peer`: `peer.svc` is the certificate subject's common name when it has exactly one, and `""`
+otherwise, so a certificate with none or several fails check 12 (`PEER_MISMATCH`) rather than picking one;
+`peer.inst` is the TCP address the connection came from. With no client certificate there is no peer.
+
+**A response, at the caller.** The answering service attests a response only when it holds a stamp key and the
+request's chain parsed as v3 and either verified there or was not checked there. It never attests a refusal, or
+a request that failed in audit mode: the stamp would vouch for a chain it knows to be bad. The caller checks
+`X-Path-Response` with `stamps` = the chain it sent then the response stamp, `receiver` = its own name,
+`receiverInRoute = false`, `proof` = the proof it sent, `influence = []`,
+`nonceKey = <rid>|<target>|resp` and no peer. In order:
+
+1. The header is present and decodes to an object with a `stamp` and an array of well-formed `labels`
+   (`CHAIN_MISSING`).
+2. The response binding of `resultHash`, the request's `rid` and the labels can be computed
+   (`BINDING_MISMATCH`).
+3. The live order, 1 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, so
+   check 4 requires the response stamp to be the target's; the route is the request's own, so the proof the
+   caller sent proves it.
+
+No peer is passed, because TLS hostname verification already authenticated the server as the target, and the
+receiver check ties the stamp to it. The labels count as influence only when the whole response verifies: each
+becomes an entry with `src = "http:<target>"` and `h = resultHash`. Any other response, whether unattested,
+failing or a refusal, counts as one `local-untrusted` entry with the same `src` and `h`, and is never dropped.
+
 ## Offline verification
 
 A record set, such as a client's evidence file, can be verified again later with no clock to be fresh against.
@@ -213,15 +262,16 @@ Records made before v3 carry v2 stamps, which name no receiver, and session requ
 
 ## v1
 
-The HTTP mesh's verifier, which the Java SDK (`paztport-core`) and the TypeScript SDK (`verifyV1` in
-`@paztport/core`, with `@paztport/http` for the binding) implement, runs:
+v1 is kept for `v1.json` only; no demo sends it. Its verifier, which both SDKs keep to replay the vectors
+(`VerifierV1` in the Java SDK's `paztport-core`, and `verifyV1` in `@paztport/core` with `@paztport/http` for
+the binding), runs:
 
 | # | Check | Fails with |
 |---|---|---|
 | 1 | `X-Path-Chain` is present, decodes and parses as a non-empty array of v1 stamps. | `CHAIN_MISSING` |
 | 2 | The origin's `svc` is an allowed origin. | `BAD_ORIGIN` |
 | 3 | Every signature verifies, and every `prev` links. | `BAD_SIGNATURE`, `BROKEN_LINK` |
-| 4 | Every stamp carries the origin's `rid`; the origin's `ts` is at most the maximum age (5 s in the mesh) before `now`. | `RID_MISMATCH`, `EXPIRED` |
+| 4 | Every stamp carries the origin's `rid`; the origin's `ts` is at most the maximum age before `now`. | `RID_MISMATCH`, `EXPIRED` |
 | 5 | The last stamp's `bind` equals the HTTP binding of the request received. | `BINDING_MISMATCH` |
 | 6 | `<rid>|<last svc>` is new to the nonce cache. | `REPLAY` |
 | 7 | The stamps' `svc` values then the receiver are proven against the root by `X-Path-Proof`. | `PATH_NOT_ALLOWED` |

@@ -33,8 +33,8 @@ and `\n` is the single byte `0x0A`.
 | Public key | The X.509 SubjectPublicKeyInfo DER of the Ed25519 key (44 bytes, starting `302a300506032b6570032100`), as base64url. |
 | Private key | The PKCS#8 DER of the Ed25519 key (48 bytes: `302e020100300506032b657004220420` ‖ the 32-byte seed), as base64url. |
 
-The policy tools write these files, except the pins, which whoever onboards the other side writes (in the agents
-demo, its setup script). Each holds one value, and readers trim surrounding whitespace.
+The policy tools write these files, except the pins of the other side of a session, which whoever onboards that
+side writes (in the agents demo, its setup script). Each holds one value, and readers trim surrounding whitespace.
 
 | File | Holds | Secret |
 |---|---|---|
@@ -43,6 +43,7 @@ demo, its setup script). Each holds one value, and readers trim surrounding whit
 | `keyring.json` | [The signed keyring](#the-signed-keyring) | no |
 | `root.json` | [The signed root](#the-signed-root) | no |
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
+| `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 ## Stamps
@@ -64,7 +65,7 @@ order shown.
 | `inst` | string | The signer's instance, as the signer reports it. Signed, but only the signer vouches for it. |
 | `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. |
 | `ts` | integer | When this stamp was signed, in ms since the Unix epoch. |
-| `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain that never leaves one process, such as a local step. |
+| `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
 | `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. See [Receivers](#receivers). |
 | `bind` | string | The binding of what this hop sent. See [Bindings](#bindings). |
 | `infl` | string | The influence commitment: `""` for no influence, otherwise `b64url(H(utf8(JCS(normalise(entries)))))`, with `normalise` as defined in [sessions-and-influence.md](sessions-and-influence.md#normalisation-and-commitment). |
@@ -90,7 +91,8 @@ one that does, with the code in brackets.
 - The chain is a non-empty JSON array of objects (`CHAIN_MISSING`).
 - `v` is exactly the stamp's version number, `2` or `3` (`CHAIN_MISSING`).
 - `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1 (`CHAIN_MISSING`), so
-  every implementation reads and prints it the same way.
+  every implementation reads and prints it the same way. It is checked by value: `1.0` and `1e3` are the
+  integers 1 and 1000.
 - Every string field (`svc`, `inst`, `rid`, `sess`, `rcv` in v3, `bind`, `infl`, `prev`, `sig`) is a JSON
   string (`CHAIN_MISSING`) with no lone surrogate (`CHAIN_MISSING`).
 - `sig` decodes as base64url and re-encodes to the identical text (`CHAIN_MISSING`).
@@ -133,7 +135,8 @@ v1 has no `v`, `sess`, `rcv` or `infl`. Its `ts` is the origin's time, carried u
 utf8( svc "|" inst "|" rid "|" ts "|" bind "|" prev )
 ```
 
-v1 has no delimiter rule, so its fields are not checked for `|`. The Java SDK speaks v1 only; `v1.json` pins it.
+v1 has no delimiter rule, so its fields are not checked for `|`. v1 is kept for `v1.json` only: both SDKs replay
+it, and neither demo sends it. A v1 stamp has no `v`, so a live v3 verifier reads a v1 chain as `CHAIN_MISSING`.
 
 ## Chains
 
@@ -156,6 +159,7 @@ A chain is an array of stamps, **origin first**.
 | Chain | Stamps, origin first | Each `rcv` |
 |---|---|---|
 | HTTP hops (mesh) | `gateway`, `orders` | `orders`, then `payment`: each hop names the next service, and the last names the receiving service. |
+| HTTP response | `gateway`, `orders`, then `payment`'s response stamp | The request's, then `orders`: the response stamp names the caller, the request's last `svc`. |
 | Run origin (agents) | `session` | `pi`: the client hop the run's origin hands to. The origin is minted once per run and server session, and reused for every call in it. |
 | MCP tool call | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
 | MCP response | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
@@ -175,7 +179,8 @@ is `b64url(H(bytes))`, over these bytes:
 
 | Binding | Used for | Bytes |
 |---|---|---|
-| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. |
+| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when there is one, with nothing decoded. With no query the bytes are v1's. |
+| HTTP result | An HTTP response's `resultHash` | `utf8("http-response\n" ‖ status ‖ "\n") ‖ BODY`, with `status` the response's status code in decimal and the body as raw bytes, so a response can't pass under another status. |
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
 | `tools/call` | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
 | Result | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
@@ -186,6 +191,8 @@ Rules:
 
 - `tool`, `callId`, `toolCallId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
   A verifier that cannot compute the binding for a call MUST reject it (`BINDING_MISMATCH`).
+- A string with a lone surrogate has no UTF-8 form, so a binding over one MUST be refused, never computed (one
+  SDK diverges here; see [Conformance](README.md#conformance)).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
   `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
 - In a response chain the first stamp, by the server's entry service, binds the call it took (the `tools/call`
@@ -196,7 +203,8 @@ Rules:
   are all covered by the stamp.
 
 `v1.json` pins the HTTP binding in `bindings`. `v2.json` pins the prompt, `tools/call`, result and response
-bindings. `v3.json` pins a local-tool binding through the `local step ok` case.
+bindings. `v3.json` pins a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
+binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`.
 
 ## Carrying a chain
 
@@ -223,16 +231,37 @@ instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }` wh
 call anyway. A verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The
 handshake is the JSON-RPC method `paztport/session` ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
 
-### HTTP (v1)
+### HTTP (v3)
 
-v1 travels in two headers, each the base64url of UTF-8 JSON:
+A request carries Paztport in three headers, each the base64url of UTF-8 JSON:
 
-- `X-Path-Chain`: the JSON array of v1 stamps, origin first.
-- `X-Path-Proof`: the [proof object](#proof-object) for the full route, receiving service included.
+| Header | Value |
+|---|---|
+| `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, and its `bind` the [HTTP binding](#bindings) of the request sent. |
+| `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
+| `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
 
-This spec defines a v3 HTTP hop's stamp (its `rcv` is the receiving service and its `bind` is the HTTP binding),
-and `v3.json`'s `http hops ok` case verifies one. It does not yet define headers for v3 over HTTP, and no SDK
-sends v3 over HTTP.
+A response carries the answering service's attestation in one header:
+
+| Header | Value |
+|---|---|
+| `X-Path-Response` | `{ "stamp": <v3 stamp>, "labels": [ ... ] }`, the labels written as in an MCP attestation. |
+
+The response stamp is one more stamp on the request chain the answering service received, so it needs no proof
+of its own: the caller already holds the proof for the request's route.
+
+| Field | Value |
+|---|---|
+| `svc` | The answering service. |
+| `rcv` | The caller: the request's last `svc`. |
+| `rid`, `sess` | The request's. |
+| `ts` | When the answering service signed it. |
+| `bind` | The response binding of `resultHash` (the [HTTP result](#bindings) binding of the status and body sent), with the request's `rid` as the call id, over `labels`. |
+| `infl` | `""`: a response's labels are in its binding instead. |
+| `prev` | The request's last `sig`. |
+
+[verification.md](verification.md#http-requests-and-responses) says how each side checks these. Only the Java
+SDK speaks v3 over HTTP, and `http-v3.json` pins it.
 
 ## The Merkle tree
 
@@ -293,8 +322,10 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 - A route node MUST be non-empty, MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, `|` or a lone
   surrogate. Node names become route segments and file names (`proofs-<svc>.json`).
 - A call's route ends at its receiver: `gateway/orders/payment`, or `session/pi/mcp:github.create_pull_request`.
-- A response's route is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client, is
-  not on it: the server's policy can't list every client.
+- An MCP response's route is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client,
+  is not on it: the server's policy can't list every client.
+- An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.
+  Its receiver, the caller, is already on it.
 - A local step's route is `session/pi/local:<tool>`.
 - A client's local folder rules are pinned as one more route, `session/pi/rules:<rulesHash>`, where
   `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is the parsed rule set
@@ -334,7 +365,7 @@ signature, a session's keyring would be the client's own claim, and anyone who c
 their own keys. `v3.json` pins the signed bytes and the signature in `keyring`, with a tampered keyring that
 fails.
 
-Keyrings written by the Java keygen have no `sig`; v1 does not use one.
+Both SDKs' keygens write signed keyrings.
 
 ## Proof bundles, and who holds what
 

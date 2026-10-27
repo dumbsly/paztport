@@ -9,7 +9,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 | File | What it holds |
 |---|---|
 | [wire.md](wire.md) | Encodings, keys and files, stamps (v1, v2, v3) and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, proof bundles and who holds what. |
-| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, offline verification, the legacy rule, v1, the reason codes, and guidance for a responder. |
+| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, offline verification, the legacy rule, v1, the reason codes, and guidance for a responder. |
 | [sessions-and-influence.md](sessions-and-influence.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, influence entries and their commitment, content labels, the owner-aware rule, and the boundary attestation between organisations. |
 | [vectors/](vectors) | The conformance vectors. |
 
@@ -17,9 +17,9 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 | Version | Status | What it is |
 |---|---|---|
-| v1 | Current for the HTTP mesh | The HTTP mesh format: stamps in the `X-Path-Chain` header and the proof in `X-Path-Proof`. No session, receiver or influence. The Java SDK still uses it. |
+| v1 | Kept for `v1.json` | The first HTTP mesh format: stamps in the `X-Path-Chain` header and the proof in `X-Path-Proof`. No session, receiver or influence. Both SDKs replay `v1.json`; neither demo sends v1. |
 | v2 | Legacy | Stamps with a session and an influence commitment, but no receiver. Implementations MUST NOT produce it. It is accepted only offline, for records made before v3, and marked legacy. |
-| v3 | Current | v2 plus `rcv`: every stamp names the hop it was handed to. Live verifiers accept only v3. |
+| v3 | Current | v2 plus `rcv`: every stamp names the hop it was handed to. Live verifiers accept only v3. It travels over MCP (the TypeScript SDK) and over HTTP (the Java SDK). |
 
 What v3 changed, deliberately:
 
@@ -46,17 +46,24 @@ What v3 changed, deliberately:
 | File | Covers | Replayed by |
 |---|---|---|
 | `v1.json` | v1 keys, stamps and their signed bytes, chain headers, HTTP request bindings, Merkle leaves, nodes and proofs, the signed root, and the v1 verify cases. | Java (`paztport-http`) and TypeScript (`@paztport/http`) |
-| `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`) |
-| `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring, live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner) and offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks). | TypeScript (`@paztport/mcp`) |
+| `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for all but the result and `tools/call` bindings, which only MCP uses |
+| `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring, live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner) and offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks). | Java (`paztport-core`) and TypeScript (`@paztport/mcp`) |
+| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay). It reuses `v3.json`'s keys and mesh policy by name. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 
 | Version | Java SDK | TypeScript SDK |
 |---|---|---|
-| v1 | yes | yes |
-| v2 (offline, legacy) | no | yes |
-| v3 | no | yes |
+| v1 | yes, for `v1.json` | yes, for `v1.json` |
+| v2 (offline, legacy) | yes | yes |
+| v3: stamps, the live and offline verifiers, influence and sessions | yes | yes |
+| v3 over MCP | no | yes |
+| v3 over HTTP | yes | no |
 
-A new implementation MUST pass `v3.json`. It MUST pass `v2.json` if it reads records made before v3, and
-`v1.json` if it speaks the v1 HTTP format.
+A new implementation MUST pass `v3.json`. It MUST pass `v2.json` if it reads records made before v3,
+`http-v3.json` if it speaks v3 over HTTP, and `v1.json` if it speaks the v1 HTTP format.
+
+One divergence is known and has no vector: [wire.md](wire.md#bindings) requires a binding over a string with a
+lone surrogate to be refused, and the TypeScript SDK's prompt and response bindings encode it as U+FFFD instead.
+The Java SDK refuses it.
 
 `v3.json` is self-contained: every case carries its inputs, and keys and policies are named and defined in the
 file. Its `about` field says how its keys, salts and padding are derived, so the file can be rebuilt byte for

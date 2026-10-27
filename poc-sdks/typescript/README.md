@@ -48,8 +48,10 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
 
 ## @paztport/http
 
-The v1 HTTP request binding (`bindHttp`): SHA-256 over method, path and body, as
-the Java SDK computes it.
+The v1 HTTP request binding (`bindHttp`): SHA-256 over method, path and body. The
+Java SDK computes the same bytes for a request with no query. This SDK does not
+speak v3 over HTTP, which only the Java SDK does, and does not replay
+`spec/vectors/http-v3.json`.
 
 ## @paztport/mcp
 
