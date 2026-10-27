@@ -76,6 +76,8 @@ describe("publicWriteRefused", () => {
     ["public is not private", [TP, PUB], "alice", false],
     ["an empty owner is unknown on both sides", [TP, P("")], "", true],
     ["nothing at all", [], "alice", false],
+    ["an empty private owner is unknown", [TP, P("")], "alice", true],
+    ["an empty destination owner is unknown", [TP, P("alice")], "", true],
   ];
   it.each(OWNED)("%s", (_name, influence, destinationOwner, refused) => {
     expect(publicWriteRefused(influence, destinationOwner)).toBe(refused);

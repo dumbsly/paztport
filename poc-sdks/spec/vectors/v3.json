@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; an offline case starts from the spent nonce keys in `seen`. A policy's proof is looked up by `proofRoute` (null: no proof). Change a vector only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -501,6 +501,34 @@
       "influence": [],
       "destinationOwner": "alice",
       "refused": false
+    },
+    {
+      "name": "an empty private owner is unknown",
+      "influence": [
+        {
+          "cls": "third-party"
+        },
+        {
+          "cls": "private",
+          "owner": ""
+        }
+      ],
+      "destinationOwner": "alice",
+      "refused": true
+    },
+    {
+      "name": "an empty destination owner is unknown",
+      "influence": [
+        {
+          "cls": "third-party"
+        },
+        {
+          "cls": "private",
+          "owner": "alice"
+        }
+      ],
+      "destinationOwner": "",
+      "refused": true
     }
   ],
   "keyring": [
@@ -1484,6 +1512,415 @@
         "suspectSvc": "",
         "suspectInst": ""
       }
+    },
+    {
+      "name": "bad signature beats bad receiver",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "search",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "-ZfTxR7GaGU6EgjsucFbS43eYabPOepitdFx5UrOTh1qcLJksN5uwQooxTOnevyqucPf0ZCK0WVO1ntkqb1nAQ"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "-ZfTxR7GaGU6EgjsucFbS43eYabPOepitdFx5UrOTh1qcLJksN5uwQooxTOnevyqucPf0ZCK0WVO1ntkqb1nAQ",
+          "sig": "UGn9c8OCKSpQsF_YORD9v5ISImgxnlwlCKk0FLrSkyKok20rZ0A2Y2E_wt1WnDAW2J7-N7qFQXcFtfw1ON44Dw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "BAD_SIGNATURE",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "route fails before peer",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.add_issue_comment",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": {
+        "svc": "search",
+        "inst": "10.0.0.9"
+      },
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "PATH_NOT_ALLOWED",
+        "suspectSvc": "search",
+        "suspectInst": "10.0.0.9"
+      }
+    },
+    {
+      "name": "response to wrong receiver",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "mcp-entry",
+          "inst": "entry-1",
+          "rid": "rid-1",
+          "ts": 1767225599200,
+          "sess": "sess-1",
+          "rcv": "github-tools",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "",
+          "prev": "",
+          "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+        },
+        {
+          "v": 3,
+          "svc": "github-tools",
+          "inst": "gh-1",
+          "rid": "rid-1",
+          "ts": 1767225599500,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+          "infl": "",
+          "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+          "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+        }
+      ],
+      "expectedBind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+      "influence": [],
+      "policy": "server",
+      "proofRoute": "mcp-entry/github-tools",
+      "receiver": "other",
+      "receiverInRoute": false,
+      "peer": null,
+      "keyring": {
+        "mcp-entry": "mcp-entry",
+        "github-tools": "github-tools"
+      },
+      "allowedOrigins": [
+        "mcp-entry"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|resp",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "BINDING_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "v3 stamp with no rcv",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "CHAIN_MISSING",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "rcv holding the delimiter",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "a|b",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "BAD_SIGNATURE",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "non-string rcv",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": 7,
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "uses": 1,
+      "expected": {
+        "reason": "CHAIN_MISSING",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
     }
   ],
   "offline": [
@@ -1691,6 +2128,439 @@
       "prompt": "open a PR for issue #42",
       "expected": {
         "reason": "CHAIN_MISSING",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "legacy": false
+      }
+    },
+    {
+      "name": "legacy v2 call with a stray rcv",
+      "chain": [
+        {
+          "v": 2,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "l77MFIajFbsmAxJC7-01eqOaE24iK31ocHOO2_Sv8SKNQb35PmoFwxVxB89Lq85rBrotLoxYouDayM3-GLRoAw",
+          "rcv": "search"
+        },
+        {
+          "v": 2,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "eovQ0eE1d-_zfKG9726HmbFtT6JFLNskNYRud8_Zr0M",
+          "prev": "l77MFIajFbsmAxJC7-01eqOaE24iK31ocHOO2_Sv8SKNQb35PmoFwxVxB89Lq85rBrotLoxYouDayM3-GLRoAw",
+          "sig": "1z_NoCd4-dMT1XTza0fvryB3xGuGBO_kKaSTIV5XUHifJ-42M9EAQ-y_bK71ffd2Tsdp1Z27wRtxFl1pgHSAAg",
+          "rcv": "search"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "pi",
+        "suspectInst": "pi-1",
+        "legacy": true
+      }
+    },
+    {
+      "name": "receiver chain broken",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "search",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "-ZfTxR7GaGU6EgjsucFbS43eYabPOepitdFx5UrOTh1qcLJksN5uwQooxTOnevyqucPf0ZCK0WVO1ntkqb1nAQ"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "-ZfTxR7GaGU6EgjsucFbS43eYabPOepitdFx5UrOTh1qcLJksN5uwQooxTOnevyqucPf0ZCK0WVO1ntkqb1nAQ",
+          "sig": "MUFwg3GTiy5ZXTor233TT3vLwCJ2MBI9Xard2aVJvZNRBQs_57_cYK-rYof6ILK9UbxTBB6kDiQgkHkEL1uWBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "BINDING_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "legacy": false
+      }
+    },
+    {
+      "name": "recorded time differs",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599001
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "TIME_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "legacy": false
+      }
+    },
+    {
+      "name": "expired",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767223798999,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "M5zZdG4x8RhAKTWDgy0r5cHcaOdFvP9TPhLnKLwx4o7iJs8Ohb3OzR8JLHqLwRAbynBQjP7dbP0XkYntmryIDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "M5zZdG4x8RhAKTWDgy0r5cHcaOdFvP9TPhLnKLwx4o7iJs8Ohb3OzR8JLHqLwRAbynBQjP7dbP0XkYntmryIDA",
+          "sig": "v0v9iS_xcD-DdmOhGcDOozkpSOOuPcNxTIPbuj6ESpWFW-Uxiwh_siOP16jynhlVmQvSM9M9cR5j5tYbISF8Ag"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "legacy": false
+      }
+    },
+    {
+      "name": "prompt differs",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #43",
+      "expected": {
+        "reason": "PROMPT_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": "",
+        "legacy": false
+      }
+    },
+    {
+      "name": "replay in the record set",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [
+        "rid-1|call-1|req"
+      ],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "REPLAY",
         "suspectSvc": "",
         "suspectInst": "",
         "legacy": false

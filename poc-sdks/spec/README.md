@@ -47,7 +47,7 @@ What v3 changed, deliberately:
 |---|---|---|
 | `v1.json` | v1 keys, stamps and their signed bytes, chain headers, HTTP request bindings, Merkle leaves, nodes and proofs, the signed root, and the v1 verify cases. | Java (`paztport-http`) and TypeScript (`@paztport/http`) |
 | `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`) |
-| `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring, live verify cases (each kind of receiver, a v2 chain live, the peer and attribution, replay, an altered owner) and offline cases (a legacy v2 call, a v3 call, a mixed chain). | TypeScript (`@paztport/mcp`) |
+| `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring, live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner) and offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks). | TypeScript (`@paztport/mcp`) |
 
 | Version | Java SDK | TypeScript SDK |
 |---|---|---|
@@ -61,6 +61,7 @@ A new implementation MUST pass `v3.json`. It MUST pass `v2.json` if it reads rec
 `v3.json` is self-contained: every case carries its inputs, and keys and policies are named and defined in the
 file. Its `about` field says how its keys, salts and padding are derived, so the file can be rebuilt byte for
 byte; a verify case runs the live verifier `uses` times against one nonce cache, and the last result is the one
-expected.
+expected. An offline case runs the offline verifier once, with no peer, clock or nonce TTL: `recordedTs.last` is
+the recorded time of the last stamp, and `seen` is the set of nonce keys already spent in the record set.
 
-Change a vector only with a protocol change.
+Cases may be added at any time. A recorded answer changes only with a protocol change.

@@ -2,13 +2,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Pinned v3 vectors for cross-implementation conformance: every case is replayed from the committed JSON
-// alone. Change a vector only with a protocol change.
+// alone. Cases may be added; a recorded answer changes only with a protocol change.
 
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, commitInfluence, decode, encode, keyringSigningBytes, normalizeInfluence, publicWriteRefused, sign, signingBytesV3,
-  verifyChainOffline, verifyChainV3, verifyKeyring,
+  NonceCache, canonicalize, commitInfluence, decode, encode, keyringSigningBytes, normalizeInfluence, publicWriteRefused, sign, signingBytesV3,
+  utf8, verifyChainOffline, verifyChainV3, verifyKeyring,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, V3Config, V3Input } from "@paztport/core";
 import { buildVectorsV3 } from "./vectors-v3-export.ts";
@@ -57,6 +57,10 @@ function replayOffline(v: any, c: any) {
 describe("v3 known-answer vectors", () => {
   it("the committed file is what the exporter builds", () => expect(buildVectorsV3()).toEqual(committed));
   it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s", (_h, c: any) => expect(Buffer.from(signingBytesV3(c.stamp)).toString("hex")).toBe(c.hex));
+  it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s are the fields joined by |", (_h, c: any) => {
+    const s = c.stamp;
+    expect(Buffer.from(utf8([3, s.svc, s.inst, s.rid, s.ts, s.sess, s.rcv, s.bind, s.infl, s.prev].join("|"))).toString("hex")).toBe(c.hex);
+  });
   it.each(committed.signatures.map((c: any, i: number): [number, any] => [i, c]))("signature %i", (_i, c: any) => expect(encode(sign(committed.keys[c.key].priv, signingBytesV3({ v: 3, ...c.fields })))).toBe(c.sig));
   it.each(committed.influence.map((c: any): [string, any] => [c.name, c]))("influence %s", (_n, c: any) => {
     expect(normalizeInfluence(c.entries)).toEqual(c.normalized);
@@ -70,6 +74,7 @@ describe("v3 known-answer vectors", () => {
   it("keyring signing bytes and named services match the signed keyring", () => {
     for (const k of committed.keyring) {
       expect(encode(keyringSigningBytes(k.signed.policy, k.signed.services))).toBe(k.signingBytes);
+      expect(encode(utf8("paztport-keyring\n" + canonicalize({ policy: k.signed.policy, services: k.signed.services })))).toBe(k.signingBytes);
       expect(k.signed.sig).toBe(k.sig);
       const named = Object.fromEntries(Object.entries(k.services as Record<string, string>).map(([svc, name]) => [svc, committed.keys[name].pub]));
       expect(k.signed.services).toEqual(named);
