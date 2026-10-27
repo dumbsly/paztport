@@ -11,4 +11,8 @@ import java.util.Set;
  * times it gives: the origin's {@code ts} must be one of them.
  */
 public record RecordedTimes(long last, Set<Long> run) {
+
+    public RecordedTimes {
+        run = run == null ? null : Set.copyOf(run);
+    }
 }

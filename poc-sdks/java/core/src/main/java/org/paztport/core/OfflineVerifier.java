@@ -37,6 +37,10 @@ public final class OfflineVerifier {
     private OfflineVerifier() {
     }
 
+    /**
+     * Runs the offline order. Malformed input is a typed rejection; a fault in what the verifier was given (a null
+     * config, a read-only {@code seen} set) is not input and propagates.
+     */
     public static OfflineResult verify(OfflineInput in, OfflineConfig cfg) {
         Objects.requireNonNull(cfg, "cfg");
         if (in == null) {
@@ -62,7 +66,7 @@ public final class OfflineVerifier {
         if ((cfg.runMaxAgeMs() != null || cfg.callMaxAgeMs() != null) && !withinAge(first.ts(), last.ts(), cfg)) {
             return result(ReasonCode.EXPIRED, legacy);
         }
-        if (in.prompt() == null || !first.bind().equals(Bindings.prompt(in.prompt()))) {
+        if (in.prompt() == null || !Text.isWellFormed(in.prompt()) || !first.bind().equals(Bindings.prompt(in.prompt()))) {
             return result(ReasonCode.PROMPT_MISMATCH, legacy);
         }
 

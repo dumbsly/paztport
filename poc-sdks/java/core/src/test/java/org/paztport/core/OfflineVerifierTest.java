@@ -133,4 +133,14 @@ class OfflineVerifierTest {
         assertEquals(ReasonCode.BAD_SIGNATURE,
                 run(in, cfg(c, 1_800_000L, 5000L, new Signers(List.of("session", "x"), "pi-1"))).reason());
     }
+
+    @Test
+    void aPromptWithALoneSurrogateIsNeverBound() {
+        JsonNode c = good();
+        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
+        for (String p : new String[] {"a\uD800b", "a\uDC00b"}) {
+            assertEquals(ReasonCode.PROMPT_MISMATCH, run(with(in, in.stamps(), in.recordedTs(), p, in.nonceKey()),
+                    VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c))).reason());
+        }
+    }
 }
