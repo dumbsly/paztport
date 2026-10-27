@@ -19,9 +19,12 @@ export type SessionRequest = {
 /** A request from before keyrings were signed: it carries no `clientKeyringSig`. */
 export type LegacySessionRequest = Omit<SessionRequest, "clientKeyringSig">;
 
-/** True when the request carries no keyring signature, as a recorded request from before signed keyrings does. */
+/**
+ * True when the request has no `clientKeyringSig` field, as a recorded request from before signed keyrings
+ * does. A field that is present but not a string is a v3 request whose signature fails, not a legacy one.
+ */
 export function isLegacySessionRequest(req: SessionRequest | LegacySessionRequest): req is LegacySessionRequest {
-  return typeof (req as { clientKeyringSig?: unknown }).clientKeyringSig !== "string";
+  return !Object.hasOwn(req, "clientKeyringSig");
 }
 
 export type SessionReply = {

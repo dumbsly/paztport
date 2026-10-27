@@ -79,6 +79,11 @@ describe("sessionStatus", () => {
     const w = world();
     expect(sessionStatus({ ...w.req, clientKeyring: { session: "evil" } }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
   });
+  it("anEmptyPinNeverMatches", () => {
+    const w = world();
+    expect(sessionStatus(w.req, w.serverRoot, w.serverPolicy.publicKey, [""])).toBe("unsafe");
+    expect(sessionStatus({ ...w.req, clientPolicyKey: "" }, w.serverRoot, w.serverPolicy.publicKey, [""])).toBe("unsafe");
+  });
   it("anEmptyKeyringSignatureIsUnsafe", () => {
     const w = world();
     expect(sessionStatus({ ...w.req, clientKeyringSig: "" }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
@@ -243,5 +248,14 @@ describe("isAttestedSession", () => {
     const req: LegacySessionRequest = legacy;
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     expect(isAttestedSession(req, reply, w.serverPolicy.publicKey)).toBe(true);
+  });
+  it("aKeyringSignatureThatIsPresentButNotAStringIsNotLegacy", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    for (const sig of [null, 1]) {
+      const req = { ...w.req, clientKeyringSig: sig } as unknown as SessionRequest;
+      expect(isLegacySessionRequest(req), String(sig)).toBe(false);
+      expect(isAttestedSession(req, reply, w.serverPolicy.publicKey), String(sig)).toBe(false);
+    }
   });
 });

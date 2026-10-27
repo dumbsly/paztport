@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { createPublicKey } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decode, keyPairMatches, parseProof, provesPath, routeOf, verifyRoot, type MerkleProof, type SignedRoot } from "@paztport/core";
@@ -32,6 +33,15 @@ function str(v: unknown, what: string): string {
 /** Copies a string map into an object whose keys (even "__proto__") are ordinary own properties. */
 function stringMap(v: Record<string, unknown>, what: string): Record<string, string> {
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
+}
+
+/** Whether `key` decodes as an Ed25519 SPKI public key, the form the policy-tool writes; never throws. */
+function isPublicKey(key: string): boolean {
+  try {
+    return createPublicKey({ key: Buffer.from(decode(key)), format: "der", type: "spki" }).asymmetricKeyType === "ed25519";
+  } catch {
+    return false;
+  }
 }
 
 /** Throws a clear Error unless the loaded files are mutually consistent. */
@@ -91,6 +101,10 @@ export function loadServerConfig(dir: string): ServerPolicy {
   if (!existsSync(pinPath)) {
     throw new Error(`${pinPath} is missing: regenerate the demo keys with npm run setup-demo -- --force`);
   }
+  const clientPin = readText(pinPath);
+  if (!isPublicKey(clientPin)) {
+    throw new Error(`${pinPath} is not a public key: regenerate the demo keys with npm run setup-demo -- --force`);
+  }
   const cfg: ServerPolicy = {
     policyPrivateKey: readText(join(dir, "policy.key")),
     policyPublicKey: str(ring.policy, "keyring policy"),
@@ -101,7 +115,7 @@ export function loadServerConfig(dir: string): ServerPolicy {
     inst: "mock-github-1",
     hops: HOPS,
     serverId: "github",
-    pinnedClientKeys: [readText(pinPath)],
+    pinnedClientKeys: [clientPin],
   };
   validateServerConfig(cfg);
   return cfg;

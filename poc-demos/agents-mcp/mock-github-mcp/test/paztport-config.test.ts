@@ -101,6 +101,15 @@ describe("loadServerConfig", () => {
     });
     expect(() => loadServerConfig(dir)).toThrow(`${dir}/client-policy.pub is missing: regenerate the demo keys with npm run setup-demo -- --force`);
   });
+  it("loadServerConfigRejectsAClientPinThatIsNotAPublicKey", () => {
+    for (const text of ["", "  \n", "not-a-key", generateKeyPair().privateKey]) {
+      const dir = writeDir(serverConfig());
+      writeFileSync(join(dir, "client-policy.pub"), text);
+      expect(() => loadServerConfig(dir), JSON.stringify(text)).toThrow(
+        `${dir}/client-policy.pub is not a public key: regenerate the demo keys with npm run setup-demo -- --force`,
+      );
+    }
+  });
   it("loadServerConfigRejectsMalformedProof", () => {
     const dir = writeDir(serverConfig(), (f) => {
       f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { leafSalt: 1 } } };
