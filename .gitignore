@@ -6,6 +6,8 @@ dependency-reduced-pom.xml
 # Contains private keys: never commit.
 out/
 *.key
+# Except the throwaway TLS test fixtures (see TlsFixtureExport): long-lived, test-only, certify nothing real.
+!poc-sdks/java/spring/src/test/resources/tls/*.key
 
 # IDE and OS
 .idea/

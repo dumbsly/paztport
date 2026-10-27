@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { decode, sign, utf8, verify, verifyKeyring, verifyProof, verifyRoot } from "@paztport/core";
-import type { MerkleProof, ProofBundle, SignedRoot } from "@paztport/core";
+import type { MerkleProof, ProofBundle, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -133,6 +133,8 @@ describe("policy-tool CLIs", () => {
     expect(typeof ring.policy).toBe("string");
     expect(Object.keys(ring.services).length).toBeGreaterThan(0);
     expect(readFileSync(p, "utf8")).toContain("services");
+    // Only the generated keyring is signed; an old local demo keyring is not, and must not fail a local run.
+    if (named !== undefined) expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
   });
 
   it("badArgsExitNonZero", () => {

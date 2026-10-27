@@ -13,7 +13,7 @@
 
     <artifactId>keygen</artifactId>
     <name>Keygen</name>
-    <description>One-shot CLI: per-service Ed25519 keypairs and a public keyring.</description>
+    <description>One-shot CLI: per-service Ed25519 keypairs, a signed keyring and policy pin, and a certificate authority with TLS certificates.</description>
 
     <dependencies>
         <dependency>
@@ -24,6 +24,12 @@
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <!-- Builds the X.509 certificates; the JDK has no public API for it. Keygen only: the SDK needs none. -->
+            <groupId>org.bouncycastle</groupId>
+            <artifactId>bcpkix-jdk18on</artifactId>
+            <version>1.78.1</version>
         </dependency>
 
         <dependency>
@@ -48,6 +54,17 @@
                         <configuration>
                             <!-- Separate output file, so a rebuild never re-shades the fat jar. -->
                             <outputFile>${project.build.directory}/keygen.jar</outputFile>
+                            <filters>
+                                <!-- Bouncy Castle's jars are signed; copied into a fat jar the signatures no longer match. -->
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <transformers>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">

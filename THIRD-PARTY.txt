@@ -1,13 +1,16 @@
 
-Lists of 54 third-party dependencies.
+Lists of 57 third-party dependencies.
      (Apache-2.0) Apache Commons Codec (commons-codec:commons-codec:1.16.1 - https://commons.apache.org/proper/commons-codec/)
      (Apache-2.0) Apache Commons Compress (org.apache.commons:commons-compress:1.27.1 - https://commons.apache.org/proper/commons-compress/)
      (Apache-2.0) Apache Commons IO (commons-io:commons-io:2.13.0 - https://commons.apache.org/proper/commons-io/)
      (Apache-2.0) Apache Commons Lang (org.apache.commons:commons-lang3:3.14.0 - https://commons.apache.org/proper/commons-lang/)
      (Apache-2.0) Apache Log4j API (org.apache.logging.log4j:log4j-api:2.23.1 - https://logging.apache.org/log4j/2.x/log4j/log4j-api/)
      (Apache-2.0) Apache Log4j to SLF4J Adapter (org.apache.logging.log4j:log4j-to-slf4j:2.23.1 - https://logging.apache.org/log4j/2.x/log4j/log4j-to-slf4j/)
+     (Bouncy Castle Licence) Bouncy Castle ASN.1 Extension and Utility APIs (org.bouncycastle:bcutil-jdk18on:1.78.1 - https://www.bouncycastle.org/java.html)
      (Bouncy Castle Licence) Bouncy Castle ASN.1 Extension and Utility APIs (org.bouncycastle:bcutil-jdk18on:1.80 - https://www.bouncycastle.org/download/bouncy-castle-java/)
+     (Bouncy Castle Licence) Bouncy Castle PKIX, CMS, EAC, TSP, PKCS, OCSP, CMP, and CRMF APIs (org.bouncycastle:bcpkix-jdk18on:1.78.1 - https://www.bouncycastle.org/java.html)
      (Bouncy Castle Licence) Bouncy Castle PKIX, CMS, EAC, TSP, PKCS, OCSP, CMP, and CRMF APIs (org.bouncycastle:bcpkix-jdk18on:1.80 - https://www.bouncycastle.org/download/bouncy-castle-java/)
+     (Bouncy Castle Licence) Bouncy Castle Provider (org.bouncycastle:bcprov-jdk18on:1.78.1 - https://www.bouncycastle.org/java.html)
      (Bouncy Castle Licence) Bouncy Castle Provider (org.bouncycastle:bcprov-jdk18on:1.80 - https://www.bouncycastle.org/download/bouncy-castle-java/)
      (MIT) Checker Qual (org.checkerframework:checker-qual:3.43.0 - https://checkerframework.org/)
      (Apache-2.0) docker-java-api (com.github.docker-java:docker-java-api:3.4.0 - https://github.com/docker-java/docker-java)

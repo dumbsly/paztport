@@ -13,7 +13,7 @@ import org.paztport.core.KeyringFile;
 
 /**
  * Generates one Ed25519 keypair per service plus a policy keypair, and projects
- * the public half into a {@link KeyringFile}. Pure logic; file writing lives in
+ * the public half into a {@link KeyringFile} signed by the policy key. Pure logic; file writing lives in
  * {@link KeygenMain}.
  */
 public final class KeyGenerator {
@@ -36,10 +36,16 @@ public final class KeyGenerator {
         return new Result(services, Crypto.generateEd25519KeyPair());
     }
 
+    /** The policy public key, base64url: the value a verifier pins out of band. */
+    public static String policyPublicKey(Result result) {
+        return Base64Url.encode(Crypto.encodePublicKey(result.policy().getPublic()));
+    }
+
+    /** The keyring, signed by the policy key so that a verifier holding the pin need not trust the file's origin. */
     public static KeyringFile toKeyring(Result result) {
         Map<String, String> services = new LinkedHashMap<>();
         result.services().forEach((svc, kp) ->
                 services.put(svc, Base64Url.encode(Crypto.encodePublicKey(kp.getPublic()))));
-        return new KeyringFile(services, Base64Url.encode(Crypto.encodePublicKey(result.policy().getPublic())), null);
+        return KeyringFile.sign(services, policyPublicKey(result), result.policy().getPrivate());
     }
 }
