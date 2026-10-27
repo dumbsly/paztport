@@ -179,8 +179,10 @@ That is every [reason code](#reason-codes) except `OK` and the offline-only `TIM
 
 ## HTTP requests and responses
 
-Only the Java SDK implements this section ([wire.md](wire.md#http-v3) has the headers). There is no handshake: a
-mesh's services pin one policy key, root and keyring in advance, and `sess` is `""`.
+Only the Java SDK implements this section ([wire.md](wire.md#http-v3) has the headers). Inside a mesh there is no
+handshake: its services pin one policy key, root and keyring in advance, and `sess` is `""`. Between
+organisations there is one ([sessions-and-influence.md](sessions-and-influence.md#over-http)), and the partner
+verifies as below with these inputs.
 
 **A request, at the receiver.** The receiver runs the live order, 1 to 12, with `receiver` = its own name,
 `receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
@@ -191,6 +193,15 @@ is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't 
 verify: dropping it could hide `private` content from the rule. The Java SDK answers it
 `400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first. An origin starts a
 new request tree, so it carries neither the chain nor the influence a request brings, and has nothing to drop.
+
+**At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
+the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
+session id, the client's allowed origins, and the partner's own windows and nonce cache. The inputs are the same
+as above, with `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated
+client, who MUST be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and
+`influence` are of the request and the entries received. The session is the one `X-Path-Session` names for that
+peer. In an unsafe session there is no verifier and nothing is verified. All sessions share one nonce cache,
+keyed as above.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
 passes it as `peer`: `peer.svc` is the certificate subject's common name when it has exactly one, and `""`
@@ -305,7 +316,7 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `BINDING_MISMATCH` | live, offline | A `rcv` names the wrong hop, or the binding does not match what was received. |
 | `REPLAY` | live, offline | The nonce key was seen before. |
 | `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against the root. Also the local gate's verdict for a tool its route list doesn't have. |
-| `SESSION_UNKNOWN` | live, offline | A stamp names another session. |
+| `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` is not the sending peer's current session. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |

@@ -49,14 +49,16 @@ has one, the authenticated peer.
 ## paztport-http
 
 v3 over HTTP, with no web framework. `PaztportHeaders` names the four headers:
-`X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence` and the response's
-`X-Path-Response`. `RequestBinding` computes `bind` over the method, the raw path
+`X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
+`X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call is in. `RequestBinding` computes `bind` over the method, the raw path
 plus `?` and the raw query when there is one, and the body. `HttpV3` encodes and
 decodes the headers, builds a request's verify input (nonce key
 `<rid>|<last svc>|req`), computes a response's result hash over its status and
 body, and checks a response's attestation against the chain the caller sent
 (nonce key `<rid>|<target>|resp`). A service therefore calls a given receiver at
-most once per request tree. `HttpVerifyRequestsV1` is the v1 equivalent, kept for
+most once per request tree. `HttpSessions` fixes the handshake's names (`PATH`, `/paztport/session`, and
+the error codes `INVALID_PARAMS` and `NO_SESSION`), reads a request body as strictly as `HttpV3` does (trailing
+tokens are refused), and writes `{"error":"<code>"}`. `HttpVerifyRequestsV1` is the v1 equivalent, kept for
 `v1.json`.
 
 ## paztport-spring
@@ -113,6 +115,72 @@ Glue, configured through `paztport.*` properties.
   the connection came from. A certificate that names no service is still a peer,
   so the check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
   Responses are checked with no peer.
+- **The verified chain.** `PaztportContext.verifiedChain()` is the request's chain
+  once it has passed the full live order at this hop, and is null otherwise: in `off`
+  mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
+  outside a request scope. Only the inbound filter sets it, from the result that
+  decides attestation. Nothing is signed at the boundary over anything else.
+- **`PublicWrites`.** A bean with one method, `decide(destinationOwner)`, that runs the
+  owner-aware rule over the request's influence and returns `OK` or
+  `INFLUENCE_DENIED`. The service supplies the destination owner from its own
+  records, never from request content; an unknown owner, or no request scope,
+  refuses. It logs one `PAZTPORT_TRACE decision` line.
+- **The egress.** Setting `paztport.boundary.url` makes the service the egress to
+  another organisation, with a `BoundaryClient` whose `post(path, json)` is the one
+  way out. It needs `paztport.boundary.partner` (the partner's entry service),
+  `paztport.boundary.url` (a scheme and an authority, no path),
+  `paztport.boundary.tls-bundle` (its own SSL bundle, apart from `paztport.tls-bundle`,
+  so the partner's CA is trusted only for the partner), and
+  `paztport.boundary.partner-policy-key-path` (the partner's pinned policy key), as
+  well as its own stamp key, proofs, keyring, root and policy pin; the context
+  fails naming what is missing. The first call opens a session and every call after
+  it shares it. `post` throws `IllegalStateException` before anything, the handshake
+  included, is sent when `verifiedChain()` is null. In an attested session it signs
+  one boundary stamp, sends the proof for `<this service>/<partner>` and the
+  influence with its owners; in an unsafe one it sends only `X-Path-Session`. A reply
+  that fails the client's check, an HTTP or I/O error (a `404` too) or no answer in
+  10 s is followed by a handshake with no root, and the session is unsafe. A
+  `403 SESSION_UNKNOWN` clears the session, so the next call opens a new one; the
+  refused call is not retried. Every partner reply becomes one `local-untrusted`
+  entry. A path that would change the host or not be sent as given is refused before
+  any I/O. The constructor refuses a root or keyring that does not verify under the
+  service's own policy key.
+- **Partner mode.** `paztport.partner.enabled=true` makes the service a partner's
+  entry. It answers `POST /paztport/session` and registers `PartnerFilter` in place
+  of `InboundFilter`: no modes, no responder events, no attested responses. It
+  cannot be combined with `paztport.verify=true`. It needs `paztport.keyring-path`,
+  `paztport.root-path` and `paztport.policy-key-path`, plus:
+
+  | Property | Meaning |
+  |---|---|
+  | `paztport.partner.policy-private-key-path` | This organisation's policy private key, which signs session replies. Startup checks that it matches the pin. |
+  | `paztport.partner.client-policy-key-paths` | The `policy.pub` of each organisation whose sessions may be attested. Required. |
+  | `paztport.partner.client-origins` | The service names allowed to start a chain in a client's attested session. Required. |
+  | `paztport.partner.unsafe-disabled` | Operations an unsafe session may not perform, as `METHOD /pattern`; the reply's `disabled`. |
+
+  One session is kept per client certificate common name; a handshake body over
+  256 KiB is `INVALID_PARAMS`, and a certificate with no single common name is
+  `NO_SESSION`. One nonce cache is shared across sessions. A call with no
+  `X-Path-Session` is unsafe; one naming a session that is not the peer's current one
+  is `403 SESSION_UNKNOWN`. In an attested session the chain is verified by that
+  session's own verifier, and the handler gets the verified influence and chain.
+  `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
+  outside an attested session that matches an `unsafe-disabled` entry, by the
+  handler Spring dispatched to, so `/refund;x=1` is `POST /refund`; a `HEAD` is
+  refused where the matching `GET` is. The handshake endpoint and `/admin` are not
+  filtered, so a handler there runs with no influence and counts as unsafe.
+- **Trace lines.** Besides the request and response lines, each value passed through
+  `LogSafe`:
+  - `PAZTPORT_TRACE session partner=<svc> check=<ReplyCheck>|- status=attested|unsafe`,
+    at the egress after a handshake; `check` is `-` when the first handshake got no reply.
+  - `PAZTPORT_TRACE boundary rid=<rid> receiver=<partner> session=attested|unsafe status=<http> classes=<a,b>|-`,
+    at the egress after a call; the classes are those actually sent, so `-` when unsafe.
+  - `PAZTPORT_TRACE session peer=<svc> status=attested|unsafe`, at the partner.
+  - `PAZTPORT_TRACE request … session=attested|unsafe`, at the partner: the request
+    line plus the session's status; one with no session header carries `reason=-`
+    and is not verified, and a `SESSION_UNKNOWN` refusal carries `session=unknown`.
+  - `PAZTPORT_TRACE decision rid=<rid>|- receiver=<svc> rule=public-write|unsafe-session reason=<code> ✓|✗ classes=<a,b>|-`,
+    from `PublicWrites` and from `PartnerGate`; it never names an owner.
 - **Modes and events.** `/admin/mode`, the events sent to a responder, one
   `PAZTPORT_TRACE` log line per request verified, including one verified only to
   decide attestation, and per response received (with `reason=-` where no verifier

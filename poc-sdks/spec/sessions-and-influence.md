@@ -6,7 +6,7 @@ stamps, roots and keyrings are in [wire.md](wire.md), and the checks in [verific
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
-Contents: [The handshake](#the-handshake) · [The session id](#the-session-id) · [Status](#status) ·
+Contents: [The handshake](#the-handshake) · [Over HTTP](#over-http) · [The session id](#the-session-id) · [Status](#status) ·
 [Unsafe sessions](#unsafe-sessions) · [The server decision](#the-server-decision) ·
 [Recorded handshakes](#recorded-handshakes) · [Influence](#influence) · [Entries](#entries) ·
 [Normalisation and commitment](#normalisation-and-commitment) · [Content labels](#content-labels) ·
@@ -78,6 +78,45 @@ After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may hav
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
 request again with `clientRoot: null` and a fresh nonce, and trusts the reply to that either way. A reply
 `-32601` (Method not found) means the server has no Paztport, so there is nothing to replace.
+
+### Over HTTP
+
+The Java SDK carries the handshake over HTTP. The request and the reply are the same JSON objects, and the
+session is the same.
+
+| Part | Rule |
+|---|---|
+| Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
+| Not JSON, or not a readable request | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
+| A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service. |
+| `404` | The server has no Paztport. There is nothing to replace. |
+
+**One session per authenticated peer.** HTTP has no connection to hold a session, so the peer stands in for
+it: the service named by the client certificate's common name, which the TLS layer authenticated, and never a
+name in the body. A new handshake from a peer replaces that peer's session, as a new handshake does on a
+connection. A request that opens no session leaves the peer's session in place.
+
+**Calls name their session** in the `X-Path-Session` request header, whose value is the session id
+([wire.md](wire.md#http-v3)).
+
+- **No header** means the caller never opened a session. The server treats the call as in an unsafe session.
+- **A header that is not the sending peer's current session id** is refused `403 {"reason":"SESSION_UNKNOWN"}`.
+  That covers another peer's id, an id a later handshake replaced, and one from before the server restarted. The
+  server MUST NOT take it as unsafe, or a caller refused in an attested session could step down to an unsafe
+  one by naming a wrong id. A client that gets it drops the session and opens a new one on its next call.
+- **Otherwise** the call is in that session, attested or unsafe as the handshake said.
+
+In an attested session each call is verified by a verifier of its own, built from the client's keyring and
+root as the handshake presented them, with `sess` = the session id, so a stamp made in one session never
+verifies in another ([verification.md](verification.md#http-requests-and-responses)). Inside one organisation's
+mesh there is no handshake, and `sess` stays `""`.
+
+In an unsafe session the server verifies nothing and believes nothing from the call: it starts with no
+influence and no verified chain, whatever headers came. The reply's `disabled` lists operations as
+`<METHOD> <route pattern>`, such as `POST /refund`, where the pattern is that of the handler the server
+dispatches the request to, not the path the caller wrote. So `/refund;x=1` and `//refund` are refused as
+`POST /refund`. A `HEAD` is refused wherever the matching `GET` is. A refusal is `403 {"reason":"UNSAFE_SESSION"}`
+and the handler does not run.
 
 ## The session id
 
@@ -258,13 +297,17 @@ The client's local gate applies the same rule to its own tools' writes into a fo
 
 When a request crosses from one organisation to another, the receiving organisation (the partner) MUST NOT see
 the sender's internal chain, which is the map the protocol keeps private. A boundary attestation crosses
-instead. No SDK implements it yet; implementations that bridge two organisations MUST follow this section.
+instead. The Java SDK implements this section over HTTP, in `BoundaryClient` for the sender and in partner mode
+for the partner; the TypeScript SDK does not. Implementations that bridge two organisations MUST follow it.
 
 **The sender's egress service.** The sender's last internal hop before the boundary is its egress service. It
 MUST:
 
 1. Verify the internal chain it received, as a receiver, in [the live order](verification.md#the-live-order),
-   and refuse the request if it fails.
+   and refuse the request if it fails. A request that did not pass the live order at this hop, or that has no
+   request scope to be in, MUST NOT cause anything to be signed or sent, the handshake included. So a service
+   with no verifier, one that is off, a chain that failed in audit mode, and an origin cannot be the egress for
+   that request.
 2. Start a new chain at the boundary with exactly one stamp, the **boundary stamp**, signed with the egress
    service's own key, a key in the sender's signed keyring:
    - `svc`: the egress service;
@@ -275,10 +318,26 @@ MUST:
    - `bind`: the binding of the request it sends;
    - `infl`: the commitment to the accumulated influence, **with owners**;
    - `prev`: `""`.
+
+   A boundary stamp MUST have a non-empty `sess`, so it is never valid inside a mesh, where `sess` is `""`.
 3. Send the influence entries, with their owners, and the proof for the route `<egress>/<partner entry>`, which
    the sender's root MUST hold.
 4. Never forward an internal stamp. So the partner learns one service name and the influence, not the route
    behind it, and check 6 (every stamp carries the session) holds unchanged.
+5. In an unsafe session, sign no stamp and send no influence. The partner would not verify the stamp, and the
+   owners in the influence are private. The call carries only the session id.
+6. Pin the partner's policy key and check the handshake reply against it
+   ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an HTTP error (a `404`
+   included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by the replacement
+   with no root, and the session is taken as unsafe whatever that reply says.
+7. Record every partner reply as one `local-untrusted` entry (`src` `http:<partner entry>`, `h` the result
+   hash). The partner does not attest what it answers, so nothing it says counts as more.
+
+The Java SDK's `BoundaryClient` also checks, when it is built, that its own root and keyring verify under its own
+policy key, since a partner could not attest either; that the partner's URL is a scheme and an authority with no
+path; and, per call, that the path will be sent exactly as given and cannot change the host. A call refused for
+that is refused before any I/O. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a new one; the
+refused call is not retried, since it may have changed something.
 
 **The partner.** The partner MUST pin the sender's policy key in advance, out of band, as partner onboarding.
 It pins the key, not a root, so the sender can rotate roots and keyrings without being pinned again. In the
@@ -288,8 +347,13 @@ session**, not a refusal: the partner serves what it allows to unattested caller
 
 The partner verifies the boundary chain in the live order against the sender's root and keyring from the
 session, with the egress service as an allowed origin, `receiver` = its own entry service and
-`receiverInRoute = true`. It then applies [the owner-aware rule](#the-owner-aware-rule) to the carried
+`receiverInRoute = true`, and the authenticated peer. It then applies [the owner-aware rule](#the-owner-aware-rule) to the carried
 influence, taking the destination owner from its own records.
+
+The partner signs its handshake replies, so it holds a policy private key whose public half is its own pin. The
+Java SDK checks at startup that the two match. It does not attest what it answers. In the Java SDK, partner mode
+(`paztport.partner.enabled`) replaces the inbound filter with one that has no modes and sends no responder
+events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
 count and cluster requests by route. The root README's known limits cover that.
