@@ -378,15 +378,26 @@ that the route taken is in a private, committed policy**.
   items (for example `http:orders`, `ticket:t-1`), besides the one egress name.
   The route stays hidden, but not these names.
 - **Partner replies are not attested.** The egress records each reply from the
-  partner as `local-untrusted`.
+  partner as `local-untrusted`, and labels its own response the same, so whatever
+  relays the reply passes it on as untrusted.
+- **`PublicWrites` judges the influence it is shown.** That influence is verified
+  only where the request's chain verified at that hop. In `off` mode, after an
+  audit-mode failure, or in an unsafe partner session it may be incomplete or
+  empty, and the rule passes what it cannot see. A partner must therefore list its
+  public writes in `paztport.partner.unsafe-disabled`.
 - **One session per peer certificate.** Replicas that share a certificate replace
   each other's session.
 - **The partner holds its policy private key online**, to sign its session replies.
 - **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
   and the mailer's directory are fixtures, and `assistant` is scripted, with no
-  model. In it, `orders` doesn't check that a purchased order belongs to the
-  buyer, and a later attested charge can re-point an order's original card. That
-  is an availability gap, not a leak: the rule still blocks the refund.
+  model.
+- **The rule judges whose data shaped a write, not who may receive it.** A
+  hijacked request that read no private data passes the rule whatever destination
+  it names. In the demo, who may receive a refund is the PSP's own payer check
+  (only a card held by whoever paid for the order, else `NOT_PAYER`), and the PSP
+  registers a card's owner only from a charge the shop vouched for and no untrusted
+  content shaped. A service whose destinations are not its own records needs a
+  check of its own.
 - **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model.
 - **The responder mounts the Docker socket**, which is host-level control.

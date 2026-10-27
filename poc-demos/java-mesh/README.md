@@ -194,9 +194,21 @@ The two refusals in the malicious ticket show the two branches of the rule:
   Alice's own address, it would have passed (row 12).
 - **Unknown owner, at the PSP.** The card `4000 0000 0000 0002` has never been
   charged, so the PSP has no owner for it. An unknown owner counts as someone
-  else's, so the refund is refused. The rule fails closed: a card nobody has
-  charged cannot be refunded to. Row 11's attested charge is what registers Alice's
-  own card to her, which is why row 12's refund goes through.
+  else's, and the influence holds Alice's private data beside third-party text, so
+  the refund is refused.
+
+The rule judges whose data shaped a write, and nothing more. Had Mallory's ticket
+asked for the history of an address nobody uses, the assistant would have read no
+private data, and the rule would have passed a refund to any card. Who may receive
+the money is the PSP's own question, answered from its own records: a refund goes
+only to a card held by whoever paid for the order, and is otherwise refused
+`403 NOT_PAYER`. That is the PSP's business logic, not the SDK's. The records it
+reads are written only from a charge the shop vouched for and no untrusted content
+shaped, which the PSP asks the SDK (`PublicWrites.shapedOnlyByTrusted()`). Row 11's
+honest purchase registers Alice's card to her, which is why row 12's refund goes
+through; a charge a hijacked assistant asked for would be taken and register
+nothing. `orders` takes a purchase only from the order's own customer
+(`403 NOT_YOUR_ORDER`), and the first card an order is charged to stays its card.
 
 In an unsafe session, with no root to show, the PSP cannot verify what sits
 behind a request, so a refund, which pays out, is refused whatever the influence
@@ -217,31 +229,32 @@ the [Java SDK](../../poc-sdks/java/README.md); this demo only wires them up.
 
 After row 13, `demo.sh` prints every trace line that carries the malicious
 ticket's `rid`, from every service it reached, in time order. This is the Docker
-run, with the `rid` shortened to `b2337afd` for reading:
+run, with the `rid` shortened to `93b58365` for reading:
 
 ```
-tickets: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
-assistant: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
-orders: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=orders ✓ peer=assistant (mTLS) classes=third-party
-assistant: PAZTPORT_TRACE response rid=b2337afd from=orders reason=OK receiver=assistant ✓ labels=private
-payment: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=payment ✓ peer=assistant (mTLS) classes=private,third-party
-psp: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
-psp: PAZTPORT_TRACE decision rid=b2337afd receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
-payment: PAZTPORT_TRACE boundary rid=b2337afd receiver=psp session=attested status=403 classes=private,third-party
-assistant: PAZTPORT_TRACE response rid=b2337afd from=payment reason=OK receiver=assistant ✓ labels=-
-mailer: PAZTPORT_TRACE request rid=b2337afd reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=private,third-party
-mailer: PAZTPORT_TRACE decision rid=b2337afd receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
-assistant: PAZTPORT_TRACE response rid=b2337afd from=mailer reason=OK receiver=assistant ✓ labels=-
-tickets: PAZTPORT_TRACE response rid=b2337afd from=assistant reason=OK receiver=tickets ✓ labels=-
-gateway: PAZTPORT_TRACE response rid=b2337afd from=tickets reason=OK receiver=gateway ✓ labels=-
+tickets: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=tickets ✓ peer=gateway (mTLS) classes=-
+assistant: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=assistant ✓ peer=tickets (mTLS) classes=third-party
+orders: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=orders ✓ peer=assistant (mTLS) classes=third-party
+assistant: PAZTPORT_TRACE response rid=93b58365 from=orders reason=OK receiver=assistant ✓ labels=private
+payment: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=payment ✓ peer=assistant (mTLS) classes=private,third-party
+psp: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=psp ✓ peer=payment (mTLS) classes=private,third-party session=attested
+psp: PAZTPORT_TRACE decision rid=93b58365 receiver=psp rule=public-write reason=INFLUENCE_DENIED ✗ classes=private,third-party
+payment: PAZTPORT_TRACE boundary rid=93b58365 receiver=psp session=attested status=403 classes=private,third-party
+assistant: PAZTPORT_TRACE response rid=93b58365 from=payment reason=OK receiver=assistant ✓ labels=local-untrusted
+mailer: PAZTPORT_TRACE request rid=93b58365 reason=OK receiver=mailer ✓ peer=assistant (mTLS) classes=local-untrusted,private,third-party
+mailer: PAZTPORT_TRACE decision rid=93b58365 receiver=mailer rule=public-write reason=INFLUENCE_DENIED ✗ classes=local-untrusted,private,third-party
+assistant: PAZTPORT_TRACE response rid=93b58365 from=mailer reason=OK receiver=assistant ✓ labels=-
+tickets: PAZTPORT_TRACE response rid=93b58365 from=assistant reason=OK receiver=tickets ✓ labels=-
+gateway: PAZTPORT_TRACE response rid=93b58365 from=tickets reason=OK receiver=gateway ✓ labels=-
 ```
 
 Read it top to bottom. The `classes` column is empty at `tickets`, gains
 `third-party` at `assistant`, gains `private` once `orders` has answered, and
-reaches `payment`, `psp` and `mailer` as `private,third-party`. The `rid` is the
-same at every service, including the PSP, in another organisation. The `psp`
-request line shows `session=attested`, and the two `decision … INFLUENCE_DENIED`
-lines are the two refusals. The chain verified at every hop: the requests were
+reaches `payment` and `psp` as `private,third-party`. Payment relays the PSP's
+answer, which nobody attests, so its response is labelled `local-untrusted`, and
+the `mailer` sees that too. The `rid` is the same at every service, including the
+PSP, in another organisation. The `psp` request line shows `session=attested`, and
+the two `decision … INFLUENCE_DENIED` lines are the two refusals. The chain verified at every hop: the requests were
 all legitimate positions on allowed routes, which is why the refusals have to come
 from the influence and not from the path. The gateway has only a `response` line
 because, as the origin, it verifies no request.
