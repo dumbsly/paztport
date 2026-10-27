@@ -6,10 +6,11 @@ package org.paztport.core;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Verifies a v3 chain received live: the twelve checks of the live order, the first failure being the result.
- * Every branch fails closed, and {@link #verify} never throws; a malformed input is a typed rejection.
+ * Every branch fails closed, and {@link #verify} never throws on malformed input; it is a typed rejection.
  *
  * <ol>
  * <li>the stamps parse, all v3 (CHAIN_MISSING);
@@ -39,18 +40,20 @@ public final class VerifierV3 {
     private final VerifierConfigV3 cfg;
 
     public VerifierV3(VerifierConfigV3 cfg) {
-        this.cfg = cfg;
+        this.cfg = Objects.requireNonNull(cfg, "cfg");
     }
 
+    /**
+     * Runs the live order. The checks are total on malformed input, so a rejection is always a typed result;
+     * a fault in what the verifier was given (a nonce cache or clock that throws) is not input and propagates,
+     * rather than being hidden as a rejection.
+     */
     public VerifyResult verify(VerifyInputV3 in) {
-        VerifyResult result;
-        try {
-            result = check(in);
-        } catch (RuntimeException e) {
-            // Input the checks above did not anticipate: unreadable, so refused without a name.
-            result = VerifyResult.reject(ReasonCode.CHAIN_MISSING);
+        if (in == null) {
+            return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
-        Peer peer = in == null ? null : in.peer();
+        VerifyResult result = check(in);
+        Peer peer = in.peer();
         return peer == null ? result : new VerifyResult(result.reason(), peer.svc(), peer.inst());
     }
 

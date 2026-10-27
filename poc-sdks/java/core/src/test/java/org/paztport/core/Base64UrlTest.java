@@ -40,4 +40,20 @@ class Base64UrlTest {
         // '+' and '/' are not part of the url-safe alphabet: fail closed.
         assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("++//"));
     }
+
+    @Test
+    void toleratesUpToTwoPaddingCharactersLikeTheTypeScriptSdk() {
+        assertEquals(16, Base64Url.decode("A".repeat(22) + "=").length);
+        assertEquals(32, Base64Url.decode("A".repeat(43) + "==").length);
+    }
+
+    @Test
+    void refusesWhatTheTypeScriptSdkRefuses() {
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AAAA==="));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AAAAA"));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AAAAA="));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AA=A"));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AA A"));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode("AAAA\n"));
+    }
 }

@@ -9,10 +9,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.TextNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
@@ -95,5 +97,156 @@ class VerifierV3Test {
         SignedRoot forged = SignedRoot.sign(root, "v1", other.getPrivate());
         assertThrows(IllegalArgumentException.class, () -> VerifierConfigV3.pinned(good, forged, pin,
                 Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+    }
+
+    @Test
+    void nullInputsAreRejectionsNotExceptions() {
+        JsonNode chain = peerOk.get("chain");
+        JsonNode infl = peerOk.get("influence");
+        VerifyInputV3 good = input(chain, bind(), infl, null, null);
+        assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(null).reason());
+        assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(new VerifyInputV3(chain, bind(), infl,
+                good.proof(), null, true, good.nonceKey(), null)).reason());
+        assertEquals(ReasonCode.REPLAY, verifier().verify(new VerifyInputV3(chain, bind(), infl, good.proof(),
+                good.receiver(), true, null, null)).reason());
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, verifier().verify(new VerifyInputV3(chain, bind(), infl, null,
+                good.receiver(), true, good.nonceKey(), null)).reason());
+    }
+
+    @Test
+    void nullConfigIsRefused() {
+        assertThrows(NullPointerException.class, () -> new VerifierV3(null));
+    }
+
+    // Boundary cases, on chains the test signs itself so each reaches exactly the check it targets.
+
+    private static final long NOW = 1_000_000_000L;
+    private static final long CALL = 5000;
+    private static final long RUN = 60_000;
+
+    private static final KeyPair SESSION = Crypto.generateEd25519KeyPair();
+    private static final KeyPair PI = Crypto.generateEd25519KeyPair();
+    private static final MerkleTree TREE = MerkleTree.build(
+            List.of(new MerkleLeaf(new byte[16], "session/pi/target")), 1, "vtest");
+    private static final JsonNode PROOF = new ObjectMapper().valueToTree(TREE.proofFor("session/pi/target"));
+
+    private record Case(String origin, String rid, String sess, String prev, long originTs, long lastTs) {
+        Case() {
+            this("session", "r", "s", null, NOW - 100, NOW - 50);
+        }
+
+        Case origin(String o) {
+            return new Case(o, rid, sess, prev, originTs, lastTs);
+        }
+
+        Case rid(String r) {
+            return new Case(origin, r, sess, prev, originTs, lastTs);
+        }
+
+        Case sess(String s) {
+            return new Case(origin, rid, s, prev, originTs, lastTs);
+        }
+
+        Case prev(String p) {
+            return new Case(origin, rid, sess, p, originTs, lastTs);
+        }
+
+        Case originTs(long t) {
+            return new Case(origin, rid, sess, prev, t, lastTs);
+        }
+
+        Case lastTs(long t) {
+            return new Case(origin, rid, sess, prev, originTs, t);
+        }
+    }
+
+    private static JsonNode wire(StampV3 s) {
+        return JsonNodeFactory.instance.objectNode().put("v", 3).put("svc", s.svc()).put("inst", s.inst())
+                .put("rid", s.rid()).put("ts", s.ts()).put("sess", s.sess()).put("rcv", s.rcv())
+                .put("bind", s.bind()).put("infl", s.infl()).put("prev", s.prev()).put("sig", s.sig());
+    }
+
+    private static JsonNode chain(Case c) {
+        StampV3 a = StampV3.sign(c.origin(), "i", "r", c.originTs(), "s", "pi", "b", "", "", SESSION.getPrivate());
+        StampV3 b = StampV3.sign("pi", "i", c.rid(), c.lastTs(), c.sess(), "target", "b", "",
+                c.prev() == null ? a.sig() : c.prev(), PI.getPrivate());
+        ObjectMapper m = new ObjectMapper();
+        return m.createArrayNode().add(wire(a)).add(wire(b));
+    }
+
+    private static VerifierV3 boundary(NonceCache cache, long callMax, long runMax) {
+        Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic(),
+                "other", Crypto.generateEd25519KeyPair().getPublic()));
+        return new VerifierV3(new VerifierConfigV3(ring, TREE.root(), "vtest", Set.of("session"), "s", cache,
+                () -> NOW, callMax, runMax));
+    }
+
+    private static ReasonCode run(Case c) {
+        return run(c, new InMemoryNonceCache(2 * CALL));
+    }
+
+    private static ReasonCode run(Case c, NonceCache cache) {
+        return boundary(cache, CALL, RUN).verify(new VerifyInputV3(chain(c), "b", null, PROOF, "target", true,
+                "r|target|req", null)).reason();
+    }
+
+    @Test
+    void lastStampAgeBoundary() {
+        assertEquals(ReasonCode.OK, run(new Case().lastTs(NOW - CALL)));
+        assertEquals(ReasonCode.EXPIRED, run(new Case().lastTs(NOW - CALL - 1)));
+        assertEquals(ReasonCode.OK, run(new Case().lastTs(NOW + CALL).originTs(NOW)));
+        assertEquals(ReasonCode.EXPIRED, run(new Case().lastTs(NOW + CALL + 1).originTs(NOW)));
+    }
+
+    @Test
+    void originAgeBoundary() {
+        assertEquals(ReasonCode.OK, run(new Case().originTs(NOW - RUN)));
+        assertEquals(ReasonCode.EXPIRED, run(new Case().originTs(NOW - RUN - 1)));
+        assertEquals(ReasonCode.OK, run(new Case().originTs(NOW + CALL)));
+        assertEquals(ReasonCode.EXPIRED, run(new Case().originTs(NOW + CALL + 1)));
+    }
+
+    @Test
+    void nonceTtlMustCoverTwiceTheCallWindowAndIsNotSpentOtherwise() {
+        assertEquals(ReasonCode.OK, run(new Case(), new InMemoryNonceCache(2 * CALL)));
+        boolean[] touched = {false};
+        NonceCache short1 = new NonceCache() {
+            @Override
+            public boolean seenBefore(String key, long now) {
+                touched[0] = true;
+                return false;
+            }
+
+            @Override
+            public long ttlMs() {
+                return 2 * CALL - 1;
+            }
+        };
+        assertEquals(ReasonCode.REPLAY, run(new Case(), short1));
+        assertEquals(false, touched[0], "a too-short cache is refused before the nonce is spent");
+    }
+
+    @Test
+    void earlyChecksEachFailWithTheirOwnCode() {
+        assertEquals(ReasonCode.BAD_ORIGIN, run(new Case().origin("other")));
+        assertEquals(ReasonCode.BROKEN_LINK, run(new Case().prev("wrong")));
+        assertEquals(ReasonCode.RID_MISMATCH, run(new Case().rid("r2")));
+        assertEquals(ReasonCode.SESSION_UNKNOWN, run(new Case().sess("s2")));
+    }
+
+    @Test
+    void aFailingNonceCacheOrClockPropagates() {
+        NonceCache broken = new NonceCache() {
+            @Override
+            public boolean seenBefore(String key, long now) {
+                throw new IllegalStateException("cache down");
+            }
+
+            @Override
+            public long ttlMs() {
+                return 2 * CALL;
+            }
+        };
+        assertThrows(IllegalStateException.class, () -> run(new Case(), broken));
     }
 }
