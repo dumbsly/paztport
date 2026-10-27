@@ -30,3 +30,30 @@ npm test
 
 `npm run demo` opens a local page for one run ([demo-ui](demo-ui/README.md)).
 `npm run eval -- --model ollama/<model>` repeats the runs and writes a results table ([eval](eval/README.md)).
+
+## Protocol v3
+
+The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
+
+- **Every stamp names its receiver.** The run's origin names `pi`, a call names `mcp:<server>.<tool>`, a
+  response chain ends at `pi`, the client that made the call, and a local step names `local:<tool>`. A chain
+  sent anywhere else is refused `BINDING_MISMATCH`.
+- **No transport peer here.** The SDK's verifier checks the sender a transport authenticated, and names it in
+  every result. The MCP servers here run over stdio, which has no TLS, so there is no peer, and the peer check
+  doesn't apply: attribution falls back to the chain's own rule.
+- **Signed keyrings, pinned both ways.** `keyring.json` carries `sig`, the policy key's signature over it, and
+  the extension sends it in the session request. The mock server pins the client policy key
+  (`.demo/server/client-policy.pub`) and opens attested sessions only for it, as the extension pins the
+  server's (`.demo/client/server-policy.pub`).
+- **Older records still verify.** `npm run verify` accepts evidence recorded with v2 stamps, offline only, and
+  marks each such item legacy ([eval](eval/README.md)).
+
+**Upgrading an existing `.demo`.** Keys made before signed keyrings have no keyring `sig` and no
+`client-policy.pub`, and the server and the extension refuse to start with them. Regenerate them:
+
+```bash
+npm run setup-demo -- --force
+```
+
+`./run agents-mcp` sets up the demo keys only when `.demo` does not exist, so run that once by hand after
+upgrading.

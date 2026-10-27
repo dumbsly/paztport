@@ -160,6 +160,15 @@ Why it's built this way:
   accepted once, and the 5 s freshness window bounds how long anything needs to be
   remembered.
 
+The table is the v1 stamp, which the Java mesh signs. The current version, v3, which the
+TypeScript SDK and the agents demo sign, adds four fields: a version `v`, the session `sess`, an
+influence commitment `infl`, and the receiver `rcv`, the hop each stamp was handed to. Binding the
+receiver changes who a rejection names. A chain forwarded unchanged to another service now fails
+`BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last
+signer. And when the transport authenticates the sender, as mTLS does, the verifier checks that
+the sender is the last signer and names that authenticated sender in every result. Without one, as
+before, only an allowed request or a `PATH_NOT_ALLOWED` names a suspect: the last signer.
+
 ### 2.2 Proof of legitimacy: the salted Merkle tree
 
 The allowed routes are hashed into a Merkle tree. A service pins only the
@@ -248,7 +257,8 @@ authenticated `svc` fields in the stamps, never from any claimed field.** It
 appends its own name, then checks *that* route against the root. You can't claim a
 route you didn't travel, and you can't travel a route that isn't in the tree.
 
-The headers' exact encoding is in [poc-sdks](poc-sdks/README.md#on-the-wire).
+The exact format of every version is in the [protocol spec](poc-sdks/spec/README.md), and
+[poc-sdks](poc-sdks/README.md#on-the-wire) has a summary.
 
 ## 3. Security principles
 
@@ -322,16 +332,23 @@ that the route taken is in a private, committed policy**.
 - **The caller-identity check is advisory without mTLS.** Until mTLS binds the last
   stamp to the real transport identity,
   [verification step 8](poc-demos/java-mesh/README.md#the-verification-pipeline)
-  is a gap.
-- **A forwarded chain can blame its last signer.** A stamp doesn't bind the service
-  it was meant for, so a chain forwarded unchanged to a different service with a
-  matching method and path can still give `PATH_NOT_ALLOWED` and name the innocent
-  last signer. Binding the receiver into the stamp, or mTLS binding the caller,
-  closes it.
+  is a gap. v3 verifiers check a transport peer when one is supplied
+  (`PEER_MISMATCH`), but no transport in this repository supplies one yet: the agents
+  demo runs over stdio, which has no TLS, and the Java mesh still runs v1.
+- **A forwarded chain can blame its last signer, in v1.** A v1 stamp doesn't bind the
+  service it was meant for, so a chain forwarded unchanged to a different service
+  with a matching method and path can still give `PATH_NOT_ALLOWED` and name the
+  innocent last signer. v3 stamps, which the TypeScript SDK and the agents demo sign,
+  bind the receiver, so there such a chain is `BINDING_MISMATCH` and names no one.
+  The Java mesh still runs v1, so the limit stands there.
 - **A compromised service can blame its own replicas.** The instance in a stamp is
   reported by the service that signed it. The responder refuses a container that
   doesn't run the named service, but a compromised service can still name any
-  replica of itself, and the responder will isolate that replica instead.
+  replica of itself, and the responder will isolate that replica instead. With an
+  authenticated transport peer, a v3 verifier names the sender's own address
+  instead. A certificate is per service, though, so the responder still checks that
+  the container runs the named service. The Java mesh still runs v1, so this limit
+  stands there.
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS
@@ -419,7 +436,7 @@ paztport/
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
 ├── run                       front door: java-mesh, agents-mcp, test
 ├── poc-sdks/
-│   ├── spec/vectors/         shared conformance vectors: v1, which both SDKs replay; v2, which the TypeScript SDK checks
+│   ├── spec/                 the protocol spec, and shared conformance vectors: v1, which both SDKs replay; v2 and v3, which the TypeScript SDK checks
 │   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
 │   └── typescript/           @paztport/core, @paztport/http, @paztport/mcp, policy-tool
@@ -435,10 +452,11 @@ paztport/
 
 ## 9. Where to go next
 
-- [poc-sdks](poc-sdks/README.md): the SDKs and the on-the-wire format.
+- [poc-sdks](poc-sdks/README.md): the SDKs and a summary of the on-the-wire format.
   - [poc-sdks/java](poc-sdks/java/README.md) and
     [poc-sdks/typescript](poc-sdks/typescript/README.md): one section per package.
-  - [poc-sdks/spec](poc-sdks/spec/README.md): the shared conformance vectors.
+  - [poc-sdks/spec](poc-sdks/spec/README.md): the protocol spec and the shared conformance
+    vectors.
 - [poc-demos](poc-demos/README.md): the demos.
   - [poc-demos/java-mesh](poc-demos/java-mesh/README.md): the mesh walkthrough, threat
     model, scenarios, responder, measurements and configuration.

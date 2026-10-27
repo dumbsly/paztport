@@ -3,6 +3,9 @@
 A Maven build (`paztport-sdk-parent`, JDK 21 or newer) of three libraries and two
 one-shot tools. Every cryptographic primitive comes from the standard JDK.
 
+It implements protocol v1, the HTTP mesh format; the [spec](../spec/README.md) and
+`spec/vectors/v3.json` say what v3 needs.
+
 ```bash
 mvn -q install   # build, test, and install into the local Maven repository
 ```

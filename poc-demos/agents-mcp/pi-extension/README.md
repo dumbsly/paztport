@@ -55,10 +55,14 @@ then classify the run from the outcome log as the
 ```
 
 - `mode`: `enforce`, `no-root` or `off` (see below).
-- `clientDir`: the client keys, signed root, `proofs-pi.json` and the pinned `server-policy.pub`, as
-  written by `setup-demo`. It holds no policy private key: setup-demo deletes the client's
-  `policy.key` once it has signed the root, and the root is checked with the policy public key from
-  `keyring.json`.
+- `clientDir`: the client files, as written by `setup-demo`. The extension reads `session.key` and
+  `pi.key` (the origin's and pi's signing keys), `keyring.json`, which must carry `sig`, the policy
+  key's signature over it (sent in the session request), and `server-policy.pub`, the default pin.
+  `root.json`, `proofs-pi.json` and an optional `rules.json` are read from `clientPolicyDir`, which
+  defaults to `clientDir`. It holds no policy private key: setup-demo deletes the client's
+  `policy.key` once it has signed the root and keyring, and both are checked with the policy public
+  key from `keyring.json`. A `keyring.json` with no `sig` is refused with a message naming
+  `npm run setup-demo -- --force`.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`.

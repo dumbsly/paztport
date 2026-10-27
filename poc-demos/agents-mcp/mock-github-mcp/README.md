@@ -22,7 +22,12 @@ node mock-github-mcp/src/main.ts --mode enforce --outcome-log run.jsonl --canary
 `main.ts` flags:
 
 - `--mode enforce|audit|off` (default `enforce`)
-- `--config <dir>`: server keys and policy (default `poc-demos/agents-mcp/.demo/server`; not needed in `off`)
+- `--config <dir>`: server keys and policy (default `poc-demos/agents-mcp/.demo/server`; not needed in `off`).
+  The server reads `keyring.json` (its services and policy key), `root.json`, `proofs-mcp-entry.json` (the
+  proof for `mcp-entry/github-tools`), `policy.key` (it signs session replies), `mcp-entry.key` and
+  `github-tools.key` (they sign each response), and `client-policy.pub`, the one client policy key it opens
+  attested sessions for. A missing or unusable `client-policy.pub` stops it with a message naming
+  `npm run setup-demo -- --force`.
 - `--outcome-log <file>`: JSONL outcome log (appended; without it records stay in memory)
 - `--canary <s>`: the secret placed in both private READMEs (default: random)
 - `--scenario <dir>`: the scenario folder to load (default `poc-demos/agents-mcp/scenarios/github-issue-replay`; see below)
@@ -134,8 +139,10 @@ content.
 
 - Leak detection is marker-based (the canary and the scenario's `markers`; `PRIVATE_MARKERS` is the built-in scenario's list). It misses
   paraphrase, encodings such as base64, and a canary split across several texts or calls.
-- The client pins the server policy key on first use (`server-policy.pub` from setup-demo); nothing
-  else vouches for it.
+- The client pins the server policy key on first use (`server-policy.pub` from setup-demo), and the
+  server pins the client's (`client-policy.pub`); nothing else vouches for either.
+- The server runs over stdio, which has no TLS, so no transport peer is checked: attribution uses the
+  chain's own rule.
 - One session per connection: a new `paztport/session` handshake replaces the old session, and calls
   signed for the old one are refused. The set of classes the server has served starts empty again.
 - The influence rule uses the client's verified influence plus every class the server served in the

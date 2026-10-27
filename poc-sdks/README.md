@@ -8,44 +8,38 @@ policy, verification, influence and sessions. The demos in
   `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/http` and
   `@paztport/mcp` extensions, and the policy command-line tools.
-- [spec](spec/README.md): the shared conformance vectors: v1, which both SDKs replay,
-  and v2, which the TypeScript SDK checks.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v1, which
+  both SDKs replay, and v2 and v3, which the TypeScript SDK checks.
 - `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
   `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
 ## On the wire
 
-This is the v1 format. The Java SDK (`paztport-core`, with `paztport-http` for the
-request binding) is its reference implementation. Binary values are **base64url
-without padding**, and both headers are base64url-encoded JSON.
+The full format is in the [protocol spec](spec/README.md): every byte layout, binding, check and code. This is
+a summary of v3, the current version.
 
-`X-Path-Chain` is a JSON array of stamps, origin first:
-
-```json
-[{ "svc": "...", "inst": "...", "rid": "...", "ts": 0,
-   "bind": "<b64url>", "prev": "<b64url>", "sig": "<b64url>" }]
-```
-
-- `sig` signs the UTF-8 bytes `svc|inst|rid|ts|bind|prev`, joined with `|`, with
-  `ts` in decimal.
-- `prev` is the previous stamp's `sig` as base64url, or the empty string at the
-  origin.
-- `bind` is `b64url(SHA-256(METHOD \n PATH \n BODY))` of the request this hop sent.
-
-`X-Path-Proof` proves membership for the full route, **including the receiving
-service**:
+A v3 stamp is a JSON object, and a chain is an array of them, origin first:
 
 ```json
-{ "leafSalt": "<b64url>", "siblings": ["<b64url>", ...], "dirs": "LRL...", "rootId": "..." }
+{ "v": 3, "svc": "...", "inst": "...", "rid": "...", "ts": 0, "sess": "...", "rcv": "...",
+  "bind": "<b64url>", "infl": "<b64url>", "prev": "<b64url>", "sig": "<b64url>" }
 ```
 
-`dirs[i]` is `L` when the working hash is the left input at level `i`, and `R`
-otherwise.
+- `sig` signs the UTF-8 bytes `3|svc|inst|rid|ts|sess|rcv|bind|infl|prev`, with `ts` in decimal. No field may
+  hold `|`.
+- `rcv` names the hop the stamp was handed to: the next stamp's `svc`, and for the last stamp the chain's
+  receiver (`mcp:<server>.<tool>` for an MCP call). A chain forwarded to anyone else fails `BINDING_MISMATCH`.
+- `sess` is the session the handshake opened, `infl` commits to the influence the call was made under, and
+  `bind` binds what the hop sent.
+- `prev` is the previous stamp's `sig`, or the empty string at the origin.
 
-The signed root (`root.json`) that verifiers pin:
+Over MCP, the chain, the route proof, the influence and the call id travel in the `tools/call` request's
+`_meta`, and a result carries the server's response chain and content labels. A live verifier accepts v3 only;
+v2 records are accepted only offline, marked legacy.
 
-```json
-{ "rootId": "...", "root": "<b64url>", "sig": "<b64url>" }
-```
+v1, which the Java SDK speaks, travels in the `X-Path-Chain` and `X-Path-Proof` headers, and its stamps sign
+`svc|inst|rid|ts|bind|prev`, with no receiver ([wire.md](spec/wire.md#v1-the-http-mesh-format)). Binary values
+are base64url without padding, in every version.
 
-`sig` is the policy key's Ed25519 signature over `rootId|root`.
+The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig" }`, where `sig` is the policy key's
+Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) is signed by the same key.
