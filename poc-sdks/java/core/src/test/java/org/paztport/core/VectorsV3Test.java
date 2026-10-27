@@ -10,6 +10,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -105,6 +108,42 @@ class VectorsV3Test {
             KeyringFile file = new KeyringFile(svcs, policy, signed.get("sig").asText());
             String pin = vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText();
             assertEquals(c.get("verifies").asBoolean(), file.verifies(pin), name);
+        }
+    }
+
+    private static Keyring keyring(JsonNode names) {
+        Map<String, PublicKey> keys = new LinkedHashMap<>();
+        names.fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
+                Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
+        return Keyring.of(keys);
+    }
+
+    @Test
+    void verify() {
+        for (JsonNode c : vectors.get("verify")) {
+            String name = c.get("name").asText();
+            JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
+            Set<String> origins = new LinkedHashSet<>();
+            c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
+            long now = c.get("now").asLong();
+            VerifierConfigV3 cfg = new VerifierConfigV3(keyring(c.get("keyring")),
+                    Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), origins,
+                    c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
+                    c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
+            JsonNode route = c.get("proofRoute");
+            JsonNode peer = c.get("peer");
+            VerifyInputV3 in = new VerifyInputV3(c.get("chain"), c.get("expectedBind").asText(), c.get("influence"),
+                    route.isNull() ? null : policy.get("proofs").get(route.asText()), c.get("receiver").asText(),
+                    c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
+                    peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
+            VerifierV3 verifier = new VerifierV3(cfg);
+            VerifyResult result = null;
+            for (int i = 0; i < c.get("uses").asInt(); i++) {
+                result = verifier.verify(in);
+            }
+            JsonNode want = c.get("expected");
+            assertEquals(new VerifyResult(ReasonCode.valueOf(want.get("reason").asText()),
+                    want.get("suspectSvc").asText(), want.get("suspectInst").asText()), result, name);
         }
     }
 }

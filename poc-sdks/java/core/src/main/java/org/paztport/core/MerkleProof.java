@@ -3,6 +3,8 @@
 
 package org.paztport.core;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -75,5 +77,38 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
 
     public static MerkleProof decode(String header) {
         return Json.read(Base64Url.decode(header), MerkleProof.class);
+    }
+
+    /**
+     * Reads a proof object off the wire: the proof-object checks that need no root. All four fields must be
+     * strings (siblings an array of them), {@code dirs} only {@code L}/{@code R} with one per sibling, the salt
+     * exactly {@link #SALT_BYTES} and each sibling exactly one hash. Anything else throws
+     * {@link IllegalArgumentException}, which a verifier turns into "not proven". Unknown fields are ignored,
+     * as in the TypeScript SDK.
+     */
+    public static MerkleProof fromJson(JsonNode node) {
+        if (node == null || !node.isObject()) {
+            throw new IllegalArgumentException("proof must be an object");
+        }
+        JsonNode salt = node.get("leafSalt");
+        JsonNode dirs = node.get("dirs");
+        JsonNode rootId = node.get("rootId");
+        JsonNode siblings = node.get("siblings");
+        if (salt == null || !salt.isTextual() || dirs == null || !dirs.isTextual() || rootId == null
+                || !rootId.isTextual() || siblings == null || !siblings.isArray()) {
+            throw new IllegalArgumentException("malformed proof");
+        }
+        List<String> out = new ArrayList<>();
+        for (JsonNode s : siblings) {
+            if (!s.isTextual() || Base64Url.decode(s.textValue()).length != HASH_BYTES) {
+                throw new IllegalArgumentException("malformed proof sibling");
+            }
+            out.add(s.textValue());
+        }
+        if (!dirs.textValue().matches("[LR]*") || dirs.textValue().length() != out.size()
+                || Base64Url.decode(salt.textValue()).length != SALT_BYTES) {
+            throw new IllegalArgumentException("malformed proof");
+        }
+        return new MerkleProof(salt.textValue(), out, dirs.textValue(), rootId.textValue());
     }
 }
