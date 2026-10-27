@@ -11,7 +11,7 @@ package org.paztport.core;
  * verifier can check. They are set only for {@code OK} and
  * {@code PATH_NOT_ALLOWED}; every other rejection leaves them empty, because
  * the name would be unsigned or the genuine stamp would belong to another
- * request. See {@link Verifier} for the forwarding case that is still blamed.
+ * request. See {@link VerifierV1} for the forwarding case that is still blamed.
  */
 public record VerifyResult(ReasonCode reason, String suspectSvc, String suspectInst) {
 

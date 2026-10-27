@@ -18,10 +18,10 @@ import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
-import org.paztport.core.OutboundStamper;
+import org.paztport.core.OutboundStamperV1;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
-import org.paztport.core.Verifier;
+import org.paztport.core.VerifierV1;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
@@ -55,10 +55,10 @@ class PaztportAutoConfigurationTest {
                         "paztport.key-path=" + dir.resolve("gateway.key"),
                         "paztport.proofs-path=" + dir.resolve("proofs-gateway.json"))
                 .run(context -> {
-                    assertThat(context).hasSingleBean(OutboundStamper.class);
+                    assertThat(context).hasSingleBean(OutboundStamperV1.class);
                     assertThat(context).hasSingleBean(org.springframework.boot.web.client.RestClientCustomizer.class);
                     assertThat(context).hasSingleBean(org.springframework.boot.web.servlet.FilterRegistrationBean.class);
-                    assertThat(context).doesNotHaveBean(Verifier.class);
+                    assertThat(context).doesNotHaveBean(VerifierV1.class);
                 });
     }
 
@@ -71,9 +71,9 @@ class PaztportAutoConfigurationTest {
                         "paztport.keyring-path=" + dir.resolve("keyring.json"),
                         "paztport.root-path=" + dir.resolve("root.json"))
                 .run(context -> {
-                    assertThat(context).hasSingleBean(Verifier.class);
+                    assertThat(context).hasSingleBean(VerifierV1.class);
                     assertThat(context).hasSingleBean(org.springframework.boot.web.servlet.FilterRegistrationBean.class);
-                    assertThat(context).doesNotHaveBean(OutboundStamper.class);
+                    assertThat(context).doesNotHaveBean(OutboundStamperV1.class);
                 });
     }
 

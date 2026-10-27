@@ -15,7 +15,7 @@ import java.util.Objects;
  * is required: a stamp with a missing one is malformed, not a stamp of empty
  * values.
  */
-public record Stamp(
+public record StampV1(
         String svc,
         String inst,
         String rid,
@@ -24,7 +24,7 @@ public record Stamp(
         String prev,
         String sig) {
 
-    public Stamp {
+    public StampV1 {
         Objects.requireNonNull(svc, "svc");
         Objects.requireNonNull(inst, "inst");
         Objects.requireNonNull(rid, "rid");

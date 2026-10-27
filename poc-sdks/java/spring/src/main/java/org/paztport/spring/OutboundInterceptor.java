@@ -5,8 +5,8 @@ package org.paztport.spring;
 
 import java.io.IOException;
 import java.net.URI;
-import org.paztport.core.OutboundStamper;
-import org.paztport.core.PathChain;
+import org.paztport.core.OutboundStamperV1;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.ProofBundle;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
@@ -22,10 +22,10 @@ import org.springframework.http.client.ClientHttpResponse;
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
-    private final OutboundStamper stamper;
+    private final OutboundStamperV1 stamper;
     private final ProofBundle bundle;
 
-    public OutboundInterceptor(OutboundStamper stamper, ProofBundle bundle) {
+    public OutboundInterceptor(OutboundStamperV1 stamper, ProofBundle bundle) {
         this.stamper = stamper;
         this.bundle = bundle;
     }
@@ -34,9 +34,9 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         URI uri = request.getURI();
-        PathChain inbound = PaztportContext.inboundChain();
+        PathChainV1 inbound = PaztportContext.inboundChain();
 
-        OutboundStamper.StampedHeaders headers =
+        OutboundStamperV1.StampedHeaders headers =
                 stamper.stamp(
                         inbound, RequestBinding.compute(request.getMethod().name(), uri.getPath(), body),
                         uri.getHost(), bundle);

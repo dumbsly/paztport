@@ -18,10 +18,10 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.Crypto;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
-import org.paztport.core.OutboundStamper;
-import org.paztport.core.PathChain;
+import org.paztport.core.OutboundStamperV1;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.ProofBundle;
-import org.paztport.core.Stamp;
+import org.paztport.core.StampV1;
 import org.paztport.http.PaztportHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -49,12 +49,12 @@ class OutboundInterceptorTest {
         PaztportContext.clear();
     }
 
-    private OutboundStamper gatewayStamper() {
-        return new OutboundStamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L);
+    private OutboundStamperV1 gatewayStamper() {
+        return new OutboundStamperV1("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L);
     }
 
-    private OutboundStamper ordersStamper() {
-        return new OutboundStamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L);
+    private OutboundStamperV1 ordersStamper() {
+        return new OutboundStamperV1("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L);
     }
 
     /** Executes the interceptor against a mock request and returns the (mutated) request headers' values. */
@@ -72,7 +72,7 @@ class OutboundInterceptorTest {
         String chain = request.getHeaders().getFirst(PaztportHeaders.CHAIN);
         String proof = request.getHeaders().getFirst(PaztportHeaders.PROOF);
 
-        List<Stamp> stamps = PathChain.decode(chain).stamps();
+        List<StampV1> stamps = PathChainV1.decode(chain).stamps();
         assertEquals("gateway", stamps.get(0).svc());
         assertTrue(proof != null && !proof.isBlank(), "proof for gateway/orders must be attached");
     }
@@ -82,13 +82,13 @@ class OutboundInterceptorTest {
         // Simulate orders having received gateway's chain.
         MockClientHttpRequest gw = run(new OutboundInterceptor(gatewayStamper(), gatewayBundle),
                 URI.create("http://orders:8080/orders"), "{}".getBytes());
-        PathChain inbound = PathChain.decode(gw.getHeaders().getFirst(PaztportHeaders.CHAIN));
+        PathChainV1 inbound = PathChainV1.decode(gw.getHeaders().getFirst(PaztportHeaders.CHAIN));
         PaztportContext.setInboundChain(inbound);
 
         MockClientHttpRequest request = run(new OutboundInterceptor(ordersStamper(), ordersBundle),
                 URI.create("http://payment:8080/pay"), "{\"amount\":1}".getBytes(StandardCharsets.UTF_8));
 
-        List<Stamp> stamps = PathChain.decode(request.getHeaders().getFirst(PaztportHeaders.CHAIN)).stamps();
+        List<StampV1> stamps = PathChainV1.decode(request.getHeaders().getFirst(PaztportHeaders.CHAIN)).stamps();
         assertEquals(2, stamps.size());
         assertEquals("orders", stamps.get(1).svc());
         assertTrue(request.getHeaders().getFirst(PaztportHeaders.PROOF) != null);

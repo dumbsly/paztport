@@ -15,7 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 
-class OutboundStamperTest {
+class OutboundStamperV1Test {
 
     private static final long NOW = 1_000_000L;
 
@@ -37,20 +37,20 @@ class OutboundStamperTest {
     private final ProofBundle ordersBundle = new ProofBundle("orders", "v1", Map.of(
             "gateway/orders/payment", tree.proofFor("gateway/orders/payment")));
 
-    private OutboundStamper gatewayStamper() {
-        return new OutboundStamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW);
+    private OutboundStamperV1 gatewayStamper() {
+        return new OutboundStamperV1("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW);
     }
 
-    private OutboundStamper ordersStamper() {
-        return new OutboundStamper("orders", "ord-1", orders.getPrivate(), false, () -> "rid-X", () -> 9L);
+    private OutboundStamperV1 ordersStamper() {
+        return new OutboundStamperV1("orders", "ord-1", orders.getPrivate(), false, () -> "rid-X", () -> 9L);
     }
 
     @Test
     void originProducesSingleStampWithFreshRidEmptyPrevAndItsProof() {
-        OutboundStamper.StampedHeaders h =
+        OutboundStamperV1.StampedHeaders h =
                 gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
 
-        List<Stamp> stamps = PathChain.decode(h.chainHeader()).stamps();
+        List<StampV1> stamps = PathChainV1.decode(h.chainHeader()).stamps();
         assertEquals(1, stamps.size());
         assertEquals("gateway", stamps.get(0).svc());
         assertEquals("rid-1", stamps.get(0).rid());
@@ -61,14 +61,14 @@ class OutboundStamperTest {
 
     @Test
     void appendLinksPrevAndCarriesOriginRidAndTs() {
-        OutboundStamper.StampedHeaders gw =
+        OutboundStamperV1.StampedHeaders gw =
                 gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
-        PathChain inbound = PathChain.decode(gw.chainHeader());
+        PathChainV1 inbound = PathChainV1.decode(gw.chainHeader());
 
-        OutboundStamper.StampedHeaders h =
+        OutboundStamperV1.StampedHeaders h =
                 ordersStamper().stamp(inbound, "bind:/pay", "payment", ordersBundle);
 
-        List<Stamp> stamps = PathChain.decode(h.chainHeader()).stamps();
+        List<StampV1> stamps = PathChainV1.decode(h.chainHeader()).stamps();
         assertEquals(2, stamps.size());
         assertEquals("orders", stamps.get(1).svc());
         assertEquals(inbound.stamps().get(0).sig(), stamps.get(1).prev());
@@ -85,27 +85,27 @@ class OutboundStamperTest {
     @Test
     void noProofAttachedWhenBundleLacksTheRoute() {
         // gateway calling payment directly is not an allowed route; its bundle has no such proof.
-        OutboundStamper.StampedHeaders h =
+        OutboundStamperV1.StampedHeaders h =
                 gatewayStamper().stamp(null, "bind:/pay", "payment", gatewayBundle);
         assertNull(h.proofHeader());
     }
 
     @Test
     void stamperOutputVerifiesEndToEndAtPayment() {
-        // gateway -> orders -> payment, built entirely by the stamper, accepted by the core Verifier.
+        // gateway -> orders -> payment, built entirely by the stamper, accepted by the core VerifierV1.
 
-        OutboundStamper.StampedHeaders gw =
+        OutboundStamperV1.StampedHeaders gw =
                 gatewayStamper().stamp(null, "bind:/orders", "orders", gatewayBundle);
-        PathChain inbound = PathChain.decode(gw.chainHeader());
-        OutboundStamper.StampedHeaders ord =
+        PathChainV1 inbound = PathChainV1.decode(gw.chainHeader());
+        OutboundStamperV1.StampedHeaders ord =
                 ordersStamper().stamp(inbound, "bind:/pay", "payment", ordersBundle);
 
-        VerifierConfig cfg = VerifierConfig.pinned(
+        VerifierConfigV1 cfg = VerifierConfigV1.pinned(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
                 new InMemoryNonceCache(), () -> NOW);
 
-        VerifyRequest req = new VerifyRequest(ord.chainHeader(), ord.proofHeader(), "bind:/pay", "payment", null);
-        assertTrue(new Verifier(cfg).verify(req).ok());
+        VerifyRequestV1 req = new VerifyRequestV1(ord.chainHeader(), ord.proofHeader(), "bind:/pay", "payment");
+        assertTrue(new VerifierV1(cfg).verify(req).ok());
     }
 }

@@ -12,7 +12,7 @@ import java.util.function.LongSupplier;
  * {@link #pinned} so the signed root is checked against the policy key once,
  * up front; a bad policy signature fails fast rather than per request.
  */
-public record VerifierConfig(
+public record VerifierConfigV1(
         Keyring keyring,
         byte[] root,
         String rootId,
@@ -21,11 +21,11 @@ public record VerifierConfig(
         NonceCache nonceCache,
         LongSupplier clock) {
 
-    public VerifierConfig {
+    public VerifierConfigV1 {
         allowedOrigins = Set.copyOf(allowedOrigins);
     }
 
-    public static VerifierConfig pinned(
+    public static VerifierConfigV1 pinned(
             Keyring keyring,
             SignedRoot signedRoot,
             PublicKey policyKey,
@@ -36,7 +36,7 @@ public record VerifierConfig(
         if (!signedRoot.verify(policyKey)) {
             throw new IllegalArgumentException("pinned root signature does not verify against policy key");
         }
-        return new VerifierConfig(
+        return new VerifierConfigV1(
                 keyring, signedRoot.rootBytes(), signedRoot.rootId(),
                 allowedOrigins, maxAgeMs, nonceCache, clock);
     }

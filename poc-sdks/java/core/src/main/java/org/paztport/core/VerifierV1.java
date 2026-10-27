@@ -38,22 +38,22 @@ import java.util.List;
  * can still yield {@code PATH_NOT_ALLOWED} naming its innocent last signer.
  * Binding the receiver into the stamp, or mTLS caller identity (step 8), closes it.
  */
-public final class Verifier {
+public final class VerifierV1 {
 
-    private final VerifierConfig cfg;
+    private final VerifierConfigV1 cfg;
 
-    public Verifier(VerifierConfig cfg) {
+    public VerifierV1(VerifierConfigV1 cfg) {
         this.cfg = cfg;
     }
 
-    public VerifyResult verify(VerifyRequest req) {
+    public VerifyResult verify(VerifyRequestV1 req) {
         // 1. Chain header present and parseable, with at least one stamp.
         if (req.chainHeader() == null || req.chainHeader().isBlank()) {
             return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
-        List<Stamp> stamps;
+        List<StampV1> stamps;
         try {
-            stamps = PathChain.decode(req.chainHeader()).stamps();
+            stamps = PathChainV1.decode(req.chainHeader()).stamps();
         } catch (RuntimeException e) {
             return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
@@ -61,7 +61,7 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
 
-        Stamp last = stamps.get(stamps.size() - 1);
+        StampV1 last = stamps.get(stamps.size() - 1);
 
         // 2. First stamp's svc is an allowed origin.
         if (!cfg.allowedOrigins().contains(stamps.get(0).svc())) {
@@ -70,7 +70,7 @@ public final class Verifier {
 
         // 3. Every signature verifies, and each prev links to the previous sig.
         for (int i = 0; i < stamps.size(); i++) {
-            Stamp s = stamps.get(i);
+            StampV1 s = stamps.get(i);
             PublicKey key = cfg.keyring().keyFor(s.svc());
             if (key == null || !signatureValid(key, s)) {
                 return VerifyResult.reject(ReasonCode.BAD_SIGNATURE);
@@ -83,7 +83,7 @@ public final class Verifier {
 
         // 4. All stamps share the origin's rid; the origin ts is within max age.
         String rid = stamps.get(0).rid();
-        for (Stamp s : stamps) {
+        for (StampV1 s : stamps) {
             if (!s.rid().equals(rid)) {
                 return VerifyResult.reject(ReasonCode.RID_MISMATCH);
             }
@@ -98,13 +98,13 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.BINDING_MISMATCH);
         }
 
-        // 6. (rid, last svc) not seen before.
-        if (cfg.nonceCache().seenBefore(rid, last.svc())) {
+        // 6. (rid|last svc) not seen before.
+        if (cfg.nonceCache().seenBefore(rid + "|" + last.svc(), cfg.clock().getAsLong())) {
             return VerifyResult.reject(ReasonCode.REPLAY);
         }
 
         // 7. Route rebuilt from the stamps plus this service, proven against the root.
-        List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
+        List<String> hops = new ArrayList<>(stamps.stream().map(StampV1::svc).toList());
         hops.add(req.receiver());
         String route = Routes.join(hops);
         if (!pathAllowed(req.proofHeader(), route)) {
@@ -115,7 +115,7 @@ public final class Verifier {
         return VerifyResult.ok(last.svc(), last.inst());
     }
 
-    private static boolean signatureValid(PublicKey key, Stamp s) {
+    private static boolean signatureValid(PublicKey key, StampV1 s) {
         try {
             return Crypto.verify(key, s.signingBytes(), Base64Url.decode(s.sig()));
         } catch (RuntimeException e) {

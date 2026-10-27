@@ -8,10 +8,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.VerifyResult;
-import org.paztport.core.Verifier;
-import org.paztport.http.HttpVerifyRequests;
+import org.paztport.core.VerifierV1;
+import org.paztport.http.HttpVerifyRequestsV1;
 import org.paztport.http.PaztportHeaders;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -32,14 +32,14 @@ import org.springframework.web.filter.OncePerRequestFilter;
  */
 public final class InboundFilter extends OncePerRequestFilter {
 
-    private final Verifier verifier;
+    private final VerifierV1 verifier;
     private final String receiver;
     private final ModeHolder modeHolder;
     private final EventPublisher publisher;
     private final ReceivedRequestListener listener;
 
     public InboundFilter(
-            Verifier verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
+            VerifierV1 verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
             ReceivedRequestListener listener) {
         this.verifier = verifier;
         this.receiver = receiver;
@@ -72,7 +72,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             if (verifier != null && modeHolder.get() != VerificationMode.OFF) {
                 VerificationMode mode = modeHolder.get();
                 VerifyResult result = verifier.verify(
-                        HttpVerifyRequests.of(
+                        HttpVerifyRequestsV1.of(
                                 chainHeader, proofHeader, request.getMethod(), request.getRequestURI(), body, receiver));
                 if (!result.ok()) {
                     publisher.publish(new AttestationEvent(
@@ -95,14 +95,14 @@ public final class InboundFilter extends OncePerRequestFilter {
             return;
         }
         try {
-            PaztportContext.setInboundChain(PathChain.decode(chainHeader));
+            PaztportContext.setInboundChain(PathChainV1.decode(chainHeader));
         } catch (RuntimeException e) {
             PaztportContext.setInboundChain(null);
         }
     }
 
     private static String currentRid() {
-        PathChain chain = PaztportContext.inboundChain();
+        PathChainV1 chain = PaztportContext.inboundChain();
         return (chain != null && !chain.stamps().isEmpty()) ? chain.stamps().get(0).rid() : "";
     }
 

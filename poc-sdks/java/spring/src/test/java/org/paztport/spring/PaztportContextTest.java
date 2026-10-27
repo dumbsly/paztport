@@ -8,13 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 
 class PaztportContextTest {
 
     @Test
     void storesAndClearsTheInboundChainForThisThread() {
-        PathChain chain = new PathChain(List.of());
+        PathChainV1 chain = new PathChainV1(List.of());
         PaztportContext.setInboundChain(chain);
         assertSame(chain, PaztportContext.inboundChain());
 
@@ -24,8 +24,8 @@ class PaztportContextTest {
 
     @Test
     void isIsolatedPerThread() throws Exception {
-        PaztportContext.setInboundChain(new PathChain(List.of()));
-        PathChain[] seenByOther = new PathChain[1];
+        PaztportContext.setInboundChain(new PathChainV1(List.of()));
+        PathChainV1[] seenByOther = new PathChainV1[1];
 
         Thread other = new Thread(() -> seenByOther[0] = PaztportContext.inboundChain());
         other.start();

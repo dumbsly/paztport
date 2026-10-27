@@ -3,24 +3,24 @@
 
 package org.paztport.http;
 
-import org.paztport.core.VerifyRequest;
+import org.paztport.core.VerifyRequestV1;
 
 /**
- * Turns an HTTP request into the transport-neutral {@link VerifyRequest} the
+ * Turns an HTTP request into the transport-neutral {@link VerifyRequestV1} the
  * core verifier takes. The request line and body are rebound here, so core
  * only ever compares a binding it was handed and never learns about HTTP.
  */
-public final class HttpVerifyRequests {
+public final class HttpVerifyRequestsV1 {
 
-    private HttpVerifyRequests() {
+    private HttpVerifyRequestsV1() {
     }
 
     /**
      * @param receiver the name of the service verifying the request, which
      *     closes the route that is proven against the pinned root
      */
-    public static VerifyRequest of(
+    public static VerifyRequestV1 of(
             String chainHeader, String proofHeader, String method, String path, byte[] body, String receiver) {
-        return new VerifyRequest(chainHeader, proofHeader, RequestBinding.compute(method, path, body), receiver, null);
+        return new VerifyRequestV1(chainHeader, proofHeader, RequestBinding.compute(method, path, body), receiver);
     }
 }

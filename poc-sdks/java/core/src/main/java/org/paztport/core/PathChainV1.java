@@ -10,11 +10,11 @@ import java.util.List;
 /**
  * The ordered chain of stamps carried in {@code X-Path-Chain}, origin first.
  * Carries data and (de)serialization only; link and signature checks live in
- * {@link Verifier}.
+ * {@link VerifierV1}.
  */
-public record PathChain(List<Stamp> stamps) {
+public record PathChainV1(List<StampV1> stamps) {
 
-    public PathChain {
+    public PathChainV1 {
         stamps = List.copyOf(stamps);
     }
 
@@ -23,10 +23,10 @@ public record PathChain(List<Stamp> stamps) {
         return stamps.isEmpty() ? "" : stamps.get(stamps.size() - 1).sig();
     }
 
-    public PathChain withAppended(Stamp stamp) {
-        List<Stamp> next = new ArrayList<>(stamps);
+    public PathChainV1 withAppended(StampV1 stamp) {
+        List<StampV1> next = new ArrayList<>(stamps);
         next.add(stamp);
-        return new PathChain(next);
+        return new PathChainV1(next);
     }
 
     /** base64url(JSON array of stamps). */
@@ -35,8 +35,8 @@ public record PathChain(List<Stamp> stamps) {
     }
 
     /** Fails closed: malformed base64url or JSON throws {@link IllegalArgumentException}. */
-    public static PathChain decode(String header) {
+    public static PathChainV1 decode(String header) {
         byte[] json = Base64Url.decode(header);
-        return new PathChain(Json.read(json, new TypeReference<List<Stamp>>() {}));
+        return new PathChainV1(Json.read(json, new TypeReference<List<StampV1>>() {}));
     }
 }

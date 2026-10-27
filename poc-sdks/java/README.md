@@ -18,7 +18,7 @@ on the installed artifacts, so install the SDK before building it.
 
 The library: stamps, chain, salted Merkle tree, verifier. Small enough to read in
 one sitting. It also owns policy building (`PolicyBuilder`), outbound stamping
-(`OutboundStamper`), the check on events sent to a responder (`EventVerifier`),
+(`OutboundStamperV1`), the check on events sent to a responder (`EventVerifier`),
 route strings (`Routes`) and key loading (`KeyFiles`). It never touches TLS or
 HTTP: the transport extension hands the verifier the binding of the request
 received and the receiving service's name.
@@ -27,14 +27,14 @@ received and the receiving service's name.
 
 The HTTP binding. `RequestBinding` computes `bind`, the base64url SHA-256 of
 `METHOD \n PATH \n BODY`; `PaztportHeaders` names the two wire headers; and
-`HttpVerifyRequests` turns an HTTP request into the transport-neutral
-`VerifyRequest` the core verifier takes.
+`HttpVerifyRequestsV1` turns an HTTP request into the transport-neutral
+`VerifyRequestV1` the core verifier takes.
 
 ## paztport-spring
 
 Glue: an inbound servlet filter (verify, and keep the received chain for the
 outbound calls) and an outbound `RestClient` interceptor (stamp through
-`OutboundStamper`, attach proof). It also holds the modes, the `/admin/mode`
+`OutboundStamperV1`, attach proof). It also holds the modes, the `/admin/mode`
 endpoint, the events sent to a responder, and an optional
 `ReceivedRequestListener` hook that lets an application observe each request the
 filter receives. The SDK captures nothing itself: the mesh demo's request capture,

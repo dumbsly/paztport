@@ -3,7 +3,7 @@
 
 package org.paztport.spring;
 
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 
 /**
  * Request-scoped carrier of the inbound chain. The inbound filter stores the
@@ -13,17 +13,17 @@ import org.paztport.core.PathChain;
  */
 public final class PaztportContext {
 
-    private static final ThreadLocal<PathChain> INBOUND = new ThreadLocal<>();
+    private static final ThreadLocal<PathChainV1> INBOUND = new ThreadLocal<>();
 
     private PaztportContext() {
     }
 
-    public static void setInboundChain(PathChain chain) {
+    public static void setInboundChain(PathChainV1 chain) {
         INBOUND.set(chain);
     }
 
     /** The inbound chain for this request, or null if none was received (e.g. at the origin). */
-    public static PathChain inboundChain() {
+    public static PathChainV1 inboundChain() {
         return INBOUND.get();
     }
 

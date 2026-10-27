@@ -28,13 +28,13 @@ import org.paztport.core.MerkleHash;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleProof;
 import org.paztport.core.MerkleTree;
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.ReasonCode;
 import org.paztport.core.SignedRoot;
-import org.paztport.core.Stamp;
-import org.paztport.core.StampSigner;
-import org.paztport.core.Verifier;
-import org.paztport.core.VerifierConfig;
+import org.paztport.core.StampV1;
+import org.paztport.core.StampSignerV1;
+import org.paztport.core.VerifierV1;
+import org.paztport.core.VerifierConfigV1;
 import org.paztport.core.VerifyResult;
 
 /**
@@ -42,7 +42,7 @@ import org.paztport.core.VerifyResult;
  * ({@code -Dpaztport.exportVectors=true}) and writes to {@code -Dvectors.out=<file>}, or to
  * {@code target/v1-vectors.json} without it. It cannot reproduce the committed bytes: every run generates fresh
  * keys and salts, so a new export is a different file, and replacing the committed one would change every
- * recorded answer. Every verify case is first checked against the Java Verifier, so an export can never record
+ * recorded answer. Every verify case is first checked against the Java VerifierV1, so an export can never record
  * a wrong answer.
  */
 class VectorExportTest {
@@ -69,7 +69,7 @@ class VectorExportTest {
         return Base64Url.encode(b);
     }
 
-    private Map<String, Object> stampFields(Stamp s, String keyName) {
+    private Map<String, Object> stampFields(StampV1 s, String keyName) {
         Map<String, Object> fields = new LinkedHashMap<>();
         fields.put("svc", s.svc());
         fields.put("inst", s.inst());
@@ -85,7 +85,7 @@ class VectorExportTest {
         return m;
     }
 
-    private static Map<String, Object> stampJson(Stamp s) {
+    private static Map<String, Object> stampJson(StampV1 s) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("svc", s.svc());
         m.put("inst", s.inst());
@@ -97,11 +97,11 @@ class VectorExportTest {
         return m;
     }
 
-    private Map<String, Object> chainJson(PathChain c, List<Stamp> stamps) {
+    private Map<String, Object> chainJson(PathChainV1 c, List<StampV1> stamps) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("header", c.encode());
         List<Object> list = new ArrayList<>();
-        for (Stamp s : stamps) {
+        for (StampV1 s : stamps) {
             list.add(stampJson(s));
         }
         m.put("stamps", list);
@@ -125,16 +125,16 @@ class VectorExportTest {
         ring.put("search", "search");
         List<String> origins = List.of("gateway");
 
-        // Self-assert against the Java Verifier before recording.
+        // Self-assert against the Java VerifierV1 before recording.
         Map<String, PublicKey> pubs = new LinkedHashMap<>();
         ring.forEach((svc, key) -> pubs.put(svc, keys.get(key).getPublic()));
         SignedRoot sr = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
-        VerifierConfig cfg = VerifierConfig.pinned(Keyring.of(pubs), sr, policy.getPublic(), Set.copyOf(origins),
+        VerifierConfigV1 cfg = VerifierConfigV1.pinned(Keyring.of(pubs), sr, policy.getPublic(), Set.copyOf(origins),
                 MAX_AGE, new InMemoryNonceCache(), () -> now);
-        Verifier verifier = new Verifier(cfg);
+        VerifierV1 verifier = new VerifierV1(cfg);
         VerifyResult last = null;
         for (int i = 0; i < uses; i++) {
-            last = verifier.verify(HttpVerifyRequests.of(chain, proof, method, path, body, "payment"));
+            last = verifier.verify(HttpVerifyRequestsV1.of(chain, proof, method, path, body, "payment"));
         }
         assertEquals(expected, last.reason(), "case " + name);
 
@@ -166,11 +166,11 @@ class VectorExportTest {
         byte[] body = utf8("{\"amount\":100}");
         String bindPay = RequestBinding.compute("POST", "/pay", body);
 
-        Stamp s0 = StampSigner.sign("gateway", "gw-1", "rid-1", NOW, "bindGatewayToOrders", "", gateway.getPrivate());
-        Stamp s1 = StampSigner.sign("orders", "ord-1", "rid-1", NOW, bindPay, s0.sig(), orders.getPrivate());
-        Stamp s1s = StampSigner.sign("search", "s-1", "rid-1", NOW, bindPay, s0.sig(), search.getPrivate());
-        PathChain valid = new PathChain(List.of(s0, s1));
-        PathChain viaSearch = new PathChain(List.of(s0, s1s));
+        StampV1 s0 = StampSignerV1.sign("gateway", "gw-1", "rid-1", NOW, "bindGatewayToOrders", "", gateway.getPrivate());
+        StampV1 s1 = StampSignerV1.sign("orders", "ord-1", "rid-1", NOW, bindPay, s0.sig(), orders.getPrivate());
+        StampV1 s1s = StampSignerV1.sign("search", "s-1", "rid-1", NOW, bindPay, s0.sig(), search.getPrivate());
+        PathChainV1 valid = new PathChainV1(List.of(s0, s1));
+        PathChainV1 viaSearch = new PathChainV1(List.of(s0, s1s));
 
         Map<String, Object> out = new LinkedHashMap<>();
 
@@ -221,24 +221,24 @@ class VectorExportTest {
         List<Object> cases = new ArrayList<>();
         cases.add(verifyCase("ok", valid.encode(), payProof, "POST", "/pay", body, NOW, 1, ReasonCode.OK));
         cases.add(verifyCase("chain-missing", null, payProof, "POST", "/pay", body, NOW, 1, ReasonCode.CHAIN_MISSING));
-        Stamp notOrigin = StampSigner.sign("search", "s-1", "rid-1", NOW, "b", "", search.getPrivate());
-        cases.add(verifyCase("bad-origin", new PathChain(List.of(notOrigin)).encode(), payProof, "POST", "/pay", body,
+        StampV1 notOrigin = StampSignerV1.sign("search", "s-1", "rid-1", NOW, "b", "", search.getPrivate());
+        cases.add(verifyCase("bad-origin", new PathChainV1(List.of(notOrigin)).encode(), payProof, "POST", "/pay", body,
                 NOW, 1, ReasonCode.BAD_ORIGIN));
-        Stamp forged = StampSigner.sign("gateway", "evil", "rid-1", NOW, bindPay, "", search.getPrivate());
-        cases.add(verifyCase("bad-signature", new PathChain(List.of(forged)).encode(), payProof, "POST", "/pay", body,
+        StampV1 forged = StampSignerV1.sign("gateway", "evil", "rid-1", NOW, bindPay, "", search.getPrivate());
+        cases.add(verifyCase("bad-signature", new PathChainV1(List.of(forged)).encode(), payProof, "POST", "/pay", body,
                 NOW, 1, ReasonCode.BAD_SIGNATURE));
-        Stamp broken = StampSigner.sign("orders", "ord-1", "rid-1", NOW, bindPay, b64(utf8("not-s0-sig")),
+        StampV1 broken = StampSignerV1.sign("orders", "ord-1", "rid-1", NOW, bindPay, b64(utf8("not-s0-sig")),
                 orders.getPrivate());
-        cases.add(verifyCase("broken-link", new PathChain(List.of(s0, broken)).encode(), payProof, "POST", "/pay",
+        cases.add(verifyCase("broken-link", new PathChainV1(List.of(s0, broken)).encode(), payProof, "POST", "/pay",
                 body, NOW, 1, ReasonCode.BROKEN_LINK));
-        Stamp old0 = StampSigner.sign("gateway", "gw-1", "rid-1", NOW - 6000, "bGW", "", gateway.getPrivate());
-        Stamp old1 = StampSigner.sign("orders", "ord-1", "rid-1", NOW - 6000, bindPay, old0.sig(),
+        StampV1 old0 = StampSignerV1.sign("gateway", "gw-1", "rid-1", NOW - 6000, "bGW", "", gateway.getPrivate());
+        StampV1 old1 = StampSignerV1.sign("orders", "ord-1", "rid-1", NOW - 6000, bindPay, old0.sig(),
                 orders.getPrivate());
-        cases.add(verifyCase("expired", new PathChain(List.of(old0, old1)).encode(), payProof, "POST", "/pay", body,
+        cases.add(verifyCase("expired", new PathChainV1(List.of(old0, old1)).encode(), payProof, "POST", "/pay", body,
                 NOW, 1, ReasonCode.EXPIRED));
-        Stamp otherRid = StampSigner.sign("orders", "ord-1", "rid-DIFFERENT", NOW, bindPay, s0.sig(),
+        StampV1 otherRid = StampSignerV1.sign("orders", "ord-1", "rid-DIFFERENT", NOW, bindPay, s0.sig(),
                 orders.getPrivate());
-        cases.add(verifyCase("rid-mismatch", new PathChain(List.of(s0, otherRid)).encode(), payProof, "POST", "/pay",
+        cases.add(verifyCase("rid-mismatch", new PathChainV1(List.of(s0, otherRid)).encode(), payProof, "POST", "/pay",
                 body, NOW, 1, ReasonCode.RID_MISMATCH));
         cases.add(verifyCase("binding-mismatch", valid.encode(), payProof, "POST", "/pay", utf8("{\"amount\":999}"),
                 NOW, 1, ReasonCode.BINDING_MISMATCH));

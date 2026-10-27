@@ -11,7 +11,7 @@ import org.paztport.core.Crypto;
 /**
  * Binds a stamp to the request a hop actually sent: {@code bind} is the
  * base64url SHA-256 of {@code METHOD \n PATH \n BODY}. This HTTP extension
- * recomputes it from the request the receiver got ({@link HttpVerifyRequests}),
+ * recomputes it from the request the receiver got ({@link HttpVerifyRequestsV1}),
  * and the core verifier only compares it against the last stamp, so a chain
  * spliced onto a different payload no longer matches.
  */

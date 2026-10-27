@@ -25,12 +25,12 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.Keyring;
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.ReasonCode;
 import org.paztport.core.SignedRoot;
-import org.paztport.core.Stamp;
-import org.paztport.core.Verifier;
-import org.paztport.core.VerifierConfig;
+import org.paztport.core.StampV1;
+import org.paztport.core.VerifierV1;
+import org.paztport.core.VerifierConfigV1;
 import org.paztport.core.VerifyResult;
 
 /**
@@ -65,7 +65,7 @@ class VectorsV1Test {
     void stampSigningBytesAndSignatures() {
         for (JsonNode s : vectors.get("stamps")) {
             JsonNode f = s.get("fields");
-            Stamp stamp = new Stamp(f.get("svc").asText(), f.get("inst").asText(), f.get("rid").asText(),
+            StampV1 stamp = new StampV1(f.get("svc").asText(), f.get("inst").asText(), f.get("rid").asText(),
                     f.get("ts").asLong(), f.get("bind").asText(), f.get("prev").asText(), s.get("sig").asText());
             assertEquals(s.get("signingBytes").asText(), Base64Url.encode(stamp.signingBytes()));
             assertTrue(Crypto.verify(PUBLIC_KEYS.get(s.get("key").asText()), stamp.signingBytes(),
@@ -77,13 +77,13 @@ class VectorsV1Test {
     void chainsRoundTrip() {
         for (JsonNode c : vectors.get("chains")) {
             String header = c.get("header").asText();
-            List<Stamp> expected = new ArrayList<>();
+            List<StampV1> expected = new ArrayList<>();
             for (JsonNode s : c.get("stamps")) {
-                expected.add(new Stamp(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
+                expected.add(new StampV1(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
                         s.get("ts").asLong(), s.get("bind").asText(), s.get("prev").asText(), s.get("sig").asText()));
             }
-            assertEquals(expected, PathChain.decode(header).stamps());
-            assertEquals(header, new PathChain(expected).encode());
+            assertEquals(expected, PathChainV1.decode(header).stamps());
+            assertEquals(header, new PathChainV1(expected).encode());
         }
     }
 
@@ -117,14 +117,14 @@ class VectorsV1Test {
             Set<String> origins = new java.util.HashSet<>();
             c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
             long now = c.get("now").asLong();
-            Verifier verifier = new Verifier(VerifierConfig.pinned(Keyring.of(ring), signedRoot, policyKey, origins,
+            VerifierV1 verifier = new VerifierV1(VerifierConfigV1.pinned(Keyring.of(ring), signedRoot, policyKey, origins,
                     c.get("maxAgeMs").asLong(), new InMemoryNonceCache(), () -> now));
             String chain = c.get("chainHeader").isNull() ? null : c.get("chainHeader").asText();
             String proof = c.get("proofHeader").isNull() ? null : c.get("proofHeader").asText();
             byte[] body = Base64Url.decode(c.get("body").asText());
             VerifyResult last = null;
             for (int i = 0; i < c.get("uses").asInt(); i++) {
-                last = verifier.verify(HttpVerifyRequests.of(chain, proof, c.get("method").asText(),
+                last = verifier.verify(HttpVerifyRequestsV1.of(chain, proof, c.get("method").asText(),
                         c.get("path").asText(), body, c.get("receivingService").asText()));
             }
             assertEquals(ReasonCode.valueOf(c.get("expected").asText()), last.reason(), "case " + c.get("name").asText());

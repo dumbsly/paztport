@@ -12,11 +12,11 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import org.junit.jupiter.api.Test;
 
-class StampTest {
+class StampV1Test {
 
     @Test
     void signingBytesJoinFieldsInCanonicalOrder() {
-        Stamp s = new Stamp("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", "sig");
+        StampV1 s = new StampV1("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", "sig");
         byte[] expected = "gateway|host1|rid-1|1761249600123|bindHash|".getBytes(StandardCharsets.UTF_8);
         assertArrayEquals(expected, s.signingBytes());
     }
@@ -24,7 +24,7 @@ class StampTest {
     @Test
     void signerProducesStampThatVerifies() {
         KeyPair kp = Crypto.generateEd25519KeyPair();
-        Stamp s = StampSigner.sign("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", kp.getPrivate());
+        StampV1 s = StampSignerV1.sign("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", kp.getPrivate());
 
         assertEquals("gateway", s.svc());
         assertEquals("", s.prev());
@@ -35,9 +35,9 @@ class StampTest {
     @Test
     void sigDoesNotVerifyWhenAnyFieldChanges() {
         KeyPair kp = Crypto.generateEd25519KeyPair();
-        Stamp s = StampSigner.sign("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", kp.getPrivate());
+        StampV1 s = StampSignerV1.sign("gateway", "host1", "rid-1", 1761249600123L, "bindHash", "", kp.getPrivate());
 
-        Stamp tampered = new Stamp(s.svc(), s.inst(), s.rid(), 9999999999999L, s.bind(), s.prev(), s.sig());
+        StampV1 tampered = new StampV1(s.svc(), s.inst(), s.rid(), 9999999999999L, s.bind(), s.prev(), s.sig());
         assertFalse(Crypto.verify(kp.getPublic(), tampered.signingBytes(), Base64Url.decode(tampered.sig())));
     }
 }

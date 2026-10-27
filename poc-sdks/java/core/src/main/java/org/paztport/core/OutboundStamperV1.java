@@ -20,7 +20,7 @@ import java.util.function.Supplier;
  * previous signature. A non-origin hop with no inbound chain fails closed:
  * only entry points start chains.
  */
-public final class OutboundStamper {
+public final class OutboundStamperV1 {
 
     private final String svc;
     private final String inst;
@@ -29,7 +29,7 @@ public final class OutboundStamper {
     private final Supplier<String> ridSupplier;
     private final LongSupplier clock;
 
-    public OutboundStamper(
+    public OutboundStamperV1(
             String svc, String inst, PrivateKey key, boolean origin,
             Supplier<String> ridSupplier, LongSupplier clock) {
         this.svc = svc;
@@ -45,33 +45,33 @@ public final class OutboundStamper {
     }
 
     public StampedHeaders stamp(
-            PathChain inboundChain, String bind, String target, ProofBundle bundle) {
+            PathChainV1 inboundChain, String bind, String target, ProofBundle bundle) {
         String rid;
         long ts;
         String prev;
-        PathChain base;
+        PathChainV1 base;
         if (origin) {
             rid = ridSupplier.get();
             ts = clock.getAsLong();
             prev = "";
-            base = new PathChain(List.of());
+            base = new PathChainV1(List.of());
         } else {
             if (inboundChain == null || inboundChain.stamps().isEmpty()) {
                 throw new IllegalStateException("non-origin service " + svc + " has no inbound chain to append to");
             }
-            Stamp first = inboundChain.stamps().get(0);
+            StampV1 first = inboundChain.stamps().get(0);
             rid = first.rid();
             ts = first.ts();
             prev = inboundChain.prevSig();
             base = inboundChain;
         }
 
-        Stamp stamp = StampSigner.sign(svc, inst, rid, ts, bind, prev, key);
-        PathChain outgoing = base.withAppended(stamp);
+        StampV1 stamp = StampSignerV1.sign(svc, inst, rid, ts, bind, prev, key);
+        PathChainV1 outgoing = base.withAppended(stamp);
 
         String proofHeader = null;
         if (bundle != null) {
-            List<String> hops = new ArrayList<>(outgoing.stamps().stream().map(Stamp::svc).toList());
+            List<String> hops = new ArrayList<>(outgoing.stamps().stream().map(StampV1::svc).toList());
             hops.add(target);
             String route = Routes.join(hops);
             MerkleProof proof = bundle.proofFor(route);

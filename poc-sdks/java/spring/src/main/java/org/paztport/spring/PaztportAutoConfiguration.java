@@ -10,10 +10,10 @@ import java.util.Set;
 import java.util.UUID;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyFiles;
-import org.paztport.core.OutboundStamper;
+import org.paztport.core.OutboundStamperV1;
 import org.paztport.core.ProofBundle;
-import org.paztport.core.Verifier;
-import org.paztport.core.VerifierConfig;
+import org.paztport.core.VerifierV1;
+import org.paztport.core.VerifierConfigV1;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -26,7 +26,7 @@ import org.springframework.core.Ordered;
  * Wires the inbound filter and outbound interceptor from {@code paztport.*}.
  * Beans appear only when their inputs are configured, so each service holds only
  * what its role requires: callers get a stamper and interceptor, verifiers get a
- * Verifier, and every service gets the inbound filter.
+ * VerifierV1, and every service gets the inbound filter.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -34,8 +34,8 @@ public class PaztportAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    OutboundStamper outboundStamper(PaztportProperties props) {
-        return new OutboundStamper(
+    OutboundStamperV1 outboundStamper(PaztportProperties props) {
+        return new OutboundStamperV1(
                 props.getServiceName(),
                 instance(props),
                 KeyFiles.loadPrivateKey(Path.of(props.getKeyPath())),
@@ -53,15 +53,15 @@ public class PaztportAutoConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
-            OutboundStamper stamper, org.springframework.beans.factory.ObjectProvider<ProofBundle> bundle) {
+            OutboundStamperV1 stamper, org.springframework.beans.factory.ObjectProvider<ProofBundle> bundle) {
         OutboundInterceptor interceptor = new OutboundInterceptor(stamper, bundle.getIfAvailable());
         return builder -> builder.requestInterceptor(interceptor);
     }
 
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    Verifier verifier(PaztportProperties props) {
-        VerifierConfig cfg = VerifierConfig.pinned(
+    VerifierV1 verifier(PaztportProperties props) {
+        VerifierConfigV1 cfg = VerifierConfigV1.pinned(
                 ConfigLoader.loadKeyring(Path.of(props.getKeyringPath())),
                 ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
                 ConfigLoader.loadPolicyKey(Path.of(props.getKeyringPath())),
@@ -69,7 +69,7 @@ public class PaztportAutoConfiguration {
                 props.getMaxAgeMs(),
                 new InMemoryNonceCache(),
                 System::currentTimeMillis);
-        return new Verifier(cfg);
+        return new VerifierV1(cfg);
     }
 
     @Bean
@@ -106,7 +106,7 @@ public class PaztportAutoConfiguration {
     @Bean
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
             PaztportProperties props,
-            org.springframework.beans.factory.ObjectProvider<Verifier> verifier,
+            org.springframework.beans.factory.ObjectProvider<VerifierV1> verifier,
             org.springframework.beans.factory.ObjectProvider<ModeHolder> modeHolder,
             org.springframework.beans.factory.ObjectProvider<EventPublisher> publisher,
             org.springframework.beans.factory.ObjectProvider<ReceivedRequestListener> listener) {

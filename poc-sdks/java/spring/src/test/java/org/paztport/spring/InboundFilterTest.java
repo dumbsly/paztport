@@ -24,12 +24,12 @@ import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.Keyring;
 import org.paztport.core.MerkleLeaf;
 import org.paztport.core.MerkleTree;
-import org.paztport.core.OutboundStamper;
-import org.paztport.core.PathChain;
+import org.paztport.core.OutboundStamperV1;
+import org.paztport.core.PathChainV1;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
-import org.paztport.core.Verifier;
-import org.paztport.core.VerifierConfig;
+import org.paztport.core.VerifierV1;
+import org.paztport.core.VerifierConfigV1;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.springframework.mock.web.MockFilterChain;
@@ -63,27 +63,27 @@ class InboundFilterTest {
         PaztportContext.clear();
     }
 
-    private Verifier paymentVerifier() {
-        VerifierConfig cfg = VerifierConfig.pinned(
+    private VerifierV1 paymentVerifier() {
+        VerifierConfigV1 cfg = VerifierConfigV1.pinned(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
                 new InMemoryNonceCache(), () -> NOW);
-        return new Verifier(cfg);
+        return new VerifierV1(cfg);
     }
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, listener);
     }
 
-    private OutboundStamper.StampedHeaders validHeaders() {
-        var gw = new OutboundStamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+    private OutboundStamperV1.StampedHeaders validHeaders() {
+        var gw = new OutboundStamperV1("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
                 .stamp(null, RequestBinding.compute("POST", "/orders", "{}".getBytes()), "orders", gatewayBundle);
-        PathChain inbound = PathChain.decode(gw.chainHeader());
-        return new OutboundStamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L)
+        PathChainV1 inbound = PathChainV1.decode(gw.chainHeader());
+        return new OutboundStamperV1("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L)
                 .stamp(inbound, RequestBinding.compute("POST", "/pay", TO_PAYMENT), "payment", ordersBundle);
     }
 
-    private MockHttpServletRequest paymentRequest(OutboundStamper.StampedHeaders h, byte[] body) {
+    private MockHttpServletRequest paymentRequest(OutboundStamperV1.StampedHeaders h, byte[] body) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
         request.addHeader(PaztportHeaders.CHAIN, h.chainHeader());
         if (h.proofHeader() != null) {
@@ -164,7 +164,7 @@ class InboundFilterTest {
     @Test
     void aRegisteredListenerIsCalledOncePerRequestWithTheReceivedValues() throws Exception {
         List<Object[]> calls = new ArrayList<>();
-        OutboundStamper.StampedHeaders h = validHeaders();
+        OutboundStamperV1.StampedHeaders h = validHeaders();
 
         filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) ->
                 calls.add(new Object[] {chain, proof, method, path, body}))
@@ -183,7 +183,7 @@ class InboundFilterTest {
     void theListenerSeesARequestThatVerificationThenRejects() throws Exception {
         List<String> order = new ArrayList<>();
         MockHttpServletResponse response = new MockHttpServletResponse();
-        OutboundStamper.StampedHeaders h = validHeaders();
+        OutboundStamperV1.StampedHeaders h = validHeaders();
 
         filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) -> order.add("listener"))
                 .doFilter(paymentRequest(h, "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)),
@@ -208,7 +208,7 @@ class InboundFilterTest {
     @Test
     void nonVerifyingFilterPopulatesContextAndProceeds() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
-        PathChain[] seen = new PathChain[1];
+        PathChainV1[] seen = new PathChainV1[1];
         HttpServlet capturing = new HttpServlet() {
             @Override
             protected void service(HttpServletRequest req, HttpServletResponse res) {

@@ -4,7 +4,7 @@
 package org.paztport.search;
 
 import java.util.concurrent.atomic.AtomicReference;
-import org.paztport.core.PathChain;
+import org.paztport.core.PathChainV1;
 import org.springframework.stereotype.Component;
 
 /**
@@ -15,15 +15,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class StolenChainStore {
 
-    private final AtomicReference<PathChain> last = new AtomicReference<>();
+    private final AtomicReference<PathChainV1> last = new AtomicReference<>();
 
-    public void record(PathChain chain) {
+    public void record(PathChainV1 chain) {
         if (chain != null && !chain.stamps().isEmpty()) {
             last.set(chain);
         }
     }
 
-    public PathChain last() {
+    public PathChainV1 last() {
         return last.get();
     }
 }

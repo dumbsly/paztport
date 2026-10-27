@@ -5,16 +5,16 @@ package org.paztport.core;
 
 import java.security.PrivateKey;
 
-/** Creates a signed {@link Stamp} from a service's private key. */
-public final class StampSigner {
+/** Creates a signed {@link StampV1} from a service's private key. */
+public final class StampSignerV1 {
 
-    private StampSigner() {
+    private StampSignerV1() {
     }
 
-    public static Stamp sign(
+    public static StampV1 sign(
             String svc, String inst, String rid, long ts, String bind, String prev, PrivateKey key) {
-        Stamp unsigned = new Stamp(svc, inst, rid, ts, bind, prev, "");
+        StampV1 unsigned = new StampV1(svc, inst, rid, ts, bind, prev, "");
         String sig = Base64Url.encode(Crypto.sign(key, unsigned.signingBytes()));
-        return new Stamp(svc, inst, rid, ts, bind, prev, sig);
+        return new StampV1(svc, inst, rid, ts, bind, prev, sig);
     }
 }

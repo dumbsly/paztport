@@ -11,9 +11,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.paztport.core.KeyFiles;
-import org.paztport.core.PathChain;
-import org.paztport.core.Stamp;
-import org.paztport.core.StampSigner;
+import org.paztport.core.PathChainV1;
+import org.paztport.core.StampV1;
+import org.paztport.core.StampSignerV1;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.PaztportContext;
@@ -68,16 +68,16 @@ public class AttackController {
     @PostMapping("/attack/forge-gateway")
     public ResponseEntity<String> forgeGateway() {
         String bind = RequestBinding.compute("POST", "/pay", BODY);
-        Stamp forged = StampSigner.sign(
+        StampV1 forged = StampSignerV1.sign(
                 "gateway", inst, UUID.randomUUID().toString(), System.currentTimeMillis(), bind, "", searchKey);
-        String chain = new PathChain(List.of(forged)).encode();
+        String chain = new PathChainV1(List.of(forged)).encode();
         return callPayment(rawClient, chain, null, BODY);
     }
 
     /** Scenario 4 / 10: forward a real gateway->search chain on to payment. */
     @PostMapping("/attack/forward-stolen")
     public ResponseEntity<String> forwardStolen() {
-        PathChain stolen = stolenChains.last();
+        PathChainV1 stolen = stolenChains.last();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
