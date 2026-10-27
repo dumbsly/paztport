@@ -76,8 +76,19 @@ never reveals, the full map of valid paths.
 It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
-container is **quarantined and replaced automatically**. All ten scenarios plus a
-circuit-breaker check pass, and the overhead has been measured.
+container is **quarantined and replaced automatically**. All the scenarios plus a
+circuit-breaker check pass (20 rows), and the overhead has been measured.
+
+The demo also tells a story across two organisations. A customer's support ticket
+passes through a ticket service, which labels the text as third-party, to an
+assistant, which is a **scripted stand-in for a hijacked model, with no model in
+it**. It reads the customer's private order and tries a refund (at a payment
+provider that is a second organisation, reached through a boundary attestation)
+and an email. An honest ticket is refunded and emailed. A malicious ticket asks
+for Alice's data to go to Mallory, and is refused at the mailer and at the
+provider from the influence the requests carry, though every hop was a legitimate
+position on an allowed route. See
+[the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
 
 The idea is offered freely. The code is Apache-2.0, and every cryptographic
 primitive comes from the standard JDK, so anyone can lift it into their own stack.
@@ -362,6 +373,20 @@ that the route taken is in a private, committed policy**.
   organizations a partner sees every proof, which makes this a real privacy gap.
   Zero-knowledge membership proofs, whose output differs on every request, would
   close it.
+- **The partner learns the influence's sources.** The influence crosses the
+  boundary with its owners, and its `src` values name internal services and
+  items (for example `http:orders`, `ticket:t-1`), besides the one egress name.
+  The route stays hidden, but not these names.
+- **Partner replies are not attested.** The egress records each reply from the
+  partner as `local-untrusted`.
+- **One session per peer certificate.** Replicas that share a certificate replace
+  each other's session.
+- **The partner holds its policy private key online**, to sign its session replies.
+- **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
+  and the mailer's directory are fixtures, and `assistant` is scripted, with no
+  model. In it, `orders` doesn't check that a purchased order belongs to the
+  buyer, and a later attested charge can re-point an order's original card. That
+  is an availability gap, not a leak: the rule still blocks the refund.
 - **Async is out of scope.** Queues, caches, and scheduled jobs break the
   linear-chain model.
 - **The responder mounts the Docker socket**, which is host-level control.
@@ -418,7 +443,10 @@ These are design directions, not implementations.
   verifiable `rid` could own leases on declared intent keys, giving path-scoped
   concurrency control at the attested boundary.
 - **Cross-organization trust.** Publish signed roots, never trees. An egress
-  gateway verifies the internal chain and emits one boundary attestation, and an
+  gateway verifies the internal chain and emits one boundary attestation. The
+  boundary attestation is implemented in the Java demo (see
+  [the storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline)).
+  What is still a direction is the rest: an
   append-only log of roots (in the style of Certificate Transparency) lets partners
   detect a quietly widened policy without seeing its contents.
 
@@ -451,7 +479,7 @@ paztport/
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
 │   └── typescript/           @paztport/core, @paztport/http, @paztport/mcp, policy-tool
 └── poc-demos/
-    ├── java-mesh/            gateway, orders, payment, search, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
+    ├── java-mesh/            gateway, orders, payment, search, tickets, assistant, mailer, psp, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
     └── agents-mcp/           agent/MCP demo
         ├── mock-github-mcp/  mock GitHub MCP server (+ docs server), stdio, demo agent target
         ├── pi-extension/     pi extension: stamps MCP calls, verifies responses, tracks influence
