@@ -78,6 +78,12 @@ const results = (items: VerifyItem[], type: string): string[] => items.filter((i
 const bad = (items: VerifyItem[]) => items.filter((i) => !["OK", "REFUSED", "NO_RESPONSE"].includes(i.result));
 
 describe("verifyEvidence", { timeout: 30_000 }, () => {
+  it("freshRunIsNotLegacy", () => {
+    const r = verifyEvidence(write(genuine));
+    expect(r.ok).toBe(true);
+    expect(r.items.filter((i) => i.legacy !== undefined)).toEqual([]);
+  });
+
   it("genuineEvidenceVerifies", () => {
     const r = verifyEvidence(write(genuine));
     expect(bad(r.items)).toEqual([]);
@@ -648,6 +654,16 @@ describe("verifyEvidence: phase-1 folders are unchanged", { timeout: 30_000 }, (
     expect(JSON.stringify(verifyResultsDir(FIXTURE), null, 2) + "\n").toBe(expected("expected-folder-report.json"));
     const file = join(FIXTURE, "runs/on-001/evidence.jsonl");
     expect((JSON.stringify(verifyEvidence(file), null, 2) + "\n").replaceAll(FIXTURE, "<fixture>")).toBe(expected("expected-file-report.json"));
+  });
+
+  it("recordedRunIsLegacy", () => {
+    const r = verifyEvidence(join(FIXTURE, "runs/on-001/evidence.jsonl"));
+    expect(r.ok).toBe(true);
+    for (const i of r.items) {
+      const marked = i.type === "session" || i.type === "call" || (i.type === "response" && i.result === "OK");
+      expect(i.legacy, `${i.type} line ${i.line} ${i.result}`).toBe(marked ? true : undefined);
+    }
+    expect(r.items.some((i) => i.type === "response" && i.result === "REFUSED")).toBe(true);
   });
 
   it("phase1CliOutputIsUnchanged", () => {

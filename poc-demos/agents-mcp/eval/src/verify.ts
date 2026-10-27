@@ -7,6 +7,7 @@ import {
   decode,
   encode,
   isAttestedSession,
+  isLegacySessionRequest,
   NonceCache,
   ORIGIN_SVC,
   sha256,
@@ -85,6 +86,8 @@ export type VerifyItem = {
     | "DUPLICATE_RESPONSE"
     | "UNBOUND"
     | LocalResult;
+  /** Set only on an item that verified (its result is in NOT_FAILURES) from v2 stamps, or from a session request with no keyring signature. */
+  legacy?: true;
 };
 /**
  * `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to.
@@ -248,13 +251,15 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (s !== undefined) {
         pins.add(pinFingerprint(rec.pin as string));
       }
-      add(s !== undefined ? "OK" : "BAD_SESSION");
+      const sItem = add(s !== undefined ? "OK" : "BAD_SESSION");
+      if (s !== undefined && isLegacySessionRequest(rec.request as SessionRequest)) sItem.legacy = true;
     } else if (type === "client") {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const { result } = verifyLocal(rec, client, runOf, spent);
-      add(result);
+      const { result, legacy } = verifyLocal(rec, client, runOf, spent);
+      const lItem = add(result);
+      if (legacy && NOT_FAILURES.includes(result)) lItem.legacy = true;
       if (result === "OK" || result === "REFUSED") {
         boundRids.add(rec.rid as string);
       }
@@ -273,7 +278,8 @@ function verifyFile(path: string, label: string): VerifyReport {
           { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: spent },
         );
         const result = v.result.reason;
-        add(result);
+        const cItem = add(result);
+        if (v.legacy && NOT_FAILURES.includes(result)) cItem.legacy = true;
         // the first record of a call is the one its response answers
         const k = key(server, rec.rid, rec.callId);
         if (!calls.has(k)) {
@@ -292,7 +298,8 @@ function verifyFile(path: string, label: string): VerifyReport {
   // when it answers a verified call that comes before it in the file.
   for (const { line, rec } of responses) {
     const callId = isString(rec.callId) ? rec.callId : undefined;
-    const add = (result: VerifyItem["result"]) => items.push({ line, type: "response", ...(callId !== undefined ? { callId } : {}), result });
+    const add = (result: VerifyItem["result"], legacy = false) =>
+      items.push({ line, type: "response", ...(callId !== undefined ? { callId } : {}), result, ...(legacy && NOT_FAILURES.includes(result) ? { legacy: true as const } : {}) });
     if (!isString(rec.server) || !isString(rec.callId) || !isString(rec.rid) || !isObject(rec.result) || typeof rec.now !== "number") {
       add("UNREADABLE");
       continue;
@@ -319,7 +326,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           nonces,
           now: rec.now,
         });
-        add(v.result.reason);
+        add(v.result.reason, v.legacy);
       }
     }
   }

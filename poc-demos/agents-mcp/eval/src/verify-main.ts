@@ -41,7 +41,9 @@ function line(r: VerifyReport): string {
     // refusal is signed by the client and its verdict re-derived from the signed rules, so it says that.
     const server = refused === 0 ? "" : `, ${refused} REFUSED (server refusal; ${local > 0 ? "not signed" : "refusals are not signed"})`;
     const note = server + (local > 0 ? `, ${local} REFUSED (local refusal; signed)` : "");
-    return `OK  ${r.file} (${r.items.length} items${note})${pin}`;
+    const legacy = r.items.filter((i) => i.legacy === true).length;
+    const old = legacy > 0 ? `, ${legacy} legacy (v2 records)` : "";
+    return `OK  ${r.file} (${r.items.length} items${note}${old})${pin}`;
   }
   const first = r.items.find((i) => !NOT_FAILURES.includes(i.result))!;
   const where = first.line > 0 ? `line ${first.line} ` : "";

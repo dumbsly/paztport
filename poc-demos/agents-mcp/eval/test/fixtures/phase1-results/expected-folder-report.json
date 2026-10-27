@@ -13,7 +13,8 @@
       {
         "line": 1,
         "type": "session",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 2,
@@ -24,31 +25,36 @@
         "line": 3,
         "type": "call",
         "callId": "toolu_a",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 4,
         "type": "response",
         "callId": "toolu_a",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 5,
         "type": "call",
         "callId": "toolu_c",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 6,
         "type": "response",
         "callId": "toolu_c",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 7,
         "type": "call",
         "callId": "toolu_d",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 8,
@@ -68,7 +74,8 @@
       {
         "line": 1,
         "type": "session",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 2,
@@ -79,13 +86,15 @@
         "line": 3,
         "type": "call",
         "callId": "toolu_a",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 4,
         "type": "response",
         "callId": "toolu_a",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 5,
@@ -103,7 +112,8 @@
         "line": 7,
         "type": "call",
         "callId": "toolu_d",
-        "result": "OK"
+        "result": "OK",
+        "legacy": true
       },
       {
         "line": 8,
