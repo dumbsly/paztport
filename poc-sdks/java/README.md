@@ -101,11 +101,15 @@ Glue, configured through `paztport.*` properties.
   job, can open its own around one unit of work. Outside one, calls are still
   stamped and responses still checked, but nothing is carried.
 - **Mutual TLS.** `paztport.tls-bundle` names the Spring Boot SSL bundle the
-  service presents on its calls and its events. On a request that came with a
-  client certificate, `PeerIdentity` makes the verifier's peer: the subject's
-  common name when there is exactly one, else `""`, at the TCP address the
-  connection came from. A certificate that names no service is still a peer, so the
-  check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
+  service presents on its calls and its events. Both go out on one
+  `PooledTlsClient` per application, a JDK `HttpClient` speaking HTTP/1.1 that
+  pools its connections, checks the server's name against its certificate and
+  honours the bundle's protocols and ciphers; its `builder()` gives a client with
+  TLS and no stamping, for calls that set their own headers. On a request that
+  came with a client certificate, `PeerIdentity` makes the verifier's peer: the
+  subject's common name when there is exactly one, else `""`, at the TCP address
+  the connection came from. A certificate that names no service is still a peer,
+  so the check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
   Responses are checked with no peer.
 - **Modes and events.** `/admin/mode`, the events sent to a responder, one
   `PAZTPORT_TRACE` log line per request verified, including one verified only to

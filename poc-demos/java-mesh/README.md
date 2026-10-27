@@ -422,6 +422,16 @@ unit tests. Each of these was root-caused before it was fixed:
   through a stamping client became an exception until the interceptor read the
   status first. Only the live mesh showed it: scenario 4 answered 500 instead of
   mirroring `payment`'s 403.
+- **An SSL bundle's client silently defeated keep-alive.** On Spring Boot 3.3,
+  the client an SSL bundle gives `RestClient` installs a new socket factory on
+  every connection, and the JDK only reuses a kept-alive connection for the socket
+  factory that opened it. So every inter-service call opened a fresh mutual-TLS
+  connection, and the receiving server held the last one open for a minute. No
+  test noticed, since every call still worked; under load, `orders` and `payment`
+  reached Tomcat's connection limit within seconds and the whole mesh froze until
+  old connections timed out, which first looked like the host's networking. The
+  starter now builds one pooled JDK `HttpClient` per bundle, and a test counts the
+  connections behind 50 calls.
 - **Infrastructure the responder needs has to be created by the responder.**
   Compose doesn't create a network that no service joins, and a container created
   with networking disabled can't then join a network. Both were caught only by
@@ -440,10 +450,18 @@ for 20 s, the leading mode alternating (`off` then `enforce`, `enforce` then `of
 table gives each mode's median over its three runs, with the three runs' range. No
 request failed in any run.
 
-| | p50 | p99 |
-|---|---|---|
-| `payment` in `off` | 8.58 ms (8.54–8.88) | 20.18 ms (19.87–20.77) |
-| `payment` in `enforce` | 10.59 ms (10.58–10.79) | 23.41 ms (21.21–52.50) |
+| | p50 | p99 | mean | max |
+|---|---|---|---|---|
+| `payment` in `off` | 4.11 ms (4.10–4.15) | 6.59 ms (6.54–6.78) | 4.23 ms (4.23–4.29) | 9.98 ms (9.89–11.43) |
+| `payment` in `enforce` | 6.76 ms (6.71–6.82) | 9.76 ms (9.75–9.85) | 6.91 ms (6.87–6.97) | 21.56 ms (18.99–39.44) |
+
+The services call each other over pooled mutual-TLS connections, so these numbers
+don't include a handshake per hop per request: a connection is replaced, with a
+new handshake, only when the server it goes to retires it after its 100th request
+(Tomcat's default). Earlier measurements were distorted by a connection leak in
+the inter-service client, now fixed: it opened a new connection for every call and
+left each one open for a minute, which under load filled the receiving server's
+connection limit and stalled the mesh.
 
 | Operation | Cost |
 |---|---|
@@ -454,15 +472,15 @@ request failed in any run.
 
 What the numbers say:
 
-- **`enforce` adds about 2 ms at the median at this load.** Every `enforce` run's
-  p50 was 1.7–2.3 ms above every `off` run's, so the gap is larger than the
-  run-to-run spread, but three runs per mode support "about 2 ms", not a finer
-  figure. The p99 gap is about 3 ms with one `enforce` outlier run, so treat it as
-  rougher still. The difference covers `payment`'s verification of the request
-  (two stamps), its signing of the response, and `orders`' check of that response
-  stamp (three stamps), which in `off` finds no stamp and stops at once. At the
-  micro-benchmark costs in the table above that is about 1.3 ms of Ed25519; the
-  rest is likely contention among the 10 users, which isn't measured separately.
+- **`enforce` adds about 2.6 ms at the median at this load.** Every `enforce` run's
+  p50 was 2.6–2.7 ms above every `off` run's, so the gap is far larger than the
+  run-to-run spread, but three runs per mode support "about 2.6 ms", not a finer
+  figure. The p99 gap is about 3 ms (3.0–3.3 ms between any two runs). The
+  difference covers `payment`'s verification of the request (two stamps), its
+  signing of the response, and `orders`' check of that response stamp (three
+  stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
+  costs in the table above that is about 1.3 ms of Ed25519; the rest is likely
+  contention among the 10 users, which isn't measured separately.
 - **The proof of legitimacy is effectively free.** All the cost is in the
   signature chain, one Ed25519 verify per stamp.
 - **Stock JDK Ed25519 is the slow part.** It runs about 5–10× slower than
@@ -479,18 +497,16 @@ Caveats:
 - **Single host, loopback networking.** These numbers show feasibility. They
   aren't a production SLA.
 - **`off` vs `enforce` measures one hop's Paztport work and its caller's check of
-  it, nothing else.** Both runs include mutual TLS on every hop, the request stamps
-  `gateway` and `orders` sign, `orders`' verification of the chain it receives from
-  `gateway` (it doesn't enforce, but runs the full live order to decide its own
-  attestation), `orders`' response stamp and `gateway`'s check of it, so none of
-  those is in the difference, and none is measured on its own. Only `payment`'s
-  work is switched here, so a design that verifies at every hop pays that cost
-  once per verifying hop.
-- **Means and maxima are left out.** In this session every timed run, in both
-  modes, had a maximum of about 1 s (one 2.8 s), which pulled the means to
-  16–21 ms. The stalls appear just as much with Paztport off, so they aren't
-  verification's cost; they look like the host's networking or connection
-  handling, and weren't investigated further.
+  it, nothing else.** Both runs include mutual TLS on every hop, over pooled
+  connections, the request stamps `gateway` and `orders` sign, `orders`'
+  verification of the chain it receives from `gateway` (it doesn't enforce, but
+  runs the full live order to decide its own attestation), `orders`' response
+  stamp and `gateway`'s check of it, so none of those is in the difference, and
+  none is measured on its own. Only `payment`'s work is switched here, so a
+  design that verifies at every hop pays that cost once per verifying hop.
+- **A maximum is one request.** It moves more from run to run than the
+  percentiles do (`enforce`'s ran from 19 to 39 ms), so read it as this run's
+  slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks from an earlier
   measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated
   for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
@@ -591,6 +607,6 @@ exposed to the host.
 The TLS files are not variables: each service's `application.yml` names its
 certificate, its key and `ca.crt` under `/config/tls/` as the Spring Boot SSL bundle
 `mesh`, which it serves with (`client-auth: need`) and presents on its calls
-(`paztport.tls-bundle: mesh`). The origin's window can be set apart from the last
-stamp's with the property `paztport.run-max-age-ms`; unset, both are
-`PAZTPORT_MAX_AGE_MS`.
+(`paztport.tls-bundle: mesh`), over one pooled client per service. The origin's
+window can be set apart from the last stamp's with the property
+`paztport.run-max-age-ms`; unset, both are `PAZTPORT_MAX_AGE_MS`.
