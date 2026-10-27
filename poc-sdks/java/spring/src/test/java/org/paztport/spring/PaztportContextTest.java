@@ -29,7 +29,7 @@ class PaztportContextTest {
 
     @AfterEach
     void cleanup() {
-        PaztportContext.clear();
+        PaztportContext.reset();
     }
 
     @Test
@@ -127,6 +127,36 @@ class PaztportContextTest {
             PaztportContext.clear();
             assertTrue(PaztportContext.influence().isEmpty());
             assertTrue(PaztportContext.isOpen());
+        }
+    }
+
+    @Test
+    void closingAStaleOrDuplicateScopeLeavesTheCurrentOneOpen() {
+        PaztportContext.Scope stale = PaztportContext.open();
+        stale.close();
+
+        try (PaztportContext.Scope current = PaztportContext.open()) {
+            PaztportContext.addInfluence(WEB);
+            stale.close();
+            stale.close();
+            assertTrue(PaztportContext.isOpen(), "a scope that has ended cannot end another");
+            assertEquals(List.of(WEB), PaztportContext.influence());
+        }
+        assertFalse(PaztportContext.isOpen());
+    }
+
+    @Test
+    void resetEndsALeakedScopeSoANewOneCanOpen() {
+        PaztportContext.Scope leaked = PaztportContext.open(); // never closed by the code that opened it
+        PaztportContext.addInfluence(WEB);
+
+        PaztportContext.reset();
+
+        assertFalse(PaztportContext.isOpen());
+        assertTrue(PaztportContext.influence().isEmpty());
+        try (PaztportContext.Scope current = PaztportContext.open()) {
+            leaked.close();
+            assertTrue(PaztportContext.isOpen(), "the leaked scope, closed late, does not end the new one");
         }
     }
 }

@@ -59,8 +59,13 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * is written after the filter has returned: it is sent whole when the async work completes, without
  * {@code X-Path-Response}, and its caller counts it as untrusted.
  *
+ * <p>Under mutual TLS the request is verified against the sender the handshake authenticated ({@link PeerIdentity}):
+ * the chain's last signer must be the service its certificate names, and every result, so every refusal and every
+ * event, names that service at the address it connected from. Without a client certificate there is no peer.
+ *
  * <p>Each request is served inside a {@link PaztportContext.Scope}, so what its handler and its calls learn is
- * carried for the request and dropped when it ends. Async work after the handler returns runs outside it.
+ * carried for the request and dropped when it ends. Async work after the handler returns runs outside it. A scope
+ * that other code left open on the thread is ended, with a warning, before the request's own is opened.
  *
  * <p>A null verifier skips verification on non-verifying hops. A non-null {@link ReceivedRequestListener} is
  * offered every request first, before any verification, so an application can observe traffic without the SDK
@@ -111,6 +116,13 @@ public final class InboundFilter extends OncePerRequestFilter {
 
         // The scope starts clean and is emptied when the request ends, so nothing passes between requests.
         List<StampV3> inbound = parseChain(chainHeader);
+        if (PaztportContext.isOpen()) {
+            // Other code on this pooled thread opened a scope and never closed it. Refusing to open ours would fail
+            // this request and every later one served here, so the stale scope is ended and the request served.
+            LOG.warn("a paztport context scope was leaked on thread {}; ending it before serving this request",
+                    LogSafe.of(Thread.currentThread().getName()));
+            PaztportContext.reset();
+        }
         try (PaztportContext.Scope scope = PaztportContext.open()) {
             PaztportContext.setInboundChain(inbound);
             if (listener != null) {
@@ -121,8 +133,8 @@ public final class InboundFilter extends OncePerRequestFilter {
             // True when the chain verified here or was not checked here: the chains this service may attest onto.
             boolean vouchable = true;
             if (mode != VerificationMode.OFF) {
-                // Peer stays null until the transport authenticates one.
-                Peer peer = null;
+                // Under mutual TLS, the sender the handshake authenticated; null without a client certificate.
+                Peer peer = PeerIdentity.from(request);
                 VerifyInputV3 input = HttpV3.request(chainHeader, proofHeader, influenceHeader, request.getMethod(),
                         target, body, receiver, peer);
                 VerifyResult result = verifier.verify(input);

@@ -20,6 +20,10 @@ import org.springframework.web.client.RestClient;
  * responder acts on events and must not take them from anyone on the mesh. The
  * POST is best-effort: a responder outage must never block or fail verification,
  * so failures are swallowed (and logged) rather than propagated.
+ *
+ * <p>The client is given, not built here, so that it can carry this service's TLS
+ * certificate. It must not be one that stamps: an event reports on a request's
+ * path, it is not a step on it.
  */
 public final class ResponderEventPublisher implements EventPublisher {
 
@@ -32,13 +36,15 @@ public final class ResponderEventPublisher implements EventPublisher {
     }
 
     private final EventPublisher logging = new LoggingEventPublisher();
-    private final RestClient http = RestClient.create();
+    private final RestClient http;
     private final String responderUrl;
     private final String signer;
     private final PrivateKey key;
     private final LongSupplier clock;
 
-    public ResponderEventPublisher(String responderUrl, String signer, PrivateKey key, LongSupplier clock) {
+    public ResponderEventPublisher(
+            RestClient http, String responderUrl, String signer, PrivateKey key, LongSupplier clock) {
+        this.http = http;
         this.responderUrl = responderUrl;
         this.signer = signer;
         this.key = key;

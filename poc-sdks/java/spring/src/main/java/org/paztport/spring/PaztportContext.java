@@ -26,7 +26,7 @@ public final class PaztportContext {
     private static final ThreadLocal<List<StampV3>> INBOUND = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> INFLUENCE = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
-    private static final ThreadLocal<Boolean> OPEN = ThreadLocal.withInitial(() -> false);
+    private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
     private PaztportContext() {
     }
@@ -71,20 +71,35 @@ public final class PaztportContext {
      * the inner scope would otherwise drop the outer one's influence when it closed.
      */
     public static Scope open() {
-        if (OPEN.get()) {
+        if (CURRENT.get() != null) {
             throw new IllegalStateException("a paztport context scope is already open on this thread");
         }
         clear();
-        OPEN.set(true);
-        return new Scope();
+        Scope scope = new Scope();
+        CURRENT.set(scope);
+        return scope;
     }
 
     /** True while a scope is open on this thread: only then are responses recorded as influence. */
     public static boolean isOpen() {
-        return OPEN.get();
+        return CURRENT.get() != null;
     }
 
-    /** An open scope; closing it empties the context and ends the scope. */
+    /**
+     * Ends whatever scope is open on this thread and empties the context. Only the inbound filter calls this, when
+     * a scope that other code opened on a pooled thread was never closed: without it, every later request served
+     * on that thread would fail to open its own.
+     */
+    static void reset() {
+        clear();
+        CURRENT.remove();
+    }
+
+    /**
+     * An open scope; closing it empties the context and ends the scope. Closing a scope that has already ended, or
+     * that was ended by {@link #reset}, does nothing, so a late or repeated close cannot end the scope that is
+     * current now.
+     */
     public static final class Scope implements AutoCloseable {
 
         private Scope() {
@@ -92,8 +107,9 @@ public final class PaztportContext {
 
         @Override
         public void close() {
-            clear();
-            OPEN.remove();
+            if (CURRENT.get() == this) {
+                reset();
+            }
         }
     }
 

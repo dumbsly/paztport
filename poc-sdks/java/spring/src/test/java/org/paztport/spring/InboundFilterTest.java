@@ -86,7 +86,7 @@ class InboundFilterTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.clear();
+        PaztportContext.reset();
     }
 
     private VerifierV3 paymentVerifier() {
@@ -603,6 +603,48 @@ class InboundFilterTest {
             assertEquals(1, warnings.list.size());
             String warning = warnings.list.get(0).getFormattedMessage();
             assertTrue(warning.startsWith("response left unattested: rid=r\\u000ax "), warning);
+        } finally {
+            filterLog.detachAppender(warnings);
+            filterLog.setLevel(null);
+            filterLog.setAdditive(true);
+        }
+    }
+
+    @Test
+    void aScopeLeakedOnThisThreadIsEndedWithAWarningAndRequestsAreStillServed() throws Exception {
+        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+        Logger filterLog = (Logger) LoggerFactory.getLogger(InboundFilter.class);
+        warnings.start();
+        filterLog.addAppender(warnings);
+        filterLog.setLevel(Level.WARN);
+        filterLog.setAdditive(false);
+        try {
+            // Code outside the filter opened a scope on this pooled thread, recorded something, and never closed it.
+            PaztportContext.open();
+            PaztportContext.addInfluence(WEB);
+
+            Seen first = new Seen();
+            MockHttpServletResponse firstResponse = new MockHttpServletResponse();
+            filter(VerificationMode.ENFORCE, null).doFilter(paymentRequest(validHeaders(), TO_PAYMENT),
+                    firstResponse, new MockFilterChain(first));
+
+            assertEquals(200, firstResponse.getStatus());
+            assertTrue(first.reached && first.scoped);
+            assertEquals(List.of(), first.influence, "nothing the leaked scope held reaches the request");
+            assertTrue(!PaztportContext.isOpen());
+            assertEquals(1, warnings.list.size());
+            String warning = warnings.list.get(0).getFormattedMessage();
+            assertTrue(warning.startsWith("a paztport context scope was leaked on thread "), warning);
+
+            Seen second = new Seen();
+            MockHttpServletResponse secondResponse = new MockHttpServletResponse();
+            filter(VerificationMode.ENFORCE, null).doFilter(
+                    paymentRequest(headers("rid-2", "/pay", List.of()), TO_PAYMENT), secondResponse,
+                    new MockFilterChain(second));
+
+            assertEquals(200, secondResponse.getStatus());
+            assertTrue(second.reached);
+            assertEquals(1, warnings.list.size(), "the thread is clean again");
         } finally {
             filterLog.detachAppender(warnings);
             filterLog.setLevel(null);

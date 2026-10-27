@@ -15,6 +15,7 @@ import java.security.KeyPair;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Crypto;
 import org.paztport.core.EventEnvelope;
+import org.springframework.web.client.RestClient;
 
 class ResponderEventPublisherTest {
 
@@ -24,7 +25,8 @@ class ResponderEventPublisherTest {
 
     private final KeyPair key = Crypto.generateEd25519KeyPair();
     private final ResponderEventPublisher publisher =
-            new ResponderEventPublisher("http://127.0.0.1:1", "payment", key.getPrivate(), () -> 1234L);
+            new ResponderEventPublisher(RestClient.create(), "http://127.0.0.1:1", "payment", key.getPrivate(),
+                    () -> 1234L);
 
     @Test
     void publishIsBestEffortWhenResponderIsUnreachable() {

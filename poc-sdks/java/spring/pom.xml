@@ -14,6 +14,11 @@
     <name>Paztport Spring</name>
     <description>Inbound verification filter and outbound stamping interceptor for Spring Boot.</description>
 
+    <properties>
+        <!-- Set by the unsafe-memory-access profile below; empty on JDKs without the flag. -->
+        <unsafeMemoryAccess></unsafeMemoryAccess>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.paztport</groupId>
@@ -51,9 +56,23 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <argLine>--enable-native-access=ALL-UNNAMED -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                    <argLine>--enable-native-access=ALL-UNNAMED -XX:+EnableDynamicAgentLoading -Xshare:off ${unsafeMemoryAccess}</argLine>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- Tomcat frees its TLS buffers through sun.misc.Unsafe, which newer JDKs warn about once per
+             run. The flag that allows it is unknown to JDK 21, so it is only passed where it exists. -->
+        <profile>
+            <id>unsafe-memory-access</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <properties>
+                <unsafeMemoryAccess>--sun-misc-unsafe-memory-access=allow</unsafeMemoryAccess>
+            </properties>
+        </profile>
+    </profiles>
 </project>

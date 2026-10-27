@@ -64,6 +64,13 @@ public class PaztportProperties {
     /** Allowed origin service names. */
     private List<String> origins = List.of("gateway");
 
+    /**
+     * The Spring Boot SSL bundle ({@code spring.ssl.bundle.*}) this service presents on its outbound calls and on
+     * its events to the responder; unset, they go without a client certificate. Under mutual TLS every receiver
+     * requires one, and takes the service it names as the sender.
+     */
+    private String tlsBundle;
+
     public String getServiceName() {
         return serviceName;
     }
@@ -190,5 +197,13 @@ public class PaztportProperties {
 
     public void setOrigins(List<String> origins) {
         this.origins = origins;
+    }
+
+    public String getTlsBundle() {
+        return tlsBundle;
+    }
+
+    public void setTlsBundle(String tlsBundle) {
+        this.tlsBundle = tlsBundle;
     }
 }
