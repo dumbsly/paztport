@@ -36,10 +36,13 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 /**
  * Inbound half of the glue. Caches the body, stores the received v3 chain and influence in {@link PaztportContext}
  * for outbound appends, and — on a service that verifies requests ({@code paztport.verify=true}) — applies the
- * current {@link VerificationMode}:
+ * current {@link VerificationMode}, read once per request so that a switch cannot catch a request half-way:
  *
  * <ul>
- *   <li>{@code OFF} — skip verification, pass through.</li>
+ *   <li>{@code OFF} — Paztport is off on this hop: nothing is verified, not even to decide attestation, nothing is
+ *       published, and the response goes back without {@code X-Path-Response}. The chain and influence are still
+ *       carried, so the handler's own calls are stamped as before, and unreadable influence is still answered
+ *       400.</li>
  *   <li>{@code AUDIT} — verify, publish an event on failure, and pass through, unless the influence cannot be
  *       read: that is answered 400 in every mode, as below.</li>
  *   <li>{@code ENFORCE} — verify, publish an event and return 403 on failure.</li>
@@ -56,12 +59,20 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * received, back to the caller, binding the status, the body and the labels the handler gave it
  * ({@link PaztportContext#label}), sent as {@code X-Path-Response}. It attests only a chain that passed the full
  * live order here — its own verifier, itself as receiver, the request's proof and influence, the peer — whether or
- * not it enforces. A response stamp is shaped like a request stamp, so attesting a chain nobody checked would let
- * whoever sent it mint stamps under this service's key: a one-stamp chain with an empty signature would come back as
- * a valid origin stamp from this service. Where the request was already verified under the mode, that result decides;
- * otherwise the chain is verified for attestation alone, once, and a failure only withholds the attestation: the
- * request is served, and nothing is published. A request it refused, or that failed in {@code AUDIT}, gets no
- * attestation either. A service without a verifier never attests.
+ * not it enforces, unless an operator has switched its verification {@code OFF}. A response stamp is shaped like a
+ * request stamp, so attesting a chain nobody checked would let whoever sent it mint stamps under this service's key:
+ * a one-stamp chain with an empty signature would come back as a valid origin stamp from this service. Where the
+ * request was already verified under the mode, that result decides; otherwise the chain is verified for attestation
+ * alone, once, and a failure only withholds the attestation: the request is served, and nothing is published. A
+ * request it refused, or that failed in {@code AUDIT}, gets no attestation either. A service without a verifier
+ * never attests.
+ *
+ * <p>{@code OFF} withholds attestation only on a service that verifies requests, because only there is it a choice:
+ * the operator set that mode, at startup or through {@code /admin/mode}, to take Paztport off the hop, and a hop
+ * that is off must not run Paztport's work at all, or {@code OFF} would not be a baseline to measure against. A
+ * service that does not verify requests has no mode to switch; it is not off, it only does not enforce, so its
+ * verifier still decides attestation as above. Switching a hop off is fail-safe: its caller records an unattested
+ * response as {@code local-untrusted}, so it can only add caution downstream, never vouch for anything.
  *
  * <p>The body is held until the handler returns, since the stamp covers all of it. A handler that throws sends no
  * attestation, and a body the container writes afterwards (an error page after {@code sendError}) is not the one
@@ -100,7 +111,8 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param verifier this service's verifier, or null where it holds no keyring, root and pin; without one it
      *     neither verifies nor attests
      * @param verifyRequests true where requests are verified under the mode ({@code paztport.verify=true}); it
-     *     needs a verifier, a mode holder and a publisher. Otherwise the verifier only decides attestation.
+     *     needs a verifier, a mode holder and a publisher, and under {@code OFF} it neither verifies nor attests.
+     *     Otherwise the verifier only decides attestation.
      * @param origin true for an entry point ({@code paztport.origin=true}), which ignores the inbound chain and
      *     influence and never attests
      * @param receiver this service's name
@@ -158,6 +170,9 @@ public final class InboundFilter extends OncePerRequestFilter {
                 listener.received(chainHeader, proofHeader, influenceHeader, request.getMethod(), target, body);
             }
             VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
+            // The operator took Paztport off this hop. A service that does not verify requests is OFF here too, but
+            // has no mode to switch, so it still attests what verifies.
+            boolean switchedOff = verifyRequests && mode == VerificationMode.OFF;
             // Under mutual TLS, the sender the handshake authenticated; null without a client certificate.
             Peer peer = PeerIdentity.from(request);
             List<InfluenceEntry> influence;
@@ -191,9 +206,9 @@ public final class InboundFilter extends OncePerRequestFilter {
                 }
                 PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             }
-            boolean attesting = stamper != null && verifier != null && !origin && inbound != null;
+            boolean attesting = !switchedOff && stamper != null && verifier != null && !origin && inbound != null;
             if (attesting && checked == null) {
-                // Not verified under the mode, so verified here for attestation alone: never refused, never
+                // A hop that does not verify requests, so verified here for attestation alone: never refused, never
                 // published. Run at most once per request, since the live order spends the request's nonce.
                 checked = verifier.verify(HttpV3.request(chainHeader, proofHeader, influenceHeader,
                         request.getMethod(), target, body, receiver, peer));

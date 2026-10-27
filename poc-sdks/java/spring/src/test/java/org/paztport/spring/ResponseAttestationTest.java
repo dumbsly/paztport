@@ -174,6 +174,9 @@ class ResponseAttestationTest {
     @Autowired
     private ProofBundle bundle;
 
+    @Autowired
+    private ModeHolder mode;
+
     /** The origin's client: it starts each chain, and checks each answer with the app's own trust material. */
     private RestClient.Builder origin() {
         return RestClient.builder().requestInterceptor(new OutboundInterceptor(
@@ -308,6 +311,39 @@ class ResponseAttestationTest {
         assertTrue(new String(refused.body(), StandardCharsets.UTF_8).contains("INFLUENCE_MISMATCH"));
         assertNull(refused.attestation(), "a refusal is not attested");
         assertEquals(List.of(untrusted(refused)), refused.recorded());
+    }
+
+    /**
+     * A verifier switched off at runtime checks nothing and so vouches for nothing: its caller records what it
+     * answered as untrusted, and switched back it attests again.
+     */
+    @Test
+    void aVerifierSwitchedOffIsUntrustedUntilSwitchedBack() {
+        RestClient client = origin().build();
+        try {
+            mode.set(VerificationMode.OFF);
+            Answer off = call(client, "/labelled");
+
+            assertEquals(200, off.status());
+            assertEquals("alice's order history", new String(off.body(), StandardCharsets.UTF_8));
+            assertNull(off.attestation(), "the chain would verify, but nothing checked it");
+            assertEquals(List.of(untrusted(off)), off.recorded(), "one local-untrusted entry, not alice's label");
+            assertEquals(List.of(), requestTraces(), "no verification ran");
+
+            mode.set(VerificationMode.ENFORCE);
+            Answer on = call(client, "/labelled");
+
+            assertEquals(1, on.recorded().size());
+            assertEquals(InfluenceClass.PRIVATE, on.recorded().get(0).cls(), "attested again");
+            assertEquals(1, requestTraces().size());
+        } finally {
+            mode.set(VerificationMode.ENFORCE);
+        }
+    }
+
+    private List<String> requestTraces() {
+        return traces.list.stream().map(ILoggingEvent::getFormattedMessage)
+                .filter(l -> l.startsWith("PAZTPORT_TRACE request ")).toList();
     }
 
     @Test

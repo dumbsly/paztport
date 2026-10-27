@@ -6,7 +6,10 @@ package org.paztport.spring;
 /** How a verifying service treats a request. */
 public enum VerificationMode {
 
-    /** No verification; pass everything (latency baseline). */
+    /**
+     * Paztport off on this hop: no verification and no response attestation; pass everything (the latency
+     * baseline).
+     */
     OFF,
 
     /** Verify and publish events, but always pass the request through. */

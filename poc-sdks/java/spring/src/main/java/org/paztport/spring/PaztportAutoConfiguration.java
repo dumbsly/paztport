@@ -34,8 +34,9 @@ import org.springframework.web.client.RestClient;
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
  * Wherever there is a VerifierV3, the interceptor also checks every response it
  * gets. A non-origin service with both a stamper and a VerifierV3 attests the
- * responses it sends, but only to requests whose chain verified there; an origin
- * never attests.
+ * responses it sends, but only to requests whose chain verified there, and not
+ * while a service that verifies requests is in {@code off} mode; an origin never
+ * attests.
  *
  * <p>The verifier is pinned: the keyring and the root must both verify under
  * {@code policy.pub}, or the context fails to start. Inside one mesh a request

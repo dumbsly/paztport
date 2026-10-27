@@ -524,16 +524,68 @@ class InboundFilterTest {
     void auditAndOffModesStillAnswerMalformedInfluenceWith400() throws Exception {
         Headers h = validHeaders();
         for (VerificationMode mode : List.of(VerificationMode.AUDIT, VerificationMode.OFF)) {
-            MockHttpServletResponse response = new MockHttpServletResponse();
-            Seen seen = new Seen();
+            for (InboundFilter hop : List.of(filter(mode, null), attestingFilter(paymentVerifier(), mode))) {
+                MockHttpServletResponse response = new MockHttpServletResponse();
+                Seen seen = new Seen();
 
-            filter(mode, null).doFilter(paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT),
-                    response, new MockFilterChain(seen));
+                hop.doFilter(paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT),
+                        response, new MockFilterChain(seen));
 
-            assertEquals(400, response.getStatus(), mode.name());
-            assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", response.getContentAsString(), mode.name());
-            assertTrue(!seen.reached, mode + ": influence that cannot be read is never dropped");
+                assertEquals(400, response.getStatus(), mode.name());
+                assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", response.getContentAsString(), mode.name());
+                assertTrue(!seen.reached, mode + ": influence that cannot be read is never dropped");
+            }
         }
+    }
+
+    /**
+     * {@code OFF} on a verifier is the operator turning Paztport off on that hop: nothing is checked, so nothing is
+     * vouched for, even for a chain that would verify. What the handler is given is unchanged, so its own calls are
+     * stamped as before.
+     */
+    @Test
+    void aVerifierSwitchedOffVerifiesNothingAndAttestsNothing() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Seen seen = new Seen();
+
+        attestingFilter(paymentVerifier(), VerificationMode.OFF).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), response,
+                new MockFilterChain(new Answering()));
+        attestingFilter(paymentVerifier(), VerificationMode.OFF).doFilter(
+                paymentRequest(headers("rid-2", "/pay", List.of(WEB)), TO_PAYMENT), new MockHttpServletResponse(),
+                new MockFilterChain(seen));
+
+        assertEquals(201, response.getStatus());
+        assertEquals("paid", response.getContentAsString(), "served as before");
+        assertNull(response.getHeader(PaztportHeaders.RESPONSE), "a chain that would verify, but nothing checked it");
+        assertTrue(traceLines().isEmpty(), "no verification ran, not even one for attestation alone");
+        assertTrue(events.all.isEmpty());
+        assertEquals(2, seen.chain.size(), "the inbound chain is carried for outbound stamping");
+        assertEquals(List.of(WEB), seen.influence, "and so is the influence received");
+    }
+
+    @Test
+    void switchingAVerifierOffAndBackAtRuntimeTakesEffectOnTheNextRequest() throws Exception {
+        ModeHolder mode = new ModeHolder(VerificationMode.ENFORCE);
+        InboundFilter hop = new InboundFilter(paymentVerifier(), true, false, "payment", mode, events, null,
+                paymentStamper());
+        List<Boolean> attested = new ArrayList<>();
+        int rid = 0;
+        for (VerificationMode next : List.of(VerificationMode.ENFORCE, VerificationMode.OFF,
+                VerificationMode.ENFORCE, VerificationMode.OFF)) {
+            mode.set(next);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            hop.doFilter(paymentRequest(headers("rid-" + ++rid, "/pay", List.of()), TO_PAYMENT), response,
+                    new MockFilterChain(new Answering()));
+            assertEquals("paid", response.getContentAsString(), next.name());
+            attested.add(response.getHeader(PaztportHeaders.RESPONSE) != null);
+        }
+
+        assertEquals(List.of(true, false, true, false), attested);
+        assertEquals(List.of(
+                "PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=-",
+                "PAZTPORT_TRACE request rid=rid-3 reason=OK receiver=payment ✓ peer=none classes=-"),
+                traceLines(), "verified only while enforcing");
     }
 
     @Test
@@ -614,7 +666,8 @@ class InboundFilterTest {
             }
         }
         assertTrue(events.all.isEmpty(), "checking for attestation publishes nothing");
-        assertEquals(4, traceLines().size());
+        // Only the hop that does not verify requests checks the chain; the one switched off checks nothing.
+        assertEquals(2, traceLines().size());
         for (String line : traceLines()) {
             assertTrue(line.contains(" reason=BAD_SIGNATURE receiver=payment ✗ "), line);
         }
