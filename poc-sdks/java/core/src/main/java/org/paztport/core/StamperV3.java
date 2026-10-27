@@ -74,8 +74,14 @@ public final class StamperV3 {
 
     /**
      * Stamps the response to the request whose chain is {@code inbound}: the receiver is the caller (the last
-     * stamp's service), the call id is the request's {@code rid}, and the influence is empty because a response
-     * carries its labels in the binding instead. The caller appends this stamp to the chain it sent.
+     * stamp's service), the {@code rid} and {@code sess} are the request's, and the influence is empty because a
+     * response carries its labels in the binding instead. Over HTTP, callers pass the request's {@code rid} as
+     * {@code callId}; it is taken as given. The caller appends this stamp to the chain it sent.
+     *
+     * <p>This checks nothing about {@code inbound}. A response stamp is shaped like a request stamp, so on a chain
+     * nobody verified it can be a valid stamp the sender could never have made: on a forged one-stamp chain with
+     * an empty {@code sig}, an origin's response is a genuine origin stamp. Pass only a chain that verified at this
+     * service, and never respond from an origin.
      */
     public StampV3 respond(List<StampV3> inbound, String resultHash, String callId, List<ContentLabel> labels) {
         requireInbound(inbound);

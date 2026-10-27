@@ -7,8 +7,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 /**
- * What a stamp's {@code bind} field commits to, by kind. Each kind hashes a distinct domain prefix, so a binding
- * of one kind can never be replayed as another.
+ * What a stamp's {@code bind} field commits to, by kind. The prompt binding hashes its own domain prefix
+ * ({@code prompt\n}). The response binding has none: its bytes start with the result hash, which is itself a hash
+ * under a domain prefix of its own (an HTTP result's is {@code http-response\n}), so it is the result hash, not a
+ * prefix here, that keeps a response binding apart from other kinds. Which kind a stamp's {@code bind} must be is
+ * decided by where the stamp sits, never read from the binding.
  */
 public final class Bindings {
 

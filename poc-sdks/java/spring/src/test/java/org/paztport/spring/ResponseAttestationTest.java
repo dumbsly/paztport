@@ -23,6 +23,7 @@ import java.security.KeyPair;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
@@ -35,6 +36,9 @@ import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ProofBundle;
+import org.paztport.core.StamperV3;
+import org.paztport.core.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.slf4j.LoggerFactory;
@@ -56,35 +60,36 @@ import org.springframework.web.context.request.async.DeferredResult;
  * Responses, end to end through the real servlet container and the real RestClient: the filter attests what the
  * handler sent, and the caller's interceptor verifies it and records what it learnt as influence. Whatever the
  * caller cannot verify still counts, as one {@code local-untrusted} entry, because dropping it would let content
- * shape later calls unseen. The app is named {@code localhost} and calls itself, as in {@link MeshRoundTripTest}.
+ * shape later calls unseen. The app is {@code localhost}, a verifying hop that is not an origin, since an origin
+ * never attests; the test plays the origin that calls it, under the same name and key, because the interceptor
+ * takes the receiver from the URI host.
  */
 @SpringBootTest(classes = ResponseAttestationTest.App.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "spring.main.banner-mode=off")
 class ResponseAttestationTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     private static Path trust;
 
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-response");
-        KeyPair app = Crypto.generateEd25519KeyPair();
         KeyPair policy = Crypto.generateEd25519KeyPair();
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         PolicyBuilder.Result built =
                 PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, policy.getPrivate());
 
-        Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(app.getPrivate())));
+        Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(APP.getPrivate())));
         Files.writeString(trust.resolve("policy.pub"), policyPub);
         JSON.writeValue(trust.resolve("keyring.json").toFile(), KeyringFile.sign(
-                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(app.getPublic()))), policyPub,
+                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(APP.getPublic()))), policyPub,
                 policy.getPrivate()));
         JSON.writeValue(trust.resolve("root.json").toFile(), built.signedRoot());
         JSON.writeValue(trust.resolve("proofs-localhost.json").toFile(), built.bundles().get("localhost"));
 
         registry.add("paztport.service-name", () -> "localhost");
         registry.add("paztport.instance", () -> "localhost-1");
-        registry.add("paztport.origin", () -> "true");
         registry.add("paztport.verify", () -> "true");
         registry.add("paztport.origins", () -> "localhost");
         registry.add("paztport.key-path", () -> trust.resolve("localhost.key").toString());
@@ -164,7 +169,17 @@ class ResponseAttestationTest {
     private int port;
 
     @Autowired
-    private RestClient.Builder builder;
+    private VerifierV3 verifier;
+
+    @Autowired
+    private ProofBundle bundle;
+
+    /** The origin's client: it starts each chain, and checks each answer with the app's own trust material. */
+    private RestClient.Builder origin() {
+        return RestClient.builder().requestInterceptor(new OutboundInterceptor(
+                new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
+                        System::currentTimeMillis), bundle, verifier, "localhost"));
+    }
 
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
@@ -189,7 +204,7 @@ class ResponseAttestationTest {
     }
 
     /**
-     * Calls {@code path} with the app's stamping client, inside a context scope as a request handler would be,
+     * Calls {@code path} with {@code client}, inside a context scope as a request handler would be,
      * and answers the status, the body and what the call recorded, whatever they are.
      */
     private Answer call(RestClient client, String path) {
@@ -216,7 +231,7 @@ class ResponseAttestationTest {
 
     @Test
     void labelsCarried() {
-        Answer answer = call(builder.build(), "/labelled");
+        Answer answer = call(origin().build(), "/labelled");
 
         assertEquals(200, answer.status());
         assertEquals("alice's order history", new String(answer.body(), StandardCharsets.UTF_8));
@@ -236,7 +251,7 @@ class ResponseAttestationTest {
 
     @Test
     void emptyAnd204Verify() {
-        RestClient client = builder.build();
+        RestClient client = origin().build();
         Answer noContent = call(client, "/no-content");
         Answer empty = call(client, "/empty");
         Answer sized = call(client, "/sized");
@@ -258,7 +273,7 @@ class ResponseAttestationTest {
 
     @Test
     void plainDownstreamIsUntrusted() {
-        RestClient client = builder.build();
+        RestClient client = origin().build();
 
         Answer plain = call(client, "/debug/plain");
         assertEquals("plain", new String(plain.body(), StandardCharsets.UTF_8));
@@ -281,7 +296,7 @@ class ResponseAttestationTest {
     void refusalIsUntrusted() {
         // Runs after the stamping interceptor and claims influence the stamp never committed to, so the
         // verifying filter refuses the request.
-        RestClient client = builder.clone().requestInterceptor((request, body, execution) -> {
+        RestClient client = origin().requestInterceptor((request, body, execution) -> {
             request.getHeaders().set(PaztportHeaders.INFLUENCE, HttpV3.encodeInfluence(List.of(
                     new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null))));
             return execution.execute(request, body);
@@ -297,7 +312,7 @@ class ResponseAttestationTest {
 
     @Test
     void asyncIsServedWholeButUnattested() {
-        RestClient client = builder.build();
+        RestClient client = origin().build();
         for (String path : List.of("/deferred", "/callable")) {
             Answer answer = call(client, path);
 

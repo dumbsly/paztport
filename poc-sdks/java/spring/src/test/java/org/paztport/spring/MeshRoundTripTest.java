@@ -19,6 +19,7 @@ import java.security.KeyPair;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -28,6 +29,9 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ProofBundle;
+import org.paztport.core.StamperV3;
+import org.paztport.core.VerifierV3;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -35,7 +39,6 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
-import org.springframework.core.env.Environment;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -48,35 +51,39 @@ import org.springframework.web.client.RestClient;
  * The real RestClient and the real servlet container, end to end: the outbound interceptor binds the raw target it
  * sends and the inbound filter binds the raw target the container hands it, so a percent-encoded query must come
  * out the same on both sides. The app is named {@code localhost}, because the interceptor takes the receiver from
- * the URI host, and calls itself; its keys, signed keyring, pin and policy are generated for each run.
+ * the URI host; it is a verifying hop, and the test plays the origin that calls it, under the same name and key.
+ * The keys, signed keyring, pin and policy are generated for each run.
+ *
+ * <p>The app does not call itself: a non-origin calling itself within one request tree would send the same
+ * request nonce key twice, which the documented limit (a service calls a given receiver at most once per request
+ * tree) rules out.
  */
 @SpringBootTest(classes = MeshRoundTripTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = "spring.main.banner-mode=off")
 class MeshRoundTripTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     private static Path trust;
 
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-mesh");
-        KeyPair app = Crypto.generateEd25519KeyPair();
         KeyPair policy = Crypto.generateEd25519KeyPair();
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         PolicyBuilder.Result built =
                 PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, policy.getPrivate());
 
-        Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(app.getPrivate())));
+        Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(APP.getPrivate())));
         Files.writeString(trust.resolve("policy.pub"), policyPub);
         JSON.writeValue(trust.resolve("keyring.json").toFile(), KeyringFile.sign(
-                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(app.getPublic()))), policyPub,
+                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(APP.getPublic()))), policyPub,
                 policy.getPrivate()));
         JSON.writeValue(trust.resolve("root.json").toFile(), built.signedRoot());
         JSON.writeValue(trust.resolve("proofs-localhost.json").toFile(), built.bundles().get("localhost"));
 
         registry.add("paztport.service-name", () -> "localhost");
         registry.add("paztport.instance", () -> "localhost-1");
-        registry.add("paztport.origin", () -> "true");
         registry.add("paztport.verify", () -> "true");
         registry.add("paztport.origins", () -> "localhost");
         registry.add("paztport.key-path", () -> trust.resolve("localhost.key").toString());
@@ -97,27 +104,8 @@ class MeshRoundTripTest {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @Import({HopController.class, SearchController.class})
+    @Import(SearchController.class)
     static class App {
-    }
-
-    /** Calls the app's own search, through the stamping RestClient, with a percent-encoded query. */
-    @RestController
-    static class HopController {
-        private final RestClient client;
-        private final Environment env;
-
-        HopController(RestClient.Builder builder, Environment env) {
-            this.client = builder.build();
-            this.env = env;
-        }
-
-        @GetMapping("/hop")
-        Map<String, String> hop() {
-            URI search = URI.create(
-                    "http://localhost:" + env.getProperty("local.server.port") + "/search?q=caf%C3%A9%20x");
-            return client.get().uri(search).retrieve().body(new ParameterizedTypeReference<>() { });
-        }
     }
 
     @RestController
@@ -132,7 +120,10 @@ class MeshRoundTripTest {
     private int port;
 
     @Autowired
-    private RestClient.Builder builder;
+    private VerifierV3 verifier;
+
+    @Autowired
+    private ProofBundle bundle;
 
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
@@ -154,22 +145,22 @@ class MeshRoundTripTest {
 
     @Test
     void encodedQueryVerifies() {
-        // The test thread is outside any request, so the origin starts a chain here too and /hop is verified first.
-        Map<String, String> body = builder.build().get().uri(URI.create("http://localhost:" + port + "/hop"))
+        RestClient origin = RestClient.builder().requestInterceptor(new OutboundInterceptor(
+                new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
+                        System::currentTimeMillis), bundle, verifier, "localhost")).build();
+
+        Map<String, String> body = origin.get()
+                .uri(URI.create("http://localhost:" + port + "/search?q=caf%C3%A9%20x"))
                 .retrieve().body(new ParameterizedTypeReference<>() { });
 
         assertEquals(Map.of("q", "café x"), body);
         List<String> lines = traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
         List<String> requests = lines.stream().filter(l -> l.startsWith("PAZTPORT_TRACE request ")).toList();
         List<String> responses = lines.stream().filter(l -> l.startsWith("PAZTPORT_TRACE response ")).toList();
-        assertEquals(2, requests.size(), lines.toString());
-        for (String line : requests) {
-            assertTrue(line.contains(" reason=OK receiver=localhost ✓ peer=none "), line);
-        }
-        // Each request's answer comes back attested, and each caller verifies it.
-        assertEquals(2, responses.size(), lines.toString());
-        for (String line : responses) {
-            assertTrue(line.contains(" from=localhost reason=OK receiver=localhost ✓ "), line);
-        }
+        assertEquals(1, requests.size(), lines.toString());
+        assertTrue(requests.get(0).contains(" reason=OK receiver=localhost ✓ peer=none "), requests.get(0));
+        // The answer comes back attested, since the chain verified, and the caller verifies it.
+        assertEquals(1, responses.size(), lines.toString());
+        assertTrue(responses.get(0).contains(" from=localhost reason=OK receiver=localhost ✓ "), responses.get(0));
     }
 }

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -24,25 +25,31 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.Base64Url;
 import org.paztport.core.Bindings;
 import org.paztport.core.Chains;
 import org.paztport.core.ContentLabel;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
+import org.paztport.core.Influence;
 import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
 import org.paztport.core.Keyring;
+import org.paztport.core.Peer;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReasonCode;
 import org.paztport.core.StampV3;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
+import org.paztport.core.VerifyResult;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
@@ -97,14 +104,41 @@ class InboundFilterTest {
     }
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
-        return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, listener, null);
+        return new InboundFilter(paymentVerifier(), true, false, "payment", new ModeHolder(mode), events, listener,
+                null);
     }
 
-    /** Payment holding a stamp key, so it attests what it answers. */
-    private InboundFilter attestingFilter(VerifierV3 verifier, VerificationMode mode) {
-        return new InboundFilter(verifier, "payment", new ModeHolder(mode), events, null,
-                new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW));
+    /** A hop that neither verifies requests nor holds a verifier or a stamp key. */
+    private static InboundFilter plainFilter() {
+        return new InboundFilter(null, false, false, "payment", null, null, null, null);
     }
+
+    private StamperV3 paymentStamper() {
+        return new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW);
+    }
+
+    /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
+    private InboundFilter attestingFilter(VerifierV3 verifier, VerificationMode mode) {
+        return new InboundFilter(verifier, true, false, "payment", new ModeHolder(mode), events, null,
+                paymentStamper());
+    }
+
+    /**
+     * Payment not verifying requests ({@code paztport.verify=false}) but holding a verifier and a stamp key, as
+     * orders and search do in the mesh: it checks a chain only to decide whether to attest.
+     */
+    private InboundFilter nonEnforcingFilter(VerifierV3 verifier) {
+        return new InboundFilter(verifier, false, false, "payment", null, null, null, paymentStamper());
+    }
+
+    /** A one-stamp chain claiming to come from the origin {@code gateway}, for {@code payment}, under {@code sig}. */
+    private static String forgedChain(String rid, String sig) {
+        return HttpV3.encodeChain(List.of(new StampV3("gateway", "gw-1", rid, NOW, "", "payment",
+                RequestBinding.compute("POST", "/pay", TO_PAYMENT), Influence.commit(List.of()), "", sig)));
+    }
+
+    /** The two forgeries anyone can write without a key: an empty signature, and well-formed garbage. */
+    private static final List<String> FORGED_SIGS = List.of("", Base64Url.encode(new byte[64]));
 
     private record Headers(String chain, String proof, String influence) {
     }
@@ -320,7 +354,7 @@ class InboundFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         Seen seen = new Seen();
 
-        new InboundFilter(null, "payment", null, null, null, null).doFilter(
+        plainFilter().doFilter(
                 paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), response,
                 new MockFilterChain(seen));
 
@@ -337,7 +371,7 @@ class InboundFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         Seen seen = new Seen();
 
-        new InboundFilter(null, "payment", null, null, null, null).doFilter(
+        plainFilter().doFilter(
                 paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), response,
                 new MockFilterChain(seen));
 
@@ -350,7 +384,7 @@ class InboundFilterTest {
     void anUnreadableChainLeavesNoInboundChain() throws Exception {
         Seen seen = new Seen();
 
-        new InboundFilter(null, "payment", null, null, null, null).doFilter(
+        plainFilter().doFilter(
                 paymentRequest(new Headers("not-a-chain", null, null), TO_PAYMENT), new MockHttpServletResponse(),
                 new MockFilterChain(seen));
 
@@ -435,7 +469,7 @@ class InboundFilterTest {
     void threadReuseStartsClean() throws Exception {
         ReuseController controller = new ReuseController();
         MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
-                .addFilters(new InboundFilter(null, "payment", null, null, null, null))
+                .addFilters(plainFilter())
                 .build();
         Headers first = headers("rid-1", "/pay", List.of(MINE));
         Headers second = headers("rid-2", "/pay", List.of());
@@ -526,14 +560,152 @@ class InboundFilterTest {
     }
 
     @Test
-    void aServiceThatDoesNotVerifyStillAttests() throws Exception {
+    void aVerifiedRequestIsVerifiedOnceForBothTheModeAndTheAttestation() throws Exception {
+        attestingFilter(paymentVerifier(), VerificationMode.ENFORCE).doFilter(
+                paymentRequest(validHeaders(), TO_PAYMENT), new MockHttpServletResponse(),
+                new MockFilterChain(new Answering()));
+
+        // A second run would spend the request's nonce again and come back REPLAY.
+        assertEquals(List.of("PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=-"),
+                traceLines());
+    }
+
+    @Test
+    void aServiceThatDoesNotVerifyRequestsAttestsAChainThatVerifiesHere() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Seen seen = new Seen();
+
+        nonEnforcingFilter(paymentVerifier()).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), response,
+                new MockFilterChain(new Answering()));
+        nonEnforcingFilter(paymentVerifier()).doFilter(
+                paymentRequest(headers("rid-2", "/pay", List.of(WEB)), TO_PAYMENT), new MockHttpServletResponse(),
+                new MockFilterChain(seen));
+
+        assertEquals("paid", response.getContentAsString());
+        StampV3 stamp = (StampV3) Chains.parse(new ObjectMapper().createArrayNode()
+                .add(decodeAttestation(response).get("stamp")), false).stamps().get(0);
+        assertEquals("payment", stamp.svc());
+        assertEquals("orders", stamp.rcv());
+        assertEquals(List.of(
+                "PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=third-party",
+                "PAZTPORT_TRACE request rid=rid-2 reason=OK receiver=payment ✓ peer=none classes=third-party"),
+                traceLines(), "checked once each, for attestation alone");
+        assertEquals(List.of(WEB), seen.influence, "the influence is carried as before");
+        assertEquals(2, seen.chain.size());
+    }
+
+    /**
+     * A response stamp is request-shaped: on a one-stamp chain, it would be a valid origin stamp from this service.
+     * So a forged chain, which anyone can write, must never be attested, whether or not the hop enforces.
+     */
+    @Test
+    void aForgedChainIsNeverAttestedButStillServedWhereRequestsAreNotVerified() throws Exception {
+        for (String sig : FORGED_SIGS) {
+            for (InboundFilter hop : List.of(nonEnforcingFilter(paymentVerifier()),
+                    attestingFilter(paymentVerifier(), VerificationMode.OFF))) {
+                MockHttpServletResponse response = new MockHttpServletResponse();
+
+                hop.doFilter(paymentRequest(new Headers(forgedChain("rid-" + sig, sig), null, null), TO_PAYMENT),
+                        response, new MockFilterChain(new Answering()));
+
+                assertEquals("paid", response.getContentAsString(), "sig=\"" + sig + "\": not refused");
+                assertNull(response.getHeader(PaztportHeaders.RESPONSE), "sig=\"" + sig + "\": nothing minted");
+            }
+        }
+        assertTrue(events.all.isEmpty(), "checking for attestation publishes nothing");
+        assertEquals(4, traceLines().size());
+        for (String line : traceLines()) {
+            assertTrue(line.contains(" reason=BAD_SIGNATURE receiver=payment ✗ "), line);
+        }
+    }
+
+    /**
+     * The attack this guards against: a compromised service sends the origin a forged one-stamp chain naming
+     * another service as its sender. Were it attested, the origin's response stamp would be a genuine origin stamp
+     * addressed to that service, ready to start a chain it never sent. The origin attests nothing, so there is no
+     * stamp to drive the next hop with.
+     */
+    @Test
+    void anOriginNeverAttestsAForgedChain() throws Exception {
+        StamperV3 gatewayStamper = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "r", () -> NOW);
+        for (String sig : FORGED_SIGS) {
+            String forged = HttpV3.encodeChain(List.of(new StampV3("orders", "x", "R", NOW, "", "x", "b",
+                    Influence.commit(List.of()), "", sig)));
+            for (VerifierV3 verifier : Arrays.asList(null, paymentVerifier())) {
+                MockHttpServletRequest request = new MockHttpServletRequest("GET", "/find");
+                request.addHeader(PaztportHeaders.CHAIN, forged);
+                MockHttpServletResponse response = new MockHttpServletResponse();
+
+                new InboundFilter(verifier, false, true, "gateway", null, null, null, gatewayStamper)
+                        .doFilter(request, response, new MockFilterChain(new Answering()));
+
+                assertEquals("paid", response.getContentAsString());
+                assertNull(response.getHeader(PaztportHeaders.RESPONSE), "sig=\"" + sig + "\": nothing minted");
+            }
+        }
+    }
+
+    @Test
+    void anOriginNeverAttestsAndStartsFromNothingEvenWhenTheChainVerifies() throws Exception {
+        StamperV3 ordersAsOrigin = new StamperV3("orders", "ord-1", orders.getPrivate(), true, () -> "r", () -> NOW);
+        for (boolean verify : new boolean[] {true, false}) {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            Seen seen = new Seen();
+            new InboundFilter(paymentVerifier(), verify, true, "payment",
+                    new ModeHolder(VerificationMode.ENFORCE), events, null, ordersAsOrigin).doFilter(
+                    paymentRequest(headers("rid-" + verify, "/pay", List.of(MINE)), TO_PAYMENT), response,
+                    new MockFilterChain(seen));
+
+            assertTrue(seen.reached, "verify=" + verify);
+            assertNull(seen.chain, "verify=" + verify + ": an origin starts a new tree");
+            assertEquals(List.of(), seen.influence, "verify=" + verify + ": and carries no influence it was sent");
+            assertNull(response.getHeader(PaztportHeaders.RESPONSE), "verify=" + verify);
+        }
+        assertEquals(List.of("PAZTPORT_TRACE request rid=rid-true reason=OK receiver=payment ✓ peer=none "
+                + "classes=private"), traceLines(), "verified under the mode, and not again for attestation");
+    }
+
+    @Test
+    void anOriginIgnoresUnreadableInfluence() throws Exception {
+        Headers h = validHeaders();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Seen seen = new Seen();
+
+        new InboundFilter(null, false, true, "payment", null, null, null, null).doFilter(
+                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), response,
+                new MockFilterChain(seen));
+
+        assertEquals(200, response.getStatus());
+        assertEquals(List.of(), seen.influence, "an origin carries none, so none is dropped");
+    }
+
+    @Test
+    void aServiceWithAStampKeyButNoVerifierNeverAttests() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        attestingFilter(null, VerificationMode.ENFORCE).doFilter(
+        nonEnforcingFilter(null).doFilter(
                 paymentRequest(validHeaders(), TO_PAYMENT), response, new MockFilterChain(new Answering()));
 
         assertEquals("paid", response.getContentAsString());
-        assertNotNull(response.getHeader(PaztportHeaders.RESPONSE));
+        assertNull(response.getHeader(PaztportHeaders.RESPONSE), "it cannot know the chain is good");
+    }
+
+    @Test
+    void verifyingRequestsNeedsAVerifierAModeAndAPublisher() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new InboundFilter(null, true, false, "payment", new ModeHolder(VerificationMode.ENFORCE),
+                        events, null, null));
+    }
+
+    @Test
+    void aPeerWhoseCertificateNamesNoServiceIsShownQuoted() {
+        String line = InboundFilter.traceLine("rid-1",
+                new VerifyResult(ReasonCode.PEER_MISMATCH, "", "10.0.0.9"),
+                "payment", new Peer("", "10.0.0.9"), List.of());
+
+        assertEquals("PAZTPORT_TRACE request rid=rid-1 reason=PEER_MISMATCH receiver=payment ✗ peer=\"\" (mTLS) "
+                + "classes=-", line);
     }
 
     @Test
@@ -564,8 +736,9 @@ class InboundFilterTest {
     void withoutAnInboundChainThereIsNothingToAttestOnto() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        attestingFilter(null, VerificationMode.OFF).doFilter(paymentRequest(new Headers(null, null, null), TO_PAYMENT),
-                response, new MockFilterChain(new Answering()));
+        nonEnforcingFilter(paymentVerifier()).doFilter(
+                paymentRequest(new Headers(null, null, null), TO_PAYMENT), response,
+                new MockFilterChain(new Answering()));
 
         assertEquals("paid", response.getContentAsString());
         assertNull(response.getHeader(PaztportHeaders.RESPONSE));

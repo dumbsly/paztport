@@ -67,6 +67,29 @@ class StamperV3Test {
         return toPayment(fromGateway, List.of());
     }
 
+    /**
+     * Why a service must verify a chain before it attests a response to it. A response stamp is shaped like a
+     * request stamp, and {@link StamperV3#respond} checks nothing: on a forged one-stamp chain with an empty
+     * {@code sig} (which parses, since {@code ""} is canonical base64url), the origin's response has {@code prev}
+     * {@code ""} and so is a valid origin stamp, addressed to whichever service the forgery named. That service, once
+     * handed it as a chain, appends its own stamp, and the receiver after it accepts a request tree the origin never
+     * started. The Spring filter therefore attests only a chain it verified, and an origin never attests.
+     */
+    @Test
+    void aResponseToAnUncheckedChainIsAValidOriginStamp() {
+        List<StampV3> forged = List.of(new StampV3("orders", "x", RID, NOW, "", "x", "b",
+                Influence.commit(List.of()), "", ""));
+
+        StampV3 minted = stamper("gateway", gatewayKey, true).respond(forged, "h", RID, List.of());
+        StamperV3.Stamped driven = stamper("orders", ordersKey, false).next(List.of(minted), "payment", "b2",
+                List.of(), policy.bundles().get("orders"));
+
+        VerifyResult r = verifier().verify(new VerifyInputV3(json(driven.chain()), "b2",
+                JsonNodeFactory.instance.arrayNode(), json(driven.proof()), "payment", true, RID + "|orders|req",
+                new Peer("orders", "10.0.0.3")));
+        assertEquals(ReasonCode.OK, r.reason(), "the attack the filter's rule closes");
+    }
+
     @Test
     void hopsVerify() {
         StamperV3.Stamped first = toOrders("b1", List.of());

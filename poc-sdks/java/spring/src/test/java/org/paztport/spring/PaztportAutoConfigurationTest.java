@@ -32,9 +32,12 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReasonCode;
 import org.paztport.core.StampV3;
 import org.paztport.core.StamperV3;
+import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
+import org.paztport.core.VerifyInputV3;
 import org.paztport.http.PaztportHeaders;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
@@ -151,6 +154,39 @@ class PaztportAutoConfigurationTest {
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    /**
+     * Every caller spends a key per response and every attesting hop one per request, so a cache that never forgot
+     * would grow without end. It must still remember for twice the call window, or the verifier refuses everything.
+     */
+    @Test
+    void theReplayCacheForgetsButNotBeforeTheVerifierNeedsIt(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        for (long maxAge : new long[] {5000, 20_000}) {
+            runner.withPropertyValues(VERIFIER_PROPS)
+                    .withPropertyValues(trust(dir))
+                    .withPropertyValues("paztport.max-age-ms=" + maxAge)
+                    .run(context -> {
+                        VerifierV3 verifier = context.getBean(VerifierV3.class);
+                        assertThat(verifier.callMaxAgeMs()).isEqualTo(maxAge);
+                        assertThat(verifier.nonceTtlMs()).isNotEqualTo(Long.MAX_VALUE)
+                                .isEqualTo(Math.max(VerifierConfigV3.NONCE_TTL_MS, 2 * maxAge));
+                        assertThat(Math.floorDiv(verifier.nonceTtlMs(), 2)).isGreaterThanOrEqualTo(maxAge);
+
+                        // The guard holds, so a fresh request verifies rather than failing closed as a replay.
+                        StamperV3.Stamped sent = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true,
+                                () -> "rid-" + maxAge, System::currentTimeMillis)
+                                .next(null, "orders", "b", List.of(),
+                                        ConfigLoader.loadProofBundle(dir.resolve("proofs-gateway.json")));
+                        VerifyInputV3 input = new VerifyInputV3(JSON.valueToTree(sent.chain().stream()
+                                .map(StampV3::toJson).toList()), "b", JSON.createArrayNode(),
+                                JSON.valueToTree(sent.proof()), "orders", true, "rid-" + maxAge + "|gateway|req",
+                                null);
+                        assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
+                        assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
+                    });
+        }
     }
 
     @Test

@@ -4,11 +4,18 @@
 package org.paztport.core;
 
 /**
- * A typed verification outcome. {@code suspectSvc}/{@code suspectInst} name the
- * last service that provably sent this request, proven by its key, and the
- * instance that service reported in its stamp (for the responder's quarantine
- * decision). The instance is the key holder's own claim, not something the
- * verifier can check. They are set only for {@code OK} and
+ * A typed verification outcome. {@code suspectSvc}/{@code suspectInst} name who
+ * sent this request, for the responder's quarantine decision.
+ *
+ * <p>When the input names a peer (the sender a transport authenticated, as
+ * under mutual TLS), every result, {@code OK} and every rejection alike, names
+ * that peer: its service and the address it connected from. The peer's identity
+ * does not depend on the chain, so it can be blamed whatever the chain says.
+ *
+ * <p>Without a peer, they name the last service that provably sent this
+ * request, proven by its key, and the instance that service reported in its
+ * stamp; the instance is the key holder's own claim, not something the verifier
+ * can check. Then they are set only for {@code OK} and
  * {@code PATH_NOT_ALLOWED}; every other rejection leaves them empty, because
  * the name would be unsigned or the genuine stamp would belong to another
  * request. See {@link VerifierV1} for the forwarding case that is still blamed.

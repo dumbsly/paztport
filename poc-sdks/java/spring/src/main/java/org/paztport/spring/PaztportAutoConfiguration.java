@@ -33,12 +33,16 @@ import org.springframework.web.client.RestClient;
  * a keyring, a root and the policy pin gets a VerifierV3, and every service gets
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
  * Wherever there is a VerifierV3, the interceptor also checks every response it
- * gets, and wherever there is a stamper, the filter attests the responses it sends.
+ * gets. A non-origin service with both a stamper and a VerifierV3 attests the
+ * responses it sends, but only to requests whose chain verified there; an origin
+ * never attests.
  *
  * <p>The verifier is pinned: the keyring and the root must both verify under
  * {@code policy.pub}, or the context fails to start. Inside one mesh a request
  * tree is one call, so the session is empty and the run's age defaults to the
- * call's.
+ * call's. Its replay cache forgets a key once it is older than the verifier
+ * needs, at least twice the call window, so memory follows the traffic in that
+ * window rather than every request and response ever checked.
  *
  * <p>Under mutual TLS, {@code paztport.tls-bundle} names the SSL bundle this
  * service presents: on the shared {@code RestClient.Builder}, beside the
@@ -97,11 +101,16 @@ public class PaztportAutoConfiguration {
                 ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
                 Set.copyOf(props.getOrigins()),
                 "",
-                new InMemoryNonceCache(),
+                new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs);
         return new VerifierV3(cfg);
+    }
+
+    /** The verifier refuses a cache that forgets sooner than twice the call window, so this never goes below it. */
+    static long nonceTtlMs(long maxAgeMs) {
+        return Math.max(VerifierConfigV3.NONCE_TTL_MS, 2 * maxAgeMs);
     }
 
     @Bean
@@ -152,16 +161,14 @@ public class PaztportAutoConfiguration {
             ObjectProvider<EventPublisher> publisher,
             ObjectProvider<ReceivedRequestListener> listener,
             ObjectProvider<StamperV3> stamper) {
-        VerifierV3 requestVerifier = null;
-        if (props.isVerify()) {
-            requestVerifier = verifier.getIfAvailable();
-            if (requestVerifier == null) {
-                throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
-                        + "paztport.root-path and paztport.policy-key-path are not all set");
-            }
+        VerifierV3 shared = verifier.getIfAvailable();
+        if (props.isVerify() && shared == null) {
+            throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
+                    + "paztport.root-path and paztport.policy-key-path are not all set");
         }
+        // The verifier goes to every service that has one: where requests are not verified, it decides attestation.
         InboundFilter filter = new InboundFilter(
-                requestVerifier, props.getServiceName(), modeHolder.getIfAvailable(),
+                shared, props.isVerify(), props.isOrigin(), props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), listener.getIfAvailable(), stamper.getIfAvailable());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);

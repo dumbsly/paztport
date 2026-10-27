@@ -35,7 +35,8 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
  * Inbound half of the glue. Caches the body, stores the received v3 chain and influence in {@link PaztportContext}
- * for outbound appends, and — on a verifying service — applies the current {@link VerificationMode}:
+ * for outbound appends, and — on a service that verifies requests ({@code paztport.verify=true}) — applies the
+ * current {@link VerificationMode}:
  *
  * <ul>
  *   <li>{@code OFF} — skip verification, pass through.</li>
@@ -46,18 +47,27 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *
  * The influence the handler starts from is the verified entries when the request verified, and otherwise the
  * entries as received. Influence that cannot be read is never dropped, because dropping it could hide private data
- * from the rule: in every mode, it is answered {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
+ * from the rule: in every mode, a non-origin service answers it {@code 400 {"reason":"INFLUENCE_MISMATCH"}}.
  *
- * <p>A service holding a stamp key attests what it answers: one stamp on the chain it received, back to the caller,
- * binding the status, the body and the labels the handler gave it ({@link PaztportContext#label}), sent as
- * {@code X-Path-Response}. It attests only a request whose chain verified here or was not checked here (a
- * non-verifying service, or mode {@code OFF}); a request it refused or that failed in {@code AUDIT} gets no
- * attestation, because the stamp would vouch for a chain this service knows to be bad. The body is held until the
- * handler returns, since the stamp covers all of it. A handler that throws sends no attestation, and a body the
- * container writes afterwards (an error page after {@code sendError}) is not the one attested; either way the
- * caller cannot verify it and counts it as untrusted. An async response is not attested either, because its body
- * is written after the filter has returned: it is sent whole when the async work completes, without
- * {@code X-Path-Response}, and its caller counts it as untrusted.
+ * <p>An origin starts every request tree afresh: it ignores the inbound chain and influence, so its handler starts
+ * from none, and it never attests.
+ *
+ * <p>A non-origin service holding a stamp key and a verifier attests what it answers: one stamp on the chain it
+ * received, back to the caller, binding the status, the body and the labels the handler gave it
+ * ({@link PaztportContext#label}), sent as {@code X-Path-Response}. It attests only a chain that passed the full
+ * live order here — its own verifier, itself as receiver, the request's proof and influence, the peer — whether or
+ * not it enforces. A response stamp is shaped like a request stamp, so attesting a chain nobody checked would let
+ * whoever sent it mint stamps under this service's key: a one-stamp chain with an empty signature would come back as
+ * a valid origin stamp from this service. Where the request was already verified under the mode, that result decides;
+ * otherwise the chain is verified for attestation alone, once, and a failure only withholds the attestation: the
+ * request is served, and nothing is published. A request it refused, or that failed in {@code AUDIT}, gets no
+ * attestation either. A service without a verifier never attests.
+ *
+ * <p>The body is held until the handler returns, since the stamp covers all of it. A handler that throws sends no
+ * attestation, and a body the container writes afterwards (an error page after {@code sendError}) is not the one
+ * attested; either way the caller cannot verify it and counts it as untrusted. An async response is not attested
+ * either, because its body is written after the filter has returned: it is sent whole when the async work
+ * completes, without {@code X-Path-Response}, and its caller counts it as untrusted.
  *
  * <p>Under mutual TLS the request is verified against the sender the handshake authenticated ({@link PeerIdentity}):
  * the chain's last signer must be the service its certificate names, and every result, so every refusal and every
@@ -67,9 +77,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * carried for the request and dropped when it ends. Async work after the handler returns runs outside it. A scope
  * that other code left open on the thread is ended, with a warning, before the request's own is opened.
  *
- * <p>A null verifier skips verification on non-verifying hops. A non-null {@link ReceivedRequestListener} is
- * offered every request first, before any verification, so an application can observe traffic without the SDK
- * knowing why. Every verification logs one {@code PAZTPORT_TRACE request} line.
+ * <p>A non-null {@link ReceivedRequestListener} is offered every request first, before any verification, so an
+ * application can observe traffic without the SDK knowing why. Every verification, including one run only to
+ * decide attestation, logs one {@code PAZTPORT_TRACE request} line.
  */
 public final class InboundFilter extends OncePerRequestFilter {
 
@@ -78,17 +88,33 @@ public final class InboundFilter extends OncePerRequestFilter {
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final VerifierV3 verifier;
+    private final boolean verifyRequests;
+    private final boolean origin;
     private final String receiver;
     private final ModeHolder modeHolder;
     private final EventPublisher publisher;
     private final ReceivedRequestListener listener;
     private final StamperV3 stamper;
 
-    /** {@code verifier} is null on a hop that does not verify, {@code stamper} on one that does not attest. */
+    /**
+     * @param verifier this service's verifier, or null where it holds no keyring, root and pin; without one it
+     *     neither verifies nor attests
+     * @param verifyRequests true where requests are verified under the mode ({@code paztport.verify=true}); it
+     *     needs a verifier, a mode holder and a publisher. Otherwise the verifier only decides attestation.
+     * @param origin true for an entry point ({@code paztport.origin=true}), which ignores the inbound chain and
+     *     influence and never attests
+     * @param receiver this service's name
+     * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
+     */
     public InboundFilter(
-            VerifierV3 verifier, String receiver, ModeHolder modeHolder, EventPublisher publisher,
-            ReceivedRequestListener listener, StamperV3 stamper) {
+            VerifierV3 verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
+            EventPublisher publisher, ReceivedRequestListener listener, StamperV3 stamper) {
+        if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
+            throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
+        }
         this.verifier = verifier;
+        this.verifyRequests = verifyRequests;
+        this.origin = origin;
         this.receiver = receiver;
         this.modeHolder = modeHolder;
         this.publisher = publisher;
@@ -114,8 +140,11 @@ public final class InboundFilter extends OncePerRequestFilter {
         String influenceHeader = request.getHeader(PaztportHeaders.INFLUENCE);
         String target = target(request);
 
-        // The scope starts clean and is emptied when the request ends, so nothing passes between requests.
-        List<StampV3> inbound = parseChain(chainHeader);
+        // The scope starts clean and is emptied when the request ends, so nothing passes between requests. An origin
+        // starts a new request tree, so whatever chain came with the request is not carried.
+        List<StampV3> received = parseChain(chainHeader);
+        List<StampV3> inbound = origin ? null : received;
+        String rid = received != null ? received.get(0).rid() : "";
         if (PaztportContext.isOpen()) {
             // Other code on this pooled thread opened a scope and never closed it. Refusing to open ours would fail
             // this request and every later one served here, so the stale scope is ended and the request served.
@@ -128,40 +157,49 @@ public final class InboundFilter extends OncePerRequestFilter {
             if (listener != null) {
                 listener.received(chainHeader, proofHeader, influenceHeader, request.getMethod(), target, body);
             }
-            VerificationMode mode = verifier == null ? VerificationMode.OFF : modeHolder.get();
+            VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
+            // Under mutual TLS, the sender the handshake authenticated; null without a client certificate.
+            Peer peer = PeerIdentity.from(request);
             List<InfluenceEntry> influence;
-            // True when the chain verified here or was not checked here: the chains this service may attest onto.
-            boolean vouchable = true;
+            // The live order's result on this request here, once it has run: it decides attestation.
+            VerifyResult checked = null;
             if (mode != VerificationMode.OFF) {
-                // Under mutual TLS, the sender the handshake authenticated; null without a client certificate.
-                Peer peer = PeerIdentity.from(request);
                 VerifyInputV3 input = HttpV3.request(chainHeader, proofHeader, influenceHeader, request.getMethod(),
                         target, body, receiver, peer);
-                VerifyResult result = verifier.verify(input);
+                checked = verifier.verify(input);
                 // On OK these are the entries the last stamp committed to; otherwise what was received.
                 influence = parseInfluence(input.influence());
-                if (TRACE.isInfoEnabled()) {
-                    TRACE.info(traceLine(currentRid(), result, receiver, peer, influence));
-                }
-                if (!result.ok()) {
-                    vouchable = false;
+                trace(rid, checked, peer, influence);
+                if (!checked.ok()) {
                     publisher.publish(new AttestationEvent(
-                            result.reason().name(), result.suspectSvc(), result.suspectInst(),
-                            currentRid(), mode == VerificationMode.AUDIT));
+                            checked.reason().name(), checked.suspectSvc(), checked.suspectInst(),
+                            rid, mode == VerificationMode.AUDIT));
                     if (mode == VerificationMode.ENFORCE) {
-                        reject(response, result);
+                        reject(response, checked);
                         return;
                     }
                 }
             } else {
                 influence = parseInfluence(HttpV3.decodeInfluence(influenceHeader));
             }
-            if (influence == null) {
-                unreadableInfluence(response);
-                return;
+            // An origin starts the tree with no influence: what a client claims is not carried, so it cannot hide
+            // anything by being unreadable either.
+            if (!origin) {
+                if (influence == null) {
+                    unreadableInfluence(response);
+                    return;
+                }
+                PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             }
-            PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
-            if (stamper == null || inbound == null || !vouchable) {
+            boolean attesting = stamper != null && verifier != null && !origin && inbound != null;
+            if (attesting && checked == null) {
+                // Not verified under the mode, so verified here for attestation alone: never refused, never
+                // published. Run at most once per request, since the live order spends the request's nonce.
+                checked = verifier.verify(HttpV3.request(chainHeader, proofHeader, influenceHeader,
+                        request.getMethod(), target, body, receiver, peer));
+                trace(rid, checked, peer, influence);
+            }
+            if (!attesting || !checked.ok()) {
                 chain.doFilter(wrapped, response);
                 return;
             }
@@ -175,6 +213,12 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             attest(cached, inbound);
             cached.copyBodyToResponse();
+        }
+    }
+
+    private void trace(String rid, VerifyResult result, Peer peer, List<InfluenceEntry> influence) {
+        if (TRACE.isInfoEnabled()) {
+            TRACE.info(traceLine(rid, result, receiver, peer, influence));
         }
     }
 
@@ -199,9 +243,10 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /**
-     * Sets {@code X-Path-Response} over the status and the body the handler left in {@code cached}. The chain the
-     * handler was given is used, not whatever the context holds now, so a handler cannot steer what is vouched
-     * for. A rid or label the binding cannot carry leaves the response unattested rather than failing it.
+     * Sets {@code X-Path-Response} over the status and the body the handler left in {@code cached}. Called only
+     * for a chain that verified here. The chain the handler was given is used, not whatever the context holds now,
+     * so a handler cannot steer what is vouched for. A rid or label the binding cannot carry leaves the response
+     * unattested rather than failing it.
      */
     private void attest(ContentCachingResponseWrapper cached, List<StampV3> inbound) {
         if (cached.isCommitted()) {
@@ -240,11 +285,6 @@ public final class InboundFilter extends OncePerRequestFilter {
         }
     }
 
-    private static String currentRid() {
-        List<StampV3> chain = PaztportContext.inboundChain();
-        return chain != null ? chain.get(0).rid() : "";
-    }
-
     /**
      * {@code PAZTPORT_TRACE request rid=… reason=… receiver=… ✓|✗ peer=…|peer=none classes=…|classes=-}. The rid
      * and the classes come from the request, so every value goes through {@link LogSafe}.
@@ -258,8 +298,13 @@ public final class InboundFilter extends OncePerRequestFilter {
         return String.format("PAZTPORT_TRACE request rid=%s reason=%s receiver=%s %s %s classes=%s",
                 rid.isEmpty() ? "-" : LogSafe.of(rid), result.reason(), LogSafe.of(receiver),
                 result.ok() ? "✓" : "✗",
-                peer == null ? "peer=none" : "peer=" + LogSafe.of(peer.svc()) + " (mTLS)",
+                peer == null ? "peer=none" : "peer=" + peerName(peer.svc()) + " (mTLS)",
                 classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
+    }
+
+    /** A certificate that names no service is shown as {@code ""}, so the trace never reads {@code peer= (mTLS)}. */
+    private static String peerName(String svc) {
+        return svc.isEmpty() ? "\"\"" : LogSafe.of(svc);
     }
 
     /** The suspect is whatever its signer chose, so the body is written by an encoder, never by formatting. */

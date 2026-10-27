@@ -224,6 +224,26 @@ class MutualTlsTest {
                 traces.get(0));
     }
 
+    /**
+     * A certificate the shop's CA issued but that names no service gives the peer the service {@code ""}. The check
+     * still runs and fails, since no chain's last signer is {@code ""}; an empty name never means "skip the check".
+     */
+    @Test
+    void aCertificateWithNoCommonNameIsRefusedNotSkipped() throws Exception {
+        Answer answer = sendOrdersChain(client("nameless"));
+
+        assertEquals(403, answer.status());
+        JsonNode body = JSON.readTree(answer.body());
+        assertEquals("PEER_MISMATCH", body.get("reason").asText());
+        assertEquals("", body.get("suspectSvc").asText());
+        assertEquals("127.0.0.1", body.get("suspectInst").asText());
+        assertEquals(List.of(), Pay.PEERS, "refused before the handler");
+        List<String> traces = lines("PAZTPORT_TRACE request ");
+        assertEquals(1, traces.size(), traces.toString());
+        assertTrue(traces.get(0).contains(" reason=PEER_MISMATCH receiver=payment ✗ peer=\"\" (mTLS) "),
+                traces.get(0));
+    }
+
     @Test
     void aRefusalThroughTheStampingClientIsAnsweredNotThrown() {
         // An SSL bundle puts RestClient on HttpURLConnection, which hands over an error body only once the status

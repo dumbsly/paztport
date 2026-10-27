@@ -44,6 +44,19 @@ public final class VerifierV3 {
     }
 
     /**
+     * How long the replay cache remembers a nonce key. A host that builds the verifier can check it against the
+     * call window: below twice {@code callMaxAgeMs} every check fails closed as {@code REPLAY}.
+     */
+    public long nonceTtlMs() {
+        return cfg.nonces().ttlMs();
+    }
+
+    /** The call freshness window, which bounds how short the replay cache's memory may be. */
+    public long callMaxAgeMs() {
+        return cfg.callMaxAgeMs();
+    }
+
+    /**
      * Runs the live order. The checks are total on malformed input, so a rejection is always a typed result;
      * a fault in what the verifier was given (a nonce cache or clock that throws) is not input and propagates,
      * rather than being hidden as a rejection.

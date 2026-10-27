@@ -48,4 +48,13 @@ class PeerIdentityTest {
 
         assertEquals(new Peer("orders", "172.18.0.5"), PeerIdentity.from(request));
     }
+
+    @Test
+    void aCertificateWithNoCommonNameIsAPeerThatNamesNoService() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
+        request.setRemoteAddr("172.18.0.6");
+        request.setAttribute("jakarta.servlet.request.X509Certificate", new X509Certificate[] {fixture("nameless")});
+
+        assertEquals(new Peer("", "172.18.0.6"), PeerIdentity.from(request), "still a peer, so the check runs");
+    }
 }
