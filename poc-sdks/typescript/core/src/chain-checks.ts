@@ -10,7 +10,7 @@ import { commitInfluence, parseInfluence, type InfluenceEntry } from "./influenc
 import { provesPath } from "./merkle.ts";
 import type { ReasonCode, VerifyResult } from "./reason.ts";
 import { routeOf } from "./routes.ts";
-import { parseRecordedStamps, parseStampsV2, parseStampsV3, signingBytes, type RecordedStamp, type StampV3 } from "./stamp.ts";
+import { parseRecordedStamps, parseStampsV3, signingBytes, type RecordedStamp, type StampV3 } from "./stamp.ts";
 
 /**
  * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
@@ -26,18 +26,16 @@ export function reject(reason: ReasonCode): VerifyResult {
 export type Signers = { svcs: readonly string[]; inst: string };
 
 /**
- * Which stamps a verifier takes: v3 only (live), v3 or a legacy v2 chain (a recorded chain), or v2 only (the
- * v2 verifier). `receiver` is what the last v3 stamp's rcv must name; `rid` the one every stamp must carry,
- * the origin's by default; `signers` the services and instance a one-process chain must come from.
+ * Which stamps a verifier takes: v3 only (live), or v3 or a legacy v2 chain (a recorded chain). `receiver` is
+ * what the last v3 stamp's rcv must name; `rid` the one every stamp must carry, the origin's by default;
+ * `signers` the services and instance a one-process chain must come from.
  */
-export type StampShape = { accept: "v3" | "v3-or-legacy-v2" | "v2"; receiver?: string; rid?: string; signers?: Signers };
+export type StampShape = { accept: "v3" | "v3-or-legacy-v2"; receiver?: string; rid?: string; signers?: Signers };
 
 function parseShape(value: unknown, accept: StampShape["accept"]): { stamps: RecordedStamp[]; legacy: boolean } {
   switch (accept) {
     case "v3":
       return { stamps: parseStampsV3(value), legacy: false };
-    case "v2":
-      return { stamps: parseStampsV2(value), legacy: true };
     case "v3-or-legacy-v2":
       return parseRecordedStamps(value);
   }

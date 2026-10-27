@@ -14,7 +14,6 @@ export * from "./binding.ts";
 export * from "./nonce.ts";
 export * from "./verify-v1.ts";
 export * from "./influence.ts";
-export * from "./verify-v2.ts";
 export * from "./verify-v3.ts";
 export * from "./verify-offline.ts";
 export * from "./keyring.ts";

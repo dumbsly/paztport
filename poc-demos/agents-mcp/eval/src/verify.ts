@@ -15,7 +15,7 @@ import {
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
-import { hasRefusalShape, verifyMcpResponse, verifyRecordedCall } from "@paztport/mcp";
+import { hasRefusalShape, recheckMcpResponse, verifyRecordedCall } from "@paztport/mcp";
 import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
@@ -24,9 +24,9 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  *
  * Every signature, link, binding, proof, influence, replay and session check is the library's: calls and local
  * steps are recorded chains (verifyRecordedCall, verifyChainOffline), responses are checked as the client checked
- * them (verifyMcpResponse at the recorded time), and sessions with isAttestedSession. What is here is reading the
- * evidence format, matching records to each other, and the report. Of the library's codes, two are given only
- * offline:
+ * them (recheckMcpResponse at the recorded time, ending at the call's caller), and sessions with
+ * isAttestedSession. What is here is reading the evidence format, matching records to each other, and the report.
+ * Of the library's codes, two are given only offline:
  * - TIME_MISMATCH: a call or local step whose stamp time is not the record's `now`, or a local step whose origin
  *   time is not its run's.
  * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
@@ -208,7 +208,8 @@ function verifyFile(path: string, label: string): VerifyReport {
     return prompt === undefined ? undefined : { prompt, ts: runTimes.get(rid) ?? new Set<number>() };
   };
 
-  type CallEntry = { line: number; callId: string; ok: boolean; session: Session; responded: boolean };
+  /** `caller` is the verified call's last signer, the client its response must end at; "" when it did not verify. */
+  type CallEntry = { line: number; callId: string; ok: boolean; caller: string; session: Session; responded: boolean };
   // Spent nonce keys for the whole file: a repeated session record must not reset replay protection.
   const spent = new Set<string>(); // calls and local steps
   const nonces = new NonceCache(Number.POSITIVE_INFINITY); // responses
@@ -276,7 +277,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         // the first record of a call is the one its response answers
         const k = key(server, rec.rid, rec.callId);
         if (!calls.has(k)) {
-          calls.set(k, { line, callId: rec.callId, ok: result === "OK", session, responded: false });
+          calls.set(k, { line, callId: rec.callId, ok: result === "OK", caller: result === "OK" ? v.result.suspectSvc : "", session, responded: false });
         }
         if (result === "OK") {
           boundRids.add(rec.rid);
@@ -309,7 +310,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (hasRefusalShape(rec.result)) {
         add("REFUSED");
       } else {
-        const v = verifyMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId }, {
+        const v = recheckMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId, receiver: call.caller }, {
           keyring: call.session.serverKeyring,
           root: call.session.serverRoot,
           rootId: call.session.serverRootId,

@@ -38,7 +38,7 @@ function serverConfig(): ServerPolicy {
 }
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
-const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" } };
+const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" }, caller: "pi" };
 
 describe("session handshake", () => {
   it("attestedWhenBothRoots", () => {
@@ -140,6 +140,17 @@ describe("response attestation", () => {
       expect(typeof att.labels[0].cid).toBe("string");
       expect(att.chain.map((s: any) => s.svc)).toEqual(["mcp-entry", "github-tools"]);
     }
+  });
+  it("theResponseChainIsV3AndEndsAtTheCaller", () => {
+    const { srv } = setup();
+    const att = (srv.attest(srv.session()!, RESULT, { ...CALL, caller: "pi" }, "public")._meta as Record<string, any>)[META_ATTESTATION];
+    expect(att.chain.map((s: any) => s.rcv)).toEqual(["github-tools", "pi"]);
+    expect(att.chain.map((s: any) => s.v)).toEqual([3, 3]);
+  });
+  it("aResponseForAnotherCallerDoesNotVerifyForThisClient", () => {
+    const { srv, client, reply } = setup();
+    const out = srv.attest(srv.session()!, RESULT, { ...CALL, caller: "other" }, "public");
+    expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("BINDING_MISMATCH");
   });
   it("attestRecordsServedClass", () => {
     const { srv, client } = setup();
@@ -273,6 +284,7 @@ describe("call check", () => {
     const att = (srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, any>)[META_ATTESTATION];
     expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
     expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
+    expect(att.chain.map((s: any) => s.rcv)).toEqual(["tools", "pi"]);
   });
 });
 

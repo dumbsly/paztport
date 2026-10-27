@@ -176,7 +176,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       if (sess === undefined) {
         throw new Error("no accepted session");
       }
-      const r = verifyMcpResponse(result, call, {
+      const r = verifyMcpResponse(result, { ...call, receiver: "pi" }, {
         keyring: serverKeyring,
         root: decode(serverRoot.root),
         rootId: serverRoot.rootId,

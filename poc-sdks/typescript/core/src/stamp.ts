@@ -105,8 +105,8 @@ function toV2(o: Record<string, unknown>): StampV2 {
   };
 }
 
-/** Throws unless value is a non-empty array of objects with exactly-typed v2 stamp fields. */
-export function parseStampsV2(value: unknown): StampV2[] {
+/** Throws unless value is a non-empty array of objects with exactly-typed v2 stamp fields; read only as a legacy recorded chain. */
+function parseStampsV2(value: unknown): StampV2[] {
   return nonEmptyArray(value).map((item) => toV2(checkStamp(item, 2, V2_STRING_FIELDS)));
 }
 

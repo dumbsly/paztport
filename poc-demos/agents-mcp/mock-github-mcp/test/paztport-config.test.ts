@@ -36,7 +36,7 @@ function serverConfig(): ServerPolicy {
 }
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
-const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" } };
+const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" }, caller: "pi" };
 
 describe("loadServerConfig", () => {
   const dirs: string[] = [];

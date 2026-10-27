@@ -1,31 +1,45 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { verifyResponse } from "@paztport/core";
-import type { ContentLabel, V2Config, VerifyResult } from "@paztport/core";
+import { recheckResponse, verifyResponse } from "@paztport/core";
+import type { ContentLabel, V3Config, VerifyResult } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 
-/**
- * Reads the attestation from `result._meta` and hands it to core's response check; never throws. A recorded
- * response is checked the same way, with the live window at the time the client recorded verifying it: the
- * receiver records a response, so no stamp time is known to match, unlike a call, which verifyRecordedCall
- * checks against the time its own hop stamped it.
- */
-export function verifyMcpResponse(
-  result: Record<string, unknown>,
-  call: { rid: string; toolCallId: string },
-  cfg: Omit<V2Config, "nonceKey">,
-): { result: VerifyResult; labels: ContentLabel[] } {
-  let att: unknown;
+/** The attestation in `result._meta`, or undefined; never throws. */
+function attestationOf(result: Record<string, unknown>): unknown {
   try {
     const meta = result._meta;
-    att = typeof meta === "object" && meta !== null && !Array.isArray(meta)
+    return typeof meta === "object" && meta !== null && !Array.isArray(meta)
       ? (meta as Record<string, unknown>)[META_ATTESTATION]
       : undefined;
   } catch {
-    att = undefined;
+    return undefined;
   }
-  return verifyResponse(att, result, call, cfg);
+}
+
+/**
+ * Reads the attestation from `result._meta` and hands it to core's live response check, v3 only, its last
+ * stamp naming `call.receiver`, the client that made the call; never throws.
+ */
+export function verifyMcpResponse(
+  result: Record<string, unknown>,
+  call: { rid: string; toolCallId: string; receiver: string },
+  cfg: Omit<V3Config, "nonceKey">,
+): { result: VerifyResult; labels: ContentLabel[] } {
+  return verifyResponse(attestationOf(result), result, call, cfg);
+}
+
+/**
+ * verifyMcpResponse for a recorded response, which may be legacy v2. It is checked with the live window at the
+ * time the client recorded verifying it: the receiver records a response, so no stamp time is known to match,
+ * unlike a call, which verifyRecordedCall checks against the time its own hop stamped it.
+ */
+export function recheckMcpResponse(
+  result: Record<string, unknown>,
+  call: { rid: string; toolCallId: string; receiver: string },
+  cfg: Omit<V3Config, "nonceKey">,
+): { result: VerifyResult; labels: ContentLabel[]; legacy: boolean } {
+  return recheckResponse(attestationOf(result), result, call, cfg);
 }
 
 /**

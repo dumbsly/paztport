@@ -8,11 +8,14 @@ import type { InfluenceClass } from "./influence.ts";
 import { canonicalize } from "./jcs.ts";
 import type { MerkleProof } from "./merkle.ts";
 import type { VerifyResult } from "./reason.ts";
-import type { StampV2 } from "./stamp.ts";
-import { verifyChainV2, type V2Config } from "./verify-v2.ts";
+import type { StampV3 } from "./stamp.ts";
+import { verifyChainAcceptingLegacy, verifyChainV3, type V3Config, type V3Input } from "./verify-v3.ts";
 
 export type ContentLabel = { cls: InfluenceClass; cid: string; owner?: string };
-export type ResponseAttestation = { chain: StampV2[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
+/** A response's attestation: the server's stamps, the last naming the calling client as its receiver. */
+export type ResponseAttestation = { chain: StampV3[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
+/** The call a response answers, and the client it was sent to: the service that made the call. */
+type ResponseCall = { rid: string; toolCallId: string; receiver: string };
 
 const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
 
@@ -28,7 +31,8 @@ export function bindResponse(resultHash: string, toolCallId: string, labels: Con
   return encode(sha256(utf8(resultHash + "\n" + toolCallId + "\n" + canonicalize(labels))));
 }
 
-function parseAttestation(att: unknown): ResponseAttestation | null {
+/** The attestation's fields, its chain left for the verifier to parse (a recorded one may be legacy v2). */
+function parseAttestation(att: unknown): (Omit<ResponseAttestation, "chain"> & { chain: unknown[] }) | null {
   if (typeof att !== "object" || att === null || Array.isArray(att)) {
     return null;
   }
@@ -50,22 +54,26 @@ function parseAttestation(att: unknown): ResponseAttestation | null {
     }
     labels.push(o.owner === undefined ? { cls: o.cls as InfluenceClass, cid: o.cid } : { cls: o.cls as InfluenceClass, cid: o.cid, owner: o.owner });
   }
-  return { chain: a.chain as StampV2[], proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
+  return { chain: a.chain, proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
 }
 
-/** Never throws; labels are returned only when the whole response verifies for this call. */
-export function verifyResponse(
+type ResponseCheck = { result: VerifyResult; labels: ContentLabel[]; legacy: boolean };
+
+/** The response checks around one chain verifier; never throws. The route is the server's own, so its receiver is off it. */
+function checkResponse(
   attestation: unknown,
   result: Record<string, unknown>,
-  call: { rid: string; toolCallId: string },
-  cfg: Omit<V2Config, "nonceKey">,
-): { result: VerifyResult; labels: ContentLabel[] } {
-  const fail = (reason: VerifyResult["reason"]) => ({
-    result: { ok: false, reason, suspectSvc: "", suspectInst: "" } as VerifyResult,
-    labels: [] as ContentLabel[],
+  call: ResponseCall,
+  cfg: Omit<V3Config, "nonceKey">,
+  verifyChain: (input: V3Input, cfg: V3Config) => VerifyResult & { legacy?: boolean },
+): ResponseCheck {
+  const fail = (reason: VerifyResult["reason"]): ResponseCheck => ({
+    result: { ok: false, reason, suspectSvc: "", suspectInst: "" },
+    labels: [],
+    legacy: false,
   });
   try {
-    if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n")) {
+    if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n") || typeof call.receiver !== "string") {
       return fail("CHAIN_MISSING");
     }
     const att = parseAttestation(attestation);
@@ -79,17 +87,43 @@ export function verifyResponse(
     if (att.resultHash !== bindResult(result)) {
       return fail("BINDING_MISMATCH");
     }
-    const r = verifyChainV2(
+    const { legacy = false, ...r } = verifyChain(
       {
         stamps: att.chain,
         expectedBind: bindResponse(att.resultHash, call.toolCallId, att.labels),
         influence: [],
         proof: att.proof,
+        receiver: call.receiver,
+        receiverInRoute: false,
       },
       { ...cfg, nonceKey: `${call.rid}|${call.toolCallId}|resp` },
     );
-    return r.ok ? { result: r, labels: att.labels } : { result: r, labels: [] };
+    return { result: r, labels: r.ok ? att.labels : [], legacy };
   } catch {
     return fail("CHAIN_MISSING");
   }
+}
+
+/**
+ * Verifies a response received live: v3 only, its last stamp naming `call.receiver`. Never throws; labels are
+ * returned only when the whole response verifies for this call.
+ */
+export function verifyResponse(
+  attestation: unknown,
+  result: Record<string, unknown>,
+  call: ResponseCall,
+  cfg: Omit<V3Config, "nonceKey">,
+): { result: VerifyResult; labels: ContentLabel[] } {
+  const { legacy: _legacy, ...r } = checkResponse(attestation, result, call, cfg, verifyChainV3);
+  return r;
+}
+
+/** verifyResponse for a recorded response, which may also be a legacy v2 one (with no receiver to check); never throws. */
+export function recheckResponse(
+  attestation: unknown,
+  result: Record<string, unknown>,
+  call: ResponseCall,
+  cfg: Omit<V3Config, "nonceKey">,
+): { result: VerifyResult; labels: ContentLabel[]; legacy: boolean } {
+  return checkResponse(attestation, result, call, cfg, verifyChainAcceptingLegacy);
 }

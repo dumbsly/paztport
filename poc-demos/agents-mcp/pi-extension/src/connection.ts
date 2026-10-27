@@ -335,7 +335,7 @@ export class ServerConnection {
       this.mode === "off"
         ? { session: "off" }
         : attested !== undefined
-          ? { session: "attested", reply: attested.reply, rid: attested.rid, callId, allowedOrigins: SERVER_ORIGINS, nonces: this.responseNonces, now: () => this.now() }
+          ? { session: "attested", reply: attested.reply, svc: PI_SVC, rid: attested.rid, callId, allowedOrigins: SERVER_ORIGINS, nonces: this.responseNonces, now: () => this.now() }
           : { session: "unsafe" };
     const reading = readToolResult(raw, ctx);
     if (reading.kind === "refused") {

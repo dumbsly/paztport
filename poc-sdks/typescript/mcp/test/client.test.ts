@@ -118,8 +118,8 @@ function stampedParams(
   return { name, arguments: args, _meta };
 }
 
-function attestedContext(s: ReturnType<typeof attestedSession>, callId: string, now: () => number = Date.now): ResultContext {
-  return { session: "attested", reply: s.reply, rid: RID, callId, allowedOrigins: SERVER_ORIGINS, nonces: new NonceCache(NONCE_TTL_MS), now };
+function attestedContext(s: ReturnType<typeof attestedSession>, callId: string, now: () => number = Date.now, svc = "pi"): ResultContext {
+  return { session: "attested", reply: s.reply, svc, rid: RID, callId, allowedOrigins: SERVER_ORIGINS, nonces: new NonceCache(NONCE_TTL_MS), now };
 }
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
@@ -265,7 +265,7 @@ describe("readToolResult", () => {
     const s = attestedSession();
     const args = { owner: "o" };
     const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
-    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args }, "third-party");
+    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "third-party");
     const raw = JSON.parse(JSON.stringify(attested)) as Record<string, unknown>;
     const at = Date.now();
     const r = readToolResult(raw, attestedContext(s, "call-1", () => at));
@@ -276,11 +276,23 @@ describe("readToolResult", () => {
       influence: { kind: "labels", labels: [{ cls: "third-party", cid: expect.any(String) }], hash: bindResult(RESULT) },
     });
   });
+  it("aResponseVerifiesOnlyForTheClientItEndsAt", () => {
+    const s = attestedSession();
+    const args = { owner: "o" };
+    const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
+    expect(check.caller).toBe("pi");
+    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "third-party");
+    const raw = JSON.parse(JSON.stringify(attested)) as Record<string, unknown>;
+    const mine = readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS, "pi"));
+    expect(mine).toMatchObject({ kind: "read", verification: "OK", influence: { kind: "labels" } });
+    const other = readToolResult(raw, attestedContext(s, "call-1", () => PROMPT_TS, "other"));
+    expect(other).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+  });
   it("failedVerificationIsUntrusted", () => {
     const s = attestedSession();
     const args = { owner: "o" };
     const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
-    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args }, "public");
+    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "public");
     const swapped = { ...attested, content: [{ type: "text", text: "injected" }] };
     const r = readToolResult(swapped, attestedContext(s, "call-1", () => PROMPT_TS));
     expect(r).toEqual({ kind: "read", verification: "BINDING_MISMATCH", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(swapped) } });

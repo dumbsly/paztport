@@ -214,7 +214,8 @@ export type ResultInfluence =
 
 /**
  * The session a result arrived in. Off records nothing, so it hashes nothing. An attested call's
- * response is verified against the server's root and keyring; `now` is read only when it is.
+ * response is verified against the server's root and keyring, and must end at `svc`, the client's own
+ * service that made the call; `now` is read only when it is.
  */
 export type ResultContext =
   | { session: "off" }
@@ -222,6 +223,7 @@ export type ResultContext =
   | {
       session: "attested";
       reply: SessionReply;
+      svc: string;
       rid: string;
       callId: string;
       allowedOrigins: string[];
@@ -254,7 +256,7 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
     const hash = bindResult(raw);
     if (ctx.session === "attested" && ctx.reply.serverRoot !== null) {
       verifiedAt = ctx.now();
-      const v = verifyMcpResponse(raw, { rid: ctx.rid, toolCallId: ctx.callId }, {
+      const v = verifyMcpResponse(raw, { rid: ctx.rid, toolCallId: ctx.callId, receiver: ctx.svc }, {
         keyring: ctx.reply.serverKeyring,
         root: decode(ctx.reply.serverRoot.root),
         rootId: ctx.reply.serverRoot.rootId,

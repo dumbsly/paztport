@@ -137,7 +137,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     const mcpResult: CallToolResult = { content: [{ type: "text", text: result.text }], isError: result.isError ?? false };
     if (mode === "audit" && verdict !== "OK") mcpResult._meta = { [META_VERDICT]: { reason: verdict, audit: true } };
     if (server !== null && verified !== null) {
-      return server.attest(verified.session, mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {} }, label);
+      return server.attest(verified.session, mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {}, caller: verified.caller }, label);
     }
     // unsafe sessions, off mode and failed checks: unattested
     return mcpResult;

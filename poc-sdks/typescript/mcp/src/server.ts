@@ -14,7 +14,7 @@ import {
   publicWriteRefused,
   sessionStatus,
   signSessionReply,
-  signStampV2,
+  signStampV3,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
@@ -190,23 +190,26 @@ export class McpServerSession {
     return { reason, rid: v.rid, callId: v.callId, influence: ok ? v.influence : [], caller: ok ? v.result.suspectSvc : "", session };
   }
 
-  /** Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current one). */
+  /**
+   * Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current
+   * one). The chain runs entry, then tools, then back to `call.caller`, checkCall's caller: the client that made the call.
+   */
   attest<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
     session: Session,
     result: R,
-    call: { rid: string; callId: string; name: string; args: unknown },
+    call: { rid: string; callId: string; name: string; args: unknown; caller: string },
     cls: InfluenceClass,
   ): R {
     const [entry, tools] = this.policy.hops;
     const labels: ContentLabel[] = [{ cls, cid: newContentId() }];
     const resultHash = bindResult(result);
     const base = { rid: call.rid, ts: this.now(), inst: this.policy.inst, sess: session.sess, infl: "" };
-    const s0 = signStampV2(
-      { ...base, svc: entry, bind: bindMcpCall(call.name, call.callId, call.args), prev: "" },
+    const s0 = signStampV3(
+      { ...base, svc: entry, rcv: tools, bind: bindMcpCall(call.name, call.callId, call.args), prev: "" },
       this.policy.signingKeys[entry]!,
     );
-    const s1 = signStampV2(
-      { ...base, svc: tools, bind: bindResponse(resultHash, call.callId, labels), prev: s0.sig },
+    const s1 = signStampV3(
+      { ...base, svc: tools, rcv: call.caller, bind: bindResponse(resultHash, call.callId, labels), prev: s0.sig },
       this.policy.signingKeys[tools]!,
     );
     const attestation: ResponseAttestation = { chain: [s0, s1], proof: this.policy.routeProof, labels, resultHash };

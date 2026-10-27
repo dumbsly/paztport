@@ -3,14 +3,14 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, signStampV2,
+  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, signStampV2, signStampV3,
 } from "@paztport/core";
-import type { ContentLabel, V2Config } from "@paztport/core";
-import { META_ATTESTATION, verifyMcpResponse } from "../src/index.ts";
+import type { ContentLabel, V3Config } from "@paztport/core";
+import { META_ATTESTATION, recheckMcpResponse, verifyMcpResponse } from "../src/index.ts";
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
-const CALL = { rid: "rid-1", toolCallId: "call-1" };
+const CALL = { rid: "rid-1", toolCallId: "call-1", receiver: "pi" };
 const ROUTE = "mcp-entry/github-tools";
 
 function world() {
@@ -20,7 +20,7 @@ function world() {
     8,
     "v1",
   );
-  const cfg = (over: Partial<Omit<V2Config, "nonceKey">> = {}): Omit<V2Config, "nonceKey"> => ({
+  const cfg = (over: Partial<Omit<V3Config, "nonceKey">> = {}): Omit<V3Config, "nonceKey"> => ({
     keyring: { "mcp-entry": keys.publicKey, "github-tools": keys.publicKey },
     root: tree.root,
     rootId: tree.rootId,
@@ -34,6 +34,19 @@ function world() {
   const response = (): Record<string, unknown> => {
     const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
     const resultHash = bindResult(body);
+    const mk = (svc: string, rcv: string, bind: string, prev: string) =>
+      signStampV3({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: "", prev }, keys.privateKey);
+    const s0 = mk("mcp-entry", "github-tools", "b0", "");
+    const s1 = mk("github-tools", "pi", bindResponse(resultHash, "call-1", labels), s0.sig);
+    return {
+      ...body,
+      _meta: { [META_ATTESTATION]: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels, resultHash } },
+    };
+  };
+  /** The same response recorded before stamps named their receiver. */
+  const v2response = (): Record<string, unknown> => {
+    const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
+    const resultHash = bindResult(body);
     const mk = (svc: string, bind: string, prev: string) =>
       signStampV2({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, bind, infl: "", prev }, keys.privateKey);
     const s0 = mk("mcp-entry", "b0", "");
@@ -43,7 +56,7 @@ function world() {
       _meta: { [META_ATTESTATION]: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels, resultHash } },
     };
   };
-  return { keys, tree, cfg, labels, response };
+  return { keys, tree, cfg, labels, response, v2response };
 }
 
 describe("verifyMcpResponse", () => {
@@ -103,10 +116,10 @@ describe("verifyMcpResponse", () => {
   });
   it("responseForOtherCallRejected", () => {
     const w = world();
-    const wrongRid = verifyMcpResponse(w.response(), { rid: "rid-2", toolCallId: "call-1" }, w.cfg());
+    const wrongRid = verifyMcpResponse(w.response(), { ...CALL, rid: "rid-2" }, w.cfg());
     expect(wrongRid.result.reason).toBe("RID_MISMATCH");
     expect(wrongRid.labels).toEqual([]);
-    const wrongCall = verifyMcpResponse(w.response(), { rid: "rid-1", toolCallId: "call-2" }, w.cfg());
+    const wrongCall = verifyMcpResponse(w.response(), { ...CALL, toolCallId: "call-2" }, w.cfg());
     expect(wrongCall.result.reason).toBe("BINDING_MISMATCH");
     expect(wrongCall.labels).toEqual([]);
   });
@@ -129,7 +142,32 @@ describe("verifyMcpResponse", () => {
   });
   it("invalidCallFieldsChainMissing", () => {
     const w = world();
-    expect(verifyMcpResponse(w.response(), { rid: "rid-1", toolCallId: "a\nb" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
-    expect(verifyMcpResponse(w.response(), { rid: 1 as unknown as string, toolCallId: "c" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+    expect(verifyMcpResponse(w.response(), { ...CALL, toolCallId: "a\nb" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+    expect(verifyMcpResponse(w.response(), { ...CALL, rid: 1 as unknown as string, toolCallId: "c" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+  });
+});
+
+describe("recheckMcpResponse", () => {
+  it("readsMetaAsVerifyMcpResponseDoes", () => {
+    const w = world();
+    const r = recheckMcpResponse(w.response(), CALL, w.cfg());
+    expect([r.result.reason, r.legacy]).toEqual(["OK", false]);
+    expect(r.labels).toEqual(w.labels);
+    for (const bad of [{ content: [] }, { content: [], _meta: {} }, { _meta: "x" }, { _meta: [] }]) {
+      expect(recheckMcpResponse(bad, CALL, w.cfg()).result.reason).toBe(verifyMcpResponse(bad, CALL, w.cfg()).result.reason);
+      expect(recheckMcpResponse(bad, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+    }
+  });
+  it("aV2ResponseIsLegacyOnRecheckAndChainMissingLive", () => {
+    const w = world();
+    const r = recheckMcpResponse(w.v2response(), CALL, w.cfg());
+    expect([r.result.reason, r.legacy]).toEqual(["OK", true]);
+    expect(r.labels).toEqual(w.labels);
+    expect(verifyMcpResponse(w.v2response(), CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+  });
+  it("aV3ResponseForAnotherReceiverIsBindingMismatch", () => {
+    const w = world();
+    expect(verifyMcpResponse(w.response(), { ...CALL, receiver: "other" }, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
+    expect(recheckMcpResponse(w.response(), { ...CALL, receiver: "other" }, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
   });
 });
