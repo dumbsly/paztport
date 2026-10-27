@@ -136,9 +136,25 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
-        // Control-plane endpoints are not part of the attested data path.
-        String path = request.getRequestURI();
+        return controlPlane(request.getRequestURI());
+    }
+
+    /** Control-plane endpoints are not part of the attested data path. */
+    static boolean controlPlane(String path) {
         return path.startsWith("/admin") || path.startsWith("/debug") || path.startsWith("/actuator");
+    }
+
+    /**
+     * Ends a scope that other code opened on this pooled thread and never closed. Refusing to open the request's
+     * own would fail this request and every later one served here, so the stale scope is ended and the request
+     * served.
+     */
+    static void endLeakedScope() {
+        if (PaztportContext.isOpen()) {
+            LOG.warn("a paztport context scope was leaked on thread {}; ending it before serving this request",
+                    LogSafe.of(Thread.currentThread().getName()));
+            PaztportContext.reset();
+        }
     }
 
     @Override
@@ -157,13 +173,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         List<StampV3> received = parseChain(chainHeader);
         List<StampV3> inbound = origin ? null : received;
         String rid = received != null ? received.get(0).rid() : "";
-        if (PaztportContext.isOpen()) {
-            // Other code on this pooled thread opened a scope and never closed it. Refusing to open ours would fail
-            // this request and every later one served here, so the stale scope is ended and the request served.
-            LOG.warn("a paztport context scope was leaked on thread {}; ending it before serving this request",
-                    LogSafe.of(Thread.currentThread().getName()));
-            PaztportContext.reset();
-        }
+        endLeakedScope();
         try (PaztportContext.Scope scope = PaztportContext.open()) {
             PaztportContext.setInboundChain(inbound);
             if (listener != null) {
@@ -285,19 +295,19 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /** The raw path, plus {@code ?} and the raw query when there is one: what the caller's binding covers. */
-    private static String target(HttpServletRequest request) {
+    static String target(HttpServletRequest request) {
         String query = request.getQueryString();
         return query == null || query.isEmpty() ? request.getRequestURI() : request.getRequestURI() + "?" + query;
     }
 
     /** The received chain as v3 stamps, or null when there is none or it does not parse. */
-    private static List<StampV3> parseChain(String chainHeader) {
+    static List<StampV3> parseChain(String chainHeader) {
         ParsedChain parsed = Chains.parse(HttpV3.decodeChain(chainHeader), false);
         return parsed.ok() ? parsed.stamps().stream().map(StampV3.class::cast).toList() : null;
     }
 
     /** The entries, or null when the header could not be read as influence. */
-    private static List<InfluenceEntry> parseInfluence(JsonNode node) {
+    static List<InfluenceEntry> parseInfluence(JsonNode node) {
         try {
             return Influence.parse(node);
         } catch (IllegalArgumentException e) {
@@ -317,9 +327,22 @@ public final class InboundFilter extends OncePerRequestFilter {
         }
         return String.format("PAZTPORT_TRACE request rid=%s reason=%s receiver=%s %s %s classes=%s",
                 rid.isEmpty() ? "-" : LogSafe.of(rid), result.reason(), LogSafe.of(receiver),
-                result.ok() ? "✓" : "✗",
-                peer == null ? "peer=none" : "peer=" + peerName(peer.svc()) + " (mTLS)",
+                result.ok() ? "✓" : "✗", peerField(peer),
                 classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
+    }
+
+    /**
+     * The same line from a partner, which verifies each request in the session the caller named: the line above
+     * with {@code session=<status>} after it, so that the line itself is unchanged.
+     */
+    static String traceLine(String rid, VerifyResult result, String receiver, Peer peer,
+            List<InfluenceEntry> influence, String session) {
+        return traceLine(rid, result, receiver, peer, influence) + " session=" + session;
+    }
+
+    /** {@code peer=<svc> (mTLS)}, or {@code peer=none} without a client certificate. */
+    static String peerField(Peer peer) {
+        return peer == null ? "peer=none" : "peer=" + peerName(peer.svc()) + " (mTLS)";
     }
 
     /** A certificate that names no service is shown as {@code ""}, so the trace never reads {@code peer= (mTLS)}. */
@@ -328,7 +351,7 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /** The suspect is whatever its signer chose, so the body is written by an encoder, never by formatting. */
-    private static void reject(HttpServletResponse response, VerifyResult result) throws IOException {
+    static void reject(HttpServletResponse response, VerifyResult result) throws IOException {
         ObjectNode body = JSON.createObjectNode()
                 .put("reason", result.reason().name())
                 .put("suspectSvc", result.suspectSvc())
@@ -339,7 +362,7 @@ public final class InboundFilter extends OncePerRequestFilter {
         response.getWriter().write(JSON.writeValueAsString(body));
     }
 
-    private static void unreadableInfluence(HttpServletResponse response) throws IOException {
+    static void unreadableInfluence(HttpServletResponse response) throws IOException {
         response.setStatus(HttpServletResponse.SC_BAD_REQUEST);
         response.setContentType("application/json");
         response.getWriter().write("{\"reason\":\"INFLUENCE_MISMATCH\"}");

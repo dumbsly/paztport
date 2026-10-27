@@ -48,6 +48,7 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -239,7 +240,12 @@ class PartnerHandshakeTest {
 
     @Test
     void validConfigurationStarts() {
-        runner().run(context -> assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class));
+        runner().run(context -> {
+            assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class)
+                    .hasSingleBean(FilterRegistrationBean.class);
+            // The partner's filter replaces the shop's, so no request is verified twice or as a shop hop.
+            assertThat(context.getBean(FilterRegistrationBean.class).getFilter()).isInstanceOf(PartnerFilter.class);
+        });
     }
 
     @Test

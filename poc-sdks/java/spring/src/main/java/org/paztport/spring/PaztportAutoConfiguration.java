@@ -34,6 +34,8 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
+import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
  * Wires the inbound filter and outbound interceptor from {@code paztport.*}.
@@ -65,7 +67,8 @@ import org.springframework.web.client.RestClient;
  * <p>Setting {@code paztport.boundary.url} makes this service the egress to a
  * partner organisation, with a {@link BoundaryClient} that presents its own
  * bundle, {@code paztport.boundary.tls-bundle}. Setting {@code paztport.partner.enabled} makes this service the
- * partner's entry, which answers other organisations' session handshakes.
+ * partner's entry, which answers other organisations' session handshakes and verifies their calls with
+ * {@link PartnerFilter} in place of the inbound filter, behind {@link PartnerGate}.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -239,6 +242,34 @@ public class PaztportAutoConfiguration {
         return new PartnerSessionController(sessions);
     }
 
+    /**
+     * The partner's filter, where the shop's would otherwise be: another organisation's calls verify in their
+     * session, against what that session's handshake pinned, never against this organisation's own trust.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.partner.enabled")
+    FilterRegistrationBean<PartnerFilter> partnerFilterRegistration(
+            PartnerSessions sessions, PaztportProperties props) {
+        FilterRegistrationBean<PartnerFilter> registration =
+                new FilterRegistrationBean<>(new PartnerFilter(sessions, props.getServiceName()));
+        registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
+        registration.addUrlPatterns("/*");
+        return registration;
+    }
+
+    /** The unsafe-session gate, as an interceptor so that it sees the handler Spring dispatched to. */
+    @Bean
+    @ConditionalOnProperty("paztport.partner.enabled")
+    WebMvcConfigurer paztportPartnerGate(PartnerSessions sessions, PaztportProperties props) {
+        PartnerGate gate = new PartnerGate(sessions, props.getServiceName());
+        return new WebMvcConfigurer() {
+            @Override
+            public void addInterceptors(InterceptorRegistry registry) {
+                registry.addInterceptor(gate);
+            }
+        };
+    }
+
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     VerifierV3 verifier(PaztportProperties props) {
@@ -303,9 +334,11 @@ public class PaztportAutoConfiguration {
 
     /**
      * A service told to verify but given no trust paths fails to start, rather
-     * than serving unverified requests it was meant to check.
+     * than serving unverified requests it was meant to check. A partner's entry
+     * has {@link PartnerFilter} instead.
      */
     @Bean
+    @ConditionalOnProperty(name = "paztport.partner.enabled", havingValue = "false", matchIfMissing = true)
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
             PaztportProperties props,
             ObjectProvider<VerifierV3> verifier,

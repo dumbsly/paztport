@@ -44,21 +44,25 @@ public final class PublicWrites {
                         influence.stream().map(InfluenceEntry::fact).toList(), destinationOwner);
         ReasonCode reason = refused ? ReasonCode.INFLUENCE_DENIED : ReasonCode.OK;
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(traceLine(reason, influence));
+            TRACE.info(decisionLine(receiver, "public-write", reason, influence));
         }
         return reason;
     }
 
-    /** The rid comes from the request, so it goes through {@link LogSafe}, as do the receiver and the classes. */
-    private String traceLine(ReasonCode reason, List<InfluenceEntry> influence) {
+    /**
+     * {@code PAZTPORT_TRACE decision rid=… receiver=… rule=… reason=… ✓|✗ classes=…}, for this rule and the partner's
+     * unsafe-session gate. The rid is the verified chain's, else the inbound chain's, else {@code -}. It comes from
+     * the request, so it goes through {@link LogSafe}, as do the receiver and the classes.
+     */
+    static String decisionLine(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
         List<StampV3> chain = PaztportContext.verifiedChain() != null
                 ? PaztportContext.verifiedChain() : PaztportContext.inboundChain();
         String rid = chain == null || chain.isEmpty() || chain.get(0).rid().isEmpty()
                 ? "-" : LogSafe.of(chain.get(0).rid());
         TreeSet<String> classes = new TreeSet<>();
         influence.forEach(e -> classes.add(e.cls().wire()));
-        return String.format("PAZTPORT_TRACE decision rid=%s receiver=%s rule=public-write reason=%s %s classes=%s",
-                rid, LogSafe.of(receiver), reason, reason == ReasonCode.OK ? "✓" : "✗",
+        return String.format("PAZTPORT_TRACE decision rid=%s receiver=%s rule=%s reason=%s %s classes=%s",
+                rid, LogSafe.of(receiver), rule, reason, reason == ReasonCode.OK ? "✓" : "✗",
                 classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 }
