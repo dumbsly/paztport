@@ -120,15 +120,24 @@ Glue, configured through `paztport.*` properties.
   mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
   outside a request scope. Only the inbound filter sets it, from the result that
   decides attestation. Nothing is signed at the boundary over anything else.
-- **`PublicWrites`.** A bean with one method, `decide(destinationOwner)`, that runs the
+- **`PublicWrites`.** A bean with two methods. `decide(destinationOwner)` runs the
   owner-aware rule over the request's influence and returns `OK` or
   `INFLUENCE_DENIED`. The service supplies the destination owner from its own
   records, never from request content; an unknown owner, or no request scope,
-  refuses. It logs one `PAZTPORT_TRACE decision` line.
+  refuses. The rule judges the influence in the context, which is verified only
+  where the request's chain verified here: in `off` mode, after an audit-mode
+  failure, or in an unsafe partner session it may be incomplete or empty, and the
+  rule cannot refuse for what it is not shown, so a partner must list its public
+  writes in `paztport.partner.unsafe-disabled`. `shapedOnlyByTrusted()` answers
+  whether a write into the service's own trusted records (who holds a card, say)
+  may be made: true only in a scope whose chain verified here, with no `third-party`
+  and no `local-untrusted` influence, so that untrusted text cannot write a record
+  the rule later takes as fact. Each logs one `PAZTPORT_TRACE decision` line.
 - **The egress.** Setting `paztport.boundary.url` makes the service the egress to
   another organisation, with a `BoundaryClient` whose `post(path, json)` is the one
   way out. It needs `paztport.boundary.partner` (the partner's entry service),
-  `paztport.boundary.url` (a scheme and an authority, no path),
+  `paztport.boundary.url` (`https`, a scheme and an authority, no path; any other
+  scheme fails the startup, though the `BoundaryClient` constructor accepts one, for tests),
   `paztport.boundary.tls-bundle` (its own SSL bundle, apart from `paztport.tls-bundle`,
   so the partner's CA is trusted only for the partner), and
   `paztport.boundary.partner-policy-key-path` (the partner's pinned policy key), as
@@ -139,10 +148,15 @@ Glue, configured through `paztport.*` properties.
   one boundary stamp, sends the proof for `<this service>/<partner>` and the
   influence with its owners; in an unsafe one it sends only `X-Path-Session`. A reply
   that fails the client's check, an HTTP or I/O error (a `404` too) or no answer in
-  10 s is followed by a handshake with no root, and the session is unsafe. A
-  `403 SESSION_UNKNOWN` clears the session, so the next call opens a new one; the
-  refused call is not retried. Every partner reply becomes one `local-untrusted`
-  entry. A path that would change the host or not be sent as given is refused before
+  10 s, the handshake's timeout, is followed by a handshake with no root, and the
+  session is unsafe. That session is kept for at most 30 s, so a passing failure
+  does not leave the egress unsafe for the life of the process: the first call after
+  it tries the full handshake again. A genuine unsafe reply to the full handshake
+  (the partner has not pinned this organisation) is kept. The calls themselves have
+  no timeout. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
+  new one; the refused call is not retried. Every partner reply becomes one
+  `local-untrusted` entry, and the request's own response is labelled
+  `local-untrusted`, so a handler that relays the reply passes it on as untrusted. A path that would change the host or not be sent as given is refused before
   any I/O. The constructor refuses a root or keyring that does not verify under the
   service's own policy key.
 - **Partner mode.** `paztport.partner.enabled=true` makes the service a partner's
@@ -158,17 +172,23 @@ Glue, configured through `paztport.*` properties.
   | `paztport.partner.client-origins` | The service names allowed to start a chain in a client's attested session. Required. |
   | `paztport.partner.unsafe-disabled` | Operations an unsafe session may not perform, as `METHOD /pattern`; the reply's `disabled`. |
 
-  One session is kept per client certificate common name; a handshake body over
+  One session is kept per client certificate common name, so a partner serves one
+  client organisation: two whose egresses share a common name would replace each
+  other's sessions. A handshake body over
   256 KiB is `INVALID_PARAMS`, and a certificate with no single common name is
   `NO_SESSION`. One nonce cache is shared across sessions. A call with no
   `X-Path-Session` is unsafe; one naming a session that is not the peer's current one
   is `403 SESSION_UNKNOWN`. In an attested session the chain is verified by that
   session's own verifier, and the handler gets the verified influence and chain.
+  The client's boundary chain is also the handler's `inboundChain()`, so a partner
+  entry should not call into its own mesh from a partner request: its stamps would
+  append to the client's chain.
   `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
   outside an attested session that matches an `unsafe-disabled` entry, by the
   handler Spring dispatched to, so `/refund;x=1` is `POST /refund`; a `HEAD` is
-  refused where the matching `GET` is. The handshake endpoint and `/admin` are not
-  filtered, so a handler there runs with no influence and counts as unsafe.
+  refused where the matching `GET` is. The handshake endpoint and any path starting
+  `/admin`, `/debug` or `/actuator` are not filtered, so a handler there runs with no
+  influence and counts as unsafe.
 - **Trace lines.** Besides the request and response lines, each value passed through
   `LogSafe`:
   - `PAZTPORT_TRACE session partner=<svc> check=<ReplyCheck>|- status=attested|unsafe`,
@@ -179,7 +199,7 @@ Glue, configured through `paztport.*` properties.
   - `PAZTPORT_TRACE request … session=attested|unsafe`, at the partner: the request
     line plus the session's status; one with no session header carries `reason=-`
     and is not verified, and a `SESSION_UNKNOWN` refusal carries `session=unknown`.
-  - `PAZTPORT_TRACE decision rid=<rid>|- receiver=<svc> rule=public-write|unsafe-session reason=<code> ✓|✗ classes=<a,b>|-`,
+  - `PAZTPORT_TRACE decision rid=<rid>|- receiver=<svc> rule=public-write|trusted-record|unsafe-session reason=<code> ✓|✗ classes=<a,b>|-`,
     from `PublicWrites` and from `PartnerGate`; it never names an owner.
 - **Modes and events.** `/admin/mode`, the events sent to a responder, one
   `PAZTPORT_TRACE` log line per request verified, including one verified only to

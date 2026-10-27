@@ -5,6 +5,8 @@ package org.paztport.spring;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import com.sun.net.httpserver.HttpsConfigurator;
+import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
@@ -28,12 +30,15 @@ import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
 import org.paztport.core.SignedRoot;
 import org.paztport.http.HttpSessions;
+import org.springframework.boot.ssl.SslBundle;
+import org.springframework.boot.ssl.pem.PemSslStoreBundle;
+import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 
 /**
- * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP, that
- * answers the session handshake with a reply signed by a partner policy key and answers every other path with a
- * status and body the test sets. It records every request it receives, so a test can prove that nothing at all was
- * sent.
+ * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP or,
+ * where the auto-configured egress needs it, over HTTPS with a certificate from the fixture CA, that answers the
+ * session handshake with a reply signed by a partner policy key and answers every other path with a status and
+ * body the test sets. It records every request it receives, so a test can prove that nothing at all was sent.
  *
  * <p>A request with no client root always gets an unsafe reply, as a real partner would give it. Otherwise the
  * reply carries the status the test chose, and is signed by the partner's key unless the test asked for one
@@ -64,20 +69,41 @@ final class StubPartner implements AutoCloseable {
     private final List<String> issued = new CopyOnWriteArrayList<>();
     private final Deque<KeyPair> nextSigners = new ArrayDeque<>();
     private final Deque<Answer> nextAnswers = new ArrayDeque<>();
+    private final Deque<Integer> handshakeFailures = new ArrayDeque<>();
     private volatile String status = "attested";
     private volatile long handshakeDelayMs;
 
+    /** Over plain HTTP. */
     StubPartner() throws IOException {
+        this(false);
+    }
+
+    /**
+     * @param tls over HTTPS, presenting the fixture certificate for {@code 127.0.0.1} under the fixture CA, which
+     *     the egress's bundle trusts; it asks for no client certificate
+     */
+    StubPartner(boolean tls) throws IOException {
         root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, policy.getPrivate()).signedRoot();
-        server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        InetSocketAddress loopback = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
+        if (tls) {
+            HttpsServer https = HttpsServer.create(loopback, 0);
+            https.setHttpsConfigurator(new HttpsConfigurator(SslBundle.of(new PemSslStoreBundle(
+                    PemSslStoreDetails.forCertificate("classpath:tls/payment.crt")
+                            .withPrivateKey("classpath:tls/payment.key"),
+                    PemSslStoreDetails.forCertificate("classpath:tls/ca.crt"))).createSslContext()));
+            server = https;
+        } else {
+            server = HttpServer.create(loopback, 0);
+        }
         server.setExecutor(executor);
         server.createContext("/", this::handle);
         server.start();
     }
 
-    /** {@code http://127.0.0.1:<port>}. */
+    /** {@code http://127.0.0.1:<port>}, or {@code https://} over TLS. */
     URI url() {
-        return URI.create("http://127.0.0.1:" + server.getAddress().getPort());
+        return URI.create((server instanceof HttpsServer ? "https" : "http") + "://127.0.0.1:"
+                + server.getAddress().getPort());
     }
 
     /** The pin the egress holds for this partner. */
@@ -98,6 +124,11 @@ final class StubPartner implements AutoCloseable {
     /** The next non-handshake request gets this status and body instead of {@code 200 {"ok":true}}. */
     synchronized void answerNext(int status, String body) {
         nextAnswers.add(new Answer(status, body));
+    }
+
+    /** The next handshake with a client root is answered with this status and no body, as a failing partner's. */
+    synchronized void failNextHandshake(int status) {
+        handshakeFailures.add(status);
     }
 
     /** Holds every handshake this long before answering, so concurrent first calls overlap it. */
@@ -138,7 +169,16 @@ final class StubPartner implements AutoCloseable {
                         Thread.currentThread().interrupt();
                     }
                 }
-                send(exchange, 200, reply(HttpSessions.parseRequest(body)).toJson().toString());
+                SessionRequest req = HttpSessions.parseRequest(body);
+                Integer failure;
+                synchronized (this) {
+                    failure = req.clientRoot() == null ? null : handshakeFailures.poll();
+                }
+                if (failure != null) {
+                    send(exchange, failure, "");
+                    return;
+                }
+                send(exchange, 200, reply(req).toJson().toString());
                 return;
             }
             Answer answer;
@@ -174,7 +214,7 @@ final class StubPartner implements AutoCloseable {
     private static void send(HttpExchange exchange, int status, String body) throws IOException {
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "application/json");
-        exchange.sendResponseHeaders(status, bytes.length);
+        exchange.sendResponseHeaders(status, bytes.length == 0 ? -1 : bytes.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(bytes);
         }

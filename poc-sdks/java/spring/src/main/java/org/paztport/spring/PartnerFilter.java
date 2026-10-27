@@ -32,8 +32,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * <ul>
  *   <li>No header means the caller never opened a session, which is treated as unsafe.</li>
  *   <li>A header that is not the peer's current session id is refused {@code 403 SESSION_UNKNOWN}: another peer's
- *       id, one a later handshake replaced, one from before a restart, or none at all. It is never taken as
- *       unsafe, or a caller could step down from a session it was refused in by naming a wrong one.</li>
+ *       id, one a later handshake replaced, one from before a restart, or a peer with no session. It is never
+ *       taken as unsafe, or a caller could step down from a session it was refused in by naming a wrong one.</li>
  *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler starts with
  *       no influence and no verified chain, whatever headers came, and {@link PartnerGate} refuses the operations
  *       switched off for such sessions.</li>

@@ -127,7 +127,8 @@ public class PaztportAutoConfiguration {
 
     /**
      * The egress's client to the partner. Everything it needs is checked first, and the context fails naming
-     * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. It
+     * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. A
+     * partner URL that is not {@code https} fails it too: the client itself accepts one, for tests' stubs. It
      * builds its own TLS client from {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's
      * CA is trusted only on calls to the partner. The context closes it on shutdown.
      */
@@ -156,6 +157,11 @@ public class PaztportAutoConfiguration {
             throw new IllegalStateException("paztport.boundary.url is set but these are not: "
                     + String.join(", ", missing));
         }
+        // The calls carry the boundary stamp and the influence's owners, which must not cross in the clear.
+        URI partnerUrl = URI.create(b.getUrl());
+        if (!"https".equalsIgnoreCase(partnerUrl.getScheme())) {
+            throw new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
+        }
         SslBundles bundles = ssl.getIfAvailable();
         if (bundles == null) {
             throw new IllegalStateException(
@@ -168,7 +174,7 @@ public class PaztportAutoConfiguration {
                 ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
                 ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
                 b.getPartner(),
-                URI.create(b.getUrl()),
+                partnerUrl,
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
                 PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())));
     }

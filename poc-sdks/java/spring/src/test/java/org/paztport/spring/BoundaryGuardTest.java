@@ -77,7 +77,7 @@ class BoundaryGuardTest {
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-boundary");
-        partner = new StubPartner();
+        partner = new StubPartner(true);
         writeTrust(trust, partner);
 
         registry.add("paztport.service-name", () -> "payment");
@@ -249,6 +249,19 @@ class BoundaryGuardTest {
                 assertThat(context.getStartupFailure()).rootCause().hasMessageContaining(name);
             });
         }
+    }
+
+    // The egress sends the boundary stamp and the influence's owners, so a partner URL that is not https fails
+    // the startup rather than send them in the clear.
+    @Test
+    void plainHttpUrlFailsStartup() {
+        runner.withPropertyValues(allProperties(trust, partner).stream()
+                .map(p -> p.startsWith("paztport.boundary.url=") ? p.replace("https://", "http://") : p)
+                .toArray(String[]::new)).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("paztport.boundary.url").hasMessageContaining("https");
+                });
     }
 
     @Test

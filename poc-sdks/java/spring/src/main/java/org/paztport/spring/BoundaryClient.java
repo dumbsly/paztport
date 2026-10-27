@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
@@ -54,15 +55,21 @@ import org.slf4j.LoggerFactory;
  * key. A reply that is genuine gives an attested or an unsafe session, as it says. Anything else (a reply this side
  * cannot use, an HTTP error, no answer) may have left an attested session open at the partner that this side
  * cannot stamp for, so every call would be refused: the request is sent again with no root and a fresh nonce,
- * which asks for an unsafe session, and its {@code sess} is taken as unsafe whatever the reply says. A handshake
- * holds every first caller, so it is given a timeout where the calls themselves are not.
+ * which asks for an unsafe session, and its {@code sess} is taken as unsafe whatever the reply says. That failure
+ * may be passing (a partner restarting, a network blip), so a session from the replacement is kept for at most
+ * {@link #FALLBACK_PERIOD}, and the first call after it tries the full handshake again; a genuine unsafe reply to
+ * the full handshake is the partner's answer (it has not pinned this organisation), so that session is kept. A
+ * handshake holds every first caller, so it is given a timeout, {@link #HANDSHAKE_TIMEOUT}; the calls themselves
+ * have none.
  *
  * <p>In an attested session a call carries the boundary stamp, the proof for {@code <this service>/<partner>}, and
  * the influence with its owners, so the partner can apply the owner-aware rule. In an unsafe session it carries
  * only the session id: the partner would not verify a stamp, and the owners in the influence are private.
  *
  * <p>The partner does not attest what it answers, so every reply is recorded as one {@code local-untrusted} entry,
- * as any unattested response is. A {@code 403 SESSION_UNKNOWN} means the partner no longer knows the session (it
+ * as any unattested response is, and this request's own response is labelled {@code local-untrusted}: a handler
+ * that relays the partner's answer would otherwise have it attested with no labels, and its caller would take
+ * the partner's words as clean. A {@code 403 SESSION_UNKNOWN} means the partner no longer knows the session (it
  * restarted, or the session was replaced), so it is dropped and the next call opens a new one; the refused call is
  * not retried, since it may have changed something.
  *
@@ -77,14 +84,23 @@ public final class BoundaryClient implements AutoCloseable {
     /** Long enough for a handshake on a loaded partner, short enough that a silent one does not hold every caller. */
     static final Duration HANDSHAKE_TIMEOUT = Duration.ofSeconds(10);
 
+    /**
+     * How long a session from the replacement is kept: short enough that a passing failure does not leave the calls
+     * unsafe for long, long enough that a partner that stays down is not asked for two handshakes on every call.
+     */
+    static final Duration FALLBACK_PERIOD = Duration.ofSeconds(30);
+
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     /** What a session id must look like before it goes in a header: base64url, as every derived id is. */
     private static final Pattern SESSION_ID = Pattern.compile("[A-Za-z0-9_-]{1,128}");
 
-    /** A session with the partner: its id, and whether calls in it are stamped. */
-    private record Session(String sess, boolean attested) {
+    /**
+     * A session with the partner: its id, whether calls in it are stamped, whether it came from the replacement,
+     * and when it was opened, by the clock that ages a replacement's.
+     */
+    private record Session(String sess, boolean attested, boolean fallback, long openedAt) {
     }
 
     /** The partner's answer: its status and body, and whether the call went out in an attested session. */
@@ -102,6 +118,7 @@ public final class BoundaryClient implements AutoCloseable {
     private final PooledTlsClient tls;
     private final AtomicReference<Session> session = new AtomicReference<>();
     private final Object handshake = new Object();
+    private final LongSupplier nanos;
 
     /**
      * @param stamper this service's stamper; the boundary stamp is signed with its key
@@ -116,6 +133,14 @@ public final class BoundaryClient implements AutoCloseable {
      */
     public BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
             String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls) {
+        this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, tls,
+                System::nanoTime);
+    }
+
+    /** As above, with the clock, in nanoseconds, that ages a session from the replacement; tests move it on. */
+    BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
+            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls,
+            LongSupplier nanos) {
         this.stamper = Objects.requireNonNull(stamper, "stamper");
         this.bundle = Objects.requireNonNull(bundle, "bundle");
         this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
@@ -125,6 +150,7 @@ public final class BoundaryClient implements AutoCloseable {
         this.partnerUrl = Objects.requireNonNull(partnerUrl, "partnerUrl");
         this.pinnedPartnerKey = Objects.requireNonNull(pinnedPartnerKey, "pinnedPartnerKey");
         this.tls = Objects.requireNonNull(tls, "tls");
+        this.nanos = Objects.requireNonNull(nanos, "nanos");
         if (partner.isEmpty()) {
             throw new IllegalArgumentException("the partner's entry service must be named");
         }
@@ -193,6 +219,8 @@ public final class BoundaryClient implements AutoCloseable {
         // The partner does not attest its answers, so what it says counts as untrusted content.
         PaztportContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:" + partner,
                 HttpV3.resultHash(status, body), null, null));
+        // And so does whatever this request answers, since a handler may relay it; the guard ensured a scope.
+        PaztportContext.label(InfluenceClass.LOCAL_UNTRUSTED, null);
         if (status == 403 && ReasonCode.SESSION_UNKNOWN.name().equals(reason(body))) {
             // Only the session this call used: one a concurrent call has opened since is left alone.
             session.compareAndSet(current, null);
@@ -220,15 +248,18 @@ public final class BoundaryClient implements AutoCloseable {
         return uri;
     }
 
-    /** The current session, opened if there is none; one handshake at a time, and only when still needed. */
+    /**
+     * The current session, opened if there is none or it is a replacement's that has had its period; one handshake
+     * at a time, and only when still needed.
+     */
     private Session session() {
         Session s = session.get();
-        if (s != null) {
+        if (s != null && !expired(s)) {
             return s;
         }
         synchronized (handshake) {
             s = session.get();
-            if (s == null) {
+            if (s == null || expired(s)) {
                 s = open();
                 session.set(s);
             }
@@ -236,9 +267,14 @@ public final class BoundaryClient implements AutoCloseable {
         }
     }
 
+    private boolean expired(Session s) {
+        return s.fallback() && nanos.getAsLong() - s.openedAt() >= FALLBACK_PERIOD.toNanos();
+    }
+
     /**
-     * Opens a session: the full request, then, if its reply cannot be used, the replacement with no root. Logs the
-     * first reply's check ({@code -} when there was no reply to check) and the status the session ends with.
+     * Opens a session: the full request, then, if its reply cannot be used, the replacement with no root, whose
+     * session is kept only for {@link #FALLBACK_PERIOD}. Logs the first reply's check ({@code -} when there was no
+     * reply to check) and the status the session ends with.
      */
     private Session open() {
         SessionRequest full = new SessionRequest(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
@@ -249,7 +285,8 @@ public final class BoundaryClient implements AutoCloseable {
             check = Sessions.checkReply(reply, full, pinnedPartnerKey);
             if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
                 // The check derived the same id from both sides' inputs, so it is a real session id.
-                Session s = new Session(reply.get("sess").textValue(), check == ReplyCheck.ATTESTED);
+                Session s = new Session(reply.get("sess").textValue(), check == ReplyCheck.ATTESTED, false,
+                        nanos.getAsLong());
                 trace(check.name(), s);
                 return s;
             }
@@ -269,7 +306,7 @@ public final class BoundaryClient implements AutoCloseable {
         if (sess == null || !sess.isTextual() || !SESSION_ID.matcher(sess.textValue()).matches()) {
             throw new IllegalStateException("no session could be opened with " + partner);
         }
-        Session s = new Session(sess.textValue(), false);
+        Session s = new Session(sess.textValue(), false, true, nanos.getAsLong());
         trace(check == null ? "-" : check.name(), s);
         return s;
     }

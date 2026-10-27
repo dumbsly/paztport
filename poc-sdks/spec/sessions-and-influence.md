@@ -89,7 +89,7 @@ session is the same.
 | Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
 | Not JSON, or not a readable request | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service. |
-| `404` | The server has no Paztport. There is nothing to replace. |
+| `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
 **One session per authenticated peer.** HTTP has no connection to hold a session, so the peer stands in for
 it: the service named by the client certificate's common name, which the TLS layer authenticated, and never a
@@ -329,7 +329,8 @@ MUST:
 6. Pin the partner's policy key and check the handshake reply against it
    ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an HTTP error (a `404`
    included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by the replacement
-   with no root, and the session is taken as unsafe whatever that reply says.
+   with no root, and the session is taken as unsafe whatever that reply says. From a server with no Paztport the
+   replacement gets a `404` too, and the call fails.
 7. Record every partner reply as one `local-untrusted` entry (`src` `http:<partner entry>`, `h` the result
    hash). The partner does not attest what it answers, so nothing it says counts as more.
 

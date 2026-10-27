@@ -28,10 +28,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Base64Url;
+import org.paztport.core.ContentLabel;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.Influence;
@@ -81,6 +83,9 @@ class BoundaryClientTest {
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
 
+    /** The client's clock, in nanoseconds, which a test moves on by hand. */
+    private final AtomicLong nanos = new AtomicLong();
+
     private StubPartner partner;
     private BoundaryClient client;
 
@@ -95,7 +100,7 @@ class BoundaryClientTest {
                 new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")));
+                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get);
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -287,6 +292,54 @@ class BoundaryClientTest {
         assertEquals(InfluenceClass.LOCAL_UNTRUSTED, added.get(0).cls());
         assertEquals("http:psp", added.get(0).src());
         assertNull(added.get(0).owner());
+    }
+
+    // Payment relays the partner's answer as its own response, so the response is labelled untrusted too: else
+    // its filter would attest the partner's words with no labels, and the caller would take them as clean.
+    @Test
+    void replyLabelsTheRelayUntrusted() throws Exception {
+        List<ContentLabel> labels = verified("rid-1", () -> {
+            charge();
+            return PaztportContext.labels();
+        });
+
+        assertEquals(1, labels.size());
+        assertEquals(InfluenceClass.LOCAL_UNTRUSTED, labels.get(0).cls());
+        assertNull(labels.get(0).owner());
+    }
+
+    // A partner that was briefly down must not leave this side unsafe for the life of the process.
+    @Test
+    void fallbackSessionIsRetriedAfterItsPeriod() throws Exception {
+        partner.failNextHandshake(503);
+
+        assertFalse(verified("rid-1", this::charge).attested(), "the replacement gives an unsafe session");
+        assertEquals(2, partner.handshakes().size());
+
+        nanos.addAndGet(BoundaryClient.FALLBACK_PERIOD.toNanos() - 1);
+        assertFalse(verified("rid-2", this::charge).attested());
+        assertEquals(2, partner.handshakes().size(), "no new handshake within the period");
+
+        nanos.addAndGet(1);
+        assertTrue(verified("rid-3", this::charge).attested(), "the full handshake is tried again");
+        assertEquals(3, partner.handshakes().size());
+        assertTrue(JSON.readTree(partner.handshakes().get(2).body()).get("clientRoot").isObject());
+        assertEquals(partner.issued().get(1), partner.calls().get(2).header(PaztportHeaders.SESSION));
+        assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=- status=unsafe",
+                "PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),
+                lines("PAZTPORT_TRACE session "));
+    }
+
+    // A genuine unsafe answer is the partner's decision (it does not pin us), not a failure, so it is kept.
+    @Test
+    void genuineUnsafeSessionIsKept() throws Exception {
+        partner.status("unsafe");
+
+        verified("rid-1", this::charge);
+        nanos.addAndGet(BoundaryClient.FALLBACK_PERIOD.toNanos() * 10);
+        verified("rid-2", this::charge);
+
+        assertEquals(1, partner.handshakes().size());
     }
 
     @Test
