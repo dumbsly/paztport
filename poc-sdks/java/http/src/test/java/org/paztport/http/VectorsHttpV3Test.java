@@ -3,7 +3,7 @@
 
 package org.paztport.http;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
@@ -28,7 +28,7 @@ class VectorsHttpV3Test {
 
     @Test
     void committedMatchesBuilder() throws IOException {
-        assertEquals(VectorsHttpV3Export.asWritten(VectorsHttpV3Export.build()), http);
+        assertArrayEquals(VectorsHttpV3Export.loadBytes("http-v3.json"), VectorsHttpV3Export.render(VectorsHttpV3Export.build()));
     }
 
     @Test

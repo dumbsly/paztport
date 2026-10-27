@@ -49,8 +49,10 @@ import org.paztport.core.VerifierV3;
  * Builds {@code spec/vectors/http-v3.json} and replays it. Unlike the v1 exporter this is deterministic: the
  * clock, rid and timestamps are fixed, the one new key is derived by {@code v3.json}'s rule, and Ed25519 signs
  * deterministically, so {@link #build} reproduces the committed bytes and {@code VectorsHttpV3Test} pins them.
- * The writer is opt-in ({@code -Dpaztport.exportHttpV3Vectors=true}, output to {@code -Dvectors.out}) so it never
- * runs alongside the v1 exporter. {@link #build} replays every case it records, so an export can never record a
+ * The writer is opt-in so it never runs alongside the v1 exporter. This class is not matched by Surefire's default
+ * includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl http -am test -Dtest=VectorsHttpV3Export
+ * -Dpaztport.exportHttpV3Vectors=true -Dvectors.out=<repo>/poc-sdks/spec/vectors/http-v3.json
+ * -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build} replays every case it records, so an export can never record a
  * wrong answer.
  */
 class VectorsHttpV3Export {
@@ -289,9 +291,24 @@ class VectorsHttpV3Export {
         assertEquals(want.get("resultHash").asText(), check.resultHash(), name);
     }
 
-    /** The tree as a reader sees the written file, so number widths (int or long) compare equal. */
-    static JsonNode asWritten(JsonNode built) throws IOException {
-        return MAPPER.readTree(MAPPER.writeValueAsBytes(built));
+    /** The exact bytes the writer puts in the file: indented JSON and a final newline. */
+    static byte[] render(JsonNode built) throws IOException {
+        byte[] json = MAPPER.copy().enable(SerializationFeature.INDENT_OUTPUT).writeValueAsBytes(built);
+        byte[] out = Arrays.copyOf(json, json.length + 1);
+        out[json.length] = '\n';
+        return out;
+    }
+
+    /** The committed file's bytes, found as {@link #load} finds it. */
+    static byte[] loadBytes(String name) throws IOException {
+        Path dir = Path.of(System.getProperty("user.dir")).toAbsolutePath();
+        for (Path d = dir; d != null; d = d.getParent()) {
+            Path candidate = d.resolve("spec/vectors/" + name);
+            if (Files.isRegularFile(candidate)) {
+                return Files.readAllBytes(candidate);
+            }
+        }
+        throw new IllegalStateException("spec/vectors/" + name + " not found above " + dir);
     }
 
     @Test
@@ -299,13 +316,6 @@ class VectorsHttpV3Export {
     void export() throws IOException {
         Path file = Path.of(System.getProperty("vectors.out", "target/http-v3.json"));
         Files.createDirectories(file.toAbsolutePath().getParent());
-        byte[] json = MAPPER.copy().enable(SerializationFeature.INDENT_OUTPUT).writeValueAsBytes(build());
-        Files.write(file, appendNewline(json));
-    }
-
-    private static byte[] appendNewline(byte[] json) {
-        byte[] out = Arrays.copyOf(json, json.length + 1);
-        out[json.length] = '\n';
-        return out;
+        Files.write(file, render(build()));
     }
 }

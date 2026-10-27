@@ -56,10 +56,14 @@ class HttpV3Test {
 
     /** gateway to orders to payment, the last stamp bound to POST /pay with BODY. */
     private StamperV3.Stamped sent(List<InfluenceEntry> influence) {
+        return sent(influence, RequestBinding.compute("POST", "/pay", BODY));
+    }
+
+    private StamperV3.Stamped sent(List<InfluenceEntry> influence, String bind) {
         StamperV3.Stamped first = stamper("gateway", gatewayKey, true).next(List.of(), "orders", "b1", List.of(),
                 policy.bundles().get("gateway"));
         return stamper("orders", ordersKey, false).next(first.chain(), "payment",
-                RequestBinding.compute("POST", "/pay", BODY), influence, policy.bundles().get("orders"));
+                bind, influence, policy.bundles().get("orders"));
     }
 
     @Test
@@ -83,12 +87,22 @@ class HttpV3Test {
     @Test
     void queryIsBound() {
         byte[] none = new byte[0];
-        assertNotEquals(RequestBinding.compute("GET", "/search?q=a", none), RequestBinding.compute("GET", "/search?q=b", none));
-        assertEquals(RequestBinding.compute("GET", "/search?q=a", none), RequestBinding.compute("GET", "/search?q=a", none));
-        StamperV3.Stamped s = stamper("gateway", gatewayKey, true).next(List.of(), "orders",
-                RequestBinding.compute("GET", "/search?q=a", none), List.of(), policy.bundles().get("gateway"));
-        var in = HttpV3.request(HttpV3.encodeChain(s.chain()), null, null, "GET", "/search?q=b", none, "orders", null);
-        assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(in).reason());
+        String bindA = RequestBinding.compute("GET", "/search?q=a", none);
+        assertNotEquals(bindA, RequestBinding.compute("GET", "/search?q=b", none));
+        assertNotEquals(bindA, RequestBinding.compute("GET", "/search", none));
+        var asked = HttpV3.request(null, null, null, "GET", "/search?q=a", none, "orders", null);
+        assertEquals(bindA, asked.expectedBind());
+        assertNotEquals(RequestBinding.compute("GET", "/search", none), asked.expectedBind());
+
+        StamperV3.Stamped s = sent(List.of(), bindA);
+        String chain = HttpV3.encodeChain(s.chain());
+        String proof = HttpV3.encodeProof(s.proof());
+        assertEquals(ReasonCode.OK, verifier().verify(
+                HttpV3.request(chain, proof, null, "GET", "/search?q=a", none, "payment", null)).reason());
+        assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
+                HttpV3.request(chain, proof, null, "GET", "/search?q=b", none, "payment", null)).reason());
+        assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
+                HttpV3.request(chain, proof, null, "GET", "/search", none, "payment", null)).reason());
     }
 
     @Test
@@ -192,6 +206,19 @@ class HttpV3Test {
                 s.chain().get(1).sig(), paymentKey.getPrivate());
         var check = HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), HttpV3.encodeResponse(stamp, List.of()), 200,
                 BODY, "orders");
+        assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
+        assertTrue(check.labels().isEmpty());
+    }
+
+    @Test
+    void responseCheckLoneSurrogateRid() {
+        // Unsigned stamps are fine here: the binding is computed before any signature is looked at.
+        StampV3 first = new StampV3("gateway", "gw-1", "\uD800", NOW, "", "orders", "b1", "", "", "");
+        StampV3 second = new StampV3("orders", "ord-1", "\uD800", NOW, "", "payment", "b2", "", "x", "");
+        StampV3 response = StampV3.sign("payment", "payment-1", RID, NOW, "", "orders", "x", "", "y",
+                paymentKey.getPrivate());
+        var check = HttpV3.verifyResponse(verifier(), List.of(first, second), null,
+                HttpV3.encodeResponse(response, List.of()), 200, BODY, "orders");
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }
