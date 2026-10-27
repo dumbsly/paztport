@@ -144,10 +144,12 @@ class InboundFilterTest {
         List<StampV3> chain;
         List<InfluenceEntry> influence;
         boolean reached;
+        boolean scoped;
 
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse res) {
             reached = true;
+            scoped = PaztportContext.isOpen();
             chain = PaztportContext.inboundChain();
             influence = PaztportContext.influence();
         }
@@ -567,5 +569,44 @@ class InboundFilterTest {
 
         assertEquals("paid", response.getContentAsString());
         assertNull(response.getHeader(PaztportHeaders.RESPONSE));
+    }
+
+    @Test
+    void theHandlerRunsInsideAScopeThatClosesAfterIt() throws Exception {
+        Seen seen = new Seen();
+
+        filter(VerificationMode.ENFORCE, null).doFilter(paymentRequest(validHeaders(), TO_PAYMENT),
+                new MockHttpServletResponse(), new MockFilterChain(seen));
+
+        assertTrue(seen.scoped, "what the handler's calls learn is recorded");
+        assertTrue(!PaztportContext.isOpen(), "and dropped when the request ends");
+    }
+
+    @Test
+    void aRidTheResponseBindingCannotCarryIsServedUnattestedWithAWarning() throws Exception {
+        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+        Logger filterLog = (Logger) LoggerFactory.getLogger(InboundFilter.class);
+        warnings.start();
+        filterLog.addAppender(warnings);
+        filterLog.setLevel(Level.WARN);
+        filterLog.setAdditive(false);
+        try {
+            MockHttpServletResponse response = new MockHttpServletResponse();
+
+            // Signed and verified, but a newline cannot be a response's call id.
+            attestingFilter(paymentVerifier(), VerificationMode.ENFORCE).doFilter(
+                    paymentRequest(headers("r\nx", "/pay", List.of()), TO_PAYMENT), response,
+                    new MockFilterChain(new Answering()));
+
+            assertEquals("paid", response.getContentAsString());
+            assertNull(response.getHeader(PaztportHeaders.RESPONSE));
+            assertEquals(1, warnings.list.size());
+            String warning = warnings.list.get(0).getFormattedMessage();
+            assertTrue(warning.startsWith("response left unattested: rid=r\\u000ax "), warning);
+        } finally {
+            filterLog.detachAppender(warnings);
+            filterLog.setLevel(null);
+            filterLog.setAdditive(true);
+        }
     }
 }

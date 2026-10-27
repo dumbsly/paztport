@@ -23,6 +23,7 @@ import java.security.KeyPair;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
@@ -49,6 +50,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.context.request.async.DeferredResult;
 
 /**
  * Responses, end to end through the real servlet container and the real RestClient: the filter attests what the
@@ -132,6 +134,18 @@ class ResponseAttestationTest {
             response.getOutputStream().write(body);
         }
 
+        @GetMapping("/deferred")
+        DeferredResult<String> deferred() {
+            DeferredResult<String> result = new DeferredResult<>();
+            Thread.ofVirtual().start(() -> result.setResult("finished later on another thread"));
+            return result;
+        }
+
+        @GetMapping("/callable")
+        Callable<String> callable() {
+            return () -> "finished later on another thread";
+        }
+
         /** Under {@code /debug}, so the filter skips it and nothing attests it. */
         @GetMapping("/debug/plain")
         String plain() {
@@ -157,8 +171,6 @@ class ResponseAttestationTest {
 
     @BeforeEach
     void captureTraces() {
-        // The test thread is the caller, so its context is where the interceptor records what it learnt.
-        PaztportContext.clear();
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -170,30 +182,36 @@ class ResponseAttestationTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.clear();
     }
 
     private URI uri(String path) {
         return URI.create("http://localhost:" + port + path);
     }
 
-    /** Calls {@code path} with the app's stamping client and answers the status and the body, whatever they are. */
+    /**
+     * Calls {@code path} with the app's stamping client, inside a context scope as a request handler would be,
+     * and answers the status, the body and what the call recorded, whatever they are.
+     */
     private Answer call(RestClient client, String path) {
-        return client.get().uri(uri(path)).exchange((request, response) -> new Answer(
-                response.getStatusCode().value(), response.getBody().readAllBytes(),
-                response.getHeaders().getFirst(PaztportHeaders.RESPONSE)), false);
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            return client.get().uri(uri(path)).exchange((request, response) -> new Answer(
+                    response.getStatusCode().value(), response.getBody().readAllBytes(),
+                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), PaztportContext.influence()), false);
+        }
     }
 
-    private record Answer(int status, byte[] body, String attestation) {
+    /** {@code recorded} is read after the interceptor returns, so it holds what this call added. */
+    private record Answer(int status, byte[] body, String attestation, List<InfluenceEntry> recorded) {
+    }
+
+    private static InfluenceEntry untrusted(Answer answer) {
+        return new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:localhost",
+                HttpV3.resultHash(answer.status(), answer.body()), null, null);
     }
 
     private List<String> responseTraces() {
         return traces.list.stream().map(ILoggingEvent::getFormattedMessage)
                 .filter(l -> l.startsWith("PAZTPORT_TRACE response ")).toList();
-    }
-
-    private static List<InfluenceEntry> untrusted() {
-        return PaztportContext.influence().stream().filter(e -> e.cls() == InfluenceClass.LOCAL_UNTRUSTED).toList();
     }
 
     @Test
@@ -202,7 +220,7 @@ class ResponseAttestationTest {
 
         assertEquals(200, answer.status());
         assertEquals("alice's order history", new String(answer.body(), StandardCharsets.UTF_8));
-        List<InfluenceEntry> influence = PaztportContext.influence();
+        List<InfluenceEntry> influence = answer.recorded();
         assertEquals(1, influence.size(), influence.toString());
         InfluenceEntry entry = influence.get(0);
         assertEquals(InfluenceClass.PRIVATE, entry.cls());
@@ -233,7 +251,9 @@ class ResponseAttestationTest {
         for (String line : lines) {
             assertTrue(line.contains(" reason=OK receiver=localhost ✓ labels=-"), line);
         }
-        assertEquals(List.of(), untrusted(), "every response verified, so none is untrusted");
+        for (Answer answer : List.of(noContent, empty, sized)) {
+            assertEquals(List.of(), answer.recorded(), "verified, unlabelled and so nothing to record");
+        }
     }
 
     @Test
@@ -243,15 +263,12 @@ class ResponseAttestationTest {
         Answer plain = call(client, "/debug/plain");
         assertEquals("plain", new String(plain.body(), StandardCharsets.UTF_8));
         assertNull(plain.attestation());
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:localhost",
-                HttpV3.resultHash(200, plain.body()), null, null)), PaztportContext.influence());
+        assertEquals(List.of(untrusted(plain)), plain.recorded());
 
-        PaztportContext.clear();
         Answer garbage = call(client, "/debug/garbage");
         assertEquals("garbage", new String(garbage.body(), StandardCharsets.UTF_8));
         assertEquals("garbage", garbage.attestation());
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:localhost",
-                HttpV3.resultHash(200, garbage.body()), null, null)), PaztportContext.influence());
+        assertEquals(List.of(untrusted(garbage)), garbage.recorded());
 
         List<String> lines = responseTraces();
         assertEquals(2, lines.size(), lines.toString());
@@ -275,7 +292,20 @@ class ResponseAttestationTest {
         assertEquals(403, refused.status());
         assertTrue(new String(refused.body(), StandardCharsets.UTF_8).contains("INFLUENCE_MISMATCH"));
         assertNull(refused.attestation(), "a refusal is not attested");
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:localhost",
-                HttpV3.resultHash(403, refused.body()), null, null)), PaztportContext.influence());
+        assertEquals(List.of(untrusted(refused)), refused.recorded());
+    }
+
+    @Test
+    void asyncIsServedWholeButUnattested() {
+        RestClient client = builder.build();
+        for (String path : List.of("/deferred", "/callable")) {
+            Answer answer = call(client, path);
+
+            assertEquals(200, answer.status(), path);
+            assertEquals("finished later on another thread", new String(answer.body(), StandardCharsets.UTF_8),
+                    path + ": the body written after the filter returned still reaches the caller");
+            assertNull(answer.attestation(), path + ": the filter had returned before the body existed");
+            assertEquals(List.of(untrusted(answer)), answer.recorded(), path);
+        }
     }
 }

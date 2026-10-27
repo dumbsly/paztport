@@ -6,6 +6,8 @@ package org.paztport.spring;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -14,6 +16,9 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.InputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -21,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,9 +50,13 @@ import org.paztport.http.RequestBinding;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.ClientHttpResponse;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
 class OutboundInterceptorTest {
@@ -80,7 +90,6 @@ class OutboundInterceptorTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.clear();
     }
 
     private List<String> traceLines() {
@@ -114,9 +123,14 @@ class OutboundInterceptorTest {
 
     /** As above, answering with whatever {@code answer} creates for the request it received. */
     private RestClient client(OutboundInterceptor interceptor, String uri, ResponseCreator answer) {
+        return client(interceptor, uri, answer, 1);
+    }
+
+    /** As above, expecting {@code times} requests. */
+    private RestClient client(OutboundInterceptor interceptor, String uri, ResponseCreator answer, int times) {
         RestClient.Builder builder = RestClient.builder().requestInterceptor(interceptor);
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(requestTo(uri)).andRespond(request -> {
+        server.expect(ExpectedCount.times(times), requestTo(uri)).andRespond(request -> {
             sent.add(request.getHeaders());
             return answer.createResponse(request);
         });
@@ -139,6 +153,14 @@ class OutboundInterceptorTest {
     private static String fetchOrders(RestClient client) {
         return client.get().uri("http://orders:8080/orders").exchange((request, response) ->
                 new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8), false);
+    }
+
+    /** Calls orders inside a context scope, checks the body, and answers what the call recorded. */
+    private static List<InfluenceEntry> fetchRecorded(RestClient client, String expectedBody) {
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            assertEquals(expectedBody, fetchOrders(client), "the caller still reads the whole body");
+            return PaztportContext.influence();
+        }
     }
 
     private static List<StampV3> chainOf(HttpHeaders headers) {
@@ -164,12 +186,14 @@ class OutboundInterceptorTest {
     void appendsToTheInboundChainCommittingTheContextInfluence() {
         StamperV3.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
                 policy.bundles().get("gateway"));
-        PaztportContext.setInboundChain(received.chain());
-        PaztportContext.addInfluence(MINE, WEB);
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            PaztportContext.setInboundChain(received.chain());
+            PaztportContext.addInfluence(MINE, WEB);
 
-        client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders"),
-                "http://payment:8080/pay")
-                .post().uri("http://payment:8080/pay").body("{\"amount\":1}").retrieve().toBodilessEntity();
+            client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders"),
+                    "http://payment:8080/pay")
+                    .post().uri("http://payment:8080/pay").body("{\"amount\":1}").retrieve().toBodilessEntity();
+        }
 
         List<StampV3> chain = chainOf(sent.get(0));
         assertEquals(2, chain.size());
@@ -231,11 +255,11 @@ class OutboundInterceptorTest {
                         "gateway"),
                 "http://orders:8080/orders", attested("hello", "hello", List.of(mine, web)));
 
-        assertEquals("hello", fetchOrders(client), "the caller still reads the whole body");
+        List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
 
         String hash = HttpV3.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
-        assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)),
-                PaztportContext.influence());
+        assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)), recorded);
+        assertEquals(List.of(), PaztportContext.influence(), "closing the scope drops what it recorded");
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=private,third-party"),
                 traceLines());
@@ -249,11 +273,11 @@ class OutboundInterceptorTest {
                 "http://orders:8080/orders",
                 attested("hellx", "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))));
 
-        assertEquals("hellx", fetchOrders(client));
+        List<InfluenceEntry> recorded = fetchRecorded(client, "hellx");
 
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
                 HttpV3.resultHash(200, "hellx".getBytes(StandardCharsets.UTF_8)), null, null)),
-                PaztportContext.influence(), "labels the stamp does not commit to are not believed");
+                recorded, "labels the stamp does not commit to are not believed");
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=BINDING_MISMATCH receiver=gateway ✗ labels=-"),
                 traceLines());
@@ -266,11 +290,11 @@ class OutboundInterceptorTest {
                         "gateway"),
                 "http://orders:8080/orders", withStatus(HttpStatus.INTERNAL_SERVER_ERROR).body("boom"));
 
-        assertEquals("boom", fetchOrders(client));
+        List<InfluenceEntry> recorded = fetchRecorded(client, "boom");
 
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
                 HttpV3.resultHash(500, "boom".getBytes(StandardCharsets.UTF_8)), null, null)),
-                PaztportContext.influence());
+                recorded);
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),
                 traceLines());
@@ -281,12 +305,76 @@ class OutboundInterceptorTest {
         RestClient client = client(gatewayInterceptor(), "http://orders:8080/orders",
                 attested("hello", "hello", List.of(ContentLabel.fresh(InfluenceClass.PUBLIC, null))));
 
-        assertEquals("hello", fetchOrders(client));
+        List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
 
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
                 HttpV3.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8)), null, null)),
-                PaztportContext.influence(), "an attestation nobody checked counts for nothing");
+                recorded, "an attestation nobody checked counts for nothing");
         assertEquals(List.of("PAZTPORT_TRACE response rid=rid-1 from=orders reason=- receiver=gateway ✗ labels=-"),
                 traceLines());
+    }
+
+    @Test
+    void outsideAScopeNothingIsRecordedOrCarried() {
+        // A scheduled job or a startup runner: no request, so no scope, on a thread that is reused.
+        AtomicInteger rids = new AtomicInteger();
+        StamperV3 stamper = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true,
+                () -> "rid-" + rids.incrementAndGet(), () -> 1000L);
+        RestClient client = client(
+                new OutboundInterceptor(stamper, policy.bundles().get("gateway"), gatewayVerifier(), "gateway"),
+                "http://orders:8080/orders",
+                attested("hello", "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))), 2);
+        try {
+            PaztportContext.addInfluence(MINE); // written by unscoped code; must not be committed either
+
+            assertEquals("hello", fetchOrders(client));
+            assertEquals("hello", fetchOrders(client));
+
+            assertEquals(List.of(MINE), PaztportContext.influence(), "neither response was recorded");
+            for (HttpHeaders headers : sent) {
+                assertNull(headers.getFirst(PaztportHeaders.INFLUENCE));
+                assertEquals("", chainOf(headers).get(0).infl());
+            }
+            assertEquals(2, traceLines().size());
+            assertTrue(traceLines().stream().allMatch(l -> l.contains(" reason=OK ") && l.contains("labels=private")),
+                    "both verified and carried alice's label, so there was something to leak: " + traceLines());
+        } finally {
+            PaztportContext.clear();
+        }
+    }
+
+    @Test
+    void aResponseThatCannotBeCheckedIsClosed() {
+        boolean[] closed = {false};
+        ClientHttpResponse broken = new ClientHttpResponse() {
+            @Override
+            public HttpStatusCode getStatusCode() throws IOException {
+                throw new IOException("status line lost");
+            }
+
+            @Override
+            public String getStatusText() {
+                return "";
+            }
+
+            @Override
+            public HttpHeaders getHeaders() {
+                return new HttpHeaders();
+            }
+
+            @Override
+            public InputStream getBody() {
+                return new ByteArrayInputStream(new byte[0]);
+            }
+
+            @Override
+            public void close() {
+                closed[0] = true;
+            }
+        };
+        RestClient client = client(gatewayInterceptor(), "http://orders:8080/orders", request -> broken);
+
+        assertThrows(ResourceAccessException.class, () -> fetchOrders(client));
+        assertTrue(closed[0], "the connection is released even though the response could not be checked");
     }
 }

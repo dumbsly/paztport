@@ -6,6 +6,8 @@ package org.paztport.spring;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import jakarta.servlet.AsyncEvent;
+import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -53,7 +55,12 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * attestation, because the stamp would vouch for a chain this service knows to be bad. The body is held until the
  * handler returns, since the stamp covers all of it. A handler that throws sends no attestation, and a body the
  * container writes afterwards (an error page after {@code sendError}) is not the one attested; either way the
- * caller cannot verify it and counts it as untrusted.
+ * caller cannot verify it and counts it as untrusted. An async response is not attested either, because its body
+ * is written after the filter has returned: it is sent whole when the async work completes, without
+ * {@code X-Path-Response}, and its caller counts it as untrusted.
+ *
+ * <p>Each request is served inside a {@link PaztportContext.Scope}, so what its handler and its calls learn is
+ * carried for the request and dropped when it ends. Async work after the handler returns runs outside it.
  *
  * <p>A null verifier skips verification on non-verifying hops. A non-null {@link ReceivedRequestListener} is
  * offered every request first, before any verification, so an application can observe traffic without the SDK
@@ -62,6 +69,7 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
 public final class InboundFilter extends OncePerRequestFilter {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private static final Logger LOG = LoggerFactory.getLogger(InboundFilter.class);
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final VerifierV3 verifier;
@@ -101,11 +109,10 @@ public final class InboundFilter extends OncePerRequestFilter {
         String influenceHeader = request.getHeader(PaztportHeaders.INFLUENCE);
         String target = target(request);
 
-        // A pooled thread starts clean even if something escaped an earlier request's finally.
-        PaztportContext.clear();
+        // The scope starts clean and is emptied when the request ends, so nothing passes between requests.
         List<StampV3> inbound = parseChain(chainHeader);
-        PaztportContext.setInboundChain(inbound);
-        try {
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            PaztportContext.setInboundChain(inbound);
             if (listener != null) {
                 listener.received(chainHeader, proofHeader, influenceHeader, request.getMethod(), target, body);
             }
@@ -148,10 +155,34 @@ public final class InboundFilter extends OncePerRequestFilter {
             }
             ContentCachingResponseWrapper cached = new ContentCachingResponseWrapper(response);
             chain.doFilter(wrapped, cached);
+            if (request.isAsyncStarted()) {
+                // The handler returned before writing its body, so there is nothing yet to attest. The body is
+                // written into the wrapper later, on another thread, and must still reach the caller whole.
+                request.getAsyncContext().addListener(new CopyWhenComplete(cached));
+                return;
+            }
             attest(cached, inbound);
             cached.copyBodyToResponse();
-        } finally {
-            PaztportContext.clear();
+        }
+    }
+
+    /** Sends an async response's body, held by the wrapper, once the async work has finished writing it. */
+    private record CopyWhenComplete(ContentCachingResponseWrapper cached) implements AsyncListener {
+        @Override
+        public void onComplete(AsyncEvent event) throws IOException {
+            cached.copyBodyToResponse();
+        }
+
+        @Override
+        public void onTimeout(AsyncEvent event) {
+        }
+
+        @Override
+        public void onError(AsyncEvent event) {
+        }
+
+        @Override
+        public void onStartAsync(AsyncEvent event) {
         }
     }
 
@@ -170,7 +201,9 @@ public final class InboundFilter extends OncePerRequestFilter {
             StampV3 stamp = stamper.respond(inbound, hash, inbound.get(0).rid(), labels);
             cached.setHeader(PaztportHeaders.RESPONSE, HttpV3.encodeResponse(stamp, labels));
         } catch (IllegalArgumentException e) {
-            // Unattested: the caller records the response as local-untrusted.
+            // Served unattested, so the caller records it as local-untrusted; the operator learns why here.
+            LOG.warn("response left unattested: rid={} {}", LogSafe.of(inbound.get(0).rid()),
+                    LogSafe.of(e.getMessage()));
         }
     }
 

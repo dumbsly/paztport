@@ -4,6 +4,7 @@
 package org.paztport.spring;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -89,5 +90,43 @@ class PaztportContextTest {
 
         assertNull(seenByOther[0], "another thread must not see this thread's chain");
         assertEquals(List.of(), seenByOther[1], "nor its influence");
+    }
+
+    @Test
+    void aScopeStartsCleanAndClosingItClearsEverything() {
+        PaztportContext.addInfluence(WEB); // left behind by unscoped code on this thread
+        assertFalse(PaztportContext.isOpen());
+
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            assertTrue(PaztportContext.isOpen());
+            assertEquals(List.of(), PaztportContext.influence(), "a scope never inherits what came before it");
+            PaztportContext.setInboundChain(chain);
+            PaztportContext.addInfluence(MINE);
+            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+        }
+
+        assertFalse(PaztportContext.isOpen());
+        assertNull(PaztportContext.inboundChain());
+        assertTrue(PaztportContext.influence().isEmpty());
+        assertTrue(PaztportContext.labels().isEmpty());
+    }
+
+    @Test
+    void scopesDoNotNest() {
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            assertThrows(IllegalStateException.class, PaztportContext::open);
+            assertTrue(PaztportContext.isOpen(), "the refused open leaves the outer scope as it was");
+        }
+        assertFalse(PaztportContext.isOpen());
+    }
+
+    @Test
+    void clearEmptiesAnOpenScopeButLeavesItOpen() {
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            PaztportContext.addInfluence(WEB);
+            PaztportContext.clear();
+            assertTrue(PaztportContext.influence().isEmpty());
+            assertTrue(PaztportContext.isOpen());
+        }
     }
 }

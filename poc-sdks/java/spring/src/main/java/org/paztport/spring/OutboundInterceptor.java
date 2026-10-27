@@ -40,6 +40,11 @@ import org.springframework.http.client.ClientHttpResponse;
  * attestation verifies contributes its labels; any other — unattested, failing, a refusal, or one received where
  * no verifier is configured — contributes one {@code local-untrusted} entry, so content nobody vouched for still
  * counts against later calls. Every response checked logs one {@code PAZTPORT_TRACE response} line.
+ *
+ * <p>All of this happens only inside a {@link PaztportContext.Scope}, which the inbound filter opens per request.
+ * Outside one (a scheduled job, a startup runner, a control-plane handler) a call is still stamped, with no
+ * inbound chain and no influence, and its response is still checked and traced, but nothing is recorded: there
+ * is no unit of work to carry it, and a pooled thread would otherwise hand it to whatever ran next.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
@@ -64,9 +69,11 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         URI uri = request.getURI();
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
-        List<InfluenceEntry> influence = PaztportContext.influence();
+        // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
+        boolean scoped = PaztportContext.isOpen();
+        List<InfluenceEntry> influence = scoped ? PaztportContext.influence() : List.of();
 
-        StamperV3.Stamped stamped = stamper.next(PaztportContext.inboundChain(), uri.getHost(),
+        StamperV3.Stamped stamped = stamper.next(scoped ? PaztportContext.inboundChain() : null, uri.getHost(),
                 RequestBinding.compute(request.getMethod().name(), target, body), influence, bundle);
 
         request.getHeaders().set(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
@@ -87,12 +94,20 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             response.close();
             throw e;
         }
-        record(stamped, uri.getHost(), buffered);
+        try {
+            record(stamped, uri.getHost(), buffered, scoped);
+        } catch (IOException | RuntimeException e) {
+            buffered.close();
+            throw e;
+        }
         return buffered;
     }
 
-    /** Checks the response against the chain that was sent, and adds what it contributes to the context. */
-    private void record(StamperV3.Stamped sent, String from, Buffered response) throws IOException {
+    /**
+     * Checks the response against the chain that was sent, logs the result, and, inside a scope, adds what the
+     * response contributes to the context.
+     */
+    private void record(StamperV3.Stamped sent, String from, Buffered response, boolean scoped) throws IOException {
         int status = response.getStatusCode().value();
         String src = "http:" + from;
         HttpV3.ResponseCheck check = null;
@@ -104,12 +119,15 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         } else {
             hash = HttpV3.resultHash(status, response.body);
         }
-        boolean ok = check != null && check.result().ok();
-        if (ok) {
-            PaztportContext.addInfluence(check.labels().stream().map(l -> l.toEntry(src, hash))
-                    .toArray(InfluenceEntry[]::new));
-        } else {
-            PaztportContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, src, hash, null, null));
+        // Unscoped, there is nothing to carry it to: recording would leak it into whatever this thread runs next.
+        if (scoped) {
+            if (check != null && check.result().ok()) {
+                PaztportContext.addInfluence(check.labels().stream().map(l -> l.toEntry(src, hash))
+                        .toArray(InfluenceEntry[]::new));
+            } else {
+                PaztportContext.addInfluence(
+                        new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, src, hash, null, null));
+            }
         }
         if (TRACE.isInfoEnabled()) {
             TRACE.info(traceLine(sent.chain().get(0).rid(), from, check, caller));
