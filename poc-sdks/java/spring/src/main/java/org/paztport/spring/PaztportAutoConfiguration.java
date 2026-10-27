@@ -6,13 +6,18 @@ package org.paztport.spring;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.security.PrivateKey;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import org.paztport.core.Base64Url;
+import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyFiles;
 import org.paztport.core.ProofBundle;
@@ -59,7 +64,8 @@ import org.springframework.web.client.RestClient;
  *
  * <p>Setting {@code paztport.boundary.url} makes this service the egress to a
  * partner organisation, with a {@link BoundaryClient} that presents its own
- * bundle, {@code paztport.boundary.tls-bundle}.
+ * bundle, {@code paztport.boundary.tls-bundle}. Setting {@code paztport.partner.enabled} makes this service the
+ * partner's entry, which answers other organisations' session handshakes.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -162,6 +168,75 @@ public class PaztportAutoConfiguration {
                 URI.create(b.getUrl()),
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
                 PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())));
+    }
+
+    /**
+     * The partner's session registry. Everything it needs is checked first, and the context fails naming what is
+     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, or a policy
+     * private key that does not belong to the pin, which would sign replies no client could accept.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.partner.enabled")
+    PartnerSessions paztportPartnerSessions(PaztportProperties props) {
+        PaztportProperties.Partner p = props.getPartner();
+        if (props.isVerify()) {
+            throw new IllegalStateException("paztport.partner.enabled cannot be combined with paztport.verify=true");
+        }
+        Map<String, String> needed = new LinkedHashMap<>();
+        needed.put("paztport.keyring-path", props.getKeyringPath());
+        needed.put("paztport.root-path", props.getRootPath());
+        needed.put("paztport.policy-key-path", props.getPolicyKeyPath());
+        needed.put("paztport.partner.policy-private-key-path", p.getPolicyPrivateKeyPath());
+        List<String> missing = new ArrayList<>();
+        needed.forEach((name, value) -> {
+            if (value == null || value.isBlank()) {
+                missing.add(name);
+            }
+        });
+        if (p.getClientPolicyKeyPaths().isEmpty()) {
+            missing.add("paztport.partner.client-policy-key-paths");
+        }
+        if (p.getClientOrigins().isEmpty()) {
+            missing.add("paztport.partner.client-origins");
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("paztport.partner.enabled is set but these are not: "
+                    + String.join(", ", missing));
+        }
+        String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        PrivateKey signer = KeyFiles.loadPrivateKey(Path.of(p.getPolicyPrivateKeyPath()));
+        byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
+        boolean matches;
+        try {
+            matches = Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(pin)), probe, Crypto.sign(signer, probe));
+        } catch (RuntimeException e) {
+            matches = false;
+        }
+        if (!matches) {
+            throw new IllegalStateException(
+                    "paztport.partner.policy-private-key-path does not match paztport.policy-key-path");
+        }
+        Set<String> clientKeys = new LinkedHashSet<>();
+        p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(ConfigLoader.loadPolicyPin(Path.of(path))));
+        long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+        return new PartnerSessions(
+                ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
+                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
+                pin,
+                signer,
+                clientKeys,
+                Set.copyOf(p.getClientOrigins()),
+                p.getUnsafeDisabled(),
+                new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
+                System::currentTimeMillis,
+                props.getMaxAgeMs(),
+                runMaxAgeMs);
+    }
+
+    @Bean
+    @ConditionalOnProperty("paztport.partner.enabled")
+    PartnerSessionController paztportPartnerSessionController(PartnerSessions sessions) {
+        return new PartnerSessionController(sessions);
     }
 
     @Bean

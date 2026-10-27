@@ -129,6 +129,71 @@ public class PaztportProperties {
         }
     }
 
+    /** Set on a partner's entry service, which answers other organisations' session handshakes. */
+    private final Partner partner = new Partner();
+
+    /**
+     * {@code paztport.partner.*}: what a partner pins for the organisations that call it. Its own keyring, root and
+     * policy pin are the top-level {@code keyring-path}, {@code root-path} and {@code policy-key-path}.
+     */
+    public static class Partner {
+
+        /** Makes this service answer {@code POST /paztport/session}; it needs everything else here. */
+        private boolean enabled = false;
+
+        /** Path to this organisation's policy private key, which signs session replies; it must match the pin. */
+        private String policyPrivateKeyPath;
+
+        /** Paths to the {@code policy.pub} of each organisation whose sessions may be attested. */
+        private List<String> clientPolicyKeyPaths = List.of();
+
+        /** The service names allowed to start a chain in a client's attested session. */
+        private List<String> clientOrigins = List.of();
+
+        /** What an unsafe session may not do, as {@code METHOD /path}; the reply tells the client. */
+        private List<String> unsafeDisabled = List.of();
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getPolicyPrivateKeyPath() {
+            return policyPrivateKeyPath;
+        }
+
+        public void setPolicyPrivateKeyPath(String policyPrivateKeyPath) {
+            this.policyPrivateKeyPath = policyPrivateKeyPath;
+        }
+
+        public List<String> getClientPolicyKeyPaths() {
+            return clientPolicyKeyPaths;
+        }
+
+        public void setClientPolicyKeyPaths(List<String> clientPolicyKeyPaths) {
+            this.clientPolicyKeyPaths = clientPolicyKeyPaths;
+        }
+
+        public List<String> getClientOrigins() {
+            return clientOrigins;
+        }
+
+        public void setClientOrigins(List<String> clientOrigins) {
+            this.clientOrigins = clientOrigins;
+        }
+
+        public List<String> getUnsafeDisabled() {
+            return unsafeDisabled;
+        }
+
+        public void setUnsafeDisabled(List<String> unsafeDisabled) {
+            this.unsafeDisabled = unsafeDisabled;
+        }
+    }
+
     public String getServiceName() {
         return serviceName;
     }
@@ -263,6 +328,10 @@ public class PaztportProperties {
 
     public void setTlsBundle(String tlsBundle) {
         this.tlsBundle = tlsBundle;
+    }
+
+    public Partner getPartner() {
+        return partner;
     }
 
     public Boundary getBoundary() {
