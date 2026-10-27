@@ -79,16 +79,21 @@ function isSessionReply(v: unknown): v is SessionReply {
   );
 }
 
-/** A client's paztport/session request: its signed root (null for none), policy key, keyring and a fresh nonce. */
+/**
+ * A client's paztport/session request: its signed root (null for none), policy key, keyring, the policy
+ * key's signature over that keyring and a fresh nonce.
+ */
 export function sessionRequest(material: {
   signedRoot: SignedRoot | null;
   policyPublicKey: string;
   keyring: Record<string, string>;
+  keyringSig: string;
 }): SessionRequest {
   return {
     clientRoot: material.signedRoot,
     clientPolicyKey: material.policyPublicKey,
     clientKeyring: material.keyring,
+    clientKeyringSig: material.keyringSig,
     nonce: newNonce(),
   };
 }

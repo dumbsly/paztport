@@ -12,6 +12,7 @@ import {
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
+  signKeyring,
   signRoot,
   signStampV2,
   verifySessionReply,
@@ -70,6 +71,9 @@ export type TestClient = {
   ): { reason: ReasonCode; labels: ContentLabel[] };
 };
 
+/** The policy key every test client signs with, so a test server can pin it. */
+export const CLIENT_POLICY = generateKeyPair();
+
 /** `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey. */
 type ClientMaterial = {
   policyPublicKey: string;
@@ -80,7 +84,7 @@ type ClientMaterial = {
 };
 
 function generatedMaterial(tools: string[]): ClientMaterial & { policyPrivateKey: string } {
-  const policy = generateKeyPair();
+  const policy = CLIENT_POLICY;
   const { signedRoot, bundles } = buildPolicy(
     tools.map((t) => ["session", "pi", `mcp:github.${t}`]),
     8,
@@ -104,6 +108,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
   const m = generatedMaterial(opts.tools ?? ALL_TOOLS);
   const { session, pi, signedRoot } = m;
   const policy = { publicKey: m.policyPublicKey };
+  const ring = signKeyring({ session: session.publicKey, pi: pi.publicKey }, m.policyPublicKey, m.policyPrivateKey);
   const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey) : signedRoot;
   const clientRoot: SignedRoot | null = opts.withRoot === false ? null : forged;
   const responseNonces = new NonceCache(NONCE_TTL_MS);
@@ -115,7 +120,8 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
     req = {
       clientRoot,
       clientPolicyKey: policy.publicKey,
-      clientKeyring: { session: session.publicKey, pi: pi.publicKey },
+      clientKeyring: ring.services,
+      clientKeyringSig: ring.sig,
       nonce: newNonce(),
     };
     return req;

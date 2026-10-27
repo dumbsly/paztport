@@ -12,6 +12,7 @@ import {
   provesPath,
   rulesHash,
   rulesRoute,
+  verifyKeyring,
   verifyRoot,
   type LocalRules,
   type MerkleProof,
@@ -27,6 +28,8 @@ export type ClientMaterial = {
   /** The client policy public key; the policy private key (policy.key) is never read. */
   policyPublicKey: string;
   keyring: Record<string, string>;
+  /** The policy key's signature over the keyring, sent in the session request. */
+  keyringSig: string;
   signedRoot: SignedRoot;
   /** Keyed by route, "session/pi/mcp:<serverId>.<tool>". */
   proofs: Record<string, MerkleProof>;
@@ -74,8 +77,9 @@ export function readPin(path: string): string {
  * Loads and validates the files the policy-tool keygen and policy CLIs write for the client mesh
  * (session, pi). Throws a clear Error if they are not mutually consistent. Least privilege: the root
  * is checked with the policy public key alone, so the policy private key (policy.key) is not read.
- * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir`. A
- * rules.json must be covered by a verifying proof for its hash, or loading fails.
+ * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir`. The
+ * keyring must be signed by its policy key, and a rules.json covered by a verifying proof for its hash, or
+ * loading fails.
  */
 export function loadClientMaterial(dir: string, policyDir: string = dir): ClientMaterial {
   const ring = readJson(dir, "keyring.json");
@@ -84,6 +88,10 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
   }
   const keyring = Object.fromEntries(Object.entries(ring.services).map(([k, v]) => [k, str(v, `keyring.json entry ${k}`)]));
   const policyPublicKey = str(ring.policy, "keyring.json policy");
+  if (ring.sig === undefined) {
+    throw new Error(`${join(dir, "keyring.json")} has no sig: regenerate the demo keys with npm run setup-demo -- --force`);
+  }
+  const keyringSig = str(ring.sig, "keyring.json sig");
   const root = readJson(policyDir, "root.json");
   if (!isObject(root)) {
     throw new Error("malformed root.json");
@@ -104,6 +112,9 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     if (!keyPairMatches(key, keyring[svc]!)) {
       throw new Error(`${svc}.key does not match its keyring.json entry`);
     }
+  }
+  if (!verifyKeyring({ policy: policyPublicKey, services: keyring, sig: keyringSig }, policyPublicKey)) {
+    throw new Error("keyring.json is not signed by its policy key");
   }
 
   let rootBytes: Uint8Array;
@@ -129,7 +140,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     }
     Object.defineProperty(proofs, route, { value: proof, enumerable: true, writable: true, configurable: true });
   }
-  const material: ClientMaterial = { ...m, policyPublicKey, keyring, signedRoot, proofs };
+  const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, signedRoot, proofs };
   if (existsSync(join(policyDir, "rules.json"))) {
     let rules: LocalRules;
     try {

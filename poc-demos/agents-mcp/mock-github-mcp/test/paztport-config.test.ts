@@ -10,7 +10,7 @@ import { buildPolicy, decode, generateKeyPair, signRoot, verifyRoot } from "@paz
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
-import { makeClient } from "./helpers/client.ts";
+import { CLIENT_POLICY, makeClient } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
@@ -31,6 +31,7 @@ function serverConfig(): ServerPolicy {
     inst: "mock-github-1",
     hops: ["mcp-entry", "github-tools"],
     serverId: "github",
+    pinnedClientKeys: [CLIENT_POLICY.publicKey],
   };
 }
 
@@ -47,6 +48,7 @@ describe("loadServerConfig", () => {
     writeFileSync(join(dir, "paths.yaml"), "paths:\n  - [mcp-entry, github-tools]\n");
     execFileSync("node", [tool("keygen.ts"), "--out", dir, "--services", "mcp-entry,github-tools"], { stdio: "pipe" });
     execFileSync("node", [tool("policy.ts"), "--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "policy.key"), "--out", dir], { stdio: "pipe" });
+    writeFileSync(join(dir, "client-policy.pub"), CLIENT_POLICY.publicKey + "\n");
     const cfg = loadServerConfig(dir);
     expect(cfg.inst).toBe("mock-github-1");
     expect(Object.keys(cfg.keyring).sort()).toEqual(["github-tools", "mcp-entry"]);
@@ -56,6 +58,7 @@ describe("loadServerConfig", () => {
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
     const reply = srv.openSession(client.request());
+    expect(reply.status).toBe("attested");
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
     expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
@@ -72,6 +75,7 @@ describe("loadServerConfig", () => {
       "github-tools.key": cfg.signingKeys["github-tools"],
       "root.json": cfg.signedRoot,
       "proofs-mcp-entry.json": { proofs: { "mcp-entry/github-tools": cfg.routeProof } },
+      "client-policy.pub": cfg.pinnedClientKeys[0],
     };
     tweak(files);
     mkdirSync(dir, { recursive: true });
@@ -84,6 +88,18 @@ describe("loadServerConfig", () => {
   it("loadServerConfigAcceptsConsistentFiles", () => {
     const cfg = serverConfig();
     expect(loadServerConfig(writeDir(cfg))).toEqual(cfg);
+  });
+  it("loadServerConfigPinsTheClientPolicyKey", () => {
+    const cfg = serverConfig();
+    const dir = writeDir(cfg);
+    writeFileSync(join(dir, "client-policy.pub"), `  ${CLIENT_POLICY.publicKey}\n\n`);
+    expect(loadServerConfig(dir).pinnedClientKeys).toEqual([CLIENT_POLICY.publicKey]);
+  });
+  it("loadServerConfigNamesTheFixWhenTheClientPinIsMissing", () => {
+    const dir = writeDir(serverConfig(), (f) => {
+      delete f["client-policy.pub"];
+    });
+    expect(() => loadServerConfig(dir)).toThrow(`${dir}/client-policy.pub is missing: regenerate the demo keys with npm run setup-demo -- --force`);
   });
   it("loadServerConfigRejectsMalformedProof", () => {
     const dir = writeDir(serverConfig(), (f) => {

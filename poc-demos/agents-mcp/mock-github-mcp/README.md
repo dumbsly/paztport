@@ -64,7 +64,11 @@ is `poc-demos/agents-mcp/scenarios/github-issue-replay`. A worked example of a c
 The harness side lives in `poc-demos/agents-mcp/.demo/client`: the session and pi keys, the keyring, root and
 proofs, and `server-policy.pub`, the server policy key the client pins. setup-demo deletes the
 client policy private key once it has signed the client root; the server's `policy.key` stays, since
-the server signs its session replies with it.
+the server signs its session replies with it. The keyring's `sig` is the policy key's signature over
+it, sent in the session request. The server side, `.demo/server`, also holds `client-policy.pub`, the
+client policy key the server pins: it opens attested sessions only for that key. A `.demo` from before
+signed keyrings lacks both, and the server and extension refuse to start until you run
+`npm run setup-demo -- --force`.
 
 `node mock-github-mcp/src/docs-main.ts [--payload <file>]` runs a second, plain MCP server with one
 read tool, `fetch_docs`. It knows nothing of Paztport; its `contributing` page carries a payload

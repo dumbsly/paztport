@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { decode, sign, utf8, verify, verifyProof, verifyRoot } from "@paztport/core";
+import { decode, sign, utf8, verify, verifyKeyring, verifyProof, verifyRoot } from "@paztport/core";
 import type { MerkleProof, ProofBundle, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
@@ -43,6 +43,15 @@ describe("policy-tool CLIs", () => {
       const priv = readKey(join(out, `${name}.key`));
       expect(verify(pub, msg, sign(priv, msg))).toBe(true);
     }
+  });
+
+  it("keygenSignsTheKeyringWithThePolicyKey", () => {
+    const out = tmp();
+    expect(run(keygen, ["--out", out, "--services", "a,b"]).status).toBe(0);
+    const ring = readKeyring(join(out, "keyring.json"));
+    expect(typeof ring.sig).toBe("string");
+    expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["services", "policy", "sig"]);
+    expect(verifyKeyring({ policy: ring.policy, services: ring.services, sig: ring.sig! }, ring.policy)).toBe(true);
   });
 
   it("privateKeysAreOwnerOnly", () => {

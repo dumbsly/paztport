@@ -3,8 +3,8 @@
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { generateKeyPair } from "@paztport/core";
-import { writeJson, writePrivate } from "./files.ts";
+import { generateKeyPair, signKeyring } from "@paztport/core";
+import { writeJson, writePrivate, type Keyring } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c";
 
@@ -31,15 +31,16 @@ function main(): void {
     process.exit(2);
   }
 
-  const ring: { services: Record<string, string>; policy: string } = { services: {}, policy: "" };
+  const keys: Record<string, string> = {};
   for (const svc of names) {
     const kp = generateKeyPair();
     writePrivate(join(out, `${svc}.key`), kp.privateKey);
-    ring.services[svc] = kp.publicKey;
+    keys[svc] = kp.publicKey;
   }
   const policy = generateKeyPair();
   writePrivate(join(out, "policy.key"), policy.privateKey);
-  ring.policy = policy.publicKey;
+  const signed = signKeyring(keys, policy.publicKey, policy.privateKey);
+  const ring: Keyring = { services: signed.services, policy: signed.policy, sig: signed.sig };
   writeJson(join(out, "keyring.json"), ring);
   console.log(`keygen: wrote ${names.length} service keys, policy key and keyring to ${out}`);
 }

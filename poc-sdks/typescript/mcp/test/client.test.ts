@@ -10,6 +10,7 @@ import {
   mintOrigin,
   NonceCache,
   NONCE_TTL_MS,
+  signKeyring,
   type InfluenceEntry,
   type SessionReply,
 } from "@paztport/core";
@@ -36,6 +37,8 @@ const RULES: SessionRules = { disabledWhenUnsafe: ["create_pull_request"] };
 const TOOLS = ["list_issues", "create_pull_request"];
 const CLIENT_HOPS = ["session", "pi"];
 const SERVER_ORIGINS = ["mcp-entry"];
+/** The policy key every test client signs with, so the test server can pin it. */
+const CLIENT_POLICY = generateKeyPair();
 
 function serverPolicy(): ServerPolicy {
   const policy = generateKeyPair();
@@ -52,18 +55,21 @@ function serverPolicy(): ServerPolicy {
     inst: "mock-github-1",
     hops: ["mcp-entry", "github-tools"],
     serverId: "github",
+    pinnedClientKeys: [CLIENT_POLICY.publicKey],
   };
 }
 
 function clientMaterial() {
-  const policy = generateKeyPair();
+  const policy = CLIENT_POLICY;
   const session = generateKeyPair();
   const pi = generateKeyPair();
   const { signedRoot, bundles } = buildPolicy(TOOLS.map((t) => [...CLIENT_HOPS, `mcp:github.${t}`]), 8, policy.privateKey);
+  const ring = signKeyring({ session: session.publicKey, pi: pi.publicKey }, policy.publicKey, policy.privateKey);
   return {
     signedRoot,
     policyPublicKey: policy.publicKey,
-    keyring: { session: session.publicKey, pi: pi.publicKey },
+    keyring: ring.services,
+    keyringSig: ring.sig,
     sessionKey: session.privateKey,
     piKey: pi.privateKey,
     proofs: bundles["pi"]!.proofs,
@@ -126,8 +132,13 @@ describe("sessionRequest", () => {
     const client = clientMaterial();
     const a = sessionRequest(client);
     const b = sessionRequest({ ...client, signedRoot: null });
-    expect(Object.keys(a)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "nonce"]);
-    expect(a).toMatchObject({ clientRoot: client.signedRoot, clientPolicyKey: client.policyPublicKey, clientKeyring: client.keyring });
+    expect(Object.keys(a)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "nonce"]);
+    expect(a).toMatchObject({
+      clientRoot: client.signedRoot,
+      clientPolicyKey: client.policyPublicKey,
+      clientKeyring: client.keyring,
+      clientKeyringSig: client.keyringSig,
+    });
     expect(b.clientRoot).toBeNull();
     expect(a.nonce).not.toBe(b.nonce);
   });

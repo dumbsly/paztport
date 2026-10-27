@@ -12,7 +12,7 @@ import {
   type Session,
   type SessionRules,
 } from "../src/index.ts";
-import { makeClient, type CallToolResult } from "./helpers/client.ts";
+import { CLIENT_POLICY, makeClient, type CallToolResult } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
@@ -33,6 +33,7 @@ function serverConfig(): ServerPolicy {
     inst: "mock-github-1",
     hops: ["mcp-entry", "github-tools"],
     serverId: "github",
+    pinnedClientKeys: [CLIENT_POLICY.publicKey],
   };
 }
 
@@ -54,6 +55,26 @@ describe("session handshake", () => {
   it("unsafeWithoutClientRootDisablesWrites", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const reply = srv.openSession(makeClient({ withRoot: false }).request());
+    expect(reply.status).toBe("unsafe");
+    expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
+    expect(srv.session()?.status).toBe("unsafe");
+  });
+  it("aPinnedClientWithASignedKeyringIsAttested", () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    expect(srv.openSession(makeClient().request()).status).toBe("attested");
+  });
+  it("anUnpinnedClientKeyIsUnsafe", () => {
+    const srv = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [generateKeyPair().publicKey] }, RULES, Date.now);
+    const reply = srv.openSession(makeClient().request());
+    expect(reply.status).toBe("unsafe");
+    expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
+    const none = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [] }, RULES, Date.now);
+    expect(none.openSession(makeClient().request()).status).toBe("unsafe");
+  });
+  it("aRequestWithNoKeyringSignatureIsUnsafeNotInvalid", () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const { clientKeyringSig: _sig, ...legacy } = makeClient().request();
+    const reply = srv.openSession(legacy);
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
     expect(srv.session()?.status).toBe("unsafe");

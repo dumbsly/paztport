@@ -45,6 +45,8 @@ export type ServerPolicy = {
   hops: readonly [entry: string, tools: string];
   /** The server id clients name in their receiver, `mcp:<serverId>.<tool>`. */
   serverId: string;
+  /** The client policy keys this server opens attested sessions for; empty means every session is unsafe. */
+  pinnedClientKeys: readonly string[];
 };
 
 export type Session = {
@@ -103,6 +105,8 @@ function parseSessionRequest(params: unknown): SessionRequest {
     clientRoot,
     clientPolicyKey: str(params.clientPolicyKey, "clientPolicyKey"),
     clientKeyring,
+    // a missing signature is not malformed, only unsigned: the session is then unsafe
+    clientKeyringSig: typeof params.clientKeyringSig === "string" ? params.clientKeyringSig : "",
     nonce: str(params.nonce, "nonce"),
   };
 }
@@ -132,7 +136,7 @@ export class McpServerSession {
     } catch (e) {
       throw new InvalidParams((e as Error).message);
     }
-    const status = sessionStatus(request, this.policy.signedRoot, this.policy.policyPublicKey);
+    const status = sessionStatus(request, this.policy.signedRoot, this.policy.policyPublicKey, this.policy.pinnedClientKeys);
     const serverNonce = newNonce();
     const sess = deriveSessionId(request.clientRoot?.sig ?? null, this.policy.signedRoot.sig, request.nonce, serverNonce, {
       clientPolicyKey: request.clientPolicyKey,

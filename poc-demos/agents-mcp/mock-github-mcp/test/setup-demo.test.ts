@@ -15,6 +15,8 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 const setup = (...args: string[]) => spawnSync(process.execPath, [SETUP, ...args], { encoding: "utf8" });
 const serverPolicy = (out: string) => (JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8")) as { policy: string }).policy;
 const pin = (out: string) => readFileSync(join(out, "client/server-policy.pub"), "utf8");
+const clientPolicy = (out: string) => (JSON.parse(readFileSync(join(out, "client/keyring.json"), "utf8")) as { policy: string }).policy;
+const clientPin = (out: string) => readFileSync(join(out, "server/client-policy.pub"), "utf8");
 
 describe("setup-demo", () => {
   it("setupWritesServerPin", () => {
@@ -23,6 +25,9 @@ describe("setup-demo", () => {
     expect(r.status, r.stderr).toBe(0);
     expect(pin(out)).toBe(serverPolicy(out) + "\n");
     expect(r.stdout).not.toContain(serverPolicy(out));
+    // the server pins the client policy key it opens attested sessions for
+    expect(clientPin(out)).toBe(clientPolicy(out) + "\n");
+    expect(r.stdout).not.toContain(clientPolicy(out));
     // the client policy private key only signs the client root; the server's signs session replies
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
     expect(existsSync(join(out, "server/policy.key"))).toBe(true);
@@ -56,6 +61,7 @@ describe("setup-demo", () => {
     expect(forced.status, forced.stderr).toBe(0);
     expect(serverPolicy(out)).not.toBe(before);
     expect(pin(out)).toBe(serverPolicy(out) + "\n");
+    expect(clientPin(out)).toBe(clientPolicy(out) + "\n");
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
   });
 });

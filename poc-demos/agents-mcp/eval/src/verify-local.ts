@@ -15,6 +15,7 @@ import {
   rulesHash,
   rulesRoute,
   verifyChainOffline,
+  verifyKeyring,
   verifyRoot,
   type InfluenceEntry,
   type LocalRules,
@@ -31,8 +32,10 @@ import {
  * The client record verifies when its root verifies against its policy key, every session record in the file
  * that names a client root names this root with the same policy key and keyring, and, when it has rules, the
  * rules parse and `rulesProof` proves `session/pi/rules:<rulesHash(rules)>` against the root. With no rules,
- * `rulesProof` must be null. The client policy key is trusted on first use from the file, as it is in session
- * records (where the server's signed reply binds it); verify pins no client key of its own.
+ * `rulesProof` must be null. A `keyringSig` must be the policy key's signature over the keyring; a record from
+ * before keyrings were signed has none, and is accepted without it. The client policy key is trusted on first
+ * use from the file, as it is in session records (where the server's signed reply binds it); verify pins no
+ * client key of its own.
  *
  * A local record is checked against the latest client record before it, in this order (the first failure is
  * its result):
@@ -106,6 +109,10 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     }
     const signedRoot = { rootId: sr.rootId, root: sr.root, sig: sr.sig };
     if (!verifyRoot(signedRoot, r.policyPublicKey)) {
+      return undefined;
+    }
+    const services = keyring as Record<string, string>;
+    if (r.keyringSig !== undefined && !verifyKeyring({ policy: r.policyPublicKey, services, sig: r.keyringSig as string }, r.policyPublicKey)) {
       return undefined;
     }
     // the session's request is bound by the server's signed reply: a client record must agree with it

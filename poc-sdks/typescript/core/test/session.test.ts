@@ -5,14 +5,17 @@ import { describe, expect, it } from "vitest";
 import { decode, encode } from "../src/b64url.ts";
 import { generateKeyPair, randomBytes, sign, utf8, verify } from "../src/crypto.ts";
 import { canonicalize } from "../src/jcs.ts";
+import { signKeyring } from "../src/keyring.ts";
 import { signRoot } from "../src/root.ts";
 import {
   deriveSessionId,
   isAttestedSession,
+  isLegacySessionRequest,
   newNonce,
   sessionStatus,
   signSessionReply,
   verifySessionReply,
+  type LegacySessionRequest,
   type SessionReply,
   type SessionRequest,
 } from "../src/session.ts";
@@ -22,10 +25,12 @@ function world() {
   const serverPolicy = generateKeyPair();
   const clientRoot = signRoot(randomBytes(32), "v1", clientPolicy.privateKey);
   const serverRoot = signRoot(randomBytes(32), "v2", serverPolicy.privateKey);
+  const ring = signKeyring({ session: "k" }, clientPolicy.publicKey, clientPolicy.privateKey);
   const req: SessionRequest = {
     clientRoot,
     clientPolicyKey: clientPolicy.publicKey,
-    clientKeyring: { session: "k" },
+    clientKeyring: ring.services,
+    clientKeyringSig: ring.sig,
     nonce: newNonce(),
   };
   const body = (): Omit<SessionReply, "sig"> => {
@@ -40,26 +45,52 @@ function world() {
       disabled: [],
     };
   };
-  return { clientPolicy, serverPolicy, clientRoot, serverRoot, req, body };
+  const pinned = [clientPolicy.publicKey];
+  return { clientPolicy, serverPolicy, clientRoot, serverRoot, req, body, pinned };
 }
 
 describe("sessionStatus", () => {
   it("bothRootsAttested", () => {
     const w = world();
-    expect(sessionStatus(w.req, w.serverRoot, w.serverPolicy.publicKey)).toBe("attested");
+    expect(sessionStatus(w.req, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("attested");
   });
   it("missingClientRootUnsafe", () => {
     const w = world();
-    expect(sessionStatus({ ...w.req, clientRoot: null }, w.serverRoot, w.serverPolicy.publicKey)).toBe("unsafe");
+    expect(sessionStatus({ ...w.req, clientRoot: null }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
   });
   it("clientRootBadSigUnsafe", () => {
     const w = world();
     const bad = { ...w.clientRoot, sig: encode(randomBytes(64)) };
-    expect(sessionStatus({ ...w.req, clientRoot: bad }, w.serverRoot, w.serverPolicy.publicKey)).toBe("unsafe");
+    expect(sessionStatus({ ...w.req, clientRoot: bad }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
   });
   it("missingServerRootUnsafe", () => {
     const w = world();
-    expect(sessionStatus(w.req, null, w.serverPolicy.publicKey)).toBe("unsafe");
+    expect(sessionStatus(w.req, null, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
+  });
+  it("aClientPolicyKeyThatIsNotPinnedIsUnsafe", () => {
+    const w = world();
+    expect(sessionStatus(w.req, w.serverRoot, w.serverPolicy.publicKey, [generateKeyPair().publicKey])).toBe("unsafe");
+  });
+  it("noPinnedClientKeysIsUnsafe", () => {
+    const w = world();
+    expect(sessionStatus(w.req, w.serverRoot, w.serverPolicy.publicKey, [])).toBe("unsafe");
+  });
+  it("aKeyringAlteredSinceSigningIsUnsafe", () => {
+    const w = world();
+    expect(sessionStatus({ ...w.req, clientKeyring: { session: "evil" } }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
+  });
+  it("anEmptyKeyringSignatureIsUnsafe", () => {
+    const w = world();
+    expect(sessionStatus({ ...w.req, clientKeyringSig: "" }, w.serverRoot, w.serverPolicy.publicKey, w.pinned)).toBe("unsafe");
+  });
+});
+
+describe("isLegacySessionRequest", () => {
+  it("aRequestWithoutAKeyringSignatureIsLegacy", () => {
+    const w = world();
+    const { clientKeyringSig: _sig, ...legacy } = w.req;
+    expect(isLegacySessionRequest(legacy)).toBe(true);
+    expect(isLegacySessionRequest(w.req)).toBe(false);
   });
 });
 
@@ -197,5 +228,20 @@ describe("isAttestedSession", () => {
     expect(isAttestedSession(noClient, signSessionReply({ ...body, sess, status: "unsafe" }, w.serverPolicy.privateKey), w.serverPolicy.publicKey)).toBe(false);
     // what a recorded file may hold instead of a reply
     expect(isAttestedSession(w.req, {} as SessionReply, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("aV3RequestWhoseKeyringSignatureFailsIsNotAttested", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    // the session id binds the keyring but not its signature, so only the keyring check catches this
+    const forged = signKeyring({ session: "k" }, w.clientPolicy.publicKey, generateKeyPair().privateKey).sig;
+    expect(isAttestedSession({ ...w.req, clientKeyringSig: forged }, reply, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession({ ...w.req, clientKeyringSig: "" }, reply, w.serverPolicy.publicKey)).toBe(false);
+  });
+  it("aLegacyRequestWithAnAttestedReplyIsAttested", () => {
+    const w = world();
+    const { clientKeyringSig: _sig, ...legacy } = w.req;
+    const req: LegacySessionRequest = legacy;
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey)).toBe(true);
   });
 });

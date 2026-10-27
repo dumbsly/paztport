@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { decode, keyPairMatches, parseProof, provesPath, routeOf, verifyRoot, type MerkleProof, type SignedRoot } from "@paztport/core";
 import type { ServerPolicy } from "@paztport/mcp";
@@ -61,7 +61,10 @@ function validateServerConfig(cfg: ServerPolicy): void {
   }
 }
 
-/** Loads and validates the files the policy-tool keygen and policy CLIs write into one directory. */
+/**
+ * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, and the
+ * client policy key the server pins (client-policy.pub, written by setup-demo).
+ */
 export function loadServerConfig(dir: string): ServerPolicy {
   const ring = readJson(join(dir, "keyring.json"));
   if (!isObject(ring) || !isObject(ring.services)) {
@@ -84,6 +87,10 @@ export function loadServerConfig(dir: string): ServerPolicy {
   } catch (e) {
     throw new Error(`malformed route proof for ${ROUTE} in proofs-mcp-entry.json: ${(e as Error).message}`);
   }
+  const pinPath = join(dir, "client-policy.pub");
+  if (!existsSync(pinPath)) {
+    throw new Error(`${pinPath} is missing: regenerate the demo keys with npm run setup-demo -- --force`);
+  }
   const cfg: ServerPolicy = {
     policyPrivateKey: readText(join(dir, "policy.key")),
     policyPublicKey: str(ring.policy, "keyring policy"),
@@ -94,6 +101,7 @@ export function loadServerConfig(dir: string): ServerPolicy {
     inst: "mock-github-1",
     hops: HOPS,
     serverId: "github",
+    pinnedClientKeys: [readText(pinPath)],
   };
   validateServerConfig(cfg);
   return cfg;

@@ -15,6 +15,7 @@ import {
   parseProof,
   NonceCache,
   NONCE_TTL_MS,
+  signKeyring,
   signRoot,
   signStampV2,
   verifySessionReply,
@@ -66,27 +67,33 @@ export type TestClient = {
   ): { reason: ReasonCode; labels: ContentLabel[] };
 };
 
-/** `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey. */
+/** The policy key every generated test client signs with, so a test server can pin it. */
+export const CLIENT_POLICY = generateKeyPair();
+
+/** `keyringSig` is the policy key's signature over the session and pi keys. */
 type ClientMaterial = {
   policyPublicKey: string;
   session: { privateKey: string; publicKey: string };
   pi: { privateKey: string; publicKey: string };
+  keyringSig: string;
   signedRoot: SignedRoot;
   proofFor(tool: string): MerkleProof;
 };
 
-function generatedMaterial(tools: string[]): ClientMaterial & { policyPrivateKey: string } {
-  const policy = generateKeyPair();
+function generatedMaterial(tools: string[]): ClientMaterial {
+  const policy = CLIENT_POLICY;
   const { signedRoot, bundles } = buildPolicy(
     tools.map((t) => ["session", "pi", `mcp:github.${t}`]),
     8,
     policy.privateKey,
   );
+  const session = generateKeyPair();
+  const pi = generateKeyPair();
   return {
     policyPublicKey: policy.publicKey,
-    policyPrivateKey: policy.privateKey,
-    session: generateKeyPair(),
-    pi: generateKeyPair(),
+    session,
+    pi,
+    keyringSig: signKeyring({ session: session.publicKey, pi: pi.publicKey }, policy.publicKey, policy.privateKey).sig,
     signedRoot,
     proofFor: (tool) => bundles["pi"]!.proofs[`session/pi/mcp:github.${tool}`]!,
   };
@@ -102,6 +109,7 @@ function loadMaterial(dir: string): ClientMaterial {
     policyPublicKey: ring.policy,
     session: { privateKey: text("session.key"), publicKey: ring.services.session },
     pi: { privateKey: text("pi.key"), publicKey: ring.services.pi },
+    keyringSig: ring.sig,
     signedRoot: json("root.json"),
     proofFor: (tool) => parseProof(bundle.proofs[`session/pi/mcp:github.${tool}`]),
   };
@@ -127,6 +135,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       clientRoot,
       clientPolicyKey: policy.publicKey,
       clientKeyring: { session: session.publicKey, pi: pi.publicKey },
+      clientKeyringSig: m.keyringSig,
       nonce: newNonce(),
     };
     return req;

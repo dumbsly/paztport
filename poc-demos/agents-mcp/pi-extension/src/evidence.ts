@@ -30,6 +30,8 @@ export type EvidenceRecord =
       v: 1;
       type: "client";
       keyring: Record<string, string>;
+      /** The policy key's signature over the keyring (verify accepts an older record without one). */
+      keyringSig: string;
       policyPublicKey: string;
       signedRoot: SignedRoot;
       rules: LocalRules | null;
@@ -69,6 +71,7 @@ export function clientRecord(material: ClientMaterial): ClientRecord {
     v: 1,
     type: "client",
     keyring: material.keyring,
+    keyringSig: material.keyringSig,
     policyPublicKey: material.policyPublicKey,
     signedRoot: material.signedRoot,
     rules,

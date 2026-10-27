@@ -103,6 +103,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
       clientRoot: material.signedRoot,
       clientPolicyKey: material.policyPublicKey,
       clientKeyring: material.keyring,
+      clientKeyringSig: material.keyringSig,
     });
     expect(typeof s.request.nonce).toBe("string");
     expect(s.reply).toMatchObject({ status: "attested", serverPolicyKey: s.pin, sess: expect.any(String), sig: expect.any(String) });
@@ -314,6 +315,7 @@ describe("extension wiring", { timeout: 30_000 }, () => {
         v: 1,
         type: "client",
         keyring: material.keyring,
+        keyringSig: material.keyringSig,
         policyPublicKey: material.policyPublicKey,
         signedRoot: material.signedRoot,
         rules: null,

@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, verifyProof, decode } from "@paztport/core";
+import { generateKeyPair, verifyKeyring, verifyProof, decode } from "@paztport/core";
 import { loadClientMaterial, readPin } from "../src/keys.ts";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -48,7 +48,29 @@ describe("loadClientMaterial", () => {
     // least privilege: the root is checked with the policy public key alone, and setup-demo does not
     // leave the client policy private key behind
     expect(existsSync(join(client, "policy.key"))).toBe(false);
-    expect(Object.keys(m).sort()).toEqual(["keyring", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
+    expect(Object.keys(m).sort()).toEqual(["keyring", "keyringSig", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
+  });
+
+  it("carriesTheKeyringSignature", () => {
+    const m = loadClientMaterial(client);
+    expect(m.keyringSig).toBe(json(join(client, "keyring.json")).sig);
+    expect(verifyKeyring({ policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig }, m.policyPublicKey)).toBe(true);
+  });
+
+  it("anUnsignedKeyringNamesTheFix", () => {
+    // a keyring.json from before keyrings were signed
+    const dir = copy();
+    const { sig: _sig, ...ring } = json(join(dir, "keyring.json"));
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify(ring));
+    expect(() => loadClientMaterial(dir)).toThrow("npm run setup-demo -- --force");
+  });
+
+  it("aKeyringSignatureThatFailsIsRejected", () => {
+    const dir = copy();
+    const ring = json(join(dir, "keyring.json"));
+    ring.services.extra = generateKeyPair().publicKey;
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify(ring));
+    expect(() => loadClientMaterial(dir)).toThrow("keyring.json is not signed by its policy key");
   });
 
   it("loadsSignedLocalRules", () => {

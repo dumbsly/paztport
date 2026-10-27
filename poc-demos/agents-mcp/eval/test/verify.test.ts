@@ -788,6 +788,23 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(results(forged.items, "client")).toEqual(["BAD_CLIENT"]);
   });
 
+  it("aClientRecordsKeyringSignatureMustVerify", () => {
+    const flip = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
+    expect(typeof localLines.map((l) => JSON.parse(l)).find((x) => x.type === "client").keyringSig).toBe("string");
+    const r = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); c.keyringSig = flip(c.keyringSig); }));
+    expect(r.ok).toBe(false);
+    expect(results(r.items, "client")).toEqual(["BAD_CLIENT"]);
+    expect(results(r.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
+    for (const sig of [null, 1, ""]) {
+      const malformed = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").keyringSig = sig; }));
+      expect(results(malformed.items, "client"), String(sig)).toEqual(["BAD_CLIENT"]);
+    }
+    // a client record from before keyrings were signed has no keyringSig, and still verifies
+    const legacy = verifyEvidence(write(localLines, (rs) => { delete rs.find((x) => x.type === "client").keyringSig; }));
+    expect(results(legacy.items, "client")).toEqual(["OK"]);
+    expect(legacy.ok).toBe(true);
+  });
+
   it("proofsAreCheckedAgainstTheClientRoot", () => {
     // an allowed call whose proof is removed no longer matches its signed routeAllowed
     const dropped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = null; }));
