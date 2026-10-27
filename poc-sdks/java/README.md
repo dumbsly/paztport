@@ -75,11 +75,14 @@ Glue, configured through `paztport.*` properties.
   chain passed the full live order there: its own verifier, itself as receiver, the
   request's proof and influence, and the peer under mutual TLS. That needs a stamp
   key and a keyring, root and policy pin, and holds whether or not the service
-  verifies requests: where `paztport.verify` is false, or the mode is `off`, the
-  filter verifies the chain for attestation alone, and a failure only withholds the
-  attestation. The reason is that a response stamp is shaped like a request stamp:
-  attesting a chain nobody checked would let whoever sent it mint stamps under the
-  service's key. An origin never attests, nor does a service with no verifier.
+  verifies requests: where `paztport.verify` is false, the filter verifies the chain
+  for attestation alone, and a failure only withholds the attestation. The reason
+  is that a response stamp is shaped like a request stamp: attesting a chain nobody
+  checked would let whoever sent it mint stamps under the service's key. An origin
+  never attests, nor does a service with no verifier. A service that verifies
+  requests and is in `off` mode, set at startup or through `/admin/mode`, verifies
+  nothing and attests nothing: `off` turns Paztport off on that hop. That is
+  fail-safe, because its callers record an unattested response as `local-untrusted`.
   The stamp binds the status, the body and the labels its handler added with
   `PaztportContext.label`, and is sent as `X-Path-Response`. Refusals and audit-mode
   failures are not attested. The stamp covers the whole body, so the body is held

@@ -91,7 +91,8 @@ takes the inbound chain and the influence so far from a request-scoped context,
 and attaches the proof for `(chain so far) + target` if this hop holds one. The
 inbound filter caches the body, records the received chain for later appends,
 runs verification on verifying services, and attests responses: every service but
-the origin attests its answer to a request whose chain verified there.
+the origin attests its answer to a request whose chain verified there, unless an
+operator has switched it `off`.
 
 A response is attested by one more stamp on the chain the request arrived with,
 naming the caller as its receiver and binding the status, the body and any content
@@ -247,11 +248,12 @@ keyring, the root and the pin, so each checks every response it gets.
   `search`, which don't refuse requests, still run the full live order on each
   request's chain, with their own trust material, themselves as receiver and the
   peer their client certificate names, and attest only when it passes; a failure
-  just leaves the answer unattested. `payment` attests what it verified, and, in
-  `off`, verifies for attestation alone. A refusal, or a request that failed in
-  `audit`, is answered without an attestation. `gateway` is the origin: it starts
-  each request tree with no chain and no influence, whatever a request carries, and
-  never attests.
+  just leaves the answer unattested. `payment` attests what it verified. In `off`,
+  Paztport is off on `payment`: it verifies nothing, not even for attestation, and
+  attests nothing, so `orders` counts its answer as untrusted. A refusal, or a
+  request that failed in `audit`, is answered without an attestation. `gateway` is
+  the origin: it starts each request tree with no chain and no influence, whatever
+  a request carries, and never attests.
 - A verified response's labels become influence on whatever the caller does next.
   Any other response, unattested, failing or a refusal, still reaches the caller,
   and adds one `local-untrusted` influence entry, so content nobody vouched for
@@ -376,13 +378,16 @@ Each verifying service runs in one of three modes (`PAZTPORT_MODE`):
 
 | Mode | Verifies | Rejects | Use |
 |---|---|---|---|
-| `off` | no | no | Latency baseline |
+| `off` | no, and attests no responses | no | Paztport off on this hop: the latency baseline |
 | `audit` | yes, logs events marked `audit=true` | no | Measure the false-positive rate on real traffic |
 | `enforce` | yes | yes, with a 403 | Protection |
 
-The mode governs `payment`'s check of requests only. Callers check every
-response they get in every mode, and a response check never refuses anything: it
-only decides whether the response counts as trusted.
+The mode governs `payment`'s check of requests and, in `off`, its attestation of
+responses: with Paztport off, `payment` vouches for nothing it answers. That is
+fail-safe, since `orders` records an unattested answer as `local-untrusted`, so
+switching a hop off can only add caution downstream. Callers check every response
+they get in every mode, and a response check never refuses anything: it only
+decides whether the response counts as trusted.
 
 `audit` is the on-ramp for an existing system. You run it against real traffic,
 measure how often retries, health checks, and batch jobs trip it, fix the policy,
@@ -425,15 +430,20 @@ unit tests. Each of these was root-caused before it was fixed:
 ## Measurements
 
 Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 21
-runtime) with k6 driving the legitimate path (10 virtual users for 20 s, via
-[measure.sh](measure.sh)), mutual TLS on every hop. `payment` is toggled between
-`off` and `enforce` with everything else identical, so the difference is the cost
-of `payment`'s request verification. No request failed in either run.
+runtime) with k6 driving the legitimate path at 10 virtual users, via
+[measure.sh](measure.sh), mutual TLS on every hop. `payment` is switched between
+`off`, where Paztport is off on that hop, and `enforce`, with everything else
+identical. Each mode first gets a 10 s warm-up that is thrown away, so neither pays
+for the JVMs' and the connections' warm-up. Then three rounds each run both modes
+for 20 s, the leading mode alternating (`off` then `enforce`, `enforce` then `off`,
+`off` then `enforce`), so drift over the session doesn't favour one mode. The
+table gives each mode's median over its three runs, with the three runs' range. No
+request failed in any run.
 
-| | p50 | p99 | mean | max |
-|---|---|---|---|---|
-| `payment` in `off` (run first) | 12.55 ms | 35.43 ms | 14.13 ms | 56.78 ms |
-| `payment` in `enforce` | 10.34 ms | 21.46 ms | 11.09 ms | 49.29 ms |
+| | p50 | p99 |
+|---|---|---|
+| `payment` in `off` | 8.58 ms (8.54–8.88) | 20.18 ms (19.87–20.77) |
+| `payment` in `enforce` | 10.59 ms (10.58–10.79) | 23.41 ms (21.21–52.50) |
 
 | Operation | Cost |
 |---|---|
@@ -444,10 +454,15 @@ of `payment`'s request verification. No request failed in either run.
 
 What the numbers say:
 
-- **Verification's cost is below the run-to-run noise at this load.** `enforce`
-  measured faster than `off`, which verification can't cause: `off` ran first, so
-  it most likely carries the JVM's and the connections' warm-up. Read the two
-  rows as the same, not as `enforce` being cheaper.
+- **`enforce` adds about 2 ms at the median at this load.** Every `enforce` run's
+  p50 was 1.7–2.3 ms above every `off` run's, so the gap is larger than the
+  run-to-run spread, but three runs per mode support "about 2 ms", not a finer
+  figure. The p99 gap is about 3 ms with one `enforce` outlier run, so treat it as
+  rougher still. The difference covers `payment`'s verification of the request
+  (two stamps), its signing of the response, and `orders`' check of that response
+  stamp (three stamps), which in `off` finds no stamp and stops at once. At the
+  micro-benchmark costs in the table above that is about 1.3 ms of Ed25519; the
+  rest is likely contention among the 10 users, which isn't measured separately.
 - **The proof of legitimacy is effectively free.** All the cost is in the
   signature chain, one Ed25519 verify per stamp.
 - **Stock JDK Ed25519 is the slow part.** It runs about 5–10× slower than
@@ -463,11 +478,18 @@ Caveats:
 
 - **Single host, loopback networking.** These numbers show feasibility. They
   aren't a production SLA.
-- **`off` vs `enforce` isolates request verification, nothing else.** Both runs
-  include mutual TLS on every hop, the stamps every caller signs, the response
-  stamps `payment` and `orders` sign, and the response checks at `orders` and
-  `gateway`. Only `payment` verifies requests in this topology, so a design that
-  verifies at every hop multiplies that cost by the number of verifying hops.
+- **`off` vs `enforce` measures one hop's Paztport work and its caller's check of
+  it, nothing else.** Both runs
+  include mutual TLS on every hop, the request stamps `gateway` and `orders` sign,
+  `orders`' response stamp and `gateway`'s check of it, so none of those is in the
+  difference, and none is measured on its own. Only `payment` verifies requests in
+  this topology, so a design that verifies at every hop multiplies that cost by the
+  number of verifying hops.
+- **Means and maxima are left out.** In this session every timed run, in both
+  modes, had a maximum of about 1 s (one 2.8 s), which pulled the means to
+  16–21 ms. The stalls appear just as much with Paztport off, so they aren't
+  verification's cost; they look like the host's networking or connection
+  handling, and weren't investigated further.
 - **The primitive costs are JIT-warmed micro-benchmarks from an earlier
   measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated
   for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
