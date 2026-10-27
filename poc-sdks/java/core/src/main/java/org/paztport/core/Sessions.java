@@ -1,0 +1,271 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package org.paztport.core;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * The session handshake as pure functions over messages, with no transport: building and checking the request and
+ * reply, deriving the session id and deciding the status. A transport carries the JSON forms between the two
+ * sides. Every check that reads untrusted input fails closed rather than throwing, except {@link #parseRequest},
+ * which throws so a server can answer Invalid params.
+ */
+public final class Sessions {
+
+    private static final String REPLY_DOMAIN = "paztport-session-reply\n";
+    private static final String ATTESTED = "attested";
+    private static final String UNSAFE = "unsafe";
+
+    private Sessions() {
+    }
+
+    /** 16 fresh random bytes, base64url. */
+    public static String newNonce() {
+        return Base64Url.encode(Crypto.randomBytes(16));
+    }
+
+    /** A root's wire form: JSON null when there is none. */
+    static JsonNode rootJson(SignedRoot root) {
+        if (root == null) {
+            return JsonNodeFactory.instance.nullNode();
+        }
+        ObjectNode o = JsonNodeFactory.instance.objectNode();
+        o.put("rootId", root.rootId());
+        o.put("root", root.root());
+        o.put("sig", root.sig());
+        return o;
+    }
+
+    /**
+     * Reads a request, throwing {@link IllegalArgumentException} on a shape error (the spec's Invalid params). A
+     * missing {@code clientKeyringSig} is legacy (null); a present one that is not a string reads as the empty
+     * string, which never verifies.
+     */
+    public static SessionRequest parseRequest(JsonNode params) {
+        if (params == null || !params.isObject()) {
+            throw new IllegalArgumentException("session request must be an object");
+        }
+        JsonNode r = params.get("clientRoot");
+        SignedRoot root = null;
+        if (r == null || !(r.isNull() || r.isObject())) {
+            throw new IllegalArgumentException("clientRoot must be an object or null");
+        }
+        if (r.isObject()) {
+            root = new SignedRoot(text(r.get("rootId"), "clientRoot.rootId"), text(r.get("root"), "clientRoot.root"),
+                    text(r.get("sig"), "clientRoot.sig"));
+        }
+        JsonNode ring = params.get("clientKeyring");
+        if (ring == null || !ring.isObject()) {
+            throw new IllegalArgumentException("clientKeyring must be an object");
+        }
+        String sig = null;
+        if (params.has("clientKeyringSig")) {
+            sig = params.get("clientKeyringSig").isTextual() ? params.get("clientKeyringSig").textValue() : "";
+        }
+        return new SessionRequest(root, text(params.get("clientPolicyKey"), "clientPolicyKey"), stringMap(ring), sig,
+                text(params.get("nonce"), "nonce"));
+    }
+
+    private static String text(JsonNode n, String what) {
+        if (n == null || !n.isTextual()) {
+            throw new IllegalArgumentException(what + " must be a string");
+        }
+        return n.textValue();
+    }
+
+    private static Map<String, String> stringMap(JsonNode o) {
+        Map<String, String> out = new LinkedHashMap<>();
+        Iterator<Map.Entry<String, JsonNode>> it = o.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            out.put(e.getKey(), text(e.getValue(), "entry " + e.getKey()));
+        }
+        return out;
+    }
+
+    /**
+     * Whether a well-shaped request may open a session at all: the nonce is 16 bytes, a present client root's
+     * signature is 64, and the keyring and policy key can be canonicalised. A server answers a request that fails
+     * this with an error other than Method not found and leaves its current session in place.
+     */
+    public static boolean opensSession(SessionRequest req) {
+        return length(req.nonce(), 16)
+                && (req.clientRoot() == null || length(req.clientRoot().sig(), 64))
+                && keysHash(req.clientPolicyKey(), req.clientKeyring()) != null;
+    }
+
+    private static boolean length(String b64, int n) {
+        try {
+            return Base64Url.decode(b64).length == n;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static byte[] keysHash(String clientPolicyKey, Map<String, String> clientKeyring) {
+        try {
+            ObjectNode o = JsonNodeFactory.instance.objectNode();
+            o.put("clientPolicyKey", clientPolicyKey);
+            ObjectNode ring = o.putObject("clientKeyring");
+            clientKeyring.forEach(ring::put);
+            return Crypto.sha256(Jcs.bytes(o));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Binds both roots, both nonces and the client's policy key and keyring. A null root signature means that root
+     * is absent, and the flags byte says so. Returns null when any part is not exactly the length it must be (or
+     * cannot be decoded or canonicalised), so there is no session id for it.
+     */
+    public static String deriveSessionId(String clientRootSig, String serverRootSig, String clientNonce,
+            String serverNonce, String clientPolicyKey, Map<String, String> clientKeyring) {
+        try {
+            byte[] clientSig = clientRootSig == null ? new byte[0] : Base64Url.decode(clientRootSig);
+            byte[] serverSig = serverRootSig == null ? new byte[0] : Base64Url.decode(serverRootSig);
+            byte[] cn = Base64Url.decode(clientNonce);
+            byte[] sn = Base64Url.decode(serverNonce);
+            byte[] keys = keysHash(clientPolicyKey, clientKeyring);
+            if (keys == null || clientSig.length != (clientRootSig == null ? 0 : 64)
+                    || serverSig.length != (serverRootSig == null ? 0 : 64) || cn.length != 16 || sn.length != 16) {
+                return null;
+            }
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            out.write(0x02);
+            out.write((clientRootSig != null ? 1 : 0) | (serverRootSig != null ? 2 : 0));
+            out.writeBytes(clientSig);
+            out.writeBytes(serverSig);
+            out.writeBytes(cn);
+            out.writeBytes(sn);
+            out.writeBytes(keys);
+            return Base64Url.encode(Crypto.sha256(out.toByteArray()));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * {@code "attested"} only when both roots verify under their own side's policy key, the client's policy key is
+     * pinned and the client's keyring is signed by it; otherwise {@code "unsafe"}. With no pins every session is
+     * unsafe, and a legacy request (no keyring signature) is unsafe live. Never throws.
+     */
+    public static String status(SessionRequest req, SignedRoot ownRoot, PublicKey ownPolicyKey,
+            Set<String> pinnedClientKeys) {
+        try {
+            PublicKey clientKey = Crypto.decodePublicKey(Base64Url.decode(req.clientPolicyKey()));
+            boolean ok = req.clientRoot() != null && ownRoot != null && pinnedClientKeys.contains(req.clientPolicyKey())
+                    && req.clientRoot().verify(clientKey) && ownRoot.verify(ownPolicyKey)
+                    && req.clientKeyringSig() != null && Crypto.verify(clientKey,
+                            KeyringFile.signingBytes(req.clientPolicyKey(), req.clientKeyring()),
+                            Base64Url.decode(req.clientKeyringSig()));
+            return ok ? ATTESTED : UNSAFE;
+        } catch (IllegalArgumentException e) {
+            return UNSAFE;
+        }
+    }
+
+    /** The bytes the reply signature covers: a domain prefix, then the JCS of the reply without its signature. */
+    public static byte[] replySigningBytes(SessionReply reply) {
+        return signingBytes(reply.toJson());
+    }
+
+    private static byte[] signingBytes(JsonNode replyJson) {
+        ObjectNode body = replyJson.deepCopy();
+        body.remove("sig");
+        byte[] prefix = REPLY_DOMAIN.getBytes(StandardCharsets.UTF_8);
+        byte[] json = Jcs.bytes(body);
+        byte[] out = new byte[prefix.length + json.length];
+        System.arraycopy(prefix, 0, out, 0, prefix.length);
+        System.arraycopy(json, 0, out, prefix.length, json.length);
+        return out;
+    }
+
+    /** Signs the reply with the server policy key; any signature already on the input is replaced. */
+    public static SessionReply signReply(SessionReply unsigned, PrivateKey serverPolicyKey) {
+        SessionReply bare = new SessionReply(unsigned.serverRoot(), unsigned.serverPolicyKey(),
+                unsigned.serverKeyring(), unsigned.nonce(), unsigned.sess(), unsigned.status(), unsigned.disabled(),
+                null);
+        String sig = Base64Url.encode(Crypto.sign(serverPolicyKey, replySigningBytes(bare)));
+        return new SessionReply(bare.serverRoot(), bare.serverPolicyKey(), bare.serverKeyring(), bare.nonce(),
+                bare.sess(), bare.status(), bare.disabled(), sig);
+    }
+
+    /**
+     * The client's check of a reply against the request it sent and the server policy key it pinned, in the
+     * spec's order: shape, pin, then signature, roots and session id, then status. Takes the raw JSON so that
+     * the shape check is the first outcome. Never throws.
+     */
+    public static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey) {
+        if (!wellShaped(reply)) {
+            return ReplyCheck.MALFORMED_REPLY;
+        }
+        String serverPolicyKey = reply.get("serverPolicyKey").textValue();
+        if (!serverPolicyKey.equals(pinnedServerPolicyKey)) {
+            return ReplyCheck.PIN_MISMATCH;
+        }
+        try {
+            PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
+            if (!Crypto.verify(pin, signingBytes(reply), Base64Url.decode(reply.get("sig").textValue()))) {
+                return ReplyCheck.BAD_SIGNATURE;
+            }
+            JsonNode root = reply.get("serverRoot");
+            boolean attested = reply.get("status").textValue().equals(ATTESTED);
+            if (attested && (root.isNull() || req.clientRoot() == null)) {
+                return ReplyCheck.BAD_SIGNATURE;
+            }
+            String expected = deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
+                    root.isNull() ? null : root.get("sig").textValue(), req.nonce(), reply.get("nonce").textValue(),
+                    req.clientPolicyKey(), req.clientKeyring());
+            if (expected == null || !expected.equals(reply.get("sess").textValue())) {
+                return ReplyCheck.BAD_SIGNATURE;
+            }
+            if (!root.isNull() && !new SignedRoot(root.get("rootId").textValue(), root.get("root").textValue(),
+                    root.get("sig").textValue()).verify(pin)) {
+                return ReplyCheck.BAD_SIGNATURE;
+            }
+            return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
+        } catch (IllegalArgumentException e) {
+            return ReplyCheck.BAD_SIGNATURE;
+        }
+    }
+
+    private static boolean wellShaped(JsonNode r) {
+        if (r == null || !r.isObject()) {
+            return false;
+        }
+        JsonNode root = r.get("serverRoot");
+        boolean rootOk = root != null && (root.isNull() || (root.isObject() && isText(root.get("rootId"))
+                && isText(root.get("root")) && isText(root.get("sig"))));
+        JsonNode status = r.get("status");
+        JsonNode ring = r.get("serverKeyring");
+        JsonNode disabled = r.get("disabled");
+        return rootOk && isText(r.get("serverPolicyKey")) && ring != null && ring.isObject() && allText(ring)
+                && isText(r.get("nonce")) && isText(r.get("sess")) && status != null && status.isTextual()
+                && (status.textValue().equals(ATTESTED) || status.textValue().equals(UNSAFE))
+                && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"));
+    }
+
+    private static boolean isText(JsonNode n) {
+        return n != null && n.isTextual();
+    }
+
+    private static boolean allText(JsonNode container) {
+        List<JsonNode> items = new ArrayList<>();
+        container.forEach(items::add);
+        return items.stream().allMatch(JsonNode::isTextual);
+    }
+}

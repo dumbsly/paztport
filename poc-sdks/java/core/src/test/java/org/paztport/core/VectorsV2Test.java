@@ -8,6 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.util.HexFormat;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -41,5 +43,35 @@ class VectorsV2Test {
     void bindPrompt() {
         JsonNode c = vectors.get("bindPrompt");
         assertEquals(c.get("expected").asText(), Bindings.prompt(c.get("prompt").asText()));
+    }
+
+    @Test
+    void deriveSessionId() {
+        JsonNode d = vectors.get("deriveSessionId");
+        JsonNode keys = d.get("keys");
+        Map<String, String> keyring = new LinkedHashMap<>();
+        keys.get("clientKeyring").fields().forEachRemaining(e -> keyring.put(e.getKey(), e.getValue().asText()));
+        for (JsonNode c : d.get("cases")) {
+            assertEquals(c.get("expected").asText(),
+                    Sessions.deriveSessionId(fixed(c.get("clientRootSig")), fixed(c.get("serverRootSig")),
+                            fixed("clientNonce"), fixed("serverNonce"), keys.get("clientPolicyKey").asText(), keyring),
+                    c.get("name").asText());
+        }
+    }
+
+    private static String fixed(JsonNode nameOrNull) {
+        return nameOrNull.isNull() ? null : fixed(nameOrNull.asText());
+    }
+
+    /** The named fixed input: {@code length} consecutive bytes from {@code start}, base64url. */
+    private static String fixed(String name) {
+        JsonNode f = vectors.get("fixedInputs").get(name);
+        byte[] bytes = new byte[f.get("length").asInt()];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) (f.get("start").asInt() + i);
+        }
+        String encoded = Base64Url.encode(bytes);
+        assertEquals(f.get("encoded").asText(), encoded);
+        return encoded;
     }
 }
