@@ -1,0 +1,8 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+#
+# The PSP's own routes. It needs a signed root of its own for the shop to open
+# an attested session with it; the shop sees only that root's signature, never
+# these routes. "ledger" stands for its card ledger, which the demo does not build.
+paths:
+  - [psp, ledger]

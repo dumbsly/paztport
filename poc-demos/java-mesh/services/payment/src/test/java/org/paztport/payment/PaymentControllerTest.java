@@ -30,4 +30,12 @@ class PaymentControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("PAID"));
     }
+
+    // The boundary client exists only where compose names a partner, so a charge here has nowhere to go.
+    @Test
+    void chargeWithNoPartnerIsUnavailable() throws Exception {
+        mvc.perform(post("/charge").contentType(MediaType.APPLICATION_JSON).content("{\"order\":\"123\"}"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.reason").value("NO_PARTNER"));
+    }
 }

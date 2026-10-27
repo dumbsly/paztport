@@ -18,6 +18,7 @@ set -u
 cd "$(dirname "$0")"
 
 MESH="paztport-mesh"
+PSP_NET="paztport-psp"
 CURL="curlimages/curl:latest"
 # The operator's certificate, mounted file by file: never the whole tls directory.
 # The key files are owner-only and the curl image runs as an unprivileged user,
@@ -26,6 +27,10 @@ TLS_MOUNTS=(-v "$PWD/out/keys/tls/ca.crt:/tls/ca.crt:ro"
   -v "$PWD/out/keys/tls/operator.crt:/tls/operator.crt:ro"
   -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro")
 TLS_ARGS=(--cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key)
+# On the PSP's network the same operator certificate is presented, and the PSP's CA is the one trusted.
+PSP_TLS_MOUNTS=(-v "$PWD/out/psp-keys/tls/ca.crt:/tls/ca.crt:ro"
+  -v "$PWD/out/keys/tls/operator.crt:/tls/operator.crt:ro"
+  -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro")
 
 # Faster ESCALATE: the circuit breaker trips on the 2nd quarantine instead of the 3rd.
 export QUARANTINE_MAX_PER_SVC=1
@@ -63,6 +68,17 @@ mreq() {
   BODY=$(printf '%s' "$out" | sed '$d')
 }
 
+# preq METHOD URL [curl args...] -> sets CODE and BODY; as mreq, but on the PSP's network
+preq() {
+  local method="$1" url="$2"
+  shift 2
+  local out
+  out=$(docker run --rm --user 0:0 --network "$PSP_NET" "${PSP_TLS_MOUNTS[@]}" "$CURL" -s "${TLS_ARGS[@]}" \
+    -w $'\n%{http_code}' -X "$method" "$url" "$@" 2>/dev/null)
+  CODE=$(printf '%s' "$out" | tail -n1)
+  BODY=$(printf '%s' "$out" | sed '$d')
+}
+
 check_code() { # name expected_code
   if [ "$CODE" = "$2" ]; then record PASS "$1" "HTTP $CODE"; else record FAIL "$1" "expected HTTP $2, got $CODE ($BODY)"; fi
 }
@@ -81,6 +97,7 @@ write_paths() { # writes policy/paths.yaml with the given extra route flag
     echo "  - [gateway, orders, payment]"
     echo "  - [gateway, orders]"
     echo "  - [gateway, search]"
+    echo "  - [payment, psp]"
     [ "${1:-}" = "widen" ] && echo "  - [gateway, search, payment]"
   } > policy/paths.yaml
 }
@@ -108,18 +125,28 @@ wait_ready() {
       sleep 1
     done
   done
+  for _ in $(seq 1 30); do
+    preq GET "https://psp:8080/__ping" 2>/dev/null
+    [ "$CODE" != "000" ] && [ -n "$CODE" ] && break
+    sleep 1
+  done
 }
 
 echo "== Paztport demo =="
 echo "bringing up the mesh..."
 # `docker compose run` never rebuilds an image, so the tools are rebuilt here from the freshly
 # built jars; otherwise an old keygen would write keys in its old layout.
-quietly "building the keygen and policy-tool images" docker compose build keygen policy-tool
-# Keys from before mutual TLS have no policy pin and no certificates, so they are replaced too.
+quietly "building the keygen and policy-tool images" \
+  docker compose build keygen policy-tool keygen-psp policy-tool-psp
+# Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
+# services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced.
 # A bind-mount source Docker created as an empty directory (see below) would block keygen.
-for p in out/keys/policy.pub out/keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
-if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ]; then
+for p in out/keys/policy.pub out/keys/tls/* out/psp-keys/policy.pub out/psp-keys/policy.key \
+  out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
+if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
+  || [ ! -f out/psp-keys/policy.pub ]; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
+  quietly "generating the PSP's keys and certificates (keygen-psp)" docker compose run --rm keygen-psp
 fi
 remove_replacements                          # clear any stray replacements from a prior run
 PAZTPORT_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
@@ -127,9 +154,11 @@ export PAZTPORT_ADMIN_TOKEN
 # The policy files must exist before the first `up`: Docker creates a missing bind-mount
 # source as an empty directory, which the services then fail to read and the policy-tool
 # cannot overwrite. So write the policy and build the root before starting the mesh.
-for p in out/policy/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done   # leftovers from such a run
+for p in out/policy/* out/psp-policy/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done   # leftovers from such a run
 write_paths            # restore original policy
 quietly "building the policy root (policy-tool)" docker compose run --rm policy-tool
+# The PSP's root: another organisation's, so rebuild_policy never touches it.
+quietly "building the PSP's policy root (policy-tool-psp)" docker compose run --rm policy-tool-psp
 # fresh mesh, payment log-only
 quietly "building and starting the mesh" env RESPONDER_URL="" docker compose up -d --build --force-recreate
 rebuild_policy         # rebuild original root, recreate services (resets mode=enforce)
@@ -196,6 +225,36 @@ check_reason "10 policy widened -> forward allowed" 200 PAID
 # restore original policy before the responder scenarios
 write_paths
 rebuild_policy
+
+# 11 — alice pays for order 123: gateway->orders->payment, then payment, the shop's egress, charges the
+# PSP across the boundary in an attested session, which registers her card to her.
+mreq POST "https://gateway:8080/purchase" -H 'Authorization: Bearer alice-token' \
+  -H 'Content-Type: application/json' -d '{"order":"123","card":"4242 4242 4242 4242"}'
+boundary=$(docker compose logs --no-log-prefix payment 2>/dev/null | sed -n 's/.*\(PAZTPORT_TRACE boundary .*\)/\1/p' | tail -n1)
+if [ "$CODE" = "200" ] && printf '%s' "$BODY" | grep -q CHARGED && printf '%s' "$boundary" | grep -q 'session=attested'; then
+  record PASS "11 charge across the boundary, attested" "HTTP $CODE CHARGED, session=attested"
+else
+  record FAIL "11 charge across the boundary, attested" "expected HTTP 200/CHARGED in an attested session, got $CODE ($BODY) [${boundary:-no boundary trace}]"
+fi
+echo "   payment: ${boundary:-(no PAZTPORT_TRACE boundary line)}"
+
+# 14 — a caller with no root to show (the operator) opens a session at the PSP itself: it is unsafe,
+# so the PSP refuses refunds in it, and takes charges but registers no card from them.
+nonce=$(head -c16 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
+preq POST "https://psp:8080/paztport/session" -H 'Content-Type: application/json' \
+  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"nonce\":\"$nonce\"}"
+sess=$(printf '%s' "$BODY" | sed -n 's/.*"sess":"\([A-Za-z0-9_-]*\)".*/\1/p')
+unsafe=false
+printf '%s' "$BODY" | grep -q '"status":"unsafe"' && unsafe=true
+preq POST "https://psp:8080/refund" -H "X-Path-Session: $sess" -H 'Content-Type: application/json' -d '{"order":"123"}'
+if $unsafe && [ -n "$sess" ] && [ "$CODE" = "403" ] && printf '%s' "$BODY" | grep -q UNSAFE_SESSION; then
+  record PASS "14a unsafe session: refund" "HTTP $CODE UNSAFE_SESSION (handshake \"status\":\"unsafe\")"
+else
+  record FAIL "14a unsafe session: refund" "expected an unsafe session and HTTP 403/UNSAFE_SESSION, got unsafe=$unsafe, $CODE ($BODY)"
+fi
+preq POST "https://psp:8080/charge" -H "X-Path-Session: $sess" -H 'Content-Type: application/json' \
+  -d '{"customer":"mallory","order":"456","card":"4000 0000 0000 0002","amount":40}'
+check_reason "14b unsafe session: charge" 200 CHARGED
 
 # 9 — three illicit calls quarantine search; a clean replacement takes over.
 # The responder is only enabled here, so scenarios 1-8/10 don't pollute its counts.

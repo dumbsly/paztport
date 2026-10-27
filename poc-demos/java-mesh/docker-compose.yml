@@ -3,7 +3,9 @@
 #   (cd ../../poc-sdks/java && mvn -q install -DskipTests)   # SDK jars and the tool images' jars
 #   mvn -q package -DskipTests
 #   docker compose run --rm keygen
+#   docker compose run --rm keygen-psp
 #   docker compose run --rm policy-tool
+#   docker compose run --rm policy-tool-psp
 #   docker compose up -d --build
 #
 # Least knowledge is enforced by the volume mounts: each service bind-mounts
@@ -17,6 +19,13 @@
 # verify requests, and its own stamp key, which attests its responses and signs
 # the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
 # is mounted nowhere.
+#
+# The PSP is another organisation, with its own keys (out/psp-keys), its own CA
+# and its own root (out/psp-policy), on its own network. Payment, the shop's
+# egress, is the one service on both networks. It holds the PSP's policy pin and
+# CA certificate, and its proofs for the boundary route payment->psp; the PSP
+# holds the shop's policy pin and CA certificate, and its own policy private key,
+# which signs its session replies. Neither sees the other's routes or keys.
 #
 # The build context is the repository root, because the keygen and policy-tool
 # jars are built under poc-sdks/java. The project name is pinned so container
@@ -37,7 +46,19 @@ services:
         JAR: poc-sdks/java/tools/keygen/target/keygen.jar
     volumes:
       - ./out/keys:/out/keys
-    command: ["/out/keys"]
+    command: ["/out/keys", "gateway", "orders", "payment", "search", "tickets", "assistant", "mailer"]
+
+  keygen-psp:
+    profiles: ["tools"]
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-sdks/java/tools/keygen/target/keygen.jar
+    volumes:
+      - ./out/psp-keys:/out/keys
+    # One stamp key and one certificate, psp, from the PSP's own CA; no TLS-only names.
+    command: ["/out/keys", "psp", "--tls-only", "--org", "psp"]
 
   policy-tool:
     profiles: ["tools"]
@@ -52,6 +73,19 @@ services:
       - ./out/policy:/out/policy
     command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
 
+  policy-tool-psp:
+    profiles: ["tools"]
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-sdks/java/tools/policy-tool/target/policy-tool.jar
+    volumes:
+      - ./psp-policy:/policy:ro
+      - ./out/psp-keys/policy.key:/out/keys/policy.key:ro   # signs the PSP's root
+      - ./out/psp-policy:/out/policy
+    command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
+
   # --- the mesh ---
 
   payment:
@@ -60,7 +94,7 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-demos/java-mesh/services/payment/target/payment.jar
-    networks: [mesh]
+    networks: [mesh, psp]   # the shop's egress: the one service that reaches the PSP
     environment:
       PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
@@ -69,14 +103,23 @@ services:
       PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
       PAZTPORT_EVENT_KEY_PATH: /config/keys/payment.key   # signs events; read only when RESPONDER_URL is set
       RESPONDER_URL: ${RESPONDER_URL:-}   # empty = log only; the demo sets it for the quarantine scenarios
+      # The egress to the PSP: boundary stamps are signed with payment.key and prove the route payment->psp.
+      PAZTPORT_PROOFS_PATH: /config/policy/proofs-payment.json
+      PAZTPORT_BOUNDARY_PARTNER: psp
+      PAZTPORT_BOUNDARY_URL: https://psp:8080
+      PAZTPORT_BOUNDARY_TLS_BUNDLE: psp
+      PAZTPORT_BOUNDARY_PARTNER_POLICY_KEY_PATH: /config/partner/psp-policy.pub
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
-      - ./out/keys/payment.key:/config/keys/payment.key:ro   # response attestation and event signing
+      - ./out/keys/payment.key:/config/keys/payment.key:ro   # response attestation, event and boundary signing
       - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/policy/proofs-payment.json:/config/policy/proofs-payment.json:ro
       - ./out/keys/tls/payment.crt:/config/tls/payment.crt:ro
       - ./out/keys/tls/payment.key:/config/tls/payment.key:ro
       - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
+      - ./out/psp-keys/policy.pub:/config/partner/psp-policy.pub:ro   # the PSP's pin: its session replies must verify
+      - ./out/psp-keys/tls/ca.crt:/config/partner/psp-ca.crt:ro   # trusted on calls to the PSP only
 
   orders:
     build:
@@ -140,6 +183,31 @@ services:
       - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
     depends_on: [orders, search]
 
+  # --- the PSP: another organisation ---
+
+  psp:
+    build:
+      context: ../..
+      dockerfile: poc-demos/java-mesh/Dockerfile
+      args:
+        JAR: poc-demos/java-mesh/psp/target/psp.jar
+    networks: [psp]
+    environment:
+      PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
+      PAZTPORT_ROOT_PATH: /config/policy/root.json
+      PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
+      PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH: /config/keys/policy.key
+      PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS: /config/clients/shop-policy.pub
+    volumes:
+      - ./out/psp-keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/psp-keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/psp-keys/policy.key:/config/keys/policy.key:ro   # signs the PSP's session replies
+      - ./out/psp-policy/root.json:/config/policy/root.json:ro
+      - ./out/psp-keys/tls/psp.crt:/config/tls/psp.crt:ro
+      - ./out/psp-keys/tls/psp.key:/config/tls/psp.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/shop-ca.crt:ro   # the only CA the PSP trusts
+      - ./out/keys/policy.pub:/config/clients/shop-policy.pub:ro   # the shop's pin: its sessions may be attested
+
   responder:
     build:
       context: ../..
@@ -166,3 +234,5 @@ networks:
   quarantine:
     name: paztport-quarantine
     internal: true
+  psp:
+    name: paztport-psp

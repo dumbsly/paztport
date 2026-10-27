@@ -4,3 +4,4 @@
 !poc-sdks/java/tools/*/target/*.jar
 !poc-demos/java-mesh/services/*/target/*.jar
 !poc-demos/java-mesh/responder/target/*.jar
+!poc-demos/java-mesh/psp/target/*.jar

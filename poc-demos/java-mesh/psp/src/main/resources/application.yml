@@ -1,0 +1,38 @@
+# Copyright 2026 The Paztport Authors
+# SPDX-License-Identifier: Apache-2.0
+
+server:
+  port: 8080
+  # Mutual TLS with the shop: its callers present certificates from the shop's
+  # CA, which is all this bundle trusts, and the filter takes the service the
+  # certificate names as the peer whose session a call is in.
+  ssl:
+    bundle: psp
+    client-auth: need
+
+spring:
+  ssl:
+    bundle:
+      pem:
+        psp:
+          keystore:
+            certificate: file:/config/tls/psp.crt
+            private-key: file:/config/tls/psp.key
+          truststore:
+            certificate: file:/config/tls/shop-ca.crt
+
+paztport:
+  service-name: psp
+  # The shop's entry here. Its own keyring, root, policy pin and policy private
+  # key (which signs session replies), and the shop's pinned policy key, are
+  # supplied by the environment in docker-compose (PAZTPORT_KEYRING_PATH,
+  # PAZTPORT_ROOT_PATH, PAZTPORT_POLICY_KEY_PATH,
+  # PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH and
+  # PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS), as payment's key-path is.
+  partner:
+    enabled: true
+    # Only the shop's egress may start a chain in its attested session.
+    client-origins: [payment]
+    # A refund is a public write, so an unsafe session, which carries no
+    # influence to judge it by, may not make one.
+    unsafe-disabled: ["POST /refund"]
