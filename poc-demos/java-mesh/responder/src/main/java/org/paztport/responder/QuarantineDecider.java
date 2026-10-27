@@ -7,6 +7,7 @@ import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.LongSupplier;
 import org.paztport.core.ResponderEvent;
 
@@ -24,6 +25,12 @@ import org.paztport.core.ResponderEvent;
  */
 public final class QuarantineDecider {
 
+    /**
+     * Refusals of a sound chain because of what shaped it. The sender did nothing wrong in transit, so these are
+     * the policy working, not evidence against an instance.
+     */
+    private static final Set<String> POLICY_REFUSALS = Set.of("INFLUENCE_DENIED", "UNSAFE_SESSION");
+
     private final QuarantineConfig config;
     private final LongSupplier clock;
     private final Map<String, Deque<Long>> rejectionsByInstance = new HashMap<>();
@@ -35,7 +42,8 @@ public final class QuarantineDecider {
     }
 
     public QuarantineDecision observe(ResponderEvent event) {
-        if (event.audit() || event.suspectInst() == null || event.suspectInst().isBlank()) {
+        if (event.audit() || POLICY_REFUSALS.contains(event.reason())
+                || event.suspectInst() == null || event.suspectInst().isBlank()) {
             return QuarantineDecision.NONE;
         }
         long now = clock.getAsLong();

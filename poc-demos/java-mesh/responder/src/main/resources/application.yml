@@ -1,5 +1,21 @@
 server:
   port: 8080
+  # Mutual TLS, like the mesh services: only a holder of a mesh CA certificate
+  # gets as far as the event endpoint, which still checks the event's signature.
+  ssl:
+    bundle: mesh
+    client-auth: need
+
+spring:
+  ssl:
+    bundle:
+      pem:
+        mesh:
+          keystore:
+            certificate: file:/config/tls/responder.crt
+            private-key: file:/config/tls/responder.key
+          truststore:
+            certificate: file:/config/tls/ca.crt
 
 quarantine:
   threshold: ${QUARANTINE_THRESHOLD:3}

@@ -1,5 +1,21 @@
 server:
   port: 8080
+  # Mutual TLS: every caller presents a certificate from the mesh CA, and the
+  # filter takes the service it names as the sender.
+  ssl:
+    bundle: mesh
+    client-auth: need
+
+spring:
+  ssl:
+    bundle:
+      pem:
+        mesh:
+          keystore:
+            certificate: file:/config/tls/payment.crt
+            private-key: file:/config/tls/payment.key
+          truststore:
+            certificate: file:/config/tls/ca.crt
 
 paztport:
   service-name: payment
@@ -8,8 +24,12 @@ paztport:
   admin-token: ${PAZTPORT_ADMIN_TOKEN:}
   event-key-path: ${PAZTPORT_EVENT_KEY_PATH:}
   capture: ${PAZTPORT_CAPTURE:false}
+  # key-path (which attests payment's responses) and policy-key-path are
+  # supplied by the environment in docker-compose (PAZTPORT_KEY_PATH /
+  # PAZTPORT_POLICY_KEY_PATH) so the boot tests can run without mounted files.
   keyring-path: ${PAZTPORT_KEYRING_PATH:/config/keys/keyring.json}
   root-path: ${PAZTPORT_ROOT_PATH:/config/policy/root.json}
   max-age-ms: ${PAZTPORT_MAX_AGE_MS:5000}
   origins: ${PAZTPORT_ORIGINS:gateway}
   responder-url: ${RESPONDER_URL:}
+  tls-bundle: mesh

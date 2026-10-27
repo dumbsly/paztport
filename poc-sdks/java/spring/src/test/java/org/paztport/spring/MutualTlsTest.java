@@ -225,6 +225,28 @@ class MutualTlsTest {
     }
 
     @Test
+    void aRefusalThroughTheStampingClientIsAnsweredNotThrown() {
+        // An SSL bundle puts RestClient on HttpURLConnection, which hands over an error body only once the status
+        // has been read; the interceptor reads the whole body, so it must not reach for it first.
+        RestClient stamping = client("gateway").mutate()
+                .requestInterceptor(new OutboundInterceptor(new StamperV3("gateway", "gw-1", GATEWAY.getPrivate(),
+                        true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
+                        BUILT.bundles().get("gateway"), null, "gateway"))
+                .build();
+
+        Answer answer = stamping.post()
+                .uri("https://127.0.0.1:" + port + "/pay")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(TO_PAYMENT)
+                .exchange((request, response) -> new Answer(response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
+
+        assertEquals(403, answer.status());
+        assertTrue(answer.body().contains("\"reason\""), answer.body());
+        assertEquals(List.of(), Pay.PEERS, "refused before the handler");
+    }
+
+    @Test
     void aCertificateFromAnotherCaFailsTheHandshake() {
         assertThrows(RestClientException.class, () -> sendOrdersChain(client("foreign-orders")));
 

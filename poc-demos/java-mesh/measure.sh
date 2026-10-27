@@ -21,12 +21,21 @@ MESH="paztport-mesh"
 CURL="curlimages/curl:latest"
 VUS="${VUS:-10}"
 DURATION="${DURATION:-20s}"
+# Every hop is mutual TLS, so the curl and k6 containers present the operator's
+# certificate, mounted file by file. The key files are owner-only and both images
+# run as an unprivileged user, so the containers run as root to read them.
+CA=(-v "$PWD/out/keys/tls/ca.crt:/tls/ca.crt:ro")
+OPERATOR=(-v "$PWD/out/keys/tls/operator.crt:/tls/operator.crt:ro"
+  -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro")
 
-mc() { docker run --rm --network "$MESH" "$CURL" -s "$@"; }
+mc() {
+  docker run --rm --user 0:0 --network "$MESH" "${CA[@]}" "${OPERATOR[@]}" "$CURL" -s \
+    --cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key "$@"
+}
 
 set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
   local code
-  code=$(mc -o /dev/null -w '%{http_code}' -X POST "http://payment:8080/admin/mode?value=$1" \
+  code=$(mc -o /dev/null -w '%{http_code}' -X POST "https://payment:8080/admin/mode?value=$1" \
     -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN")
   if [ "$code" != "200" ]; then
     echo "measure.sh: switching payment to $1 failed (HTTP $code); is PAZTPORT_ADMIN_TOKEN the token payment was started with?" >&2
@@ -36,10 +45,11 @@ set_mode() { # $1 = off|enforce ; exits unless payment accepts the switch
 
 run_load() { # echoes the RESULT line for the current mode
   for _ in $(seq 1 20); do
-    mc -o /dev/null -X POST http://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}'
+    mc -o /dev/null -X POST https://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}'
   done
-  docker run --rm --network "$MESH" \
-    -e TARGET=http://gateway:8080/checkout -e VUS="$VUS" -e DURATION="$DURATION" \
+  # k6 gets only the operator's certificate and key: it cannot be given a CA (see load.js).
+  docker run --rm --user 0:0 --network "$MESH" "${OPERATOR[@]}" \
+    -e TARGET=https://gateway:8080/checkout -e VUS="$VUS" -e DURATION="$DURATION" \
     -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js 2>/dev/null | grep RESULT
 }
 
@@ -51,8 +61,8 @@ echo "enforce $(run_load)"
 
 echo ""
 echo "== header sizes from one real request =="
-mc -X POST http://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}' >/dev/null
-CAP=$(mc http://payment:8080/debug/last-request)
+mc -X POST https://gateway:8080/checkout -H 'Content-Type: application/json' -d '{}' >/dev/null
+CAP=$(mc https://payment:8080/debug/last-request)
 printf '%s' "$CAP" | python3 -c '
 import sys, json
 c = json.load(sys.stdin)

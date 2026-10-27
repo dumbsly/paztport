@@ -16,6 +16,7 @@
 
     <properties>
         <docker-java.version>3.4.0</docker-java.version>
+        <unsafeMemoryAccess></unsafeMemoryAccess>
     </properties>
 
     <dependencies>
@@ -60,6 +61,30 @@
                     </execution>
                 </executions>
             </plugin>
+            <!-- The quarantiner's tests mock the Docker client with Mockito, which attaches byte-buddy's agent
+                 at runtime. This byte-buddy predates the newest JDKs, so it is told to accept their class
+                 files. Allowing the agent and its use of sun.misc.Unsafe up front keeps the JVM's warnings
+                 out of the test output; class sharing is off because the agent extends the boot class path. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>-Dnet.bytebuddy.experimental=true -XX:+EnableDynamicAgentLoading -Xshare:off ${unsafeMemoryAccess}</argLine>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- The flag that allows sun.misc.Unsafe is unknown to JDK 21, so it is only passed where it exists. -->
+        <profile>
+            <id>unsafe-memory-access</id>
+            <activation>
+                <jdk>[23,)</jdk>
+            </activation>
+            <properties>
+                <unsafeMemoryAccess>--sun-misc-unsafe-memory-access=allow</unsafeMemoryAccess>
+            </properties>
+        </profile>
+    </profiles>
 </project>

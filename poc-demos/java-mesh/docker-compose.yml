@@ -7,9 +7,14 @@
 #   docker compose up -d --build
 #
 # Least knowledge is enforced by the volume mounts: each service bind-mounts
-# only the specific files its role needs. Callers see their own private key and
-# their own proofs; payment sees the public keyring and the signed root, plus its
-# own private key, which it uses only to sign the events it sends the responder.
+# only the specific files its role needs, never a directory of keys. Every
+# service gets its own TLS certificate and key and the CA certificate, since
+# every hop is mutual TLS. Callers see their own stamp key and their own proofs,
+# plus the public keyring, the signed root and the policy pin (policy.pub) to
+# check the responses they get back. Payment sees the same public files to
+# verify requests, and its own stamp key, which attests its responses and signs
+# the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
+# is mounted nowhere.
 #
 # The build context is the repository root, because the keygen and policy-tool
 # jars are built under poc-sdks/java. The project name is pinned so container
@@ -41,7 +46,7 @@ services:
         JAR: poc-sdks/java/tools/policy-tool/target/policy-tool.jar
     volumes:
       - ./policy:/policy:ro
-      - ./out/keys:/out/keys:ro
+      - ./out/keys/policy.key:/out/keys/policy.key:ro   # signs the root; nothing else is needed
       - ./out/policy:/out/policy
     command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
 
@@ -58,12 +63,18 @@ services:
       PAZTPORT_MODE: ${PAZTPORT_MODE:-enforce}
       PAZTPORT_ADMIN_TOKEN: ${PAZTPORT_ADMIN_TOKEN:-}   # shared token for /admin/mode; the demo generates one per run
       PAZTPORT_CAPTURE: "true"   # demo harness: lets the attacker replay a real request
+      PAZTPORT_KEY_PATH: /config/keys/payment.key   # attests payment's responses
+      PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
       PAZTPORT_EVENT_KEY_PATH: /config/keys/payment.key   # signs events; read only when RESPONDER_URL is set
       RESPONDER_URL: ${RESPONDER_URL:-}   # empty = log only; the demo sets it for the quarantine scenarios
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
-      - ./out/keys/payment.key:/config/keys/payment.key:ro   # event signing only
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/keys/payment.key:/config/keys/payment.key:ro   # response attestation and event signing
       - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/payment.crt:/config/tls/payment.crt:ro
+      - ./out/keys/tls/payment.key:/config/tls/payment.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
 
   orders:
     build:
@@ -75,6 +86,12 @@ services:
     volumes:
       - ./out/keys/orders.key:/config/keys/orders.key:ro
       - ./out/policy/proofs-orders.json:/config/policy/proofs-orders.json:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/orders.crt:/config/tls/orders.crt:ro
+      - ./out/keys/tls/orders.key:/config/tls/orders.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
     depends_on: [payment]
 
   search:
@@ -88,9 +105,18 @@ services:
       ATTACK_MODE: "true"
       PAZTPORT_KEY_PATH: /config/keys/search.key
       PAZTPORT_PROOFS_PATH: /config/policy/proofs-search.json
+      PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
+      PAZTPORT_ROOT_PATH: /config/policy/root.json
+      PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
     volumes:
       - ./out/keys/search.key:/config/keys/search.key:ro
       - ./out/policy/proofs-search.json:/config/policy/proofs-search.json:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/search.crt:/config/tls/search.crt:ro
+      - ./out/keys/tls/search.key:/config/tls/search.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
 
   gateway:
     build:
@@ -104,6 +130,12 @@ services:
     volumes:
       - ./out/keys/gateway.key:/config/keys/gateway.key:ro
       - ./out/policy/proofs-gateway.json:/config/policy/proofs-gateway.json:ro
+      - ./out/keys/keyring.json:/config/keys/keyring.json:ro
+      - ./out/keys/policy.pub:/config/keys/policy.pub:ro
+      - ./out/policy/root.json:/config/policy/root.json:ro
+      - ./out/keys/tls/gateway.crt:/config/tls/gateway.crt:ro
+      - ./out/keys/tls/gateway.key:/config/tls/gateway.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
     depends_on: [orders, search]
 
   responder:
@@ -120,6 +152,9 @@ services:
       QUARANTINE_MAX_PER_SVC: ${QUARANTINE_MAX_PER_SVC:-2}
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro   # verifies event signatures
+      - ./out/keys/tls/responder.crt:/config/tls/responder.crt:ro
+      - ./out/keys/tls/responder.key:/config/tls/responder.key:ro
+      - ./out/keys/tls/ca.crt:/config/tls/ca.crt:ro
       # Host-level control, acceptable for a local demo only (see README).
       - /var/run/docker.sock:/var/run/docker.sock
 

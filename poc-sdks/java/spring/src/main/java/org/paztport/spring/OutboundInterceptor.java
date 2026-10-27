@@ -88,6 +88,9 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         ClientHttpResponse response = execution.execute(request, body);
         Buffered buffered;
         try {
+            // The status first: HttpURLConnection (the request factory an SSL bundle selects) hands over an error
+            // response's body only once its status has been read, and otherwise throws on every 4xx and 5xx.
+            response.getStatusCode();
             InputStream in = response.getBody();
             buffered = new Buffered(response, in == null ? new byte[0] : in.readAllBytes());
         } catch (IOException e) {

@@ -9,8 +9,10 @@ import com.github.dockerjava.api.command.InspectContainerResponse;
 import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.Bind;
 import com.github.dockerjava.api.model.HostConfig;
+import com.github.dockerjava.api.model.Network;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,12 +22,12 @@ import org.slf4j.LoggerFactory;
  * back onto the mesh under the same service alias. docker-java and the mounted
  * docker socket are the POC's stand-in for a ReplicaSet controller.
  *
- * <p>The service in an event is proven by its key, but the instance is whatever
- * that service's key holder chose to sign, so a compromised service could name
- * another service's container. Before touching anything we check that the named
- * container really runs the named service (its Compose service label), and
- * refuse otherwise. Replacements carry the same label, so a replacement that
- * misbehaves can itself be quarantined.
+ * <p>Under mutual TLS the suspect is the authenticated peer, and its instance is
+ * the address it connected from, which we look up on the mesh network. The
+ * instance is still only what the event's signer reported, so before touching
+ * anything we check that the container really runs the named service (its
+ * Compose service label), and refuse otherwise. Replacements carry the same
+ * label, so a replacement that misbehaves can itself be quarantined.
  */
 public final class DockerQuarantiner implements Quarantiner {
 
@@ -36,6 +38,10 @@ public final class DockerQuarantiner implements Quarantiner {
 
     /** The label Compose puts on every container it runs, naming its service. */
     static final String SERVICE_LABEL = "com.docker.compose.service";
+
+    /** A dotted-quad IPv4 literal, so an address is never mistaken for a container name, nor looked up by DNS. */
+    private static final Pattern IPV4 = Pattern.compile(
+            "((25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)\\.){3}(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)");
 
     private final DockerClient docker;
     private final String meshNetwork;
@@ -60,9 +66,14 @@ public final class DockerQuarantiner implements Quarantiner {
 
     @Override
     public void quarantine(String suspectSvc, String suspectInst) {
+        String container = resolve(suspectInst);
+        if (container == null) {
+            log.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
+            return;
+        }
         InspectContainerResponse suspect;
         try {
-            suspect = docker.inspectContainerCmd(suspectInst).exec();
+            suspect = docker.inspectContainerCmd(container).exec();
         } catch (NotFoundException e) {
             log.warn("suspect container {} not found; nothing to quarantine", LogSafe.of(suspectInst));
             return;
@@ -101,6 +112,37 @@ public final class DockerQuarantiner implements Quarantiner {
                 .exec();
         docker.startContainerCmd(replacement.getId()).exec();
         log.warn("started replacement {} on {} as {}", shortId(replacement.getId()), meshNetwork, LogSafe.of(suspectSvc));
+    }
+
+    /**
+     * The container {@code suspectInst} names, or null when there is none. Under mutual TLS the instance is the
+     * address the request came from, which only the mesh network can map to a container; anything else is a
+     * container name or id, inspected as before. Docker lists a member's address with its prefix length.
+     */
+    String resolve(String suspectInst) {
+        if (IPV4.matcher(suspectInst).matches()) {
+            Map<String, Network.ContainerNetworkConfig> members;
+            try {
+                members = docker.inspectNetworkCmd().withNetworkId(meshNetwork).exec().getContainers();
+            } catch (NotFoundException e) {
+                return null;
+            }
+            if (members == null) {
+                return null;
+            }
+            for (Map.Entry<String, Network.ContainerNetworkConfig> member : members.entrySet()) {
+                String address = member.getValue().getIpv4Address();
+                if (address != null && suspectInst.equals(address.split("/", 2)[0])) {
+                    return member.getKey();
+                }
+            }
+            return null;
+        }
+        try {
+            return docker.inspectContainerCmd(suspectInst).exec().getId();
+        } catch (NotFoundException e) {
+            return null;
+        }
     }
 
     /** Whether a container with these labels runs {@code svc}; a missing label or service is a no. */

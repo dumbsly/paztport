@@ -18,6 +18,7 @@ import org.paztport.http.RequestBinding;
 import org.paztport.spring.PaztportContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.web.client.RestClientSsl;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -36,8 +37,8 @@ public class AttackController {
 
     private static final byte[] BODY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
 
-    private final RestClient stampedClient;          // normal client: the interceptor stamps as search
-    private final RestClient rawClient = RestClient.create(); // no interceptor: full header control
+    private final RestClient stampedClient; // normal client: the interceptor stamps as search
+    private final RestClient rawClient;     // no interceptor, so full header control; still search's certificate
     private final ObjectMapper json = new ObjectMapper();
     private final StolenChainStore stolenChains;
     private final String paymentUrl;
@@ -48,8 +49,13 @@ public class AttackController {
             RestClient stampedClient,
             StolenChainStore stolenChains,
             @Value("${downstream.payment-url}") String paymentUrl,
-            @Value("${paztport.key-path}") String keyPath) throws Exception {
+            @Value("${paztport.key-path}") String keyPath,
+            RestClientSsl ssl,
+            @Value("${paztport.tls-bundle}") String tlsBundle) throws Exception {
         this.stampedClient = stampedClient;
+        // Built apart from the shared builder, so it never gets the stamping interceptor. Payment requires a
+        // client certificate, and the attacker can only present its own: every attack arrives as search.
+        this.rawClient = RestClient.builder().apply(ssl.fromBundle(tlsBundle)).build();
         this.stolenChains = stolenChains;
         this.paymentUrl = paymentUrl;
         this.searchKey = KeyFiles.loadPrivateKey(Path.of(keyPath));

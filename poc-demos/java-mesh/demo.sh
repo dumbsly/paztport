@@ -12,12 +12,20 @@
 # restores the original policy and rebuilds the root, (re)starts the mesh, and
 # resets payment to enforce mode. All calls go over the mesh network via a
 # throwaway curl container, so only the gateway port need ever be exposed.
+# Every hop is mutual TLS, so that container presents the operator's certificate.
 
 set -u
 cd "$(dirname "$0")"
 
 MESH="paztport-mesh"
 CURL="curlimages/curl:latest"
+# The operator's certificate, mounted file by file: never the whole tls directory.
+# The key files are owner-only and the curl image runs as an unprivileged user,
+# so the container runs as root to read them.
+TLS_MOUNTS=(-v "$PWD/out/keys/tls/ca.crt:/tls/ca.crt:ro"
+  -v "$PWD/out/keys/tls/operator.crt:/tls/operator.crt:ro"
+  -v "$PWD/out/keys/tls/operator.key:/tls/operator.key:ro")
+TLS_ARGS=(--cacert /tls/ca.crt --cert /tls/operator.crt --key /tls/operator.key)
 
 # Faster ESCALATE: the circuit breaker trips on the 2nd quarantine instead of the 3rd.
 export QUARANTINE_MAX_PER_SVC=1
@@ -36,7 +44,8 @@ mreq() {
   local method="$1" url="$2"
   shift 2
   local out
-  out=$(docker run --rm --network "$MESH" "$CURL" -s -w $'\n%{http_code}' -X "$method" "$url" "$@" 2>/dev/null)
+  out=$(docker run --rm --user 0:0 --network "$MESH" "${TLS_MOUNTS[@]}" "$CURL" -s "${TLS_ARGS[@]}" \
+    -w $'\n%{http_code}' -X "$method" "$url" "$@" 2>/dev/null)
   CODE=$(printf '%s' "$out" | tail -n1)
   BODY=$(printf '%s' "$out" | sed '$d')
 }
@@ -81,7 +90,7 @@ remove_replacements() { # drop any responder-created replacement containers
 wait_ready() {
   for svc in gateway search payment; do
     for _ in $(seq 1 30); do
-      mreq GET "http://$svc:8080/__ping" 2>/dev/null
+      mreq GET "https://$svc:8080/__ping" 2>/dev/null
       [ "$CODE" != "000" ] && [ -n "$CODE" ] && break
       sleep 1
     done
@@ -90,7 +99,15 @@ wait_ready() {
 
 echo "== Paztport demo =="
 echo "bringing up the mesh..."
-[ -f out/keys/keyring.json ] || docker compose run --rm keygen >/dev/null 2>&1
+# `docker compose run` never rebuilds an image, so the tools are rebuilt here from the freshly
+# built jars; otherwise an old keygen would write keys in its old layout.
+docker compose build keygen policy-tool >/dev/null 2>&1
+# Keys from before mutual TLS have no policy pin and no certificates, so they are replaced too.
+# A bind-mount source Docker created as an empty directory (see below) would block keygen.
+for p in out/keys/policy.pub out/keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
+if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ]; then
+  docker compose run --rm keygen >/dev/null 2>&1
+fi
 remove_replacements                          # clear any stray replacements from a prior run
 PAZTPORT_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
 export PAZTPORT_ADMIN_TOKEN
@@ -106,57 +123,60 @@ rebuild_policy         # rebuild original root, recreate services (resets mode=e
 echo "running scenarios..."
 
 # 1 — legitimate end to end
-mreq POST "http://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
+mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
 check_code "1  legit gateway->orders->payment" 200
+# How payment saw it: the chain verified, and the TLS layer named orders as the sender.
+trace=$(docker compose logs --no-log-prefix payment 2>/dev/null | sed -n 's/.*\(PAZTPORT_TRACE request .*\)/\1/p' | tail -n1)
+echo "   payment: ${trace:-(no PAZTPORT_TRACE request line)}"
 
 # 2 — no headers
-mreq POST "http://search:8080/attack/no-headers"
+mreq POST "https://search:8080/attack/no-headers"
 check_reason "2  no headers" 403 CHAIN_MISSING
 
 # 3 — forged gateway stamp, search's key
-mreq POST "http://search:8080/attack/forge-gateway"
+mreq POST "https://search:8080/attack/forge-gateway"
 check_reason "3  forged gateway stamp" 403 BAD_SIGNATURE
 
 # 4 — forward a real gateway->search chain to payment (no proof exists)
-mreq GET "http://gateway:8080/find"
-mreq POST "http://search:8080/attack/forward-stolen"
+mreq GET "https://gateway:8080/find"
+mreq POST "https://search:8080/attack/forward-stolen"
 check_reason "4  forward stolen chain" 403 PATH_NOT_ALLOWED
 
 # 5 — replay a captured valid request
-mreq POST "http://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
-mreq POST "http://search:8080/attack/replay"
+mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
+mreq POST "https://search:8080/attack/replay"
 check_reason "5  replay" 403 REPLAY
 
 # 6 — valid chain, body altered after the last stamp
-mreq POST "http://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
-mreq POST "http://search:8080/attack/alter-body"
+mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
+mreq POST "https://search:8080/attack/alter-body"
 check_reason "6  body altered" 403 BINDING_MISMATCH
 
 # 7 — chain older than max age
-mreq POST "http://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
+mreq POST "https://gateway:8080/checkout" -H 'Content-Type: application/json' -d '{}'
 echo "   (scenario 7: waiting out the 5s max age...)"
 sleep 6
-mreq POST "http://search:8080/attack/replay"
+mreq POST "https://search:8080/attack/replay"
 check_reason "7  expired" 403 EXPIRED
 
 # 8 — scenarios 2-4 in audit mode: all pass, events logged, no quarantine
-mreq POST "http://payment:8080/admin/mode?value=audit" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
-mreq POST "http://search:8080/attack/no-headers";    check_code "8a audit: no headers" 200
-mreq POST "http://search:8080/attack/forge-gateway";  check_code "8b audit: forged stamp" 200
-mreq GET  "http://gateway:8080/find"
-mreq POST "http://search:8080/attack/forward-stolen"; check_code "8c audit: forward stolen" 200
+mreq POST "https://payment:8080/admin/mode?value=audit" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
+mreq POST "https://search:8080/attack/no-headers";    check_code "8a audit: no headers" 200
+mreq POST "https://search:8080/attack/forge-gateway";  check_code "8b audit: forged stamp" 200
+mreq GET  "https://gateway:8080/find"
+mreq POST "https://search:8080/attack/forward-stolen"; check_code "8c audit: forward stolen" 200
 if docker compose logs payment 2>/dev/null | grep -q "PAZTPORT_EVENT.*audit=true"; then
   record PASS "8d audit: events logged" "found PAZTPORT_EVENT audit=true"
 else
   record FAIL "8d audit: events logged" "no audit events in payment logs"
 fi
-mreq POST "http://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
+mreq POST "https://payment:8080/admin/mode?value=enforce" -H "X-Admin-Token: $PAZTPORT_ADMIN_TOKEN"
 
 # 10 — widen policy so gateway->search->payment is allowed; scenario 4 now passes
 write_paths widen
 rebuild_policy
-mreq GET "http://gateway:8080/find"
-mreq POST "http://search:8080/attack/forward-stolen"
+mreq GET "https://gateway:8080/find"
+mreq POST "https://search:8080/attack/forward-stolen"
 check_reason "10 policy widened -> forward allowed" 200 PAID
 
 # restore original policy before the responder scenarios
@@ -166,14 +186,14 @@ rebuild_policy
 # 9 — three illicit calls quarantine search; a clean replacement takes over.
 # The responder is only enabled here, so scenarios 1-8/10 don't pollute its counts.
 echo "   (scenario 9: enabling responder, driving quarantine — this is the slow one...)"
-export RESPONDER_URL=http://responder:8080
+export RESPONDER_URL=https://responder:8080
 docker compose up -d --force-recreate payment responder >/dev/null 2>&1
 wait_ready
 OLD_SEARCH=$(docker compose ps -q search)
 
 for _ in 1 2 3; do
-  mreq GET  "http://gateway:8080/find"
-  mreq POST "http://search:8080/attack/forward-stolen"
+  mreq GET  "https://gateway:8080/find"
+  mreq POST "https://search:8080/attack/forward-stolen"
 done
 
 isolated=false
@@ -185,7 +205,7 @@ done
 
 served=false
 for _ in $(seq 1 40); do
-  mreq GET "http://gateway:8080/find"
+  mreq GET "https://gateway:8080/find"
   [ "$CODE" = "200" ] && { served=true; break; }
   sleep 1
 done
@@ -198,8 +218,8 @@ fi
 
 # ESCALATE — a further quarantine for the same service exceeds the per-service limit.
 for _ in 1 2 3; do
-  mreq GET  "http://gateway:8080/find"
-  mreq POST "http://search:8080/attack/forward-stolen"
+  mreq GET  "https://gateway:8080/find"
+  mreq POST "https://search:8080/attack/forward-stolen"
 done
 sleep 3
 if docker compose logs responder 2>/dev/null | grep -q "ESCALATE svc=search"; then

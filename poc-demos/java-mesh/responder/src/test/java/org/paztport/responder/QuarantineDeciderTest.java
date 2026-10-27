@@ -18,7 +18,11 @@ class QuarantineDeciderTest {
     }
 
     private static ResponderEvent event(String svc, String inst) {
-        return new ResponderEvent("PATH_NOT_ALLOWED", svc, inst, "rid", false, 0L, "e");
+        return event("PATH_NOT_ALLOWED", svc, inst);
+    }
+
+    private static ResponderEvent event(String reason, String svc, String inst) {
+        return new ResponderEvent(reason, svc, inst, "rid", false, 0L, "e");
     }
 
     @Test
@@ -43,6 +47,18 @@ class QuarantineDeciderTest {
         assertEquals(QuarantineDecision.NONE, d.observe(audit));
         assertEquals(QuarantineDecision.NONE, d.observe(audit));
         assertEquals(QuarantineDecision.NONE, d.observe(audit));
+    }
+
+    @Test
+    void policyRefusalsNeverCount() {
+        // The chain was sound; payment's policy declined what shaped it. That is not misbehaviour.
+        QuarantineDecider d = decider();
+        for (int i = 0; i < 3; i++) {
+            assertEquals(QuarantineDecision.NONE, d.observe(event("INFLUENCE_DENIED", "search", "s1")));
+        }
+        for (int i = 0; i < 3; i++) {
+            assertEquals(QuarantineDecision.NONE, d.observe(event("UNSAFE_SESSION", "search", "s1")));
+        }
     }
 
     @Test
