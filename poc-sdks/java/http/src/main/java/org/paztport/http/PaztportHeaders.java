@@ -13,6 +13,9 @@ public final class PaztportHeaders {
     /** v3 only: a response's attestation stamp and content labels. */
     public static final String RESPONSE = "X-Path-Response";
 
+    /** v3 only: the id of the session a call to a partner organisation is made in. */
+    public static final String SESSION = "X-Path-Session";
+
     private PaztportHeaders() {
     }
 }

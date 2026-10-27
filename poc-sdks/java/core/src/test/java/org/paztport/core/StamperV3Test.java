@@ -90,6 +90,74 @@ class StamperV3Test {
         assertEquals(ReasonCode.OK, r.reason(), "the attack the filter's rule closes");
     }
 
+    private static final String SESS = "sess-1";
+    private static final List<InfluenceEntry> BOUNDARY_INFLUENCE = List.of(
+            new InfluenceEntry(InfluenceClass.PRIVATE, "db:orders", "h1", "cid-1", "alice"));
+
+    private final PolicyBuilder.Result egress = PolicyBuilder.build(
+            List.of(List.of("payment", "psp")), 4, policyKey.getPrivate());
+
+    private StamperV3.Stamped boundary(String sess, ProofBundle bundle) {
+        StampV3 inbound = toPayment(toOrders("b1", List.of())).chain().get(1);
+        return stamper("payment", paymentKey, false).boundary(List.of(inbound), sess, "psp", "b3",
+                BOUNDARY_INFLUENCE, bundle);
+    }
+
+    @Test
+    void boundaryStampFields() {
+        StamperV3.Stamped b = boundary(SESS, egress.bundles().get("payment"));
+        assertEquals(1, b.chain().size());
+        StampV3 s = b.chain().get(0);
+        assertEquals("payment", s.svc());
+        assertEquals("payment-1", s.inst());
+        assertEquals(RID, s.rid());
+        assertEquals(NOW, s.ts());
+        assertEquals(SESS, s.sess());
+        assertEquals("psp", s.rcv());
+        assertEquals("b3", s.bind());
+        assertEquals(Influence.commit(BOUNDARY_INFLUENCE), s.infl());
+        assertEquals("", s.prev());
+    }
+
+    @Test
+    void boundaryProofForEgressRoute() {
+        StamperV3.Stamped b = boundary(SESS, egress.bundles().get("payment"));
+        assertEquals(egress.signedRoot().rootId(), b.proof().rootId());
+        assertNull(boundary(SESS, policy.bundles().get("payment")).proof());
+    }
+
+    @Test
+    void boundaryRefusesEmptySess() {
+        assertThrows(IllegalArgumentException.class, () -> boundary("", egress.bundles().get("payment")));
+        assertThrows(IllegalArgumentException.class, () -> boundary(null, egress.bundles().get("payment")));
+    }
+
+    @Test
+    void boundaryRefusesNoChain() {
+        StamperV3 payment = stamper("payment", paymentKey, false);
+        assertThrows(IllegalStateException.class,
+                () -> payment.boundary(null, SESS, "psp", "b3", List.of(), null));
+        assertThrows(IllegalStateException.class,
+                () -> payment.boundary(List.of(), SESS, "psp", "b3", List.of(), null));
+    }
+
+    private VerifyResult verifyAtPartner(StamperV3.Stamped b, String sess) {
+        String pin = Base64Url.encode(Crypto.encodePublicKey(policyKey.getPublic()));
+        KeyringFile ring = KeyringFile.sign(Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(
+                paymentKey.getPublic()))), pin, policyKey.getPrivate());
+        VerifierV3 partner = new VerifierV3(VerifierConfigV3.pinned(ring, egress.signedRoot(), pin,
+                Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
+        return partner.verify(new VerifyInputV3(json(b.chain()), "b3", Influence.toJson(BOUNDARY_INFLUENCE),
+                json(b.proof()), "psp", true, RID + "|payment|req", new Peer("payment", "10.0.0.1")));
+    }
+
+    @Test
+    void boundaryVerifiesAsPartner() {
+        StamperV3.Stamped b = boundary(SESS, egress.bundles().get("payment"));
+        assertEquals(ReasonCode.OK, verifyAtPartner(b, SESS).reason());
+        assertEquals(ReasonCode.SESSION_UNKNOWN, verifyAtPartner(b, "").reason());
+    }
+
     @Test
     void hopsVerify() {
         StamperV3.Stamped first = toOrders("b1", List.of());

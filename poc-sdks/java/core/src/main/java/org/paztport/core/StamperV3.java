@@ -73,6 +73,30 @@ public final class StamperV3 {
     }
 
     /**
+     * Stamps the call that leaves this organisation for {@code partnerEntry}, inside the session {@code sess}. The
+     * stamp stands alone: {@code prev} is empty, because the partner holds only this service's keyring and the
+     * internal chain's signers are not in it. It carries the internal chain's {@code rid} and the influence that
+     * shaped the call, so the partner can check the same commitment as any receiver. Internal stamps stay with the
+     * caller to keep as evidence; they are not sent. {@code sess} must be a real session id: an empty one would
+     * make this a valid in-mesh origin stamp, so it is refused.
+     *
+     * <p>This checks nothing about {@code verifiedInternal}, only that it is there. The boundary stamp vouches for
+     * the request that led to it, so on a chain nobody verified it signs for a request this service never
+     * accepted. Pass only a chain that verified at this service.
+     */
+    public Stamped boundary(List<StampV3> verifiedInternal, String sess, String partnerEntry, String bind,
+            List<InfluenceEntry> influence, ProofBundle bundle) {
+        requireInbound(verifiedInternal);
+        if (sess == null || sess.isEmpty()) {
+            throw new IllegalArgumentException("a boundary stamp needs a session id");
+        }
+        StampV3 stamp = StampV3.sign(svc, inst, verifiedInternal.get(0).rid(), clock.getAsLong(), sess, partnerEntry,
+                bind, Influence.commit(influence), "", key);
+        MerkleProof proof = bundle == null ? null : bundle.proofFor(Routes.join(List.of(svc, partnerEntry)));
+        return new Stamped(List.of(stamp), proof);
+    }
+
+    /**
      * Stamps the response to the request whose chain is {@code inbound}: the receiver is the caller (the last
      * stamp's service), the {@code rid} and {@code sess} are the request's, and the influence is empty because a
      * response carries its labels in the binding instead. Over HTTP, callers pass the request's {@code rid} as
