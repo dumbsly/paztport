@@ -34,6 +34,19 @@ pass=0
 fail=0
 RESULTS=""
 
+quietly() { # what command... : runs a setup step with its output hidden, but stops the demo if it fails
+  local what="$1"
+  shift
+  local out status
+  out=$("$@" 2>&1)
+  status=$?
+  if [ "$status" -ne 0 ]; then
+    printf 'error: %s failed (exit status %s). Its last output:\n' "$what" "$status" >&2
+    printf '%s\n' "$out" | tail -n 30 >&2
+    exit 1
+  fi
+}
+
 record() { # status name detail
   if [ "$1" = "PASS" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
   RESULTS+=$(printf '\n  %-4s | %-58s | %s' "$1" "$2" "$3")
@@ -76,7 +89,7 @@ rebuild_policy() { # rebuilds root + bundles; all proof/root holders must reload
   # Each policy-tool run uses fresh salts, so the root bytes change; every service
   # that pins a root or holds proofs must recreate to reload the files (and to rejoin
   # the mesh if a prior run left it quarantined).
-  docker compose run --rm policy-tool >/dev/null 2>&1
+  quietly "building the policy root (policy-tool)" docker compose run --rm policy-tool
   docker compose up -d --force-recreate gateway orders payment search >/dev/null 2>&1
   wait_ready
 }
@@ -101,12 +114,12 @@ echo "== Paztport demo =="
 echo "bringing up the mesh..."
 # `docker compose run` never rebuilds an image, so the tools are rebuilt here from the freshly
 # built jars; otherwise an old keygen would write keys in its old layout.
-docker compose build keygen policy-tool >/dev/null 2>&1
+quietly "building the keygen and policy-tool images" docker compose build keygen policy-tool
 # Keys from before mutual TLS have no policy pin and no certificates, so they are replaced too.
 # A bind-mount source Docker created as an empty directory (see below) would block keygen.
 for p in out/keys/policy.pub out/keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ]; then
-  docker compose run --rm keygen >/dev/null 2>&1
+  quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
 fi
 remove_replacements                          # clear any stray replacements from a prior run
 PAZTPORT_ADMIN_TOKEN=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')   # per-run token for /admin/mode
@@ -116,8 +129,9 @@ export PAZTPORT_ADMIN_TOKEN
 # cannot overwrite. So write the policy and build the root before starting the mesh.
 for p in out/policy/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done   # leftovers from such a run
 write_paths            # restore original policy
-docker compose run --rm policy-tool >/dev/null 2>&1
-RESPONDER_URL="" docker compose up -d --build --force-recreate >/dev/null 2>&1  # fresh mesh, payment log-only
+quietly "building the policy root (policy-tool)" docker compose run --rm policy-tool
+# fresh mesh, payment log-only
+quietly "building and starting the mesh" env RESPONDER_URL="" docker compose up -d --build --force-recreate
 rebuild_policy         # rebuild original root, recreate services (resets mode=enforce)
 
 echo "running scenarios..."
