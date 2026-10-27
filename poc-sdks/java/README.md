@@ -48,7 +48,7 @@ has one, the authenticated peer.
 
 ## paztport-http
 
-v3 over HTTP, with no web framework. `PaztportHeaders` names the four headers:
+v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
 `X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
 `X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call is in. `RequestBinding` computes `bind` over the method, the raw path
 plus `?` and the raw query when there is one, and the body. `HttpV3` encodes and
