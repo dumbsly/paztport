@@ -44,16 +44,19 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         return new KeyringFile(services, policyPublicKey, Base64Url.encode(sig));
     }
 
-    /** True only when this file names the pinned policy key and its signature verifies under it; never throws. */
+    /**
+     * True only when this file names the pinned policy key and its signature verifies under it; never throws.
+     * The signature text is not held to the canonical-encoding rule (that covers stamp signatures), matching the
+     * TypeScript SDK: the pin and the signature are what vouch for the file.
+     */
     public boolean verifies(String pinnedPolicyKey) {
         if (sig == null || policy == null || pinnedPolicyKey == null || !policy.equals(pinnedPolicyKey)) {
             return false;
         }
         try {
             byte[] raw = Base64Url.decode(sig);
-            return Base64Url.encode(raw).equals(sig)
-                    && Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(pinnedPolicyKey)),
-                            signingBytes(policy, services), raw);
+            return Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(pinnedPolicyKey)),
+                    signingBytes(policy, services), raw);
         } catch (IllegalArgumentException e) {
             return false;
         }

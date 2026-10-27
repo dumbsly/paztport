@@ -16,9 +16,14 @@ import java.security.PrivateKey;
 public record StampV3(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
         String infl, String prev, String sig) implements RecordedStamp {
 
-    /** Signs a stamp; throws {@link IllegalArgumentException} if a signed field holds the delimiter or a lone surrogate. */
+    private static final long MAX_SAFE_TS = (1L << 53) - 1;
+
+    /** Signs a stamp; throws {@link IllegalArgumentException} if a signed field holds the delimiter or a lone surrogate, or ts is outside the safe-integer range. */
     public static StampV3 sign(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
             String infl, String prev, PrivateKey key) {
+        if (Math.abs(ts) > MAX_SAFE_TS) {
+            throw new IllegalArgumentException("stamp ts must be within +/-(2^53-1)");
+        }
         byte[] bytes = join("3", svc, inst, rid, Long.toString(ts), sess, rcv, bind, infl, prev);
         return new StampV3(svc, inst, rid, ts, sess, rcv, bind, infl, prev,
                 Base64Url.encode(Crypto.sign(key, bytes)));

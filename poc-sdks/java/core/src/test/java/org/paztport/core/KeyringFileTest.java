@@ -62,4 +62,10 @@ class KeyringFileTest {
         assertNull(bare.sig());
         assertFalse(m.writeValueAsString(bare).contains("sig"));
     }
+
+    @Test
+    void sigTextIsNotHeldToCanonicalEncoding() {
+        KeyringFile f = signed();
+        assertTrue(new KeyringFile(f.services(), f.policy(), f.sig() + "==").verifies(pub(POLICY)));
+    }
 }

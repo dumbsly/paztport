@@ -53,4 +53,13 @@ class StampV3Test {
         assertTrue(p.ok());
         assertEquals(s, p.stamps().get(0));
     }
+
+    @Test
+    void signRefusesTsOutsideSafeRange() {
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", 9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", -9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
+        StampV3.sign("pi", "i", "r", 9007199254740991L, "", "x", "b", "", "", KEY.getPrivate());
+    }
 }

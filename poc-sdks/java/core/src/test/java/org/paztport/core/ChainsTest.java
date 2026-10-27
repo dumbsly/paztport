@@ -106,6 +106,21 @@ class ChainsTest {
         ObjectNode padded = v3();
         padded.put("sig", padded.get("sig").asText() + "=");
         rejects(ReasonCode.CHAIN_MISSING, chain(padded));
+        // Java's decoder accepts "==" padding on a 64-byte signature, and non-zero trailing bits in the last
+        // character; both decode to the same bytes, so only the re-encode comparison refuses them.
+        String canonical = padded.get("sig").asText().substring(0, padded.get("sig").asText().length() - 1);
+        ObjectNode doublePadded = v3();
+        doublePadded.put("sig", canonical + "==");
+        assertEquals(Base64Url.decode(canonical).length, Base64Url.decode(canonical + "==").length);
+        rejects(ReasonCode.CHAIN_MISSING, chain(doublePadded));
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        int last = alphabet.indexOf(canonical.charAt(canonical.length() - 1));
+        char twin = alphabet.charAt(last ^ 1);
+        String tweaked = canonical.substring(0, canonical.length() - 1) + twin;
+        assertTrue(java.util.Arrays.equals(Base64Url.decode(canonical), Base64Url.decode(tweaked)));
+        ObjectNode trailing = v3();
+        trailing.put("sig", tweaked);
+        rejects(ReasonCode.CHAIN_MISSING, chain(trailing));
         ObjectNode junk = v3();
         junk.put("sig", "!!!");
         rejects(ReasonCode.CHAIN_MISSING, chain(junk));
