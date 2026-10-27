@@ -12,8 +12,9 @@
 //     -e TARGET=https://gateway:8080/checkout -e VUS=10 -e DURATION=20s \
 //     -v "$PWD/load.js:/scripts/load.js:ro" grafana/k6 run /scripts/load.js
 //
-// Compare payment in `off` vs `enforce` mode (toggle via POST /admin/mode) to
-// isolate the verifier's added latency. See measure.sh.
+// measure.sh runs it with payment in `off` and in `enforce` mode (toggled via
+// POST /admin/mode), warmed up and alternated; its header says what the
+// difference covers.
 //
 // Every hop is mutual TLS, so k6 presents the operator's certificate. k6 has no
 // option to trust a private CA, so it skips checking the gateway's certificate
