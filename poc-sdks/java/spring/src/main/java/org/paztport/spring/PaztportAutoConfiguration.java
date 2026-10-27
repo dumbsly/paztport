@@ -8,7 +8,6 @@ import java.net.UnknownHostException;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Consumer;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyFiles;
 import org.paztport.core.ProofBundle;
@@ -18,8 +17,8 @@ import org.paztport.core.VerifierV3;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.web.client.RestClientSsl;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.boot.ssl.SslBundles;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
@@ -48,8 +47,10 @@ import org.springframework.web.client.RestClient;
  * <p>Under mutual TLS, {@code paztport.tls-bundle} names the SSL bundle this
  * service presents: on the shared {@code RestClient.Builder}, beside the
  * stamping interceptor, and on the responder client, which is built apart from
- * the shared builder so that events are never stamped. A bundle that does not
- * exist fails the context at startup.
+ * the shared builder so that events are never stamped. Both draw on one
+ * {@link PooledTlsClient}, so their connections are pooled and reused rather
+ * than opened per call. A bundle that does not exist fails the context at
+ * startup.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -83,13 +84,27 @@ public class PaztportAutoConfiguration {
         return builder -> builder.requestInterceptor(interceptor);
     }
 
+    /**
+     * The one client per application that presents {@code paztport.tls-bundle}, shared so that its connections
+     * pool. The bundle is looked up when the context starts, so a name that does not exist, or an application
+     * without SSL bundles, fails at startup rather than on the first call. The context closes it on shutdown.
+     */
+    @Bean
+    @ConditionalOnProperty("paztport.tls-bundle")
+    PooledTlsClient paztportTlsClient(ObjectProvider<SslBundles> ssl, PaztportProperties props) {
+        SslBundles bundles = ssl.getIfAvailable();
+        if (bundles == null) {
+            throw new IllegalStateException(
+                    "paztport.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
+        }
+        return PooledTlsClient.of(bundles.getBundle(props.getTlsBundle()));
+    }
+
     /** Kept apart from the stamping customizer, so a service that only verifies still presents its certificate. */
     @Bean
     @ConditionalOnProperty("paztport.tls-bundle")
-    RestClientCustomizer paztportTlsRestClientCustomizer(
-            ObjectProvider<RestClientSsl> ssl, PaztportProperties props) {
-        Consumer<RestClient.Builder> tls = tls(ssl, props);
-        return tls::accept;
+    RestClientCustomizer paztportTlsRestClientCustomizer(PooledTlsClient tls) {
+        return builder -> builder.requestFactory(tls.requestFactory());
     }
 
     @Bean
@@ -122,7 +137,7 @@ public class PaztportAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    EventPublisher eventPublisher(PaztportProperties props, ObjectProvider<RestClientSsl> ssl) {
+    EventPublisher eventPublisher(PaztportProperties props, ObjectProvider<PooledTlsClient> tls) {
         String responderUrl = props.getResponderUrl();
         if (responderUrl != null && !responderUrl.isBlank()) {
             String eventKeyPath = props.getEventKeyPath();
@@ -130,10 +145,8 @@ public class PaztportAutoConfiguration {
                 throw new IllegalStateException(
                         "paztport.responder-url is set but paztport.event-key-path is not");
             }
-            RestClient.Builder http = RestClient.builder();
-            if (props.getTlsBundle() != null) {
-                http.apply(tls(ssl, props));
-            }
+            // TLS only, never the shared builder's stamping interceptor.
+            RestClient.Builder http = props.getTlsBundle() != null ? tls.getObject().builder() : RestClient.builder();
             return new ResponderEventPublisher(
                     http.build(),
                     responderUrl,
@@ -175,19 +188,6 @@ public class PaztportAutoConfiguration {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
         return registration;
-    }
-
-    /**
-     * Applies {@code paztport.tls-bundle} to a builder. Resolved when the bean is made, so a bundle that does not
-     * exist, or an application without SSL bundles, fails at startup rather than on the first call.
-     */
-    private static Consumer<RestClient.Builder> tls(ObjectProvider<RestClientSsl> ssl, PaztportProperties props) {
-        RestClientSsl bundles = ssl.getIfAvailable();
-        if (bundles == null) {
-            throw new IllegalStateException(
-                    "paztport.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
-        }
-        return bundles.fromBundle(props.getTlsBundle());
     }
 
     private static String instance(PaztportProperties props) {

@@ -4,6 +4,7 @@
 package org.paztport.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
@@ -18,6 +19,7 @@ import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.security.cert.CertificateException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -49,6 +51,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.client.RestClientException;
 
 class PaztportAutoConfigurationTest {
 
@@ -227,15 +230,18 @@ class PaztportAutoConfigurationTest {
                         .isInstanceOf(LoggingEventPublisher.class));
     }
 
-    /** What a test server was sent: the path, the client certificate's CN (null over plain HTTP) and the chain. */
-    private record Received(String path, String peer, String chain) {
+    /**
+     * What a test server was sent: the path, the client certificate's CN (null over plain HTTP), the chain, and the
+     * port the connection came from, which tells one connection from another.
+     */
+    private record Received(String path, String peer, String chain, int port) {
     }
 
     /** Answers 204 to everything, after noting what it was sent. */
     private static void record(HttpExchange exchange, String peer, BlockingQueue<Received> received)
             throws IOException {
         received.add(new Received(exchange.getRequestURI().getPath(), peer,
-                exchange.getRequestHeaders().getFirst(PaztportHeaders.CHAIN)));
+                exchange.getRequestHeaders().getFirst(PaztportHeaders.CHAIN), exchange.getRemoteAddress().getPort()));
         exchange.sendResponseHeaders(204, -1);
         exchange.close();
     }
@@ -300,12 +306,10 @@ class PaztportAutoConfigurationTest {
                 PemSslStoreDetails.forCertificate("classpath:tls/ca.crt")));
     }
 
-    @Test
-    void theTlsBundleIsPresentedByTheSharedClientAndTheResponderClient(@TempDir Path dir) throws Exception {
-        writeWorld(dir);
-        BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+    /** A server on the loopback address presenting the fixture certificate {@code name}, asking for a client's. */
+    private static HttpsServer mutualTlsServer(String name, BlockingQueue<Received> received) throws IOException {
         HttpsServer server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
-        server.setHttpsConfigurator(new HttpsConfigurator(fixtureBundle("payment").createSslContext()) {
+        server.setHttpsConfigurator(new HttpsConfigurator(fixtureBundle(name).createSslContext()) {
             @Override
             public void configure(HttpsParameters params) {
                 params.setNeedClientAuth(true);
@@ -322,14 +326,25 @@ class PaztportAutoConfigurationTest {
             record(exchange, peer, received);
         });
         server.start();
+        return server;
+    }
+
+    /** The {@code mesh} bundle, presenting orders' certificate and trusting the shop's CA. */
+    private static final String[] MESH_BUNDLE = {
+        "spring.ssl.bundle.pem.mesh.keystore.certificate=classpath:tls/orders.crt",
+        "spring.ssl.bundle.pem.mesh.keystore.private-key=classpath:tls/orders.key",
+        "spring.ssl.bundle.pem.mesh.truststore.certificate=classpath:tls/ca.crt",
+        "paztport.tls-bundle=mesh"};
+
+    @Test
+    void theTlsBundleIsPresentedByTheSharedClientAndTheResponderClient(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+        HttpsServer server = mutualTlsServer("payment", received);
         String url = "https://127.0.0.1:" + server.getAddress().getPort();
         try {
             withClients.withPropertyValues(stampingVerifier(dir, url))
-                    .withPropertyValues(
-                            "spring.ssl.bundle.pem.mesh.keystore.certificate=classpath:tls/orders.crt",
-                            "spring.ssl.bundle.pem.mesh.keystore.private-key=classpath:tls/orders.key",
-                            "spring.ssl.bundle.pem.mesh.truststore.certificate=classpath:tls/ca.crt",
-                            "paztport.tls-bundle=mesh")
+                    .withPropertyValues(MESH_BUNDLE)
                     .run(context -> {
                         context.getBean(RestClient.Builder.class).build()
                                 .post().uri(url + "/call").body("{}").retrieve().toBodilessEntity();
@@ -348,6 +363,91 @@ class PaztportAutoConfigurationTest {
         } finally {
             server.stop(0);
         }
+    }
+
+    /**
+     * One client per application, so the shared builder's clients and the responder client draw on one pool: each
+     * builder build and each event reuses the connection the first call opened rather than opening its own.
+     */
+    @Test
+    void theSharedClientAndTheResponderClientShareOnePool(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+        HttpsServer server = mutualTlsServer("payment", received);
+        String url = "https://127.0.0.1:" + server.getAddress().getPort();
+        try {
+            withClients.withPropertyValues(stampingVerifier(dir, url))
+                    .withPropertyValues(MESH_BUNDLE)
+                    .run(context -> {
+                        assertThat(context).hasSingleBean(PooledTlsClient.class);
+                        List<Integer> ports = new ArrayList<>();
+                        for (int i = 0; i < 3; i++) {
+                            context.getBean(RestClient.Builder.class).build()
+                                    .post().uri(url + "/call").body("{}").retrieve().toBodilessEntity();
+                            publishInsideARequest(context.getBean(EventPublisher.class));
+                            for (int j = 0; j < 2; j++) {
+                                Received r = received.poll(5, TimeUnit.SECONDS);
+                                assertThat(r).isNotNull();
+                                ports.add(r.port());
+                            }
+                        }
+                        assertThat(ports).hasSize(6);
+                        assertThat(ports.stream().distinct().count()).as("connections for 6 calls: %s", ports)
+                                .isLessThanOrEqualTo(2);
+                    });
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /**
+     * The server's certificate must name the host the call was made to. Orders' certificate is the shop CA's and
+     * so trusted, but it names only {@code orders}, so a call to it at {@code 127.0.0.1} fails the handshake.
+     */
+    @Test
+    void theSharedClientChecksTheServersNameAgainstItsCertificate(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+        HttpsServer server = mutualTlsServer("orders", received);
+        String url = "https://127.0.0.1:" + server.getAddress().getPort();
+        try {
+            withClients.withPropertyValues(stampingVerifier(dir, url))
+                    .withPropertyValues(MESH_BUNDLE)
+                    .run(context -> {
+                        RestClient client = context.getBean(RestClient.Builder.class).build();
+                        assertThatThrownBy(() -> client.post().uri(url + "/call").body("{}").retrieve()
+                                .toBodilessEntity())
+                                .isInstanceOf(RestClientException.class)
+                                .rootCause()
+                                .isInstanceOf(CertificateException.class)
+                                .hasMessageContaining("127.0.0.1");
+                        assertThat(received).as("the server's handler never ran").isEmpty();
+                    });
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /**
+     * The bundle's files are read on the first call, so a service starts, and its tests run, where its certificate
+     * is not mounted; the call that needs it is the one that fails.
+     */
+    @Test
+    void aTlsBundleWhoseFilesAreNotThereFailsTheCallNotTheStartup(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "https://127.0.0.1:1"))
+                .withPropertyValues(
+                        "spring.ssl.bundle.pem.mesh.keystore.certificate=file:" + dir.resolve("absent.crt"),
+                        "spring.ssl.bundle.pem.mesh.keystore.private-key=file:" + dir.resolve("absent.key"),
+                        "spring.ssl.bundle.pem.mesh.truststore.certificate=classpath:tls/ca.crt",
+                        "paztport.tls-bundle=mesh")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(PooledTlsClient.class);
+                    RestClient client = context.getBean(RestClient.Builder.class).build();
+                    assertThatThrownBy(() -> client.post().uri("https://127.0.0.1:1/call").body("{}").retrieve()
+                            .toBodilessEntity())
+                            .hasStackTraceContaining("absent.crt");
+                });
     }
 
     @Test

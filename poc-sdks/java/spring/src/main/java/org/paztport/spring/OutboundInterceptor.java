@@ -88,8 +88,9 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         ClientHttpResponse response = execution.execute(request, body);
         Buffered buffered;
         try {
-            // The status first: HttpURLConnection (the request factory an SSL bundle selects) hands over an error
-            // response's body only once its status has been read, and otherwise throws on every 4xx and 5xx.
+            // The status first: HttpURLConnection (Spring's simple request factory) hands over an error response's
+            // body only once its status has been read, and otherwise throws on every 4xx and 5xx. The JDK client
+            // the starter uses has no such order, but an application may give the builder either.
             response.getStatusCode();
             InputStream in = response.getBody();
             buffered = new Buffered(response, in == null ? new byte[0] : in.readAllBytes());

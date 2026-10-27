@@ -39,6 +39,7 @@ import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.ssl.SslBundle;
@@ -50,6 +51,7 @@ import org.springframework.boot.web.client.ClientHttpRequestFactories;
 import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -72,7 +74,11 @@ import org.springframework.web.client.RestClientException;
             "server.ssl.client-auth=need",
             "spring.ssl.bundle.pem.payment.keystore.certificate=classpath:tls/payment.crt",
             "spring.ssl.bundle.pem.payment.keystore.private-key=classpath:tls/payment.key",
-            "spring.ssl.bundle.pem.payment.truststore.certificate=classpath:tls/ca.crt"})
+            "spring.ssl.bundle.pem.payment.truststore.certificate=classpath:tls/ca.crt",
+            "spring.ssl.bundle.pem.orders.keystore.certificate=classpath:tls/orders.crt",
+            "spring.ssl.bundle.pem.orders.keystore.private-key=classpath:tls/orders.key",
+            "spring.ssl.bundle.pem.orders.truststore.certificate=classpath:tls/ca.crt",
+            "paztport.tls-bundle=orders"})
 class MutualTlsTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -117,20 +123,32 @@ class MutualTlsTest {
     static class App {
     }
 
-    /** Notes the peer the request it serves was sent by, as the filter read it from the connection. */
+    /**
+     * Notes the peer the request it serves was sent by, as the filter read it from the connection, and the port
+     * that connection came from.
+     */
     @RestController
     static class Pay {
         static final List<Peer> PEERS = new CopyOnWriteArrayList<>();
+        static final List<Integer> PORTS = new CopyOnWriteArrayList<>();
 
         @PostMapping("/pay")
         String pay(HttpServletRequest request) {
             PEERS.add(PeerIdentity.from(request));
+            PORTS.add(request.getRemotePort());
             return "paid";
         }
     }
 
     @LocalServerPort
     private int port;
+
+    /**
+     * The application's shared builder, which the starter gives the {@code paztport.tls-bundle} named here,
+     * orders' certificate, so this app can call its own {@code /pay} as orders through the starter's client.
+     */
+    @Autowired
+    private RestClient.Builder shared;
 
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final List<Logger> captured = List.of(
@@ -139,6 +157,7 @@ class MutualTlsTest {
     @BeforeEach
     void watch() {
         Pay.PEERS.clear();
+        Pay.PORTS.clear();
         logs.start();
         for (Logger log : captured) {
             log.addAppender(logs);
@@ -160,15 +179,27 @@ class MutualTlsTest {
         return logs.list.stream().map(ILoggingEvent::getFormattedMessage).filter(l -> l.startsWith(prefix)).toList();
     }
 
-    /** A plain SSL client presenting the fixture certificate {@code name} and trusting the shop's CA: no stamping. */
-    private static RestClient client(String name) {
-        SslBundle bundle = SslBundle.of(new PemSslStoreBundle(
+    /** The fixture certificate {@code name} and the shop's CA. */
+    private static SslBundle fixture(String name) {
+        return SslBundle.of(new PemSslStoreBundle(
                 PemSslStoreDetails.forCertificate("classpath:tls/" + name + ".crt")
                         .withPrivateKey("classpath:tls/" + name + ".key"),
                 PemSslStoreDetails.forCertificate("classpath:tls/ca.crt")));
+    }
+
+    /**
+     * A plain SSL client presenting the fixture certificate {@code name} and trusting the shop's CA: no stamping.
+     * It is the starter's pooled client, the one every service's calls go out on.
+     */
+    private static RestClient client(String name) {
+        return PooledTlsClient.of(fixture(name)).builder().build();
+    }
+
+    /** As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot gives an SSL bundle itself. */
+    private static RestClient urlConnectionClient(String name) {
         return RestClient.builder()
-                .requestFactory(ClientHttpRequestFactories.get(
-                        ClientHttpRequestFactorySettings.DEFAULTS.withSslBundle(bundle)))
+                .requestFactory(ClientHttpRequestFactories.get(SimpleClientHttpRequestFactory.class,
+                        ClientHttpRequestFactorySettings.DEFAULTS.withSslBundle(fixture(name))))
                 .build();
     }
 
@@ -244,26 +275,51 @@ class MutualTlsTest {
                 traces.get(0));
     }
 
+    /**
+     * A refusal comes back with a body, which the interceptor reads whole before the caller sees it; the caller
+     * must get the 403 and that body, not an exception, whichever client carried it. {@code HttpURLConnection}
+     * hands over an error body only once the status has been read, so the interceptor must not reach for it first.
+     */
     @Test
     void aRefusalThroughTheStampingClientIsAnsweredNotThrown() {
-        // An SSL bundle puts RestClient on HttpURLConnection, which hands over an error body only once the status
-        // has been read; the interceptor reads the whole body, so it must not reach for it first.
-        RestClient stamping = client("gateway").mutate()
-                .requestInterceptor(new OutboundInterceptor(new StamperV3("gateway", "gw-1", GATEWAY.getPrivate(),
-                        true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
-                        BUILT.bundles().get("gateway"), null, "gateway"))
-                .build();
+        for (RestClient client : List.of(client("gateway"), urlConnectionClient("gateway"))) {
+            RestClient stamping = client.mutate()
+                    .requestInterceptor(new OutboundInterceptor(new StamperV3("gateway", "gw-1",
+                            GATEWAY.getPrivate(), true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
+                            BUILT.bundles().get("gateway"), null, "gateway"))
+                    .build();
 
-        Answer answer = stamping.post()
-                .uri("https://127.0.0.1:" + port + "/pay")
-                .contentType(MediaType.APPLICATION_JSON)
-                .body(TO_PAYMENT)
-                .exchange((request, response) -> new Answer(response.getStatusCode().value(),
-                        new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
+            Answer answer = stamping.post()
+                    .uri("https://127.0.0.1:" + port + "/pay")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(TO_PAYMENT)
+                    .exchange((request, response) -> new Answer(response.getStatusCode().value(),
+                            new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
 
-        assertEquals(403, answer.status());
-        assertTrue(answer.body().contains("\"reason\""), answer.body());
-        assertEquals(List.of(), Pay.PEERS, "refused before the handler");
+            assertEquals(403, answer.status());
+            assertTrue(answer.body().contains("\"reason\""), answer.body());
+            assertEquals(List.of(), Pay.PEERS, "refused before the handler");
+        }
+    }
+
+    /**
+     * The starter's client keeps its connections: one client's sequential calls share a pooled connection, rather
+     * than each opening a fresh mutual-TLS connection that the server then holds open until its keep-alive runs
+     * out, which once let a busy mesh reach the server's connection limit and freeze. A TCP connection is the
+     * client's address and port, and no port is reused while its connection is open, so the distinct ports the
+     * server saw count the connections; a client that never reuses one leaves all of them open, one per call.
+     */
+    @Test
+    void theStartersClientReusesItsConnections() {
+        RestClient client = shared.build();
+        int calls = 50;
+        for (int i = 0; i < calls; i++) {
+            assertEquals(new Answer(200, "paid"), sendOrdersChain(client));
+        }
+
+        assertEquals(calls, Pay.PORTS.size());
+        long connections = Pay.PORTS.stream().distinct().count();
+        assertTrue(connections <= 2, connections + " connections for " + calls + " sequential calls");
     }
 
     @Test
