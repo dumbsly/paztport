@@ -44,7 +44,7 @@ the checks differently disagree.
 | # | Check | Fails with |
 |---|---|---|
 | 1 | The stamps parse: a non-empty array of well-formed v3 stamps ([field rules](wire.md#stamp-field-rules)). A v2 stamp, or a mix, does not parse. | `CHAIN_MISSING` |
-| 2 | No signed field of any stamp holds `|`, `rcv` included. | `BAD_SIGNATURE` |
+| 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
 | 4 | For each stamp in order: its `svc` has a key in `keyring` and its signature verifies under it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
 | 5 | Every stamp carries the origin's `rid`. | `RID_MISMATCH` |
@@ -86,12 +86,12 @@ can't spend each other's keys:
 
 | Chain | `nonceKey` |
 |---|---|
-| MCP tool call (server side) | `<rid>|<callId>|req` |
-| MCP response (client side) | `<rid>|<callId>|resp` |
-| Local step | `<rid>|<callId>|local` |
-| HTTP request (receiver side) | `<rid>|<last svc>|req` |
-| HTTP response (caller side) | `<rid>|<target>|resp` |
-| v1 HTTP hop (`v1.json` only) | `<rid>|<last svc>` |
+| MCP tool call (server side) | `<rid>\|<callId>\|req` |
+| MCP response (client side) | `<rid>\|<callId>\|resp` |
+| Local step | `<rid>\|<callId>\|local` |
+| HTTP request (receiver side) | `<rid>\|<last svc>\|req` |
+| HTTP response (caller side) | `<rid>\|<target>\|resp` |
+| v1 HTTP hop (`v1.json` only) | `<rid>\|<last svc>` |
 
 `<rid>` is the origin's `rid` and `<callId>` the call's `paztport/callId` (for a local step, the tool call id).
 `<last svc>` is the request chain's last signer, and `<target>` the service the caller sent the request to.
@@ -103,8 +103,10 @@ most once per request tree, and a second call is `REPLAY`.
 **The receiver checks.** In a v3 chain every stamp names the hop it was handed to (check 4). So a chain
 forwarded unchanged to a service it was not signed for fails `BINDING_MISMATCH`, wherever it is sent, before
 the route is looked at. A receiver MUST supply its own name as `receiver` from its configuration, never from the
-request. For a call that name is also the end of the route. For a response, `receiver` is the client's own
-`svc` and `receiverInRoute` is false: the response route is the server's own hops, and the client is not on it.
+request. For a call that name is also the end of the route. For a response, `receiver` is the caller's own
+`svc` and `receiverInRoute` is false, so the route ends at the last signer. Over MCP that route is the server's
+own hops, and the client is not on it. Over HTTP it is the request's own route, the caller included, because
+the response stamp extends the chain the caller sent.
 
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per
@@ -273,7 +275,7 @@ the binding), runs:
 | 3 | Every signature verifies, and every `prev` links. | `BAD_SIGNATURE`, `BROKEN_LINK` |
 | 4 | Every stamp carries the origin's `rid`; the origin's `ts` is at most the maximum age before `now`. | `RID_MISMATCH`, `EXPIRED` |
 | 5 | The last stamp's `bind` equals the HTTP binding of the request received. | `BINDING_MISMATCH` |
-| 6 | `<rid>|<last svc>` is new to the nonce cache. | `REPLAY` |
+| 6 | `<rid>\|<last svc>` is new to the nonce cache. | `REPLAY` |
 | 7 | The stamps' `svc` values then the receiver are proven against the root by `X-Path-Proof`. | `PATH_NOT_ALLOWED` |
 
 v1 has no receiver, session, influence or peer. `OK` and `PATH_NOT_ALLOWED` name the last stamp; every other
@@ -287,7 +289,7 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `OK` | live, offline | Every check held. |
 | `CHAIN_MISSING` | live, offline | No chain, or one that does not parse, or a malformed transport field around it. |
 | `BAD_ORIGIN` | live, offline | The origin is not an allowed origin (or, offline, not the expected instance). |
-| `BAD_SIGNATURE` | live, offline | A field holds `|`, a key is unknown, or a signature fails. |
+| `BAD_SIGNATURE` | live, offline | A field holds `\|`, a key is unknown, or a signature fails. |
 | `BROKEN_LINK` | live, offline | A `prev` does not match. |
 | `EXPIRED` | live, offline | Outside the freshness window, or offline, outside the age limits. |
 | `RID_MISMATCH` | live, offline | The stamps don't share the `rid`, or name another request. |

@@ -94,10 +94,12 @@ service that holds a stamp key.
 
 A response is attested by one more stamp on the chain the request arrived with,
 naming the caller as its receiver and binding the status, the body and any content
-labels. The caller runs the same live checks on it, all but the peer check, against the
-chain and the proof it sent, so a response needs no proof of its own. A response that is
-unattested or fails is still delivered, but counts as untrusted influence on
-whatever the caller does next ([Response attestation](#response-attestation)).
+labels. The caller runs the same live checks on it, all but the peer check,
+against the chain and the proof it sent, so a response needs no proof of its own.
+A response that is unattested or fails is still delivered, but counts as untrusted
+influence on whatever the caller does next
+([Response attestation](#response-attestation)).
+
 ## Least knowledge: who holds what
 
 Each route's proof goes to exactly one place: that route's **second-to-last hop**,
@@ -113,7 +115,7 @@ flowchart LR
     kg --> pin[("policy.pub<br/>the pin")]
     kg --> privkeys[("one stamp .key<br/>per service")]
     kg --> tls[("tls/: ca.crt, and a .crt and .key<br/>per service, operator, responder")]
-    kg --> cakey[("ca/ca.key<br/>mounted nowhere")]
+    kg --> cakey[("ca/ca.key<br/>mounted into no service")]
 
     pt --> root[("root.json<br/>signed root")]
     pt --> bg[("proofs-gateway.json<br/>gateway/orders<br/>gateway/search")]
@@ -146,9 +148,11 @@ and key and `ca.crt`, and the callers (`gateway`, `orders`, `search`) also get
 Each of the four services verifies the keyring and the root against `policy.pub`,
 held apart from the keyring it vouches for, and refuses to start if either fails.
 The CA's key is written to its own directory, `out/keys/ca/`, so that
-`out/keys/tls/` holds only what may be mounted. In Compose every key-material mount is a single file.
-Each container sees only the specific files its role needs, never a shared volume
-of keys.
+`out/keys/tls/` holds only what may be mounted, and it is mounted into no service.
+In Compose every service's key-material mount is a single file; only the one-shot
+`keygen` job mounts `out/keys` whole, because it writes there. Each service
+container sees only the specific files its role needs, never a shared volume of
+keys.
 
 The heart of the demo is `search`'s empty bundle. `search` can reach `payment` on
 the network and can sign stamps with its own key. It was never given a proof for a
@@ -165,9 +169,9 @@ first one that doesn't hold:
 flowchart TD
     A["request arrives at payment<br/>over mutual TLS"] --> S1["1. chain header present and<br/>parses as v3 stamps?"]
     S1 -->|no| R1["403 CHAIN_MISSING"]
-    S1 -->|yes| S2["2. no signed field<br/>holds the delimiter?"]
-    S2 -->|no| R2["403 BAD_SIGNATURE"]
-    S2 -->|yes| S3["3. first stamp is an<br/>allowed origin (gateway)?"]
+    S1 -->|yes| S2["2. does a signed field<br/>hold the delimiter?"]
+    S2 -->|yes| R2["403 BAD_SIGNATURE"]
+    S2 -->|no| S3["3. first stamp is an<br/>allowed origin (gateway)?"]
     S3 -->|no| R3["403 BAD_ORIGIN"]
     S3 -->|yes| S4["4. every signature verifies, every prev links,<br/>then each rcv names the next hop<br/>and the last names payment?"]
     S4 -->|bad signature| R4a["403 BAD_SIGNATURE"]
@@ -264,7 +268,7 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 | Call `payment` with no attestation | Fail closed: missing chain is invalid, never "legacy traffic" | 2: `CHAIN_MISSING` |
 | Forge a stamp claiming to be `gateway` | Verified against gateway's public key, which the attacker can't sign for | 3: `BAD_SIGNATURE` |
 | Extend a real chain it legitimately received, with its own stamp, to `payment` | Route rebuilt from stamps (`gateway/search/payment`) is not a leaf | 4: `PATH_NOT_ALLOWED` |
-| Forward that chain unchanged | `gateway`'s stamp names `search` as its receiver, not `payment` | `BINDING_MISMATCH` (the spec's `wrong receiver` vector) |
+| Forward that chain unchanged | `gateway`'s stamp names `search` as its receiver, not `payment` | `BINDING_MISMATCH` (the receiver rule the spec's `wrong receiver` vector pins) |
 | Replay a captured valid request | Its nonce key, the `rid` and the last signer, already spent | 5: `REPLAY` |
 | Keep a valid chain, swap the body | Last stamp's `bind` no longer matches | 6: `BINDING_MISMATCH` |
 | Hold a chain and use it later | Stamps older than the freshness window | 7: `EXPIRED` |
@@ -415,9 +419,9 @@ unit tests. Each of these was root-caused before it was fixed:
 
 Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 21
 runtime) with k6 driving the legitimate path (10 virtual users for 20 s, via
-[measure.sh](measure.sh)), mutual TLS on every hop. `payment` is toggled between `off` and `enforce` with everything
-else identical, so the difference is the cost of `payment`'s request verification.
-No request failed in either run.
+[measure.sh](measure.sh)), mutual TLS on every hop. `payment` is toggled between
+`off` and `enforce` with everything else identical, so the difference is the cost
+of `payment`'s request verification. No request failed in either run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
@@ -443,7 +447,7 @@ What the numbers say:
   optimized native implementations, which do tens of microseconds. A hot-path
   deployment would swap the signature implementation; the Merkle machinery
   wouldn't change.
-- **The chain grows about 462 B per stamp.** The proof is a fixed 615 B whatever
+- **The chain grows by about 462 B per stamp, on average** (924 B over two). The proof is a fixed 615 B whatever
   the route length. `X-Path-Influence` is absent when there is no influence, as
   here. The response headers were not measured: `X-Path-Response` carries one
   stamp plus its labels.
@@ -457,9 +461,11 @@ Caveats:
   stamps `payment` and `orders` sign, and the response checks at `orders` and
   `gateway`. Only `payment` verifies requests in this topology, so a design that
   verifies at every hop multiplies that cost by the number of verifying hops.
-- **The primitive costs are JIT-warmed micro-benchmarks**, measured apart from the
-  load runs. Cold starts pay JIT and class-loading costs that aren't reflected
-  here.
+- **The primitive costs are JIT-warmed micro-benchmarks from an earlier
+  measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated
+  for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
+  Ed25519) are the same. Cold starts pay JIT and class-loading costs that aren't
+  reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
 
@@ -535,19 +541,19 @@ exposed to the host.
 | Variable | Default | Used by |
 |---|---|---|
 | `PAZTPORT_MODE` | `enforce` | `payment` (`off`, `audit`, `enforce`) |
-| `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's |
-| `PAZTPORT_ORIGINS` | `gateway` | `payment` |
+| `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
+| `PAZTPORT_ORIGINS` | `gateway` | `payment`. The callers' response checks use the same property, `paztport.origins`, with the same default |
 | `PAZTPORT_PROOF_DEPTH` | `8` | policy-tool |
 | `ATTACK_MODE` | `false` | search |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
-| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` | every stamping service; `payment`'s attests its responses |
-| `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` | `gateway`, `orders`, `search` |
-| `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` | the four services (requests at `payment`, responses at the callers), responder (event signatures) |
-| `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` | the four services |
-| `PAZTPORT_POLICY_KEY_PATH` | `/config/keys/policy.pub` | the four services: the pin the keyring and the root must verify under |
+| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services; `payment`'s attests its responses |
+| `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `search` | `gateway`, `orders`, `search` |
+| `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` in every `application.yml` but `search`'s; Compose sets it for `search` | the four services (requests at `payment`, responses at the callers), responder (event signatures) |
+| `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` in every service's `application.yml` but `search`'s; Compose sets it for `search` | the four services |
+| `PAZTPORT_POLICY_KEY_PATH` | `/config/keys/policy.pub` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services: the pin the keyring and the root must verify under |
 | `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |

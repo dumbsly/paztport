@@ -366,6 +366,10 @@ that the route taken is in a private, committed policy**.
   linear-chain model.
 - **The responder mounts the Docker socket**, which is host-level control.
   Acceptable for a local demo only; never do this in a real deployment.
+- **The responder's keyring is unpinned.** It checks event signatures against
+  `keyring.json` as mounted, without verifying the keyring against the policy pin,
+  which the mesh services do. Anyone who could replace that file could name their
+  own event signer.
 - **The nonce cache is in-memory and unbounded** in this POC. The freshness window
   means it only *needs* to remember twice the 5 s window, and a real deployment
   would use a shared, expiring store.

@@ -100,7 +100,7 @@ public final class DockerQuarantiner implements Quarantiner {
 
         // Replace: clone image/env/labels/binds straight onto the mesh under the
         // service alias (one step — a "none"-mode container cannot also join a
-        // network), so gateway's http://<svc> resolves to the clean replacement.
+        // network), so gateway's https://<svc> resolves to the clean replacement.
         Map<String, String> cloneLabels = replacementLabels(labels, suspectSvc);
         HostConfig hostConfig = HostConfig.newHostConfig().withBinds(binds).withNetworkMode(meshNetwork);
         CreateContainerResponse replacement = docker.createContainerCmd(image)

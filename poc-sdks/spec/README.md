@@ -48,7 +48,7 @@ What v3 changed, deliberately:
 | `v1.json` | v1 keys, stamps and their signed bytes, chain headers, HTTP request bindings, Merkle leaves, nodes and proofs, the signed root, and the v1 verify cases. | Java (`paztport-http`) and TypeScript (`@paztport/http`) |
 | `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for all but the result and `tools/call` bindings, which only MCP uses |
 | `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring, live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner) and offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks). | Java (`paztport-core`) and TypeScript (`@paztport/mcp`) |
-| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay). It reuses `v3.json`'s keys and mesh policy by name. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
+| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 
 | Version | Java SDK | TypeScript SDK |
 |---|---|---|
@@ -61,9 +61,10 @@ What v3 changed, deliberately:
 A new implementation MUST pass `v3.json`. It MUST pass `v2.json` if it reads records made before v3,
 `http-v3.json` if it speaks v3 over HTTP, and `v1.json` if it speaks the v1 HTTP format.
 
-One divergence is known and has no vector: [wire.md](wire.md#bindings) requires a binding over a string with a
-lone surrogate to be refused, and the TypeScript SDK's prompt and response bindings encode it as U+FFFD instead.
-The Java SDK refuses it.
+Known divergences, with no vector: a lone surrogate in a binding's plain strings ([wire.md](wire.md#bindings)).
+The Java SDK's prompt and response bindings refuse one, as the spec requires, and its HTTP request binding
+encodes it as `?`. The TypeScript SDK's bindings (prompt, response, `tools/call`, local tool and HTTP) encode it
+as U+FFFD, so its prompt and response bindings break the rule.
 
 `v3.json` is self-contained: every case carries its inputs, and keys and policies are named and defined in the
 file. Its `about` field says how its keys, salts and padding are derived, so the file can be rebuilt byte for

@@ -93,7 +93,8 @@ Glue, configured through `paztport.*` properties.
   common name when there is exactly one, else `""`, at the TCP address the
   connection came from. Responses are checked with no peer.
 - **Modes and events.** `/admin/mode`, the events sent to a responder, one
-  `PAZTPORT_TRACE` log line per request or response verified, and an optional
+  `PAZTPORT_TRACE` log line per request verified and per response received (with
+  `reason=-` where no verifier is configured to check it), and an optional
   `ReceivedRequestListener` hook that lets an application observe each request the
   filter receives. The SDK captures nothing itself: the mesh demo's request
   capture, for its replay scenario, is a listener on that hook.

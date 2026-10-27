@@ -179,7 +179,7 @@ is `b64url(H(bytes))`, over these bytes:
 
 | Binding | Used for | Bytes |
 |---|---|---|
-| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when there is one, with nothing decoded. With no query the bytes are v1's. |
+| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when the query is non-empty, with nothing decoded, so `/pay?` binds as `/pay`. With no query the bytes are v1's. |
 | HTTP result | An HTTP response's `resultHash` | `utf8("http-response\n" ‖ status ‖ "\n") ‖ BODY`, with `status` the response's status code in decimal and the body as raw bytes, so a response can't pass under another status. |
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
 | `tools/call` | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
@@ -191,8 +191,12 @@ Rules:
 
 - `tool`, `callId`, `toolCallId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
   A verifier that cannot compute the binding for a call MUST reject it (`BINDING_MISMATCH`).
-- A string with a lone surrogate has no UTF-8 form, so a binding over one MUST be refused, never computed (one
-  SDK diverges here; see [Conformance](README.md#conformance)).
+- A string with a lone surrogate has no UTF-8 form. A part hashed as JCS fails on one ([Encodings](#encodings)).
+  The prompt and response bindings MUST refuse one in their other strings (the text, `resultHash` and
+  `toolCallId`), never compute a binding over it. The other bindings' plain strings (the HTTP method and path,
+  the `tools/call` tool and call id, the local tool's name) have no such rule yet, and the SDKs replace a lone
+  surrogate there. The TypeScript SDK also replaces it in the prompt and response bindings, against the rule.
+  See [Conformance](README.md#conformance).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
   `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
 - In a response chain the first stamp, by the server's entry service, binds the call it took (the `tools/call`
@@ -241,24 +245,27 @@ A request carries Paztport in three headers, each the base64url of UTF-8 JSON:
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
 | `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
 
-A response carries the answering service's attestation in one header:
+A response carries the answering service's attestation in one header, also the base64url of UTF-8 JSON:
 
 | Header | Value |
 |---|---|
-| `X-Path-Response` | `{ "stamp": <v3 stamp>, "labels": [ ... ] }`, the labels written as in an MCP attestation. |
+| `X-Path-Response` | The JSON object `{ "stamp": <v3 stamp>, "labels": [ ... ] }`, the labels written as in an MCP attestation. |
 
 The response stamp is one more stamp on the request chain the answering service received, so it needs no proof
 of its own: the caller already holds the proof for the request's route.
 
 | Field | Value |
 |---|---|
+| `v` | `3`. |
 | `svc` | The answering service. |
+| `inst` | The answering service's instance, as it reports it. |
 | `rcv` | The caller: the request's last `svc`. |
 | `rid`, `sess` | The request's. |
 | `ts` | When the answering service signed it. |
 | `bind` | The response binding of `resultHash` (the [HTTP result](#bindings) binding of the status and body sent), with the request's `rid` as the call id, over `labels`. |
 | `infl` | `""`: a response's labels are in its binding instead. |
 | `prev` | The request's last `sig`. |
+| `sig` | The answering service's signature over the v3 signed bytes, as for any stamp. |
 
 [verification.md](verification.md#http-requests-and-responses) says how each side checks these. Only the Java
 SDK speaks v3 over HTTP, and `http-v3.json` pins it.

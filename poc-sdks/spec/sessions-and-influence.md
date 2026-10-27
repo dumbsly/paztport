@@ -223,8 +223,9 @@ A server labels the content of each result it attests. A label is `{ "cls": ...,
 
 The labels are covered by the response binding ([wire.md](wire.md#bindings)), so they can't be changed in
 transit. A client MUST add a label to its influence only when the whole response verifies, as the entry
-`{ cls, src: "server:<serverId>", h: resultHash, cid, owner }` (with `owner` only when the label has one). A
-response that does not verify adds `local-untrusted` instead.
+`{ cls, src: "server:<serverId>", h: resultHash, cid, owner }` (with `owner` only when the label has one); over
+HTTP, `src` is `"http:<target>"`, the service the request was sent to. A response that does not verify adds
+`local-untrusted` instead.
 
 ## The owner-aware rule
 
