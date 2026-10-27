@@ -19,8 +19,11 @@ import {
   type SignedRoot,
 } from "@paztport/core";
 
+/** The service pi signs as: every call and local step, and the hop each run's origin names as its receiver. */
+export const PI_SVC = "pi";
+
 /** The client chain on every stamped call: the run's origin, then pi. Local rules are pinned under it too. */
-export const CLIENT_CHAIN: readonly string[] = [ORIGIN_SVC, "pi"];
+export const CLIENT_CHAIN: readonly string[] = [ORIGIN_SVC, PI_SVC];
 
 export type ClientMaterial = {
   sessionKey: string;

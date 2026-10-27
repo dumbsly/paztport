@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signStampV2 } from "@paztport/core";
+import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signStampV2, signStampV3 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -16,6 +16,7 @@ import { loadClientMaterial, type ClientMaterial } from "../../pi-extension/src/
 import { LocalGate } from "../../pi-extension/src/local/gate.ts";
 import { RunState } from "../../pi-extension/src/runs.ts";
 import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
+import { verifyClient, verifyLocal } from "../src/verify-local.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
 
@@ -246,7 +247,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     const meta = late.params._meta;
     meta["paztport/callId"] = "toolu_late";
     const { sig: _sig, v: _v, ...fields } = meta["paztport/chain"][1];
-    meta["paztport/chain"][1] = signStampV2(
+    meta["paztport/chain"][1] = signStampV3(
       { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, "toolu_late", late.params.arguments), prev: meta["paztport/chain"][0].sig },
       material().piKey,
     );
@@ -675,7 +676,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   function resign(rec: any): void {
     const { sig: _sig, v: _v, ...fields } = rec.chain[1];
     const bind = bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash });
-    rec.chain[1] = signStampV2({ ...fields, bind }, local.material.piKey);
+    rec.chain[1] = signStampV3({ ...fields, bind }, local.material.piKey);
   }
 
   it("genuineLocalEvidenceVerifies", () => {
@@ -885,11 +886,32 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const origin = verifyEvidence(write(localLines, (rs) => {
       const x = localOf(rs, "l_read");
       const { sig: _sig, v: _v, ...fields } = x.chain[0];
-      x.chain[0] = signStampV2({ ...fields, inst: "pi-2" }, local.material.sessionKey);
+      x.chain[0] = signStampV3({ ...fields, inst: "pi-2" }, local.material.sessionKey);
       x.chain[1].prev = x.chain[0].sig;
       resign(x);
     }));
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
+  });
+
+  it("verifyLocalSaysWhetherAStepIsLegacy", () => {
+    const recs: any[] = localLines.map((l) => JSON.parse(l));
+    const client = verifyClient(recs.find((x) => x.type === "client"), []);
+    const run = recs.find((x) => x.type === "run");
+    const runOf = (rid: string) => (rid === run.rid ? { prompt: run.prompt as string, ts: new Set<number>([run.ts]) } : undefined);
+    const rec = structuredClone(localOf(recs, "l_read"));
+    expect(rec.chain.map((x: any) => x.v)).toEqual([3, 3]);
+    expect(verifyLocal(rec, client, runOf, new Set())).toEqual({ result: "OK", legacy: false });
+    // the same step as a chain recorded before stamps named their receiver
+    const old = structuredClone(rec);
+    const { sig: _s0, v: _v0, rcv: _r0, ...origin } = old.chain[0];
+    old.chain[0] = signStampV2(origin, local.material.sessionKey);
+    const { sig: _s1, v: _v1, rcv: _r1, ...step } = old.chain[1];
+    old.chain[1] = signStampV2({ ...step, prev: old.chain[0].sig }, local.material.piKey);
+    expect(verifyLocal(old, client, runOf, new Set())).toEqual({ result: "OK", legacy: true });
+    // a v2 origin with a v3 step is not legacy, nor readable
+    const mixed = structuredClone(rec);
+    mixed.chain[0] = old.chain[0];
+    expect(verifyLocal(mixed, client, runOf, new Set())).toEqual({ result: "UNREADABLE", legacy: false });
   });
 
   it("aRepeatedLocalRecordIsAReplay", () => {

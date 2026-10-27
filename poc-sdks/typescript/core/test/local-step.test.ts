@@ -7,7 +7,7 @@
 import { describe, expect, it } from "vitest";
 import { encode } from "../src/b64url.ts";
 import type { InfluenceEntry } from "../src/influence.ts";
-import { localStepBind, stampLocalStep } from "../src/local-step.ts";
+import { LOCAL_RECEIVER_PREFIX, localReceiver, localStepBind, stampLocalStep } from "../src/local-step.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
 const key = (b: number) => encode(Uint8Array.from([...Buffer.from("302e020100300506032b657004220420", "hex"), ...new Array<number>(32).fill(b)]));
@@ -39,16 +39,17 @@ describe("stampLocalStep", () => {
       PI_KEY,
     );
     expect(stamp).toEqual({
-      v: 2,
+      v: 3,
       svc: "pi",
       inst: "pi-1",
       rid: RID,
       ts: 2000,
       sess: "",
+      rcv: "local:read",
       bind: "jwh996pnIOX6duRgrsapCa2qnpdwrMiYVmW5VFxeEl4",
       infl: INFL,
       prev: PREV,
-      sig: "pOxzfabNWnsunuylNWfzEEJI9zYCMjIIbn8l1SNHfaxsV0q7PZHRYKS8sZQSVg7QW00gFmVusbNeeI2z3LpBCQ",
+      sig: "2b4uZWSlZ1rvbDzKs26hSrUtxvSeTLos81L7aMm1gV1wXDf4L5YqFrkzJApn4xBjbPNmQ8PIRp9OMyMwmXeXCg",
     });
   });
 
@@ -67,7 +68,8 @@ describe("stampLocalStep", () => {
       PI_KEY,
     );
     expect(stamp.bind).toBe("AX64BK_1LR20VO6HXvhYKFeMGOxsdByR0Huo3FbQdHU");
-    expect(stamp.sig).toBe("-Xee4X8KlDB8Wd4_fM8gDznnzNLlgC7hMSIHjy4NuU2vE1Cq-9-5iQU_GGkoMe14T_nHc-R45ksuBdbG7OkMBw");
+    expect(stamp.rcv).toBe("local:write");
+    expect(stamp.sig).toBe("3Tw536O9NfIPry6H54TzOYgJB9Ow6qndZuI4NuhI12aelrLO8CEtYI5zwUUw3j5GQ4wFMQw8aFJ39WeuHMJIDw");
   });
 
   it("unlistedWithNoRulesMatchesTheGatesStamp", () => {
@@ -85,7 +87,15 @@ describe("stampLocalStep", () => {
       PI_KEY,
     );
     expect(stamp.bind).toBe("LF1MWJUcFAoGc5VzK3WV2TH8YL9XlOOo6MHe_mbN-8o");
-    expect(stamp.sig).toBe("KoYUeePtTZuhLo7Vhc2_FpGRs_BTL7aA4iQLIyRIfW1sPEtkykIpN3UzvehH_YXRs_gr86s8yHsMXYF5Ux-SCg");
+    expect(stamp.rcv).toBe("local:ls");
+    expect(stamp.sig).toBe("20J8BL7wEDyGAEyLzYXuGBGxgLGX1Ay7tIGiSRJzhoHgJ1kzlwaEbHCXkulW3bRE4QM8cX9tnqdMzpfw_hwLDw");
+  });
+});
+
+describe("localReceiver", () => {
+  it("namesTheToolAfterThePrefix", () => {
+    expect(LOCAL_RECEIVER_PREFIX).toBe("local:");
+    expect(localReceiver("read")).toBe("local:read");
   });
 });
 

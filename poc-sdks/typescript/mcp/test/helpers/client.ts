@@ -14,7 +14,7 @@ import {
   NONCE_TTL_MS,
   signKeyring,
   signRoot,
-  signStampV2,
+  signStampV3,
   verifySessionReply,
   type ContentLabel,
   type InfluenceEntry,
@@ -143,12 +143,22 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       const now = o.now ?? Date.now();
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
-      const s0 = signStampV2(
-        { svc: "session", inst: "session-1", rid, ts: now, sess, bind: bindPrompt("test prompt"), infl: "", prev: "" },
+      const s0 = signStampV3(
+        { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), infl: "", prev: "" },
         session.privateKey,
       );
-      const s1 = signStampV2(
-        { svc: "pi", inst: "pi-1", rid, ts: now, sess, bind: bindMcpCall(name, callId, args), infl: commitInfluence(influence), prev: s0.sig },
+      const s1 = signStampV3(
+        {
+          svc: "pi",
+          inst: "pi-1",
+          rid,
+          ts: now,
+          sess,
+          rcv: `mcp:github.${name}`,
+          bind: bindMcpCall(name, callId, args),
+          infl: commitInfluence(influence),
+          prev: s0.sig,
+        },
         pi.privateKey,
       );
       return {

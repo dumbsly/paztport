@@ -110,10 +110,10 @@ function stampedParams(
   if (proof === undefined) {
     throw new Error(`no proof for ${name}`);
   }
-  const origin = mintOrigin({ rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1" }, s.client.sessionKey);
+  const origin = mintOrigin({ rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
   const _meta = stampToolCall(
     { name, args, callId },
-    { origin, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence, proof },
+    { origin, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence, proof, serverId: "github" },
   );
   return { name, arguments: args, _meta };
 }
@@ -227,6 +227,20 @@ describe("stampToolCall", () => {
     expect(origin!.svc).toBe("session");
     expect(hop).toMatchObject({ svc: "pi", rid: RID, sess: s.reply.sess, prev: origin!.sig });
     expect(params._meta[META_CALL_ID]).toBe("call-1");
+  });
+  it("theHopNamesTheToolAsItsReceiverAndTheOriginIsUnchanged", () => {
+    const s = attestedSession();
+    const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "create_pull_request")!;
+    const origin = mintOrigin({ rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
+    const before = structuredClone(origin);
+    const _meta = stampToolCall(
+      { name: "create_pull_request", args: { title: "t" }, callId: "call-1" },
+      { origin, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence: [], proof, serverId: "github" },
+    );
+    const chain = _meta[META_CHAIN] as Record<string, unknown>[];
+    expect(chain[0]).toBe(origin);
+    expect(chain[0]).toEqual(before);
+    expect(chain[1]).toMatchObject({ v: 3, svc: "pi", rcv: "mcp:github.create_pull_request", prev: origin.sig });
   });
   it("verifiesAtTheServer", () => {
     const s = attestedSession();

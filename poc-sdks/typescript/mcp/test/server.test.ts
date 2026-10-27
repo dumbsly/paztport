@@ -234,6 +234,16 @@ describe("call check", () => {
     expect(r).toMatchObject({ reason: "OK", rid: "rid-9", callId: "call-9", influence });
     expect(r.session).toBe(srv.session());
   });
+  it("aVerifiedCallNamesItsCaller", () => {
+    const { srv, client } = attested(["list_issues"]);
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).caller).toBe("pi");
+    const params = client.callParams("list_issues", { owner: "o", repo: "r" }, []);
+    expect(srv.checkCall({ ...params, arguments: { owner: "x" } })).toMatchObject({ reason: "BINDING_MISMATCH", caller: "" });
+    expect(srv.checkCall(client.callParams("create_branch", { owner: "o", repo: "r", branch: "x" }, []))).toMatchObject({
+      reason: "CLIENT_PATH_NOT_ALLOWED",
+      caller: "",
+    });
+  });
   it("pathNotAllowedIsReportedAsTheClients", () => {
     const { srv, client } = attested(["list_issues"]);
     const r = srv.checkCall(client.callParams("create_branch", { owner: "o", repo: "r", branch: "x" }, [{ cls: "private", src: "x", h: "h" }]));
@@ -241,15 +251,15 @@ describe("call check", () => {
     expect(r.influence).toEqual([]);
   });
   it("checkCallUsesThePolicyServerId", () => {
-    // the client's routes name mcp:github.<tool>, so another server id is off the client's path
+    // the client's calls name mcp:github.<tool> as their receiver, so a server with another id refuses them
     const { srv, client } = attested(undefined, { serverId: "elsewhere" });
-    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).reason).toBe("CLIENT_PATH_NOT_ALLOWED");
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).reason).toBe("BINDING_MISMATCH");
   });
   it("undecodableClientRootIsChainMissing", () => {
     const { srv, client } = attested();
     srv.session()!.request.clientRoot!.root = "not base64url!";
     const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, []));
-    expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [] });
+    expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "" });
   });
   it("attestSignsThePolicyHops", () => {
     const base = serverConfig();

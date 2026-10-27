@@ -4,7 +4,15 @@
 import { bindLocalTool } from "./binding.ts";
 import { commitInfluence, type InfluenceEntry } from "./influence.ts";
 import type { LocalVerdict, Resolved } from "./local-decision.ts";
-import { signStampV2, type StampV2 } from "./stamp.ts";
+import { signStampV3, type StampV3 } from "./stamp.ts";
+
+/** What a local tool's receiver starts with: its route names `local:<tool>` after the client chain. */
+export const LOCAL_RECEIVER_PREFIX = "local:";
+
+/** The receiver a local tool call names, `local:<tool>`. */
+export function localReceiver(tool: string): string {
+  return LOCAL_RECEIVER_PREFIX + tool;
+}
 
 /** What a local step signs: the call, the gate's decision on it, and the step's place in the run's chain. */
 export type LocalStepFields = {
@@ -29,13 +37,16 @@ export type LocalStepFields = {
 };
 
 /**
- * A local tool call as a signed client-mesh step: a v2 stamp with an empty `sess`, bound to the input and the
- * decision (the call id, what was resolved, the verdict, whether the route is listed and which rules decided),
- * so none of them can be changed in the evidence after signing.
+ * A local tool call as a signed client-mesh step: a v3 stamp with an empty `sess`, naming `local:<tool>` as its
+ * receiver, bound to the input and the decision (the call id, what was resolved, the verdict, whether the route
+ * is listed and which rules decided), so none of them can be changed in the evidence after signing.
  */
-export function stampLocalStep(f: LocalStepFields, privateKey: string): StampV2 {
+export function stampLocalStep(f: LocalStepFields, privateKey: string): StampV3 {
   const bind = localStepBind(f);
-  return signStampV2({ svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", bind, infl: commitInfluence(f.influence), prev: f.prev }, privateKey);
+  return signStampV3(
+    { svc: f.svc, inst: f.inst, rid: f.rid, ts: f.ts, sess: "", rcv: localReceiver(f.toolName), bind, infl: commitInfluence(f.influence), prev: f.prev },
+    privateKey,
+  );
 }
 
 /** The binding a local step's stamp carries: the call and the decision on it. Throws if the input can't be bound. */

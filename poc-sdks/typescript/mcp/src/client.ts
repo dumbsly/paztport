@@ -7,7 +7,7 @@ import {
   decode,
   newNonce,
   routeOf,
-  signStampV2,
+  signStampV3,
   verifySessionReply,
   type ContentLabel,
   type InfluenceEntry,
@@ -18,7 +18,7 @@ import {
   type SessionReply,
   type SessionRequest,
   type SignedRoot,
-  type StampV2,
+  type StampV3,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT } from "./meta.ts";
@@ -156,8 +156,8 @@ export function toolCallProof(
 
 /** What the calling hop signs a tools/call with. */
 export type ToolCallStamp = {
-  /** The run's origin stamp for this session; the call's stamp continues its rid, session and chain. */
-  origin: StampV2;
+  /** The run's origin stamp for this session, naming `svc` as its receiver; the call's stamp continues its rid, session and chain. */
+  origin: StampV3;
   svc: string;
   inst: string;
   privateKey: string;
@@ -165,20 +165,23 @@ export type ToolCallStamp = {
   /** The influence the call is made under. */
   influence: InfluenceEntry[];
   proof: MerkleProof;
+  /** The server the call goes to: the call's stamp names `mcp:<serverId>.<tool>` as its receiver. */
+  serverId: string;
 };
 
 /**
- * The `_meta` for an attested tools/call: the origin and a stamp by the calling hop over the call's
- * binding and influence, the route proof, the influence and the call id. Throws if a stamp cannot be signed.
+ * The `_meta` for an attested tools/call: the origin and a v3 stamp by the calling hop over the call's
+ * receiver, binding and influence, the route proof, the influence and the call id. Throws if a stamp cannot be signed.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, unknown> {
-  const hop = signStampV2(
+  const hop = signStampV3(
     {
       svc: s.svc,
       inst: s.inst,
       rid: s.origin.rid,
       ts: s.ts,
       sess: s.origin.sess,
+      rcv: mcpReceiver(s.serverId, call.name),
       bind: bindMcpCall(call.name, call.callId, call.args),
       infl: commitInfluence(s.influence),
       prev: s.origin.sig,

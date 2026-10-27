@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, decode, generateKeyPair, signingBytesV2, verify } from "@paztport/core";
+import { bindPrompt, decode, generateKeyPair, signingBytesV3, verify } from "@paztport/core";
 import { RunState } from "../src/runs.ts";
 
 const key = generateKeyPair();
@@ -61,16 +61,17 @@ describe("RunState", () => {
     const o = r.origin("S9", key.privateKey, "my-inst");
     const { sig, ...rest } = o;
     expect(rest).toEqual({
-      v: 2,
+      v: 3,
       svc: "session",
       inst: "my-inst",
       rid: r.current()!.rid,
       ts: 4242,
       sess: "S9",
+      rcv: "pi",
       bind: bindPrompt("the prompt"),
       infl: "",
       prev: "",
     });
-    expect(verify(key.publicKey, signingBytesV2(rest), decode(sig))).toBe(true);
+    expect(verify(key.publicKey, signingBytesV3(rest), decode(sig))).toBe(true);
   });
 });

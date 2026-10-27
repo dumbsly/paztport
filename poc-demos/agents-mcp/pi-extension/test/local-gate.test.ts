@@ -23,9 +23,9 @@ import {
   NONCE_TTL_MS,
   parseLocalRules,
   rulesHash,
-  verifyChainV2,
+  verifyChainV3,
   type InfluenceEntry,
-  type StampV2,
+  type StampV3,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
@@ -293,7 +293,10 @@ describe("LocalGate evidence", () => {
     const rid = runs.current()!.rid;
     for (const rec of recs) {
       expect(rec).toMatchObject({ v: 1, type: "local", rid, now: 2_000 });
-      const [origin, pi] = rec.chain as [StampV2, StampV2];
+      const [origin, pi] = rec.chain as [StampV3, StampV3];
+      expect([origin.v, pi.v]).toEqual([3, 3]);
+      expect(origin.rcv).toBe("pi");
+      expect(pi.rcv).toBe(`local:${rec.tool}`);
       expect(origin.sess).toBe("");
       expect(pi.sess).toBe("");
       expect(pi.prev).toBe(origin.sig);
@@ -312,10 +315,10 @@ describe("LocalGate evidence", () => {
     expect(recs[0]!.resolved).toEqual({ paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true });
     expect(recs[0]!.input).toEqual({ path: "website/README.md" });
 
-    // the full v2 chain check, with the route as receiver
+    // the full v3 chain check, with the route as receiver
     for (const rec of recs.slice(0, 2)) {
-      const v = verifyChainV2(
-        { stamps: rec.chain, expectedBind: bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }), influence: rec.influence, proof: rec.proof, receiver: `local:${rec.tool}` },
+      const v = verifyChainV3(
+        { stamps: rec.chain, expectedBind: bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }), influence: rec.influence, proof: rec.proof, receiver: `local:${rec.tool}`, receiverInRoute: true },
         {
           keyring: material.keyring,
           root: decode(material.signedRoot.root),

@@ -6,11 +6,12 @@ import {
   decideLocalCall,
   decode,
   influenceClasses,
+  localReceiver,
   localStepBind,
   ORIGIN_SVC,
   parseInfluence,
   parseLocalRules,
-  parseStampsV2,
+  parseRecordedStamps,
   provesPath,
   rulesHash,
   rulesRoute,
@@ -56,7 +57,8 @@ import {
  *    resolution and influence under the signed rules: with the route not listed or no rules nothing is
  *    resolved, and with no rules every call is SCOPE_DENIED (VERDICT_MISMATCH).
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
- * checked, unlike the server's.
+ * checked, unlike the server's. A chain is v3, its stamps naming pi and then `local:<tool>` as their receivers
+ * (BINDING_MISMATCH), or one recorded before stamps named a receiver, all v2, which is legacy.
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
@@ -87,8 +89,6 @@ type Rec = Record<string, unknown>;
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
-/** The receiver a local tool's route names after the client's services. */
-const LOCAL_RECEIVER_PREFIX = "local:";
 const INST = "pi-1";
 /** A local step's chain: the run's origin, then the pi stamp, both from the one pi instance. */
 const SIGNERS = { svcs: [ORIGIN_SVC, "pi"], inst: INST };
@@ -154,8 +154,24 @@ function isResolved(v: unknown): v is Resolved {
 /**
  * Checks one local record (see the module comment). `seen` is the file's set of spent nonce keys, shared with
  * its calls and updated here; `runOf` gives a rid's run, or undefined when it has none or its prompt is in dispute.
+ * `legacy` is true when the record's chain parses as a legacy v2 one, and false when it is v3 or does not parse.
  */
-export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: Set<string>): LocalResult {
+export function verifyLocal(
+  r: Rec,
+  client: Client | undefined,
+  runOf: (rid: string) => RunInfo | undefined,
+  seen: Set<string>,
+): { result: LocalResult; legacy: boolean } {
+  let legacy = false;
+  try {
+    legacy = parseRecordedStamps(r.chain).legacy;
+  } catch {
+    // a chain that does not parse is not legacy, and checkLocal finds it UNREADABLE
+  }
+  return { result: checkLocal(r, client, runOf, seen), legacy };
+}
+
+function checkLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: Set<string>): LocalResult {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
     return "UNREADABLE";
   }
@@ -168,7 +184,7 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
   let influence: InfluenceEntry[];
   try {
     influence = parseInfluence(r.influence);
-    if (parseStampsV2(r.chain).length !== 2) {
+    if (parseRecordedStamps(r.chain).stamps.length !== 2) {
       return "UNREADABLE";
     }
   } catch {
@@ -191,7 +207,7 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
       expectedBind: bind,
       influence,
       proof: r.proof,
-      receiver: LOCAL_RECEIVER_PREFIX + r.tool,
+      receiver: localReceiver(r.tool),
       receiverInRoute: true,
       rid: r.rid,
       recordedTs: { last: r.now, ...(run !== undefined ? { run: run.ts } : {}) },

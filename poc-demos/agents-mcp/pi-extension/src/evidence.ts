@@ -12,7 +12,7 @@ import {
   type Resolved,
   type SessionRequest,
   type SignedRoot,
-  type StampV2,
+  type StampV3,
 } from "@paztport/core";
 import { CLIENT_CHAIN, type ClientMaterial } from "./keys.ts";
 
@@ -55,7 +55,7 @@ export type EvidenceRecord =
       resolved: Resolved;
       routeAllowed: boolean;
       rulesHash: string | null;
-      chain: [StampV2, StampV2];
+      chain: [StampV3, StampV3];
       proof: MerkleProof | null;
       influence: InfluenceEntry[];
       verdict: LocalVerdict;

@@ -8,6 +8,7 @@ import { homedir } from "node:os";
 import {
   decideLocalCall,
   influenceClasses,
+  localReceiver,
   NOTHING_RESOLVED,
   resultLabels,
   routeOf,
@@ -22,7 +23,7 @@ import type { ExtensionMode } from "../config.ts";
 import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
-import { CLIENT_CHAIN, type ClientMaterial } from "../keys.ts";
+import { CLIENT_CHAIN, PI_SVC, type ClientMaterial } from "../keys.ts";
 import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
@@ -34,8 +35,6 @@ export { BUILTIN_LOCAL_TOOLS };
 
 type FileTool = Exclude<BuiltinLocalTool, "bash" | "powershell">;
 const FILE_TOOLS: readonly string[] = BUILTIN_LOCAL_TOOLS.filter((t): t is FileTool => t !== "bash" && t !== "powershell");
-/** The receiver a local tool's route names after the client chain. */
-const LOCAL_RECEIVER_PREFIX = "local:";
 const INST = "pi-1";
 
 const UNPARSED: Resolved = { paths: [], programs: [], parse: "error", readOnly: false };
@@ -77,11 +76,12 @@ function spellings(path: string): string[] {
 
 /**
  * Checks pi tool calls against the signed client rules. In enforce mode each checked call during a
- * run is a signed client-mesh step: a v2 stamp with an empty `sess`, chained from the run's origin and
- * bound to the input and the decision (the call id, what the gate resolved, the verdict, whether the route
- * is listed and the rules' hash), written to the evidence file with the route proof and the influence. The
- * input is bound and recorded with the workspace and home folder paths replaced by "<workspace>" and "<home>"
- * (encodePlaceholders, reversible); the tool runs with the input as given. no-root mode has no rules to check against and refuses every call.
+ * run is a signed client-mesh step: a v3 stamp with an empty `sess`, naming `local:<tool>` as its receiver,
+ * chained from the run's origin and bound to the input and the decision (the call id, what the gate resolved,
+ * the verdict, whether the route is listed and the rules' hash), written to the evidence file with the route
+ * proof and the influence. The input is bound and recorded with the workspace and home folder paths replaced
+ * by "<workspace>" and "<home>" (encodePlaceholders, reversible); the tool runs with the input as given.
+ * no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
@@ -124,7 +124,7 @@ export class LocalGate {
       return { block: true, reason: localRefusalText("SCOPE_DENIED") };
     }
 
-    const route = routeOf([...CLIENT_CHAIN, LOCAL_RECEIVER_PREFIX + toolName]);
+    const route = routeOf([...CLIENT_CHAIN, localReceiver(toolName)]);
     const proof = Object.hasOwn(material.proofs, route) ? material.proofs[route]! : null;
     const entries = influence.entries();
     const rules = material.rules;
@@ -145,7 +145,7 @@ export class LocalGate {
       const signedInput = encodePlaceholders(input, { workspace: spellings(this.deps.workspace), home: spellings(this.deps.home ?? homedir()) });
       const stamp = stampLocalStep(
         {
-          svc: "pi",
+          svc: PI_SVC,
           inst: INST,
           rid: run.rid,
           ts: now,

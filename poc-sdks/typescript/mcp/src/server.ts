@@ -64,7 +64,8 @@ export type Session = {
  */
 export type SessionRules = { disabledWhenUnsafe: string[] };
 
-export type ServerCallCheck = { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[]; session: Session };
+/** A call check's verdict; `caller` is the verified call's last signer, "" when the call did not verify. */
+export type ServerCallCheck = { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[]; caller: string; session: Session };
 
 /** Thrown for a malformed request; an MCP server answers it with -32602 Invalid params. The message names the bad field. */
 export class InvalidParams extends Error {}
@@ -173,7 +174,7 @@ export class McpServerSession {
     try {
       root = decode(session.request.clientRoot.root);
     } catch {
-      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], session };
+      return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "", session };
     }
     const v = verifyCall(params, { serverId: this.policy.serverId }, {
       keyring: session.request.clientKeyring,
@@ -185,7 +186,8 @@ export class McpServerSession {
       now: this.now(),
     });
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
-    return { reason, rid: v.rid, callId: v.callId, influence: reason === "OK" ? v.influence : [], session };
+    const ok = reason === "OK";
+    return { reason, rid: v.rid, callId: v.callId, influence: ok ? v.influence : [], caller: ok ? v.result.suspectSvc : "", session };
   }
 
   /** Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current one). */

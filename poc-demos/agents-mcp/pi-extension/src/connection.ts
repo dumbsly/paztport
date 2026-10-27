@@ -19,7 +19,7 @@ import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
 import { EvidenceLog, type EvidenceRecord } from "./evidence.ts";
 import type { InfluenceStore } from "./influence.ts";
-import { CLIENT_CHAIN, readPin, type ClientMaterial } from "./keys.ts";
+import { CLIENT_CHAIN, PI_SVC, readPin, type ClientMaterial } from "./keys.ts";
 import { refusalText } from "./refusals.ts";
 import type { RunState } from "./runs.ts";
 
@@ -55,7 +55,6 @@ export type CallOutcome = {
   };
 };
 
-const SVC = "pi";
 const INST = "pi-1";
 /** The server hop a verified response must start at. */
 const SERVER_ORIGINS = ["mcp-entry"];
@@ -298,7 +297,10 @@ export class ServerConnection {
         const origin = this.runs.origin(reply.sess, this.material.sessionKey, INST);
         const influence = this.influence.entries();
         const stampedAt = this.now();
-        const _meta = stampToolCall({ name: tool, args, callId }, { origin, svc: SVC, inst: INST, privateKey: this.material.piKey, ts: stampedAt, influence, proof });
+        const _meta = stampToolCall(
+          { name: tool, args, callId },
+          { origin, svc: PI_SVC, inst: INST, privateKey: this.material.piKey, ts: stampedAt, influence, proof, serverId: server },
+        );
         params = { ...params, _meta };
         attested = { reply, rid, stampedAt };
       } catch (e) {

@@ -3,9 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV2, randomBytes, signStampV2,
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV3, randomBytes, signStampV2, signStampV3,
 } from "@paztport/core";
-import type { InfluenceEntry, V2Config } from "@paztport/core";
+import type { InfluenceEntry, V3Config } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
 
 const NOW = 10_000_000;
@@ -22,7 +22,7 @@ function world(extraRoutes: string[] = []) {
     8,
     "v1",
   );
-  const cfg = (over: Partial<Omit<V2Config, "nonceKey">> = {}): Omit<V2Config, "nonceKey"> => ({
+  const cfg = (over: Partial<Omit<V3Config, "nonceKey">> = {}): Omit<V3Config, "nonceKey"> => ({
     keyring: { session: harness.publicKey, pi: harness.publicKey },
     root: tree.root,
     rootId: tree.rootId,
@@ -32,18 +32,23 @@ function world(extraRoutes: string[] = []) {
     now: NOW,
     ...over,
   });
-  /** A tools/call params object whose chain binds (name, callId, args); `send` overrides what is sent. */
+  /**
+   * A tools/call params object whose v3 chain binds (name, callId, args) and names `rcv`, `mcp:github.<name>`
+   * by default; `v2` signs a v2 chain instead; `send` overrides what is sent.
+   */
   const params = (
-    signed: { name?: string; callId?: string; args?: Record<string, unknown>; route?: string } = {},
+    signed: { name?: string; callId?: string; args?: Record<string, unknown>; route?: string; rcv?: string; v2?: boolean } = {},
     send: { name?: string; callId?: unknown; args?: Record<string, unknown> } = {},
   ): Record<string, unknown> => {
     const name = signed.name ?? TOOL;
     const callId = signed.callId ?? "call-1";
     const args = signed.args ?? { title: "t" };
-    const mk = (svc: string, bind: string, i: string, prev: string) =>
-      signStampV2({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, bind, infl: i, prev }, harness.privateKey);
-    const s0 = mk("session", "b0", "", "");
-    const s1 = mk("pi", bindMcpCall(name, callId, args), commitInfluence(infl), s0.sig);
+    const mk = (svc: string, rcv: string, bind: string, i: string, prev: string) => {
+      const fields = { svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, bind, infl: i, prev };
+      return signed.v2 ? signStampV2(fields, harness.privateKey) : signStampV3({ ...fields, rcv }, harness.privateKey);
+    };
+    const s0 = mk("session", "pi", "b0", "", "");
+    const s1 = mk("pi", signed.rcv ?? `mcp:github.${name}`, bindMcpCall(name, callId, args), commitInfluence(infl), s0.sig);
     return {
       name: send.name ?? name,
       arguments: send.args ?? args,
@@ -66,6 +71,35 @@ describe("verifyCall", () => {
     expect(r.rid).toBe("rid-1");
     expect(r.callId).toBe("call-1");
     expect(r.influence).toEqual(infl);
+    expect(r.legacy).toBe(false);
+  });
+  it("aV2CallIsChainMissing", () => {
+    const w = world();
+    const r = verifyCall(w.params({ v2: true }), SERVER, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+    expect(r.legacy).toBe(false);
+    expect(r.influence).toEqual([]);
+  });
+  it("aCallStampedForAnotherReceiverIsBindingMismatch", () => {
+    const w = world();
+    // signed and bound for create_pull_request, but the hop names mcp:github.other as its receiver
+    const r = verifyCall(w.params({ rcv: "mcp:github.other" }), SERVER, w.cfg());
+    expect(r.result.reason).toBe("BINDING_MISMATCH");
+    expect(r.influence).toEqual([]);
+  });
+  it("aLiveResultIsNeverLegacy", () => {
+    const w = world();
+    const cfg = w.cfg();
+    const p = w.params();
+    const results = [
+      verifyCall(p, SERVER, cfg),
+      verifyCall(p, SERVER, cfg),
+      verifyCall(w.params({ v2: true }), SERVER, w.cfg()),
+      verifyCall(w.params({ rcv: "mcp:github.other" }), SERVER, w.cfg()),
+      verifyCall(null, SERVER, w.cfg()),
+    ];
+    expect(results.map((r) => r.result.reason)).toEqual(["OK", "REPLAY", "CHAIN_MISSING", "BINDING_MISMATCH", "CHAIN_MISSING"]);
+    expect(results.map((r) => r.legacy)).toEqual([false, false, false, false, false]);
   });
   it("replayedCallIsReplay", () => {
     const w = world();
@@ -101,8 +135,10 @@ describe("verifyCall", () => {
     const w = world();
     // correctly signed and bound for delete_repo, but session/pi/mcp:github.delete_repo is not in the client root
     expect(verifyCall(w.params({ name: "delete_repo" }), SERVER, w.cfg()).result.reason).toBe("PATH_NOT_ALLOWED");
-    // the receiver names the verifying server: the same call presented to another server is not on the route
-    expect(verifyCall(w.params(), { serverId: "gitlab" }, w.cfg()).result.reason).toBe("PATH_NOT_ALLOWED");
+    // the receiver names the verifying server: the same call presented to another server names the wrong receiver
+    expect(verifyCall(w.params(), { serverId: "gitlab" }, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
+    // and one stamped for that server is not on the route
+    expect(verifyCall(w.params({ rcv: `mcp:gitlab.${TOOL}` }), { serverId: "gitlab" }, w.cfg()).result.reason).toBe("PATH_NOT_ALLOWED");
   });
   it("malformedParamsChainMissing", () => {
     const w = world();
@@ -148,7 +184,8 @@ describe("verifyCall", () => {
   });
   it("pipeInToolNameIsChainMissing", () => {
     const w = world(["session/pi/mcp:github.a|b"]);
-    const r = verifyCall(w.params({ name: "a|b", route: "session/pi/mcp:github.a|b" }), SERVER, w.cfg());
+    // the stamp itself cannot hold the delimiter, so it names another receiver: the name is refused before that
+    const r = verifyCall(w.params({ name: "a|b", route: "session/pi/mcp:github.a|b", rcv: "mcp:github.a" }), SERVER, w.cfg());
     expect(r.result.reason).toBe("CHAIN_MISSING");
   });
   it("slashPipeOrDotInServerIdIsChainMissing", () => {
@@ -184,8 +221,8 @@ describe("verifyCall", () => {
   it("parsingParsedInputIsIdempotent", () => {
     const w = world();
     const meta = w.params()._meta as Record<string, unknown>;
-    const stamps = parseStampsV2(meta[META_CHAIN]);
-    expect(parseStampsV2(stamps)).toEqual(stamps);
+    const stamps = parseStampsV3(meta[META_CHAIN]);
+    expect(parseStampsV3(stamps)).toEqual(stamps);
     const parsed = parseInfluence(meta[META_INFLUENCE]);
     expect(parseInfluence(parsed)).toEqual(parsed);
   });

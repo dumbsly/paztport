@@ -119,8 +119,10 @@ describe("evidence file", { timeout: 30_000 }, () => {
       expect(x.params._meta).toHaveProperty("paztport/chain");
       expect(x.params._meta).toHaveProperty("paztport/proof");
       expect(x.params._meta).toHaveProperty("paztport/influence");
-      const chain = x.params._meta["paztport/chain"] as { svc: string; ts: number }[];
+      const chain = x.params._meta["paztport/chain"] as { v: number; svc: string; rcv: string; ts: number }[];
       expect(chain[chain.length - 1]!.svc).toBe("pi");
+      // v3: the origin names pi, and pi's stamp names the tool on this server
+      expect(chain.map((c) => [c.v, c.rcv])).toEqual([[3, "pi"], [3, `mcp:github.${x.tool}`]]);
       expect(x.now).toBe(chain[chain.length - 1]!.ts); // the timestamp used for the stamp
     }
     expect(calls[2]!.params.arguments).toEqual({ owner: "acme", repo: "payroll-notes", path: "README.md" });
