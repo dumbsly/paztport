@@ -177,10 +177,10 @@ is `b64url(H(bytes))`, over these bytes:
 |---|---|---|
 | HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. |
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
-| `tools/call` | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`, with `{}` for absent arguments. |
+| `tools/call` | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
 | Result | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
 | Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ toolCallId ‖ "\n" ‖ JCS(labels))`. There is no prefix: it starts with the result hash. |
-| Local tool | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`, with `{}` for an absent input. |
+| Local tool | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`. An absent or `null` input, or decision, hashes as `{}`. |
 
 Rules:
 

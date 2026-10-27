@@ -28,8 +28,9 @@ What v3 changed, deliberately:
 - **v3 only, live.** A live verifier rejects a v2 chain (`CHAIN_MISSING`). An offline verifier accepts an
   all-v2 chain as legacy, and a mixed one never.
 - **The signed keyring.** A keyring is signed by its policy key, and the session request carries that
-  signature as `clientKeyringSig`. A request without the field is legacy offline and unsafe live; one whose
-  signature is present but malformed or wrong fails both ways. A server attests a session only for a client
+  signature as `clientKeyringSig`. A request without the field is legacy offline and unsafe live. One whose
+  signature is present but malformed (not a string) or wrong is unsafe live, and offline is a v3 request whose
+  signature fails, not a legacy one. A server attests a session only for a client
   policy key it has pinned.
 - **The transport peer.** A verifier given an authenticated peer checks it is the last signer
   (`PEER_MISMATCH`), and names it in every result.

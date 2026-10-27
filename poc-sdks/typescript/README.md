@@ -38,8 +38,9 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
   result. No transport here supplies one yet: the agents demo runs over stdio, which has no TLS.
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
-  request carries the signature as `clientKeyringSig`. A request without it is legacy offline and unsafe live;
-  one whose signature is present but malformed fails.
+  request carries the signature as `clientKeyringSig`. A request without it is legacy offline and unsafe live.
+  One whose signature is present but malformed (not a string) or wrong is unsafe live, and offline is a v3
+  request whose signature fails, not a legacy one.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 

@@ -103,9 +103,10 @@ no peer, check 12 is skipped.
 
 **Attribution.** Every result carries `suspectSvc` and `suspectInst`, the party a responder may act against:
 
-- **With a peer**, every result names the peer, `OK` included: `suspectSvc = peer.svc` and
-  `suspectInst = peer.inst`. The transport authenticated that sender, so it is the party that really sent
-  this request, whatever the chain says.
+- **With a peer**, every result of the live order, 1 to 12, names the peer, `OK` included:
+  `suspectSvc = peer.svc` and `suspectInst = peer.inst`. The transport authenticated that sender, so it is the
+  party that really sent this request, whatever the chain says. The MCP wrappers' own pre-checks, below, run
+  before the live order and name no one.
 - **Without a peer**, only `OK` and `PATH_NOT_ALLOWED` name a suspect: `suspectSvc` is the last stamp's `svc`
   and `suspectInst` its `inst`. By then the signatures, links, receivers, times, binding and replay checks have
   held, so that service's key really signed this request for this receiver. Every other result leaves both
@@ -135,7 +136,9 @@ The influence is returned only when the call verifies. Then the server decides o
 with `isError: true` and `paztport/verdict`, and is not signed.
 
 **A response, on the client.** The client checks a response only in an attested session, against the server's
-root and keyring from the signed handshake reply, with `receiver` = the client's own `svc`,
+root and keyring from the signed handshake reply, with `allowedOrigins` = the server's entry service as the
+client's own configuration names it (`["mcp-entry"]` in the agents demo), never a value from the reply,
+`receiver` = the client's own `svc`,
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
 
 1. The call's `rid` and `callId` are strings, `callId` holds no `\n`, and the attestation is an object with an
@@ -150,8 +153,15 @@ unsafe session, counts as `local-untrusted`.
 
 **A verdict, on the client.** A refusal is unsigned by design: it can only withhold a result, never add
 influence. A client MUST treat a result with a non-audit `paztport/verdict` as "the tool did not run" and record
-nothing from it. Its `reason` is server data that can reach a model, so a client MUST replace any value that is
-not a live code below with `UNKNOWN`.
+nothing from it. Its `reason` is server data that can reach a model, so a client MUST keep it only when it is one of
+these codes, and MUST replace anything else, `OK` included, with `UNKNOWN`:
+
+`CHAIN_MISSING`, `BAD_ORIGIN`, `BAD_SIGNATURE`, `BROKEN_LINK`, `EXPIRED`, `RID_MISMATCH`, `BINDING_MISMATCH`,
+`REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`, `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH`,
+`INFLUENCE_DENIED`, `UNSAFE_SESSION`, `SCOPE_DENIED`, `UNCHECKABLE`, `PEER_MISMATCH`.
+
+That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH` and
+`PROMPT_MISMATCH`.
 
 ## Offline verification
 
@@ -193,8 +203,7 @@ Records made before v3 carry v2 stamps, which name no receiver, and session requ
   receiver checks; everything else is the same. A chain that mixes versions is `CHAIN_MISSING`, never a partial
   legacy pass.
 - **A session request with no `clientKeyringSig` field** is legacy offline: the keyring check is skipped. Live,
-  the server treats it as unsigned, so the session is unsafe. A `clientKeyringSig` that is present but not a
-  string, or does not verify, fails both ways: it is a v3 request with a bad signature, not a legacy one.
+  the server treats it as unsigned, so the session is unsafe. A `clientKeyringSig` that is present but malformed (not a string) or wrong: live, the server reads a non-string as `""`, which never verifies, so the session is unsafe; offline, it is a v3 request whose signature fails, not a legacy one.
 - **A verifier MUST report legacy.** Each item that verified from v2 stamps, or from a request with no keyring
   signature, is marked legacy, so a reader can see that it was checked less strictly. A failure is never marked.
   The agents demo's `verify` writes `"legacy": true` on such items and counts them on its `OK` line
@@ -244,10 +253,11 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `SCOPE_DENIED` | client local | The local gate: a path or program outside the signed rules. |
 | `UNCHECKABLE` | client local | The local gate could not tell what the call would touch. |
 
-"Live" codes come from a live verifier, so a server can send them as verdicts. "Offline only" codes are never
-sent live, and a client MUST NOT accept them as a server's verdict. "Server decision" codes come from a server's
-decision on a call that verified. "Client local" codes come from the client's own gate for its local tools, and
-never cross the wire.
+"Live" codes come from a live verifier, and "server decision" codes from a server's decision on a call; both
+are valid verdicts for a server to send. "Offline only" codes are never sent live, and a client MUST NOT accept
+them as a server's verdict. "Client local" codes come from the client's own gate for its local tools. A server
+has no reason to send them, but the client's verdict check keeps them, since they are not offline-only
+([the verdict rule](#the-mcp-server-and-client)).
 
 ## Guidance for a responder
 

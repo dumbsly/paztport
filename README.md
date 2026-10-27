@@ -162,7 +162,8 @@ Why it's built this way:
 
 The table is the v1 stamp, which the Java mesh signs. The current version, v3, which the
 TypeScript SDK and the agents demo sign, adds four fields: a version `v`, the session `sess`, an
-influence commitment `infl`, and the receiver `rcv`, the hop each stamp was handed to. Binding the
+influence commitment `infl`, and the receiver `rcv`, the hop each stamp was handed to. A v3 stamp's
+`ts` is also its own signing time, not the origin's carried unchanged as in v1. Binding the
 receiver changes who a rejection names. A chain forwarded unchanged to another service now fails
 `BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last
 signer. And when the transport authenticates the sender, as mTLS does, the verifier checks that
@@ -344,11 +345,11 @@ that the route taken is in a private, committed policy**.
 - **A compromised service can blame its own replicas.** The instance in a stamp is
   reported by the service that signed it. The responder refuses a container that
   doesn't run the named service, but a compromised service can still name any
-  replica of itself, and the responder will isolate that replica instead. With an
-  authenticated transport peer, a v3 verifier names the sender's own address
-  instead. A certificate is per service, though, so the responder still checks that
-  the container runs the named service. The Java mesh still runs v1, so this limit
-  stands there.
+  replica of itself, and the responder will isolate that replica instead. A v3
+  verifier given an authenticated transport peer names the sender's own address
+  instead, but no transport here supplies a peer yet, so the limit stands. Even with
+  one, a certificate is per service, so the responder still checks that the
+  container runs the named service.
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS

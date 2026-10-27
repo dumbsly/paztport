@@ -32,10 +32,14 @@ classes, so calls signed for the old session are refused.
 A server MUST answer a request that is not an object, or whose `clientRoot` is neither `null` nor an object of
 three strings (`rootId`, `root`, `sig`), whose `clientKeyring` is not an object of strings, or whose
 `clientPolicyKey` or `nonce` is not a string, with JSON-RPC error `-32602` (Invalid params), and open no session.
-It MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64.
+It MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer
+that with a JSON-RPC error other than `-32601`, so the client takes its replacement path
+([below](#the-clients-check-of-the-reply)). A request that opens no session leaves the connection's current
+session, if any, in place: the TypeScript server fails before it replaces it.
 
-A `clientKeyringSig` that is missing or not a string is not malformed, only unsigned: the server reads it as
-`""`, which never verifies, so the session is unsafe.
+A request with no `clientKeyringSig` field is unsigned: the server reads it as `""`, which never verifies, so
+the session is unsafe (offline it is legacy; see [Recorded handshakes](#recorded-handshakes)). A
+`clientKeyringSig` that is present but malformed (not a string) or wrong: live, the server reads a non-string as `""`, which never verifies, so the session is unsafe; offline, it is a v3 request whose signature fails, not a legacy one.
 
 ### The reply
 
