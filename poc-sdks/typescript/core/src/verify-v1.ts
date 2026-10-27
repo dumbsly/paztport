@@ -20,16 +20,12 @@ export type V1Config = {
   now: number;
 };
 
-/**
- * What the receiver saw: the two headers, the binding it computed for the request, and its own service name.
- * `peer` is the authenticated transport peer's service name, supplied by the transport extension (e.g. from mTLS); not checked yet.
- */
+/** What the receiver saw: the two headers, the binding it computed for the request, and its own service name. */
 export type V1Request = {
   chainHeader?: string;
   proofHeader?: string;
   expectedBind: string;
   receiver: string;
-  peer?: string;
 };
 
 function reject(reason: ReasonCode, suspectSvc = "", suspectInst = ""): VerifyResult {

@@ -185,6 +185,7 @@ export function verifyLocal(r: Rec, client: Client | undefined, runOf: (rid: str
       influence,
       proof: r.proof,
       receiver: LOCAL_RECEIVER_PREFIX + r.tool,
+      receiverInRoute: true,
       rid: r.rid,
       recordedTs: { last: r.now, ...(run !== undefined ? { run: run.ts } : {}) },
       ...(run !== undefined ? { prompt: run.prompt } : {}),

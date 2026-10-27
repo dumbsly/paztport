@@ -5,11 +5,7 @@ import { checkCommitments, checkRoute, checkStamps, reject } from "./chain-check
 import type { InfluenceEntry } from "./influence.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
-
-export const CALL_MAX_AGE_MS = 5000;
-export const RUN_MAX_AGE_MS = 1_800_000;
-/** Nonce caches must remember keys for at least twice the call freshness window. */
-export const NONCE_TTL_MS = 15_000;
+import { CALL_MAX_AGE_MS, RUN_MAX_AGE_MS } from "./verify-v3.ts";
 
 export type V2Input = {
   stamps: unknown;
@@ -36,10 +32,11 @@ export type V2Config = {
 
 export function verifyChainV2(input: V2Input, cfg: V2Config): VerifyResult {
   // 1-6. Parse, delimiter, origin, signatures and links, shared rid, session.
-  const stamps = checkStamps(input.stamps, cfg);
-  if (typeof stamps === "string") {
-    return reject(stamps);
+  const checked = checkStamps(input.stamps, cfg, { accept: "v2" });
+  if (typeof checked === "string") {
+    return reject(checked);
   }
+  const { stamps } = checked;
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
 

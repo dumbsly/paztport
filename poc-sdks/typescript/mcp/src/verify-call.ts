@@ -18,7 +18,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
-type ChainCheck = (input: V2Input, nonceKey: string, callId: string) => VerifyResult;
+type ChainCheck = (input: V2Input & { receiver: string }, nonceKey: string, callId: string) => VerifyResult;
 
 /**
  * Reads a tools/call params object once, derives the binding, the receiver `mcp:<serverId>.<name>` and the
@@ -118,8 +118,8 @@ export type RecordedCall = {
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
   return checkCall(params, call.serverId, (input, nonceKey, callId) => {
-    const result = verifyChainOffline(
-      { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
+    const { legacy: _legacy, ...result } = verifyChainOffline(
+      { ...input, receiverInRoute: true, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
       { ...cfg, runMaxAgeMs: cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS, callMaxAgeMs: cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS, nonceKey },
     );
     return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" } : result;
