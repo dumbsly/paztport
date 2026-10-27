@@ -65,12 +65,21 @@ describe("loadClientMaterial", () => {
     expect(() => loadClientMaterial(dir)).toThrow("npm run setup-demo -- --force");
   });
 
-  it("aKeyringSignatureThatFailsIsRejected", () => {
+  it("aKeyringSignatureThatFailsIsRejectedAndNamesTheFix", () => {
     const dir = copy();
     const ring = json(join(dir, "keyring.json"));
     ring.services.extra = generateKeyPair().publicKey;
     writeFileSync(join(dir, "keyring.json"), JSON.stringify(ring));
     expect(() => loadClientMaterial(dir)).toThrow("keyring.json is not signed by its policy key");
+    expect(() => loadClientMaterial(dir)).toThrow("npm run setup-demo -- --force");
+  });
+
+  it.each([7, null, {}])("aNonStringKeyringSignatureNamesTheFix %j", (sig) => {
+    const dir = copy();
+    const ring = json(join(dir, "keyring.json"));
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify({ ...ring, sig }));
+    expect(() => loadClientMaterial(dir)).toThrow("keyring.json sig must be a string");
+    expect(() => loadClientMaterial(dir)).toThrow("npm run setup-demo -- --force");
   });
 
   it("loadsSignedLocalRules", () => {

@@ -23,8 +23,8 @@ export type V3Input = {
   receiver: string;
   /** Whether the route ends at the receiver: true for a call, false for a response, whose receiver is off the sender's route. */
   receiverInRoute: boolean;
-  /** The sender the transport authenticated; omitted, no peer is checked. */
-  peer?: Peer;
+  /** The sender the transport authenticated; omitted or null, no peer is checked. */
+  peer?: Peer | null;
 };
 
 export type V3Config = {
@@ -43,8 +43,8 @@ export type V3Config = {
 type LegacyResult = VerifyResult & { legacy: boolean };
 
 /** The attribution rule, in one place: with a peer, every result names it; without one, the chain's own rule stands. */
-function blame<R extends VerifyResult>(result: R, peer: Peer | undefined): R {
-  return peer === undefined ? result : { ...result, suspectSvc: peer.svc, suspectInst: peer.inst };
+function blame<R extends VerifyResult>(result: R, peer: Peer | null | undefined): R {
+  return peer == null ? result : { ...result, suspectSvc: peer.svc, suspectInst: peer.inst };
 }
 
 /** Checks 1 to 12 in order, for the stamps `accept` allows; the result before attribution. */
@@ -87,7 +87,7 @@ function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): Leg
   }
 
   // 12. The transport peer is the last signer.
-  if (input.peer !== undefined && input.peer.svc !== last.svc) {
+  if (input.peer != null && input.peer.svc !== last.svc) {
     return done(reject("PEER_MISMATCH"));
   }
   return done(routed);

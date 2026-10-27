@@ -42,7 +42,7 @@ function line(r: VerifyReport): string {
     const server = refused === 0 ? "" : `, ${refused} REFUSED (server refusal; ${local > 0 ? "not signed" : "refusals are not signed"})`;
     const note = server + (local > 0 ? `, ${local} REFUSED (local refusal; signed)` : "");
     const legacy = r.items.filter((i) => i.legacy === true).length;
-    const old = legacy > 0 ? `, ${legacy} legacy (v2 records)` : "";
+    const old = legacy > 0 ? `, ${legacy} legacy (pre-v3 records)` : "";
     return `OK  ${r.file} (${r.items.length} items${note}${old})${pin}`;
   }
   const first = r.items.find((i) => !NOT_FAILURES.includes(i.result))!;

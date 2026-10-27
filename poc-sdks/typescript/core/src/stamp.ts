@@ -45,6 +45,7 @@ export function signingBytesV2(s: Omit<StampV2, "sig">): Uint8Array {
   return utf8(`2|${s.svc}|${s.inst}|${s.rid}|${s.ts}|${s.sess}|${s.bind}|${s.infl}|${s.prev}`);
 }
 
+/** Signs a v2 stamp, for legacy-record tests and vectors only: live producers sign v3. */
 export function signStampV2(fields: Omit<StampV2, "sig" | "v">, privateKey: string): StampV2 {
   const base = {
     v: 2 as const,
@@ -142,6 +143,7 @@ export function signingBytesV3(s: Omit<StampV3, "sig">): Uint8Array {
   return utf8(`3|${s.svc}|${s.inst}|${s.rid}|${s.ts}|${s.sess}|${s.rcv}|${s.bind}|${s.infl}|${s.prev}`);
 }
 
+/** Signs a v3 stamp, the one every live producer makes; throws if a field holds the delimiter or a lone surrogate. */
 export function signStampV3(fields: Omit<StampV3, "sig" | "v">, privateKey: string): StampV3 {
   const base = {
     v: 3 as const,

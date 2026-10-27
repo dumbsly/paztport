@@ -40,6 +40,9 @@ export type ClientMaterial = {
   rules?: LocalRules;
 };
 
+/** The fix for a keyring.json from before keyrings were signed, or one whose signature does not hold. */
+const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
+
 function readText(dir: string, name: string): string {
   try {
     return readFileSync(join(dir, name), "utf8").trim();
@@ -92,9 +95,12 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
   const keyring = Object.fromEntries(Object.entries(ring.services).map(([k, v]) => [k, str(v, `keyring.json entry ${k}`)]));
   const policyPublicKey = str(ring.policy, "keyring.json policy");
   if (ring.sig === undefined) {
-    throw new Error(`${join(dir, "keyring.json")} has no sig: regenerate the demo keys with npm run setup-demo -- --force`);
+    throw new Error(`${join(dir, "keyring.json")} has no sig: ${REGENERATE}`);
   }
-  const keyringSig = str(ring.sig, "keyring.json sig");
+  if (typeof ring.sig !== "string") {
+    throw new Error(`keyring.json sig must be a string: ${REGENERATE}`);
+  }
+  const keyringSig = ring.sig;
   const root = readJson(policyDir, "root.json");
   if (!isObject(root)) {
     throw new Error("malformed root.json");
@@ -117,7 +123,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     }
   }
   if (!verifyKeyring({ policy: policyPublicKey, services: keyring, sig: keyringSig }, policyPublicKey)) {
-    throw new Error("keyring.json is not signed by its policy key");
+    throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
   }
 
   let rootBytes: Uint8Array;

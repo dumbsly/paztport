@@ -16,7 +16,8 @@ import { parseRecordedStamps, parseStampsV3, signingBytes, type RecordedStamp, t
  * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
  * checks held, so the last hop's service really sent this request (its inst is that service's own claim).
  * Earlier failures may carry an unsigned name or another service's genuine stamp from a replayed or altered
- * capture.
+ * capture. Receiver failures name no suspect either: a chain forwarded unchanged was genuinely signed for
+ * someone else, so its last signer did not send it here.
  */
 export function reject(reason: ReasonCode): VerifyResult {
   return { ok: false, reason, suspectSvc: "", suspectInst: "" };

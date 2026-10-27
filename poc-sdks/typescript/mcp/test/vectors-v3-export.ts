@@ -313,7 +313,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { ...c, sig };
   });
 
-  // Influence: normalized forms written by hand; the "no owners" commitment is v2's.
+  // Influence: normalised forms written by hand; the "no owners" commitment is v2's.
   const v2 = JSON.parse(readFileSync(V2_JSON, "utf8"));
   const notes = (cid?: string, owner?: string): InfluenceEntry => ({
     cls: "private", src: "file:notes.md", h: "h1", ...(cid === undefined ? {} : { cid }), ...(owner === undefined ? {} : { owner }),

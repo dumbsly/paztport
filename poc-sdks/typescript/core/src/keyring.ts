@@ -13,6 +13,7 @@ export function keyringSigningBytes(policy: string, services: Record<string, str
   return utf8("paztport-keyring\n" + canonicalize({ policy, services }));
 }
 
+/** Signs a keyring with its policy key, over keyringSigningBytes. */
 export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string): SignedKeyring {
   return { policy: policyPublicKey, services, sig: encode(sign(policyPrivateKey, keyringSigningBytes(policyPublicKey, services))) };
 }

@@ -93,6 +93,11 @@ describe("verifyChainV3", () => {
   });
   it("without a peer, early rejections name no one", () => expect(verify(chain({ tamperS1Sig: true }))).toMatchObject({ suspectSvc: "", suspectInst: "" }));
   it("the route fails before the peer is checked", () => expect(verify(chain(), { proofRoute: "session/pi", peer: { svc: "search", inst: "x" } }).reason).toBe("PATH_NOT_ALLOWED"));
+  it("a null peer is no peer, and never throws", () => {
+    expect(verify(chain(), { peer: null })).toEqual(verify(chain()));
+    expect(verify(chain({ tamperS1Sig: true }), { peer: null })).toEqual({ ok: false, reason: "BAD_SIGNATURE", suspectSvc: "", suspectInst: "" });
+    expect(verifyChainAcceptingLegacy(input(v2chain(), { peer: null }), cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1", legacy: true });
+  });
   it("verifyChainAcceptingLegacy marks a v2 chain legacy and a v3 chain current", () => {
     expect(verifyChainAcceptingLegacy(v2input(), cfg())).toMatchObject({ reason: "OK", legacy: true });
     expect(verifyChainAcceptingLegacy(v3input(), cfg())).toMatchObject({ reason: "OK", legacy: false });
@@ -151,7 +156,7 @@ describe("verifyChainV3", () => {
     expect(verify(chain(), { receiverInRoute: false, proofRoute: "session/pi" }).reason).toBe("OK");
   });
 
-  // The v2 verifier's cases, on v3 stamps.
+  // The cases ported from the retired v2 verifier.
   it("validPasses", () => {
     expect(verify(chain())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
   });

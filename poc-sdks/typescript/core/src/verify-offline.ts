@@ -39,7 +39,10 @@ export type OfflineConfig = Pick<V3Config, "keyring" | "root" | "rootId" | "allo
   callMaxAgeMs?: number;
 };
 
-/** An offline verdict, and whether the chain was a legacy v2 one (false when it did not parse). */
+/**
+ * An offline verdict, and whether the chain was legacy: true once an all-v2 chain passes checks 1 to 6,
+ * whatever a later check gives; false for a v3 chain and for any chain rejected at checks 1 to 6.
+ */
 export type OfflineResult = VerifyResult & { legacy: boolean };
 
 /**

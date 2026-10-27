@@ -25,7 +25,7 @@ request.
 | `proof` | The route proof received with the chain. |
 | `receiver` | What the last stamp's `rcv` must name: the receiver's own name, or for a response, the calling client's `svc`. |
 | `receiverInRoute` | Whether the route ends at `receiver`: true for a call, false for a response. |
-| `peer` | Optional. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
+| `peer` | Optional; null is the same as absent. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
 | `keyring` | Service name to public key, from a verified keyring. A key is looked up by own name only: inherited or default entries MUST NOT match. |
 | `root`, `rootId` | The pinned signed root, already verified against its policy key. |
 | `allowedOrigins` | The services that may sign an origin stamp. |
@@ -117,7 +117,9 @@ no peer, check 12 is skipped.
 
 ## The MCP server and client
 
-The MCP transport wraps the live order with checks of its own, before the chain is verified.
+The MCP transport wraps the live order with checks of its own, before the chain is verified. The TypeScript
+MCP wrappers (`verifyCall`, `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has
+no TLS, so for MCP over stdio the live order ends at check 11, and the peer check is core's.
 
 **A tool call, on the server.** The server checks a call only in an attested session
 ([sessions-and-influence.md](sessions-and-influence.md#status)), against the client's root and keyring from the
@@ -184,8 +186,8 @@ Each kind of record is checked this way:
   time the calling hop recorded stamping it. A chain that verifies but names a different call id from the
   record's is `RID_MISMATCH`.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
-  recorded verifying it, and one nonce cache that never forgets across the record set. It also accepts a v2
-  chain as legacy.
+  recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
+  recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
 - **A recorded local step**: the offline chain verifier with `signers` (the origin service then the client hop,
   both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
   <rid>|<callId>|local`. Then the decision it signed is checked again against the signed rules.

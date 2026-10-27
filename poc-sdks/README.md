@@ -42,4 +42,5 @@ v1, which the Java SDK speaks, travels in the `X-Path-Chain` and `X-Path-Proof` 
 are base64url without padding, in every version.
 
 The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig" }`, where `sig` is the policy key's
-Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) is signed by the same key.
+Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) written by the TypeScript tools is signed by the
+same key; the Java keygen's keyrings aren't signed yet.
