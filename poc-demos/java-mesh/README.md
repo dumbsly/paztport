@@ -79,7 +79,7 @@ sequenceDiagram
 ```
 
 Application code never touches any of this. The Spring outbound interceptor
-stamps every `RestClient` call through core's `OutboundStamperV1`. It takes the
+stamps every `RestClient` call through core's `StamperV3`. It takes the
 target service from the request URI host (Compose service names double as
 hostnames), takes the inbound chain from a request-scoped context, and attaches
 the proof for `(chain so far) + target` if this hop holds one. The inbound filter caches the body, records the received chain

@@ -18,7 +18,7 @@ on the installed artifacts, so install the SDK before building it.
 
 The library: stamps, chain, salted Merkle tree, verifier. Small enough to read in
 one sitting. It also owns policy building (`PolicyBuilder`), outbound stamping
-(`OutboundStamperV1`), the check on events sent to a responder (`EventVerifier`),
+(`StamperV3`), the check on events sent to a responder (`EventVerifier`),
 route strings (`Routes`) and key loading (`KeyFiles`). It never touches TLS or
 HTTP: the transport extension hands the verifier the binding of the request
 received and the receiving service's name.
@@ -34,7 +34,7 @@ The HTTP binding. `RequestBinding` computes `bind`, the base64url SHA-256 of
 
 Glue: an inbound servlet filter (verify, and keep the received chain for the
 outbound calls) and an outbound `RestClient` interceptor (stamp through
-`OutboundStamperV1`, attach proof). It also holds the modes, the `/admin/mode`
+`StamperV3`, attach proof). It also holds the modes, the `/admin/mode`
 endpoint, the events sent to a responder, and an optional
 `ReceivedRequestListener` hook that lets an application observe each request the
 filter receives. The SDK captures nothing itself: the mesh demo's request capture,

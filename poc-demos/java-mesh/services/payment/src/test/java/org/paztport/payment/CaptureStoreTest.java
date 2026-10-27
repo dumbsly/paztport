@@ -16,8 +16,8 @@ class CaptureStoreTest {
         CaptureStore store = new CaptureStore();
         assertTrue(store.last().isEmpty());
 
-        store.record(new CapturedRequest("chainA", "proofA", "POST", "/pay", "bodyA".getBytes()));
-        store.record(new CapturedRequest("chainB", "proofB", "POST", "/pay", "bodyB".getBytes()));
+        store.record(new CapturedRequest("chainA", "proofA", null, "POST", "/pay", "bodyA".getBytes()));
+        store.record(new CapturedRequest("chainB", "proofB", null, "POST", "/pay", "bodyB".getBytes()));
 
         assertTrue(store.last().isPresent());
         assertEquals("chainB", store.last().get().chainHeader());

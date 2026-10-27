@@ -8,10 +8,6 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.PublicKey;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.Keyring;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
@@ -24,12 +20,21 @@ final class ConfigLoader {
     private ConfigLoader() {
     }
 
-    static Keyring loadKeyring(Path file) {
-        return Keyring.fromFile(readKeyringFile(file));
+    /** The keyring as written; it is trusted only once it verifies under the pin. */
+    static KeyringFile loadKeyringFile(Path file) {
+        return read(file, KeyringFile.class);
     }
 
-    static PublicKey loadPolicyKey(Path keyringFile) {
-        return Crypto.decodePublicKey(Base64Url.decode(readKeyringFile(keyringFile).policy()));
+    /**
+     * The pinned policy key: the trimmed text of {@code policy.pub}, a base64url SPKI string. It comes from its
+     * own file, never from the keyring it vouches for.
+     */
+    static String loadPolicyPin(Path file) {
+        try {
+            return Files.readString(file).trim();
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read " + file, e);
+        }
     }
 
     static SignedRoot loadSignedRoot(Path file) {
@@ -38,10 +43,6 @@ final class ConfigLoader {
 
     static ProofBundle loadProofBundle(Path file) {
         return read(file, ProofBundle.class);
-    }
-
-    private static KeyringFile readKeyringFile(Path file) {
-        return read(file, KeyringFile.class);
     }
 
     private static <T> T read(Path file, Class<T> type) {

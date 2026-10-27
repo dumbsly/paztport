@@ -4,5 +4,6 @@
 package org.paztport.payment;
 
 /** A request payment received, retained only for the demo's replay/mutate harness. */
-public record CapturedRequest(String chainHeader, String proofHeader, String method, String path, byte[] body) {
+public record CapturedRequest(
+        String chainHeader, String proofHeader, String influenceHeader, String method, String path, byte[] body) {
 }

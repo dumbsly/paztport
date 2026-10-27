@@ -6,8 +6,15 @@ package org.paztport.spring;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -18,91 +25,156 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.ContentLabel;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
+import org.paztport.core.InfluenceClass;
+import org.paztport.core.InfluenceEntry;
 import org.paztport.core.Keyring;
-import org.paztport.core.MerkleLeaf;
-import org.paztport.core.MerkleTree;
-import org.paztport.core.OutboundStamperV1;
-import org.paztport.core.PathChainV1;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.SignedRoot;
-import org.paztport.core.VerifierV1;
-import org.paztport.core.VerifierConfigV1;
+import org.paztport.core.PolicyBuilder;
+import org.paztport.core.StampV3;
+import org.paztport.core.StamperV3;
+import org.paztport.core.VerifierConfigV3;
+import org.paztport.core.VerifierV3;
+import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RestController;
 
 class InboundFilterTest {
 
     private static final long NOW = 1_000_000L;
     private static final byte[] TO_PAYMENT = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
+    private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
+    private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
 
     private final KeyPair gateway = Crypto.generateEd25519KeyPair();
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
-    private final KeyPair policy = Crypto.generateEd25519KeyPair();
-
-    private final MerkleTree tree = MerkleTree.build(
-            List.of(
-                    new MerkleLeaf(Crypto.randomBytes(16), "gateway/orders/payment"),
-                    new MerkleLeaf(Crypto.randomBytes(16), "gateway/orders")),
-            8, "v1");
-    private final SignedRoot signedRoot = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
-    private final ProofBundle gatewayBundle = new ProofBundle("gateway", "v1",
-            Map.of("gateway/orders", tree.proofFor("gateway/orders")));
-    private final ProofBundle ordersBundle = new ProofBundle("orders", "v1",
-            Map.of("gateway/orders/payment", tree.proofFor("gateway/orders/payment")));
+    private final PolicyBuilder.Result policy = PolicyBuilder.build(
+            List.of(List.of("gateway", "orders", "payment"), List.of("gateway", "orders")), 4,
+            Crypto.generateEd25519KeyPair().getPrivate());
 
     private final CollectingPublisher events = new CollectingPublisher();
+    private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
+    private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
+
+    @BeforeEach
+    void captureTraces() {
+        traces.start();
+        traceLog.addAppender(traces);
+        traceLog.setLevel(Level.INFO);
+        traceLog.setAdditive(false);
+    }
 
     @AfterEach
     void cleanup() {
+        traceLog.detachAppender(traces);
+        traceLog.setLevel(null);
+        traceLog.setAdditive(true);
         PaztportContext.clear();
     }
 
-    private VerifierV1 paymentVerifier() {
-        VerifierConfigV1 cfg = VerifierConfigV1.pinned(
+    private VerifierV3 paymentVerifier() {
+        return new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                signedRoot, policy.getPublic(), Set.of("gateway"), 5000,
-                new InMemoryNonceCache(), () -> NOW);
-        return new VerifierV1(cfg);
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                new InMemoryNonceCache(), () -> NOW, 5000, 5000));
     }
 
     private InboundFilter filter(VerificationMode mode, ReceivedRequestListener listener) {
         return new InboundFilter(paymentVerifier(), "payment", new ModeHolder(mode), events, listener);
     }
 
-    private OutboundStamperV1.StampedHeaders validHeaders() {
-        var gw = new OutboundStamperV1("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
-                .stamp(null, RequestBinding.compute("POST", "/orders", "{}".getBytes()), "orders", gatewayBundle);
-        PathChainV1 inbound = PathChainV1.decode(gw.chainHeader());
-        return new OutboundStamperV1("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 0L)
-                .stamp(inbound, RequestBinding.compute("POST", "/pay", TO_PAYMENT), "payment", ordersBundle);
+    private record Headers(String chain, String proof, String influence) {
     }
 
-    private MockHttpServletRequest paymentRequest(OutboundStamperV1.StampedHeaders h, byte[] body) {
+    private Headers headers(String rid, String target, List<InfluenceEntry> influence) {
+        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
+                .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
+                        policy.bundles().get("gateway"));
+        StamperV3.Stamped ord = new StamperV3("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
+                .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), influence,
+                        policy.bundles().get("orders"));
+        return new Headers(HttpV3.encodeChain(ord.chain()), HttpV3.encodeProof(ord.proof()),
+                HttpV3.encodeInfluence(influence));
+    }
+
+    private Headers validHeaders() {
+        return headers("rid-1", "/pay", List.of());
+    }
+
+    private MockHttpServletRequest paymentRequest(Headers h, byte[] body) {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
-        request.addHeader(PaztportHeaders.CHAIN, h.chainHeader());
-        if (h.proofHeader() != null) {
-            request.addHeader(PaztportHeaders.PROOF, h.proofHeader());
+        if (h.chain() != null) {
+            request.addHeader(PaztportHeaders.CHAIN, h.chain());
+        }
+        if (h.proof() != null) {
+            request.addHeader(PaztportHeaders.PROOF, h.proof());
+        }
+        if (h.influence() != null) {
+            request.addHeader(PaztportHeaders.INFLUENCE, h.influence());
         }
         request.setContent(body);
         return request;
     }
 
-    @Test
-    void enforceValidRequestPassesThrough() throws Exception {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
+    /** A handler that records what the context held while the request was served. */
+    private static final class Seen extends HttpServlet {
+        List<StampV3> chain;
+        List<InfluenceEntry> influence;
+        boolean reached;
 
-        filter(VerificationMode.ENFORCE, null).doFilter(paymentRequest(validHeaders(), TO_PAYMENT), response, chain);
+        @Override
+        protected void service(HttpServletRequest req, HttpServletResponse res) {
+            reached = true;
+            chain = PaztportContext.inboundChain();
+            influence = PaztportContext.influence();
+        }
+    }
+
+    private List<String> traceLines() {
+        return traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();
+    }
+
+    @Test
+    void enforceValidRequestPassesThroughWithTheVerifiedInfluence() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Seen seen = new Seen();
+
+        filter(VerificationMode.ENFORCE, null).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(MINE, WEB)), TO_PAYMENT), response,
+                new MockFilterChain(seen));
 
         assertEquals(200, response.getStatus());
-        assertNotNull(chain.getRequest());
+        assertTrue(seen.reached);
+        assertEquals(2, seen.chain.size());
+        assertEquals(List.of(MINE, WEB), seen.influence);
         assertTrue(events.all.isEmpty(), "no event on success");
+    }
+
+    @Test
+    void theQueryIsPartOfTheBoundTarget() throws Exception {
+        MockHttpServletRequest bound = paymentRequest(headers("rid-1", "/pay?id=7", List.of()), TO_PAYMENT);
+        bound.setQueryString("id=7");
+        MockHttpServletResponse ok = new MockHttpServletResponse();
+        filter(VerificationMode.ENFORCE, null).doFilter(bound, ok, new MockFilterChain());
+        assertEquals(200, ok.getStatus());
+
+        MockHttpServletRequest other = paymentRequest(headers("rid-2", "/pay?id=7", List.of()), TO_PAYMENT);
+        other.setQueryString("id=8");
+        MockHttpServletResponse rejected = new MockHttpServletResponse();
+        filter(VerificationMode.ENFORCE, null).doFilter(other, rejected, new MockFilterChain());
+        assertEquals(403, rejected.getStatus());
+        assertTrue(rejected.getContentAsString().contains("BINDING_MISMATCH"));
     }
 
     @Test
@@ -121,6 +193,22 @@ class InboundFilterTest {
     }
 
     @Test
+    void enforceAlteredInfluenceIsRejectedWithInfluenceMismatch() throws Exception {
+        Headers h = headers("rid-1", "/pay", List.of(MINE));
+        Headers altered = new Headers(h.chain(), h.proof(), HttpV3.encodeInfluence(List.of(WEB)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        Seen seen = new Seen();
+
+        filter(VerificationMode.ENFORCE, null).doFilter(paymentRequest(altered, TO_PAYMENT), response,
+                new MockFilterChain(seen));
+
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("INFLUENCE_MISMATCH"));
+        assertEquals("INFLUENCE_MISMATCH", events.all.get(0).reason());
+        assertTrue(!seen.reached);
+    }
+
+    @Test
     void enforceMissingHeadersAreRejectedWithChainMissing() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
         request.setContent(TO_PAYMENT);
@@ -130,18 +218,21 @@ class InboundFilterTest {
 
         assertEquals(403, response.getStatus());
         assertTrue(response.getContentAsString().contains("CHAIN_MISSING"));
+        assertEquals("CHAIN_MISSING", events.all.get(0).reason());
     }
 
     @Test
-    void auditModePassesTamperedRequestButPublishesAuditEvent() throws Exception {
+    void auditModePassesTamperedRequestWithTheReceivedInfluence() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
+        Seen seen = new Seen();
 
-        filter(VerificationMode.AUDIT, null)
-                .doFilter(paymentRequest(validHeaders(), "{\"amount\":999}".getBytes()), response, chain);
+        filter(VerificationMode.AUDIT, null).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(MINE)), "{\"amount\":999}".getBytes()), response,
+                new MockFilterChain(seen));
 
         assertEquals(200, response.getStatus());
-        assertNotNull(chain.getRequest(), "audit always passes through");
+        assertTrue(seen.reached, "audit always passes through");
+        assertEquals(List.of(MINE), seen.influence, "what was received still counts towards the rule");
         assertEquals(1, events.all.size());
         assertEquals("BINDING_MISMATCH", events.all.get(0).reason());
         assertEquals(true, events.all.get(0).audit());
@@ -159,34 +250,37 @@ class InboundFilterTest {
         assertEquals(200, response.getStatus());
         assertNotNull(chain.getRequest());
         assertTrue(events.all.isEmpty(), "off mode publishes nothing");
+        assertTrue(traceLines().isEmpty(), "and verifies nothing, so traces nothing");
     }
 
     @Test
     void aRegisteredListenerIsCalledOncePerRequestWithTheReceivedValues() throws Exception {
         List<Object[]> calls = new ArrayList<>();
-        OutboundStamperV1.StampedHeaders h = validHeaders();
+        Headers h = headers("rid-1", "/pay", List.of(WEB));
+        MockHttpServletRequest request = paymentRequest(h, TO_PAYMENT);
+        request.setQueryString("id=7");
 
-        filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) ->
-                calls.add(new Object[] {chain, proof, method, path, body}))
-                .doFilter(paymentRequest(h, TO_PAYMENT), new MockHttpServletResponse(), new MockFilterChain());
+        filter(VerificationMode.ENFORCE, (chain, proof, influence, method, target, body) ->
+                calls.add(new Object[] {chain, proof, influence, method, target, body}))
+                .doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
 
         assertEquals(1, calls.size());
         Object[] call = calls.get(0);
-        assertEquals(h.chainHeader(), call[0]);
-        assertEquals(h.proofHeader(), call[1]);
-        assertEquals("POST", call[2]);
-        assertEquals("/pay", call[3]);
-        assertArrayEquals(TO_PAYMENT, (byte[]) call[4]);
+        assertEquals(h.chain(), call[0]);
+        assertEquals(h.proof(), call[1]);
+        assertEquals(h.influence(), call[2]);
+        assertEquals("POST", call[3]);
+        assertEquals("/pay?id=7", call[4]);
+        assertArrayEquals(TO_PAYMENT, (byte[]) call[5]);
     }
 
     @Test
     void theListenerSeesARequestThatVerificationThenRejects() throws Exception {
         List<String> order = new ArrayList<>();
         MockHttpServletResponse response = new MockHttpServletResponse();
-        OutboundStamperV1.StampedHeaders h = validHeaders();
 
-        filter(VerificationMode.ENFORCE, (chain, proof, method, path, body) -> order.add("listener"))
-                .doFilter(paymentRequest(h, "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)),
+        filter(VerificationMode.ENFORCE, (chain, proof, influence, method, target, body) -> order.add("listener"))
+                .doFilter(paymentRequest(validHeaders(), "{\"amount\":999}".getBytes(StandardCharsets.UTF_8)),
                         response, new MockFilterChain());
 
         assertEquals(403, response.getStatus());
@@ -194,35 +288,72 @@ class InboundFilterTest {
     }
 
     @Test
-    void theFilterWorksWithNoListener() throws Exception {
+    void nonVerifyingFilterPopulatesContextFromTheHeadersAndProceeds() throws Exception {
         MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
+        Seen seen = new Seen();
 
-        filter(VerificationMode.ENFORCE, null)
-                .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), response, chain);
+        new InboundFilter(null, "payment", null, null, null).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), response,
+                new MockFilterChain(seen));
 
         assertEquals(200, response.getStatus());
-        assertNotNull(chain.getRequest());
+        assertEquals(2, seen.chain.size());
+        assertEquals("rid-1", seen.chain.get(0).rid());
+        assertEquals(List.of(WEB), seen.influence);
+        assertTrue(traceLines().isEmpty(), "nothing was verified");
     }
 
     @Test
-    void nonVerifyingFilterPopulatesContextAndProceeds() throws Exception {
+    void nonVerifyingFilterAnswersMalformedInfluenceWith400() throws Exception {
+        Headers h = validHeaders();
         MockHttpServletResponse response = new MockHttpServletResponse();
-        PathChainV1[] seen = new PathChainV1[1];
-        HttpServlet capturing = new HttpServlet() {
-            @Override
-            protected void service(HttpServletRequest req, HttpServletResponse res) {
-                seen[0] = PaztportContext.inboundChain();
-            }
-        };
-        MockFilterChain chain = new MockFilterChain(capturing);
+        Seen seen = new Seen();
 
-        new InboundFilter(null, "payment", null, null, null)
-                .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), response, chain);
+        new InboundFilter(null, "payment", null, null, null).doFilter(
+                paymentRequest(new Headers(h.chain(), h.proof(), "%%%"), TO_PAYMENT), response,
+                new MockFilterChain(seen));
 
-        assertEquals(200, response.getStatus());
-        assertNotNull(seen[0]);
-        assertEquals(2, seen[0].stamps().size());
+        assertEquals(400, response.getStatus());
+        assertEquals("{\"reason\":\"INFLUENCE_MISMATCH\"}", response.getContentAsString());
+        assertTrue(!seen.reached, "influence that cannot be carried must not be dropped");
+    }
+
+    @Test
+    void anUnreadableChainLeavesNoInboundChain() throws Exception {
+        Seen seen = new Seen();
+
+        new InboundFilter(null, "payment", null, null, null).doFilter(
+                paymentRequest(new Headers("not-a-chain", null, null), TO_PAYMENT), new MockHttpServletResponse(),
+                new MockFilterChain(seen));
+
+        assertTrue(seen.reached);
+        assertNull(seen.chain);
+    }
+
+    @Test
+    void everyVerificationLogsOneTraceLine() throws Exception {
+        filter(VerificationMode.ENFORCE, null).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB, MINE)), TO_PAYMENT),
+                new MockHttpServletResponse(), new MockFilterChain());
+        filter(VerificationMode.ENFORCE, null).doFilter(
+                paymentRequest(headers("rid-2", "/pay", List.of()), "{}".getBytes()),
+                new MockHttpServletResponse(), new MockFilterChain());
+
+        assertEquals(List.of(
+                "PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=private,third-party",
+                "PAZTPORT_TRACE request rid=rid-2 reason=BINDING_MISMATCH receiver=payment ✗ peer=none classes=-"),
+                traceLines());
+    }
+
+    @Test
+    void theTraceLineKeepsAForgedRidOnOneLine() throws Exception {
+        filter(VerificationMode.ENFORCE, null).doFilter(
+                paymentRequest(headers("r\nPAZTPORT_TRACE request reason=OK", "/pay", List.of()), TO_PAYMENT),
+                new MockHttpServletResponse(), new MockFilterChain());
+
+        assertEquals(1, traceLines().size());
+        assertTrue(traceLines().get(0).startsWith("PAZTPORT_TRACE request rid=r\\u000aPAZTPORT_TRACE"),
+                traceLines().get(0));
     }
 
     @Test
@@ -241,10 +372,57 @@ class InboundFilterTest {
 
     @Test
     void contextIsClearedAfterTheRequest() throws Exception {
-        filter(VerificationMode.ENFORCE, null)
-                .doFilter(paymentRequest(validHeaders(), TO_PAYMENT), new MockHttpServletResponse(), new MockFilterChain());
+        filter(VerificationMode.ENFORCE, null).doFilter(
+                paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), new MockHttpServletResponse(),
+                new MockFilterChain());
 
-        org.junit.jupiter.api.Assertions.assertNull(PaztportContext.inboundChain());
+        assertNull(PaztportContext.inboundChain());
+        assertTrue(PaztportContext.influence().isEmpty());
+    }
+
+    /** Two endpoints: one dirties the context, the other reports what it found. */
+    @RestController
+    static final class ReuseController {
+        List<StampV3> chain;
+        List<InfluenceEntry> influence;
+        List<ContentLabel> labels;
+
+        @PostMapping("/dirty")
+        String dirty() {
+            PaztportContext.addInfluence(WEB);
+            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+            return "ok";
+        }
+
+        @PostMapping("/look")
+        String look() {
+            chain = PaztportContext.inboundChain();
+            influence = PaztportContext.influence();
+            labels = PaztportContext.labels();
+            return "ok";
+        }
+    }
+
+    @Test
+    void threadReuseStartsClean() throws Exception {
+        ReuseController controller = new ReuseController();
+        MockMvc mvc = MockMvcBuilders.standaloneSetup(controller)
+                .addFilters(new InboundFilter(null, "payment", null, null, null))
+                .build();
+        Headers first = headers("rid-1", "/pay", List.of(MINE));
+        Headers second = headers("rid-2", "/pay", List.of());
+
+        // MockMvc serves both on this test thread, as a pooled server thread would serve two requests.
+        mvc.perform(post("/dirty").header(PaztportHeaders.CHAIN, first.chain())
+                        .header(PaztportHeaders.INFLUENCE, first.influence()).content(TO_PAYMENT))
+                .andExpect(status().isOk());
+        mvc.perform(post("/look").header(PaztportHeaders.CHAIN, second.chain()).content(TO_PAYMENT))
+                .andExpect(status().isOk());
+
+        assertEquals("rid-2", controller.chain.get(0).rid());
+        assertEquals(2, controller.chain.size());
+        assertEquals(List.of(), controller.influence);
+        assertEquals(List.of(), controller.labels);
     }
 
     private static final class CollectingPublisher implements EventPublisher {

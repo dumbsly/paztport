@@ -11,9 +11,8 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.paztport.core.KeyFiles;
-import org.paztport.core.PathChainV1;
-import org.paztport.core.StampV1;
-import org.paztport.core.StampSignerV1;
+import org.paztport.core.StampV3;
+import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.PaztportContext;
@@ -61,23 +60,23 @@ public class AttackController {
     /** Scenario 2: call payment with no path headers at all. */
     @PostMapping("/attack/no-headers")
     public ResponseEntity<String> noHeaders() {
-        return callPayment(rawClient, null, null, BODY);
+        return callPayment(rawClient, null, null, null, BODY);
     }
 
     /** Scenario 3: forge a stamp claiming svc gateway, signed with search's own key. */
     @PostMapping("/attack/forge-gateway")
     public ResponseEntity<String> forgeGateway() {
         String bind = RequestBinding.compute("POST", "/pay", BODY);
-        StampV1 forged = StampSignerV1.sign(
-                "gateway", inst, UUID.randomUUID().toString(), System.currentTimeMillis(), bind, "", searchKey);
-        String chain = new PathChainV1(List.of(forged)).encode();
-        return callPayment(rawClient, chain, null, BODY);
+        StampV3 forged = StampV3.sign("gateway", inst, UUID.randomUUID().toString(), System.currentTimeMillis(), "",
+                "payment", bind, "", "", searchKey);
+        String chain = HttpV3.encodeChain(List.of(forged));
+        return callPayment(rawClient, chain, null, null, BODY);
     }
 
     /** Scenario 4 / 10: forward a real gateway->search chain on to payment. */
     @PostMapping("/attack/forward-stolen")
     public ResponseEntity<String> forwardStolen() {
-        PathChainV1 stolen = stolenChains.last();
+        List<StampV3> stolen = stolenChains.last();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
@@ -85,7 +84,7 @@ public class AttackController {
         // Let the normal interceptor append search's own stamp to the stolen chain.
         PaztportContext.setInboundChain(stolen);
         try {
-            return callPayment(stampedClient, null, null, BODY);
+            return callPayment(stampedClient, null, null, null, BODY);
         } finally {
             PaztportContext.clear();
         }
@@ -98,7 +97,7 @@ public class AttackController {
         if (c == null) {
             return ResponseEntity.status(428).body("{\"reason\":\"NO_CAPTURE\",\"hint\":\"run a checkout first\"}");
         }
-        return callPayment(rawClient, c.chain(), c.proof(), Base64.getDecoder().decode(c.bodyBase64()));
+        return callPayment(rawClient, c.chain(), c.proof(), c.influence(), Base64.getDecoder().decode(c.bodyBase64()));
     }
 
     /** Scenario 6: replay a captured valid request with the body altered. */
@@ -108,7 +107,8 @@ public class AttackController {
         if (c == null) {
             return ResponseEntity.status(428).body("{\"reason\":\"NO_CAPTURE\",\"hint\":\"run a checkout first\"}");
         }
-        return callPayment(rawClient, c.chain(), c.proof(), "{\"amount\":999999}".getBytes(StandardCharsets.UTF_8));
+        return callPayment(rawClient, c.chain(), c.proof(), c.influence(),
+                "{\"amount\":999999}".getBytes(StandardCharsets.UTF_8));
     }
 
     private CapturedView fetchCaptured() {
@@ -119,10 +119,12 @@ public class AttackController {
                         : null, false);
     }
 
-    private record CapturedView(String chain, String proof, String method, String path, String bodyBase64) {
+    private record CapturedView(
+            String chain, String proof, String influence, String method, String path, String bodyBase64) {
     }
 
-    private ResponseEntity<String> callPayment(RestClient client, String chain, String proof, byte[] body) {
+    private ResponseEntity<String> callPayment(
+            RestClient client, String chain, String proof, String influence, byte[] body) {
         return client.post()
                 .uri(paymentUrl + "/pay")
                 .headers(h -> {
@@ -132,6 +134,9 @@ public class AttackController {
                     }
                     if (proof != null) {
                         h.set(PaztportHeaders.PROOF, proof);
+                    }
+                    if (influence != null) {
+                        h.set(PaztportHeaders.INFLUENCE, influence);
                     }
                 })
                 .body(body)

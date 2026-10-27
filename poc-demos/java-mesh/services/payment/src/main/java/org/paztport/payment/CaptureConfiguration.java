@@ -26,7 +26,7 @@ class CaptureConfiguration {
 
     @Bean
     ReceivedRequestListener captureListener(CaptureStore store) {
-        return (chain, proof, method, path, body) ->
-                store.record(new CapturedRequest(chain, proof, method, path, body));
+        return (chain, proof, influence, method, target, body) ->
+                store.record(new CapturedRequest(chain, proof, influence, method, target, body));
     }
 }

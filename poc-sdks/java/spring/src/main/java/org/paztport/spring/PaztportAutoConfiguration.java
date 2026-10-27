@@ -10,10 +10,11 @@ import java.util.Set;
 import java.util.UUID;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyFiles;
-import org.paztport.core.OutboundStamperV1;
 import org.paztport.core.ProofBundle;
-import org.paztport.core.VerifierV1;
-import org.paztport.core.VerifierConfigV1;
+import org.paztport.core.StamperV3;
+import org.paztport.core.VerifierConfigV3;
+import org.paztport.core.VerifierV3;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -25,8 +26,14 @@ import org.springframework.core.Ordered;
 /**
  * Wires the inbound filter and outbound interceptor from {@code paztport.*}.
  * Beans appear only when their inputs are configured, so each service holds only
- * what its role requires: callers get a stamper and interceptor, verifiers get a
- * VerifierV1, and every service gets the inbound filter.
+ * what its role requires: callers get a stamper and interceptor, a service with
+ * a keyring, a root and the policy pin gets a VerifierV3, and every service gets
+ * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
+ *
+ * <p>The verifier is pinned: the keyring and the root must both verify under
+ * {@code policy.pub}, or the context fails to start. Inside one mesh a request
+ * tree is one call, so the session is empty and the run's age defaults to the
+ * call's.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
@@ -34,8 +41,8 @@ public class PaztportAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    OutboundStamperV1 outboundStamper(PaztportProperties props) {
-        return new OutboundStamperV1(
+    StamperV3 stamper(PaztportProperties props) {
+        return new StamperV3(
                 props.getServiceName(),
                 instance(props),
                 KeyFiles.loadPrivateKey(Path.of(props.getKeyPath())),
@@ -52,24 +59,26 @@ public class PaztportAutoConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    RestClientCustomizer paztportRestClientCustomizer(
-            OutboundStamperV1 stamper, org.springframework.beans.factory.ObjectProvider<ProofBundle> bundle) {
+    RestClientCustomizer paztportRestClientCustomizer(StamperV3 stamper, ObjectProvider<ProofBundle> bundle) {
         OutboundInterceptor interceptor = new OutboundInterceptor(stamper, bundle.getIfAvailable());
         return builder -> builder.requestInterceptor(interceptor);
     }
 
     @Bean
-    @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
-    VerifierV1 verifier(PaztportProperties props) {
-        VerifierConfigV1 cfg = VerifierConfigV1.pinned(
-                ConfigLoader.loadKeyring(Path.of(props.getKeyringPath())),
+    @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
+    VerifierV3 verifier(PaztportProperties props) {
+        long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+        VerifierConfigV3 cfg = VerifierConfigV3.pinned(
+                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
                 ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
-                ConfigLoader.loadPolicyKey(Path.of(props.getKeyringPath())),
+                ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
                 Set.copyOf(props.getOrigins()),
-                props.getMaxAgeMs(),
+                "",
                 new InMemoryNonceCache(),
-                System::currentTimeMillis);
-        return new VerifierV1(cfg);
+                System::currentTimeMillis,
+                props.getMaxAgeMs(),
+                runMaxAgeMs);
+        return new VerifierV3(cfg);
     }
 
     @Bean
@@ -103,15 +112,27 @@ public class PaztportAutoConfiguration {
         return new AdminModeController(modeHolder, props.getAdminToken());
     }
 
+    /**
+     * A service told to verify but given no trust paths fails to start, rather
+     * than serving unverified requests it was meant to check.
+     */
     @Bean
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
             PaztportProperties props,
-            org.springframework.beans.factory.ObjectProvider<VerifierV1> verifier,
-            org.springframework.beans.factory.ObjectProvider<ModeHolder> modeHolder,
-            org.springframework.beans.factory.ObjectProvider<EventPublisher> publisher,
-            org.springframework.beans.factory.ObjectProvider<ReceivedRequestListener> listener) {
+            ObjectProvider<VerifierV3> verifier,
+            ObjectProvider<ModeHolder> modeHolder,
+            ObjectProvider<EventPublisher> publisher,
+            ObjectProvider<ReceivedRequestListener> listener) {
+        VerifierV3 requestVerifier = null;
+        if (props.isVerify()) {
+            requestVerifier = verifier.getIfAvailable();
+            if (requestVerifier == null) {
+                throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
+                        + "paztport.root-path and paztport.policy-key-path are not all set");
+            }
+        }
         InboundFilter filter = new InboundFilter(
-                verifier.getIfAvailable(), props.getServiceName(), modeHolder.getIfAvailable(),
+                requestVerifier, props.getServiceName(), modeHolder.getIfAvailable(),
                 publisher.getIfAvailable(), listener.getIfAvailable());
         FilterRegistrationBean<InboundFilter> registration = new FilterRegistrationBean<>(filter);
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);

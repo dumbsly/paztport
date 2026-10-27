@@ -19,7 +19,7 @@ public class PaztportProperties {
     /** True only for ingress services allowed to start chains. */
     private boolean origin = false;
 
-    /** True for verifying services; enables the inbound VerifierV1. */
+    /** True for verifying services; the inbound filter then verifies every request with the VerifierV3. */
     private boolean verify = false;
 
     /** Verification mode for verifying services: off, audit, or enforce. */
@@ -37,17 +37,29 @@ public class PaztportProperties {
     /** Path to this service's private key (stamping services only). */
     private String keyPath;
 
-    /** Path to keyring.json (verifying services). */
+    /** Path to keyring.json (verifying services); it must be signed under the pinned policy key. */
     private String keyringPath;
 
-    /** Path to root.json (verifying services). */
+    /** Path to root.json (verifying services); it must be signed under the pinned policy key. */
     private String rootPath;
+
+    /**
+     * Path to policy.pub, the pinned policy public key (verifying services). It is held apart from the keyring
+     * because the keyring is only trusted once it verifies under this key.
+     */
+    private String policyKeyPath;
 
     /** Path to this service's proofs-&lt;svc&gt;.json (calling services). */
     private String proofsPath;
 
-    /** Maximum stamp age in milliseconds. */
+    /** How old the last stamp may be, in milliseconds. */
     private long maxAgeMs = 5000;
+
+    /**
+     * How old the origin's stamp may be, in milliseconds; null means {@code maxAgeMs}, because inside one mesh a
+     * request tree is a single call.
+     */
+    private Long runMaxAgeMs;
 
     /** Allowed origin service names. */
     private List<String> origins = List.of("gateway");
@@ -140,6 +152,14 @@ public class PaztportProperties {
         this.rootPath = rootPath;
     }
 
+    public String getPolicyKeyPath() {
+        return policyKeyPath;
+    }
+
+    public void setPolicyKeyPath(String policyKeyPath) {
+        this.policyKeyPath = policyKeyPath;
+    }
+
     public String getProofsPath() {
         return proofsPath;
     }
@@ -154,6 +174,14 @@ public class PaztportProperties {
 
     public void setMaxAgeMs(long maxAgeMs) {
         this.maxAgeMs = maxAgeMs;
+    }
+
+    public Long getRunMaxAgeMs() {
+        return runMaxAgeMs;
+    }
+
+    public void setRunMaxAgeMs(Long runMaxAgeMs) {
+        this.runMaxAgeMs = runMaxAgeMs;
     }
 
     public List<String> getOrigins() {

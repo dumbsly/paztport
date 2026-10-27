@@ -25,14 +25,15 @@ public class DebugCaptureController {
     }
 
     /** The captured request, with the body base64-encoded so it survives JSON. */
-    public record CapturedView(String chain, String proof, String method, String path, String bodyBase64) {
+    public record CapturedView(
+            String chain, String proof, String influence, String method, String path, String bodyBase64) {
     }
 
     @GetMapping("/debug/last-request")
     public ResponseEntity<CapturedView> lastRequest() {
         return store.last()
                 .map(r -> ResponseEntity.ok(new CapturedView(
-                        r.chainHeader(), r.proofHeader(), r.method(), r.path(),
+                        r.chainHeader(), r.proofHeader(), r.influenceHeader(), r.method(), r.path(),
                         Base64.getEncoder().encodeToString(r.body()))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
