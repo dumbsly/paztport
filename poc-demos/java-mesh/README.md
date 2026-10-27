@@ -755,15 +755,20 @@ exposed to the host.
 | `PAZTPORT_ORIGINS` | `gateway` | `payment`. The callers' response checks use the same property, `paztport.origins`, with the same default |
 | `PAZTPORT_PROOF_DEPTH` | `8` | policy-tool |
 | `ATTACK_MODE` | `false` | search |
-| `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment` (the demo generates one per run) |
+| `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
-| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services; each but `gateway`, the origin, attests its responses with it |
-| `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `search` | `gateway`, `orders`, `search` |
-| `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` in every `application.yml` but `search`'s; Compose sets it for `search` | the four services (requests at `payment`, responses at the callers), responder (event signatures) |
-| `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` in every service's `application.yml` but `search`'s; Compose sets it for `search` | the four services |
-| `PAZTPORT_POLICY_KEY_PATH` | `/config/keys/policy.pub` in `gateway`'s and `orders`' `application.yml`; Compose sets it for `payment` and `search` | the four services: the pin the keyring and the root must verify under |
+| `PAZTPORT_RUN_MAX_AGE_MS` | unset, so the origin's window is `PAZTPORT_MAX_AGE_MS`; Compose sets `30000` | `gateway`, `tickets`, `assistant`, `orders`, `payment`, `mailer`: the window for the origin's stamp, which five hops started cold can outlast |
+| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in the `application.yml` of `gateway`, `orders`, `tickets`, `assistant` and `mailer`; Compose sets it for `payment` and `search` | every service with a stamp key (all but `psp`); each but `gateway`, the origin, attests its responses with it |
+| `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` in the `application.yml` of `gateway`, `orders`, `tickets` and `assistant`; Compose sets it for `search` and `payment` (the route `payment/psp`) | `gateway`, `orders`, `tickets`, `assistant`, `search`, `payment`; `mailer` calls nobody and has none |
+| `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` in the `application.yml` of every shop service but `search`; Compose sets it for `search` and for `psp` (the PSP's own keyring) | every service (requests at the verifiers, responses at the callers), and the responder (event signatures) |
+| `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` in the `application.yml` of every shop service but `search`; Compose sets it for `search` and for `psp` (the PSP's own root) | every service |
+| `PAZTPORT_POLICY_KEY_PATH` | `/config/keys/policy.pub` in the `application.yml` of `gateway`, `orders`, `tickets`, `assistant` and `mailer`; Compose sets it for `payment`, `search` and `psp` | every service: the pin the keyring and the root must verify under (the PSP's own pin at `psp`) |
+| `PAZTPORT_BOUNDARY_PARTNER`, `_URL`, `_TLS_BUNDLE`, `_PARTNER_POLICY_KEY_PATH` | set by Compose only: `psp`, `https://psp:8080`, `psp`, `/config/partner/psp-policy.pub` | `payment`, the shop's egress: the partner, where it is, the TLS bundle that trusts the PSP's CA, and the PSP's pinned policy key |
+| `PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH` | set by Compose only: `/config/keys/policy.key` | `psp`: the key that signs its session replies |
+| `PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS` | set by Compose only: `/config/clients/shop-policy.pub` | `psp`: the shop's pin, so it can accept the shop's attested sessions |
+| `ORDERS_URL`, `PAYMENT_URL`, `MAILER_URL`, `SEARCH_URL`, `TICKETS_URL`, `ASSISTANT_URL` | `https://<svc>:8080` | the callers of each: `gateway` (orders, search, tickets), `orders` (payment), `tickets` (assistant), `assistant` (orders, payment, mailer), `search` (payment) |
 | `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |
 | `QUARANTINE_THRESHOLD` | `3` | responder |
 | `QUARANTINE_MAX_PER_SVC` | `2` | responder (the demo uses `1` so `ESCALATE` comes sooner) |
