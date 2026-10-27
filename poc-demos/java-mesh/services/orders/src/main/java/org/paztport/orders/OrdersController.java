@@ -76,13 +76,18 @@ public class OrdersController {
 
     /**
      * Charges an order through payment, which takes it to the PSP. The amount comes from the order book, not the
-     * request. Payment's answer is relayed as it is, refusals included.
+     * request. Only the order's own customer may pay for it, refused {@code 403 NOT_YOUR_ORDER} otherwise: the PSP
+     * takes whoever pays for an order as the one a refund of it may go to. Payment's answer is relayed as it is,
+     * refusals included.
      */
     @PostMapping("/purchase")
     public ResponseEntity<?> purchase(@RequestBody Purchase purchase) {
         OrderBook.Order order = book.byId(purchase.order());
         if (order == null) {
             return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
+        }
+        if (!order.customer().equals(purchase.customer())) {
+            return ResponseEntity.status(403).body(Map.of("reason", "NOT_YOUR_ORDER"));
         }
         Map<String, Object> charge = new LinkedHashMap<>();
         charge.put("customer", purchase.customer());

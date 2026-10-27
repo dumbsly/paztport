@@ -52,4 +52,14 @@ class CardRecordsTest {
         assertNull(records.ownerOf(null));
         assertNull(records.cardFor(null));
     }
+
+    // The card that paid for an order is the payer's: a later charge for the same order must not re-point it.
+    @Test
+    void firstCardForAnOrderWins() {
+        CardRecords records = new CardRecords();
+        records.charge("alice", "123", "4242424242424242", true);
+        records.charge("alice", "123", "5555 5555 5555 4444", true);
+
+        assertEquals("4242424242424242", records.cardFor("123"));
+    }
 }

@@ -28,11 +28,17 @@ class PspControllerTest {
         controller = new PspController(records, new PublicWrites("psp"));
     }
 
+    private static final InfluenceEntry TICKET =
+            new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "aGFzaA", null, null);
+
     private ResponseEntity<Map<String, String>> refundAfterTicket(String order, String card) {
+        return refundWith(order, card, TICKET,
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice"));
+    }
+
+    private ResponseEntity<Map<String, String>> refundWith(String order, String card, InfluenceEntry... influence) {
         try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.addInfluence(
-                    new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "aGFzaA", null, null),
-                    new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice"));
+            PaztportContext.addInfluence(influence);
             return controller.refund(new PspController.Refund(order, card));
         }
     }
@@ -55,6 +61,41 @@ class PspControllerTest {
         assertEquals(Map.of("reason", "INFLUENCE_DENIED"), response.getBody());
     }
 
+    // A ticket that reads nobody's private data shapes the refund only with untrusted text, which the rule lets
+    // through: who may receive the money is the PSP's own question, and a card nobody paid with is not the payer's.
+    @Test
+    void refundShapedByNoPrivateDataToAnUnknownCardIsNotThePayers() {
+        ResponseEntity<Map<String, String>> response = refundWith("123", "4000 0000 0000 0002", TICKET);
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "NOT_PAYER"), response.getBody());
+    }
+
+    // Mallory's ticket reads only her own history, so the rule passes a refund to her own card; it did not pay
+    // for alice's order.
+    @Test
+    void refundToAnotherCustomersCardIsNotThePayers() {
+        records.charge("mallory", "456", "4000 0000 0000 0002", true);
+        ResponseEntity<Map<String, String>> response = refundWith("123", "4000 0000 0000 0002", TICKET,
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "mallory"));
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "NOT_PAYER"), response.getBody());
+    }
+
+    @Test
+    void refundOfAnOrderWithNoChargeIsNotThePayers() {
+        records.charge("mallory", "456", "4000 0000 0000 0002", false);
+        ResponseEntity<Map<String, String>> response = refundWith("789", "4242 4242 4242 4242", TICKET);
+        assertEquals(403, response.getStatusCode().value());
+        assertEquals(Map.of("reason", "NOT_PAYER"), response.getBody());
+    }
+
+    @Test
+    void honestRefundShapedOnlyByTheTicketIsRefunded() {
+        ResponseEntity<Map<String, String>> response = refundWith("123", null, TICKET);
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(Map.of("status", "REFUNDED"), response.getBody());
+    }
+
     @Test
     void unknownOrderHasNoCharge() {
         ResponseEntity<Map<String, String>> response = refundAfterTicket("999", null);
@@ -62,7 +103,8 @@ class PspControllerTest {
         assertEquals(Map.of("reason", "NO_CHARGE"), response.getBody());
     }
 
-    // No verified chain here, as in an unsafe session: the charge is taken but makes no card anyone's.
+    // No verified chain here, as in an unsafe session: the charge is taken but makes no card anyone's. (A verified
+    // chain with untrusted influence registers nothing either; the SDK's trusted-record question is tested there.)
     @Test
     void unverifiedChargeIsTakenButRegistersNothing() {
         ResponseEntity<Map<String, String>> response;
