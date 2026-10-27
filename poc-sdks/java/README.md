@@ -105,7 +105,9 @@ Glue, configured through `paztport.*` properties.
   `PooledTlsClient` per application, a JDK `HttpClient` speaking HTTP/1.1 that
   pools its connections, checks the server's name against its certificate and
   honours the bundle's protocols and ciphers; its `builder()` gives a client with
-  TLS and no stamping, for calls that set their own headers. On a request that
+  TLS and no stamping, for calls that set their own headers. Only a connect
+  timeout is set, no read timeout, so a pooled connection whose peer vanishes
+  without closing it can block a call until TCP gives up. On a request that
   came with a client certificate, `PeerIdentity` makes the verifier's peer: the
   subject's common name when there is exactly one, else `""`, at the TCP address
   the connection came from. A certificate that names no service is still a peer,

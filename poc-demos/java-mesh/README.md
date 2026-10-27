@@ -426,7 +426,7 @@ unit tests. Each of these was root-caused before it was fixed:
   the client an SSL bundle gives `RestClient` installs a new socket factory on
   every connection, and the JDK only reuses a kept-alive connection for the socket
   factory that opened it. So every inter-service call opened a fresh mutual-TLS
-  connection, and the receiving server held the last one open for a minute. No
+  connection, and the receiving server held each one open for a minute. No
   test noticed, since every call still worked; under load, `orders` and `payment`
   reached Tomcat's connection limit within seconds and the whole mesh froze until
   old connections timed out, which first looked like the host's networking. The
@@ -456,9 +456,10 @@ request failed in any run.
 | `payment` in `enforce` | 6.76 ms (6.71–6.82) | 9.76 ms (9.75–9.85) | 6.91 ms (6.87–6.97) | 21.56 ms (18.99–39.44) |
 
 The services call each other over pooled mutual-TLS connections, so these numbers
-don't include a handshake per hop per request: a connection is replaced, with a
-new handshake, only when the server it goes to retires it after its 100th request
-(Tomcat's default). Earlier measurements were distorted by a connection leak in
+don't include a handshake per hop per request. In steady load a connection is
+replaced, with a new handshake, mostly when the server it goes to retires it after
+its 100th request (Tomcat's default); the client also opens more as concurrency
+rises and closes those left idle. Earlier measurements were distorted by a connection leak in
 the inter-service client, now fixed: it opened a new connection for every call and
 left each one open for a minute, which under load filled the receiving server's
 connection limit and stalled the mesh.

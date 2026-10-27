@@ -21,8 +21,8 @@ import org.springframework.web.client.RestClient;
  *
  * <p>It exists because the client Spring Boot 3.3 builds for an SSL bundle never reuses a connection: it is
  * {@code HttpURLConnection}, given a new socket factory on every connection, and the JDK's keep-alive cache only
- * reuses a connection for the socket factory that opened it. So every call opens a fresh connection and leaves the
- * last one open at the server until its keep-alive times out, and under steady load the server reaches its
+ * reuses a connection for the socket factory that opened it. So every call opens a fresh connection and leaves
+ * each one open at the server until its keep-alive times out, and under steady load the server reaches its
  * connection limit and stops accepting. The JDK's {@link HttpClient} pools per client instead, so one client is
  * made per bundle and shared.
  *
@@ -30,6 +30,9 @@ import org.springframework.web.client.RestClient;
  * behaviour stays the same whatever a server offers over ALPN. The server's certificate is checked against the
  * host in the URL, as the JDK client does by default; the parameters set here say so too, so neither naming
  * protocols or ciphers nor the JDK's own switch for its client can turn it off.
+ *
+ * <p>Only a connect timeout is set, not a read timeout: a pooled connection whose peer vanishes without closing it
+ * can block a call until TCP itself gives up.
  *
  * <p>The client stamps nothing. {@link #builder()} gives a builder with TLS only, for calls that must not be a
  * step on a request's path (events) or that set their own headers; the starter puts the same request factory on
