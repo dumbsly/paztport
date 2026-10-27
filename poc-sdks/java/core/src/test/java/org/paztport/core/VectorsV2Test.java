@@ -36,4 +36,10 @@ class VectorsV2Test {
                 s.get("prev").asText(), "");
         assertEquals(c.get("hex").asText(), HexFormat.of().formatHex(stamp.signingBytes()));
     }
+
+    @Test
+    void bindPrompt() {
+        JsonNode c = vectors.get("bindPrompt");
+        assertEquals(c.get("expected").asText(), Bindings.prompt(c.get("prompt").asText()));
+    }
 }

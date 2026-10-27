@@ -25,7 +25,7 @@ import org.junit.jupiter.api.Test;
  */
 class VectorsV3Test {
 
-    private static JsonNode vectors;
+    static JsonNode vectors;
 
     @BeforeAll
     static void load() throws IOException {
@@ -111,7 +111,7 @@ class VectorsV3Test {
         }
     }
 
-    private static Keyring keyring(JsonNode names) {
+    static Keyring keyring(JsonNode names) {
         Map<String, PublicKey> keys = new LinkedHashMap<>();
         names.fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
                 Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
@@ -145,5 +145,57 @@ class VectorsV3Test {
             assertEquals(new VerifyResult(ReasonCode.valueOf(want.get("reason").asText()),
                     want.get("suspectSvc").asText(), want.get("suspectInst").asText()), result, name);
         }
+    }
+
+    /** The offline inputs a case gives; {@code run} absent means the run's recorded times are not compared. */
+    static OfflineInput offlineInput(JsonNode c, JsonNode policy) {
+        JsonNode t = c.get("recordedTs");
+        Set<Long> run = null;
+        if (t.has("run")) {
+            run = new LinkedHashSet<>();
+            for (JsonNode r : t.get("run")) {
+                run.add(r.asLong());
+            }
+        }
+        JsonNode route = c.get("proofRoute");
+        return new OfflineInput(c.get("chain"), c.get("expectedBind").asText(), c.get("influence"),
+                route.isNull() ? null : policy.get("proofs").get(route.asText()), c.get("receiver").asText(),
+                c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(), c.get("rid").asText(),
+                new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
+    }
+
+    static OfflineConfig offlineConfig(JsonNode c, JsonNode policy) {
+        Set<String> origins = new LinkedHashSet<>();
+        c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
+        Set<String> seen = new LinkedHashSet<>();
+        c.get("seen").forEach(k -> seen.add(k.asText()));
+        return new OfflineConfig(keyring(c.get("keyring")), Base64Url.decode(policy.get("root").asText()),
+                policy.get("rootId").asText(), origins, c.get("sess").asText(), seen, null,
+                c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
+    }
+
+    @Test
+    void offline() {
+        for (JsonNode c : vectors.get("offline")) {
+            JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
+            OfflineResult result = OfflineVerifier.verify(offlineInput(c, policy), offlineConfig(c, policy));
+            JsonNode want = c.get("expected");
+            assertEquals(new OfflineResult(ReasonCode.valueOf(want.get("reason").asText()),
+                    want.get("suspectSvc").asText(), want.get("suspectInst").asText(),
+                    want.get("legacy").asBoolean()), result, c.get("name").asText());
+        }
+    }
+
+    static JsonNode offlineCase(String name) {
+        for (JsonNode c : vectors.get("offline")) {
+            if (c.get("name").asText().equals(name)) {
+                return c;
+            }
+        }
+        throw new IllegalArgumentException(name);
+    }
+
+    static JsonNode policy(JsonNode c) {
+        return vectors.get("policies").get(c.get("policy").asText());
     }
 }

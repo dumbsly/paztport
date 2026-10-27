@@ -20,13 +20,6 @@ final class ChainChecks {
     }
 
     /**
-     * The services that sign a chain that never leaves one process, in order, and the instance they all
-     * report. For the offline verifier, which re-checks a recorded chain whose signers it knows.
-     */
-    record Signers(List<String> svcs, String inst) {
-    }
-
-    /**
      * What a verifier takes. {@code acceptLegacy} lets an all-v2 chain through (no receiver checks);
      * {@code receiver} is what the last v3 stamp's {@code rcv} must name; {@code rid} the one every stamp must
      * carry, the origin's when null; {@code signers}, when non-null, the services and instance a one-process
