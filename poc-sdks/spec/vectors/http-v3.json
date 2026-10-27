@@ -1,0 +1,322 @@
+{
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.",
+  "keys" : {
+    "payment" : {
+      "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
+      "priv" : "MC4CAQAwBQYDK2VwBCIEIKQg3zP5qL5R0684jq7ayKYzYRfULNjiOnTVziGp32W7"
+    }
+  },
+  "resultHash" : [ {
+    "status" : 200,
+    "body" : "",
+    "hash" : "oE2-ym5MujhdqF7Xf2na8ur3EG2HTzUlTDKo2Wv9Sf0"
+  }, {
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "hash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+  }, {
+    "status" : 404,
+    "body" : "7b2270616964223a747275657d",
+    "hash" : "ftIHKdErajwUaY_bJtGU51_lUNUpdeM4kIuS5W_FJqc"
+  }, {
+    "status" : 500,
+    "body" : "7b226572726f72223a225a6fc3ab20f09f9880227d",
+    "hash" : "rFa9kHH0iXe8CEniNw416yAqHcW0mrW7-9QoN7UIp0k"
+  } ],
+  "requestBinding" : [ {
+    "method" : "POST",
+    "target" : "/pay",
+    "body" : "7b22616d6f756e74223a3130307d",
+    "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g"
+  }, {
+    "method" : "GET",
+    "target" : "/search",
+    "body" : "",
+    "bind" : "1ScR-lFftFsE6Oc1dHL4r_IQzu454pOt2aARPZLJFlo"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=a",
+    "body" : "",
+    "bind" : "Xj2CaDaweDa0FXLcZxNey49pObPWG_Io9G7C4Cs2olY"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=b",
+    "body" : "",
+    "bind" : "wChEXxpLx4BVpFhtDLasAUjZQO7R6GqItX5aOPFb8Ek"
+  }, {
+    "method" : "GET",
+    "target" : "/search?q=caf%C3%A9&n=1",
+    "body" : "",
+    "bind" : "AFYOLa_sdaCBOHx44qNBUgfp1qUwHnibGYFx-nw1N0M"
+  }, {
+    "method" : "PUT",
+    "target" : "/pé/\uD83D\uDE00?x=\uD83D\uDE00",
+    "body" : "7b226e616d65223a225a6fc3ab227d",
+    "bind" : "fCYdIk8U5onTw0kgckvRLxqcWP4gNQdkzlf4pWrZp8Y"
+  } ],
+  "responses" : [ {
+    "name" : "response ok",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA",
+      "sig" : "9npi-yjQi40XqemC2ljuLkLv0A6GWBZ2dpAP8PGJQY3twHloos3-VsGhwBlKjAkM7zf3xmv5D9-FJzDzFw-NAA"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJ2IjozLCJzdmMiOiJwYXltZW50IiwiaW5zdCI6InBheS0xIiwicmlkIjoicmlkLWh0dHAtMSIsInRzIjoxNzY3MjI1NTk5ODAwLCJzZXNzIjoiIiwicmN2Ijoib3JkZXJzIiwiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwicHJldiI6IjlucGkteWpRaTQwWHFlbUMybGp1TGtMdjBBNkdXQloyZHBBUDhQR0pRWTN0d0hsb29zMy1Wc0dod0JsS2pBa003emYzeG12NUQ5LUZKekR6RnctTkFBIiwic2lnIjoiXzQwTDdyQ0hzTDNKWWs4WE9jeUxZRXVGdF9sT2FEYjBDQ2hzMWRCNnM5dkE5eU5lTUVIQ1RHeWF0ckMyREU4UXI5bFYwOE5iRFY5cHhuSml1R2ZqQWcifSwibGFiZWxzIjpbeyJjbHMiOiJwcml2YXRlIiwiY2lkIjoiY2lkLXJlY2VpcHQtMSIsIm93bmVyIjoiYWxpY2UifV19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "OK",
+      "suspectSvc" : "payment",
+      "suspectInst" : "pay-1",
+      "labels" : [ {
+        "cls" : "private",
+        "cid" : "cid-receipt-1",
+        "owner" : "alice"
+      } ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "response to wrong receiver",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA",
+      "sig" : "9npi-yjQi40XqemC2ljuLkLv0A6GWBZ2dpAP8PGJQY3twHloos3-VsGhwBlKjAkM7zf3xmv5D9-FJzDzFw-NAA"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJ2IjozLCJzdmMiOiJwYXltZW50IiwiaW5zdCI6InBheS0xIiwicmlkIjoicmlkLWh0dHAtMSIsInRzIjoxNzY3MjI1NTk5ODAwLCJzZXNzIjoiIiwicmN2IjoiZ2F0ZXdheSIsImJpbmQiOiJhLTdlek9VWlVoQXpKUEExb2R0b1Z5cDJJTzRhbnktc2drYzFnaXdjVkI0IiwiaW5mbCI6IiIsInByZXYiOiI5bnBpLXlqUWk0MFhxZW1DMmxqdUxrTHYwQTZHV0JaMmRwQVA4UEdKUVkzdHdIbG9vczMtVnNHaHdCbEtqQWtNN3pmM3htdjVEOS1GSnpEekZ3LU5BQSIsInNpZyI6IlF2M0FCWTgzUE11azFzZmVTeXZPaGlpWUdUZVdWOWtWSENwcmN0dHFXa3lWSVFYNEgxbXdJZ1RvTGkxaXlseXpUaERUWHl2WnNBcW8weGhaM1ZIMUFnIn0sImxhYmVscyI6W3siY2xzIjoicHJpdmF0ZSIsImNpZCI6ImNpZC1yZWNlaXB0LTEiLCJvd25lciI6ImFsaWNlIn1dfQ",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "labels" : [ ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "labels altered",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA",
+      "sig" : "9npi-yjQi40XqemC2ljuLkLv0A6GWBZ2dpAP8PGJQY3twHloos3-VsGhwBlKjAkM7zf3xmv5D9-FJzDzFw-NAA"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJ2IjozLCJzdmMiOiJwYXltZW50IiwiaW5zdCI6InBheS0xIiwicmlkIjoicmlkLWh0dHAtMSIsInRzIjoxNzY3MjI1NTk5ODAwLCJzZXNzIjoiIiwicmN2Ijoib3JkZXJzIiwiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwicHJldiI6IjlucGkteWpRaTQwWHFlbUMybGp1TGtMdjBBNkdXQloyZHBBUDhQR0pRWTN0d0hsb29zMy1Wc0dod0JsS2pBa003emYzeG12NUQ5LUZKekR6RnctTkFBIiwic2lnIjoiXzQwTDdyQ0hzTDNKWWs4WE9jeUxZRXVGdF9sT2FEYjBDQ2hzMWRCNnM5dkE5eU5lTUVIQ1RHeWF0ckMyREU4UXI5bFYwOE5iRFY5cHhuSml1R2ZqQWcifSwibGFiZWxzIjpbeyJjbHMiOiJwdWJsaWMiLCJjaWQiOiJjaWQtcmVjZWlwdC0xIn1dfQ",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "labels" : [ ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "status altered",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA",
+      "sig" : "9npi-yjQi40XqemC2ljuLkLv0A6GWBZ2dpAP8PGJQY3twHloos3-VsGhwBlKjAkM7zf3xmv5D9-FJzDzFw-NAA"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJ2IjozLCJzdmMiOiJwYXltZW50IiwiaW5zdCI6InBheS0xIiwicmlkIjoicmlkLWh0dHAtMSIsInRzIjoxNzY3MjI1NTk5ODAwLCJzZXNzIjoiIiwicmN2Ijoib3JkZXJzIiwiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwicHJldiI6IjlucGkteWpRaTQwWHFlbUMybGp1TGtMdjBBNkdXQloyZHBBUDhQR0pRWTN0d0hsb29zMy1Wc0dod0JsS2pBa003emYzeG12NUQ5LUZKekR6RnctTkFBIiwic2lnIjoiXzQwTDdyQ0hzTDNKWWs4WE9jeUxZRXVGdF9sT2FEYjBDQ2hzMWRCNnM5dkE5eU5lTUVIQ1RHeWF0ckMyREU4UXI5bFYwOE5iRFY5cHhuSml1R2ZqQWcifSwibGFiZWxzIjpbeyJjbHMiOiJwcml2YXRlIiwiY2lkIjoiY2lkLXJlY2VpcHQtMSIsIm93bmVyIjoiYWxpY2UifV19",
+    "status" : 500,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 1,
+    "expected" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "labels" : [ ],
+      "resultHash" : "bZnrFwKT-ZsYx_Dz_PWQ-TGPtQq0pRPM_wNp5QKD8UA"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  }, {
+    "name" : "replayed response",
+    "policy" : "mesh",
+    "sent" : [ {
+      "v" : 3,
+      "svc" : "gateway",
+      "inst" : "gw-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225598500,
+      "sess" : "",
+      "rcv" : "orders",
+      "bind" : "bind-gateway-to-orders",
+      "infl" : "",
+      "prev" : "",
+      "sig" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA"
+    }, {
+      "v" : 3,
+      "svc" : "orders",
+      "inst" : "ord-1",
+      "rid" : "rid-http-1",
+      "ts" : 1767225599500,
+      "sess" : "",
+      "rcv" : "payment",
+      "bind" : "NWeIvDv4wI6iFaSevElXkiBnUMnM0qODvzaHJCrcq6g",
+      "infl" : "",
+      "prev" : "VGh-Bc_7vuwxPfywurw2r9FwiBP3NvuG-FG_A177ZObMJremXe-f9qLuxyT2POMf1AL4EEimWNe2M84guL4fBA",
+      "sig" : "9npi-yjQi40XqemC2ljuLkLv0A6GWBZ2dpAP8PGJQY3twHloos3-VsGhwBlKjAkM7zf3xmv5D9-FJzDzFw-NAA"
+    } ],
+    "caller" : "orders",
+    "responseHeader" : "eyJzdGFtcCI6eyJ2IjozLCJzdmMiOiJwYXltZW50IiwiaW5zdCI6InBheS0xIiwicmlkIjoicmlkLWh0dHAtMSIsInRzIjoxNzY3MjI1NTk5ODAwLCJzZXNzIjoiIiwicmN2Ijoib3JkZXJzIiwiYmluZCI6ImEtN2V6T1VaVWhBekpQQTFvZHRvVnlwMklPNGFueS1zZ2tjMWdpd2NWQjQiLCJpbmZsIjoiIiwicHJldiI6IjlucGkteWpRaTQwWHFlbUMybGp1TGtMdjBBNkdXQloyZHBBUDhQR0pRWTN0d0hsb29zMy1Wc0dod0JsS2pBa003emYzeG12NUQ5LUZKekR6RnctTkFBIiwic2lnIjoiXzQwTDdyQ0hzTDNKWWs4WE9jeUxZRXVGdF9sT2FEYjBDQ2hzMWRCNnM5dkE5eU5lTUVIQ1RHeWF0ckMyREU4UXI5bFYwOE5iRFY5cHhuSml1R2ZqQWcifSwibGFiZWxzIjpbeyJjbHMiOiJwcml2YXRlIiwiY2lkIjoiY2lkLXJlY2VpcHQtMSIsIm93bmVyIjoiYWxpY2UifV19",
+    "status" : 200,
+    "body" : "7b2270616964223a747275657d",
+    "keyring" : {
+      "gateway" : "gateway",
+      "orders" : "orders",
+      "payment" : "payment"
+    },
+    "allowedOrigins" : [ "gateway" ],
+    "sess" : "",
+    "now" : 1767225600000,
+    "callMaxAgeMs" : 5000,
+    "runMaxAgeMs" : 1800000,
+    "nonceTtlMs" : 15000,
+    "uses" : 2,
+    "expected" : {
+      "reason" : "REPLAY",
+      "suspectSvc" : "",
+      "suspectInst" : "",
+      "labels" : [ ],
+      "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
+    },
+    "proofRoute" : "gateway/orders/payment"
+  } ]
+}

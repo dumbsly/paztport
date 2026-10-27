@@ -22,11 +22,15 @@ public final class RequestBinding {
     private RequestBinding() {
     }
 
-    public static String compute(String method, String path, byte[] body) {
+    /**
+     * {@code target} is the raw path plus {@code ?} and the raw query when there is one, so a GET's query is bound
+     * too. With no query the bytes are exactly v1's.
+     */
+    public static String compute(String method, String target, byte[] body) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeBytes(out, method.getBytes(StandardCharsets.UTF_8));
         out.write(NL);
-        writeBytes(out, path.getBytes(StandardCharsets.UTF_8));
+        writeBytes(out, target.getBytes(StandardCharsets.UTF_8));
         out.write(NL);
         writeBytes(out, body);
         return Base64Url.encode(Crypto.sha256(out.toByteArray()));
