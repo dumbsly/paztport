@@ -24,6 +24,7 @@ import org.paztport.core.StampV3;
 public final class PaztportContext {
 
     private static final ThreadLocal<List<StampV3>> INBOUND = new ThreadLocal<>();
+    private static final ThreadLocal<List<StampV3>> VERIFIED = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> INFLUENCE = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
@@ -38,6 +39,23 @@ public final class PaztportContext {
     /** The inbound chain for this request, or null if none was received or it did not parse (e.g. at the origin). */
     public static List<StampV3> inboundChain() {
         return INBOUND.get();
+    }
+
+    /**
+     * Marks the inbound chain as having passed the live order at this hop. Only the inbound filter calls this, and
+     * only from the result that decides attestation, so that anything which later signs on the strength of it (the
+     * boundary signer) can rely on it never being set by a chain that failed, was not checked, or came to an origin.
+     */
+    static void markVerified(List<StampV3> chain) {
+        VERIFIED.set(chain);
+    }
+
+    /**
+     * The request's inbound chain when it passed the live order at this hop, otherwise null: a chain that failed in
+     * audit, a hop that is switched off, an origin, and a request outside any scope all give null.
+     */
+    public static List<StampV3> verifiedChain() {
+        return VERIFIED.get();
     }
 
     /** Everything that has shaped this request so far, in the order it was added; a read-only copy. */
@@ -116,6 +134,7 @@ public final class PaztportContext {
     /** Empties the context; an open scope stays open. */
     public static void clear() {
         INBOUND.remove();
+        VERIFIED.remove();
         INFLUENCE.remove();
         LABELS.remove();
     }

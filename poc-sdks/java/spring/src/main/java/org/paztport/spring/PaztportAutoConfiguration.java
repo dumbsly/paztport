@@ -157,6 +157,12 @@ public class PaztportAutoConfiguration {
         return new LoggingEventPublisher();
     }
 
+    /** Always present: the rule needs no keys, only this service's name for its trace line. */
+    @Bean
+    PublicWrites paztportPublicWrites(PaztportProperties props) {
+        return new PublicWrites(props.getServiceName());
+    }
+
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
     AdminModeController adminModeController(ModeHolder modeHolder, PaztportProperties props) {

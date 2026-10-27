@@ -193,6 +193,8 @@ public final class InboundFilter extends OncePerRequestFilter {
                         reject(response, checked);
                         return;
                     }
+                } else if (!origin && inbound != null) {
+                    PaztportContext.markVerified(inbound);
                 }
             } else {
                 influence = parseInfluence(HttpV3.decodeInfluence(influenceHeader));
@@ -213,6 +215,9 @@ public final class InboundFilter extends OncePerRequestFilter {
                 checked = verifier.verify(HttpV3.request(chainHeader, proofHeader, influenceHeader,
                         request.getMethod(), target, body, receiver, peer));
                 trace(rid, checked, peer, influence);
+                if (checked.ok()) {
+                    PaztportContext.markVerified(inbound);
+                }
             }
             if (!attesting || !checked.ok()) {
                 chain.doFilter(wrapped, response);
