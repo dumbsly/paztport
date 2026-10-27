@@ -15,6 +15,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -43,12 +44,21 @@ class PooledTlsClientTest {
 
     private HttpsServer server;
     private final List<Integer> ports = new CopyOnWriteArrayList<>();
+    private final List<PooledTlsClient> clients = new ArrayList<>();
 
     @AfterEach
     void stop() {
+        clients.forEach(PooledTlsClient::close);
         if (server != null) {
             server.stop(0);
         }
+    }
+
+    /** A pooled client presenting {@code bundle}, closed after the test. */
+    private PooledTlsClient pooled(SslBundle bundle) {
+        PooledTlsClient client = PooledTlsClient.of(bundle);
+        clients.add(client);
+        return client;
     }
 
     private static PemSslStoreBundle stores(String name) {
@@ -112,7 +122,7 @@ class PooledTlsClientTest {
 
     @Test
     void itSpeaksHttp11AndAlwaysChecksTheServersName() {
-        HttpClient http = PooledTlsClient.of(SslBundle.of(stores("orders"))).httpClient();
+        HttpClient http = pooled(SslBundle.of(stores("orders"))).httpClient();
 
         assertThat(http.version()).isEqualTo(HttpClient.Version.HTTP_1_1);
         assertThat(http.connectTimeout()).contains(PooledTlsClient.CONNECT_TIMEOUT);
@@ -124,7 +134,7 @@ class PooledTlsClientTest {
         String url = serve("TLSv1.3");
         SslBundle tls12 = SslBundle.of(stores("orders"), SslBundleKey.NONE,
                 SslOptions.of(null, new String[] {"TLSv1.2"}));
-        PooledTlsClient restricted = PooledTlsClient.of(tls12);
+        PooledTlsClient restricted = pooled(tls12);
 
         assertThat(restricted.httpClient().sslParameters().getProtocols()).containsExactly("TLSv1.2");
         assertThat(restricted.httpClient().sslParameters().getEndpointIdentificationAlgorithm())
@@ -134,21 +144,22 @@ class PooledTlsClientTest {
                 .hasRootCauseInstanceOf(SSLHandshakeException.class);
         assertThat(ports).as("never reached the handler").isEmpty();
 
-        assertThat(call(PooledTlsClient.of(SslBundle.of(stores("orders"))).builder().build(), url + "/ok"))
+        assertThat(call(pooled(SslBundle.of(stores("orders"))).builder().build(), url + "/ok"))
                 .isEqualTo(new Answer(200, "ok"));
     }
 
     /**
      * The interceptor reads the status, then the whole body, before the caller sees either. Over the pooled
      * client a refusal, a failure, a 204 and an empty 200 all come back as they were sent, each counts as one
-     * untrusted entry, and none of them costs the connection, so the next call still finds it in the pool.
+     * untrusted entry, and none of them costs the connection, so the next call still finds it in the pool. The
+     * calls are sequential, so all six share exactly one connection; an answer that dropped it would show as two.
      */
     @Test
     void theStampingClientGetsEveryAnswerOverOnePooledConnection() throws Exception {
         String url = serve();
         StamperV3 gateway = new StamperV3("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
                 () -> "rid-1", System::currentTimeMillis);
-        RestClient client = PooledTlsClient.of(SslBundle.of(stores("gateway"))).builder()
+        RestClient client = pooled(SslBundle.of(stores("gateway"))).builder()
                 .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway"))
                 .build();
         List<String> paths = List.of("/refuse", "/ok", "/fail", "/none", "/empty", "/ok");
@@ -162,6 +173,6 @@ class PooledTlsClientTest {
         }
         assertThat(ports).hasSize(paths.size());
         assertThat(ports.stream().distinct().count()).as("connections for %s calls: %s", paths.size(), ports)
-                .isLessThanOrEqualTo(2);
+                .isEqualTo(1);
     }
 }

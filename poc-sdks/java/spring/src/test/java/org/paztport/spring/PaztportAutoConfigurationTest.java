@@ -367,7 +367,8 @@ class PaztportAutoConfigurationTest {
 
     /**
      * One client per application, so the shared builder's clients and the responder client draw on one pool: each
-     * builder build and each event reuses the connection the first call opened rather than opening its own.
+     * builder build and each event reuses the connection the first call opened rather than opening its own. The
+     * calls are sequential, so one pool means exactly one connection; two pools would show as two.
      */
     @Test
     void theSharedClientAndTheResponderClientShareOnePool(@TempDir Path dir) throws Exception {
@@ -393,7 +394,7 @@ class PaztportAutoConfigurationTest {
                         }
                         assertThat(ports).hasSize(6);
                         assertThat(ports.stream().distinct().count()).as("connections for 6 calls: %s", ports)
-                                .isLessThanOrEqualTo(2);
+                                .isEqualTo(1);
                     });
         } finally {
             server.stop(0);

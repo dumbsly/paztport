@@ -192,7 +192,17 @@ class MutualTlsTest {
      * It is the starter's pooled client, the one every service's calls go out on.
      */
     private static RestClient client(String name) {
-        return PooledTlsClient.of(fixture(name)).builder().build();
+        PooledTlsClient pooled = PooledTlsClient.of(fixture(name));
+        POOLED.add(pooled);
+        return pooled.builder().build();
+    }
+
+    /** The pooled clients the tests made, closed once they have all run. */
+    private static final List<PooledTlsClient> POOLED = new CopyOnWriteArrayList<>();
+
+    @AfterAll
+    static void closeClients() {
+        POOLED.forEach(PooledTlsClient::close);
     }
 
     /** As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot gives an SSL bundle itself. */
