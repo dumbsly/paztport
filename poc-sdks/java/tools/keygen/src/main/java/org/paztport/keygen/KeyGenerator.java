@@ -40,6 +40,6 @@ public final class KeyGenerator {
         Map<String, String> services = new LinkedHashMap<>();
         result.services().forEach((svc, kp) ->
                 services.put(svc, Base64Url.encode(Crypto.encodePublicKey(kp.getPublic()))));
-        return new KeyringFile(services, Base64Url.encode(Crypto.encodePublicKey(result.policy().getPublic())));
+        return new KeyringFile(services, Base64Url.encode(Crypto.encodePublicKey(result.policy().getPublic())), null);
     }
 }

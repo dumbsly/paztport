@@ -12,6 +12,21 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
  */
 public record InfluenceEntry(InfluenceClass cls, String src, String h, String cid, String owner) {
 
+    /** Refuses what the committed bytes could not carry: a missing field, an empty owner, or a lone surrogate. */
+    public InfluenceEntry {
+        if (cls == null || src == null || h == null) {
+            throw new IllegalArgumentException("influence entry needs cls, src and h");
+        }
+        if (owner != null && owner.isEmpty()) {
+            throw new IllegalArgumentException("influence owner must not be empty");
+        }
+        for (String s : new String[] {src, h, cid, owner}) {
+            if (s != null && !Text.isWellFormed(s)) {
+                throw new IllegalArgumentException("lone surrogate in influence entry");
+            }
+        }
+    }
+
     public ObjectNode toJson() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.put("cls", cls.wire());

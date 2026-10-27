@@ -23,7 +23,7 @@ class KeyringTest {
                 Map.of(
                         "gateway", Base64Url.encode(Crypto.encodePublicKey(gateway.getPublic())),
                         "orders", Base64Url.encode(Crypto.encodePublicKey(orders.getPublic()))),
-                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic())));
+                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic())), null);
 
         Keyring keyring = Keyring.fromFile(file);
 

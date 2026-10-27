@@ -15,6 +15,9 @@ import java.util.List;
  * signed bytes are. Only the kinds Paztport hashes are supported: objects, arrays, strings, booleans, null and
  * integers within &plusmn;(2^53&minus;1). Anything else (a fraction, a larger integer, a lone surrogate) throws,
  * because the TypeScript SDK would print such a number differently and the two would sign different bytes.
+ * That includes an integral-valued float such as {@code 1.0}: TypeScript would accept it as 1, Java refuses it,
+ * which is safe because every value Java hashes is an integer already. A Java {@code null} reference or a
+ * missing node is a caller's bug and throws; only a JSON null prints {@code null}.
  */
 public final class Jcs {
 
@@ -36,7 +39,9 @@ public final class Jcs {
     }
 
     private static void write(JsonNode node, StringBuilder sb) {
-        if (node == null || node.isNull() || node.isMissingNode()) {
+        if (node == null || node.isMissingNode()) {
+            throw new IllegalArgumentException("jcs: no value");
+        } else if (node.isNull()) {
             sb.append("null");
         } else if (node.isTextual()) {
             string(node.textValue(), sb);

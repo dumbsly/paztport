@@ -38,7 +38,7 @@ class ConfigLoaderTest {
 
         KeyringFile keyring = new KeyringFile(
                 Map.of("gateway", Base64Url.encode(Crypto.encodePublicKey(gateway.getPublic()))),
-                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic())));
+                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic())), null);
         JSON.writeValue(dir.resolve("keyring.json").toFile(), keyring);
 
         MerkleTree tree = MerkleTree.build(List.of(new MerkleLeaf(Crypto.randomBytes(16), "gateway/orders")), 8, "v1");

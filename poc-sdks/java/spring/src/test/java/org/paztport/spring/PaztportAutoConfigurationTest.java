@@ -38,7 +38,7 @@ class PaztportAutoConfigurationTest {
         Files.writeString(dir.resolve("gateway.key"), Base64Url.encode(Crypto.encodePrivateKey(gateway.getPrivate())));
         JSON.writeValue(dir.resolve("keyring.json").toFile(), new KeyringFile(
                 Map.of("gateway", Base64Url.encode(Crypto.encodePublicKey(gateway.getPublic()))),
-                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()))));
+                Base64Url.encode(Crypto.encodePublicKey(policy.getPublic())), null));
         MerkleTree tree = MerkleTree.build(List.of(new MerkleLeaf(Crypto.randomBytes(16), "gateway/orders")), 8, "v1");
         JSON.writeValue(dir.resolve("root.json").toFile(), SignedRoot.sign(tree.root(), "v1", policy.getPrivate()));
         JSON.writeValue(dir.resolve("proofs-gateway.json").toFile(),

@@ -7,7 +7,7 @@ package org.paztport.core;
  * String checks shared by the canonical-JSON and influence code. A lone surrogate has no UTF-8 encoding, so
  * two implementations would hash it differently (or one would throw); refusing it keeps the bytes agreed.
  */
-final class Text {
+public final class Text {
 
     private Text() {
     }

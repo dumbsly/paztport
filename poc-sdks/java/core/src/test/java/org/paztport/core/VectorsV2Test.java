@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.util.HexFormat;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -24,5 +25,15 @@ class VectorsV2Test {
     void commitInfluence() {
         JsonNode c = vectors.get("commitInfluence");
         assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(c.get("entries"))));
+    }
+
+    @Test
+    void signingBytesV2() {
+        JsonNode c = vectors.get("signingBytesV2");
+        JsonNode s = c.get("stamp");
+        StampV2 stamp = new StampV2(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
+                s.get("ts").asLong(), s.get("sess").asText(), s.get("bind").asText(), s.get("infl").asText(),
+                s.get("prev").asText(), "");
+        assertEquals(c.get("hex").asText(), HexFormat.of().formatHex(stamp.signingBytes()));
     }
 }

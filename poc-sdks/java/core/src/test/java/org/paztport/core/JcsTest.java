@@ -64,4 +64,12 @@ class JcsTest {
     void bytesAreUtf8() {
         assertArrayEquals("\"\u20ac\"".getBytes(StandardCharsets.UTF_8), Jcs.bytes(F.textNode("\u20ac")));
     }
+
+    @Test
+    void onlyJsonNullPrintsNull() {
+        assertEquals("null", Jcs.canonicalize(F.nullNode()));
+        assertThrows(IllegalArgumentException.class, () -> Jcs.canonicalize(null));
+        assertThrows(IllegalArgumentException.class, () -> Jcs.canonicalize(com.fasterxml.jackson.databind.node.MissingNode.getInstance()));
+        assertThrows(IllegalArgumentException.class, () -> Jcs.canonicalize(F.objectNode().put("a", 1.0)));
+    }
 }
