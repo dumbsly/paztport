@@ -4,6 +4,7 @@
 package org.paztport.core;
 
 import java.nio.charset.StandardCharsets;
+import java.util.List;
 
 /**
  * What a stamp's {@code bind} field commits to, by kind. Each kind hashes a distinct domain prefix, so a binding
@@ -24,5 +25,21 @@ public final class Bindings {
             throw new IllegalArgumentException("prompt: not well-formed Unicode");
         }
         return Base64Url.encode(Crypto.sha256(("prompt\n" + text).getBytes(StandardCharsets.UTF_8)));
+    }
+
+    /**
+     * The response binding: {@code b64url(SHA-256(utf8(resultHash + "\n" + callId + "\n" + JCS(labels))))}. A newline
+     * in the call id would let two (hash, id) pairs share bytes, and a lone surrogate would encode as {@code ?}, so
+     * both are refused with {@link IllegalArgumentException}.
+     */
+    public static String response(String resultHash, String callId, List<ContentLabel> labels) {
+        if (!Text.isWellFormed(resultHash) || !Text.isWellFormed(callId)) {
+            throw new IllegalArgumentException("response: not well-formed Unicode");
+        }
+        if (callId.contains("\n")) {
+            throw new IllegalArgumentException("response: callId must not contain newlines");
+        }
+        String text = resultHash + "\n" + callId + "\n" + Jcs.canonicalize(ContentLabel.toJson(labels));
+        return Base64Url.encode(Crypto.sha256(text.getBytes(StandardCharsets.UTF_8)));
     }
 }

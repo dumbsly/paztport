@@ -1,0 +1,92 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package org.paztport.core;
+
+import java.security.PrivateKey;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.LongSupplier;
+import java.util.function.Supplier;
+
+/**
+ * Stamps one hop's outbound call and its response. Framework-neutral: an HTTP layer hands it the inbound chain and
+ * the binding, and sends whatever comes back.
+ *
+ * <p>An origin starts a chain; a non-origin appends to the one it received and fails closed without one, because
+ * only entry points start chains. Unlike v1, every v3 stamp carries its own time. A response is not a separate
+ * structure: it is one more stamp on the request chain, naming the caller as receiver, so every live check applies
+ * to it unchanged.
+ */
+public final class StamperV3 {
+
+    private final String svc;
+    private final String inst;
+    private final PrivateKey key;
+    private final boolean origin;
+    private final Supplier<String> ridSupplier;
+    private final LongSupplier clock;
+
+    public StamperV3(String svc, String inst, PrivateKey key, boolean origin, Supplier<String> ridSupplier,
+            LongSupplier clock) {
+        this.svc = svc;
+        this.inst = inst;
+        this.key = key;
+        this.origin = origin;
+        this.ridSupplier = ridSupplier;
+        this.clock = clock;
+    }
+
+    /** The chain to send, and the proof for its route; {@code proof} is null when the bundle holds none. */
+    public record Stamped(List<StampV3> chain, MerkleProof proof) {
+    }
+
+    /** Stamps an outbound call to {@code receiver}, committing the influence that shaped it. */
+    public Stamped next(List<StampV3> inbound, String receiver, String bind, List<InfluenceEntry> influence,
+            ProofBundle bundle) {
+        List<StampV3> chain = new ArrayList<>();
+        String rid;
+        String sess;
+        String prev;
+        if (origin) {
+            rid = ridSupplier.get();
+            sess = "";
+            prev = "";
+        } else {
+            requireInbound(inbound);
+            StampV3 last = inbound.get(inbound.size() - 1);
+            chain.addAll(inbound);
+            rid = inbound.get(0).rid();
+            sess = last.sess();
+            prev = last.sig();
+        }
+        chain.add(StampV3.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind,
+                Influence.commit(influence), prev, key));
+
+        MerkleProof proof = null;
+        if (bundle != null) {
+            List<String> hops = new ArrayList<>(chain.stream().map(StampV3::svc).toList());
+            hops.add(receiver);
+            proof = bundle.proofFor(Routes.join(hops));
+        }
+        return new Stamped(List.copyOf(chain), proof);
+    }
+
+    /**
+     * Stamps the response to the request whose chain is {@code inbound}: the receiver is the caller (the last
+     * stamp's service), the call id is the request's {@code rid}, and the influence is empty because a response
+     * carries its labels in the binding instead. The caller appends this stamp to the chain it sent.
+     */
+    public StampV3 respond(List<StampV3> inbound, String resultHash, String callId, List<ContentLabel> labels) {
+        requireInbound(inbound);
+        StampV3 last = inbound.get(inbound.size() - 1);
+        return StampV3.sign(svc, inst, inbound.get(0).rid(), clock.getAsLong(), last.sess(), last.svc(),
+                Bindings.response(resultHash, callId, labels), Influence.commit(List.of()), last.sig(), key);
+    }
+
+    private void requireInbound(List<StampV3> inbound) {
+        if (inbound == null || inbound.isEmpty()) {
+            throw new IllegalStateException("service " + svc + " has no inbound chain to stamp onto");
+        }
+    }
+}

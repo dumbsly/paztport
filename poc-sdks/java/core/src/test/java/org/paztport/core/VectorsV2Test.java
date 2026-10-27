@@ -46,6 +46,13 @@ class VectorsV2Test {
     }
 
     @Test
+    void bindResponse() {
+        JsonNode c = vectors.get("bindResponse");
+        assertEquals(c.get("expected").asText(), Bindings.response(c.get("resultHash").asText(),
+                c.get("callId").asText(), ContentLabel.parseAll(c.get("labels"))));
+    }
+
+    @Test
     void deriveSessionId() {
         JsonNode d = vectors.get("deriveSessionId");
         JsonNode keys = d.get("keys");
