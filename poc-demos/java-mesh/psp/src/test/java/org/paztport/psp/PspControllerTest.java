@@ -6,13 +6,17 @@ package org.paztport.psp;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
+import org.paztport.core.StampV3;
 import org.paztport.spring.PaztportContext;
 import org.paztport.spring.PublicWrites;
+import org.paztport.spring.VerifiedChains;
 import org.springframework.http.ResponseEntity;
 
 // The influence a hijacked assistant's refund carries: a ticket's untrusted text beside alice's order.
@@ -25,7 +29,7 @@ class PspControllerTest {
     void alicePaidForOrder123() {
         records = new CardRecords();
         records.charge("alice", "123", "4242 4242 4242 4242", true);
-        controller = new PspController(records, new PublicWrites("psp"));
+        controller = new PspController(records, new PublicWrites("psp"), Optional.empty());
     }
 
     private static final InfluenceEntry TICKET =
@@ -115,5 +119,53 @@ class PspControllerTest {
         assertEquals(Map.of("status", "CHARGED"), response.getBody());
         assertNull(records.ownerOf("4000000000000002"));
         assertNull(records.cardFor("456"));
+    }
+
+    private static final InfluenceEntry ALICES_ORDER =
+            new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice");
+
+    /** The boundary stamp the partner filter verified: only its rid matters here. */
+    private static List<StampV3> verifiedChain(String rid) {
+        return List.of(new StampV3("payment", "payment-1", rid, 0, "sess", "psp", "bind", "", "", "sig"));
+    }
+
+    // The refused refund is recorded too: the record is written before the rule decides, so the shop can later show
+    // the PSP what the entries it refused stood for.
+    @Test
+    void aVerifiedRefundIsRecordedBeforeTheRuleRefusesIt() {
+        ReceivedInfluence received = new ReceivedInfluence();
+        PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
+        ResponseEntity<Map<String, String>> response;
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            VerifiedChains.mark(verifiedChain("rid-13"));
+            PaztportContext.addInfluence(TICKET, ALICES_ORDER);
+            response = recording.refund(new PspController.Refund("123", "4000 0000 0000 0002"));
+        }
+        assertEquals(Map.of("reason", "INFLUENCE_DENIED"), response.getBody());
+        assertEquals(List.of(TICKET, ALICES_ORDER), received.received("rid-13").orElseThrow());
+    }
+
+    @Test
+    void aVerifiedChargeIsRecorded() {
+        ReceivedInfluence received = new ReceivedInfluence();
+        PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            VerifiedChains.mark(verifiedChain("rid-11"));
+            PaztportContext.addInfluence(ALICES_ORDER);
+            recording.charge(new PspController.Charge("alice", "123", "4242 4242 4242 4242", 40L));
+        }
+        assertEquals(List.of(ALICES_ORDER), received.received("rid-11").orElseThrow());
+    }
+
+    // An unsafe session verified nothing, so nothing it carried is recorded as received.
+    @Test
+    void anUnverifiedCallIsNotRecorded() {
+        ReceivedInfluence received = new ReceivedInfluence();
+        PspController recording = new PspController(records, new PublicWrites("psp"), Optional.of(received));
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            PaztportContext.addInfluence(TICKET);
+            recording.refund(new PspController.Refund("123", null));
+        }
+        assertEquals(0, received.size());
     }
 }

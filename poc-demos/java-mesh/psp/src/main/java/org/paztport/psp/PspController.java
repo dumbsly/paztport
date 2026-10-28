@@ -3,8 +3,12 @@
 
 package org.paztport.psp;
 
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.paztport.core.ReasonCode;
+import org.paztport.core.StampV3;
+import org.paztport.spring.PaztportContext;
 import org.paztport.spring.PublicWrites;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,6 +29,10 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <p>A charge registers its card's owner only when the SDK says nothing untrusted shaped it, since a charge a
  * hijacked model asked for could otherwise register its own card to whoever it named.
+ *
+ * <p>When the demo's {@link ReceivedInfluence} is enabled, each handler first records the influence of a call that
+ * verified, under its rid, before anything decides on it: a refused refund's entries are the ones the shop may
+ * later want to open.
  */
 @RestController
 public class PspController {
@@ -39,21 +47,37 @@ public class PspController {
 
     private final CardRecords records;
     private final PublicWrites writes;
+    private final ReceivedInfluence received;
 
-    public PspController(CardRecords records, PublicWrites writes) {
+    /** @param received the demo's record of what each call carried, present only when it is enabled */
+    public PspController(CardRecords records, PublicWrites writes, Optional<ReceivedInfluence> received) {
         this.records = records;
         this.writes = writes;
+        this.received = received.orElse(null);
+    }
+
+    /**
+     * Records what this call carried, when the record is enabled and the partner filter verified the call: only
+     * then is the influence the one the shop's boundary stamp committed to, and the rid the chain's.
+     */
+    private void recordReceived() {
+        List<StampV3> verified = PaztportContext.verifiedChain();
+        if (received != null && verified != null && !verified.isEmpty()) {
+            received.record(verified.get(0).rid(), PaztportContext.influence());
+        }
     }
 
     /** Always taken; it registers the card only when the shop vouched for a request no untrusted content shaped. */
     @PostMapping("/charge")
     public ResponseEntity<Map<String, String>> charge(@RequestBody Charge charge) {
+        recordReceived();
         records.charge(charge.customer(), charge.order(), charge.card(), writes.shapedOnlyByTrusted());
         return ResponseEntity.ok(Map.of("status", "CHARGED"));
     }
 
     @PostMapping("/refund")
     public ResponseEntity<Map<String, String>> refund(@RequestBody Refund refund) {
+        recordReceived();
         String target = refund.card() != null ? CardRecords.normalise(refund.card()) : records.cardFor(refund.order());
         if (target == null || target.isEmpty()) {
             return ResponseEntity.status(404).body(Map.of("reason", "NO_CHARGE"));

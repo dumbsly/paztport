@@ -54,7 +54,7 @@ quietly() { # what command... : runs a setup step with its output hidden, but st
 
 record() { # status name detail
   if [ "$1" = "PASS" ]; then pass=$((pass + 1)); else fail=$((fail + 1)); fi
-  RESULTS+=$(printf '\n  %-4s | %-58s | %s' "$1" "$2" "$3")
+  RESULTS+=$(printf '\n  %-4s | %-60s | %s' "$1" "$2" "$3")
 }
 
 # mreq METHOD URL [curl args...] -> sets CODE and BODY
@@ -279,6 +279,33 @@ if [ -n "$rid" ]; then
     docker compose logs -t --no-log-prefix "$svc" 2>/dev/null \
       | sed -n "s/^\([^ ]*\) .*\(PAZTPORT_TRACE .*rid=$rid .*\)/\1 $svc: \2/p"
   done | sort | cut -d' ' -f2- | sed 's/^/     /'
+fi
+
+# 13c — the PSP holds one blinded entry per class and owner. The shop opens the private one, alice's, by showing
+# its salt and originals, and the PSP checks them against the entry it received for this rid; an opening that
+# misstates an original opens nothing.
+opened=""
+tampered=""
+if [ -n "$rid" ]; then
+  mreq GET "https://payment:8080/debug/boundary-opening?rid=$rid&cls=private&owner=alice"
+  if [ "$CODE" = "200" ]; then
+    preq POST "https://psp:8080/debug/check-opening?rid=$rid" -H 'Content-Type: application/json' -d "$BODY"
+    opened="$CODE $BODY"
+  else
+    opened="opening $CODE $BODY"
+  fi
+  mreq GET "https://payment:8080/debug/boundary-opening?rid=$rid&cls=private&owner=alice&tamper=true"
+  if [ "$CODE" = "200" ]; then
+    preq POST "https://psp:8080/debug/check-opening?rid=$rid" -H 'Content-Type: application/json' -d "$BODY"
+    tampered="$CODE $BODY"
+  else
+    tampered="opening $CODE $BODY"
+  fi
+fi
+if printf '%s' "$opened" | grep -q '^200 .*"opens":true' && printf '%s' "$tampered" | grep -q '^200 .*"opens":false'; then
+  record PASS "13c malicious ticket: the shop opens the PSP's private entry" "opens: genuine true, tampered false"
+else
+  record FAIL "13c malicious ticket: the shop opens the PSP's private entry" "expected genuine true, tampered false, got rid=${rid:-?}, genuine [${opened:-none}], tampered [${tampered:-none}]"
 fi
 
 # 14 — a caller with no root to show (the operator) opens a session at the PSP itself: it is unsafe,

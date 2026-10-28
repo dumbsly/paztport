@@ -23,6 +23,9 @@ spring:
 
 paztport:
   service-name: psp
+  # The demo's record of what each call carried, and its check of the shop's
+  # openings against it (PAZTPORT_OPENINGS).
+  openings: ${PAZTPORT_OPENINGS:false}
   # The shop's entry here. Its own keyring, root and policy pin, its own key
   # (which signs session replies) and the policy key's reply certificate for
   # it, and the shop's pinned policy key, are supplied by the environment in

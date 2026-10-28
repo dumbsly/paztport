@@ -77,7 +77,7 @@ It works end to end. In the [Java mesh demo](poc-demos/java-mesh/README.md), a
 request with a perfectly valid body, sent by a service that is legitimately on the
 network, is **rejected purely because of where it came from**, and the offending
 container is **quarantined and replaced automatically**. All the scenarios plus a
-circuit-breaker check pass (20 rows), and the overhead has been measured.
+circuit-breaker check pass (21 rows), and the overhead has been measured.
 
 The demo also tells a story across two organisations. A customer's support ticket
 passes through a ticket service, which labels the text as third-party, to an
@@ -458,6 +458,9 @@ Engineering shortcuts of this repository, not of the design.
   demo and reaches requests through the Spring SDK's `ReceivedRequestListener`
   hook. It simulates an on-the-wire capture and isn't part of the attestation
   model.
+- **The demo's evidence stores are stand-ins.** The shop's store of what each
+  blinded entry sent to the PSP stood for, and the PSP's record of what each call
+  carried, are in memory and exist only when `PAZTPORT_OPENINGS=true`.
 - **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
   and the mailer's directory are fixtures, and `assistant` is scripted, with no
   model.

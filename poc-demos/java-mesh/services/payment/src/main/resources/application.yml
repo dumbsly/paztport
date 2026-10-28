@@ -32,6 +32,7 @@ paztport:
   admin-token: ${PAZTPORT_ADMIN_TOKEN:}
   event-key-path: ${PAZTPORT_EVENT_KEY_PATH:}
   capture: ${PAZTPORT_CAPTURE:false}
+  openings: ${PAZTPORT_OPENINGS:false}
   # key-path (which attests payment's responses) and policy-key-path are
   # supplied by the environment in docker-compose (PAZTPORT_KEY_PATH /
   # PAZTPORT_POLICY_KEY_PATH) so the boot tests can run without mounted files.
