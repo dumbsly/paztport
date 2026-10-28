@@ -23,26 +23,38 @@ export function nodeHash(left: Uint8Array, right: Uint8Array): Uint8Array {
   return sha256(concat(NODE, left, right));
 }
 
+/** Builds the padded tree; `slots[i]` is leaf i's position (distinct, in range), default `0..n-1`. */
 export function buildTree(
   leaves: { salt: Uint8Array; path: string }[],
   depth: number,
   rootId: string,
+  slots?: readonly number[],
 ): { root: Uint8Array; rootId: string; proofFor(path: string): MerkleProof } {
-  const slots = 2 ** depth;
-  if (leaves.length > slots) {
-    throw new Error(`depth ${depth} holds ${slots} leaves, got ${leaves.length}`);
+  const total = 2 ** depth;
+  if (leaves.length > total) {
+    throw new Error(`depth ${depth} holds ${total} leaves, got ${leaves.length}`);
   }
-  const level0: Uint8Array[] = [];
+  const placed = slots ?? leaves.map((_, i) => i);
+  if (placed.length !== leaves.length) {
+    throw new Error(`${leaves.length} leaves need ${leaves.length} slots, got ${placed.length}`);
+  }
+  const level0: Uint8Array[] = Array.from({ length: total }, () => randomBytes(32)); // opaque padding
   const indexByPath = new Map<string, number>();
   const saltByPath = new Map<string, string>();
+  const used = new Set<number>();
   leaves.forEach((leaf, i) => {
-    level0.push(leafHash(leaf.salt, leaf.path));
-    indexByPath.set(leaf.path, i);
+    const slot = placed[i]!;
+    if (!Number.isInteger(slot) || slot < 0 || slot >= total) {
+      throw new Error(`slot ${slot} is outside 0..${total - 1}`);
+    }
+    if (used.has(slot)) {
+      throw new Error(`slot ${slot} is used twice`);
+    }
+    used.add(slot);
+    level0[slot] = leafHash(leaf.salt, leaf.path);
+    indexByPath.set(leaf.path, slot);
     saltByPath.set(leaf.path, encode(leaf.salt));
   });
-  for (let i = leaves.length; i < slots; i++) {
-    level0.push(randomBytes(32)); // opaque padding
-  }
   const levels: Uint8Array[][] = [level0];
   let current = level0;
   while (current.length > 1) {

@@ -568,8 +568,8 @@ unit tests. Each of these was root-caused before it was fixed:
   asynchronously after a short grace period. The general lesson: **a response
   system must never sit inside the path of the thing it's responding to.**
 - **Fresh salts mean fresh root bytes, so every holder reloads together.** The
-  `rootId` stays stable for a given policy, but each `policy-tool` run draws new
-  salts and the root bytes change. If you restart only the verifier, the callers
+  `rootId` is a fresh label per build, and each `policy-tool` run also draws new
+  salts, so the root bytes change. If you restart only the verifier, the callers
   still hold proofs for the old tree and every legitimate request fails. Policy
   rollout has to be atomic across every holder. That's a miniature of the "policy
   drift" problem real deployments will face.

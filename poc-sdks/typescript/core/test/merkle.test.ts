@@ -10,6 +10,19 @@ const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
 
 describe("merkle", () => {
+  it("explicitSlotsProveAndPlace", () => {
+    const two = leaves().slice(0, 2);
+    const t = buildTree(two, 8, "v1", [5, 200]);
+    for (const l of two) expect(verifyProof(t.proofFor(l.path), l.path, t.root)).toBe(true);
+    // Slot 5 is binary 00000101, least significant bit first.
+    expect(t.proofFor(two[0]!.path).dirs).toBe("RLRLLLLL");
+  });
+  it("duplicateOrOutOfRangeSlotsRefused", () => {
+    expect(() => buildTree(leaves().slice(0, 2), 8, "v1", [3, 3])).toThrow();
+    expect(() => buildTree(leaves().slice(0, 1), 8, "v1", [256])).toThrow();
+    expect(() => buildTree(leaves().slice(0, 1), 8, "v1", [-1])).toThrow();
+    expect(() => buildTree(leaves().slice(0, 2), 8, "v1", [1])).toThrow();
+  });
   it("everyLeafProofVerifies", () => {
     const t = buildTree(leaves(), 8, "v1");
     for (const p of paths) {

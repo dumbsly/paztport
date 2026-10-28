@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
-  commitInfluence, concat, decode, deriveRootId, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
+  commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring,
 } from "@paztport/core";
@@ -33,6 +33,7 @@ const ABOUT =
   "and its public key is the SPKI DER export; both are base64url. " +
   `Each Merkle leaf salt is the first ${SALT_BYTES} bytes of SHA-256(utf8("paztport-v3-vector-salt:" + route)), and the policy's routes fill the ` +
   'first leaves in order; padding leaf i is SHA-256(utf8("paztport-v3-vector-pad:" + rootId + ":" + i)). ' +
+  "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
   "Ed25519 is deterministic, so the file is reproduced byte for byte. " +
   "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result. " +
   "An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, " +
@@ -56,6 +57,11 @@ function salt(route: string): Uint8Array {
 }
 
 type Policy = { routes: string[]; depth: number; rootId: string; root: string; proofs: Record<string, MerkleProof> };
+
+/** "v" + first 12 hex of SHA-256(routes joined by newline): the vectors' fixed rootId, not how real builds label a tree. */
+function deriveRootId(routes: string[]): string {
+  return "v" + Buffer.from(sha256(utf8(routes.join("\n")))).toString("hex").slice(0, 12);
+}
 
 /** A policy tree with fixed salts and padding (the library's tree pads at random), each proof checked by the library. */
 function policy(routes: string[]): Policy {

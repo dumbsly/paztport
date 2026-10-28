@@ -117,7 +117,7 @@ describe("policy-tool CLIs", () => {
     const ring = readKeyring(join(keys, "keyring.json"));
     const root = readJson<SignedRoot>(join(out, "root.json"));
     expect(verifyRoot(root, ring.policy)).toBe(true);
-    expect(root.rootId).toBe("v3c261c950069");
+    expect(root.rootId).toMatch(/^v[0-9a-f]{12}$/);
     const bundle = readJson<ProofBundle>(join(out, "proofs-orders.json"));
     const proof: MerkleProof | undefined = bundle.proofs["gateway/orders/payment"];
     expect(proof).toBeDefined();

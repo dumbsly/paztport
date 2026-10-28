@@ -3,7 +3,8 @@
 
 import { buildTree, SALT_BYTES } from "./merkle.ts";
 import type { MerkleProof } from "./merkle.ts";
-import { randomBytes, sha256, utf8 } from "./crypto.ts";
+import { randomInt } from "node:crypto";
+import { randomBytes } from "./crypto.ts";
 import { signRoot } from "./root.ts";
 import { routeOf } from "./routes.ts";
 import type { SignedRoot } from "./root.ts";
@@ -12,9 +13,23 @@ export const DEFAULT_DEPTH = 8;
 
 export type ProofBundle = { service: string; rootId: string; proofs: Record<string, MerkleProof> };
 
-/** "v" + first 12 hex of SHA-256(routes joined by newline, in file order). */
-export function deriveRootId(routes: string[]): string {
-  return "v" + Buffer.from(sha256(utf8(routes.join("\n")))).toString("hex").slice(0, 12);
+/** "v" + 12 lowercase hex of 6 random bytes: a fresh label per build, compared and never derived. */
+export function newRootId(): string {
+  return "v" + Buffer.from(randomBytes(6)).toString("hex");
+}
+
+/** The first `n` of a uniform Fisher-Yates shuffle of all `2 ** depth` slots. */
+function randomSlots(n: number, depth: number): number[] {
+  const total = 2 ** depth;
+  if (n > total) {
+    throw new Error(`depth ${depth} holds ${total} leaves, got ${n}`);
+  }
+  const all = Array.from({ length: total }, (_, i) => i);
+  for (let i = total - 1; i > 0; i--) {
+    const j = randomInt(i + 1);
+    [all[i], all[j]] = [all[j]!, all[i]!];
+  }
+  return all.slice(0, n);
 }
 
 export function buildPolicy(
@@ -23,11 +38,12 @@ export function buildPolicy(
   policyPrivateKey: string,
 ): { signedRoot: SignedRoot; bundles: Record<string, ProofBundle> } {
   const routeStrings = routes.map((r) => routeOf(r));
-  const rootId = deriveRootId(routeStrings);
+  const rootId = newRootId();
   const tree = buildTree(
     routeStrings.map((path) => ({ salt: randomBytes(SALT_BYTES), path })),
     depth,
     rootId,
+    randomSlots(routeStrings.length, depth),
   );
   const signedRoot = signRoot(tree.root, rootId, policyPrivateKey);
 

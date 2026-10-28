@@ -282,13 +282,14 @@ The allowed routes are the leaves of a salted Merkle tree. A verifier pins only 
 | Leaf | `H(0x00 ‖ salt ‖ utf8(route))` |
 | Node | `H(0x01 ‖ left ‖ right)` |
 | Salt | 16 random bytes per leaf, from a cryptographic random source, fresh on every build. |
-| Depth | Fixed: 8 by default, so 256 leaf slots. The routes fill the first slots in policy order. |
+| Depth | Fixed: 8 by default, so 256 leaf slots. Each route takes a random slot, so a proof's `dirs` reveals nothing about policy order. |
 | Padding | Every unused slot holds 32 random bytes, which look like any other leaf hash. |
 
 Why: the `0x00` and `0x01` prefixes stop a 64-byte node from passing as a leaf (the second-preimage attack). A
 real route space is small, so an unsalted leaf could be confirmed by hashing a few guesses: the salt is a
-secret, not extra effort. A fixed depth means a proof's length says nothing about how many routes exist. A
-builder MUST NOT build a tree with an unsalted leaf, and MUST NOT reuse salts across builds.
+secret, not extra effort. A fixed depth means a proof's length says nothing about how many routes exist, and random slots mean its `dirs` say nothing about where in the policy a route sits.
+A builder MUST NOT build a tree with an unsalted leaf, MUST NOT reuse salts across builds, and MUST choose slots
+from a cryptographic random source, never in policy order.
 
 ### Proof object
 
@@ -313,10 +314,11 @@ shorter or longer path from reaching it.
 
 ### rootId
 
-`rootId = "v" ‖ the first 12 lowercase hex digits of H(utf8(route₁ ‖ "\n" ‖ route₂ ‖ … ‖ routeₙ))`, over the
-route strings in policy (file) order. It labels a policy by its content, so it stays the same across builds even
-though fresh salts change the root's bytes every time. `v3.json` pins three, for example
-`v128498df6662` for the client policy in `policies.client`.
+`rootId = "v" ‖ 12 lowercase hex digits of 6 random bytes`, from a cryptographic random source, fresh on every
+build. It is a label, compared for equality and never derived from the routes: a label derived from the routes
+would let anyone who guessed a policy confirm the guess. §"The signed root" is unchanged. The `rootId`s pinned in
+`v3.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
+for the client policy in `policies.client`; a real build does not produce them.
 
 ## Routes
 
