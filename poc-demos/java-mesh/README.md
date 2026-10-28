@@ -691,9 +691,11 @@ By hand, from this folder:
 ```bash
 (cd ../../poc-sdks/java && mvn -q install -DskipTests)  # the SDK jars and the tool jars
 mvn -q package -DskipTests              # build every module
-docker compose build keygen policy-tool # package the freshly built jars
+docker compose build keygen policy-tool keygen-psp policy-tool-psp   # package the freshly built jars
 docker compose run --rm keygen          # stamp keys, signed keyring, policy pin, CA and certificates
+docker compose run --rm keygen-psp      # the PSP's own keys, keyring, policy pin, CA and certificate
 docker compose run --rm policy-tool     # signed root + per-service proof bundles
+docker compose run --rm policy-tool-psp # the PSP's signed root and its reply certificate
 export PAZTPORT_ADMIN_TOKEN=$(openssl rand -hex 16)   # token for /admin/mode
 docker compose up -d --build            # the mesh + responder
 ./demo.sh                               # run every scenario, print pass/fail

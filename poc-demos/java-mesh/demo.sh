@@ -148,7 +148,7 @@ quietly "building the keygen and policy-tool images" \
 # so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it).
 # A bind-mount source Docker created as an empty directory (see below) would block keygen.
 for p in out/keys/policy.pub out/keys/boundary.key out/keys/tls/* out/psp-keys/policy.pub \
-  out/psp-keys/policy.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
+  out/psp-keys/policy.key out/psp-keys/psp.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
   || [ ! -f out/keys/boundary.key ] || [ ! -f out/psp-keys/policy.pub ]; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
