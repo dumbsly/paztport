@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.List;
@@ -27,6 +28,7 @@ import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.ReplyCheck;
 import org.paztport.core.SessionReply;
 import org.paztport.core.SessionRequest;
@@ -34,10 +36,10 @@ import org.paztport.core.Sessions;
 import org.paztport.core.SignedRoot;
 
 /**
- * The partner's session registry on its own: which handshakes it attests, that a reply is signed under its pin and
- * binds both sides' inputs, and that a session belongs to the peer that opened it, by certificate issuer and name,
- * until it is evicted for a newer one of that peer's or has been idle too long. A handshake adds a session and
- * replaces none.
+ * The partner's session registry on its own: which handshakes it attests, that a reply is signed by its entry key,
+ * certified under its pin, and binds both sides' inputs, and that a session belongs to the peer that opened it, by
+ * certificate issuer and name, until it is evicted for a newer one of that peer's or has been idle too long. A
+ * handshake adds a session and replaces none.
  */
 class PartnerSessionsTest {
 
@@ -50,12 +52,18 @@ class PartnerSessionsTest {
         return Base64Url.encode(Crypto.encodePublicKey(k.getPublic()));
     }
 
-    /** One organisation's trust material: a policy key, a keyring naming one service, and a root over its mesh. */
-    private record Org(KeyPair policy, KeyringFile keyring, SignedRoot root) {
+    /**
+     * One organisation's trust material: a policy key, a keyring naming one service, that service's key and a
+     * week's reply certificate for it, and a root over its mesh.
+     */
+    private record Org(KeyPair policy, KeyringFile keyring, KeyPair key, ReplyCert cert, SignedRoot root) {
         static Org of(String service, KeyPair policy) {
             KeyPair key = Crypto.generateEd25519KeyPair();
             return new Org(policy,
                     KeyringFile.sign(Map.of(service, pub(key)), pub(policy), policy.getPrivate()),
+                    key,
+                    ReplyCert.issue(pub(policy), service, pub(key), System.currentTimeMillis() + 7 * 86_400_000L,
+                            policy.getPrivate()),
                     PolicyBuilder.build(List.of(List.of(service, "x")), 4, policy.getPrivate()).signedRoot());
         }
 
@@ -71,7 +79,7 @@ class PartnerSessionsTest {
     private final PartnerSessions partner = partner(16);
 
     private PartnerSessions partner(int maxPerPeer) {
-        return new PartnerSessions(psp.root(), psp.keyring(), psp.pin(), psp.policy().getPrivate(),
+        return new PartnerSessions(psp.root(), psp.keyring(), psp.pin(), "psp", psp.key().getPrivate(), psp.cert(),
                 Set.of(shop.pin()), Set.of("payment"), DISABLED, new InMemoryNonceCache(15_000), now::get, 5000, 5000,
                 maxPerPeer, IDLE_MS);
     }
@@ -100,6 +108,38 @@ class PartnerSessionsTest {
         PartnerSessions.Session session = partner.find(SHOP_CA, "orders", reply.sess());
         assertTrue(session.attested());
         assertNotNull(session.verifier());
+    }
+
+    // Forged: the same reply passed off as the policy-key form, its keyring signature and certificate stripped.
+    // It is the entry key's signature, so it fails under the pin.
+    @Test
+    void replyIsSignedByTheEntryKey() {
+        SessionRequest req = request(shop, shop.root());
+        SessionReply reply = partner.open(req, SHOP_CA, "orders");
+
+        assertEquals(psp.keyring().sig(), reply.serverKeyringSig());
+        assertEquals(psp.cert(), reply.serverReplyCert());
+        assertEquals(ReplyCheck.ATTESTED, check(reply, req));
+        ObjectNode stripped = reply.toJson();
+        stripped.remove("serverKeyringSig");
+        stripped.remove("serverReplyCert");
+        assertEquals(ReplyCheck.BAD_SIGNATURE,
+                Sessions.checkReply(stripped, req, psp.pin(), "psp", System.currentTimeMillis()));
+    }
+
+    // A certificate for another service, or for a key the keyring does not hold for this one, would sign replies
+    // no client accepts, so no registry is built with one.
+    @Test
+    void certificateMustBeForThisServicesKey() {
+        long later = System.currentTimeMillis() + 86_400_000L;
+        ReplyCert otherService = ReplyCert.issue(psp.pin(), "ledger", pub(psp.key()), later, psp.policy().getPrivate());
+        ReplyCert otherKey = ReplyCert.issue(psp.pin(), "psp", pub(Crypto.generateEd25519KeyPair()), later,
+                psp.policy().getPrivate());
+        for (ReplyCert cert : List.of(otherService, otherKey)) {
+            assertThrows(IllegalArgumentException.class, () -> new PartnerSessions(psp.root(), psp.keyring(),
+                    psp.pin(), "psp", psp.key().getPrivate(), cert, Set.of(shop.pin()), Set.of("payment"), DISABLED,
+                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS));
+        }
     }
 
     @Test
@@ -218,7 +258,7 @@ class PartnerSessionsTest {
     void limitsMustBePositive() {
         assertThrows(IllegalArgumentException.class, () -> partner(0));
         assertThrows(IllegalArgumentException.class, () -> new PartnerSessions(psp.root(), psp.keyring(), psp.pin(),
-                psp.policy().getPrivate(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
+                "psp", psp.key().getPrivate(), psp.cert(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
                 new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, 0));
     }
 

@@ -26,8 +26,11 @@
 # and its own root (out/psp-policy), on its own network. Payment, the shop's
 # egress, is the one service on both networks. It holds the PSP's policy pin and
 # CA certificate, and its proofs for the boundary route payment->psp; the PSP
-# holds the shop's policy pin and CA certificate, and its own policy private key,
-# which signs its session replies. Neither sees the other's routes or keys.
+# holds the shop's policy pin and CA certificate, and its own key, psp.key,
+# which signs its session replies under a reply certificate from its policy key
+# (out/psp-policy/reply-cert.json, reissued by each policy-tool-psp run). Its
+# policy private key is mounted only into policy-tool-psp. Neither sees the
+# other's routes or keys.
 #
 # The six services a support ticket passes through (gateway, tickets,
 # assistant, orders, payment, mailer) allow a request tree 30 s from the
@@ -87,9 +90,12 @@ services:
       dockerfile: poc-demos/java-mesh/Dockerfile
       args:
         JAR: poc-sdks/java/tools/policy-tool/target/policy-tool.jar
+    environment:
+      PAZTPORT_REPLY_CERT_SVC: psp   # also writes reply-cert.json, for psp's key, valid for 7 days
     volumes:
       - ./psp-policy:/policy:ro
-      - ./out/psp-keys/policy.key:/out/keys/policy.key:ro   # signs the PSP's root
+      - ./out/psp-keys/policy.key:/out/keys/policy.key:ro   # signs the PSP's root and psp's reply certificate
+      - ./out/psp-keys/keyring.json:/out/keys/keyring.json:ro   # the key the certificate is for
       - ./out/psp-policy:/out/policy
     command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
 
@@ -273,13 +279,15 @@ services:
       PAZTPORT_KEYRING_PATH: /config/keys/keyring.json
       PAZTPORT_ROOT_PATH: /config/policy/root.json
       PAZTPORT_POLICY_KEY_PATH: /config/keys/policy.pub
-      PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH: /config/keys/policy.key
+      PAZTPORT_KEY_PATH: /config/keys/psp.key
+      PAZTPORT_PARTNER_REPLY_CERT_PATH: /config/policy/reply-cert.json
       PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS: /config/clients/shop-policy.pub
     volumes:
       - ./out/psp-keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/psp-keys/policy.pub:/config/keys/policy.pub:ro
-      - ./out/psp-keys/policy.key:/config/keys/policy.key:ro   # signs the PSP's session replies
+      - ./out/psp-keys/psp.key:/config/keys/psp.key:ro   # signs the PSP's session replies
       - ./out/psp-policy/root.json:/config/policy/root.json:ro
+      - ./out/psp-policy/reply-cert.json:/config/policy/reply-cert.json:ro   # the policy key's certificate for psp.key
       - ./out/psp-keys/tls/psp.crt:/config/tls/psp.crt:ro
       - ./out/psp-keys/tls/psp.key:/config/tls/psp.key:ro
       - ./out/keys/tls/ca.crt:/config/tls/shop-ca.crt:ro   # the only CA the PSP trusts

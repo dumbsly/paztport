@@ -35,6 +35,7 @@ import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
 import org.paztport.core.ReasonCode;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.StampV3;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
@@ -228,6 +229,161 @@ class PaztportAutoConfigurationTest {
                 .withPropertyValues(trust(dir))
                 .run(context -> assertThat(context.getBean(EventPublisher.class))
                         .isInstanceOf(LoggingEventPublisher.class));
+    }
+
+    private final KeyPair psp = Crypto.generateEd25519KeyPair();
+    private final KeyPair ledger = Crypto.generateEd25519KeyPair();
+    private static final long DAY_MS = 86_400_000L;
+
+    /**
+     * A partner's world: its keyring naming {@code psp} and {@code ledger}, signed under its pin, {@code psp}'s key,
+     * a week's reply certificate for it, a root, and the pin of the one organisation it attests.
+     */
+    private Path writePartner(Path dir) throws Exception {
+        Files.writeString(dir.resolve("psp.key"), Base64Url.encode(Crypto.encodePrivateKey(psp.getPrivate())));
+        Files.writeString(dir.resolve("ledger.key"), Base64Url.encode(Crypto.encodePrivateKey(ledger.getPrivate())));
+        Files.writeString(dir.resolve("policy.pub"), pub(policy) + "\n");
+        Files.writeString(dir.resolve("shop-policy.pub"), pub(Crypto.generateEd25519KeyPair()) + "\n");
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.sign(Map.of("psp", pub(psp), "ledger", pub(ledger)), pub(policy), policy.getPrivate()));
+        JSON.writeValue(dir.resolve("root.json").toFile(),
+                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, policy.getPrivate()).signedRoot());
+        writeCert(dir, ReplyCert.issue(pub(policy), "psp", pub(psp), System.currentTimeMillis() + 7 * DAY_MS,
+                policy.getPrivate()));
+        return dir;
+    }
+
+    private static void writeCert(Path dir, ReplyCert cert) throws IOException {
+        JSON.writeValue(dir.resolve("reply-cert.json").toFile(), cert.toJson());
+    }
+
+    /** Everything partner mode needs, and no policy private key. */
+    private static String[] partner(Path dir) {
+        return new String[] {
+            "paztport.service-name=psp",
+            "paztport.keyring-path=" + dir.resolve("keyring.json"),
+            "paztport.root-path=" + dir.resolve("root.json"),
+            "paztport.policy-key-path=" + dir.resolve("policy.pub"),
+            "paztport.key-path=" + dir.resolve("psp.key"),
+            "paztport.partner.enabled=true",
+            "paztport.partner.reply-cert-path=" + dir.resolve("reply-cert.json"),
+            "paztport.partner.client-policy-key-paths[0]=" + dir.resolve("shop-policy.pub"),
+            "paztport.partner.client-origins[0]=payment"};
+    }
+
+    /** Asserts that partner mode fails to start, naming {@code property} and no key material. */
+    private void partnerFails(Path dir, String property, String... overrides) {
+        runner.withPropertyValues(partner(dir)).withPropertyValues(overrides)
+                .run(context -> {
+                    assertThat(context).hasFailed().getFailure().hasStackTraceContaining(property);
+                    String trace = stackTrace(context.getStartupFailure());
+                    for (KeyPair k : List.of(psp, ledger, policy)) {
+                        assertThat(trace).doesNotContain(pub(k))
+                                .doesNotContain(Base64Url.encode(Crypto.encodePrivateKey(k.getPrivate())));
+                    }
+                });
+    }
+
+    private static String stackTrace(Throwable t) {
+        java.io.StringWriter out = new java.io.StringWriter();
+        t.printStackTrace(new java.io.PrintWriter(out));
+        return out.toString();
+    }
+
+    // The policy private key stays offline: replies are signed by the entry service's own key.
+    @Test
+    void partnerStartsWithNoPolicyPrivateKey(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        runner.withPropertyValues(partner(dir))
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class));
+    }
+
+    @Test
+    void partnerNeedsItsKeyAndCertificate(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        List<String> props = new ArrayList<>(List.of(partner(dir)));
+        props.removeIf(p -> p.startsWith("paztport.key-path=") || p.startsWith("paztport.partner.reply-cert-path="));
+        runner.withPropertyValues(props.toArray(String[]::new))
+                .run(context -> assertThat(context).hasFailed().getFailure().hasStackTraceContaining(
+                        "paztport.partner.enabled is set but these are not: paztport.key-path, "
+                                + "paztport.partner.reply-cert-path"));
+    }
+
+    // Forged: a keyring that is not signed under the pin. The shared verifier, which every partner has, may refuse
+    // it first, so only the shared part of the two messages is asserted.
+    @Test
+    void partnerKeyringMustVerifyUnderThePin(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.sign(Map.of("psp", pub(psp)), pub(other), other.getPrivate()));
+        partnerFails(dir, "does not verify under");
+    }
+
+    @Test
+    void partnerKeyringMustHoldTheService(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.sign(Map.of("ledger", pub(ledger)), pub(policy), policy.getPrivate()));
+        partnerFails(dir, "paztport.keyring-path has no key for paztport.service-name");
+    }
+
+    @Test
+    void partnerKeyMustMatchTheKeyring(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        partnerFails(dir, "paztport.key-path does not match", "paztport.key-path=" + dir.resolve("ledger.key"));
+    }
+
+    @Test
+    void partnerCertificateMustBeThere(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        Files.delete(dir.resolve("reply-cert.json"));
+        partnerFails(dir, "paztport.partner.reply-cert-path could not be read");
+        Files.writeString(dir.resolve("reply-cert.json"), "{\"svc\":\"psp\"}");
+        partnerFails(dir, "paztport.partner.reply-cert-path is not a reply certificate");
+        // A key file named in its place: the refusal must not quote it. A JSON parser's error quotes the file's
+        // first token, the key text up to its first '-' or '_', which starts with the fixed Ed25519 PKCS#8 header.
+        runner.withPropertyValues(partner(dir))
+                .withPropertyValues("paztport.partner.reply-cert-path=" + dir.resolve("psp.key"))
+                .run(context -> {
+                    assertThat(context).hasFailed().getFailure()
+                            .hasStackTraceContaining("paztport.partner.reply-cert-path is not a reply certificate");
+                    assertThat(stackTrace(context.getStartupFailure())).doesNotContain("MC4CAQAwBQYDK2VwBCIEI");
+                });
+    }
+
+    // Forged: a certificate signed by another policy key, though it names this one.
+    @Test
+    void partnerCertificateMustVerifyUnderThePin(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        ReplyCert forged = ReplyCert.issue(pub(policy), "psp", pub(psp), System.currentTimeMillis() + DAY_MS,
+                Crypto.generateEd25519KeyPair().getPrivate());
+        writeCert(dir, forged);
+        partnerFails(dir, "paztport.partner.reply-cert-path does not verify under paztport.policy-key-path");
+    }
+
+    @Test
+    void partnerCertificateMustNotHaveExpired(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        writeCert(dir, ReplyCert.issue(pub(policy), "psp", pub(psp), System.currentTimeMillis() - 1,
+                policy.getPrivate()));
+        partnerFails(dir, "paztport.partner.reply-cert-path has expired");
+    }
+
+    @Test
+    void partnerCertificateMustBeForThisService(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        writeCert(dir, ReplyCert.issue(pub(policy), "ledger", pub(ledger), System.currentTimeMillis() + DAY_MS,
+                policy.getPrivate()));
+        partnerFails(dir, "paztport.partner.reply-cert-path is not for paztport.service-name");
+    }
+
+    @Test
+    void partnerCertificateMustBeForThisKey(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        writeCert(dir, ReplyCert.issue(pub(policy), "psp", pub(ledger), System.currentTimeMillis() + DAY_MS,
+                policy.getPrivate()));
+        partnerFails(dir, "paztport.partner.reply-cert-path is not for the key at paztport.key-path");
     }
 
     /**

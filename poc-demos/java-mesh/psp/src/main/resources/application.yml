@@ -23,12 +23,14 @@ spring:
 
 paztport:
   service-name: psp
-  # The shop's entry here. Its own keyring, root, policy pin and policy private
-  # key (which signs session replies), and the shop's pinned policy key, are
-  # supplied by the environment in docker-compose (PAZTPORT_KEYRING_PATH,
-  # PAZTPORT_ROOT_PATH, PAZTPORT_POLICY_KEY_PATH,
-  # PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH and
-  # PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS), as payment's key-path is.
+  # The shop's entry here. Its own keyring, root and policy pin, its own key
+  # (which signs session replies) and the policy key's reply certificate for
+  # it, and the shop's pinned policy key, are supplied by the environment in
+  # docker-compose (PAZTPORT_KEYRING_PATH, PAZTPORT_ROOT_PATH,
+  # PAZTPORT_POLICY_KEY_PATH, PAZTPORT_KEY_PATH,
+  # PAZTPORT_PARTNER_REPLY_CERT_PATH and
+  # PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS), as payment's key-path is. The
+  # policy private key is not among them.
   partner:
     enabled: true
     # Only the shop's egress may start a chain in its attested session.

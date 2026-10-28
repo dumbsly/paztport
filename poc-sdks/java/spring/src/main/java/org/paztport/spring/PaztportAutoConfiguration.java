@@ -3,6 +3,7 @@
 
 package org.paztport.spring;
 
+import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
@@ -20,7 +21,9 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyFiles;
+import org.paztport.core.KeyringFile;
 import org.paztport.core.ProofBundle;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
@@ -193,9 +196,14 @@ public class PaztportAutoConfiguration {
 
     /**
      * The partner's session registry. Everything it needs is checked first, and the context fails naming what is
-     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, a session
-     * cap or idle period that is not positive, or a policy private key that does not belong to the pin, which would
-     * sign replies no client could accept.
+     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, or a session
+     * cap or idle period that is not positive. Its replies are signed by its own entry service's key, never the
+     * policy key, so it also refuses to start, in this order, unless: its keyring verifies under its pin; the
+     * keyring holds {@code paztport.service-name}; that entry is the key at {@code paztport.key-path}; the reply
+     * certificate verifies under the pin, names that service and that key, and has not expired by the wall clock.
+     * Each would otherwise sign replies no client could accept. A certificate that expires while the service runs
+     * is not caught here: replies then fail at the client, which falls back to an unsafe session, so the
+     * certificate must be reissued and the service restarted before it expires. No message carries key material.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
@@ -205,10 +213,12 @@ public class PaztportAutoConfiguration {
             throw new IllegalStateException("paztport.partner.enabled cannot be combined with paztport.verify=true");
         }
         Map<String, String> needed = new LinkedHashMap<>();
+        needed.put("paztport.service-name", props.getServiceName());
         needed.put("paztport.keyring-path", props.getKeyringPath());
         needed.put("paztport.root-path", props.getRootPath());
         needed.put("paztport.policy-key-path", props.getPolicyKeyPath());
-        needed.put("paztport.partner.policy-private-key-path", p.getPolicyPrivateKeyPath());
+        needed.put("paztport.key-path", props.getKeyPath());
+        needed.put("paztport.partner.reply-cert-path", p.getReplyCertPath());
         List<String> missing = new ArrayList<>();
         needed.forEach((name, value) -> {
             if (value == null || value.isBlank()) {
@@ -231,27 +241,53 @@ public class PaztportAutoConfiguration {
         if (p.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.partner.session-idle-ms must be positive");
         }
+        String service = props.getServiceName();
         String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        PrivateKey signer = KeyFiles.loadPrivateKey(Path.of(p.getPolicyPrivateKeyPath()));
-        byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
-        boolean matches;
-        try {
-            matches = Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(pin)), probe, Crypto.sign(signer, probe));
-        } catch (RuntimeException e) {
-            matches = false;
+        KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
+        if (!keyring.verifies(pin)) {
+            throw new IllegalStateException("paztport.keyring-path does not verify under paztport.policy-key-path");
         }
-        if (!matches) {
+        String entryKey = keyring.services().get(service);
+        if (entryKey == null) {
+            throw new IllegalStateException("paztport.keyring-path has no key for paztport.service-name");
+        }
+        PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
+        if (!belongsTo(serviceKey, entryKey)) {
             throw new IllegalStateException(
-                    "paztport.partner.policy-private-key-path does not match paztport.policy-key-path");
+                    "paztport.key-path does not match the key paztport.keyring-path holds for paztport.service-name");
+        }
+        ReplyCert cert;
+        try {
+            cert = ReplyCert.load(Path.of(p.getReplyCertPath()));
+        } catch (UncheckedIOException e) {
+            throw new IllegalStateException("paztport.partner.reply-cert-path could not be read", e);
+        } catch (IllegalArgumentException e) {
+            // Without the parser's cause, which quotes the file: a key file named here by mistake must not be logged.
+            throw new IllegalStateException("paztport.partner.reply-cert-path is not a reply certificate");
+        }
+        if (!cert.verifies(pin)) {
+            throw new IllegalStateException(
+                    "paztport.partner.reply-cert-path does not verify under paztport.policy-key-path");
+        }
+        if (!cert.svc().equals(service)) {
+            throw new IllegalStateException("paztport.partner.reply-cert-path is not for paztport.service-name");
+        }
+        if (!cert.key().equals(entryKey)) {
+            throw new IllegalStateException("paztport.partner.reply-cert-path is not for the key at paztport.key-path");
+        }
+        if (System.currentTimeMillis() > cert.notAfter()) {
+            throw new IllegalStateException("paztport.partner.reply-cert-path has expired");
         }
         Set<String> clientKeys = new LinkedHashSet<>();
         p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(ConfigLoader.loadPolicyPin(Path.of(path))));
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         return new PartnerSessions(
                 ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
-                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
+                keyring,
                 pin,
-                signer,
+                service,
+                serviceKey,
+                cert,
                 clientKeys,
                 Set.copyOf(p.getClientOrigins()),
                 p.getUnsafeDisabled(),
@@ -261,6 +297,16 @@ public class PaztportAutoConfiguration {
                 runMaxAgeMs,
                 p.getMaxSessionsPerPeer(),
                 p.getSessionIdleMs());
+    }
+
+    /** Whether {@code key} is the private half of {@code publicKey}, by signing a probe; never throws. */
+    private static boolean belongsTo(PrivateKey key, String publicKey) {
+        byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
+        try {
+            return Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(publicKey)), probe, Crypto.sign(key, probe));
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     @Bean

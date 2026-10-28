@@ -163,16 +163,21 @@ public class PaztportProperties {
     private final Partner partner = new Partner();
 
     /**
-     * {@code paztport.partner.*}: what a partner pins for the organisations that call it. Its own keyring, root and
-     * policy pin are the top-level {@code keyring-path}, {@code root-path} and {@code policy-key-path}.
+     * {@code paztport.partner.*}: what a partner pins for the organisations that call it. Its own keyring, root,
+     * policy pin and entry key are the top-level {@code keyring-path}, {@code root-path}, {@code policy-key-path}
+     * and {@code key-path}.
      */
     public static class Partner {
 
         /** Makes this service answer {@code POST /paztport/session}; it needs everything else here. */
         private boolean enabled = false;
 
-        /** Path to this organisation's policy private key, which signs session replies; it must match the pin. */
-        private String policyPrivateKeyPath;
+        /**
+         * Path to {@code reply-cert.json}: the policy key's certificate for this service's key, the one at
+         * {@code paztport.key-path}, which signs session replies. Clients accept a reply only until its
+         * {@code notAfter}, so it is reissued before then.
+         */
+        private String replyCertPath;
 
         /** Paths to the {@code policy.pub} of each organisation whose sessions may be attested. */
         private List<String> clientPolicyKeyPaths = List.of();
@@ -197,12 +202,12 @@ public class PaztportProperties {
             this.enabled = enabled;
         }
 
-        public String getPolicyPrivateKeyPath() {
-            return policyPrivateKeyPath;
+        public String getReplyCertPath() {
+            return replyCertPath;
         }
 
-        public void setPolicyPrivateKeyPath(String policyPrivateKeyPath) {
-            this.policyPrivateKeyPath = policyPrivateKeyPath;
+        public void setReplyCertPath(String replyCertPath) {
+            this.replyCertPath = replyCertPath;
         }
 
         public List<String> getClientPolicyKeyPaths() {

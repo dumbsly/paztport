@@ -302,7 +302,7 @@ and key and `ca.crt`, and the callers (`gateway`, `orders`, `search`) also get
 | tickets / assistant | Own stamp key; own proof bundle; the signed keyring, root and pin; own TLS certificate and key, and `ca.crt`. They verify every request they get. | Other services' keys, the tree, any salts but its own proofs' |
 | mailer | Own stamp key, to attest its answers; the signed keyring, root and pin; own TLS certificate and key, and `ca.crt`; its directory of addresses and their owners (configuration). It calls nobody. | Any proof, any other private key |
 | payment, as the shop's egress | Additionally: its proof for the route `payment/psp`; the PSP's policy pin and CA certificate, trusted on calls to the PSP only | The PSP's keys and routes |
-| psp (another organisation) | Its own keyring, root and pin; its own TLS certificate and key (it holds no stamp key); the shop's CA certificate, the only CA it trusts; the shop's policy pin, so it can accept the shop's attested sessions; **its own policy private key, online**, to sign its session replies | The shop's routes, tree, proofs and keys, and the shop's internal chain |
+| psp (another organisation) | Its own keyring, root and pin; its own TLS certificate and key; its service key, `psp.key`, which signs its session replies, and its policy key's reply certificate for that key (`reply-cert.json`, valid for 7 days and reissued by each `policy-tool-psp` run); the shop's CA certificate, the only CA it trusts; the shop's policy pin, so it can accept the shop's attested sessions | Its own policy private key, which only `policy-tool-psp` holds; the shop's routes, tree, proofs and keys, and the shop's internal chain |
 | search | Own stamp key; an **empty** bundle; the signed keyring, root and pin; own TLS certificate and key, and `ca.crt` | Any proof for a route ending at `payment`, because none exists |
 | responder | The keyring, read as mounted, to check that events are signed by `payment`; own TLS certificate and key, and `ca.crt`; the Docker socket | Any stamp key, the pin, the root, the tree, salts, proofs |
 | operator (`demo.sh`, `measure.sh`) | A TLS certificate and key, and `ca.crt` | Any stamp key: it is not in the keyring, so it can't start or extend a chain |
@@ -312,6 +312,10 @@ Each service verifies the keyring and the root against `policy.pub`,
 held apart from the keyring it vouches for, and refuses to start if either fails.
 The CA's key is written to its own directory, `out/keys/ca/`, so that
 `out/keys/tls/` holds only what may be mounted, and it is mounted into no service.
+The PSP's policy private key is mounted only into `policy-tool-psp`, a one-shot
+job. `psp` signs its session replies with its own key, which `payment` accepts only
+while the reply certificate for it is valid, so a key that is not reissued a
+certificate stops being accepted within 7 days.
 In Compose every service's key-material mount is a single file; only the one-shot
 `keygen` job mounts `out/keys` whole, because it writes there. Each service
 container sees only the specific files its role needs, never a shared volume of
@@ -773,14 +777,15 @@ exposed to the host.
 | `RESPONDER_URL` | empty, so events are only logged | `payment` (the demo sets `https://responder:8080` for scenario 9) |
 | `PAZTPORT_EVENT_KEY_PATH` | `/config/keys/payment.key` in Compose; required when `RESPONDER_URL` is set | `payment` |
 | `PAZTPORT_RUN_MAX_AGE_MS` | unset, so the origin's window is `PAZTPORT_MAX_AGE_MS`; Compose sets `30000` | `gateway`, `tickets`, `assistant`, `orders`, `payment`, `mailer`: the window for the origin's stamp, which five hops started cold can outlast |
-| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in the `application.yml` of `gateway`, `orders`, `tickets`, `assistant` and `mailer`; Compose sets it for `payment` and `search` | every service with a stamp key (all but `psp`); each but `gateway`, the origin, attests its responses with it |
+| `PAZTPORT_KEY_PATH` | `/config/keys/<svc>.key` in the `application.yml` of `gateway`, `orders`, `tickets`, `assistant` and `mailer`; Compose sets it for `payment`, `search` and `psp` | every service; each shop service but `gateway`, the origin, attests its responses with it, and `psp` signs its session replies with it |
 | `PAZTPORT_PROOFS_PATH` | `/config/policy/proofs-<svc>.json` in the `application.yml` of `gateway`, `orders`, `tickets` and `assistant`; Compose sets it for `search` and `payment` (the route `payment/psp`) | `gateway`, `orders`, `tickets`, `assistant`, `search`, `payment`; `mailer` calls nobody and has none |
 | `PAZTPORT_KEYRING_PATH` | `/config/keys/keyring.json` in the `application.yml` of every shop service but `search`; Compose sets it for `search` and for `psp` (the PSP's own keyring) | every service (requests at the verifiers, responses at the callers), and the responder (event signatures) |
 | `PAZTPORT_ROOT_PATH` | `/config/policy/root.json` in the `application.yml` of every shop service but `search`; Compose sets it for `search` and for `psp` (the PSP's own root) | every service |
 | `PAZTPORT_POLICY_KEY_PATH` | `/config/keys/policy.pub` in the `application.yml` of `gateway`, `orders`, `tickets`, `assistant` and `mailer`; Compose sets it for `payment`, `search` and `psp` | every service: the pin the keyring and the root must verify under (the PSP's own pin at `psp`) |
 | `PAZTPORT_BOUNDARY_PARTNER`, `_URL`, `_TLS_BUNDLE`, `_PARTNER_POLICY_KEY_PATH` | set by Compose only: `psp`, `https://psp:8080`, `psp`, `/config/partner/psp-policy.pub` | `payment`, the shop's egress: the partner, where it is, the TLS bundle that trusts the PSP's CA, and the PSP's pinned policy key |
 | `PAZTPORT_BOUNDARY_BLINDING_KEY_PATH` | set by Compose only: `/config/keys/boundary.key` | `payment`: its boundary key, which salts the influence it sends the PSP. The keygen writes `out/keys/boundary.key` once and keeps it on later runs; it is `payment`'s alone |
-| `PAZTPORT_PARTNER_POLICY_PRIVATE_KEY_PATH` | set by Compose only: `/config/keys/policy.key` | `psp`: the key that signs its session replies |
+| `PAZTPORT_PARTNER_REPLY_CERT_PATH` | set by Compose only: `/config/policy/reply-cert.json` | `psp`: its policy key's certificate for `psp.key`, without which a client does not accept the replies it signs |
+| `PAZTPORT_REPLY_CERT_SVC` | set by Compose only: `psp` | `policy-tool-psp`: the service whose key it certifies, writing `out/psp-policy/reply-cert.json` |
 | `PAZTPORT_PARTNER_CLIENT_POLICY_KEY_PATHS` | set by Compose only: `/config/clients/shop-policy.pub` | `psp`: the shop's pin, so it can accept the shop's attested sessions |
 | `ORDERS_URL`, `PAYMENT_URL`, `MAILER_URL`, `SEARCH_URL`, `TICKETS_URL`, `ASSISTANT_URL` | `https://<svc>:8080` | the callers of each: `gateway` (orders, search, tickets), `orders` (payment), `tickets` (assistant), `assistant` (orders, payment, mailer), `search` (payment) |
 | `RESPONDER_ALLOWED_SIGNERS` | `payment` | responder |

@@ -14,6 +14,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -34,6 +35,7 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.ReplyCheck;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
@@ -83,6 +85,9 @@ class PartnerHandshakeTest {
     private static final String PSP_PIN = pub(PSP_POLICY);
     private static final KeyringFile SHOP_RING =
             KeyringFile.sign(Map.of("payment", pub(SHOP_KEY)), SHOP_PIN, SHOP_POLICY.getPrivate());
+    /** The PSP's reply certificate for its entry key, valid for a week. */
+    private static final ReplyCert CERT = ReplyCert.issue(PSP_PIN, "psp", pub(PSP_KEY),
+            System.currentTimeMillis() + 7 * 86_400_000L, PSP_POLICY.getPrivate());
     private static Path trust;
 
     private static String pub(KeyPair k) {
@@ -93,9 +98,8 @@ class PartnerHandshakeTest {
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-partner");
         Files.writeString(trust.resolve("policy.pub"), PSP_PIN + "\n");
-        Files.writeString(trust.resolve("policy.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_POLICY.getPrivate())));
-        Files.writeString(trust.resolve("other.key"),
-                Base64Url.encode(Crypto.encodePrivateKey(Crypto.generateEd25519KeyPair().getPrivate())));
+        Files.writeString(trust.resolve("psp.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_KEY.getPrivate())));
+        JSON.writeValue(trust.resolve("reply-cert.json").toFile(), CERT.toJson());
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of("psp", pub(PSP_KEY)), PSP_PIN, PSP_POLICY.getPrivate()));
@@ -107,7 +111,8 @@ class PartnerHandshakeTest {
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
         registry.add("paztport.partner.enabled", () -> "true");
-        registry.add("paztport.partner.policy-private-key-path", () -> trust.resolve("policy.key").toString());
+        registry.add("paztport.key-path", () -> trust.resolve("psp.key").toString());
+        registry.add("paztport.partner.reply-cert-path", () -> trust.resolve("reply-cert.json").toString());
         registry.add("paztport.partner.client-policy-key-paths[0]", () -> trust.resolve("shop-policy.pub").toString());
         registry.add("paztport.partner.client-origins[0]", () -> "payment");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
@@ -201,6 +206,25 @@ class PartnerHandshakeTest {
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
     }
 
+    // Forged: the reply checked for another entry, after its certificate's notAfter, and passed off as the
+    // policy-key form. Only the first check, for the entry the client configured and in time, accepts it.
+    @Test
+    void replySignedByServiceKey() throws Exception {
+        SessionRequest req = request(Sessions.newNonce());
+        JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
+        long now = System.currentTimeMillis();
+
+        assertEquals(CERT.toJson(), reply.get("serverReplyCert"));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(reply, req, PSP_PIN, "ledger", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE,
+                Sessions.checkReply(reply, req, PSP_PIN, "psp", CERT.notAfter() + 1));
+        ObjectNode stripped = reply.deepCopy();
+        stripped.remove("serverKeyringSig");
+        stripped.remove("serverReplyCert");
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped, req, PSP_PIN, "psp", now));
+    }
+
     @Test
     void sessionBelongsToTheCertificatesService() throws Exception {
         String sess = JSON.readTree(post(client("orders"), json(request(Sessions.newNonce()))).body())
@@ -259,7 +283,8 @@ class PartnerHandshakeTest {
                     "paztport.root-path=" + trust.resolve("root.json"),
                     "paztport.policy-key-path=" + trust.resolve("policy.pub"),
                     "paztport.partner.enabled=true",
-                    "paztport.partner.policy-private-key-path=" + trust.resolve("policy.key"));
+                    "paztport.key-path=" + trust.resolve("psp.key"),
+                    "paztport.partner.reply-cert-path=" + trust.resolve("reply-cert.json"));
     }
 
     private static ApplicationContextRunner runner() {
@@ -276,13 +301,6 @@ class PartnerHandshakeTest {
             // The partner's filter replaces the shop's, so no request is verified twice or as a shop hop.
             assertThat(context.getBean(FilterRegistrationBean.class).getFilter()).isInstanceOf(PartnerFilter.class);
         });
-    }
-
-    @Test
-    void mismatchedPrivateKeyFailsStartup() {
-        runner().withPropertyValues("paztport.partner.policy-private-key-path=" + trust.resolve("other.key"))
-                .run(context -> assertThat(context).hasFailed().getFailure()
-                        .hasStackTraceContaining("does not match paztport.policy-key-path"));
     }
 
     @Test

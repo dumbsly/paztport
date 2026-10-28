@@ -17,6 +17,7 @@ import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.NonceCache;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.SessionReply;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
@@ -44,6 +45,12 @@ import org.slf4j.LoggerFactory;
  * can never leave it over its cap. It is a lock rather than {@code synchronized} so that a virtual thread waiting on
  * it does not pin its carrier. The handshake's signature checks and the verifier are built before the lock is
  * taken; only the bookkeeping is done under it.
+ *
+ * <p>Replies are signed by this side's entry service with its own key, and carry the policy key's signature over the
+ * keyring and the policy key's reply certificate for that key, so the policy private key stays offline. Only the
+ * key is the entry's: what a reply says is still decided by the checks below, and a reply says {@code "attested"}
+ * only after them. The client accepts the signature only while the certificate has not expired, so this side must
+ * be given a fresh certificate before the one it holds expires.
  *
  * <p>A session is attested only when {@link Sessions#status} says so: the client's root and keyring verify under a
  * policy key this side has pinned out of band. An attested session gets its own verifier, pinned to the client's
@@ -81,7 +88,8 @@ final class PartnerSessions {
     private final KeyringFile ownKeyring;
     private final String ownPolicyKey;
     private final PublicKey ownPolicyPublic;
-    private final PrivateKey ownPolicyPrivate;
+    private final PrivateKey ownServiceKey;
+    private final ReplyCert ownReplyCert;
     private final Set<String> pinnedClientKeys;
     private final Set<String> clientOrigins;
     private final List<String> unsafeDisabled;
@@ -99,25 +107,39 @@ final class PartnerSessions {
     private final Map<PeerKey, LinkedHashMap<String, Entry>> byPeer = new HashMap<>();
 
     /**
+     * The caller checks first that the keyring and the certificate verify under {@code ownPolicyKey}, that
+     * {@code ownServiceKey} is the key the keyring holds for {@code ownService}, and that the certificate has not
+     * expired; the auto-configuration does, naming the property at fault. This refuses only a certificate that is
+     * not for the keyring's key for {@code ownService}, whose replies no client could accept.
+     *
+     * @param ownService this side's entry service, whose key signs the replies
+     * @param ownServiceKey that service's private key
+     * @param ownReplyCert the policy key's certificate for that service's key
      * @param clock the time in milliseconds, which the session verifiers check stamps against and which ages an
      *     idle session
      * @param maxSessionsPerPeer how many sessions one peer may hold at once; at least 1
      * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive
      */
-    PartnerSessions(SignedRoot ownRoot, KeyringFile ownKeyring, String ownPolicyKey, PrivateKey ownPolicyPrivate,
-            Set<String> pinnedClientKeys, Set<String> clientOrigins, List<String> unsafeDisabled, NonceCache nonces,
-            LongSupplier clock, long callMaxAgeMs, long runMaxAgeMs, int maxSessionsPerPeer, long sessionIdleMs) {
+    PartnerSessions(SignedRoot ownRoot, KeyringFile ownKeyring, String ownPolicyKey, String ownService,
+            PrivateKey ownServiceKey, ReplyCert ownReplyCert, Set<String> pinnedClientKeys, Set<String> clientOrigins,
+            List<String> unsafeDisabled, NonceCache nonces, LongSupplier clock, long callMaxAgeMs, long runMaxAgeMs,
+            int maxSessionsPerPeer, long sessionIdleMs) {
         if (maxSessionsPerPeer < 1) {
             throw new IllegalArgumentException("a peer must be allowed at least one session");
         }
         if (sessionIdleMs <= 0) {
             throw new IllegalArgumentException("the idle period must be positive");
         }
+        if (!ownService.equals(ownReplyCert.svc())
+                || !ownReplyCert.key().equals(ownKeyring.services().get(ownService))) {
+            throw new IllegalArgumentException("the reply certificate is not for this service's key in its keyring");
+        }
         this.ownRoot = ownRoot;
         this.ownKeyring = ownKeyring;
         this.ownPolicyKey = ownPolicyKey;
         this.ownPolicyPublic = Crypto.decodePublicKey(Base64Url.decode(ownPolicyKey));
-        this.ownPolicyPrivate = ownPolicyPrivate;
+        this.ownServiceKey = ownServiceKey;
+        this.ownReplyCert = ownReplyCert;
         this.pinnedClientKeys = Set.copyOf(pinnedClientKeys);
         this.clientOrigins = Set.copyOf(clientOrigins);
         this.unsafeDisabled = List.copyOf(unsafeDisabled);
@@ -160,10 +182,10 @@ final class PartnerSessions {
         boolean attested = verifier != null;
         add(new PeerKey(peerIssuer, peerSvc), new Session(sess, attested, verifier));
         TRACE.info("PAZTPORT_TRACE session peer={} status={}", LogSafe.of(peerSvc), attested ? "attested" : "unsafe");
-        // The policy-key form, signed by the policy key: no keyring signature or reply certificate.
-        return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), null, null,
-                serverNonce, sess, attested ? "attested" : "unsafe", attested ? List.of() : unsafeDisabled, null),
-                ownPolicyPrivate);
+        // The entry-key form: the status above is this side's own decision, and the entry key signs it.
+        return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
+                ownReplyCert, serverNonce, sess, attested ? "attested" : "unsafe",
+                attested ? List.of() : unsafeDisabled, null), ownServiceKey);
     }
 
     /**

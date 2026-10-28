@@ -426,6 +426,64 @@ class BoundaryClientTest {
                 lines("PAZTPORT_TRACE session "));
     }
 
+    /** A second egress like {@link #client}, against the same partner, with no session yet. */
+    private BoundaryClient anotherClient() {
+        return new BoundaryClient(
+                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis),
+                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
+                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
+                nanos::get, millis::get, IDLE_MS);
+    }
+
+    // A partner signs with its entry key under a certificate, or, as before certificates, with its policy key.
+    @Test
+    void acceptsBothReplyForms() throws Exception {
+        assertTrue(verified("rid-1", this::charge).attested());
+        assertTrue(partner.replies().get(0).serverReplyCert() != null, "the entry-key form");
+
+        partner.policyKeyForm();
+        try (BoundaryClient other = anotherClient()) {
+            assertTrue(verified("rid-2", () -> other.post("/charge", CHARGE)).attested());
+        }
+        assertNull(partner.replies().get(1).serverReplyCert(), "the policy-key form");
+        assertNull(partner.replies().get(1).serverKeyringSig());
+        assertEquals(2, partner.handshakes().size(), "no replacement for either");
+        assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested",
+                "PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),
+                lines("PAZTPORT_TRACE session "));
+    }
+
+    // Forged: a reply signed by the entry key after its certificate's notAfter, by this side's clock. The key may
+    // have been retired by not reissuing its certificate, so nothing it signs is accepted.
+    @Test
+    void expiredCertificateGivesUnsafeSession() throws Exception {
+        partner.replyCertNotAfter(millis.get() - 1);
+
+        BoundaryClient.Response response = verified("rid-1", this::charge);
+
+        assertFalse(response.attested());
+        List<StubPartner.Received> handshakes = partner.handshakes();
+        assertEquals(2, handshakes.size());
+        assertTrue(JSON.readTree(handshakes.get(1).body()).get("clientRoot").isNull(), "the replacement follows");
+        StubPartner.Received call = partner.calls().get(0);
+        assertEquals(partner.issued().get(1), call.header(PaztportHeaders.SESSION));
+        assertNull(call.header(PaztportHeaders.CHAIN));
+        assertNull(call.header(PaztportHeaders.INFLUENCE));
+        assertEquals(List.of(), heard, "nothing was offered to the listener");
+        assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=BAD_SIGNATURE status=unsafe"),
+                lines("PAZTPORT_TRACE session "));
+    }
+
+    // The certificate's notAfter is inclusive: at that very millisecond the reply is still accepted.
+    @Test
+    void certificateHoldsThroughItsNotAfter() throws Exception {
+        partner.replyCertNotAfter(millis.get());
+
+        assertTrue(verified("rid-1", this::charge).attested());
+        assertEquals(1, partner.handshakes().size());
+    }
+
     @Test
     void sessionUnknownReopensNextCall() throws Exception {
         partner.answerNext(403, "{\"reason\":\"SESSION_UNKNOWN\"}");

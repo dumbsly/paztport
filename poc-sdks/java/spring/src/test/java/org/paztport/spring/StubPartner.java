@@ -24,7 +24,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
+import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.SessionReply;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
@@ -37,8 +39,12 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 /**
  * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP or,
  * where the auto-configured egress needs it, over HTTPS with a certificate from the fixture CA, that answers the
- * session handshake with a reply signed by a partner policy key and answers every other path with a status and
- * body the test sets. It records every request it receives, so a test can prove that nothing at all was sent.
+ * session handshake with a signed reply and answers every other path with a status and body the test sets. It
+ * records every request it receives, so a test can prove that nothing at all was sent.
+ *
+ * <p>Its entry service is {@code psp}. By default a reply is in the entry-key form: signed by {@code psp}'s key,
+ * carrying the policy key's signature over the keyring and a reply certificate for that key, whose expiry a test
+ * can set. A test can ask for the policy-key form instead, signed by the policy key with neither field.
  *
  * <p>A request with no client root always gets an unsafe reply, as a real partner would give it. Otherwise the
  * reply carries the status the test chose, and is signed by the partner's key unless the test asked for one
@@ -62,6 +68,9 @@ final class StubPartner implements AutoCloseable {
     }
 
     final KeyPair policy = Crypto.generateEd25519KeyPair();
+    /** The entry service {@code psp}'s key, which signs entry-key replies. */
+    final KeyPair entry = Crypto.generateEd25519KeyPair();
+    private final KeyringFile keyring = KeyringFile.sign(Map.of("psp", pub(entry)), pub(policy), policy.getPrivate());
     private final SignedRoot root;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -72,6 +81,9 @@ final class StubPartner implements AutoCloseable {
     private final Deque<Integer> handshakeFailures = new ArrayDeque<>();
     private volatile String status = "attested";
     private volatile long handshakeDelayMs;
+    private volatile boolean policyKeyForm;
+    private volatile long replyCertNotAfter = System.currentTimeMillis() + 7 * 86_400_000L;
+    private final List<SessionReply> replies = new CopyOnWriteArrayList<>();
 
     /** Over plain HTTP. */
     StubPartner() throws IOException {
@@ -108,7 +120,22 @@ final class StubPartner implements AutoCloseable {
 
     /** The pin the egress holds for this partner. */
     String policyKey() {
-        return Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
+        return pub(policy);
+    }
+
+    /** Replies are signed by the policy key, with no keyring signature or reply certificate. */
+    void policyKeyForm() {
+        this.policyKeyForm = true;
+    }
+
+    /** The {@code notAfter} of the reply certificate in each entry-key reply from now on. */
+    void replyCertNotAfter(long notAfter) {
+        this.replyCertNotAfter = notAfter;
+    }
+
+    /** Every handshake reply sent, in order. */
+    List<SessionReply> replies() {
+        return List.copyOf(replies);
     }
 
     /** The status a request with a client root gets: {@code attested} or {@code unsafe}. */
@@ -204,11 +231,22 @@ final class StubPartner implements AutoCloseable {
                 serverRoot.sig(), req.nonce(), nonce, req.clientPolicyKey(), req.clientKeyring());
         issued.add(sess);
         String replyStatus = req.clientRoot() == null ? "unsafe" : status;
-        return Sessions.signReply(new SessionReply(serverRoot,
-                Base64Url.encode(Crypto.encodePublicKey(signer.getPublic())),
-                Map.of("psp", Base64Url.encode(Crypto.encodePublicKey(signer.getPublic()))), null, null, nonce, sess,
-                replyStatus, replyStatus.equals("unsafe") ? List.of("POST /refund") : List.of(), null),
-                signer.getPrivate());
+        List<String> disabled = replyStatus.equals("unsafe") ? List.of("POST /refund") : List.of();
+        SessionReply reply;
+        if (signer != policy || policyKeyForm) {
+            reply = Sessions.signReply(new SessionReply(serverRoot, pub(signer), keyring.services(), null, null, nonce,
+                    sess, replyStatus, disabled, null), signer.getPrivate());
+        } else {
+            ReplyCert cert = ReplyCert.issue(pub(policy), "psp", pub(entry), replyCertNotAfter, policy.getPrivate());
+            reply = Sessions.signReply(new SessionReply(serverRoot, pub(policy), keyring.services(), keyring.sig(),
+                    cert, nonce, sess, replyStatus, disabled, null), entry.getPrivate());
+        }
+        replies.add(reply);
+        return reply;
+    }
+
+    private static String pub(KeyPair k) {
+        return Base64Url.encode(Crypto.encodePublicKey(k.getPublic()));
     }
 
     private static void send(HttpExchange exchange, int status, String body) throws IOException {

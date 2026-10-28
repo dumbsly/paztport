@@ -177,17 +177,29 @@ Glue, configured through `paztport.*` properties.
 - **Partner mode.** `paztport.partner.enabled=true` makes the service a partner's
   entry. It answers `POST /paztport/session` and registers `PartnerFilter` in place
   of `InboundFilter`: no modes, no responder events, no attested responses. It
-  cannot be combined with `paztport.verify=true`. It needs `paztport.keyring-path`,
-  `paztport.root-path` and `paztport.policy-key-path`, plus:
+  cannot be combined with `paztport.verify=true`. It needs `paztport.service-name`,
+  `paztport.keyring-path`, `paztport.root-path`, `paztport.policy-key-path` and
+  `paztport.key-path`, the entry service's own key, which signs its session replies,
+  plus:
 
   | Property | Meaning |
   |---|---|
-  | `paztport.partner.policy-private-key-path` | This organisation's policy private key, which signs session replies. Startup checks that it matches the pin. |
+  | `paztport.partner.reply-cert-path` | `reply-cert.json`: the policy key's [reply certificate](../spec/wire.md#the-reply-certificate) for the key at `paztport.key-path`. Required. |
   | `paztport.partner.client-policy-key-paths` | The `policy.pub` of each organisation whose sessions may be attested. Required. |
   | `paztport.partner.client-origins` | The service names allowed to start a chain in a client's attested session. Required. |
   | `paztport.partner.unsafe-disabled` | Operations an unsafe session may not perform, as `METHOD /pattern`; the reply's `disabled`. |
   | `paztport.partner.max-sessions-per-peer` | How many sessions one client certificate (issuer and common name) may hold; its least recently used is evicted when it opens one more. Default `16`. |
   | `paztport.partner.session-idle-ms` | How long a session no call has used is kept, in milliseconds. Default `900000` (15 minutes). |
+
+  The policy private key is not configured anywhere: a reply carries the policy
+  key's signature over the keyring and the certificate, and is signed with the
+  entry service's key. Startup fails, naming the property, unless the keyring
+  verifies under the pin and holds `paztport.service-name`, that entry is the key at
+  `paztport.key-path`, and the certificate verifies under the pin, names that service
+  and that key, and has not expired. Clients refuse a reply once its certificate has
+  expired, so reissue it (the policy tool's `PAZTPORT_REPLY_CERT_SVC`) and restart the
+  service before then. Setting `paztport.key-path` also gives the service a stamper
+  and the stamping customizer, which a partner's entry does not use.
 
   Sessions are kept by id, each with the issuer and common name of the client
   certificate that opened it. A handshake adds a session and replaces none, so

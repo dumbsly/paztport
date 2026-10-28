@@ -39,6 +39,7 @@ import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReplyCert;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
 import org.paztport.core.StampV3;
@@ -107,10 +108,12 @@ class PartnerRequestTest {
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-partner-request");
         Files.writeString(trust.resolve("policy.pub"), PSP_PIN + "\n");
-        Files.writeString(trust.resolve("policy.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_POLICY.getPrivate())));
+        Files.writeString(trust.resolve("entry.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_KEY.getPrivate())));
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("psp", pub(PSP_KEY)), PSP_PIN, PSP_POLICY.getPrivate()));
+                KeyringFile.sign(Map.of(PARTNER, pub(PSP_KEY)), PSP_PIN, PSP_POLICY.getPrivate()));
+        JSON.writeValue(trust.resolve("reply-cert.json").toFile(), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
+                System.currentTimeMillis() + 7 * 86_400_000L, PSP_POLICY.getPrivate()).toJson());
         JSON.writeValue(trust.resolve("root.json").toFile(),
                 PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, PSP_POLICY.getPrivate()).signedRoot());
 
@@ -119,7 +122,8 @@ class PartnerRequestTest {
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
         registry.add("paztport.partner.enabled", () -> "true");
-        registry.add("paztport.partner.policy-private-key-path", () -> trust.resolve("policy.key").toString());
+        registry.add("paztport.key-path", () -> trust.resolve("entry.key").toString());
+        registry.add("paztport.partner.reply-cert-path", () -> trust.resolve("reply-cert.json").toString());
         registry.add("paztport.partner.client-policy-key-paths[0]", () -> trust.resolve("shop-policy.pub").toString());
         registry.add("paztport.partner.client-origins[0]", () -> "orders");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
