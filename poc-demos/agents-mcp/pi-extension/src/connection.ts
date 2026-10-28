@@ -56,8 +56,10 @@ export type CallOutcome = {
 };
 
 const INST = "pi-1";
+/** The server's entry service, from this client's own configuration: its responses start there, and its reply certificate names it. */
+const SERVER_ENTRY = "mcp-entry";
 /** The server hop a verified response must start at. */
-const SERVER_ORIGINS = ["mcp-entry"];
+const SERVER_ORIGINS = [SERVER_ENTRY];
 const SAFE_CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const RPC_ERRORS: Record<number, string> = {
   [JSON_RPC_ERROR_CODES.parseError]: "parse error",
@@ -211,8 +213,7 @@ export class ServerConnection {
     } catch (e) {
       outcome = classifySessionError(e instanceof McpError ? e.code : undefined);
     }
-    // "mcp-entry": the server's entry service, as in SERVER_ORIGINS.
-    outcome ??= classifySessionReply(raw, req, pin, "mcp-entry", Date.now());
+    outcome ??= classifySessionReply(raw, req, pin, SERVER_ENTRY, this.now());
     if (outcome.status === "attested") {
       this.reply = outcome.reply;
       this.state = "attested";

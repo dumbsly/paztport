@@ -465,6 +465,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionReplyCase("server root signed by the entry key", reply("mcp-entry", { serverRoot: signRoot(decode(policies.server.root), policies.server.rootId, keys["mcp-entry"].priv) }), "BAD_SIGNATURE"),
     sessionReplyCase("serverKeyringSig empty", reply("mcp-entry", { serverKeyringSig: "" }), "BAD_SIGNATURE"),
     sessionReplyCase("serverKeyringSig null", reply("mcp-entry", { serverKeyringSig: null }), "MALFORMED_REPLY"),
+    sessionReplyCase("serverReplyCert null", reply("mcp-entry", { serverReplyCert: null }), "MALFORMED_REPLY"),
     sessionReplyCase("notAfter not an integer", reply("mcp-entry", { serverReplyCert: { ...entryCert, notAfter: 1.5 } }), "MALFORMED_REPLY"),
     sessionReplyCase(
       "entry named in the reply is ignored",

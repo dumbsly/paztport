@@ -4,12 +4,29 @@
 import { createPublicKey } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { decode, keyPairMatches, parseProof, provesPath, routeOf, verifyRoot, type MerkleProof, type SignedRoot } from "@paztport/core";
+import {
+  decode,
+  isReplyCert,
+  keyPairMatches,
+  parseProof,
+  provesPath,
+  routeOf,
+  verifyKeyring,
+  verifyReplyCert,
+  verifyRoot,
+  type MerkleProof,
+  type ReplyCert,
+  type SignedRoot,
+} from "@paztport/core";
 import type { ServerPolicy } from "@paztport/mcp";
 
 /** The two simulated services this server signs every response as, entry first. */
 const HOPS = ["mcp-entry", "github-tools"] as const;
 const ROUTE = routeOf(HOPS);
+/** The service whose key signs session replies, under its reply certificate. */
+const ENTRY = HOPS[0];
+/** The fix for files from an older setup, or ones that no longer hold together. */
+const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").trim();
@@ -44,13 +61,16 @@ function isPublicKey(key: string): boolean {
   }
 }
 
-/** Throws a clear Error unless the loaded files are mutually consistent. */
-function validateServerConfig(cfg: ServerPolicy): void {
+/**
+ * Throws a clear Error unless the loaded files are mutually consistent and the reply certificate (read from
+ * `certPath`) is the keyring.json policy key's, for ENTRY's key in keyring.json, and unexpired at `now`.
+ */
+function validateServerConfig(cfg: ServerPolicy, certPath: string, now: number): void {
+  if (!verifyKeyring({ policy: cfg.policyPublicKey, services: cfg.keyring, sig: cfg.keyringSig }, cfg.policyPublicKey)) {
+    throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
+  }
   if (!verifyRoot(cfg.signedRoot, cfg.policyPublicKey)) {
     throw new Error("root.json is not signed by the keyring.json policy key");
-  }
-  if (!keyPairMatches(cfg.policyPrivateKey, cfg.policyPublicKey)) {
-    throw new Error("policy.key does not match the keyring.json policy key");
   }
   for (const svc of HOPS) {
     if (!Object.hasOwn(cfg.keyring, svc)) {
@@ -69,13 +89,44 @@ function validateServerConfig(cfg: ServerPolicy): void {
   if (!provesPath(cfg.routeProof, ROUTE, rootBytes, cfg.signedRoot.rootId)) {
     throw new Error(`route proof for ${ROUTE} does not verify against root.json`);
   }
+  const cert = cfg.replyCert;
+  if (!verifyReplyCert(cert, cfg.policyPublicKey)) {
+    throw new Error(`${certPath} is not signed by the keyring.json policy key: ${REGENERATE}`);
+  }
+  if (cert.svc !== ENTRY) {
+    throw new Error(`${certPath} is not for ${ENTRY}: ${REGENERATE}`);
+  }
+  if (cert.key !== cfg.keyring[ENTRY]) {
+    throw new Error(`${certPath} is not for ${ENTRY}'s key in keyring.json: ${REGENERATE}`);
+  }
+  if (now > cert.notAfter) {
+    throw new Error(`${certPath} has expired: ${REGENERATE}`);
+  }
+}
+
+/** Reads reply-cert.json; a missing or malformed one throws naming the fix. */
+function readReplyCert(path: string): ReplyCert {
+  if (!existsSync(path)) {
+    throw new Error(`${path} is missing: ${REGENERATE}`);
+  }
+  let cert: unknown;
+  try {
+    cert = readJson(path);
+  } catch {
+    cert = undefined;
+  }
+  if (!isReplyCert(cert)) {
+    throw new Error(`${path} is not a reply certificate: ${REGENERATE}`);
+  }
+  return cert;
 }
 
 /**
- * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, and the
- * client policy key the server pins (client-policy.pub, written by setup-demo).
+ * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, including the
+ * reply certificate, and the client policy key the server pins (client-policy.pub, written by setup-demo). It reads
+ * no policy private key, and refuses a certificate that is not current at `now`.
  */
-export function loadServerConfig(dir: string): ServerPolicy {
+export function loadServerConfig(dir: string, now: number = Date.now()): ServerPolicy {
   const ring = readJson(join(dir, "keyring.json"));
   if (!isObject(ring) || !isObject(ring.services)) {
     throw new Error("malformed keyring.json");
@@ -97,6 +148,8 @@ export function loadServerConfig(dir: string): ServerPolicy {
   } catch (e) {
     throw new Error(`malformed route proof for ${ROUTE} in proofs-mcp-entry.json: ${(e as Error).message}`);
   }
+  const certPath = join(dir, "reply-cert.json");
+  const replyCert = readReplyCert(certPath);
   const pinPath = join(dir, "client-policy.pub");
   if (!existsSync(pinPath)) {
     throw new Error(`${pinPath} is missing: regenerate the demo keys with npm run setup-demo -- --force`);
@@ -106,10 +159,12 @@ export function loadServerConfig(dir: string): ServerPolicy {
     throw new Error(`${pinPath} is not a public key: regenerate the demo keys with npm run setup-demo -- --force`);
   }
   const cfg: ServerPolicy = {
-    policyPrivateKey: readText(join(dir, "policy.key")),
     policyPublicKey: str(ring.policy, "keyring policy"),
     signingKeys: { "mcp-entry": readText(join(dir, "mcp-entry.key")), "github-tools": readText(join(dir, "github-tools.key")) },
     keyring,
+    // an unsigned keyring reads as "", which never verifies
+    keyringSig: typeof ring.sig === "string" ? ring.sig : "",
+    replyCert,
     signedRoot,
     routeProof,
     inst: "mock-github-1",
@@ -117,6 +172,6 @@ export function loadServerConfig(dir: string): ServerPolicy {
     serverId: "github",
     pinnedClientKeys: [clientPin],
   };
-  validateServerConfig(cfg);
+  validateServerConfig(cfg, certPath, now);
   return cfg;
 }

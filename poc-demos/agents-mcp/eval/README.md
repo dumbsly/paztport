@@ -188,6 +188,8 @@ A single run saved by the demo is a folder with `demo-run.json` and the run's fi
 
 **Legacy records.** Evidence recorded before protocol v3 carries v2 stamps, which name no receiver, and its session requests have no keyring signature. Such records still verify. Each item that verified that way carries `"legacy": true` in the report, and the `OK` line ends with `, <n> legacy (pre-v3 records)`, which counts both the items verified from v2 stamps and the sessions whose request has no keyring signature. A legacy record is checked less strictly than a v3 one, because nothing in it says who the step was meant for. A failed item never carries the marker, and a server refusal, which is unsigned, never does either.
 
+**Session replies.** The mock server signs its session reply with its entry service's key, `mcp-entry`'s, and the reply carries the server keyring's signature and a reply certificate for that key, both from the server policy key; `verify` checks both against the pin. Evidence recorded before then has replies signed by the server policy key itself, which still verify, at any time. The session record carries no signed time, so each call is judged at the time it was recorded, its last stamp's time: a call recorded after the certificate's `notAfter` was not made in an attested session, and is reported `NO_SESSION`.
+
 What it does not check, stated plainly:
 
 - **Refusals are unsigned.** A refusal by the server carries no signature, so `verify` cannot check one cryptographically. It checks that the response has the shape of a refusal and answers a call that did verify, and reports it as `REFUSED`. During an eval, each refusal is also compared against the mock server's own outcome log.

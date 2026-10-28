@@ -10,7 +10,7 @@
 
 import { spawn, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { startDemoServer, type DemoServer } from "./server.ts";
@@ -46,9 +46,20 @@ export function nodeAtLeast(version: string, floor: string): boolean {
 /** Files setup-demo writes. Keys made by an earlier version can lack some, such as the local-tools policy. */
 const KEY_FILES = ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"];
 
-/** True when `dir` holds every file setup-demo writes, so the keys there can be used as they are. */
+/** Whether the server's reply certificate in `dir` is still current: the mock server refuses to start with an expired one. */
+function replyCertCurrent(dir: string): boolean {
+  try {
+    const cert: unknown = JSON.parse(readFileSync(join(dir, "server/reply-cert.json"), "utf8"));
+    const notAfter = typeof cert === "object" && cert !== null ? (cert as { notAfter?: unknown }).notAfter : undefined;
+    return typeof notAfter === "number" && Date.now() <= notAfter;
+  } catch {
+    return false;
+  }
+}
+
+/** True when `dir` holds every file setup-demo writes, with a current reply certificate, so the keys there can be used as they are. */
 export function keysComplete(dir: string): boolean {
-  return KEY_FILES.every((f) => existsSync(join(dir, f)));
+  return KEY_FILES.every((f) => existsSync(join(dir, f))) && replyCertCurrent(dir);
 }
 
 function defaultEnsureKeys(dir: string): void {

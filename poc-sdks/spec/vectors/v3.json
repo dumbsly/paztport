@@ -3545,6 +3545,46 @@
       "expected": "MALFORMED_REPLY"
     },
     {
+      "name": "serverReplyCert null",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "WxU0gUJBplr54tAHKRPnzgvSkEEl1anL2Hk89qP7VjOf7ZoF0Xb4Fl0koGa5RFLRhmamRygZwcC4GsKTOwr3BA"
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "YWdYGS55n1GCe12B-Wrzr7bcxhhOeHMqk3obNa3VAro-82PCUvi52xD3UTbyqUVQu8kypSaTTf9Cbm-p4xD9DA",
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "TqyzDDmisob36sNj1XjPMZ_13oQ6uH8O_upzwwXVW2u6XBYT8DRmJHh2VAEFa6sQ4T6gLoM0ONAokGX6kR6YCw"
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "nHBleHeIhLz1PKf5jM-1Y-TXiZym-jIvVWBsdS4E3eiClHeJOm8fkKYM7xr4qYhLn-7ayhMXbUvB1vrQhFSXBQ",
+        "serverReplyCert": null,
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "w9TpR8bfTmfGaifeCMeCfsROuI-Wo2NAUcKR25ve0wk",
+        "status": "attested",
+        "disabled": [],
+        "sig": "SGHsSY6d6HA6IDB1-in8whOF7LhlHyZDE5Grt8hRglL2-ZL-AxaltTvsOsCtL4X6XeMxNJkOacQETcDXEBXpBQ"
+      },
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "now": 1767225600000,
+      "expected": "MALFORMED_REPLY"
+    },
+    {
       "name": "notAfter not an integer",
       "request": {
         "clientRoot": {

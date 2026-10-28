@@ -63,6 +63,11 @@ result's attestation) and the server side (`McpServerSession`, checking a call,
 and the decision on a public write). A call names `mcp:<serverId>.<tool>` as its
 receiver, and a response chain ends at the client that made the call. A server
 opens an attested session only for a client policy key in its `pinnedClientKeys`.
+`McpServerSession` holds no policy private key: it answers handshakes in the
+[entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
+service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
+Whoever loads the policy checks that the certificate verifies, names the entry and
+its key, and is unexpired.
 
 ## policy-tool
 

@@ -92,14 +92,25 @@ describe("v3 known-answer vectors", () => {
     expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED");
   });
 
-  // A configured entry named like an Object.prototype member must not find a key in a keyring that lacks it.
+  // A configured entry named like an Object.prototype member must not find a key in a keyring that lacks it. Here
+  // the keyring inherits the entry, holding the certificate's key, so only the own-member check stops the reply. It
+  // is a proxy rather than Object.create's, since JCS refuses an object whose prototype is not Object.prototype: to
+  // JCS and Object.keys it is the signed keyring, while a lookup finds the entry as an inherited member would.
   it.each(["constructor", "__proto__", "toString"])("protoEntryHasNoKey %s", (entry) => {
     const good = committed.sessionReply.find((c: any) => c.name === "new form attested");
     const keys = committed.keys;
     const cert = issueReplyCert(keys["server-policy"].pub, entry, keys["mcp-entry"].pub, good.reply.serverReplyCert.notAfter, keys["server-policy"].priv);
     expect(verifyReplyCert(cert, keys["server-policy"].pub)).toBe(true);
+    const services: Record<string, string> = { ...good.reply.serverKeyring };
+    const inherits = new Proxy(services, {
+      get: (t, p, r) => (p === entry && !Object.hasOwn(t, p) ? cert.key : Reflect.get(t, p, r)),
+    });
+    expect(Object.hasOwn(inherits, entry)).toBe(false);
+    expect(inherits[entry]).toBe(cert.key);
+    expect(Object.getPrototypeOf(inherits)).toBe(Object.prototype);
+    expect(verifyKeyring({ policy: keys["server-policy"].pub, services: inherits, sig: good.reply.serverKeyringSig }, keys["server-policy"].pub)).toBe(true);
     const { sig: _sig, ...body } = good.reply;
-    const reply = signSessionReply({ ...body, serverReplyCert: cert } as Omit<SessionReply, "sig">, keys["mcp-entry"].priv);
+    const reply = signSessionReply({ ...body, serverKeyring: inherits, serverReplyCert: cert } as Omit<SessionReply, "sig">, keys["mcp-entry"].priv);
     expect(classifySessionReply(reply, good.request, keys["server-policy"].pub, entry, good.now)).toEqual({
       status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true,
     });

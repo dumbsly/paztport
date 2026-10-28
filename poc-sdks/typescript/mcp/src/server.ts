@@ -21,6 +21,7 @@ import {
   type InfluenceFact,
   type MerkleProof,
   type ReasonCode,
+  type ReplyCert,
   type ResponseAttestation,
   type SessionReply,
   type SessionRequest,
@@ -30,13 +31,19 @@ import { bindMcpCall } from "./binding.ts";
 import { META_ATTESTATION } from "./meta.ts";
 import { verifyCall } from "./verify-call.ts";
 
-/** What an MCP server attests with: its policy, its signing keys and the route its responses travel. */
+/**
+ * What an MCP server attests with: its policy, its signing keys and the route its responses travel. It holds no
+ * policy private key: session replies are signed by the entry's key (`hops[0]`), under `keyringSig` and `replyCert`.
+ */
 export type ServerPolicy = {
-  policyPrivateKey: string;
   policyPublicKey: string;
   /** Each hop's private key, by service name. */
   signingKeys: Record<string, string>;
   keyring: Record<string, string>;
+  /** The policy key's signature over `keyring`. */
+  keyringSig: string;
+  /** The policy key's certificate for the entry's key; whoever loads the policy checks it names `hops[0]` and its key and is unexpired. */
+  replyCert: ReplyCert;
   signedRoot: SignedRoot;
   /** Proof for the route `<entry>/<tools>` of `hops`. */
   routeProof: MerkleProof;
@@ -128,7 +135,8 @@ export class McpServerSession {
   /**
    * Handles a paztport/session handshake. There is one session per connection: a new handshake
    * replaces the current session (its keyring, nonces and served classes), so calls signed for the
-   * old session are refused afterwards. A malformed request throws InvalidParams.
+   * old session are refused afterwards. A malformed request throws InvalidParams. The reply is in the entry-key
+   * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
@@ -149,12 +157,14 @@ export class McpServerSession {
         serverRoot: this.policy.signedRoot,
         serverPolicyKey: this.policy.policyPublicKey,
         serverKeyring: this.policy.keyring,
+        serverKeyringSig: this.policy.keyringSig,
+        serverReplyCert: this.policy.replyCert,
         nonce: serverNonce,
         sess,
         status,
         disabled,
       },
-      this.policy.policyPrivateKey,
+      this.policy.signingKeys[this.policy.hops[0]]!,
     );
     this.current = { sess, status, request, nonces: new NonceCache(NONCE_TTL_MS), served: new Set() };
     return reply;

@@ -18,7 +18,7 @@ From `poc-demos/agents-mcp/`:
 npm run demo
 ```
 
-The first launch makes a set of throwaway demo keys in `poc-demos/agents-mcp/.demo/` (git-ignored). The command prints an address and opens it in your browser. Press Ctrl-C to stop.
+The first launch makes a set of throwaway demo keys in `poc-demos/agents-mcp/.demo/` (git-ignored). A later launch makes them again when files are missing or the mock server's 30-day reply certificate has expired. The command prints an address and opens it in your browser. Press Ctrl-C to stop.
 
 Flags, after `--`:
 

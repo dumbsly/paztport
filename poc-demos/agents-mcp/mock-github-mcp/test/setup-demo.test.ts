@@ -5,7 +5,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { verifyKeyring, verifyReplyCert } from "@paztport/core";
 import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
+import { loadServerConfig } from "../src/paztport.ts";
 import { afterAll, describe, expect, it } from "vitest";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -28,9 +30,32 @@ describe("setup-demo", () => {
     // the server pins the client policy key it opens attested sessions for
     expect(clientPin(out)).toBe(clientPolicy(out) + "\n");
     expect(r.stdout).not.toContain(clientPolicy(out));
-    // the client policy private key only signs the client root; the server's signs session replies
+    // neither policy private key is kept: each only signs offline, at setup
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
-    expect(existsSync(join(out, "server/policy.key"))).toBe(true);
+    expect(existsSync(join(out, "server/policy.key"))).toBe(false);
+  });
+
+  it("serverPolicyKeyDeleted", () => {
+    const out = join(tmp, "cert");
+    const before = Date.now();
+    const r = setup("--out", out);
+    const after = Date.now();
+    expect(r.status, r.stderr).toBe(0);
+    expect(existsSync(join(out, "server/policy.key"))).toBe(false);
+    expect(existsSync(join(out, "client/policy.key"))).toBe(false);
+    // the root, keyring and certificate were all signed before the key went
+    const serverPin = pin(out).trim();
+    const ring = JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8"));
+    expect(verifyKeyring(ring, serverPin)).toBe(true);
+    const cert = JSON.parse(readFileSync(join(out, "server/reply-cert.json"), "utf8"));
+    expect(verifyReplyCert(cert, serverPin)).toBe(true);
+    expect(cert).toMatchObject({ policy: serverPin, svc: "mcp-entry", key: ring.services["mcp-entry"] });
+    const DAYS_30 = 30 * 86_400_000;
+    expect(cert.notAfter).toBeGreaterThanOrEqual(before + DAYS_30);
+    expect(cert.notAfter).toBeLessThanOrEqual(after + DAYS_30);
+    expect(r.stdout).not.toContain(cert.sig);
+    // the server starts from what is left
+    expect(loadServerConfig(join(out, "server")).replyCert).toEqual(cert);
   });
 
   it("setupBuildsLocalToolsPolicy", () => {
@@ -63,5 +88,6 @@ describe("setup-demo", () => {
     expect(pin(out)).toBe(serverPolicy(out) + "\n");
     expect(clientPin(out)).toBe(clientPolicy(out) + "\n");
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
+    expect(existsSync(join(out, "server/policy.key"))).toBe(false);
   });
 });

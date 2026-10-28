@@ -2,7 +2,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, verifyRoot, type InfluenceClass, type InfluenceEntry } from "@paztport/core";
+import {
+  buildPolicy,
+  canonicalize,
+  decode,
+  generateKeyPair,
+  issueReplyCert,
+  signKeyring,
+  utf8,
+  verify,
+  verifyRoot,
+  verifySessionReply,
+  type InfluenceClass,
+  type InfluenceEntry,
+  type SessionReply,
+} from "@paztport/core";
 import {
   decideServerCall,
   McpServerSession,
@@ -18,16 +32,20 @@ const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
 };
 
+const DAY_MS = 86_400_000;
+
 function serverConfig(): ServerPolicy {
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
   const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
+  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
   return {
-    policyPrivateKey: policy.privateKey,
     policyPublicKey: policy.publicKey,
     signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
-    keyring: { "mcp-entry": entry.publicKey, "github-tools": tools.publicKey },
+    keyring: ring.services,
+    keyringSig: ring.sig,
+    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",
@@ -86,6 +104,25 @@ describe("session handshake", () => {
     const reply = srv.openSession(client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(client.acceptReply(reply, generateKeyPair().publicKey)).toBe(false);
+  });
+  it("replyCarriesKeyringSigAndEntrySignature", () => {
+    const cfg = serverConfig();
+    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const client = makeClient();
+    const req = client.request();
+    const reply = srv.openSession(req);
+    expect(reply.serverKeyring).toEqual(cfg.keyring);
+    expect(reply.serverKeyringSig).toBe(cfg.keyringSig);
+    expect(reply.serverReplyCert).toEqual(cfg.replyCert);
+    const { sig, ...body } = reply;
+    const bytes = utf8("paztport-session-reply\n" + canonicalize(body));
+    expect(verify(cfg.keyring["mcp-entry"]!, bytes, decode(sig))).toBe(true);
+    expect(verify(cfg.policyPublicKey, bytes, decode(sig))).toBe(false);
+    expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", Date.now())).toBe(true);
+    // stripped of its certificate and keyring signature, the reply is in the policy-key form, which it fails
+    const { serverKeyringSig: _ks, serverReplyCert: _rc, ...stripped } = reply;
+    expect(verifySessionReply(stripped as SessionReply, req, cfg.policyPublicKey, "mcp-entry", Date.now())).toBe(false);
+    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
   });
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };

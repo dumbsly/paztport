@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildPolicy,
   generateKeyPair,
+  issueReplyCert,
+  signKeyring,
   type InfluenceEntry,
   type SessionReply,
 } from "@paztport/core";
@@ -35,11 +37,13 @@ function serverConfig(): ServerPolicy {
   const entry = generateKeyPair();
   const tools = generateKeyPair();
   const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
+  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
   return {
-    policyPrivateKey: policy.privateKey,
     policyPublicKey: policy.publicKey,
     signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
-    keyring: { "mcp-entry": entry.publicKey, "github-tools": tools.publicKey },
+    keyring: ring.services,
+    keyringSig: ring.sig,
+    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 86_400_000, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",

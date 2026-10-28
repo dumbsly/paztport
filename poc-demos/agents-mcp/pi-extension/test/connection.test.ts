@@ -195,10 +195,13 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
   });
 
   it("unverifiedResponseIsUntrusted", async () => {
-    // the call stamp is fresh for the server, but the client checks the response 10 s later: EXPIRED
-    let tick = 0;
-    const c = ctx("enforce", material, () => Date.now() + (tick++ % 2 === 0 ? 0 : 10_000));
+    // the clock is read for the handshake, the call's stamp and the response check, in that order: the stamp is
+    // fresh for the server, but the client checks the response 10 s later: EXPIRED
+    const offsets = [0, 0, 10_000];
+    let reads = 0;
+    const c = ctx("enforce", material, () => Date.now() + offsets[Math.min(reads++, offsets.length - 1)]!);
     const { conn, log } = await github(c);
+    expect(reads).toBe(1);
     c.runs.start("fix the typo", Date.now());
     const out = await call(conn, "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
     expect(records(log)).toEqual([expect.objectContaining({ verdict: "ALLOWED", label: "private" })]);
@@ -207,6 +210,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(out.details.labels).toBeUndefined();
     expect(out.details.refused).toBeUndefined();
     expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "local-untrusted", src: "server:github" })]);
+    expect(reads).toBe(3);
   });
 
   it("auditVerdictIsRecordedAsInfluence", async () => {

@@ -23,11 +23,14 @@ node mock-github-mcp/src/main.ts --mode enforce --outcome-log run.jsonl --canary
 
 - `--mode enforce|audit|off` (default `enforce`)
 - `--config <dir>`: server keys and policy (default `poc-demos/agents-mcp/.demo/server`; not needed in `off`).
-  The server reads `keyring.json` (its services and policy key), `root.json`, `proofs-mcp-entry.json` (the
-  proof for `mcp-entry/github-tools`), `policy.key` (it signs session replies), `mcp-entry.key` and
-  `github-tools.key` (they sign each response), and `client-policy.pub`, the one client policy key it opens
-  attested sessions for. A missing or unusable `client-policy.pub` stops it with a message naming
-  `npm run setup-demo -- --force`.
+  The server reads `keyring.json` (its services and policy key, signed by that key), `root.json`,
+  `proofs-mcp-entry.json` (the proof for `mcp-entry/github-tools`), `reply-cert.json` (the policy key's
+  certificate for `mcp-entry`'s key), `mcp-entry.key` and `github-tools.key` (they sign each response, and
+  `mcp-entry.key` also signs session replies), and `client-policy.pub`, the one client policy key it opens
+  attested sessions for. It reads no policy private key. It refuses to start, with a message naming
+  `npm run setup-demo -- --force`, when `client-policy.pub` is missing or unusable, when `keyring.json`'s
+  signature fails, or when `reply-cert.json` is missing, does not verify under the keyring's policy key, names
+  another service or a key other than `mcp-entry`'s, or has expired.
 - `--outcome-log <file>`: JSONL outcome log (appended; without it records stay in memory)
 - `--canary <s>`: the secret placed in both private READMEs (default: random)
 - `--scenario <dir>`: the scenario folder to load (default `poc-demos/agents-mcp/scenarios/github-issue-replay`; see below)
@@ -68,8 +71,10 @@ is `poc-demos/agents-mcp/scenarios/github-issue-replay`. A worked example of a c
 
 The harness side lives in `poc-demos/agents-mcp/.demo/client`: the session and pi keys, the keyring, root and
 proofs, and `server-policy.pub`, the server policy key the client pins. setup-demo deletes the
-client policy private key once it has signed the client root; the server's `policy.key` stays, since
-the server signs its session replies with it. The keyring's `sig` is the policy key's signature over
+client policy private key once it has signed the client root, and the server's `policy.key` once it has
+signed the server root, keyring and `reply-cert.json`, a certificate for `mcp-entry`'s key valid for 30 days.
+The server signs its session replies with `mcp-entry.key`, so a `.demo` older than 30 days must be
+regenerated with `npm run setup-demo -- --force`. The keyring's `sig` is the policy key's signature over
 it, sent in the session request. The server side, `.demo/server`, also holds `client-policy.pub`, the
 client policy key the server pins: it opens attested sessions only for that key. A `.demo` from before
 signed keyrings lacks both, and the server and extension refuse to start until you run

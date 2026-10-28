@@ -8,6 +8,7 @@ import {
   encode,
   isAttestedSession,
   isLegacySessionRequest,
+  isReplyCert,
   NonceCache,
   ORIGIN_SVC,
   sha256,
@@ -26,7 +27,8 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  * Every signature, link, binding, proof, influence, replay and session check is the library's: calls and local
  * steps are recorded chains (verifyRecordedCall, verifyChainOffline), responses are checked as the client checked
  * them (recheckMcpResponse at the recorded time, ending at the call's caller), and sessions with
- * isAttestedSession. What is here is reading the evidence format, matching records to each other, and the report.
+ * isAttestedSession, judged again at each call's recorded time. What is here is reading the evidence format,
+ * matching records to each other, and the report.
  * Of the library's codes, two are given only offline:
  * - TIME_MISMATCH: a call or local step whose stamp time is not the record's `now`, or a local step whose origin
  *   time is not its run's.
@@ -35,7 +37,8 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  *
  * Results beyond the library's reason codes:
  * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
- * - NO_SESSION: a call or response whose server has no verified session before it.
+ * - NO_SESSION: a call or response whose server has no verified session before it, or a call recorded after its
+ *   session's reply certificate expired.
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
@@ -113,8 +116,12 @@ type Rec = Record<string, unknown>;
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
-/** What a verified session gives the checks that follow it. */
+/** The mock server's entry service, from this verifier's own configuration: its responses start there, and its reply certificate names it. */
+const SERVER_ENTRY = "mcp-entry";
+
+/** What a verified session gives the checks that follow it; `attestedAt` judges it at a call's recorded time. */
 type Session = {
+  attestedAt: (at: number) => boolean;
   clientKeyring: Record<string, string>;
   clientRoot: Uint8Array;
   clientRootId: string;
@@ -136,11 +143,16 @@ function verifySession(r: Rec): Session | undefined {
     if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
       return undefined;
     }
-    // Judged now: the recorded server signs with its policy key, and that form ignores the time.
-    if (!isAttestedSession(request, reply, r.pin, "mcp-entry", Date.now())) {
+    // The record carries no signed time, so the session itself is judged at the latest time its certificate allows
+    // (a policy-key reply ignores the time), and each call is judged again at its own recorded time.
+    const pin = r.pin;
+    const attestedAt = (at: number) => isAttestedSession(request, reply, pin, SERVER_ENTRY, at);
+    const latest = isReplyCert(reply.serverReplyCert) ? reply.serverReplyCert.notAfter : 0;
+    if (!attestedAt(latest)) {
       return undefined;
     }
     return {
+      attestedAt,
       clientKeyring: request.clientKeyring,
       clientRoot: decode(request.clientRoot!.root),
       clientRootId: request.clientRoot!.rootId,
@@ -278,7 +290,9 @@ function verifyFile(path: string, label: string): VerifyReport {
           { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
           { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: spent },
         );
-        const result = v.result.reason;
+        // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
+        // TIME_MISMATCH): a call recorded after its session's certificate expired is not in an attested session.
+        const result = v.result.reason === "OK" && !session.attestedAt(rec.now) ? "NO_SESSION" : v.result.reason;
         const cItem = add(result);
         if (v.legacy && NOT_FAILURES.includes(result)) cItem.legacy = true;
         // the first record of a call is the one its response answers
@@ -322,7 +336,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           keyring: call.session.serverKeyring,
           root: call.session.serverRoot,
           rootId: call.session.serverRootId,
-          allowedOrigins: ["mcp-entry"],
+          allowedOrigins: [SERVER_ENTRY],
           sess: call.session.sess,
           nonces,
           now: rec.now,

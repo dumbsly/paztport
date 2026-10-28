@@ -244,17 +244,17 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
   const responseOf = (rs: any[], id: string) => rs.find((x) => x.type === "response" && x.callId === id);
 
-  /** A genuinely signed later call (new call id, stamped `gapMs` after toolu_a), as a live clock would give. */
-  function lateCall(rs: any[], gapMs: number): any {
+  /** A genuinely signed later call (call id `id`, stamped `gapMs` after toolu_a), as a live clock would give. */
+  function lateCall(rs: any[], gapMs: number, id = "toolu_late"): any {
     const a = callOf(rs, "toolu_a");
     const late = structuredClone(a);
-    late.callId = "toolu_late";
+    late.callId = id;
     late.now = a.now + gapMs;
     const meta = late.params._meta;
-    meta["paztport/callId"] = "toolu_late";
+    meta["paztport/callId"] = id;
     const { sig: _sig, v: _v, ...fields } = meta["paztport/chain"][1];
     meta["paztport/chain"][1] = signStampV3(
-      { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, "toolu_late", late.params.arguments), prev: meta["paztport/chain"][0].sig },
+      { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, id, late.params.arguments), prev: meta["paztport/chain"][0].sig },
       material().piKey,
     );
     return late;
@@ -272,6 +272,49 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
       ["toolu_a", "OK"],
       ["toolu_late", "OK"],
       ["toolu_a", "REPLAY"],
+      ["toolu_b", "OK"],
+      ["toolu_c", "OK"],
+      ["toolu_d", "OK"],
+    ]);
+  });
+
+  it("aNewFormHandshakeVerifies", () => {
+    const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
+    // the mock server signs its reply with mcp-entry's key, under its keyring's signature and its certificate
+    expect(s.reply).toMatchObject({ serverKeyringSig: expect.any(String), serverReplyCert: { svc: "mcp-entry", key: s.reply.serverKeyring["mcp-entry"] } });
+    const r = verifyEvidence(write(genuine));
+    expect(results(r.items, "session")).toEqual(["OK"]);
+    expect(r.items.find((i) => i.type === "session")!.legacy).toBeUndefined();
+    // stripped of the certificate, the reply is judged in the policy-key form, which its signature fails
+    const stripped = verifyEvidence(write(genuine, (rs) => { delete rs.find((x) => x.type === "session").reply.serverReplyCert; }));
+    expect(results(stripped.items, "session")).toEqual(["BAD_SESSION"]);
+  });
+
+  it("aCallRecordedAfterTheCertificatesNotAfterIsNotAttested", () => {
+    // calls stamped at the certificate's notAfter and 1 ms after it, both signed by the client; each with its own
+    // origin at that time, as a run started then would have, so the run's age window is not what refuses them
+    const at = (rs: any[], ts: number, id: string) => {
+      const c = lateCall(rs, ts - callOf(rs, "toolu_a").now, id);
+      const chain = c.params._meta["paztport/chain"];
+      const { sig: _o, v: _ov, ...origin } = chain[0];
+      chain[0] = signStampV3({ ...origin, ts }, material().sessionKey);
+      const { sig: _p, v: _pv, ...hop } = chain[1];
+      chain[1] = signStampV3({ ...hop, prev: chain[0].sig }, material().piKey);
+      return c;
+    };
+    const notAfter = (rs: any[]) => rs.find((x) => x.type === "session").reply.serverReplyCert.notAfter as number;
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const i = rs.indexOf(callOf(rs, "toolu_a"));
+      rs.splice(i + 1, 0, at(rs, notAfter(rs), "toolu_on_time"), at(rs, notAfter(rs) + 1, "toolu_late"));
+    }));
+    expect(r.ok).toBe(false);
+    // the session is attested, but only for calls recorded up to its certificate's notAfter
+    expect(results(r.items, "session")).toEqual(["OK"]);
+    const calls = r.items.filter((x) => x.type === "call").map((x) => [x.callId, x.result]);
+    expect(calls).toEqual([
+      ["toolu_a", "OK"],
+      ["toolu_on_time", "OK"],
+      ["toolu_late", "NO_SESSION"],
       ["toolu_b", "OK"],
       ["toolu_c", "OK"],
       ["toolu_d", "OK"],

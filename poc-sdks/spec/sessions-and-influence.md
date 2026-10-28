@@ -121,15 +121,17 @@ lifetime ([wire.md](wire.md#the-reply-certificate)).
 
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
-keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|` or `3|`.
+keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|` or `3|`. v1 stamps have no
+prefix, and v1 is never accepted live ([wire.md](wire.md#v1-the-http-mesh-format)).
 
 `v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
 a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
 other than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring
 altered after signing or signed by another policy key; an entry absent from the keyring; either new field without
 the other, whichever key signed the reply; neither field, signed by a key the reply's own keyring names for the
-entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `notAfter` that is not
-an integer; an entry named in the reply, which is ignored; and a pin mismatch.
+entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `null`
+`serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply, which is ignored; and a pin
+mismatch.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same

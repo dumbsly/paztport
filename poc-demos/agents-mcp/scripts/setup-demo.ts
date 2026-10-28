@@ -3,9 +3,9 @@
 
 // Generates demo keys and signed policies: <out>/server (mcp-entry, github-tools) and <out>/client (session, pi),
 // plus <out>/client/local-tools (the client root with the local folder rules), <out>/client/server-policy.pub, the server policy public key the client pins,
-// and <out>/server/client-policy.pub, the client policy public key the server pins. The client policy private
-// key only signs the client root, so it is deleted once the root is built; the server's stays (it signs session
-// replies).
+// and <out>/server/client-policy.pub, the client policy public key the server pins, and <out>/server/reply-cert.json,
+// a 30-day reply certificate for mcp-entry's key, the key that signs the server's session replies. Neither policy
+// private key is kept: each is deleted once it has signed its side's root and keyring, and the server's its certificate.
 // Refuses an existing <out> unless --force (which regenerates the keys in place).
 // Prints only paths, never key material.
 
@@ -26,9 +26,10 @@ function run(script: string, args: string[]): void {
   }
 }
 
-function setup(dir: string, services: string, paths: string): void {
+/** Keys, keyring, root and proofs into `dir`; `extra` is passed to the policy tool. */
+function setup(dir: string, services: string, paths: string, extra: string[] = []): void {
   run(KEYGEN, ["--out", dir, "--services", services]);
-  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--out", dir]);
+  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--out", dir, ...extra]);
   console.log(dir);
 }
 
@@ -50,7 +51,14 @@ if (existsSync(out) && !force) {
   console.error(USAGE);
   process.exit(2);
 }
-setup(join(out, "server"), "mcp-entry,github-tools", join(AGENTS, "policies/server.paths.yaml"));
+// keygen signs the server keyring; the policy tool signs the root and the certificate for mcp-entry's key
+setup(join(out, "server"), "mcp-entry,github-tools", join(AGENTS, "policies/server.paths.yaml"), [
+  "--reply-cert-svc", "mcp-entry",
+  "--keyring", join(out, "server/keyring.json"),
+  "--reply-cert-days", "30",
+]);
+// the server's session replies are signed by mcp-entry's key, so its policy key has nothing left to sign
+rmSync(join(out, "server/policy.key"));
 setup(join(out, "client"), "session,pi", join(AGENTS, "policies/client.paths.yaml"));
 // the same client policy key also signs a second root that binds the local folder rules (read by the pi extension)
 run(POLICY, [

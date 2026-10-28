@@ -64,9 +64,31 @@ describe("demo launcher", () => {
         mkdirSync(join(dir, f, ".."), { recursive: true });
         writeFileSync(join(dir, f), "{}");
       }
+      writeFileSync(join(dir, "server/reply-cert.json"), JSON.stringify({ notAfter: Date.now() + 86_400_000 }));
       expect(keysComplete(dir)).toBe(false);
       mkdirSync(join(dir, "client/local-tools"), { recursive: true });
       writeFileSync(join(dir, "client/local-tools/rules.json"), "{}");
+      expect(keysComplete(dir)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("demo keys without a current reply certificate are not complete", () => {
+    // the mock server refuses to start without one, so keys from an earlier version, or a month old, are made again
+    const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
+    try {
+      for (const f of ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"]) {
+        mkdirSync(join(dir, f, ".."), { recursive: true });
+        writeFileSync(join(dir, f), "{}");
+      }
+      const cert = join(dir, "server/reply-cert.json");
+      expect(keysComplete(dir)).toBe(false);
+      for (const text of ["", "{}", JSON.stringify({ notAfter: "later" }), JSON.stringify({ notAfter: Date.now() - 1 })]) {
+        writeFileSync(cert, text);
+        expect(keysComplete(dir), text).toBe(false);
+      }
+      writeFileSync(cert, JSON.stringify({ notAfter: Date.now() + 60_000 }));
       expect(keysComplete(dir)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });

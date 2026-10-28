@@ -455,5 +455,6 @@ the proof travels with.
 
 A server that answers in the entry-key form needs its policy private key only offline, to sign its root, keyring
 and reply certificates; one that answers in the policy-key form keeps it online to sign each reply. In the agents
-demo the client's policy private key is deleted once it has signed the client root and keyring; the server's
-stays, because the demo's MCP server signs its session replies in the policy-key form.
+demo neither side keeps its policy private key: the client's is deleted once it has signed the client root and
+keyring, and the server's once it has signed the server root, keyring and a 30-day reply certificate for
+`mcp-entry`'s key, since the demo's MCP server answers in the entry-key form.
