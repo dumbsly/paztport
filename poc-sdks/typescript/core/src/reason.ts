@@ -21,7 +21,9 @@ export type ReasonCode =
   | "UNCHECKABLE"
   | "TIME_MISMATCH"
   | "PROMPT_MISMATCH"
-  | "PEER_MISMATCH";
+  | "PEER_MISMATCH"
+  /** A keyring or root the verifier relies on is past its notAfter, or has none, so its policy owner no longer vouches for it; it says nothing about the request, so it is never attributable. */
+  | "POLICY_EXPIRED";
 
 /** Codes only the offline verifier of a recorded chain gives; no live verifier or server returns them. */
 export type OfflineReasonCode = "TIME_MISMATCH" | "PROMPT_MISMATCH";

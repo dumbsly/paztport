@@ -18,6 +18,7 @@ export * from "./verify-v3.ts";
 export * from "./verify-offline.ts";
 export * from "./keyring.ts";
 export * from "./reply-cert.ts";
+export * from "./validity.ts";
 export * from "./session.ts";
 export * from "./origin.ts";
 export * from "./attestation.ts";

@@ -51,6 +51,7 @@ const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK" | OfflineReasonCode>, true>
   SCOPE_DENIED: true,
   UNCHECKABLE: true,
   PEER_MISMATCH: true,
+  POLICY_EXPIRED: true,
 };
 
 function isObject(v: unknown): v is Record<string, unknown> {

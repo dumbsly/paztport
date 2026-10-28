@@ -4,6 +4,7 @@
 package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -14,6 +15,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.LinkedHashSet;
 import java.util.Set;
+import java.util.function.LongPredicate;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -69,12 +71,6 @@ class VectorsV3Test {
         return Crypto.decodePrivateKey(Base64Url.decode(vectors.get("keys").get(name).get("priv").asText()));
     }
 
-    private static Map<String, String> services(JsonNode node) {
-        Map<String, String> m = new LinkedHashMap<>();
-        node.fields().forEachRemaining(e -> m.put(e.getKey(), e.getValue().asText()));
-        return m;
-    }
-
     @Test
     void signingBytesV3() {
         for (JsonNode c : vectors.get("signingBytesV3")) {
@@ -98,17 +94,73 @@ class VectorsV3Test {
         for (JsonNode c : vectors.get("keyring")) {
             String name = c.get("name").asText();
             JsonNode signed = c.get("signed");
-            String policy = signed.get("policy").asText();
-            Map<String, String> svcs = services(signed.get("services"));
-            assertEquals(c.get("signingBytes").asText(),
-                    Base64Url.encode(KeyringFile.signingBytes(policy, svcs)), name);
-            if (c.get("name").asText().equals("signed")) {
-                assertEquals(c.get("sig").asText(),
-                        KeyringFile.sign(svcs, policy, priv(c.get("policyKey").asText())).sig(), name);
-            }
-            KeyringFile file = new KeyringFile(svcs, policy, signed.get("sig").asText());
             String pin = vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText();
+            KeyringFile file;
+            try {
+                file = KeyringFile.parse(signed);
+            } catch (IllegalArgumentException e) {
+                // A notAfter that is not an integer in range: nothing signs it, and the reader refuses it.
+                assertTrue(c.get("signingBytes").isNull(), name);
+                assertFalse(c.get("verifies").asBoolean(), name);
+                continue;
+            }
+            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(file.isNewForm()
+                    ? KeyringFile.signingBytes(file.policy(), file.services(), file.notAfter())
+                    : KeyringFile.signingBytes(file.policy(), file.services())), name);
             assertEquals(c.get("verifies").asBoolean(), file.verifies(pin), name);
+            current(c, file::isCurrent);
+            // Every keyring that verifies is reproduced byte for byte by signing it in its own form.
+            if (c.get("verifies").asBoolean()) {
+                PrivateKey priv = priv(c.get("policyKey").asText());
+                assertEquals(c.get("sig").asText(), (file.isNewForm()
+                        ? KeyringFile.sign(file.services(), file.policy(), file.notAfter(), priv)
+                        : KeyringFile.sign(file.services(), file.policy(), priv)).sig(), name);
+            }
+        }
+    }
+
+    @Test
+    void root() {
+        JsonNode cases = vectors.get("root");
+        assertTrue(cases != null && cases.size() > 0, "root section");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(
+                    vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText()));
+            SignedRoot root;
+            try {
+                root = SignedRoot.parse(c.get("signed"));
+            } catch (IllegalArgumentException e) {
+                assertTrue(c.get("signingBytes").isNull(), name);
+                assertFalse(c.get("verifies").asBoolean(), name);
+                continue;
+            }
+            JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
+            assertEquals(policy.get("root").asText(), root.root(), name);
+            assertEquals(policy.get("rootId").asText(), root.rootId(), name);
+            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(root.isNewForm()
+                    ? SignedRoot.signingBytes(root.rootId(), root.root(), root.notAfter())
+                    : SignedRoot.signingBytes(root.rootId(), root.root())), name);
+            assertEquals(c.get("verifies").asBoolean(), root.verify(pin), name);
+            current(c, root::isCurrent);
+            if (c.get("verifies").asBoolean()) {
+                PrivateKey priv = priv(c.get("policyKey").asText());
+                assertEquals(root.sig(), (root.isNewForm()
+                        ? SignedRoot.sign(root.rootBytes(), root.rootId(), root.notAfter(), priv)
+                        : SignedRoot.sign(root.rootBytes(), root.rootId(), priv)).sig(), name);
+            }
+        }
+    }
+
+    /** Checks a case's {@code current} answers, if it has any, against {@code isCurrent}. */
+    private static void current(JsonNode c, LongPredicate isCurrent) {
+        JsonNode answers = c.get("current");
+        if (answers == null) {
+            return;
+        }
+        for (JsonNode a : answers) {
+            assertEquals(a.get("current").asBoolean(), isCurrent.test(a.get("at").asLong()),
+                    c.get("name").asText() + " at " + a.get("at").asText());
         }
     }
 

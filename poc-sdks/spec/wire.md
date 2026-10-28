@@ -28,6 +28,11 @@ Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamp
 `b64url(x)` is the base64url text of `x`, and `utf8(s)` the UTF-8 bytes of `s`. `‖` is byte concatenation,
 and `\n` is the single byte `0x0A`.
 
+**Domain prefixes.** Each kind of signed message opens with its own prefix, so that no signature can be read as
+another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
+`"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
+and stamps `2|` or `3|`. v1 stamps and old-form roots have no prefix, and neither is accepted live.
+
 ## Keys and files
 
 | Key | Encoding |
@@ -42,13 +47,24 @@ side writes (in the agents demo, its setup script). Each holds one value, and re
 |---|---|---|
 | `<svc>.key` | The service's private key | yes |
 | `policy.key` | The policy private key, which signs the root, the keyring and reply certificates | yes |
-| `keyring.json` | [The signed keyring](#the-signed-keyring) | no |
+| `keyring.json` | [The signed keyring](#the-signed-keyring), valid until its `notAfter` | no |
 | `reply-cert.json` | [A reply certificate](#the-reply-certificate) for one service's key, written only when a policy tool is asked for one | no |
-| `root.json` | [The signed root](#the-signed-root) | no |
+| `root.json` | [The signed root](#the-signed-root), valid until its `notAfter` | no |
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
 | `boundary.key` | An egress's [boundary key](sessions-and-influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable, and refuses an existing one that is not 32 bytes. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
+
+**Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
+lapse. Each therefore has two forms. The new form carries `notAfter`, the time after which the policy owner no
+longer vouches for it, and its signature covers that value. The old form has no `notAfter`. Which form a root or
+keyring is in is decided only by whether its JSON object has a `notAfter` member of its own, never by which bytes
+verify. `notAfter` follows the reply certificate's rule: an integer number of milliseconds since the Unix epoch,
+in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST refuse a `notAfter` that
+is present but is not such an integer, rather than read the object as the old form. A new-form root or keyring
+is valid at time `t` when `t <= notAfter`; verifying its signature says nothing about time, so whoever relies on
+it MUST check both. An old-form root or keyring is never valid at any time: it verifies only offline, for records
+made before the new form, and a live verifier MUST NOT rely on one. A writer MUST write the new form.
 
 ## Stamps
 
@@ -320,7 +336,8 @@ shorter or longer path from reaching it.
 
 `rootId = "v" ‖ 12 lowercase hex digits of 6 random bytes`, from a cryptographic random source, fresh on every
 build. It is a label, compared for equality and never derived from the routes: a label derived from the routes
-would let anyone who guessed a policy confirm the guess. §"The signed root" is unchanged. The `rootId`s pinned in
+would let anyone who guessed a policy confirm the guess. It labels the tree, not the signature, so a
+[renewed root](#the-signed-root) keeps it. The `rootId`s pinned in
 `v3.json` come from the vectors' own fixed construction (described in its `about`), for example `v128498df6662`
 for the client policy in `policies.client`; a real build does not produce them.
 
@@ -351,35 +368,67 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 
 ## The signed root
 
-`root.json`, the value verifiers pin:
+`root.json`, the value verifiers pin, in the new form:
 
 ```json
-{ "rootId": "...", "root": "<b64url, 32 bytes>", "sig": "<b64url>" }
-```
-
-`sig` is the policy key's Ed25519 signature over `utf8(rootId ‖ "|" ‖ root)`, with `root` as its base64url text.
-A widened policy can't be swapped in without the policy private key. A verifier MUST check the signature
-against the pinned policy key before using the root.
-
-## The signed keyring
-
-`keyring.json` names the policy key and every service's public key, and is signed by the policy key:
-
-```json
-{ "services": { "<svc>": "<public key>", ... }, "policy": "<policy public key>", "sig": "<b64url>" }
+{ "rootId": "...", "root": "<b64url, 32 bytes>", "sig": "<b64url>", "notAfter": <integer> }
 ```
 
 `sig` is the policy key's Ed25519 signature over:
 
 ```
-utf8( "paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }) )
+utf8( "paztport-root\n" ‖ JCS({ "notAfter": notAfter, "root": root, "rootId": rootId }) )
 ```
 
-A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
-The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the
-signature, a session's keyring would be the client's own claim, and anyone who could open a session could name
-their own keys. `v3.json` pins the signed bytes and the signature in `keyring`, with a tampered keyring that
-fails.
+with `root` as its base64url text. The old form has no `notAfter`, and `sig` covers `utf8(rootId ‖ "|" ‖ root)`.
+Which form applies, and when each is valid, is set out under [Expiry](#keys-and-files). A widened policy can't
+be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy key,
+in the root's own form, before using the root. Any other field is ignored and not signed.
+
+The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
+vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a later
+`notAfter`, so proof bundles stay valid and holders can pick up the renewed root one at a time. A renewed root
+keeps its `rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
+renewing: it needs a new tree, a new `rootId` and new proof bundles.
+
+`v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
+pin: the new form, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
+tampered `notAfter`, a new-form signature with `notAfter` dropped, an old-form signature with one added, a
+`notAfter` that is not an integer, a root signed by another policy key and a keyring signature offered as a root
+signature, which fail; and an old-form root, which verifies offline only and is never valid.
+
+## The signed keyring
+
+`keyring.json` names the policy key and every service's public key, and is signed by the policy key. In the new
+form:
+
+```json
+{ "services": { "<svc>": "<public key>", ... }, "policy": "<policy public key>", "sig": "<b64url>", "notAfter": <integer> }
+```
+
+`sig` is the policy key's Ed25519 signature over:
+
+```
+utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "services": services }) )
+```
+
+The old form has no `notAfter`, and `sig` covers `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy,
+"services": services }))`. Which form applies, and when each is valid, is set out under
+[Expiry](#keys-and-files). Adding or dropping `notAfter` changes the signed object's members, so neither form's
+signature verifies as the other's.
+
+A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it,
+in the keyring's own form. The prefix keeps a keyring signature from being read as any other message the policy
+key signs. Without the signature, a session's keyring would be the client's own claim, and anyone who could open a
+session could name their own keys. The policy owner MUST sign a keyring only after checking that each listed key
+is that service's current key; `notAfter` is when it stops vouching for them. A retired key needs a new keyring,
+not a renewed one.
+
+`v3.json` pins the signed bytes and signatures in `keyring`: an old-form keyring and a tampered one, as before;
+the new form, at its `notAfter` and 1 ms after, and the largest `notAfter`, which verify; a tampered `notAfter`, a
+new-form signature with `notAfter` dropped, an old-form signature with one added, a `notAfter` that is not an
+integer and a root signature offered as a keyring signature, which fail; and an old-form keyring, which verifies
+offline only and is never valid.
 
 Both SDKs' keygens write signed keyrings.
 
@@ -411,11 +460,13 @@ under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t
 nothing about time, so whoever relies on a certificate MUST check both. The prefix keeps a certificate signature
 from being read as any other message the policy key signs.
 
-It expires because the policy key is offline. Nothing the policy key signed earlier says whether it is still
-current: a key retired from the keyring is still listed in every older keyring, and those still verify. A
-certificate is short-lived instead, so retiring a key means not issuing it another certificate, and once its
-last certificate has expired nothing it signs is accepted. The lifetime is the revocation delay, so deployments
-SHOULD keep it short, days rather than months. Both policy tools default to 7 days.
+It expires because the policy key is offline, so nothing it signed can be withdrawn, only left to lapse. A
+keyring lapses too, at its `notAfter`, but it vouches for every service's key at once, for as long as the policy
+owner renews it. A certificate vouches for one key's session replies alone, and is short-lived, so retiring that
+key means not issuing it another certificate: once its last certificate has expired, no session reply it signs
+is accepted, even while a keyring that lists it is still valid. The certificate's lifetime is that key's
+revocation delay, so deployments SHOULD keep it short, days rather than months. Both policy tools default to 7
+days.
 
 The policy owner MUST issue a certificate only after checking that `key` is `svc`'s key in its current keyring,
 signed by the same policy key, since that is what the certificate vouches for. Both policy tools check it

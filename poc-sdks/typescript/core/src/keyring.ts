@@ -4,24 +4,39 @@
 import { decode, encode } from "./b64url.ts";
 import { sign, utf8, verify } from "./crypto.ts";
 import { canonicalize } from "./jcs.ts";
+import { isNotAfter } from "./validity.ts";
 
-/** A keyring signed offline by its policy key: the policy key and the services' public keys. */
-export type SignedKeyring = { policy: string; services: Record<string, string>; sig: string };
+/** A keyring signed offline by its policy key: the policy key and the services' public keys; the new form's `notAfter` (ms since the epoch, inclusive) is when the owner stops vouching for them, and the old form, with none, verifies for recorded evidence but is never current; an own `notAfter` member alone decides the form. */
+export type SignedKeyring = { policy: string; services: Record<string, string>; sig: string; notAfter?: number };
 
-/** The bytes a keyring signature covers: domain prefix + JCS of the policy key and services. */
-export function keyringSigningBytes(policy: string, services: Record<string, string>): Uint8Array {
-  return utf8("paztport-keyring\n" + canonicalize({ policy, services }));
+/** The bytes a keyring signature covers: domain prefix + JCS of notAfter (new form only), the policy key and services; throws on a notAfter outside [0, 2^53 − 1]. */
+export function keyringSigningBytes(policy: string, services: Record<string, string>, notAfter?: number): Uint8Array {
+  if (notAfter === undefined) return utf8("paztport-keyring\n" + canonicalize({ policy, services }));
+  if (!isNotAfter(notAfter)) throw new TypeError("notAfter must be an integer in [0, 2^53 - 1]");
+  return utf8("paztport-keyring\n" + canonicalize({ notAfter, policy, services }));
 }
 
-/** Signs a keyring with its policy key, over keyringSigningBytes. */
-export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string): SignedKeyring {
-  return { policy: policyPublicKey, services, sig: encode(sign(policyPrivateKey, keyringSigningBytes(policyPublicKey, services))) };
+/** Signs a keyring with its policy key over keyringSigningBytes, in the new form until `notAfter` when it is given, else the old form; the caller must have checked that each key is that service's current key. */
+export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string, notAfter?: number): SignedKeyring {
+  const sig = encode(sign(policyPrivateKey, keyringSigningBytes(policyPublicKey, services, notAfter)));
+  return notAfter === undefined ? { policy: policyPublicKey, services, sig } : { policy: policyPublicKey, services, sig, notAfter };
 }
 
-/** True only when the keyring names `policyKey` and its signature verifies under it; never throws. */
+/** The same services and policy key, signed again in the new form until `notAfter`; the caller must still hold every listed key current, as a retired key needs a new keyring, not a renewal. */
+export function renewKeyring(k: SignedKeyring, notAfter: number, policyPrivateKey: string): SignedKeyring {
+  return signKeyring(k.services, k.policy, policyPrivateKey, notAfter);
+}
+
+/** True only when the keyring names `policyKey` and its signature verifies under it in the keyring's own form, a `notAfter` outside [0, 2^53 − 1] failing rather than read as absent; never throws, and says nothing about time (see isCurrent). */
 export function verifyKeyring(k: SignedKeyring, policyKey: string): boolean {
   try {
-    return k.policy === policyKey && typeof k.sig === "string" && verify(policyKey, keyringSigningBytes(k.policy, k.services), decode(k.sig));
+    const windowed = Object.hasOwn(k, "notAfter");
+    if (windowed && !isNotAfter(k.notAfter)) return false;
+    return (
+      k.policy === policyKey &&
+      typeof k.sig === "string" &&
+      verify(policyKey, keyringSigningBytes(k.policy, k.services, windowed ? k.notAfter : undefined), decode(k.sig))
+    );
   } catch {
     return false;
   }

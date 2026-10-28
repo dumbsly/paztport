@@ -15,9 +15,11 @@ import {
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
-  deriveSessionId, signRoot, signSessionReply,
+  deriveSessionId, isCurrent, renewRoot, rootSigningBytes, signRoot, signSessionReply, verifyRoot,
 } from "@paztport/core";
-import type { InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, StampV3 } from "@paztport/core";
+import type {
+  InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, SignedKeyring, SignedRoot, StampV3,
+} from "@paztport/core";
 import { bindMcpCall, classifySessionReply, mcpReceiver } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
@@ -375,7 +377,69 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { name, policyKey: "client-policy", services, signingBytes: encode(keyringSigningBytes(signed.policy, signed.services)), sig: signed.sig, signed, verifies };
   };
   const signedKeyring = keyringCase("signed", { session: "session", pi: "pi" }, undefined, true);
-  const keyring = [signedKeyring, keyringCase("tampered", { session: "session", pi: "gateway" }, signedKeyring.sig, false)];
+  const keyring: Record<string, unknown>[] = [signedKeyring, keyringCase("tampered", { session: "session", pi: "gateway" }, signedKeyring.sig, false)];
+
+  // The two forms of what the policy key signs offline. The new form carries notAfter, and its signed bytes
+  // include it; the old form has none, still verifies for recorded evidence, and is never current. A case's
+  // form is decided by whether `signed` has a notAfter member. signingBytes is null when that notAfter is not
+  // an integer in [0, 2^53 - 1], which nothing signs; `current` gives isCurrent's answer at each `at`.
+  const POLICY_NOT_AFTER = 1_798_761_600_000;
+  const DAY_MS = 86_400_000;
+  const hasWindow = (o: object): o is { notAfter: unknown } => Object.hasOwn(o, "notAfter");
+  const windowOk = (n: unknown): n is number => Number.isSafeInteger(n) && (n as number) >= 0;
+  const currentAt = (o: object, ats: number[]) => ats.map((at) => ({ at, current: isCurrent(o, at) }));
+  const ringServices = { session: "session", pi: "pi" } as const;
+  const ringPolicy = keys["client-policy"].pub;
+  const newRing = (notAfter: number) => signKeyring(resolveKeyring(ringServices), ringPolicy, keys["client-policy"].priv, notAfter);
+  const oldRing = signKeyring(resolveKeyring(ringServices), ringPolicy, keys["client-policy"].priv);
+  const rootPolicy = policies.client;
+  const newRoot = (notAfter: number, signer: KeyName = "client-policy") => signRoot(decode(rootPolicy.root), rootPolicy.rootId, keys[signer].priv, notAfter);
+  const oldRoot = signRoot(decode(rootPolicy.root), rootPolicy.rootId, keys["client-policy"].priv);
+  const keyringFormCase = (name: string, signed: SignedKeyring, verifies: boolean, ats?: number[]) => {
+    check(`keyring ${name}`, verifyKeyring(signed, ringPolicy), verifies);
+    const w = hasWindow(signed);
+    const bytes = !w ? keyringSigningBytes(signed.policy, signed.services) : windowOk(signed.notAfter) ? keyringSigningBytes(signed.policy, signed.services, signed.notAfter) : null;
+    if (verifies) check(`keyring ${name} re-signed`, signKeyring(signed.services, signed.policy, keys["client-policy"].priv, w ? signed.notAfter : undefined).sig, signed.sig);
+    const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
+    return { name, policyKey: "client-policy", services: ringServices, signingBytes: bytes === null ? null : encode(bytes), sig: signed.sig, signed, verifies, ...current };
+  };
+  const { notAfter: _ringWindow, ...ringWindowDropped } = newRing(POLICY_NOT_AFTER);
+  keyring.push(
+    keyringFormCase("new form", newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    keyringFormCase("new form, largest notAfter", newRing(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
+    keyringFormCase("new form, tampered notAfter", { ...newRing(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
+    keyringFormCase("new form, notAfter dropped", ringWindowDropped, false),
+    keyringFormCase("old form, notAfter added", { ...oldRing, notAfter: POLICY_NOT_AFTER }, false),
+    keyringFormCase("notAfter not an integer", { ...newRing(POLICY_NOT_AFTER), notAfter: 1.5 }, false),
+    keyringFormCase("root signature as a keyring signature", { ...newRing(POLICY_NOT_AFTER), sig: newRoot(POLICY_NOT_AFTER).sig }, false),
+    keyringFormCase("old form, offline only", oldRing, true, [0, POLICY_NOT_AFTER]),
+  );
+
+  // The client policy's signed root in both forms, under the client-policy pin; `policy` names the tree.
+  const rootCase = (name: string, signed: SignedRoot, verifies: boolean, ats?: number[]) => {
+    check(`root ${name}`, verifyRoot(signed, keys["client-policy"].pub), verifies);
+    const w = hasWindow(signed);
+    const bytes = !w ? rootSigningBytes(signed.rootId, signed.root) : windowOk(signed.notAfter) ? rootSigningBytes(signed.rootId, signed.root, signed.notAfter) : null;
+    if (verifies) check(`root ${name} re-signed`, signRoot(decode(signed.root), signed.rootId, keys["client-policy"].priv, w ? signed.notAfter : undefined).sig, signed.sig);
+    const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
+    return { name, policyKey: "client-policy", policy: "client", signingBytes: bytes === null ? null : encode(bytes), signed, verifies, ...current };
+  };
+  const renewed = renewRoot(oldRoot, POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
+  check("root renewed keeps the tree", [renewed.rootId, renewed.root], [oldRoot.rootId, oldRoot.root]);
+  check("root renewed is the tree signed afresh", renewed, newRoot(POLICY_NOT_AFTER + DAY_MS));
+  const { notAfter: _rootWindow, ...rootWindowDropped } = newRoot(POLICY_NOT_AFTER);
+  const signedRoots = [
+    rootCase("new form", newRoot(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    rootCase("new form, largest notAfter", newRoot(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
+    rootCase("renewed", renewed, true, [POLICY_NOT_AFTER + DAY_MS, POLICY_NOT_AFTER + DAY_MS + 1]),
+    rootCase("new form, tampered notAfter", { ...newRoot(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
+    rootCase("new form, notAfter dropped", rootWindowDropped, false),
+    rootCase("old form, notAfter added", { ...oldRoot, notAfter: POLICY_NOT_AFTER }, false),
+    rootCase("notAfter not an integer", { ...newRoot(POLICY_NOT_AFTER), notAfter: 1.5 }, false),
+    rootCase("signed by another policy key", newRoot(POLICY_NOT_AFTER, "server-policy"), false),
+    rootCase("keyring signature as a root signature", { ...newRoot(POLICY_NOT_AFTER), sig: newRing(POLICY_NOT_AFTER).sig }, false),
+    rootCase("old form, offline only", oldRoot, true, [0, POLICY_NOT_AFTER]),
+  ];
 
   // The server's reply certificate for mcp-entry, and forms of it that must not verify under the server pin.
   const CERT_NOT_AFTER = 1_798_761_600_000;
@@ -484,6 +548,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     influence: influenceCases,
     rule,
     keyring,
+    root: signedRoots,
     verify,
     offline,
     replyCert,
