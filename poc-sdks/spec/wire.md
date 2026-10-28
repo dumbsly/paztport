@@ -398,12 +398,15 @@ key sign what the policy key would otherwise have to sign online, while the poli
 utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "policy": policy, "svc": svc }) )
 ```
 
-`notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], so it is written as
-plain decimal digits in the signed bytes. A reader MUST refuse a certificate that is not a JSON object, whose
-`policy`, `svc`, `key` or `sig` is missing or not a string, or whose `notAfter` is missing or not an integer in
-that range (a string, a fraction, a negative number or a larger one). A reader MAY also refuse an integer value
-written with a fraction part or an exponent (`1.0`, `1e3`): the Java SDK refuses it, and the TypeScript SDK
-reads it as the integer. Any other field is ignored and not signed.
+`notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], and is written as plain
+decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader
+MUST refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a
+string, or whose `notAfter` is missing, not a number, not an integer, negative, or greater than 2^53 − 1. The
+rule is on the value as parsed. A reader whose JSON parser yields IEEE doubles judges the parsed value, so it
+may accept number text with a fraction part or an exponent that parses to an integer in range: the TypeScript
+SDK accepts `1e3`, `1.0`, and `1798761600000.0001`, which parses to 1798761600000. A reader that sees the
+number's text MAY refuse such text: the Java SDK refuses any `notAfter` not written as an integer. Either way
+the signature covers the plain digits of the parsed value. Any other field is ignored and not signed.
 
 A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
 under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
@@ -417,8 +420,10 @@ last certificate has expired nothing it signs is accepted. The lifetime is the r
 SHOULD keep it short, days rather than months. Both policy tools default to 7 days.
 
 The policy owner MUST issue a certificate only after checking that `key` is `svc`'s key in its current keyring,
-signed by the same policy key, since that is what the certificate vouches for. Both policy tools check it, and
-refuse, writing nothing, a keyring that does not verify under the policy key or has no key for the service.
+signed by the same policy key, since that is what the certificate vouches for. Both policy tools check it
+against the keyring they are given, and refuse, writing nothing, a keyring that does not verify under the
+policy key or has no key for the service; that the keyring given is the current one is the policy owner's to
+ensure.
 The Java policy tool issues a certificate when `PAZTPORT_REPLY_CERT_SVC` names the service, valid for
 `PAZTPORT_REPLY_CERT_DAYS` days. The TypeScript one takes
 `--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]`. Both print only the service and
