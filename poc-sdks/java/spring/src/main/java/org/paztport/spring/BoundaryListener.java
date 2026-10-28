@@ -17,6 +17,9 @@ import org.paztport.core.InfluenceEntry;
  * have happened) and reaches the caller of {@link BoundaryClient#post}: an entry the shop could not record is an
  * entry it could never open, so it is not sent.
  *
+ * <p>It may be called from several request threads at once, one call per request, so an implementation must be
+ * thread-safe.
+ *
  * <p>The originals are secrets of the shop: internal service names and plain content hashes. Keep them where the
  * shop keeps its evidence, and never log them.
  */

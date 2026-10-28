@@ -260,7 +260,8 @@ One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
 - `boundary.key`, the egress's boundary key (32 random bytes as base64url), written
   only when it does not exist: every other key is new on each run, but a new
   boundary key would make the influence entries sent under the old one unopenable.
-  It is for the mesh's one egress service and its replicas.
+  An existing one that is not 32 bytes is refused, naming the file, and nothing is
+  written. It is for the mesh's one egress service and its replicas.
 
 Private keys and the boundary key are written owner-read/write only.
 

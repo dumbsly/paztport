@@ -174,4 +174,33 @@ class KeygenMainTest {
         assertFalse(java.util.Arrays.equals(gateway, Files.readAllBytes(dir.resolve("gateway.key"))),
                 "the other keys are regenerated");
     }
+
+    // An existing boundary key that is not 32 bytes would fail the egress on every start, and replacing it would
+    // make earlier entries unopenable, so the run is refused, naming the file, before anything is written.
+    @Test
+    void refusesAnExistingBoundaryKeyThatIsNot32Bytes(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("boundary.key");
+        for (String text : List.of("", "\n", Base64Url.encode(new byte[31]), Base64Url.encode(new byte[33]),
+                Base64Url.encode(new byte[32]).substring(0, 20), "not base64!")) {
+            Files.writeString(file, text);
+
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop"), text);
+
+            assertTrue(e.getMessage().contains(file.toString()), e.getMessage());
+            assertTrue(e.getMessage().contains("32 bytes"), e.getMessage());
+            assertEquals(text, Files.readString(file), "the file is left as it was");
+            assertFalse(Files.exists(dir.resolve("keyring.json")), "nothing is written");
+        }
+    }
+
+    @Test
+    void keepsAnExistingBoundaryKeyWithSurroundingWhitespace(@TempDir Path dir) throws Exception {
+        String text = "  " + Base64Url.encode(new byte[32]) + "\n\n";
+        Files.writeString(dir.resolve("boundary.key"), text);
+
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+
+        assertEquals(text, Files.readString(dir.resolve("boundary.key")));
+    }
 }

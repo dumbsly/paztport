@@ -37,6 +37,7 @@ import org.paztport.core.StamperV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.springframework.beans.factory.NoUniqueBeanDefinitionException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
@@ -318,6 +319,24 @@ class BoundaryGuardTest {
             assertThat(context).hasSingleBean(BoundaryClient.class);
             assertThat(context).doesNotHaveBean(PooledTlsClient.class);
         });
+    }
+
+    // The egress takes one listener: two with none primary fail the startup rather than one being picked at
+    // random, and marking one primary says which is told.
+    @Test
+    void twoListenersFailStartupUnlessOneIsPrimary() {
+        BoundaryListener quiet = (rid, entry, originals, sent) -> { };
+        ApplicationContextRunner two = runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withBean("firstListener", BoundaryListener.class, () -> quiet)
+                .withBean("secondListener", BoundaryListener.class, () -> quiet);
+        two.run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).rootCause().isInstanceOf(NoUniqueBeanDefinitionException.class);
+        });
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withBean("firstListener", BoundaryListener.class, () -> quiet, bd -> bd.setPrimary(true))
+                .withBean("secondListener", BoundaryListener.class, () -> quiet)
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(BoundaryClient.class));
     }
 
     @Test

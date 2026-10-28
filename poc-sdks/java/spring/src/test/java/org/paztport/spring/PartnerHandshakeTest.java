@@ -61,8 +61,9 @@ import org.springframework.web.client.RestClient;
 /**
  * The partner's handshake through the real container under mutual TLS. The app is the partner's entry, serving the
  * fixture {@code payment} certificate; the clients are other fixture services, so the peer a session belongs to is
- * the certificate's issuer and service. Each peer may hold two sessions here. The startup refusals are checked in a
- * context of their own.
+ * the certificate's issuer and service. It trusts the foreign CA as well as the shop's, so two peers can share a
+ * service name and differ only by issuer. Each peer may hold two sessions here. The startup refusals are checked in
+ * a context of their own.
  */
 @SpringBootTest(classes = PartnerHandshakeTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -70,12 +71,11 @@ import org.springframework.web.client.RestClient;
             "server.ssl.bundle=psp",
             "server.ssl.client-auth=need",
             "spring.ssl.bundle.pem.psp.keystore.certificate=classpath:tls/payment.crt",
-            "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key",
-            "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"})
+            "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key"})
 class PartnerHandshakeTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    /** The fixture CA's name, as the issuer of every fixture certificate. */
+    /** The fixture CA's name, as the issuer of every fixture certificate but {@code foreign-orders}. */
     private static final String SHOP_CA = "CN=shop CA";
     private static final KeyPair SHOP_KEY = Crypto.generateEd25519KeyPair();
     private static final KeyPair SHOP_POLICY = Crypto.generateEd25519KeyPair();
@@ -106,6 +106,10 @@ class PartnerHandshakeTest {
         JSON.writeValue(trust.resolve("root.json").toFile(),
                 PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, PSP_POLICY.getPrivate()).signedRoot());
 
+        // The partner trusts both CAs, so a foreign-orders certificate reaches the filter rather than the handshake.
+        Path bothCas = trust.resolve("partner-trust.crt");
+        Files.writeString(bothCas, fixture("ca.crt") + fixture("foreign-ca.crt"));
+        registry.add("spring.ssl.bundle.pem.psp.truststore.certificate", () -> "file:" + bothCas);
         registry.add("paztport.service-name", () -> "psp");
         registry.add("paztport.keyring-path", () -> trust.resolve("keyring.json").toString());
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
@@ -117,6 +121,12 @@ class PartnerHandshakeTest {
         registry.add("paztport.partner.client-origins[0]", () -> "payment");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
         registry.add("paztport.partner.max-sessions-per-peer", () -> "2");
+    }
+
+    private static String fixture(String name) throws IOException {
+        try (var in = PartnerHandshakeTest.class.getResourceAsStream("/tls/" + name)) {
+            return new String(in.readAllBytes(), StandardCharsets.US_ASCII);
+        }
     }
 
     @AfterAll
@@ -232,6 +242,35 @@ class PartnerHandshakeTest {
 
         assertNotNull(sessions.find(SHOP_CA, "orders", sess));
         assertNull(sessions.find(SHOP_CA, "gateway", sess));
+    }
+
+    // Forged: a session the shop's orders opened, named by a certificate with the same name from another CA the
+    // partner also trusts. The filter looks the id up under the request's own issuer, so it is unknown there.
+    @Test
+    void sessionUnknownToTheSameNameFromAnotherIssuer() throws Exception {
+        String sess = JSON.readTree(post(client("orders"), json(request(Sessions.newNonce()))).body())
+                .get("sess").asText();
+
+        Answer foreign = call(client("foreign-orders"), sess);
+        Answer own = call(client("orders"), sess);
+
+        assertEquals(403, foreign.status());
+        assertEquals("SESSION_UNKNOWN", JSON.readTree(foreign.body()).get("reason").asText());
+        // The same id from the certificate that opened it is found, and fails later, on its missing chain.
+        assertEquals(403, own.status());
+        assertEquals("CHAIN_MISSING", JSON.readTree(own.body()).get("reason").asText());
+        assertNotNull(sessions.find(SHOP_CA, "orders", sess));
+        assertNull(sessions.find("CN=foreign CA", "orders", sess));
+    }
+
+    private Answer call(RestClient client, String sess) {
+        return client.post()
+                .uri("https://localhost:" + port + "/anything")
+                .header(PaztportHeaders.SESSION, sess)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{}")
+                .exchange((request, response) -> new Answer(response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
     }
 
     // Forged: an id the peer opened itself, sent after two newer handshakes of its own evicted it.

@@ -134,8 +134,9 @@ public class PaztportAutoConfiguration {
      * partner URL that is not {@code https} fails it too (the client itself accepts one, for tests' stubs), as does
      * an idle period that is not positive, or a boundary key that is not 32 bytes. It builds its own TLS client from
      * {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's CA is trusted only on calls to
-     * the partner. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends; two
-     * fail the context, rather than one being picked. The context closes the client on shutdown.
+     * the partner. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends. With
+     * several, the one marked {@code @Primary} is told and the others are not; with several and none primary, the
+     * context fails rather than pick one. The context closes the client on shutdown.
      */
     @Bean
     @ConditionalOnProperty("paztport.boundary.url")

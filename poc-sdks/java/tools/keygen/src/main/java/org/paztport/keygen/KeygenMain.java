@@ -38,8 +38,9 @@ import org.paztport.core.KeyringFile;
  *
  * <p>Every key is new on each run except {@code boundary.key}, the egress's boundary key (32 random bytes as
  * base64url), which is written only when it does not exist: rotating it would make every influence entry the
- * egress has sent unopenable. It belongs to the one egress service of the mesh and its replicas, never to another
- * service.
+ * egress has sent unopenable. An existing one that does not decode to 32 bytes is refused, naming the file, before
+ * anything is written: kept, it would fail the egress on every start, and replaced, it would rotate the key. It
+ * belongs to the one egress service of the mesh and its replicas, never to another service.
  */
 public final class KeygenMain {
 
@@ -65,6 +66,11 @@ public final class KeygenMain {
             }
         }
         TlsIssuer.requireLabel(org);
+        Path boundaryKey = outDir.resolve("boundary.key");
+        boolean keepBoundaryKey = Files.exists(boundaryKey, LinkOption.NOFOLLOW_LINKS);
+        if (keepBoundaryKey) {
+            requireBoundaryKey(boundaryKey);
+        }
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
@@ -75,8 +81,7 @@ public final class KeygenMain {
             writePrivateKey(outDir.resolve(e.getKey() + ".key"), e.getValue());
         }
         writePrivateKey(outDir.resolve("policy.key"), result.policy());
-        Path boundaryKey = outDir.resolve("boundary.key");
-        if (!Files.exists(boundaryKey, LinkOption.NOFOLLOW_LINKS)) {
+        if (!keepBoundaryKey) {
             byte[] key = new byte[BoundaryInfluence.KEY_LENGTH];
             new SecureRandom().nextBytes(key);
             writeSecret(boundaryKey, Base64Url.encode(key) + "\n");
@@ -92,6 +97,24 @@ public final class KeygenMain {
             TlsIssuer.Issued leaf = TlsIssuer.issue(ca, name, TLS_VALIDITY);
             Files.writeString(tls.resolve(name + ".crt"), TlsIssuer.pem(leaf.cert()));
             writeSecret(tls.resolve(name + ".key"), TlsIssuer.pem(leaf.keys().getPrivate()));
+        }
+    }
+
+    /**
+     * Throws unless the existing boundary key is, as the egress reads it, base64url of exactly 32 bytes once trimmed.
+     * The message names the file but never its content.
+     */
+    private static void requireBoundaryKey(Path file) throws IOException {
+        byte[] key;
+        try {
+            key = Base64Url.decode(Files.readString(file).trim());
+        } catch (IllegalArgumentException e) {
+            key = null;
+        }
+        if (key == null || key.length != BoundaryInfluence.KEY_LENGTH) {
+            throw new IllegalStateException(file + " exists but does not hold " + BoundaryInfluence.KEY_LENGTH
+                    + " bytes as base64url. It is kept across runs, since a new one would make every entry sent"
+                    + " under it unopenable, so it is not replaced: restore it, or delete it to start a new key.");
         }
     }
 
@@ -159,6 +182,9 @@ public final class KeygenMain {
             System.err.println("keygen: " + e.getMessage());
             System.err.println("usage: keygen [outDir] [service...] [--tls-only name...] [--org name]");
             System.exit(2);
+        } catch (IllegalStateException e) {
+            System.err.println("keygen: " + e.getMessage());
+            System.exit(1);
         }
     }
 }
