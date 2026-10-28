@@ -14,9 +14,9 @@ import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV2, signStampV3, signingBytesV3,
-  utf8, verifyChainOffline, verifyChainV3, verifyKeyring,
+  utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
 } from "@paztport/core";
-import type { InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, StampV3 } from "@paztport/core";
+import type { InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, StampV3 } from "@paztport/core";
 import { bindMcpCall, mcpReceiver } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
@@ -376,6 +376,26 @@ export function buildVectorsV3(): Record<string, unknown> {
   const signedKeyring = keyringCase("signed", { session: "session", pi: "pi" }, undefined, true);
   const keyring = [signedKeyring, keyringCase("tampered", { session: "session", pi: "gateway" }, signedKeyring.sig, false)];
 
+  // The server's reply certificate for mcp-entry, and forms of it that must not verify under the server pin.
+  const CERT_NOT_AFTER = 1_798_761_600_000;
+  const issueCert = (policy: KeyName, notAfter: number, signer: KeyName): ReplyCert =>
+    issueReplyCert(keys[policy].pub, "mcp-entry", keys["mcp-entry"].pub, notAfter, keys[signer].priv);
+  const certCase = (name: string, signer: KeyName, cert: ReplyCert, verifies: boolean) => {
+    check(`reply certificate ${name}`, verifyReplyCert(cert, keys["server-policy"].pub), verifies);
+    return { name, signer, pin: "server-policy", cert, signingBytes: encode(replyCertSigningBytes(cert.policy, cert.svc, cert.key, cert.notAfter)), verifies };
+  };
+  const signedCert = issueCert("server-policy", CERT_NOT_AFTER, "server-policy");
+  const otherPolicyCert = issueCert("client-policy", CERT_NOT_AFTER, "client-policy");
+  check("reply certificate under its own policy key", verifyReplyCert(otherPolicyCert, keys["client-policy"].pub), true);
+  const replyCert = [
+    certCase("signed", "server-policy", signedCert, true),
+    certCase("tampered notAfter", "server-policy", { ...signedCert, notAfter: CERT_NOT_AFTER + 1 }, false),
+    certCase("signed by another policy key", "client-policy", issueCert("server-policy", CERT_NOT_AFTER, "client-policy"), false),
+    certCase("names another policy key", "client-policy", otherPolicyCert, false),
+    certCase("an extra field is ignored", "server-policy", { ...signedCert, note: "not signed" } as ReplyCert, true),
+    certCase("largest notAfter", "server-policy", issueCert("server-policy", Number.MAX_SAFE_INTEGER, "server-policy"), true),
+  ];
+
   return {
     about: ABOUT,
     keys,
@@ -387,6 +407,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     keyring,
     verify,
     offline,
+    replyCert,
   };
 }
 

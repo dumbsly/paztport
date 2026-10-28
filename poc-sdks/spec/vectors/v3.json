@@ -2566,5 +2566,92 @@
         "legacy": false
       }
     }
+  ],
+  "replyCert": [
+    {
+      "name": "signed",
+      "signer": "server-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600000,
+        "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDAsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": true
+    },
+    {
+      "name": "tampered notAfter",
+      "signer": "server-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600001,
+        "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDEsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": false
+    },
+    {
+      "name": "signed by another policy key",
+      "signer": "client-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600000,
+        "sig": "4v7j6tNzIUf3gYMoGp-nnD3PKcMVPJiJ1S8BJKiT0wC1uDAXXwRM-N0rAhZqtgpKFNz6ISNnU3WbXOXrF4gEBw"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDAsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": false
+    },
+    {
+      "name": "names another policy key",
+      "signer": "client-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600000,
+        "sig": "LxWuihlEdf1k3B6mLf1ZY1ntM9Vriqcfzv1cJZQ7n_EZPVUU1OGYD4yNyuQUDqZEk39qeWF8OZSKJx_Ispg4Cg"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDAsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFmUU5aVG1QalQ5X2czdmV0UWwyQmlMSVFSang1MlNhenlSb1hoN1YyMjdjIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": false
+    },
+    {
+      "name": "an extra field is ignored",
+      "signer": "server-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600000,
+        "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA",
+        "note": "not signed"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjE3OTg3NjE2MDAwMDAsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": true
+    },
+    {
+      "name": "largest notAfter",
+      "signer": "server-policy",
+      "pin": "server-policy",
+      "cert": {
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "svc": "mcp-entry",
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 9007199254740991,
+        "sig": "1DDBrNvubdaWBCdS6kn1ElmNbsa-FwCTeJRq7ARR2fq6onCt90iER9L4E1d60Kjdps4YIW8Z4OswscnX8sg4DA"
+      },
+      "signingBytes": "cGF6dHBvcnQtcmVwbHktY2VydAp7ImtleSI6Ik1Db3dCUVlESzJWd0F5RUFIQnZnVGRfaGxCYWtZNURRLWpMZ1lzOHVyMVlJeEowQWRUd2JBTXBGSmx3Iiwibm90QWZ0ZXIiOjkwMDcxOTkyNTQ3NDA5OTEsInBvbGljeSI6Ik1Db3dCUVlESzJWd0F5RUFPZHlveExRUk5tbEdiRmtQblY3Nnp2aEtvVDZkVm10QzNvNlpVQlJyQi1JIiwic3ZjIjoibWNwLWVudHJ5In0",
+      "verifies": true
+    }
   ]
 }

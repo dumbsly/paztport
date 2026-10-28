@@ -40,9 +40,9 @@ has one, the authenticated peer.
   owner-aware rule) and `ContentLabel`.
 - **Sessions.** `Sessions`: the handshake as messages, with no transport.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
-  `Jcs`, `KeyringFile` (the signed `keyring.json`), `KeyFiles`, `SignedRoot`, the
-  Merkle tree and `PolicyBuilder`, `Routes`, and `EventVerifier` for events sent to
-  a responder.
+  `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
+  `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and
+  `EventVerifier` for events sent to a responder.
 - **v1**, kept for `v1.json` only: `StampV1`, `PathChainV1`, `VerifierV1` and the
   rest carry a `V1` suffix.
 
@@ -252,4 +252,7 @@ Private keys and the boundary key are written owner-read/write only.
 ## tools/policy-tool
 
 One-shot job: `paths.yaml` → salted tree → signed `root.json` plus one proof
-bundle per service.
+bundle per service. When `PAZTPORT_REPLY_CERT_SVC` names a service it also writes
+`reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key in
+`keysDir/keyring.json`, valid for `PAZTPORT_REPLY_CERT_DAYS` days (default 7). It refuses, writing nothing, a
+keyring that is not signed by its policy key or has no key for the service.

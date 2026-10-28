@@ -7,8 +7,8 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { decode, sign, utf8, verify, verifyKeyring, verifyProof, verifyRoot } from "@paztport/core";
-import type { MerkleProof, ProofBundle, SignedKeyring, SignedRoot } from "@paztport/core";
+import { decode, sign, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot } from "@paztport/core";
+import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -135,6 +135,121 @@ describe("policy-tool CLIs", () => {
     expect(readFileSync(p, "utf8")).toContain("services");
     // Only the generated keyring is signed; an old local demo keyring is not, and must not fail a local run.
     if (named !== undefined) expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
+  });
+
+  /** Keys for gateway and orders plus a paths.yaml, for the reply certificate cases. */
+  function certWorld(): { keys: string; yamlPath: string; policyArgs: (out: string, ...extra: string[]) => string[] } {
+    const keys = tmp();
+    expect(run(keygen, ["--out", keys, "--services", "gateway,orders"]).status).toBe(0);
+    const yamlPath = join(keys, "paths.yaml");
+    writeFileSync(yamlPath, "paths:\n  - [gateway, orders]\n");
+    const policyArgs = (out: string, ...extra: string[]) => ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out, ...extra];
+    return { keys, yamlPath, policyArgs };
+  }
+
+  it("policyIssuesAReplyCertForTheKeyringsKey", () => {
+    const { keys, policyArgs } = certWorld();
+    const out = tmp();
+    const before = Date.now();
+    const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", join(keys, "keyring.json"), "--reply-cert-days", "30"));
+    const after = Date.now();
+    expect(r.status, r.stderr).toBe(0);
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const cert = readJson<ReplyCert>(join(out, "reply-cert.json"));
+    expect(Object.keys(cert)).toEqual(["policy", "svc", "key", "notAfter", "sig"]);
+    expect(verifyReplyCert(cert, ring.policy)).toBe(true);
+    expect(cert.svc).toBe("orders");
+    expect(cert.key).toBe(ring.services.orders);
+    const day = 86_400_000;
+    expect(cert.notAfter).toBeGreaterThanOrEqual(before + 30 * day);
+    expect(cert.notAfter).toBeLessThanOrEqual(after + 30 * day);
+    expect(existsSync(join(out, "root.json"))).toBe(true);
+    // Only the service and notAfter are printed, never key material.
+    expect(r.stdout).toContain("orders");
+    expect(r.stdout).toContain(String(cert.notAfter));
+    for (const secret of [ring.policy, ring.services.orders!, cert.sig, readKey(join(keys, "policy.key"))]) {
+      expect(r.stdout + r.stderr).not.toContain(secret);
+    }
+  });
+
+  it("policyReplyCertDefaultsToSevenDays", () => {
+    const { keys, policyArgs } = certWorld();
+    const out = tmp();
+    const before = Date.now();
+    expect(run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", join(keys, "keyring.json"))).status).toBe(0);
+    const cert = readJson<ReplyCert>(join(out, "reply-cert.json"));
+    expect(cert.notAfter - before).toBeGreaterThanOrEqual(7 * 86_400_000);
+    expect(cert.notAfter - before).toBeLessThan(7 * 86_400_000 + 60_000);
+  });
+
+  it("policyWritesNoReplyCertUnlessAsked", () => {
+    const { policyArgs } = certWorld();
+    const out = tmp();
+    expect(run(policy, policyArgs(out)).status).toBe(0);
+    expect(existsSync(join(out, "reply-cert.json"))).toBe(false);
+  });
+
+  it("policyRefusesAKeyringThatDoesNotVerify", () => {
+    const { keys, policyArgs } = certWorld();
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const cases: Record<string, unknown> = {
+      tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
+      unsigned: { services: ring.services, policy: ring.policy },
+      "bad signature": { ...ring, sig: "!" },
+    };
+    for (const [name, bad] of Object.entries(cases)) {
+      const path = join(tmp(), "keyring.json");
+      writeFileSync(path, JSON.stringify(bad));
+      const out = tmp();
+      const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", path));
+      expect(r.status, name).not.toBe(0);
+      expect(r.stderr, name).toContain("keyring");
+      expect(readdirSync(out), name).toEqual([]);
+    }
+  });
+
+  it("policyRefusesAKeyringOfAnotherPolicyKey", () => {
+    const { policyArgs } = certWorld();
+    const { keys: otherKeys } = certWorld();
+    const out = tmp();
+    const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", join(otherKeys, "keyring.json")));
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("policy key");
+    expect(readdirSync(out)).toEqual([]);
+  });
+
+  it("policyRefusesAServiceTheKeyringLacks", () => {
+    const { keys, policyArgs } = certWorld();
+    // Names every plain object inherits are not services either.
+    for (const svc of ["payment", "constructor", "__proto__", "toString"]) {
+      const out = tmp();
+      const r = run(policy, policyArgs(out, "--reply-cert-svc", svc, "--keyring", join(keys, "keyring.json")));
+      expect(r.status, svc).not.toBe(0);
+      expect(r.stderr, svc).toContain("no key for service");
+      expect(readdirSync(out), svc).toEqual([]);
+    }
+  });
+
+  it("policyReplyCertBadArgsExitNonZero", () => {
+    const { keys, policyArgs } = certWorld();
+    const ring = join(keys, "keyring.json");
+    for (const extra of [
+      ["--reply-cert-svc", "orders"],
+      ["--keyring", ring],
+      ["--reply-cert-days", "7"],
+      ["--keyring", ring, "--reply-cert-days", "7"],
+      ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "0"],
+      ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "1.5"],
+      ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "x"],
+      ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "-1"],
+      ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "1e300"],
+    ]) {
+      const out = tmp();
+      const r = run(policy, policyArgs(out, ...extra));
+      expect(r.status, extra.join(" ")).toBe(2);
+      expect(r.stderr, extra.join(" ")).toContain("Usage");
+      expect(readdirSync(out), extra.join(" ")).toEqual([]);
+    }
   });
 
   it("badArgsExitNonZero", () => {

@@ -1,15 +1,17 @@
 # Wire format
 
 This file defines the bytes: encodings, keys, stamps, chains, bindings, the Merkle tree, the signed root,
-the signed keyring and the proof bundles. [verification.md](verification.md) says how a receiver checks
-them, and [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
+the signed keyring, the reply certificate and the proof bundles. [verification.md](verification.md) says how a
+receiver checks them, and [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and
+influence.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
 [Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
 [The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [The signed root](#the-signed-root) ·
-[The signed keyring](#the-signed-keyring) · [Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
+[The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
+[Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
 
 ## Encodings
 
@@ -39,8 +41,9 @@ side writes (in the agents demo, its setup script). Each holds one value, and re
 | File | Holds | Secret |
 |---|---|---|
 | `<svc>.key` | The service's private key | yes |
-| `policy.key` | The policy private key, which signs the root and the keyring | yes |
+| `policy.key` | The policy private key, which signs the root, the keyring and reply certificates | yes |
 | `keyring.json` | [The signed keyring](#the-signed-keyring) | no |
+| `reply-cert.json` | [A reply certificate](#the-reply-certificate) for one service's key, written only when a policy tool is asked for one | no |
 | `root.json` | [The signed root](#the-signed-root) | no |
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
@@ -380,6 +383,52 @@ fails.
 
 Both SDKs' keygens write signed keyrings.
 
+## The reply certificate
+
+`reply-cert.json` is the policy key's statement that `key` is service `svc`'s key until `notAfter`. It lets that
+key sign what the policy key would otherwise have to sign online, while the policy key stays offline:
+
+```json
+{ "policy": "<policy public key>", "svc": "<service>", "key": "<that service's public key>", "notAfter": <integer>, "sig": "<b64url>" }
+```
+
+`sig` is the policy key's Ed25519 signature over:
+
+```
+utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "policy": policy, "svc": svc }) )
+```
+
+`notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], so it is written as
+plain decimal digits in the signed bytes. A reader MUST refuse a certificate that is not a JSON object, whose
+`policy`, `svc`, `key` or `sig` is missing or not a string, or whose `notAfter` is missing or not an integer in
+that range (a string, a fraction, a negative number or a larger one). A reader MAY also refuse an integer value
+written with a fraction part or an exponent (`1.0`, `1e3`): the Java SDK refuses it, and the TypeScript SDK
+reads it as the integer. Any other field is ignored and not signed.
+
+A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
+under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
+nothing about time, so whoever relies on a certificate MUST check both. The prefix keeps a certificate signature
+from being read as any other message the policy key signs.
+
+It expires because the policy key is offline. Nothing the policy key signed earlier says whether it is still
+current: a key retired from the keyring is still listed in every older keyring, and those still verify. A
+certificate is short-lived instead, so retiring a key means not issuing it another certificate, and once its
+last certificate has expired nothing it signs is accepted. The lifetime is the revocation delay, so deployments
+SHOULD keep it short, days rather than months. Both policy tools default to 7 days.
+
+The policy owner MUST issue a certificate only after checking that `key` is `svc`'s key in its current keyring,
+signed by the same policy key, since that is what the certificate vouches for. Both policy tools check it, and
+refuse, writing nothing, a keyring that does not verify under the policy key or has no key for the service.
+The Java policy tool issues a certificate when `PAZTPORT_REPLY_CERT_SVC` names the service, valid for
+`PAZTPORT_REPLY_CERT_DAYS` days. The TypeScript one takes
+`--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]`. Both print only the service and
+`notAfter`.
+
+`v3.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
+`server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
+and one that names `client-policy`, all of which fail, one with an extra field, which is ignored, and one with
+the largest `notAfter`.
+
 ## Proof bundles, and who holds what
 
 `proofs-<svc>.json` holds the proofs a service attaches to the requests it sends:
@@ -393,7 +442,7 @@ the proof travels with.
 
 | Party | Holds | Never holds |
 |---|---|---|
-| Policy owner | The policy private key, offline. It signs the root and the keyring. | |
+| Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
 | Each service | Its own private key, and its own proof bundle. | Other services' keys, other routes' salts. |
 | Each verifier | The pinned policy public key, the signed root and the signed keyring. | The tree, the route list or any salt but those in the proofs it is shown. |
 | The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. | Its map. |

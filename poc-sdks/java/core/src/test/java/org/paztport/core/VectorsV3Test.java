@@ -4,6 +4,7 @@
 package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
@@ -108,6 +109,25 @@ class VectorsV3Test {
             KeyringFile file = new KeyringFile(svcs, policy, signed.get("sig").asText());
             String pin = vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText();
             assertEquals(c.get("verifies").asBoolean(), file.verifies(pin), name);
+        }
+    }
+
+    @Test
+    void replyCert() {
+        JsonNode cases = vectors.get("replyCert");
+        assertTrue(cases != null && cases.size() > 0, "replyCert section");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            ReplyCert cert = ReplyCert.parse(c.get("cert"));
+            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
+                    ReplyCert.signingBytes(cert.policy(), cert.svc(), cert.key(), cert.notAfter())), name);
+            String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
+            assertEquals(c.get("verifies").asBoolean(), cert.verifies(pin), name);
+            // Every certificate that verifies is reproduced byte for byte by issuing it.
+            if (c.get("verifies").asBoolean()) {
+                assertEquals(cert.sig(), ReplyCert.issue(cert.policy(), cert.svc(), cert.key(), cert.notAfter(),
+                        priv(c.get("signer").asText())).sig(), name);
+            }
         }
     }
 

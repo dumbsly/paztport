@@ -20,9 +20,10 @@ writes one and names it, so there it always runs.
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers,
 canonical JSON, v1, v2 and v3 stamps and chains, the salted Merkle tree, signed roots
-and keyrings, policy building, reason codes, the replay cache, prompt binding, influence and
-the owner-aware influence rule, sessions, local tool rules and the verdict for a local tool
-call, local steps, the live v1 verifier and the live v3 chain verifier (`verifyChainV3`).
+and keyrings, reply certificates, policy building, reason codes, the replay cache, prompt
+binding, influence and the owner-aware influence rule, sessions, local tool rules and the
+verdict for a local tool call, local steps, the live v1 verifier and the live v3 chain
+verifier (`verifyChainV3`).
 Offline verification of a recorded run (`verifyChainOffline`) is here too, and shares its
 checks with the live verifier; the agents demo's `npm run verify` uses it.
 
@@ -68,4 +69,6 @@ opens an attested session only for a client policy key in its `pinnedClientKeys`
 `@paztport/policy-tool`: two command-line tools. `paztport-keygen` writes a
 keypair per service, a policy keypair and a keyring signed by the policy key;
 `paztport-policy` turns a `paths.yaml` into a signed root and one proof bundle per
-service.
+service, and with `--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]` also writes
+`reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key. It
+refuses, writing nothing, a keyring that is not signed by its policy key or has no key for the service.

@@ -7,13 +7,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, canonicalize, commitInfluence, decode, encode, keyringSigningBytes, normalizeInfluence, publicWriteRefused, sign, signingBytesV3,
-  utf8, verifyChainOffline, verifyChainV3, verifyKeyring,
+  NonceCache, canonicalize, commitInfluence, decode, encode, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
+  replyCertSigningBytes, sign, signingBytesV3, utf8, verifyChainOffline, verifyChainV3, verifyKeyring, verifyReplyCert,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, V3Config, V3Input } from "@paztport/core";
 import { buildVectorsV3 } from "./vectors-v3-export.ts";
 
-type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "verify" | "offline";
+type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "verify" | "offline" | "replyCert";
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(
   readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"),
 );
@@ -70,6 +70,16 @@ describe("v3 known-answer vectors", () => {
   it("keyring", () => { for (const k of committed.keyring) expect(verifyKeyring(k.signed, committed.keys[k.policyKey].pub)).toBe(k.verifies); });
   it.each(committed.verify.map((c: any): [string, any] => [c.name, c]))("verify %s", (_n, c: any) => expect(replayLive(committed, c)).toEqual(c.expected));
   it.each(committed.offline.map((c: any): [string, any] => [c.name, c]))("offline %s", (_n, c: any) => expect(replayOffline(committed, c)).toEqual(c.expected));
+
+  it.each(committed.replyCert.map((c: any): [string, any] => [c.name, c]))("reply certificate %s", (_n, c: any) => {
+    const { policy, svc, key, notAfter, sig } = c.cert;
+    expect(isReplyCert(c.cert)).toBe(true);
+    expect(encode(replyCertSigningBytes(policy, svc, key, notAfter))).toBe(c.signingBytes);
+    expect(encode(utf8("paztport-reply-cert\n" + canonicalize({ key, notAfter, policy, svc })))).toBe(c.signingBytes);
+    expect(verifyReplyCert(c.cert, committed.keys[c.pin].pub)).toBe(c.verifies);
+    // Every certificate that verifies is reproduced byte for byte by issuing it.
+    if (c.verifies) expect(issueReplyCert(policy, svc, key, notAfter, committed.keys[c.signer].priv).sig).toBe(sig);
+  });
 
   it("keyring signing bytes and named services match the signed keyring", () => {
     for (const k of committed.keyring) {
