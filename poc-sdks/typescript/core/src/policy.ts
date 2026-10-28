@@ -32,10 +32,12 @@ function randomSlots(n: number, depth: number): number[] {
   return all.slice(0, n);
 }
 
+/** A fresh tree over `routes` and its root signed in the new form until `notAfter`, with each service's proof bundle; the caller must currently allow every route, and throws on a route with no caller or a bad `notAfter`. */
 export function buildPolicy(
   routes: string[][],
   depth: number,
   policyPrivateKey: string,
+  notAfter: number,
 ): { signedRoot: SignedRoot; bundles: Record<string, ProofBundle> } {
   const routeStrings = routes.map((r) => routeOf(r));
   const rootId = newRootId();
@@ -45,7 +47,7 @@ export function buildPolicy(
     rootId,
     randomSlots(routeStrings.length, depth),
   );
-  const signedRoot = signRoot(tree.root, rootId, policyPrivateKey);
+  const signedRoot = signRoot(tree.root, rootId, policyPrivateKey, notAfter);
 
   const proofsByService = new Map<string, Record<string, MerkleProof>>();
   for (const route of routes) {

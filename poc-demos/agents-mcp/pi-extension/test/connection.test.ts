@@ -9,6 +9,7 @@ import { generateKeyPair } from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection, type CallOutcome } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
+import { EvidenceLog } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { RunState } from "../src/runs.ts";
@@ -125,6 +126,34 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(out.details.influence["third-party"]).toBe(1);
     expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "third-party", src: "server:github" })]);
     expect(records(log)).toEqual([expect.objectContaining({ tool: "list_issues", verdict: "ALLOWED", rid: c.runs.current()!.rid, callId: "toolu_A1" })]);
+  });
+
+  it("theHandshakeSendsTheKeyringWindowAndGetsTheServers", async () => {
+    // a fresh setup: new-form material on both sides, each window carried with what it covers
+    const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
+    const c = ctx();
+    const conn = new ServerConnection(
+      { id: "github", command: process.execPath, args: githubArgs(demo, "enforce", join(tmp, `outcome-${n++}.jsonl`)), attested: true, pin: join(demo, "client/server-policy.pub") },
+      c.mode, c.material, c.influence, c.runs, c.events, Date.now, new EvidenceLog(evidencePath),
+    );
+    opened.push(conn);
+    await conn.connect();
+    expect(conn.status()).toBe("attested");
+    const [session] = records(evidencePath).filter((r) => r.type === "session");
+    expect(material.keyringNotAfter).toEqual(expect.any(Number));
+    expect(session!.request.clientKeyringNotAfter).toBe(material.keyringNotAfter);
+    expect(session!.request.clientRoot).toEqual(material.signedRoot);
+    expect(session!.request.clientRoot.notAfter).toEqual(expect.any(Number));
+    expect(session!.reply.serverKeyringNotAfter).toEqual(expect.any(Number));
+    expect(session!.reply.serverRoot.notAfter).toEqual(expect.any(Number));
+  });
+
+  it("aTamperedKeyringWindowMakesTheSessionUnsafe", async () => {
+    // the server checks the keyring signature over the window the request names
+    const c = ctx("enforce", { ...material, keyringNotAfter: material.keyringNotAfter! + 1 });
+    const { conn } = await github(c);
+    expect(conn.status()).toBe("unsafe");
+    expect(events(c)).toContainEqual(expect.objectContaining({ type: "session", server: "github", status: "unsafe", reason: "UNSAFE" }));
   });
 
   it("scenarioA_leakRefusedByServer", async () => {

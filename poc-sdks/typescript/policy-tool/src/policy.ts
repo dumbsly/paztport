@@ -7,7 +7,7 @@ import { parseArgs } from "node:util";
 import {
   buildPolicy, DEFAULT_DEPTH, issueReplyCert, keyPairMatches, parseLocalRules, rulesHash, rulesRouteNodes, verifyKeyring, verifyReplyCert,
 } from "@paztport/core";
-import type { ReplyCert } from "@paztport/core";
+import type { ReplyCert, SignedKeyring } from "@paztport/core";
 import { parse } from "yaml";
 import { readKey, readKeyring, writeJson } from "./files.ts";
 
@@ -20,6 +20,8 @@ const USAGE =
 
 const DAY_MS = 86_400_000;
 const DEFAULT_REPLY_CERT_DAYS = 7;
+/** How long a root this tool signs stays valid: seven days. */
+const DEFAULT_ROOT_DAYS = 7;
 
 /** Route node names become path segments, file names and "/"-joined routes: keep them unambiguous. */
 function validNode(n: string): boolean {
@@ -55,7 +57,8 @@ function replyCert(keyringPath: string, svc: string, notAfter: number, privateKe
   } catch {
     return refuse(`${keyringPath} is not a keyring`);
   }
-  if (typeof ring.sig !== "string" || !verifyKeyring({ policy: ring.policy, services: ring.services, sig: ring.sig }, ring.policy)) {
+  // read whole, so the signature is checked in the keyring's own form, over its notAfter when it has one
+  if (typeof ring.sig !== "string" || !verifyKeyring(ring as SignedKeyring, ring.policy)) {
     return refuse(`${keyringPath} is not signed by its policy key`);
   }
   if (!keyPairMatches(privateKey, ring.policy)) return refuse(`${keyringPath} is not signed by this policy key (--policy-key)`);
@@ -136,14 +139,15 @@ function main(): void {
   // Checked before anything is written, so a refused certificate leaves no partial output.
   const cert = certSvc === undefined ? undefined : replyCert(keyringPath!, certSvc, notAfter, privateKey);
 
-  const { signedRoot, bundles } = buildPolicy(allRoutes, depth, privateKey);
+  // the routes are the ones the paths file allows now
+  const { signedRoot, bundles } = buildPolicy(allRoutes, depth, privateKey, Date.now() + DEFAULT_ROOT_DAYS * DAY_MS);
   if (rules !== undefined) writeJson(join(out, "rules.json"), rules);
   writeJson(join(out, "root.json"), signedRoot);
   for (const bundle of Object.values(bundles)) {
     writeJson(join(out, `proofs-${bundle.service}.json`), bundle);
   }
   if (cert !== undefined) writeJson(join(out, "reply-cert.json"), cert);
-  console.log(`policy: wrote root ${signedRoot.rootId} and per-service bundles to ${out}`);
+  console.log(`policy: wrote root ${signedRoot.rootId}, notAfter ${signedRoot.notAfter} (${new Date(signedRoot.notAfter!).toISOString()}), and per-service bundles to ${out}`);
   if (cert !== undefined) {
     console.log(`policy: wrote reply certificate for ${cert.svc}, notAfter ${cert.notAfter} (${new Date(cert.notAfter).toISOString()})`);
   }

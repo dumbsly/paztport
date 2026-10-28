@@ -8,6 +8,9 @@ import { writeJson, writePrivate, type Keyring } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c";
 
+/** How long a keyring keygen writes stays valid: seven days. */
+const KEYRING_LIFETIME_MS = 7 * 86_400_000;
+
 function main(): void {
   let out: string | undefined;
   let services: string | undefined;
@@ -39,8 +42,9 @@ function main(): void {
   }
   const policy = generateKeyPair();
   writePrivate(join(out, "policy.key"), policy.privateKey);
-  const signed = signKeyring(keys, policy.publicKey, policy.privateKey);
-  const ring: Keyring = { services: signed.services, policy: signed.policy, sig: signed.sig };
+  // the policy key has just made every listed key, so each is that service's current key
+  const signed = signKeyring(keys, policy.publicKey, policy.privateKey, Date.now() + KEYRING_LIFETIME_MS);
+  const ring: Keyring = { services: signed.services, policy: signed.policy, sig: signed.sig, notAfter: signed.notAfter };
   writeJson(join(out, "keyring.json"), ring);
   console.log(`keygen: wrote ${names.length} service keys, policy key and keyring to ${out}`);
 }

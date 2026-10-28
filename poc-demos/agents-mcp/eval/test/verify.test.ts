@@ -290,6 +290,31 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(results(stripped.items, "session")).toEqual(["BAD_SESSION"]);
   });
 
+  it("aFreshSetupsHandshakeIsNewFormOnBothSidesAndVerifies", () => {
+    const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
+    expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
+    expect(s.request.clientRoot.notAfter).toEqual(expect.any(Number));
+    expect(s.reply.serverKeyringNotAfter).toEqual(expect.any(Number));
+    expect(s.reply.serverRoot.notAfter).toEqual(expect.any(Number));
+    const r = verifyEvidence(write(genuine));
+    expect(r.ok).toBe(true);
+    expect(results(r.items, "session")).toEqual(["OK"]);
+    // a window moved in the record fails the keyring or root signature it is covered by
+    const session = (rs: any[]) => rs.find((x) => x.type === "session");
+    for (const [what, edit] of [
+      ["client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter += 1; }],
+      ["client keyring dropped", (rs: any[]) => { delete session(rs).request.clientKeyringNotAfter; }],
+      ["client root", (rs: any[]) => { session(rs).request.clientRoot.notAfter += 1; }],
+      ["server keyring", (rs: any[]) => { session(rs).reply.serverKeyringNotAfter += 1; }],
+      ["server root", (rs: any[]) => { session(rs).reply.serverRoot.notAfter += 1; }],
+      ["malformed client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter = "x"; }],
+    ] as [string, (rs: any[]) => void][]) {
+      const bad = verifyEvidence(write(genuine, edit));
+      expect(results(bad.items, "session"), what).toEqual(["BAD_SESSION"]);
+      expect(bad.ok, what).toBe(false);
+    }
+  });
+
   it("aCallRecordedAfterTheCertificatesNotAfterIsNotAttested", () => {
     // calls stamped at the certificate's notAfter and 1 ms after it, both signed by the client; each with its own
     // origin at that time, as a run started then would have, so the run's age window is not what refuses them
@@ -859,10 +884,34 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       const malformed = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").keyringSig = sig; }));
       expect(results(malformed.items, "client"), String(sig)).toEqual(["BAD_CLIENT"]);
     }
-    // a client record from before keyrings were signed has no keyringSig, and still verifies
-    const legacy = verifyEvidence(write(localLines, (rs) => { delete rs.find((x) => x.type === "client").keyringSig; }));
+    // a client record from before keyrings were signed has no keyringSig (nor a window), and still verifies
+    const legacy = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); delete c.keyringSig; delete c.keyringNotAfter; }));
     expect(results(legacy.items, "client")).toEqual(["OK"]);
     expect(legacy.ok).toBe(true);
+    // but a window with no signature to cover it is no record any writer made
+    const unsigned = verifyEvidence(write(localLines, (rs) => { delete rs.find((x) => x.type === "client").keyringSig; }));
+    expect(results(unsigned.items, "client")).toEqual(["BAD_CLIENT"]);
+  });
+
+  it("aNewFormClientRecordVerifiesAndItsWindowsAreSigned", () => {
+    const client = (rs: any[]) => rs.find((x) => x.type === "client");
+    const rec = client(localLines.map((l) => JSON.parse(l)));
+    expect(rec.keyringNotAfter).toEqual(expect.any(Number));
+    expect(rec.signedRoot.notAfter).toEqual(expect.any(Number));
+    expect(results(verifyEvidence(write(localLines)).items, "client")).toEqual(["OK"]);
+    for (const [what, edit] of [
+      ["keyring window moved", (rs: any[]) => { client(rs).keyringNotAfter += 1; }],
+      ["keyring window dropped", (rs: any[]) => { delete client(rs).keyringNotAfter; }],
+      ["keyring window not an integer", (rs: any[]) => { client(rs).keyringNotAfter = 1.5; }],
+      ["keyring window null", (rs: any[]) => { client(rs).keyringNotAfter = null; }],
+      ["root window moved", (rs: any[]) => { client(rs).signedRoot.notAfter += 1; }],
+      ["root window not an integer", (rs: any[]) => { client(rs).signedRoot.notAfter = "x"; }],
+      ["a session naming another window", (rs: any[]) => { rs.find((x) => x.type === "session").request.clientKeyringNotAfter += 1; }],
+    ] as [string, (rs: any[]) => void][]) {
+      const r = verifyEvidence(write(localLines, edit));
+      expect(results(r.items, "client"), what).toEqual(["BAD_CLIENT"]);
+      expect(results(r.items, "local").every((x) => x === "NO_CLIENT"), what).toBe(true);
+    }
   });
 
   it("proofsAreCheckedAgainstTheClientRoot", () => {

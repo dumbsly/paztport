@@ -44,6 +44,8 @@ const SERVER_ORIGINS = ["mcp-entry"];
 const CLIENT_POLICY = generateKeyPair();
 
 const DAY_MS = 86_400_000;
+/** When both sides' roots and keyrings stop being valid: 2100-01-01. */
+const NOT_AFTER = 4_102_444_800_000;
 
 type Certify = (p: { policy: { publicKey: string; privateKey: string }; keys: Record<string, string> }) => ReplyCert;
 
@@ -58,14 +60,15 @@ function serverMaterial(certify: Certify = CERTIFY_ENTRY): { policy: ServerPolic
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
-  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
+  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey, NOT_AFTER);
+  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey, NOT_AFTER);
   return {
     policy: {
       policyPublicKey: policy.publicKey,
       signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
       keyring: ring.services,
       keyringSig: ring.sig,
+      keyringNotAfter: ring.notAfter,
       replyCert: CERTIFY_ENTRY({ policy, keys: ring.services }),
       signedRoot,
       routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
@@ -86,13 +89,14 @@ function clientMaterial() {
   const policy = CLIENT_POLICY;
   const session = generateKeyPair();
   const pi = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy(TOOLS.map((t) => [...CLIENT_HOPS, `mcp:github.${t}`]), 8, policy.privateKey);
-  const ring = signKeyring({ session: session.publicKey, pi: pi.publicKey }, policy.publicKey, policy.privateKey);
+  const { signedRoot, bundles } = buildPolicy(TOOLS.map((t) => [...CLIENT_HOPS, `mcp:github.${t}`]), 8, policy.privateKey, NOT_AFTER);
+  const ring = signKeyring({ session: session.publicKey, pi: pi.publicKey }, policy.publicKey, policy.privateKey, NOT_AFTER);
   return {
     signedRoot,
     policyPublicKey: policy.publicKey,
     keyring: ring.services,
     keyringSig: ring.sig,
+    keyringNotAfter: ring.notAfter,
     sessionKey: session.privateKey,
     piKey: pi.privateKey,
     proofs: bundles["pi"]!.proofs,
@@ -163,15 +167,23 @@ describe("sessionRequest", () => {
     const client = clientMaterial();
     const a = sessionRequest(client);
     const b = sessionRequest({ ...client, signedRoot: null });
-    expect(Object.keys(a)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "nonce"]);
+    expect(Object.keys(a)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "clientKeyringNotAfter", "nonce"]);
     expect(a).toMatchObject({
       clientRoot: client.signedRoot,
       clientPolicyKey: client.policyPublicKey,
       clientKeyring: client.keyring,
       clientKeyringSig: client.keyringSig,
+      clientKeyringNotAfter: NOT_AFTER,
     });
+    expect(a.clientRoot!.notAfter).toBe(NOT_AFTER);
     expect(b.clientRoot).toBeNull();
     expect(a.nonce).not.toBe(b.nonce);
+  });
+  it("carriesTheKeyringWindowOnlyForANewFormKeyring", () => {
+    const { keyringNotAfter: _w, ...old } = clientMaterial();
+    const req = sessionRequest(old);
+    expect(Object.keys(req)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "nonce"]);
+    expect(Object.keys(sessionRequest({ ...old, keyringNotAfter: undefined }))).not.toContain("clientKeyringNotAfter");
   });
 });
 
@@ -192,6 +204,11 @@ describe("classifySessionReply", () => {
       undefined, null, "reply", {}, unsigned, { ...(c.raw as SessionReply), status: "open" },
       // a new field present (even null) must be well formed
       { ...(c.raw as SessionReply), serverKeyringSig: null }, { ...(c.raw as SessionReply), serverReplyCert: {} },
+      // so must a window, the keyring's or the root's: present but not an integer in range is never the old form
+      ...[1.5, -1, 2 ** 53, "x", null, true, {}, []].flatMap((bad) => [
+        { ...(c.raw as SessionReply), serverKeyringNotAfter: bad },
+        { ...(c.raw as SessionReply), serverRoot: { ...(c.raw as SessionReply).serverRoot, notAfter: bad } },
+      ]),
     ];
     for (const raw of bad) {
       expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
@@ -235,6 +252,35 @@ describe("classifySessionReply", () => {
       expect(classifySessionReply(rewrite(same), c.req, c.policy.policyPublicKey, "mcp-entry", at).status, same).toBe("attested");
     }
     expect(classifySessionReply(rewrite(`${digits}.5`), c.req, c.policy.policyPublicKey, "mcp-entry", at)).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
+  });
+  it("theServersKeyringAndRootWindowsAreCarriedAndJudgedByValue", () => {
+    const c = connected();
+    const at = Date.now();
+    expect(c.raw).toMatchObject({ serverKeyringNotAfter: NOT_AFTER, serverRoot: { notAfter: NOT_AFTER } });
+    const text = JSON.stringify(c.raw);
+    for (const field of ["serverKeyringNotAfter", "notAfter"]) {
+      const from = `"${field}":${NOT_AFTER}`;
+      expect(text, field).toContain(from);
+      for (const same of [`${NOT_AFTER}.0`, "4.1024448e12"]) {
+        const raw: unknown = JSON.parse(text.replace(from, `"${field}":${same}`));
+        expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", at).status, `${field} ${same}`).toBe("attested");
+      }
+    }
+  });
+  it("aMovedOrDroppedServerKeyringNotAfterIsABadSignature", () => {
+    const c = connected();
+    const { sig: _sig, ...body } = c.raw as SessionReply;
+    const entryKey = c.policy.signingKeys["mcp-entry"]!;
+    // re-signed by the entry key, so only the policy key's keyring signature can catch it
+    const moved = signSessionReply({ ...body, serverKeyringNotAfter: NOT_AFTER + 1 }, entryKey);
+    const { serverKeyringNotAfter: _w, ...noWindow } = body;
+    const dropped = signSessionReply(noWindow, entryKey);
+    for (const raw of [moved, dropped]) {
+      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    }
+    // and changed in transit, the reply's own signature fails
+    const tampered = { ...(c.raw as SessionReply), serverKeyringNotAfter: NOT_AFTER - 1 };
+    expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()).status).toBe("unsafe");
   });
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
     const expired = serverMaterial(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));

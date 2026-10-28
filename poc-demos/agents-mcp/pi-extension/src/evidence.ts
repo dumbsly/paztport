@@ -32,7 +32,10 @@ export type EvidenceRecord =
       keyring: Record<string, string>;
       /** The policy key's signature over the keyring (verify accepts an older record without one). */
       keyringSig: string;
+      /** The keyring's window, which `keyringSig` covers; present exactly when the keyring is in the new form. */
+      keyringNotAfter?: number;
       policyPublicKey: string;
+      /** The root whole, its own `notAfter` included when it is in the new form. */
       signedRoot: SignedRoot;
       rules: LocalRules | null;
       /** The proof for session/pi/rules:<rulesHash(rules)>; null when there are no rules. */
@@ -72,6 +75,7 @@ export function clientRecord(material: ClientMaterial): ClientRecord {
     type: "client",
     keyring: material.keyring,
     keyringSig: material.keyringSig,
+    ...(material.keyringNotAfter !== undefined ? { keyringNotAfter: material.keyringNotAfter } : {}),
     policyPublicKey: material.policyPublicKey,
     signedRoot: material.signedRoot,
     rules,

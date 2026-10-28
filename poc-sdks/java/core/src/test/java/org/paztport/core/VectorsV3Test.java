@@ -5,6 +5,7 @@ package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -150,6 +151,45 @@ class VectorsV3Test {
                         : SignedRoot.signOldForm(root.rootBytes(), root.rootId(), priv)).sig(), name);
             }
         }
+    }
+
+    /** The case named {@code name} in {@code section}. */
+    static JsonNode named(String section, String name) {
+        for (JsonNode c : vectors.get(section)) {
+            if (c.get("name").asText().equals(name)) {
+                return c;
+            }
+        }
+        throw new IllegalArgumentException(section + " has no case " + name);
+    }
+
+    /**
+     * The cases that tie the two readers' reading of a {@code notAfter} together: 2^53 is refused, and a value the
+     * file writes with a fraction reaches the strict reader as a floating-point number, which it reads by value as
+     * the integer the signature is over.
+     */
+    @Test
+    void notAfterJudgedByValue() {
+        String pinText = vectors.get("keys").get("client-policy").get("pub").asText();
+        PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinText));
+        JsonNode ringTooLarge = named("keyring", "notAfter 2^53");
+        assertEquals("9007199254740992", ringTooLarge.get("signed").get("notAfter").asText());
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(ringTooLarge.get("signed")));
+        JsonNode rootTooLarge = named("root", "notAfter 2^53");
+        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(rootTooLarge.get("signed")));
+
+        JsonNode ringWritten = named("keyring", "notAfter written 1798761600000.0").get("signed");
+        assertTrue(ringWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
+        KeyringFile ring = KeyringFile.parse(ringWritten);
+        assertEquals(1_798_761_600_000L, ring.notAfter());
+        assertTrue(ring.verifies(pinText));
+        assertEquals(named("keyring", "new form").get("sig").asText(), ring.sig());
+
+        JsonNode rootWritten = named("root", "notAfter written 1798761600000.0").get("signed");
+        assertTrue(rootWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
+        SignedRoot root = SignedRoot.parse(rootWritten);
+        assertEquals(1_798_761_600_000L, root.notAfter());
+        assertTrue(root.verify(pin));
     }
 
     /** Checks a case's {@code current} answers, if it has any, against {@code isCurrent}. */

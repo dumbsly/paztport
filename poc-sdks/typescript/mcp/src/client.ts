@@ -5,8 +5,10 @@ import {
   bindResult,
   commitInfluence,
   decode,
+  isNotAfter,
   isReplyCert,
   newNonce,
+  parseSignedRoot,
   routeOf,
   signStampV3,
   verifySessionReply,
@@ -62,11 +64,21 @@ function isStringMap(v: unknown): v is Record<string, string> {
   return isObject(v) && Object.values(v).every((x) => typeof x === "string");
 }
 
+/** Whether `v` reads as a signed root, a root `notAfter` that is not an integer in [0, 2^53 − 1] included. */
 function isSignedRoot(v: unknown): boolean {
-  return isObject(v) && typeof v.rootId === "string" && typeof v.root === "string" && typeof v.sig === "string";
+  try {
+    parseSignedRoot(v, "serverRoot");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
-/** The reply's shape; `serverKeyringSig` and `serverReplyCert` are optional, but each, when present (even as null), must be well formed. */
+/**
+ * The reply's shape; `serverKeyringSig`, `serverKeyringNotAfter` and `serverReplyCert` are optional, but each, when
+ * present (even as null), must be well formed: a window, the keyring's or the root's, that is not an integer in
+ * [0, 2^53 − 1] makes the reply malformed rather than old form.
+ */
 function isSessionReply(v: unknown): v is SessionReply {
   return (
     isObject(v) &&
@@ -74,6 +86,7 @@ function isSessionReply(v: unknown): v is SessionReply {
     typeof v.serverPolicyKey === "string" &&
     isStringMap(v.serverKeyring) &&
     (!Object.hasOwn(v, "serverKeyringSig") || typeof v.serverKeyringSig === "string") &&
+    (!Object.hasOwn(v, "serverKeyringNotAfter") || isNotAfter(v.serverKeyringNotAfter)) &&
     (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
     typeof v.nonce === "string" &&
     typeof v.sess === "string" &&
@@ -85,20 +98,23 @@ function isSessionReply(v: unknown): v is SessionReply {
 }
 
 /**
- * A client's paztport/session request: its signed root (null for none), policy key, keyring, the policy
- * key's signature over that keyring and a fresh nonce.
+ * A client's paztport/session request: its signed root (null for none), policy key, keyring, the policy key's
+ * signature over that keyring, the keyring's window as `clientKeyringNotAfter` when it has one, and a fresh nonce.
+ * `keyringNotAfter` must be the window `keyringSig` was made over, or the server finds the keyring unsigned.
  */
 export function sessionRequest(material: {
   signedRoot: SignedRoot | null;
   policyPublicKey: string;
   keyring: Record<string, string>;
   keyringSig: string;
+  keyringNotAfter?: number;
 }): SessionRequest {
   return {
     clientRoot: material.signedRoot,
     clientPolicyKey: material.policyPublicKey,
     clientKeyring: material.keyring,
     clientKeyringSig: material.keyringSig,
+    ...(material.keyringNotAfter !== undefined ? { clientKeyringNotAfter: material.keyringNotAfter } : {}),
     nonce: newNonce(),
   };
 }

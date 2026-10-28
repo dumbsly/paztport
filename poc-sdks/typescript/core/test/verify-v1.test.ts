@@ -7,7 +7,7 @@ import { decodeChainV1, encodeChainV1 } from "../src/chain.ts";
 import { concat, generateKeyPair, randomBytes, sha256, utf8 } from "../src/crypto.ts";
 import { buildTree, encodeProof } from "../src/merkle.ts";
 import { NonceCache } from "../src/nonce.ts";
-import { signRoot } from "../src/root.ts";
+import { signRootOldForm } from "../src/root.ts";
 import { signStampV1, type StampV1 } from "../src/stamp.ts";
 import { verifyV1, type V1Config } from "../src/verify-v1.ts";
 import { decode } from "../src/b64url.ts";
@@ -27,7 +27,7 @@ function world() {
   const search = generateKeyPair();
   const policy = generateKeyPair();
   const tree = buildTree(routes.map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
-  const signedRoot = signRoot(tree.root, "v1", policy.privateKey);
+  const signedRoot = signRootOldForm(tree.root, "v1", policy.privateKey);
   if (!verifyRoot(signedRoot, policy.publicKey)) throw new Error("bad root");
   const body = utf8('{"amount":100}');
   const bindToPayment = bindHttp("POST", "/pay", body);

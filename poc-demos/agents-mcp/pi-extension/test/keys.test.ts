@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, verifyKeyring, verifyProof, decode } from "@paztport/core";
+import { generateKeyPair, signKeyringOldForm, signRootOldForm, verifyKeyring, verifyProof, decode } from "@paztport/core";
 import { loadClientMaterial, readPin } from "../src/keys.ts";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -39,7 +39,11 @@ describe("loadClientMaterial", () => {
     expect(m.piKey).toBe(readFileSync(join(client, "pi.key"), "utf8").trim());
     expect(m.policyPublicKey).toBe(ring.policy);
     expect(m.keyring).toEqual(ring.services);
-    expect(m.signedRoot.rootId).toBe(json(join(client, "root.json")).rootId);
+    // the root whole, its notAfter included, and the keyring's window beside its signature
+    expect(m.signedRoot).toEqual(json(join(client, "root.json")));
+    expect(m.signedRoot.notAfter).toEqual(expect.any(Number));
+    expect(m.keyringNotAfter).toBe(ring.notAfter);
+    expect(m.keyringNotAfter).toEqual(expect.any(Number));
     const routes = Object.keys(m.proofs);
     expect(routes).toContain("session/pi/mcp:github.list_issues");
     expect(routes).toHaveLength(9);
@@ -48,13 +52,50 @@ describe("loadClientMaterial", () => {
     // least privilege: the root is checked with the policy public key alone, and setup-demo does not
     // leave the client policy private key behind
     expect(existsSync(join(client, "policy.key"))).toBe(false);
-    expect(Object.keys(m).sort()).toEqual(["keyring", "keyringSig", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
+    expect(Object.keys(m).sort()).toEqual(["keyring", "keyringNotAfter", "keyringSig", "piKey", "policyPublicKey", "proofs", "sessionKey", "signedRoot"]);
   });
 
   it("carriesTheKeyringSignature", () => {
     const m = loadClientMaterial(client);
     expect(m.keyringSig).toBe(json(join(client, "keyring.json")).sig);
-    expect(verifyKeyring({ policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig }, m.policyPublicKey)).toBe(true);
+    expect(verifyKeyring({ policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig, notAfter: m.keyringNotAfter! }, m.policyPublicKey)).toBe(true);
+  });
+
+  it("aKeyringOrRootWindowThatDoesNotVerifyIsRejected", () => {
+    const ringDir = copy();
+    const ring = json(join(ringDir, "keyring.json"));
+    writeFileSync(join(ringDir, "keyring.json"), JSON.stringify({ ...ring, notAfter: ring.notAfter + 1 }));
+    expect(() => loadClientMaterial(ringDir)).toThrow("keyring.json is not signed by its policy key");
+    const droppedDir = copy();
+    const { notAfter: _w, ...dropped } = ring;
+    writeFileSync(join(droppedDir, "keyring.json"), JSON.stringify(dropped));
+    expect(() => loadClientMaterial(droppedDir)).toThrow("keyring.json is not signed by its policy key");
+    const rootDir = copy();
+    const root = json(join(rootDir, "root.json"));
+    writeFileSync(join(rootDir, "root.json"), JSON.stringify({ ...root, notAfter: root.notAfter + 1 }));
+    expect(() => loadClientMaterial(rootDir)).toThrow("root.json is not signed by the keyring.json policy key");
+  });
+
+  it.each([1.5, -1, 2 ** 53, "x", null, true])("aWindowThatIsNotAnIntegerIsRefused %j", (bad) => {
+    const ringDir = copy();
+    writeFileSync(join(ringDir, "keyring.json"), JSON.stringify({ ...json(join(ringDir, "keyring.json")), notAfter: bad }));
+    expect(() => loadClientMaterial(ringDir)).toThrow("keyring.json notAfter must be an integer in [0, 2^53 - 1]");
+    const rootDir = copy();
+    writeFileSync(join(rootDir, "root.json"), JSON.stringify({ ...json(join(rootDir, "root.json")), notAfter: bad }));
+    expect(() => loadClientMaterial(rootDir)).toThrow("root.json.notAfter must be an integer in [0, 2^53 - 1]");
+  });
+
+  it("oldFormMaterialStillLoads", () => {
+    // nothing is refused for being in the old form yet: re-sign the same keys and tree in the old form
+    const dir = copy();
+    const policy = generateKeyPair();
+    const ring = json(join(dir, "keyring.json"));
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify(signKeyringOldForm(ring.services, policy.publicKey, policy.privateKey)));
+    const root = json(join(dir, "root.json"));
+    writeFileSync(join(dir, "root.json"), JSON.stringify(signRootOldForm(decode(root.root), root.rootId, policy.privateKey)));
+    const m = loadClientMaterial(dir);
+    expect(Object.hasOwn(m, "keyringNotAfter")).toBe(false);
+    expect(Object.hasOwn(m.signedRoot, "notAfter")).toBe(false);
   });
 
   it("anUnsignedKeyringNamesTheFix", () => {

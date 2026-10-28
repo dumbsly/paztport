@@ -12,7 +12,9 @@ import {
   NonceCache,
   NONCE_TTL_MS,
   ORIGIN_SVC,
+  parseSignedRoot,
   publicWriteRefused,
+  readNotAfter,
   sessionStatus,
   signSessionReply,
   signStampV3,
@@ -28,6 +30,7 @@ import {
   type ResponseAttestation,
   type SessionReply,
   type SessionRequest,
+  type SignedKeyring,
   type SignedRoot,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
@@ -43,8 +46,10 @@ export type ServerPolicy = {
   /** Each hop's private key, by service name. */
   signingKeys: Record<string, string>;
   keyring: Record<string, string>;
-  /** The policy key's signature over `keyring`. */
+  /** The policy key's signature over `keyring`, over `keyringNotAfter` too when it is set. */
   keyringSig: string;
+  /** The keyring's window, set exactly when the keyring is in the new form; replies carry it as `serverKeyringNotAfter`. */
+  keyringNotAfter?: number;
   /** The policy key's certificate for the entry's key; checkServerPolicy refuses one that is not for `hops[0]`'s keyring key or has expired. */
   replyCert: ReplyCert;
   signedRoot: SignedRoot;
@@ -96,40 +101,53 @@ function stringMap(v: Record<string, unknown>, what: string): Record<string, str
   return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
 }
 
+/**
+ * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A present
+ * `clientKeyringNotAfter` or root `notAfter` that is not an integer in [0, 2^53 − 1] (null included) is malformed,
+ * never absent: read as absent, a damaged window would pass for the old form.
+ */
 function parseSessionRequest(params: unknown): SessionRequest {
   if (!isObject(params)) {
     throw new Error("session request must be an object");
   }
   let clientRoot: SignedRoot | null = null;
   if (params.clientRoot !== null) {
-    const r = params.clientRoot;
-    if (!isObject(r)) {
+    if (!isObject(params.clientRoot)) {
       throw new Error("clientRoot must be an object or null");
     }
-    clientRoot = { rootId: str(r.rootId, "clientRoot.rootId"), root: str(r.root, "clientRoot.root"), sig: str(r.sig, "clientRoot.sig") };
+    clientRoot = parseSignedRoot(params.clientRoot, "clientRoot");
   }
   if (!isObject(params.clientKeyring)) {
     throw new Error("clientKeyring must be an object");
   }
   const clientKeyring = stringMap(params.clientKeyring, "clientKeyring");
+  const clientKeyringNotAfter = readNotAfter(params, "clientKeyringNotAfter");
   return {
     clientRoot,
     clientPolicyKey: str(params.clientPolicyKey, "clientPolicyKey"),
     clientKeyring,
     // a missing signature is not malformed, only unsigned: the session is then unsafe
     clientKeyringSig: typeof params.clientKeyringSig === "string" ? params.clientKeyringSig : "",
+    ...(clientKeyringNotAfter !== undefined ? { clientKeyringNotAfter } : {}),
     nonce: str(params.nonce, "nonce"),
   };
 }
 
+/** The server's own keyring as signed: over `keyringNotAfter` when the policy has one. */
+function ownKeyring(policy: ServerPolicy): SignedKeyring {
+  const ring: SignedKeyring = { policy: policy.policyPublicKey, services: policy.keyring, sig: policy.keyringSig };
+  return policy.keyringNotAfter !== undefined ? { ...ring, notAfter: policy.keyringNotAfter } : ring;
+}
+
 /**
  * Throws an Error naming the fault unless `policy` can sign replies a client accepts at `now`: the keyring is signed
- * by `policyPublicKey`, `signingKeys[hops[0]]` is the entry's keyring key, and `replyCert` verifies under
- * `policyPublicKey`, is for `hops[0]` and that key, and has not expired. McpServerSession calls it on construction.
+ * by `policyPublicKey` (over `keyringNotAfter` when it is set), `signingKeys[hops[0]]` is the entry's keyring key,
+ * and `replyCert` verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired.
+ * McpServerSession calls it on construction.
  */
 export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   const entry = policy.hops[0];
-  if (!verifyKeyring({ policy: policy.policyPublicKey, services: policy.keyring, sig: policy.keyringSig }, policy.policyPublicKey)) {
+  if (!verifyKeyring(ownKeyring(policy), policy.policyPublicKey)) {
     throw new Error("server policy refused: the keyring is not signed by policyPublicKey");
   }
   if (!Object.hasOwn(policy.keyring, entry)) {
@@ -175,6 +193,7 @@ export class McpServerSession {
    * replaces the current session (its keyring, nonces and served classes), so calls signed for the
    * old session are refused afterwards. A malformed request throws InvalidParams. The reply is in the entry-key
    * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks.
+   * It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
@@ -196,6 +215,7 @@ export class McpServerSession {
         serverPolicyKey: this.policy.policyPublicKey,
         serverKeyring: this.policy.keyring,
         serverKeyringSig: this.policy.keyringSig,
+        ...(this.policy.keyringNotAfter !== undefined ? { serverKeyringNotAfter: this.policy.keyringNotAfter } : {}),
         serverReplyCert: this.policy.replyCert,
         nonce: serverNonce,
         sess,

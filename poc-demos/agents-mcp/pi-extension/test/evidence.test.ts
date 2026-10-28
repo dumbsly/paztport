@@ -104,9 +104,16 @@ describe("evidence file", { timeout: 30_000 }, () => {
       clientPolicyKey: material.policyPublicKey,
       clientKeyring: material.keyring,
       clientKeyringSig: material.keyringSig,
+      clientKeyringNotAfter: material.keyringNotAfter,
     });
+    // a fresh setup is in the new form on both sides, and each window travels with what it covers
+    expect(s.request.clientRoot!.notAfter).toEqual(expect.any(Number));
+    expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
     expect(typeof s.request.nonce).toBe("string");
-    expect(s.reply).toMatchObject({ status: "attested", serverPolicyKey: s.pin, sess: expect.any(String), sig: expect.any(String) });
+    expect(s.reply).toMatchObject({
+      status: "attested", serverPolicyKey: s.pin, sess: expect.any(String), sig: expect.any(String),
+      serverKeyringNotAfter: expect.any(Number), serverRoot: { notAfter: expect.any(Number) },
+    });
 
     const calls = ofType(rs, "call");
     const responses = ofType(rs, "response");
@@ -318,11 +325,15 @@ describe("extension wiring", { timeout: 30_000 }, () => {
         type: "client",
         keyring: material.keyring,
         keyringSig: material.keyringSig,
+        keyringNotAfter: material.keyringNotAfter,
         policyPublicKey: material.policyPublicKey,
         signedRoot: material.signedRoot,
         rules: null,
         rulesProof: null,
       });
+      // the root whole, its window included, and the keyring's window beside its signature
+      expect(client.keyringNotAfter).toEqual(expect.any(Number));
+      expect(client.signedRoot.notAfter).toEqual(expect.any(Number));
       const run = ofType(rs, "run")[0]!;
       expect(run.prompt).toBe("fix the typo");
       expect(run.rid).toMatch(/^[A-Za-z0-9_-]+$/);

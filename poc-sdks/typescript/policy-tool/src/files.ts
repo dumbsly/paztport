@@ -4,8 +4,8 @@
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-/** `sig` is the policy key's signature over the keyring (see signKeyring); a Java keyring has none yet. */
-export type Keyring = { services: Record<string, string>; policy: string; sig?: string };
+/** `sig` is the policy key's signature over the keyring (see signKeyring), and `notAfter` its window, present exactly in the new form. */
+export type Keyring = { services: Record<string, string>; policy: string; sig?: string; notAfter?: number };
 
 /** Reads a base64url PKCS#8 key file, trimming surrounding whitespace. */
 export function readKey(path: string): string {

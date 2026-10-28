@@ -6,8 +6,8 @@ import { decode, encode } from "../src/b64url.ts";
 import { generateKeyPair, sha256, utf8 } from "../src/crypto.ts";
 import * as core from "../src/index.ts";
 import { signKeyring, verifyKeyring } from "../src/keyring.ts";
-import { renewRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot } from "../src/root.ts";
-import { isCurrent } from "../src/validity.ts";
+import { parseSignedRoot, renewRoot, rootSigningBytes, signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../src/root.ts";
+import { isCurrent, readNotAfter } from "../src/validity.ts";
 
 const POLICY = generateKeyPair();
 const NOT_AFTER = 1_798_761_600_000;
@@ -15,7 +15,7 @@ const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const ROOT = sha256(utf8("root"));
 
 const newForm = () => signRoot(ROOT, "v1", POLICY.privateKey, NOT_AFTER);
-const oldForm = () => signRoot(ROOT, "v1", POLICY.privateKey);
+const oldForm = () => signRootOldForm(ROOT, "v1", POLICY.privateKey);
 const text = (b: Uint8Array) => Buffer.from(b).toString("utf8");
 
 describe("signed root", () => {
@@ -29,7 +29,35 @@ describe("signed root", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signRoot", "renewRoot", "rootSigningBytes", "verifyRoot", "isCurrent"]) expect(name in core, name).toBe(true);
+    for (const name of ["signRoot", "signRootOldForm", "renewRoot", "rootSigningBytes", "verifyRoot", "parseSignedRoot", "isCurrent"]) expect(name in core, name).toBe(true);
+  });
+
+  it("signRoot signs only the new form, so a missing window never yields the old form", () => {
+    for (const bad of [undefined, null, 1.5, -1, MAX_SAFE + 1, "1798761600000"]) {
+      expect(() => signRoot(ROOT, "v1", POLICY.privateKey, bad as unknown as number), String(bad)).toThrow(TypeError);
+    }
+    expect(Object.hasOwn(oldForm(), "notAfter")).toBe(false);
+    expect(verifyRoot(oldForm(), POLICY.publicKey)).toBe(true);
+  });
+
+  it("parseSignedRoot keeps the root whole, its notAfter included, and refuses a damaged window", () => {
+    const r = newForm();
+    expect(parseSignedRoot(JSON.parse(JSON.stringify(r)), "clientRoot")).toEqual(r);
+    expect(parseSignedRoot(JSON.parse(JSON.stringify(r).replace('"notAfter":1798761600000', '"notAfter":1798761600000.0')), "clientRoot")).toEqual(r);
+    const old = parseSignedRoot(JSON.parse(JSON.stringify(oldForm())), "clientRoot");
+    expect(Object.hasOwn(old, "notAfter")).toBe(false);
+    // extra members are dropped, as the signature does not cover them
+    expect(parseSignedRoot({ ...r, note: "x" }, "clientRoot")).toEqual(r);
+    for (const bad of [1.5, -1, MAX_SAFE + 1, "x", null, true, {}, []]) {
+      expect(() => parseSignedRoot({ ...r, notAfter: bad }, "clientRoot"), String(bad)).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
+    }
+    expect(() => parseSignedRoot({ ...r, rootId: 1 }, "clientRoot")).toThrow("clientRoot.rootId must be a string");
+    expect(() => parseSignedRoot({ ...r, root: undefined }, "clientRoot")).toThrow("clientRoot.root must be a string");
+    expect(() => parseSignedRoot({ ...r, sig: null }, "clientRoot")).toThrow("clientRoot.sig must be a string");
+    for (const bad of [null, "x", [], 1]) expect(() => parseSignedRoot(bad, "clientRoot"), String(bad)).toThrow("clientRoot must be an object");
+    // an inherited notAfter is not the root's own: the result is the old form
+    const { notAfter: _w, ...stripped } = r;
+    expect(Object.hasOwn(parseSignedRoot(Object.assign(Object.create({ notAfter: NOT_AFTER }), stripped), "clientRoot"), "notAfter")).toBe(false);
   });
 
   it("newFormRoundTrip", () => {
@@ -128,5 +156,20 @@ describe("signed root", () => {
     }
     expect(verifyRoot(r, "!!")).toBe(false);
     expect(verifyRoot(r, null as unknown as string)).toBe(false);
+  });
+});
+
+describe("readNotAfter", () => {
+  it("reads an own member by value, absent as undefined, and refuses a present one out of range", () => {
+    expect(readNotAfter({}, "clientKeyringNotAfter")).toBeUndefined();
+    expect(readNotAfter({ clientKeyringNotAfter: NOT_AFTER }, "clientKeyringNotAfter")).toBe(NOT_AFTER);
+    expect(readNotAfter(JSON.parse('{"w":1798761600000.0}'), "w")).toBe(NOT_AFTER);
+    expect(readNotAfter({ w: 0 }, "w")).toBe(0);
+    expect(readNotAfter({ w: MAX_SAFE }, "w")).toBe(MAX_SAFE);
+    for (const bad of [1.5, -1, MAX_SAFE + 1, "x", null, undefined, true, {}, []]) {
+      expect(() => readNotAfter({ w: bad }, "w"), String(bad)).toThrow(new TypeError("w must be an integer in [0, 2^53 - 1]"));
+    }
+    expect(readNotAfter(Object.create({ w: NOT_AFTER }), "w"), "inherited").toBeUndefined();
+    expect(core.readNotAfter).toBe(readNotAfter);
   });
 });

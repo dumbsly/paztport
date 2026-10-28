@@ -12,7 +12,9 @@ import {
   parseInfluence,
   parseLocalRules,
   parseRecordedStamps,
+  parseSignedRoot,
   provesPath,
+  readNotAfter,
   rulesHash,
   rulesRoute,
   verifyChainOffline,
@@ -33,8 +35,11 @@ import {
  * The client record verifies when its root verifies against its policy key, every session record in the file
  * that names a client root names this root with the same policy key and keyring, and, when it has rules, the
  * rules parse and `rulesProof` proves `session/pi/rules:<rulesHash(rules)>` against the root. With no rules,
- * `rulesProof` must be null. A `keyringSig` must be the policy key's signature over the keyring; a record from
- * before keyrings were signed has none, and is accepted without it. The client policy key is trusted on first
+ * `rulesProof` must be null. A `keyringSig` must be the policy key's signature over the keyring, over
+ * `keyringNotAfter` too when the record has one; a record from before keyrings were signed has none, and is
+ * accepted without it. The root is checked whole, in its own form; a window, the root's or the keyring's, that is
+ * present but not an integer in [0, 2^53 − 1] fails the record. Each session record must name the same root,
+ * policy key and keyring, and, for a signed keyring, the same window. The client policy key is trusted on first
  * use from the file, as it is in session records (where the server's signed reply binds it); verify pins no
  * client key of its own.
  *
@@ -78,8 +83,8 @@ export type LocalResult =
 /** What a verified client record gives the local records that follow it. */
 export type Client = { keyring: Record<string, string>; root: Uint8Array; rootId: string; rules: LocalRules | null; rulesHash: string | null };
 
-/** A client root, policy key and keyring that a session record in the file names. */
-export type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown };
+/** A client root, policy key, keyring and keyring window that a session record in the file names. */
+export type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown; keyringNotAfter: unknown };
 
 /** A rid's run: its undisputed prompt and the times its run records give. */
 export type RunInfo = { prompt: string; ts: ReadonlySet<number> };
@@ -104,20 +109,28 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     if (!isObject(keyring) || !Object.values(keyring).every(isString) || !isString(r.policyPublicKey)) {
       return undefined;
     }
-    if (!isObject(sr) || !isString(sr.rootId) || !isString(sr.root) || !isString(sr.sig)) {
-      return undefined;
-    }
-    const signedRoot = { rootId: sr.rootId, root: sr.root, sig: sr.sig };
+    const signedRoot = parseSignedRoot(sr, "signedRoot"); // throws on a malformed root or window
     if (!verifyRoot(signedRoot, r.policyPublicKey)) {
       return undefined;
     }
     const services = keyring as Record<string, string>;
-    if (r.keyringSig !== undefined && !verifyKeyring({ policy: r.policyPublicKey, services, sig: r.keyringSig as string }, r.policyPublicKey)) {
+    const keyringNotAfter = readNotAfter(r, "keyringNotAfter"); // throws on a malformed window
+    if (r.keyringSig === undefined && keyringNotAfter !== undefined) {
+      return undefined;
+    }
+    const ring = { policy: r.policyPublicKey, services, sig: r.keyringSig as string };
+    if (r.keyringSig !== undefined && !verifyKeyring(keyringNotAfter === undefined ? ring : { ...ring, notAfter: keyringNotAfter }, r.policyPublicKey)) {
       return undefined;
     }
     // the session's request is bound by the server's signed reply: a client record must agree with it
     for (const n of named) {
-      if (canonicalize(n.root) !== canonicalize(signedRoot) || n.policyKey !== r.policyPublicKey || canonicalize(n.keyring) !== canonicalize(keyring)) {
+      if (
+        canonicalize(n.root) !== canonicalize(signedRoot) ||
+        n.policyKey !== r.policyPublicKey ||
+        canonicalize(n.keyring) !== canonicalize(keyring) ||
+        // a record from before keyrings were signed names no window to compare
+        (r.keyringSig !== undefined && n.keyringNotAfter !== keyringNotAfter)
+      ) {
         return undefined;
       }
     }

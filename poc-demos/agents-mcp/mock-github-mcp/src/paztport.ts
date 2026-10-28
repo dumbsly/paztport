@@ -9,7 +9,9 @@ import {
   isReplyCert,
   keyPairMatches,
   parseProof,
+  parseSignedRoot,
   provesPath,
+  readNotAfter,
   routeOf,
   verifyRoot,
   type MerkleProof,
@@ -106,10 +108,20 @@ function readReplyCert(path: string): ReplyCert {
   return cert;
 }
 
+/** Runs `read`, passing on its error after `prefix` and with the fix: a damaged keyring or root window is one regenerating repairs. */
+function withFix<T>(read: () => T, prefix = ""): T {
+  try {
+    return read();
+  } catch (e) {
+    throw new Error(`${prefix}${(e as Error).message}: ${REGENERATE}`);
+  }
+}
+
 /**
  * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, including the
  * reply certificate, and the client policy key the server pins (client-policy.pub, written by setup-demo). It reads
- * no policy private key, and refuses a certificate that is not current at `now`.
+ * no policy private key, and refuses a certificate that is not current at `now`. The root is read whole and the
+ * keyring's window kept, so each is checked in its own form; a window that is not an integer is refused.
  */
 export function loadServerConfig(dir: string, now: number = Date.now()): ServerPolicy {
   const ring = readJson(join(dir, "keyring.json"));
@@ -117,11 +129,12 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     throw new Error("malformed keyring.json");
   }
   const keyring = stringMap(ring.services, "keyring");
+  const keyringNotAfter = withFix(() => readNotAfter(ring, "notAfter"), "keyring.json ");
   const root = readJson(join(dir, "root.json"));
   if (!isObject(root)) {
     throw new Error("malformed root.json");
   }
-  const signedRoot: SignedRoot = { rootId: str(root.rootId, "rootId"), root: str(root.root, "root"), sig: str(root.sig, "sig") };
+  const signedRoot: SignedRoot = withFix(() => parseSignedRoot(root, "root.json"));
   const bundle = readJson(join(dir, "proofs-mcp-entry.json"));
   const rawProof = isObject(bundle) && isObject(bundle.proofs) && Object.hasOwn(bundle.proofs, ROUTE) ? bundle.proofs[ROUTE] : undefined;
   if (rawProof === undefined) {
@@ -149,6 +162,7 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     keyring,
     // an unsigned keyring reads as "", which never verifies
     keyringSig: typeof ring.sig === "string" ? ring.sig : "",
+    ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}),
     replyCert,
     signedRoot,
     routeProof,

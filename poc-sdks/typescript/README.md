@@ -41,9 +41,10 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over stdio the live order
   ends at check 11, and the peer check is core's (`verifyChainV3`).
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
-  request carries the signature as `clientKeyringSig`. A request without it is legacy offline and unsafe live.
-  One whose signature is present but malformed (not a string) or wrong is unsafe live, and offline is a v3
-  request whose signature fails, not a legacy one.
+  request carries the signature as `clientKeyringSig`, with the keyring's `notAfter` as `clientKeyringNotAfter`.
+  A request without the signature is legacy offline and unsafe live. One whose signature is present but
+  malformed (not a string) or wrong is unsafe live, and offline is a v3 request whose signature fails, not a
+  legacy one.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
@@ -74,8 +75,8 @@ key, names another service or key, or has expired at the session's clock.
 ## policy-tool
 
 `@paztport/policy-tool`: two command-line tools. `paztport-keygen` writes a
-keypair per service, a policy keypair and a keyring signed by the policy key;
-`paztport-policy` turns a `paths.yaml` into a signed root and one proof bundle per
+keypair per service, a policy keypair and a keyring signed by the policy key, valid for seven days;
+`paztport-policy` turns a `paths.yaml` into a root signed for seven days and one proof bundle per
 service, and with `--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]` also writes
 `reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key. It
 refuses, writing nothing, a keyring that is not signed by its policy key or has no key for the service.

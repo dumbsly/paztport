@@ -8,8 +8,10 @@ import {
   keyPairMatches,
   parseLocalRules,
   parseProof,
+  parseSignedRoot,
   ORIGIN_SVC,
   provesPath,
+  readNotAfter,
   rulesHash,
   rulesRoute,
   verifyKeyring,
@@ -33,6 +35,9 @@ export type ClientMaterial = {
   keyring: Record<string, string>;
   /** The policy key's signature over the keyring, sent in the session request. */
   keyringSig: string;
+  /** The keyring's window, sent as `clientKeyringNotAfter`; present exactly when the keyring is in the new form. */
+  keyringNotAfter?: number;
+  /** The root whole, its own `notAfter` included when it is in the new form. */
   signedRoot: SignedRoot;
   /** Keyed by route, "session/pi/mcp:<serverId>.<tool>". */
   proofs: Record<string, MerkleProof>;
@@ -84,8 +89,8 @@ export function readPin(path: string): string {
  * (session, pi). Throws a clear Error if they are not mutually consistent. Least privilege: the root
  * is checked with the policy public key alone, so the policy private key (policy.key) is not read.
  * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir`. The
- * keyring must be signed by its policy key, and a rules.json covered by a verifying proof for its hash, or
- * loading fails.
+ * keyring must be signed by its policy key (over its notAfter when it has one), and a rules.json covered by a
+ * verifying proof for its hash, or loading fails. The root is read whole; a window that is not an integer is refused.
  */
 export function loadClientMaterial(dir: string, policyDir: string = dir): ClientMaterial {
   const ring = readJson(dir, "keyring.json");
@@ -101,11 +106,17 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     throw new Error(`keyring.json sig must be a string: ${REGENERATE}`);
   }
   const keyringSig = ring.sig;
+  let keyringNotAfter: number | undefined;
+  try {
+    keyringNotAfter = readNotAfter(ring, "notAfter");
+  } catch (e) {
+    throw new Error(`keyring.json ${(e as Error).message}: ${REGENERATE}`);
+  }
   const root = readJson(policyDir, "root.json");
   if (!isObject(root)) {
     throw new Error("malformed root.json");
   }
-  const signedRoot: SignedRoot = { rootId: str(root.rootId, "root.json rootId"), root: str(root.root, "root.json root"), sig: str(root.sig, "root.json sig") };
+  const signedRoot: SignedRoot = parseSignedRoot(root, "root.json");
   const m = {
     sessionKey: readText(dir, "session.key"),
     piKey: readText(dir, "pi.key"),
@@ -122,7 +133,8 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
       throw new Error(`${svc}.key does not match its keyring.json entry`);
     }
   }
-  if (!verifyKeyring({ policy: policyPublicKey, services: keyring, sig: keyringSig }, policyPublicKey)) {
+  const signedRing = { policy: policyPublicKey, services: keyring, sig: keyringSig };
+  if (!verifyKeyring(keyringNotAfter === undefined ? signedRing : { ...signedRing, notAfter: keyringNotAfter }, policyPublicKey)) {
     throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
   }
 
@@ -149,7 +161,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
     }
     Object.defineProperty(proofs, route, { value: proof, enumerable: true, writable: true, configurable: true });
   }
-  const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, signedRoot, proofs };
+  const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}), signedRoot, proofs };
   if (existsSync(join(policyDir, "rules.json"))) {
     let rules: LocalRules;
     try {

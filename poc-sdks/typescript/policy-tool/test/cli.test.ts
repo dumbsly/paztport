@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { decode, sign, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot } from "@paztport/core";
+import { decode, sign, signKeyringOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot } from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
@@ -26,6 +26,8 @@ function repoRoot(): string {
     if (dirname(d) === d) throw new Error(`no repo root above ${here}`);
   }
 }
+
+const DAY_MS = 86_400_000;
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "paztport-cli-"));
@@ -47,11 +49,18 @@ describe("policy-tool CLIs", () => {
 
   it("keygenSignsTheKeyringWithThePolicyKey", () => {
     const out = tmp();
+    const before = Date.now();
     expect(run(keygen, ["--out", out, "--services", "a,b"]).status).toBe(0);
+    const after = Date.now();
     const ring = readKeyring(join(out, "keyring.json"));
     expect(typeof ring.sig).toBe("string");
-    expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["services", "policy", "sig"]);
-    expect(verifyKeyring({ policy: ring.policy, services: ring.services, sig: ring.sig! }, ring.policy)).toBe(true);
+    // the new form, valid for seven days
+    expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["services", "policy", "sig", "notAfter"]);
+    expect(ring.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
+    expect(ring.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
+    expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
+    const { notAfter: _w, ...dropped } = ring;
+    expect(verifyKeyring(dropped as SignedKeyring, ring.policy)).toBe(false);
   });
 
   it("privateKeysAreOwnerOnly", () => {
@@ -112,11 +121,18 @@ describe("policy-tool CLIs", () => {
       yamlPath,
       "paths:\n  - [gateway, orders, payment]\n  - [gateway, orders]\n  - [gateway, search]\n",
     );
+    const before = Date.now();
     const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out]);
+    const after = Date.now();
     expect(r.status).toBe(0);
     const ring = readKeyring(join(keys, "keyring.json"));
     const root = readJson<SignedRoot>(join(out, "root.json"));
     expect(verifyRoot(root, ring.policy)).toBe(true);
+    // the new form, valid for seven days, and the window is printed
+    expect(Object.keys(root)).toEqual(["rootId", "root", "sig", "notAfter"]);
+    expect(root.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
+    expect(root.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
+    expect(r.stdout).toContain(`notAfter ${root.notAfter}`);
     expect(root.rootId).toMatch(/^v[0-9a-f]{12}$/);
     const bundle = readJson<ProofBundle>(join(out, "proofs-orders.json"));
     const proof: MerkleProof | undefined = bundle.proofs["gateway/orders/payment"];
@@ -196,6 +212,9 @@ describe("policy-tool CLIs", () => {
       tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
       unsigned: { services: ring.services, policy: ring.policy },
       "bad signature": { ...ring, sig: "!" },
+      "window moved": { ...ring, notAfter: ring.notAfter! + 1 },
+      "window dropped": { services: ring.services, policy: ring.policy, sig: ring.sig },
+      "window not an integer": { ...ring, notAfter: 1.5 },
     };
     for (const [name, bad] of Object.entries(cases)) {
       const path = join(tmp(), "keyring.json");
@@ -206,6 +225,18 @@ describe("policy-tool CLIs", () => {
       expect(r.stderr, name).toContain("keyring");
       expect(readdirSync(out), name).toEqual([]);
     }
+  });
+
+  it("policyStillCertifiesFromAnOldFormKeyring", () => {
+    // nothing is refused for being in the old form yet
+    const { keys, policyArgs } = certWorld();
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const path = join(tmp(), "keyring.json");
+    writeFileSync(path, JSON.stringify(signKeyringOldForm(ring.services, ring.policy, readKey(join(keys, "policy.key")))));
+    const out = tmp();
+    const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", path));
+    expect(r.status, r.stderr).toBe(0);
+    expect(verifyReplyCert(readJson<ReplyCert>(join(out, "reply-cert.json")), ring.policy)).toBe(true);
   });
 
   it("policyRefusesAKeyringOfAnotherPolicyKey", () => {

@@ -23,15 +23,23 @@ classes, so calls signed for the old session are refused.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `clientRoot` | signed root, or `null` | The client's [signed root](wire.md#the-signed-root). `null` asks for an unsafe session. |
+| `clientRoot` | signed root, or `null` | The client's [signed root](wire.md#the-signed-root), whole: in the new form its `notAfter` travels inside it. `null` asks for an unsafe session. |
 | `clientPolicyKey` | string | The client's policy public key. |
 | `clientKeyring` | object | The client's services: name to public key. |
-| `clientKeyringSig` | string | The client policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ policy: clientPolicyKey, services: clientKeyring })`. |
+| `clientKeyringSig` | string | The client policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ notAfter: clientKeyringNotAfter, policy: clientPolicyKey, services: clientKeyring })` when the request has `clientKeyringNotAfter`, and over `"paztport-keyring\n" ‖ JCS({ policy: clientPolicyKey, services: clientKeyring })` (the old form) when it has none. |
+| `clientKeyringNotAfter` | integer, new-form keyring only | The keyring's `notAfter`, sent exactly when the client's keyring is in the new form. |
 | `nonce` | string | 16 fresh random bytes, base64url. |
 
-A server MUST answer a request that is not an object, or whose `clientRoot` is neither `null` nor an object of
-three strings (`rootId`, `root`, `sig`), whose `clientKeyring` is not an object of strings, or whose
-`clientPolicyKey` or `nonce` is not a string, with JSON-RPC error `-32602` (Invalid params), and open no session.
+Which bytes `clientKeyringSig` is checked over is decided only by whether the request has a
+`clientKeyringNotAfter` member of its own, and a root's only by whether it has a `notAfter` member of its own, as
+for any [signed root or keyring](wire.md#keys-and-files). A window moved, dropped or added in transit therefore
+fails its signature.
+
+A server MUST answer a request that is not an object, or whose `clientRoot` is neither `null` nor an object with
+string `rootId`, `root` and `sig` (and, optionally, a `notAfter`), whose `clientKeyring` is not an object of
+strings, whose `clientPolicyKey` or `nonce` is not a string, or which has a `clientKeyringNotAfter` or a
+`clientRoot.notAfter` that is not an integer in [0, 2^53 − 1] (`null` included: a member that is present is never
+read as absent), with JSON-RPC error `-32602` (Invalid params), and open no session.
 It MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer
 that with a JSON-RPC error other than `-32601`, so the client takes its replacement path
 ([below](#the-clients-check-of-the-reply)). A request that opens no session leaves the connection's current
@@ -45,10 +53,11 @@ the session is unsafe (offline it is legacy; see [Recorded handshakes](#recorded
 
 | Field | Type | Meaning |
 |---|---|---|
-| `serverRoot` | signed root, or `null` | The server's signed root. |
+| `serverRoot` | signed root, or `null` | The server's signed root, whole, its `notAfter` inside it in the new form. |
 | `serverPolicyKey` | string | The server's policy public key. |
 | `serverKeyring` | object | The server's services: name to public key. |
-| `serverKeyringSig` | string, entry-key form only | The server policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ policy: serverPolicyKey, services: serverKeyring })`. |
+| `serverKeyringSig` | string, entry-key form only | The server policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ notAfter: serverKeyringNotAfter, policy: serverPolicyKey, services: serverKeyring })` when the reply has `serverKeyringNotAfter`, and over `"paztport-keyring\n" ‖ JCS({ policy: serverPolicyKey, services: serverKeyring })` when it has none. |
+| `serverKeyringNotAfter` | integer, entry-key form with a new-form keyring only | The `notAfter` that `serverKeyringSig` was made over. |
 | `serverReplyCert` | object, entry-key form only | A [reply certificate](wire.md#the-reply-certificate) from the server policy key for the server's entry service and its key. |
 | `nonce` | string | 16 fresh random bytes from the server, base64url. |
 | `sess` | string | [The session id](#the-session-id). |
@@ -76,7 +85,8 @@ utf8( "paztport-session-reply\n" ‖ JCS(reply without its "sig" field) )
 
 That is the reply as parsed, every field but `sig`: the new fields and any field the client does not know
 included. A certificate in the reply is covered as its parsed JSON value, like any other field, never as the raw
-text it arrived in.
+text it arrived in; so are `serverKeyringNotAfter` and the root's `notAfter`, so a value written `4.1024448e12` is
+covered as the integer `4102444800000`.
 
 That one signature covers the server's root, keyring, nonce, session id, status and disabled list. In the
 policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form the
@@ -91,20 +101,23 @@ A client pins the server's policy key in advance, and knows the name of the serv
 time `now`, in milliseconds since the Unix epoch: live, the client's current time. In order, the first failure is
 the outcome:
 
-1. The reply has the shape above; `serverKeyringSig`, when present, is a string; and `serverReplyCert`, when
-   present, is a well-formed [reply certificate](wire.md#the-reply-certificate). A field whose value is `null` is
-   present (`MALFORMED_REPLY`).
+1. The reply has the shape above; `serverKeyringSig`, when present, is a string; `serverKeyringNotAfter` and
+   `serverRoot.notAfter`, when present, are integers in [0, 2^53 − 1]; and `serverReplyCert`, when present, is a
+   well-formed [reply certificate](wire.md#the-reply-certificate). A field whose value is `null` is present
+   (`MALFORMED_REPLY`).
 2. `serverPolicyKey` equals the pinned key (`PIN_MISMATCH`).
 3. The signature, then the roots and the session id (`BAD_SIGNATURE`):
    - When `serverKeyringSig` or `serverReplyCert` is present: both are; the keyring
-     `{ policy: serverPolicyKey, services: serverKeyring, sig: serverKeyringSig }` verifies under the pinned key;
+     `{ policy: serverPolicyKey, services: serverKeyring, sig: serverKeyringSig }`, with
+     `notAfter: serverKeyringNotAfter` when the reply has that member, verifies under the pinned key in its own form;
      the certificate verifies under the pinned key; its `svc` equals `serverEntry`; `serverKeyring` has a member
      of its own named `serverEntry`, equal to the certificate's `key`; `now <= notAfter`; and `sig` verifies under
      the certificate's `key`.
    - When neither is present: `sig` verifies under the pinned key.
 
    Then, in both forms: an `"attested"` reply has both roots non-null; `sess` equals the session id the client
-   derives from its own request and the reply; and `serverRoot`, when present, verifies under the pinned key.
+   derives from its own request and the reply; and `serverRoot`, when present, verifies under the pinned key in
+   its own form.
 4. `status` is `"attested"`: the session is attested. Otherwise it is unsafe (`UNSAFE`).
 
 The form is decided by which fields are present, never by which key verifies. A client MUST NOT try the pinned
@@ -130,8 +143,11 @@ other than the keyring's entry key, or signed by another policy key; a reply sig
 altered after signing or signed by another policy key; an entry absent from the keyring; either new field without
 the other, whichever key signed the reply; neither field, signed by a key the reply's own keyring names for the
 entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `null`
-`serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply, which is ignored; and a pin
-mismatch.
+`serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply, which is ignored; a pin
+mismatch; and a `serverKeyringNotAfter` moved or dropped after signing, one that is not an integer and one that is
+`null`, and a server root `notAfter` moved after signing and one that is not an integer. Both sides' roots and
+keyrings in these cases are in the new form, valid until long after every case's `now`, so each entry-key reply
+carries `serverKeyringNotAfter` and each request `clientKeyringNotAfter`.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
@@ -214,8 +230,8 @@ sess = b64url( H( 0x02 ‖ flags ‖ clientRootSig ‖ serverRootSig ‖ clientN
 
 Each decoded value MUST have exactly the length shown, or there is no session id. `flags` says which roots are
 present, so input without a root can't be read as input with one. The layout is the same as in v2, and
-`v2.json` pins it in `deriveSessionId`. It does not cover `clientKeyringSig`: it binds the keyring itself, and
-the server checks the signature before it attests.
+`v2.json` pins it in `deriveSessionId`. It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds
+the keyring itself, and the server checks the signature, over that window, before it attests.
 
 Every v3 stamp in the session carries `sess`, so a chain made for one session fails in any other.
 
@@ -227,7 +243,7 @@ A server opens an **attested** session only when all of these hold, and an **uns
 - `clientRoot` verifies under `clientPolicyKey`, and its own root under its own policy key;
 - `clientPolicyKey` is one of the client policy keys the server has pinned;
 - `clientKeyringSig` verifies as the signature of the keyring `{ policy: clientPolicyKey, services: clientKeyring }`
-  under `clientPolicyKey`.
+  under `clientPolicyKey`, in its own form: over `clientKeyringNotAfter` when the request has one.
 
 A server with no pinned client keys MUST open every session unsafe. Without the pin, anyone could make a policy
 key, sign a root and keyring with it, and be attested. Without the keyring signature, the keyring would be the

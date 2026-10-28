@@ -10,3 +10,11 @@ export function isNotAfter(n: unknown): n is number {
 export function isCurrent(x: { notAfter?: unknown }, at: number): boolean {
   return typeof x === "object" && x !== null && Object.hasOwn(x, "notAfter") && isNotAfter(x.notAfter) && at <= x.notAfter;
 }
+
+/** `o`'s own `key` as a notAfter, undefined when it has none; throws a TypeError naming `key` when it has one that is not an integer in [0, 2^53 − 1] (null included), since read as absent a damaged window would pass for the old form. */
+export function readNotAfter(o: object, key: string): number | undefined {
+  if (!Object.hasOwn(o, key)) return undefined;
+  const n = (o as Record<string, unknown>)[key];
+  if (!isNotAfter(n)) throw new TypeError(`${key} must be an integer in [0, 2^53 - 1]`);
+  return n;
+}

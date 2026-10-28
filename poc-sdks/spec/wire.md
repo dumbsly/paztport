@@ -63,8 +63,9 @@ verify. `notAfter` follows the reply certificate's rule: an integer number of mi
 in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST refuse a `notAfter` that
 is present but is not such an integer, rather than read the object as the old form. A new-form root or keyring
 is valid at time `t` when `t <= notAfter`; verifying its signature says nothing about time, so whoever relies on
-it MUST check both. An old-form root or keyring is never valid at any time: it verifies only offline, for records
-made before the new form, and a live verifier MUST NOT rely on one. A writer MUST write the new form.
+it MUST check both. An old-form root or keyring is never valid at any time. Its signature still verifies anywhere,
+but only an offline verifier, judging records made before the new form, may rely on it; a live verifier MUST NOT.
+A writer MUST write the new form.
 
 ## Stamps
 
@@ -395,7 +396,9 @@ renewing: it needs a new tree, a new `rootId` and new proof bundles.
 pin: the new form, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
 tampered `notAfter`, a new-form signature with `notAfter` dropped, an old-form signature with one added, a
 `notAfter` that is not an integer, a root signed by another policy key and a keyring signature offered as a root
-signature, which fail; and an old-form root, which verifies offline only and is never valid.
+signature, which fail; a `notAfter` of 2^53, which a reader refuses; one written `1798761600000.0`, which a
+reader reads by value, as the integer its signature is over; and an old-form root, whose signature verifies but
+which only an offline verifier may rely on, and which is never valid.
 
 ## The signed keyring
 
@@ -427,10 +430,12 @@ not a renewed one.
 `v3.json` pins the signed bytes and signatures in `keyring`: an old-form keyring and a tampered one, as before;
 the new form, at its `notAfter` and 1 ms after, and the largest `notAfter`, which verify; a tampered `notAfter`, a
 new-form signature with `notAfter` dropped, an old-form signature with one added, a `notAfter` that is not an
-integer and a root signature offered as a keyring signature, which fail; and an old-form keyring, which verifies
-offline only and is never valid.
+integer and a root signature offered as a keyring signature, which fail; a `notAfter` of 2^53, which a reader
+refuses; one written `1798761600000.0`, which a reader reads by value; and an old-form keyring, whose signature
+verifies but which only an offline verifier may rely on, and which is never valid.
 
-Both SDKs' keygens write signed keyrings.
+Both SDKs' keygens write signed keyrings in the new form, valid for seven days, and both policy tools sign roots
+in the new form, valid for seven days.
 
 ## The reply certificate
 

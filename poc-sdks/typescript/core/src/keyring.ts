@@ -16,10 +16,20 @@ export function keyringSigningBytes(policy: string, services: Record<string, str
   return utf8("paztport-keyring\n" + canonicalize({ notAfter, policy, services }));
 }
 
-/** Signs a keyring with its policy key over keyringSigningBytes, in the new form until `notAfter` when it is given, else the old form; the caller must have checked that each key is that service's current key. */
-export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string, notAfter?: number): SignedKeyring {
+function signForm(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string, notAfter?: number): SignedKeyring {
   const sig = encode(sign(policyPrivateKey, keyringSigningBytes(policyPublicKey, services, notAfter)));
   return notAfter === undefined ? { policy: policyPublicKey, services, sig } : { policy: policyPublicKey, services, sig, notAfter };
+}
+
+/** Signs a keyring with its policy key in the new form, vouching for it until `notAfter` (throws on one outside [0, 2^53 − 1], an absent one included); the caller must have checked that each key is that service's current key. */
+export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string, notAfter: number): SignedKeyring {
+  if (!isNotAfter(notAfter)) throw new TypeError("notAfter must be an integer in [0, 2^53 - 1]");
+  return signForm(services, policyPublicKey, policyPrivateKey, notAfter);
+}
+
+/** Signs a keyring in the old form, which is never current: only for deliberate old-form cases (recorded evidence, vectors, tests). */
+export function signKeyringOldForm(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string): SignedKeyring {
+  return signForm(services, policyPublicKey, policyPrivateKey);
 }
 
 /** The same services and policy key, signed again in the new form until `notAfter`; the caller must still hold every listed key current, as a retired key needs a new keyring, not a renewal. */

@@ -45,5 +45,7 @@ v1, the first HTTP mesh format, is kept for its conformance vectors only. Its st
 `svc|inst|rid|ts|bind|prev`, with no receiver ([wire.md](spec/wire.md#v1-the-http-mesh-format)). Binary values
 are base64url without padding, in every version.
 
-The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig" }`, where `sig` is the policy key's
-Ed25519 signature over `rootId|root`. A keyring (`keyring.json`) is signed by the same key, by both SDKs' tools.
+The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig", "notAfter" }`, where `sig` is the
+policy key's Ed25519 signature over the root, its `rootId` and `notAfter`, the time after which the policy owner no
+longer vouches for it ([wire.md](spec/wire.md#the-signed-root)). A keyring (`keyring.json`) is signed by the same
+key, with its own `notAfter`, by both SDKs' tools.

@@ -202,7 +202,7 @@ function verifyFile(path: string, label: string): VerifyReport {
   // run record for a rid must repeat the first prompt, otherwise the rid's prompt is in dispute.
   const prompts = new Map<string, string>();
   const disputed = new Set<string>();
-  // Every client root a session record names, for the client records to agree with.
+  // Every client root, policy key, keyring and keyring window a session record names, for the client records to agree with.
   const named: NamedClient[] = [];
   const runTimes = new Map<string, Set<number>>();
   for (const { rec } of lines) {
@@ -216,7 +216,12 @@ function verifyFile(path: string, label: string): VerifyReport {
       }
     }
     if (rec.type === "session" && isObject(rec.request) && rec.request.clientRoot !== null && rec.request.clientRoot !== undefined) {
-      named.push({ root: rec.request.clientRoot, policyKey: rec.request.clientPolicyKey, keyring: rec.request.clientKeyring });
+      named.push({
+        root: rec.request.clientRoot,
+        policyKey: rec.request.clientPolicyKey,
+        keyring: rec.request.clientKeyring,
+        keyringNotAfter: Object.hasOwn(rec.request, "clientKeyringNotAfter") ? rec.request.clientKeyringNotAfter : undefined,
+      });
     }
   }
   const runOf = (rid: string): RunInfo | undefined => {

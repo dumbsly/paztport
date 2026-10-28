@@ -4,16 +4,20 @@
 import { decode, encode } from "./b64url.ts";
 import { concat, randomBytes, sha256, sign, utf8, verify } from "./crypto.ts";
 import { canonicalize } from "./jcs.ts";
-import { verifyKeyring } from "./keyring.ts";
+import { verifyKeyring, type SignedKeyring } from "./keyring.ts";
 import { isReplyCert, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { verifyRoot, type SignedRoot } from "./root.ts";
 
-/** `clientKeyringSig` is the client policy key's signature over its keyring (see signKeyring). */
+/**
+ * `clientKeyringSig` is the client policy key's signature over its keyring (see signKeyring), and
+ * `clientKeyringNotAfter` that keyring's window, present exactly when the keyring is in the new form.
+ */
 export type SessionRequest = {
   clientRoot: SignedRoot | null;
   clientPolicyKey: string;
   clientKeyring: Record<string, string>;
   clientKeyringSig: string;
+  clientKeyringNotAfter?: number;
   nonce: string;
 };
 
@@ -31,12 +35,14 @@ export function isLegacySessionRequest(req: SessionRequest | LegacySessionReques
 /**
  * A reply carrying `serverKeyringSig` and `serverReplyCert` is signed by the entry service's certified key; one
  * with neither is signed by the server policy key. Which form it is depends only on which fields are present.
+ * `serverKeyringNotAfter` is the window `serverKeyringSig` was made over, present exactly when that keyring is in the new form.
  */
 export type SessionReply = {
   serverRoot: SignedRoot | null;
   serverPolicyKey: string;
   serverKeyring: Record<string, string>;
   serverKeyringSig?: string;
+  serverKeyringNotAfter?: number;
   serverReplyCert?: ReplyCert;
   nonce: string;
   sess: string;
@@ -88,13 +94,26 @@ function rootsVerify(req: SessionRequest | LegacySessionRequest, serverRoot: Sig
   return req.clientRoot !== null && serverRoot !== null && verifyRoot(req.clientRoot, req.clientPolicyKey) && verifyRoot(serverRoot, serverPolicyKey);
 }
 
+/**
+ * The keyring a message presents, rebuilt whole: its window is the message's own `windowField` member when it has
+ * one (an inherited one never counts), so a window moved, dropped or added in transit fails the signature.
+ */
+function presentedKeyring(msg: object, windowField: string, policy: string, services: Record<string, string>, sig: string): SignedKeyring {
+  const ring: SignedKeyring = { policy, services, sig };
+  return Object.hasOwn(msg, windowField) ? { ...ring, notAfter: (msg as Record<string, unknown>)[windowField] as number } : ring;
+}
+
+/** Whether the client's keyring signature verifies under its policy key, over `clientKeyringNotAfter` when the request has one. */
 function keyringVerifies(req: SessionRequest): boolean {
-  return verifyKeyring({ policy: req.clientPolicyKey, services: req.clientKeyring, sig: req.clientKeyringSig }, req.clientPolicyKey);
+  return verifyKeyring(presentedKeyring(req, "clientKeyringNotAfter", req.clientPolicyKey, req.clientKeyring, req.clientKeyringSig), req.clientPolicyKey);
 }
 
 /**
  * "attested" only when both roots verify against their sides' policy keys, the client's policy key is
  * one the server pinned, and the client's keyring is signed by it. No pins means every session is unsafe.
+ * Each signature is checked in its object's own form (a root over its own `notAfter`, the keyring over
+ * `clientKeyringNotAfter`), so what the client's policy owner vouched for is what it signed; whether a window
+ * has passed is not judged here.
  */
 export function sessionStatus(
   req: SessionRequest,
@@ -115,6 +134,7 @@ function replySigningBytes(body: Omit<SessionReply, "sig">): Uint8Array {
 /**
  * Signs the reply with the entry service's key (the entry-key form) or the policy key (the policy-key form); any
  * "sig" on the input is dropped first. Only the key changed: the server says "attested" only after its status checks.
+ * In the entry-key form `serverKeyringNotAfter` must be the window `serverKeyringSig` was made over, or the client's check fails.
  */
 export function signSessionReply(reply: Omit<SessionReply, "sig">, signingPrivateKey: string): SessionReply {
   const { sig: _stray, ...body } = reply as Omit<SessionReply, "sig"> & { sig?: unknown };
@@ -123,8 +143,9 @@ export function signSessionReply(reply: Omit<SessionReply, "sig">, signingPrivat
 
 /**
  * The key the reply's `sig` must verify under, or undefined when none may: the pin for the policy-key form; for the
- * entry-key form, the certified key of `serverEntry`, only if the keyring and certificate verify under the pin, the
- * certificate names `serverEntry` and the keyring's key for it, and `at` is no later than its `notAfter`.
+ * entry-key form, the certified key of `serverEntry`, only if the keyring (over `serverKeyringNotAfter` when the
+ * reply has one) and certificate verify under the pin, the certificate names `serverEntry` and the keyring's key
+ * for it, and `at` is no later than its `notAfter`.
  */
 function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: number): string | undefined {
   const hasRingSig = Object.hasOwn(reply, "serverKeyringSig");
@@ -138,7 +159,7 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
   }
   const ring = reply.serverKeyring;
   const ok =
-    verifyKeyring({ policy: reply.serverPolicyKey, services: ring, sig: reply.serverKeyringSig }, pin) &&
+    verifyKeyring(presentedKeyring(reply, "serverKeyringNotAfter", reply.serverPolicyKey, ring, reply.serverKeyringSig), pin) &&
     verifyReplyCert(cert, pin) &&
     cert.svc === serverEntry &&
     Object.hasOwn(ring, serverEntry) &&

@@ -192,6 +192,7 @@ export class ServerConnection {
       policyPublicKey: this.material.policyPublicKey,
       keyring: this.material.keyring,
       keyringSig: this.material.keyringSig,
+      keyringNotAfter: this.material.keyringNotAfter,
     });
     // Each request that was sent is written to the evidence file, with the raw reply (null when
     // there was none) and the state it left this connection in.

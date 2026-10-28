@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, issueReplyCert, signKeyring, signRoot, verifyRoot, verifySessionReply } from "@paztport/core";
+import { buildPolicy, decode, generateKeyPair, issueReplyCert, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
@@ -18,19 +18,22 @@ const RULES: SessionRules = {
 
 const DAY_MS = 86_400_000;
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
+/** When the server's root and keyring stop being valid: 2100-01-01. */
+const NOT_AFTER = 4_102_444_800_000;
 
 /** A consistent server config and the policy private key that signed it, which the server itself never holds. */
 function serverSetup(): { cfg: ServerPolicy; policyPrivateKey: string } {
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
-  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
+  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey, NOT_AFTER);
+  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey, NOT_AFTER);
   const cfg: ServerPolicy = {
     policyPublicKey: policy.publicKey,
     signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
     keyring: ring.services,
     keyringSig: ring.sig,
+    keyringNotAfter: ring.notAfter,
     replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
@@ -68,6 +71,9 @@ describe("loadServerConfig", () => {
     expect(Object.keys(cfg.keyring).sort()).toEqual(["github-tools", "mcp-entry"]);
     expect(verifyRoot(cfg.signedRoot, cfg.policyPublicKey)).toBe(true);
     expect(cfg.routeProof.rootId).toBe(cfg.signedRoot.rootId);
+    // the tools write the new form, and both windows are kept
+    expect(cfg.signedRoot.notAfter).toEqual(expect.any(Number));
+    expect(cfg.keyringNotAfter).toEqual(expect.any(Number));
     // the loaded config drives a full handshake and a verifiable response
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
@@ -75,6 +81,7 @@ describe("loadServerConfig", () => {
     expect(reply.status).toBe("attested");
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(reply.serverReplyCert).toEqual(cfg.replyCert);
+    expect(reply.serverKeyringNotAfter).toBe(cfg.keyringNotAfter);
     const out = srv.attest(srv.session()!, RESULT, CALL, "public");
     expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
   });
@@ -84,7 +91,9 @@ describe("loadServerConfig", () => {
     const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
     dirs.push(dir);
     const files: Record<string, unknown> = {
-      "keyring.json": { services: { ...cfg.keyring }, policy: cfg.policyPublicKey, sig: cfg.keyringSig },
+      "keyring.json": {
+        services: { ...cfg.keyring }, policy: cfg.policyPublicKey, sig: cfg.keyringSig, ...(cfg.keyringNotAfter !== undefined ? { notAfter: cfg.keyringNotAfter } : {}),
+      },
       "reply-cert.json": cfg.replyCert,
       "mcp-entry.key": cfg.signingKeys["mcp-entry"],
       "github-tools.key": cfg.signingKeys["github-tools"],
@@ -125,9 +134,42 @@ describe("loadServerConfig", () => {
     });
     expect(() => loadServerConfig(unsigned)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${unsigned}): ${REGENERATE}`);
     const other = writeDir(cfg, (f) => {
-      (f["keyring.json"] as { sig: string }).sig = signKeyring(cfg.keyring, cfg.policyPublicKey, generateKeyPair().privateKey).sig;
+      (f["keyring.json"] as { sig: string }).sig = signKeyring(cfg.keyring, cfg.policyPublicKey, generateKeyPair().privateKey, NOT_AFTER).sig;
     });
     expect(() => loadServerConfig(other)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${other}): ${REGENERATE}`);
+    // the keyring's window is covered by its signature, moved or dropped
+    const moved = writeDir(cfg, (f) => {
+      (f["keyring.json"] as { notAfter: number }).notAfter = NOT_AFTER + 1;
+    });
+    expect(() => loadServerConfig(moved)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${moved}): ${REGENERATE}`);
+    const dropped = writeDir(cfg, (f) => {
+      delete (f["keyring.json"] as { notAfter?: number }).notAfter;
+    });
+    expect(() => loadServerConfig(dropped)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${dropped}): ${REGENERATE}`);
+  });
+  it.each([1.5, -1, 2 ** 53, "x", null, true])("loadServerConfigRefusesAWindowThatIsNotAnInteger %j", (bad) => {
+    const ring = writeDir(serverConfig(), (f) => {
+      (f["keyring.json"] as { notAfter: unknown }).notAfter = bad;
+    });
+    expect(() => loadServerConfig(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    const root = writeDir(serverConfig(), (f) => {
+      f["root.json"] = { ...(f["root.json"] as object), notAfter: bad };
+    });
+    expect(() => loadServerConfig(root)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+  });
+  it("loadServerConfigStillAcceptsOldFormFiles", () => {
+    // nothing is refused for being in the old form yet
+    const { cfg, policyPrivateKey } = serverSetup();
+    const { keyringNotAfter: _w, ...rest } = cfg;
+    const old: ServerPolicy = {
+      ...rest,
+      keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig,
+      signedRoot: signRootOldForm(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, policyPrivateKey),
+    };
+    const loaded = loadServerConfig(writeDir(old));
+    expect(loaded).toEqual(old);
+    expect(Object.hasOwn(loaded, "keyringNotAfter")).toBe(false);
+    expect(Object.hasOwn(loaded.signedRoot, "notAfter")).toBe(false);
   });
   it("loadServerConfigNamesTheFixWhenTheReplyCertificateIsMissingOrMalformed", () => {
     const missing = writeDir(serverConfig(), (f) => {
@@ -207,7 +249,7 @@ describe("loadServerConfig", () => {
   });
   it("loadServerConfigRejectsProofForOtherRoute", () => {
     const { cfg, policyPrivateKey } = serverSetup();
-    const other = buildPolicy([["mcp-entry", "elsewhere"]], 8, policyPrivateKey);
+    const other = buildPolicy([["mcp-entry", "elsewhere"]], 8, policyPrivateKey, NOT_AFTER);
     const dir = writeDir(cfg, (f) => {
       f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": other.bundles["mcp-entry"]!.proofs["mcp-entry/elsewhere"] } };
     });
@@ -229,7 +271,7 @@ describe("loadServerConfig", () => {
   });
   it("loadServerConfigRejectsRootNotSignedByPolicyKey", () => {
     const cfg = serverConfig();
-    const forged = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, generateKeyPair().privateKey);
+    const forged = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, generateKeyPair().privateKey, NOT_AFTER);
     const dir = writeDir(cfg, (f) => {
       f["root.json"] = forged;
     });
@@ -249,7 +291,7 @@ describe("loadServerConfig", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const { "github-tools": _gone, ...services } = cfg.keyring;
     const dir = writeDir(cfg, (f) => {
-      f["keyring.json"] = signKeyring(services, cfg.policyPublicKey, policyPrivateKey);
+      f["keyring.json"] = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
     });
     expect(() => loadServerConfig(dir)).toThrow("keyring.json has no entry for github-tools");
   });
@@ -264,8 +306,8 @@ describe("loadServerConfig", () => {
     const dir = writeDir(cfg);
     const path = join(dir, "keyring.json");
     const services = JSON.parse(JSON.stringify(cfg.keyring).replace("{", '{"__proto__":"x",')) as Record<string, string>;
-    const ring = signKeyring(services, cfg.policyPublicKey, policyPrivateKey);
-    writeFileSync(path, JSON.stringify({ services: ring.services, policy: ring.policy, sig: ring.sig }));
+    const ring = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
+    writeFileSync(path, JSON.stringify({ services: ring.services, policy: ring.policy, sig: ring.sig, notAfter: ring.notAfter }));
     const loaded = loadServerConfig(dir);
     expect(Object.hasOwn(loaded.keyring, "__proto__")).toBe(true);
     expect(loaded.keyring["__proto__"]).toBe("x");

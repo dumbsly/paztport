@@ -13,7 +13,9 @@ import {
   NonceCache,
   NONCE_TTL_MS,
   signKeyring,
+  signKeyringOldForm,
   signRoot,
+  signRootOldForm,
   signStampV3,
   verifySessionReply,
   type ContentLabel,
@@ -74,6 +76,9 @@ export type TestClient = {
 /** The policy key every test client signs with, so a test server can pin it. */
 export const CLIENT_POLICY = generateKeyPair();
 
+/** When every test client's root and keyring stop being valid: 2100-01-01. */
+export const CLIENT_NOT_AFTER = 4_102_444_800_000;
+
 /** `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey. */
 type ClientMaterial = {
   policyPublicKey: string;
@@ -83,13 +88,15 @@ type ClientMaterial = {
   proofFor(tool: string): MerkleProof;
 };
 
-function generatedMaterial(tools: string[]): ClientMaterial & { policyPrivateKey: string } {
+function generatedMaterial(tools: string[], oldForm: boolean): ClientMaterial & { policyPrivateKey: string } {
   const policy = CLIENT_POLICY;
-  const { signedRoot, bundles } = buildPolicy(
+  const { signedRoot: newRoot, bundles } = buildPolicy(
     tools.map((t) => ["session", "pi", `mcp:github.${t}`]),
     8,
     policy.privateKey,
+    CLIENT_NOT_AFTER,
   );
+  const signedRoot = oldForm ? signRootOldForm(decode(newRoot.root), newRoot.rootId, policy.privateKey) : newRoot;
   return {
     policyPublicKey: policy.publicKey,
     policyPrivateKey: policy.privateKey,
@@ -102,14 +109,18 @@ function generatedMaterial(tools: string[]): ClientMaterial & { policyPrivateKey
 
 /**
  * `forgeRoot` signs the client root with a key other than the advertised clientPolicyKey.
- * `tools` limits the client policy to those tools' routes.
+ * `tools` limits the client policy to those tools' routes. `oldForm` signs the root and keyring in the old form,
+ * with no `notAfter`, as material from before the new form is.
  */
-export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tools?: string[] } = {}): TestClient {
-  const m = generatedMaterial(opts.tools ?? ALL_TOOLS);
+export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tools?: string[]; oldForm?: boolean } = {}): TestClient {
+  const m = generatedMaterial(opts.tools ?? ALL_TOOLS, opts.oldForm === true);
   const { session, pi, signedRoot } = m;
   const policy = { publicKey: m.policyPublicKey };
-  const ring = signKeyring({ session: session.publicKey, pi: pi.publicKey }, m.policyPublicKey, m.policyPrivateKey);
-  const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey) : signedRoot;
+  const services = { session: session.publicKey, pi: pi.publicKey };
+  const ring = opts.oldForm === true
+    ? signKeyringOldForm(services, m.policyPublicKey, m.policyPrivateKey)
+    : signKeyring(services, m.policyPublicKey, m.policyPrivateKey, CLIENT_NOT_AFTER);
+  const forged = opts.forgeRoot ? signRoot(decode(signedRoot.root), signedRoot.rootId, generateKeyPair().privateKey, CLIENT_NOT_AFTER) : signedRoot;
   const clientRoot: SignedRoot | null = opts.withRoot === false ? null : forged;
   const responseNonces = new NonceCache(NONCE_TTL_MS);
   let req: SessionRequest | undefined;
@@ -122,6 +133,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       clientPolicyKey: policy.publicKey,
       clientKeyring: ring.services,
       clientKeyringSig: ring.sig,
+      ...(ring.notAfter !== undefined ? { clientKeyringNotAfter: ring.notAfter } : {}),
       nonce: newNonce(),
     };
     return req;

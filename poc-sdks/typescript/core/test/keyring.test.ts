@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../src/crypto.ts";
 import * as core from "../src/index.ts";
-import { keyringSigningBytes, renewKeyring, signKeyring, verifyKeyring, type SignedKeyring } from "../src/keyring.ts";
+import { keyringSigningBytes, renewKeyring, signKeyring, signKeyringOldForm, verifyKeyring, type SignedKeyring } from "../src/keyring.ts";
 import { signRoot, verifyRoot } from "../src/root.ts";
 import { isCurrent } from "../src/validity.ts";
 
@@ -15,7 +15,7 @@ const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const SERVICES = { pi: generateKeyPair().publicKey };
 
 const newForm = () => signKeyring(SERVICES, POLICY.publicKey, POLICY.privateKey, NOT_AFTER);
-const oldForm = () => signKeyring(SERVICES, POLICY.publicKey, POLICY.privateKey);
+const oldForm = () => signKeyringOldForm(SERVICES, POLICY.publicKey, POLICY.privateKey);
 const text = (b: Uint8Array) => Buffer.from(b).toString("utf8");
 
 describe("keyring", () => {
@@ -24,7 +24,7 @@ describe("keyring", () => {
   });
   it("verifies only the signed services under the named policy key", () => {
     const p = generateKeyPair();
-    const k = signKeyring({ a: "A" }, p.publicKey, p.privateKey);
+    const k = signKeyringOldForm({ a: "A" }, p.publicKey, p.privateKey);
     expect(verifyKeyring(k, p.publicKey)).toBe(true);
     expect(verifyKeyring({ ...k, services: { a: "B" } }, p.publicKey)).toBe(false);
     expect(verifyKeyring(k, generateKeyPair().publicKey)).toBe(false);
@@ -39,7 +39,15 @@ describe("keyring", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signKeyring", "renewKeyring", "keyringSigningBytes", "verifyKeyring"]) expect(name in core, name).toBe(true);
+    for (const name of ["signKeyring", "signKeyringOldForm", "renewKeyring", "keyringSigningBytes", "verifyKeyring"]) expect(name in core, name).toBe(true);
+  });
+
+  it("signKeyring signs only the new form, so a missing window never yields the old form", () => {
+    for (const bad of [undefined, null, 1.5, -1, MAX_SAFE + 1, "1798761600000"]) {
+      expect(() => signKeyring(SERVICES, POLICY.publicKey, POLICY.privateKey, bad as unknown as number), String(bad)).toThrow(TypeError);
+    }
+    expect(Object.hasOwn(oldForm(), "notAfter")).toBe(false);
+    expect(verifyKeyring(oldForm(), POLICY.publicKey)).toBe(true);
   });
 
   it("newFormRoundTrip", () => {
