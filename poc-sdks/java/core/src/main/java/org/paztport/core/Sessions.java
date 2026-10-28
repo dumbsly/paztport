@@ -198,6 +198,22 @@ public final class Sessions {
     }
 
     /**
+     * The signing bytes of a received reply. The signature covers the reply's parsed value, as TypeScript's
+     * {@code JSON.parse} then JCS does, never the text it arrived in. The certificate's {@code notAfter} is the one
+     * number in a reply judged by value, so it is rewritten as the integer it parsed to: {@code 1798761600000.0} and
+     * {@code 1.7987616e12} then cover the same bytes as the plain digits, which {@link Jcs} would otherwise refuse.
+     * Everything else, extra certificate fields included, is canonicalised as received, so a non-integral number
+     * anywhere else still fails. Assumes {@link #wellShaped}, which has already parsed the certificate.
+     */
+    private static byte[] receivedSigningBytes(JsonNode reply) {
+        ObjectNode copy = reply.deepCopy();
+        if (copy.get("serverReplyCert") instanceof ObjectNode cert) {
+            cert.put("notAfter", ReplyCert.parse(cert).notAfter());
+        }
+        return signingBytes(copy);
+    }
+
+    /**
      * Signs the reply with {@code signingKey}: the entry service's key when the reply carries
      * {@code serverKeyringSig} and {@code serverReplyCert}, the policy key when it carries neither. Any signature
      * already on the input is replaced. Only the key changed between the forms: the server must still say
@@ -219,7 +235,8 @@ public final class Sessions {
      * entry service from its own configuration (never from the reply) and the time {@code nowMs}, in the spec's
      * order: shape, pin, then signature, roots and session id, then status. Takes the raw JSON so that the shape
      * check is the first outcome, and so the signature is checked over the reply as received, any extra field
-     * included. Never throws.
+     * included (with the certificate's {@code notAfter} read by value; see {@link #receivedSigningBytes}). Never
+     * throws.
      *
      * <p>The form is decided by which fields are present, never by which key verifies: trying the policy key and
      * then the entry key would let a reply stripped of its certificate, or carrying a certificate it should not,
@@ -237,8 +254,8 @@ public final class Sessions {
         try {
             PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
             PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs);
-            if (signer == null
-                    || !Crypto.verify(signer, signingBytes(reply), Base64Url.decode(reply.get("sig").textValue()))) {
+            if (signer == null || !Crypto.verify(signer, receivedSigningBytes(reply),
+                    Base64Url.decode(reply.get("sig").textValue()))) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             JsonNode root = reply.get("serverRoot");

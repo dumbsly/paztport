@@ -145,6 +145,46 @@ class SessionsTest {
         assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(noCert, req, serverKey, "pay", NOW));
     }
 
+    /**
+     * A certificate's {@code notAfter} is judged by value, and the reply's signature covers the reply's parsed
+     * value, so a reply whose certificate writes the same integer as {@code 1798761600000.0} or {@code 1.7987616e12}
+     * gets the verdict the plain digits get, as it does in TypeScript. A fraction is no integer by value and is
+     * malformed. Tampering with any other field, including an extra field inside the certificate, still breaks the
+     * signature.
+     */
+    @Test
+    void entryKeyReplyCertNotAfterJudgedByValue() throws Exception {
+        long notAfter = 1_798_761_600_000L;
+        KeyPair entry = Crypto.generateEd25519KeyPair();
+        Map<String, String> ring = Map.of("pay", key(entry));
+        KeyringFile signedRing = KeyringFile.sign(ring, serverKey, serverPolicy.getPrivate());
+        ReplyCert cert = ReplyCert.issue(serverKey, "pay", key(entry), notAfter, serverPolicy.getPrivate());
+        SessionRequest req = request(clientRoot);
+        String nonce = Sessions.newNonce();
+        String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
+                clientRing);
+        SessionReply signed = Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(), cert,
+                nonce, sess, "attested", List.of(), null), entry.getPrivate());
+        String text = JSON.writeValueAsString(signed.toJson());
+        String digits = "\"notAfter\":" + notAfter;
+        assertTrue(text.contains(digits));
+
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(JSON.readTree(text), req, serverKey, "pay", NOW));
+        for (String same : List.of("1798761600000.0", "1.7987616e12", "1.7987616E+12")) {
+            JsonNode rewritten = JSON.readTree(text.replace(digits, "\"notAfter\":" + same));
+            assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(rewritten, req, serverKey, "pay", NOW), same);
+        }
+        JsonNode fraction = JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.5"));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(fraction, req, serverKey, "pay", NOW));
+
+        ObjectNode otherField = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
+        otherField.put("nonce", Sessions.newNonce());
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(otherField, req, serverKey, "pay", NOW));
+        ObjectNode extraInCert = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
+        ((ObjectNode) extraInCert.get("serverReplyCert")).put("note", "added");
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(extraInCert, req, serverKey, "pay", NOW));
+    }
+
     @Test
     void parseRequestRejects() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> Sessions.parseRequest(JSON.readTree("[]")));

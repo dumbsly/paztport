@@ -9,8 +9,9 @@ import java.math.BigDecimal;
 /**
  * The one reading of a wire integer, shared by the stamp {@code v} and {@code ts} and the reply certificate's
  * {@code notAfter}. The TypeScript SDK judges a number by its value, so this does too: were Java to judge the text
- * instead, {@code 1.0} would be accepted by one SDK and refused by the other, and the same chain or reply would
- * get two verdicts.
+ * instead, {@code 1.0} would be accepted by one SDK and refused by the other. Reading alone does not settle a
+ * reply's verdict: its signature covers the parsed value, so the client's check also hashes the certificate's
+ * {@code notAfter} as the integer read here (see {@code Sessions}), since {@link Jcs} refuses {@code 1.0}.
  */
 final class JsonIntegers {
 

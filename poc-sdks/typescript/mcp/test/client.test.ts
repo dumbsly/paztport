@@ -223,6 +223,19 @@ describe("classifySessionReply", () => {
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter).status).toBe("attested");
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter + 1)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
+  it("aCertificatesNotAfterIsJudgedByValue", () => {
+    // The Java client pins the same verdicts: the signature covers the parsed value, never the text.
+    const c = connected();
+    const at = Date.now();
+    const text = JSON.stringify(c.raw);
+    const digits = String(c.policy.replyCert.notAfter);
+    expect(text).toContain(`"notAfter":${digits}`);
+    const rewrite = (to: string): unknown => JSON.parse(text.replace(`"notAfter":${digits}`, `"notAfter":${to}`));
+    for (const same of [`${digits}.0`, `${digits[0]}.${digits.slice(1)}e${digits.length - 1}`]) {
+      expect(classifySessionReply(rewrite(same), c.req, c.policy.policyPublicKey, "mcp-entry", at).status, same).toBe("attested");
+    }
+    expect(classifySessionReply(rewrite(`${digits}.5`), c.req, c.policy.policyPublicKey, "mcp-entry", at)).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
+  });
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
     const expired = serverMaterial(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
     const c = connected({ policy: expired.policy, served: expired.served });

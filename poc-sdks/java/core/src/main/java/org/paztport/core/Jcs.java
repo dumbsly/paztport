@@ -15,9 +15,12 @@ import java.util.List;
  * signed bytes are. Only the kinds Paztport hashes are supported: objects, arrays, strings, booleans, null and
  * integers within &plusmn;(2^53&minus;1). Anything else (a fraction, a larger integer, a lone surrogate) throws,
  * because the TypeScript SDK would print such a number differently and the two would sign different bytes.
- * That includes an integral-valued float such as {@code 1.0}: TypeScript would accept it as 1, Java refuses it,
- * which is safe because every value Java hashes is an integer already. A Java {@code null} reference or a
- * missing node is a caller's bug and throws; only a JSON null prints {@code null}.
+ * That includes an integral-valued float such as {@code 1.0}: TypeScript would accept it as 1, Java refuses it.
+ * The numbers Java judges by value (a stamp's {@code v} and {@code ts}, a reply certificate's {@code notAfter}) are
+ * hashed from their parsed form, never handed here as received: stamps sign plain digits of the parsed value, and
+ * the client's reply check rewrites {@code notAfter} as the integer it parsed to, so both SDKs cover the same
+ * bytes. Every other number is not judged by value and is refused here unless it is already an integer. A Java
+ * {@code null} reference or a missing node is a caller's bug and throws; only a JSON null prints {@code null}.
  */
 public final class Jcs {
 
