@@ -10,12 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Crypto;
 import org.paztport.core.EventEnvelope;
-import org.springframework.web.client.RestClient;
 
 class ResponderEventPublisherTest {
 
@@ -23,10 +24,18 @@ class ResponderEventPublisherTest {
     private static final AttestationEvent EVENT =
             new AttestationEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", false);
 
+    /** One JDK client for every test, closed after the class; {@link TestHttp} bounds its waits. */
+    private static final HttpClient HTTP = TestHttp.newClient();
+
     private final KeyPair key = Crypto.generateEd25519KeyPair();
     private final ResponderEventPublisher publisher =
-            new ResponderEventPublisher(RestClient.create(), "http://127.0.0.1:1", "payment", key.getPrivate(),
-                    () -> 1234L);
+            new ResponderEventPublisher(TestHttp.restClient(HTTP).build(), "http://127.0.0.1:1", "payment",
+                    key.getPrivate(), () -> 1234L);
+
+    @AfterAll
+    static void closeClient() {
+        HTTP.close();
+    }
 
     @Test
     void publishIsBestEffortWhenResponderIsUnreachable() {

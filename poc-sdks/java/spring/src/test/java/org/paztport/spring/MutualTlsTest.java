@@ -205,11 +205,16 @@ class MutualTlsTest {
         POOLED.forEach(PooledTlsClient::close);
     }
 
-    /** As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot gives an SSL bundle itself. */
+    /**
+     * As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot gives an SSL bundle itself. Its
+     * reads block without heeding an interrupt, so only its own timeouts can end a stalled call.
+     */
     private static RestClient urlConnectionClient(String name) {
         return RestClient.builder()
                 .requestFactory(ClientHttpRequestFactories.get(SimpleClientHttpRequestFactory.class,
-                        ClientHttpRequestFactorySettings.DEFAULTS.withSslBundle(fixture(name))))
+                        ClientHttpRequestFactorySettings.DEFAULTS.withSslBundle(fixture(name))
+                                .withConnectTimeout(TestHttp.REQUEST_TIMEOUT)
+                                .withReadTimeout(TestHttp.REQUEST_TIMEOUT)))
                 .build();
     }
 

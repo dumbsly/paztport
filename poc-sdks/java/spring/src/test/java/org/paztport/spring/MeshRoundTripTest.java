@@ -13,6 +13,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -145,13 +146,16 @@ class MeshRoundTripTest {
 
     @Test
     void encodedQueryVerifies() {
-        RestClient origin = RestClient.builder().requestInterceptor(new OutboundInterceptor(
-                new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
-                        System::currentTimeMillis), bundle, verifier, "localhost")).build();
-
-        Map<String, String> body = origin.get()
-                .uri(URI.create("http://localhost:" + port + "/search?q=caf%C3%A9%20x"))
-                .retrieve().body(new ParameterizedTypeReference<>() { });
+        Map<String, String> body;
+        try (HttpClient http = TestHttp.newClient()) {
+            RestClient origin = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
+                    new StamperV3("localhost", "origin-1", APP.getPrivate(), true,
+                            () -> UUID.randomUUID().toString(), System::currentTimeMillis), bundle, verifier,
+                    "localhost")).build();
+            body = origin.get()
+                    .uri(URI.create("http://localhost:" + port + "/search?q=caf%C3%A9%20x"))
+                    .retrieve().body(new ParameterizedTypeReference<>() { });
+        }
 
         assertEquals(Map.of("q", "café x"), body);
         List<String> lines = traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();

@@ -184,14 +184,14 @@ class BoundaryGuardTest {
         StamperV3.Stamped stamped = new StamperV3("gateway", "gw-1", key.getPrivate(), true, () -> rid,
                 System::currentTimeMillis).next(null, "payment", RequestBinding.compute("POST", "/pay", BODY),
                         List.of(), BUILT.bundles().get("gateway"));
-        HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/pay"))
+        HttpRequest.Builder request = TestHttp.request(URI.create("http://localhost:" + port + "/pay"))
                 .header("Content-Type", "application/json")
                 .header(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(BODY));
         if (stamped.proof() != null) {
             request.header(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
         }
-        try (HttpClient http = HttpClient.newHttpClient()) {
+        try (HttpClient http = TestHttp.newClient()) {
             return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
         }
     }
