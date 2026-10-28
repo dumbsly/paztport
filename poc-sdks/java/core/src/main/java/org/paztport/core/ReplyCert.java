@@ -25,7 +25,7 @@ import java.security.PrivateKey;
  *
  * <p>The signature covers {@code utf8("paztport-reply-cert\n") || JCS({key, notAfter, policy, svc})}; any other
  * field on the wire is ignored and unsigned. {@code notAfter} is an integer in [0, 2^53 &minus; 1], the range both
- * SDKs print the same way.
+ * SDKs print the same way, judged by value as a stamp's {@code ts} is.
  *
  * <p>What the signer must have verified: the policy owner issues a certificate only after checking that
  * {@code key} is {@code svc}'s key in its current keyring, signed by the same policy key.
@@ -33,7 +33,7 @@ import java.security.PrivateKey;
 public record ReplyCert(String policy, String svc, String key, long notAfter, String sig) {
 
     /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
-    public static final long MAX_NOT_AFTER = (1L << 53) - 1;
+    public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-reply-cert\n";
     private static final ObjectMapper READER = new ObjectMapper()
@@ -102,19 +102,20 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
 
     /**
      * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code node} is an object with string
-     * {@code policy}, {@code svc}, {@code key} and {@code sig} and an in-range integer {@code notAfter}. Only an
-     * integer JSON number counts: a string, a fraction, and an integral float such as {@code 1.0} or {@code 1e3}
-     * are refused, so what is accepted is exactly what JCS prints. Other fields are ignored.
+     * {@code policy}, {@code svc}, {@code key} and {@code sig} and an in-range integer {@code notAfter}.
+     * {@code notAfter} is checked by value, by the rule a stamp's {@code ts} follows, so {@code 1.0} and {@code 1e3}
+     * are the integers 1 and 1000 and a reply gets the verdict the TypeScript SDK gives it; a string or a fraction
+     * is refused. The signature covers the plain digits of that value. Other fields are ignored.
      */
     public static ReplyCert parse(JsonNode node) {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException("a reply certificate must be a JSON object");
         }
-        JsonNode n = node.get("notAfter");
-        if (n == null || !n.isIntegralNumber() || !n.canConvertToLong() || !inRange(n.longValue())) {
+        Long notAfter = JsonIntegers.safeInteger(node.get("notAfter"));
+        if (notAfter == null || !inRange(notAfter)) {
             throw new IllegalArgumentException("reply certificate notAfter must be an integer in [0, 2^53 - 1]");
         }
-        return new ReplyCert(text(node, "policy"), text(node, "svc"), text(node, "key"), n.longValue(),
+        return new ReplyCert(text(node, "policy"), text(node, "svc"), text(node, "key"), notAfter,
                 text(node, "sig"));
     }
 

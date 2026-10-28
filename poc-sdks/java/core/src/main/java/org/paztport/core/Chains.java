@@ -4,7 +4,6 @@
 package org.paztport.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -16,7 +15,6 @@ import java.util.Set;
  */
 public final class Chains {
 
-    private static final long MAX_SAFE = (1L << 53) - 1;
     private static final List<String> V3_STRINGS = List.of("svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev");
     private static final List<String> V2_STRINGS = List.of("svc", "inst", "rid", "sess", "bind", "infl", "prev");
     private static final Set<Integer> VERSIONS = Set.of(2, 3);
@@ -59,7 +57,7 @@ public final class Chains {
         if (item == null || !item.isObject()) {
             return null;
         }
-        Long v = integral(item.get("v"));
+        Long v = JsonIntegers.safeInteger(item.get("v"));
         return v != null && VERSIONS.contains(v.intValue()) && v == v.intValue() ? v.intValue() : null;
     }
 
@@ -69,7 +67,7 @@ public final class Chains {
             return null;
         }
         Integer v = version(item);
-        Long ts = integral(item.get("ts"));
+        Long ts = JsonIntegers.safeInteger(item.get("ts"));
         if (v == null || v != version || ts == null) {
             return null;
         }
@@ -105,23 +103,6 @@ public final class Chains {
             return Base64Url.encode(Base64Url.decode(sig)).equals(sig);
         } catch (IllegalArgumentException e) {
             return false;
-        }
-    }
-
-    /**
-     * A number's value if it is an integer within &plusmn;(2^53&minus;1), else null. Checked by value, as the
-     * TypeScript SDK does, so {@code 1.0} and {@code 1e3} are accepted as 1 and 1000.
-     */
-    private static Long integral(JsonNode n) {
-        if (n == null || !n.isNumber()) {
-            return null;
-        }
-        try {
-            BigDecimal d = n.isIntegralNumber() ? new BigDecimal(n.bigIntegerValue()) : n.decimalValue();
-            long v = d.toBigIntegerExact().longValueExact();
-            return Math.abs(v) <= MAX_SAFE ? v : null;
-        } catch (ArithmeticException | NumberFormatException e) {
-            return null;
         }
     }
 }

@@ -24,7 +24,7 @@ export function issueReplyCert(policyPublicKey: string, svc: string, key: string
   return { policy: policyPublicKey, svc, key, notAfter, sig };
 }
 
-/** True when `v` has own string policy, svc, key and sig and a safe-integer notAfter >= 0; other fields are ignored. */
+/** True when `v` has own string policy, svc, key and sig and a notAfter that is an integer in [0, 2^53 − 1], checked by value as a stamp's ts is (1.0 and 1e3 are 1 and 1000); other fields are ignored. */
 export function isReplyCert(v: unknown): v is ReplyCert {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return false;
   const o = v as Record<string, unknown>;

@@ -138,12 +138,30 @@ class ReplyCertTest {
 
     @Test
     void parseRefusesABadNotAfter() throws Exception {
-        for (String bad : new String[] {"1.5", "-1", "9007199254740992", "18446744073709551616", "\"1798761600000\"",
-                "1e3", "1.0", "null", "true", "[]", "{}"}) {
+        for (String bad : new String[] {"1.5", "-1", "-1.0", "9007199254740992", "9.007199254740992e15",
+                "18446744073709551616", "\"1798761600000\"", "\"1e3\"", "null", "true", "[]", "{}"}) {
             ObjectNode o = issued().toJson();
             o.set("notAfter", json(bad));
             assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(o), bad);
         }
+    }
+
+    @Test
+    void parseJudgesNotAfterByValueAsTheStampRuleDoes() throws Exception {
+        String[] text = {"1.0", "1e3", "1798761600000.0", "1.7987616E12"};
+        long[] value = {1, 1000, NOT_AFTER, NOT_AFTER};
+        for (int i = 0; i < text.length; i++) {
+            ObjectNode o = issued().toJson();
+            o.set("notAfter", json(text[i]));
+            assertEquals(value[i], ReplyCert.parse(o).notAfter(), text[i]);
+        }
+    }
+
+    @Test
+    void anIntegralFloatNotAfterStillVerifies() throws Exception {
+        String wire = issued().toJson().toString().replace(":" + NOT_AFTER + ",", ":" + NOT_AFTER + ".0,");
+        assertTrue(wire.contains(NOT_AFTER + ".0"), wire);
+        assertTrue(ReplyCert.parse(json(wire)).verifies(pub(POLICY)));
     }
 
     @Test

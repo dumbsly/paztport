@@ -402,12 +402,9 @@ utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "polic
 `notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], and is written as plain
 decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader
 MUST refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a
-string, or whose `notAfter` is missing, not a number, not an integer, negative, or greater than 2^53 − 1. The
-rule is on the value as parsed. A reader whose JSON parser yields IEEE doubles judges the parsed value, so it
-may accept number text with a fraction part or an exponent that parses to an integer in range: the TypeScript
-SDK accepts `1e3`, `1.0`, and `1798761600000.0001`, which parses to 1798761600000. A reader that sees the
-number's text MAY refuse such text: the Java SDK refuses any `notAfter` not written as an integer. Either way
-the signature covers the plain digits of the parsed value. Any other field is ignored and not signed.
+string, or whose `notAfter` is missing, not a JSON number, not an integer, negative, or greater than 2^53 − 1.
+`notAfter` is checked by value, as a stamp's `ts` is: `1.0` and `1e3` are the integers 1 and 1000. The
+signature covers the plain digits of that value. Any other field is ignored and not signed.
 
 A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
 under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
