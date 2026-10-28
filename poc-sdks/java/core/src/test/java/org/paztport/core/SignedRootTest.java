@@ -46,7 +46,7 @@ class SignedRootTest {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         byte[] root = Crypto.sha256("root".getBytes());
 
-        SignedRoot signed = SignedRoot.sign(root, "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
 
         assertTrue(signed.verify(policy.getPublic()));
         assertArrayEquals(root, signed.rootBytes());
@@ -57,7 +57,7 @@ class SignedRootTest {
     void verifyFailsWithWrongPolicyKey() {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         KeyPair attacker = Crypto.generateEd25519KeyPair();
-        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", NOT_AFTER, policy.getPrivate());
 
         assertFalse(signed.verify(attacker.getPublic()));
     }
@@ -65,26 +65,26 @@ class SignedRootTest {
     @Test
     void verifyFailsWhenRootTampered() {
         KeyPair policy = Crypto.generateEd25519KeyPair();
-        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", NOT_AFTER, policy.getPrivate());
 
         SignedRoot forged = new SignedRoot(
-                signed.rootId(), Base64Url.encode(Crypto.sha256("evil".getBytes())), signed.sig());
+                signed.rootId(), Base64Url.encode(Crypto.sha256("evil".getBytes())), signed.sig(), signed.notAfter());
         assertFalse(forged.verify(policy.getPublic()));
     }
 
     @Test
     void verifyFailsWhenRootIdTampered() {
         KeyPair policy = Crypto.generateEd25519KeyPair();
-        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", NOT_AFTER, policy.getPrivate());
 
-        SignedRoot forged = new SignedRoot("v2", signed.root(), signed.sig());
+        SignedRoot forged = new SignedRoot("v2", signed.root(), signed.sig(), signed.notAfter());
         assertFalse(forged.verify(policy.getPublic()));
     }
 
     @Test
     void encodeDecodeRoundTrips() {
         KeyPair policy = Crypto.generateEd25519KeyPair();
-        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(Crypto.sha256("root".getBytes()), "v1", NOT_AFTER, policy.getPrivate());
 
         SignedRoot decoded = SignedRoot.decode(signed.encode());
         assertEquals(signed, decoded);
@@ -131,7 +131,7 @@ class SignedRootTest {
         SignedRoot r = newForm();
         assertFalse(new SignedRoot(r.rootId(), r.root(), r.sig()).verify(POLICY.getPublic()),
                 "dropping notAfter must not turn a new-form signature into an old-form one");
-        SignedRoot old = SignedRoot.sign(ROOT, "v1", POLICY.getPrivate());
+        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
         assertFalse(new SignedRoot(old.rootId(), old.root(), old.sig(), NOT_AFTER).verify(POLICY.getPublic()),
                 "adding notAfter must not lend an old-form signature a window it never signed");
     }
@@ -146,7 +146,7 @@ class SignedRootTest {
 
     @Test
     void oldFormStillVerifies() throws Exception {
-        SignedRoot old = SignedRoot.sign(ROOT, "v1", POLICY.getPrivate());
+        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
         assertFalse(old.isNewForm());
         assertNull(old.notAfter());
         assertTrue(old.verify(POLICY.getPublic()));
@@ -163,14 +163,14 @@ class SignedRootTest {
         assertTrue(r.isCurrent(NOT_AFTER - 1));
         assertTrue(r.isCurrent(NOT_AFTER));
         assertFalse(r.isCurrent(NOT_AFTER + 1));
-        SignedRoot old = SignedRoot.sign(ROOT, "v1", POLICY.getPrivate());
+        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
         assertFalse(old.isCurrent(0));
         assertFalse(old.isCurrent(Long.MIN_VALUE));
     }
 
     @Test
     void renewedKeepsRootAndRootId() {
-        SignedRoot old = SignedRoot.sign(ROOT, "v1", POLICY.getPrivate());
+        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
         SignedRoot renewed = old.renewed(NOT_AFTER + 5, POLICY.getPrivate());
         assertEquals(old.rootId(), renewed.rootId());
         assertEquals(old.root(), renewed.root());

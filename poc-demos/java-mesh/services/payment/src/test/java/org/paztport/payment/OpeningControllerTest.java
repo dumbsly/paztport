@@ -37,6 +37,9 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 // TLS material is read on the first call, so the bundle is never read.
 class OpeningControllerTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String RID = "rid-1";
     private static final List<InfluenceEntry> ORIGINALS = List.of(
@@ -54,9 +57,10 @@ class OpeningControllerTest {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         KeyPair payment = Crypto.generateEd25519KeyPair();
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
-        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("payment", "psp")), 4, policy.getPrivate());
+        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("payment", "psp")), 4,
+                NOT_AFTER, policy.getPrivate());
         KeyringFile keyring = KeyringFile.sign(
-                Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(payment.getPublic()))), policyPub,
+                Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(payment.getPublic()))), policyPub, NOT_AFTER,
                 policy.getPrivate());
         client = new BoundaryClient(
                 new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",

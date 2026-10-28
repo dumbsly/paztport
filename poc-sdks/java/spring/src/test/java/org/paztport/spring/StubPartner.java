@@ -52,6 +52,9 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
  */
 final class StubPartner implements AutoCloseable {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     /** One request as received: the headers' names are lower-cased. */
     record Received(String method, String path, Map<String, List<String>> headers, byte[] body) {
         String header(String name) {
@@ -70,7 +73,8 @@ final class StubPartner implements AutoCloseable {
     final KeyPair policy = Crypto.generateEd25519KeyPair();
     /** The entry service {@code psp}'s key, which signs entry-key replies. */
     final KeyPair entry = Crypto.generateEd25519KeyPair();
-    private final KeyringFile keyring = KeyringFile.sign(Map.of("psp", pub(entry)), pub(policy), policy.getPrivate());
+    private final KeyringFile keyring = KeyringFile.sign(Map.of("psp", pub(entry)), pub(policy),
+            NOT_AFTER, policy.getPrivate());
     private final SignedRoot root;
     private final HttpServer server;
     private final ExecutorService executor = Executors.newCachedThreadPool();
@@ -95,7 +99,7 @@ final class StubPartner implements AutoCloseable {
      *     the egress's bundle trusts; it asks for no client certificate
      */
     StubPartner(boolean tls) throws IOException {
-        root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, policy.getPrivate()).signedRoot();
+        root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot();
         InetSocketAddress loopback = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
         if (tls) {
             HttpsServer https = HttpsServer.create(loopback, 0);
@@ -225,7 +229,8 @@ final class StubPartner implements AutoCloseable {
             signer = nextSigners.isEmpty() ? policy : nextSigners.poll();
         }
         SignedRoot serverRoot = signer == policy ? root
-                : PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, signer.getPrivate()).signedRoot();
+                : PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
+                        NOT_AFTER, signer.getPrivate()).signedRoot();
         String nonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
                 serverRoot.sig(), req.nonce(), nonce, req.clientPolicyKey(), req.clientKeyring());
@@ -234,12 +239,12 @@ final class StubPartner implements AutoCloseable {
         List<String> disabled = replyStatus.equals("unsafe") ? List.of("POST /refund") : List.of();
         SessionReply reply;
         if (signer != policy || policyKeyForm) {
-            reply = Sessions.signReply(new SessionReply(serverRoot, pub(signer), keyring.services(), null, null, nonce,
-                    sess, replyStatus, disabled, null), signer.getPrivate());
+            reply = Sessions.signReply(new SessionReply(serverRoot, pub(signer), keyring.services(), null, null, null,
+                    nonce, sess, replyStatus, disabled, null), signer.getPrivate());
         } else {
             ReplyCert cert = ReplyCert.issue(pub(policy), "psp", pub(entry), replyCertNotAfter, policy.getPrivate());
             reply = Sessions.signReply(new SessionReply(serverRoot, pub(policy), keyring.services(), keyring.sig(),
-                    cert, nonce, sess, replyStatus, disabled, null), entry.getPrivate());
+                    keyring.notAfter(), cert, nonce, sess, replyStatus, disabled, null), entry.getPrivate());
         }
         replies.add(reply);
         return reply;

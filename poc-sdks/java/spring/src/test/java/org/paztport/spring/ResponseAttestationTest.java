@@ -69,6 +69,9 @@ import org.springframework.web.context.request.async.DeferredResult;
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "spring.main.banner-mode=off")
 class ResponseAttestationTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     /** One JDK client for every call, closed after the class; {@link TestHttp} bounds its waits. */
@@ -81,12 +84,12 @@ class ResponseAttestationTest {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         PolicyBuilder.Result built =
-                PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, policy.getPrivate());
+                PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, NOT_AFTER, policy.getPrivate());
 
         Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(APP.getPrivate())));
         Files.writeString(trust.resolve("policy.pub"), policyPub);
         JSON.writeValue(trust.resolve("keyring.json").toFile(), KeyringFile.sign(
-                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(APP.getPublic()))), policyPub,
+                Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(APP.getPublic()))), policyPub, NOT_AFTER,
                 policy.getPrivate()));
         JSON.writeValue(trust.resolve("root.json").toFile(), built.signedRoot());
         JSON.writeValue(trust.resolve("proofs-localhost.json").toFile(), built.bundles().get("localhost"));

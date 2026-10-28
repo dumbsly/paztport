@@ -24,6 +24,9 @@ import org.paztport.core.SignedRoot;
 
 class PolicyToolMainTest {
 
+    /** The fixture keyring's validity window: 2100-01-01, beyond any clock here. */
+    private static final long KEYRING_NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private static final String PATHS_YAML = """
@@ -65,7 +68,26 @@ class PolicyToolMainTest {
 
         PolicyToolMain.run(pathsYaml, keys, out, 8);
 
-        SignedRoot root = JSON.readValue(Files.readAllBytes(out.resolve("root.json")), SignedRoot.class);
+        SignedRoot root = SignedRoot.load(out.resolve("root.json"));
+        assertTrue(root.verify(policy.getPublic()));
+    }
+
+    /** The root is signed in the new form, vouching for its routes for seven days from the run. */
+    @Test
+    void rootJsonIsNewFormForSevenDays(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        KeyPair policy = writeWorld(keys, pathsYaml);
+
+        long before = System.currentTimeMillis();
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        long after = System.currentTimeMillis();
+
+        SignedRoot root = SignedRoot.load(out.resolve("root.json"));
+        assertTrue(root.isNewForm());
+        assertTrue(root.notAfter() >= before + 7 * DAY_MS && root.notAfter() <= after + 7 * DAY_MS,
+                String.valueOf(root.notAfter()));
         assertTrue(root.verify(policy.getPublic()));
     }
 
@@ -81,7 +103,7 @@ class PolicyToolMainTest {
         ProofBundle search = JSON.readValue(Files.readAllBytes(out.resolve("proofs-search.json")), ProofBundle.class);
         assertTrue(search.proofs().isEmpty(), "search must hold no proofs");
 
-        SignedRoot root = JSON.readValue(Files.readAllBytes(out.resolve("root.json")), SignedRoot.class);
+        SignedRoot root = SignedRoot.load(out.resolve("root.json"));
         ProofBundle orders = JSON.readValue(Files.readAllBytes(out.resolve("proofs-orders.json")), ProofBundle.class);
         assertFalse(orders.proofs().isEmpty());
         assertTrue(orders.proofs().get("gateway/orders/payment").verify("gateway/orders/payment", root.rootBytes()));
@@ -98,7 +120,7 @@ class PolicyToolMainTest {
     private static String writeKeyring(Path keys, KeyPair policy, KeyPair signer) throws Exception {
         String orders = pub(Crypto.generateEd25519KeyPair());
         KeyringFile ring = KeyringFile.sign(Map.of("gateway", pub(Crypto.generateEd25519KeyPair()), "orders", orders),
-                pub(policy), signer.getPrivate());
+                pub(policy), KEYRING_NOT_AFTER, signer.getPrivate());
         JSON.writeValue(keys.resolve("keyring.json").toFile(), ring);
         return orders;
     }
@@ -141,9 +163,9 @@ class PolicyToolMainTest {
         Path out = dir.resolve("out");
         KeyPair policy = writeWorld(keys, pathsYaml);
         writeKeyring(keys, policy, policy);
-        KeyringFile signed = JSON.readValue(keys.resolve("keyring.json").toFile(), KeyringFile.class);
+        KeyringFile signed = KeyringFile.load(keys.resolve("keyring.json"));
         KeyringFile tampered = new KeyringFile(Map.of("orders", pub(Crypto.generateEd25519KeyPair())),
-                signed.policy(), signed.sig());
+                signed.policy(), signed.sig(), signed.notAfter());
         JSON.writeValue(keys.resolve("keyring.json").toFile(), tampered);
 
         assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));

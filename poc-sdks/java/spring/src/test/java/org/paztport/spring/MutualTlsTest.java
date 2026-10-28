@@ -81,13 +81,16 @@ import org.springframework.web.client.RestClientException;
             "paztport.tls-bundle=orders"})
 class MutualTlsTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final byte[] TO_PAYMENT = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final KeyPair GATEWAY = Crypto.generateEd25519KeyPair();
     private static final KeyPair ORDERS = Crypto.generateEd25519KeyPair();
     private static final KeyPair POLICY = Crypto.generateEd25519KeyPair();
     private static final PolicyBuilder.Result BUILT =
-            PolicyBuilder.build(List.of(List.of("gateway", "orders", "payment")), 4, POLICY.getPrivate());
+            PolicyBuilder.build(List.of(List.of("gateway", "orders", "payment")), 4, NOT_AFTER, POLICY.getPrivate());
     private static Path trust;
 
     @DynamicPropertySource
@@ -97,7 +100,7 @@ class MutualTlsTest {
         Files.writeString(trust.resolve("policy.pub"), policyPub);
         JSON.writeValue(trust.resolve("keyring.json").toFile(), KeyringFile.sign(Map.of(
                 "gateway", Base64Url.encode(Crypto.encodePublicKey(GATEWAY.getPublic())),
-                "orders", Base64Url.encode(Crypto.encodePublicKey(ORDERS.getPublic()))), policyPub,
+                "orders", Base64Url.encode(Crypto.encodePublicKey(ORDERS.getPublic()))), policyPub, NOT_AFTER,
                 POLICY.getPrivate()));
         JSON.writeValue(trust.resolve("root.json").toFile(), BUILT.signedRoot());
 

@@ -61,6 +61,9 @@ import org.springframework.web.client.RestClient;
 
 class OutboundInterceptorTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
 
@@ -68,7 +71,7 @@ class OutboundInterceptorTest {
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
     private final PolicyBuilder.Result policy = PolicyBuilder.build(
             List.of(List.of("gateway", "orders", "payment"), List.of("gateway", "orders"),
-                    List.of("gateway", "search")), 4,
+                    List.of("gateway", "search")), 4, NOT_AFTER,
             Crypto.generateEd25519KeyPair().getPrivate());
 
     /** The headers of every request the mock server received. */

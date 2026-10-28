@@ -39,6 +39,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
  */
 class VerifiedChainTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final long NOW = 1_000_000L;
     private static final byte[] BODY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
 
@@ -46,7 +49,7 @@ class VerifiedChainTest {
     private final KeyPair orders = Crypto.generateEd25519KeyPair();
     private final KeyPair payment = Crypto.generateEd25519KeyPair();
     private final PolicyBuilder.Result policy = PolicyBuilder.build(
-            List.of(List.of("gateway", "orders", "payment"), List.of("gateway", "orders")), 4,
+            List.of(List.of("gateway", "orders", "payment"), List.of("gateway", "orders")), 4, NOT_AFTER,
             Crypto.generateEd25519KeyPair().getPrivate());
 
     @AfterEach

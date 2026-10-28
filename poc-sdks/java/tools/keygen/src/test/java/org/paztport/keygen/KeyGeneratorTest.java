@@ -17,6 +17,9 @@ import org.paztport.core.KeyringFile;
 
 class KeyGeneratorTest {
 
+    /** The fixture keyring's validity window: 2100-01-01. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final List<String> SERVICES = List.of("gateway", "orders", "payment", "search");
 
     @Test
@@ -45,19 +48,21 @@ class KeyGeneratorTest {
     @Test
     void keyringHoldsEveryServiceAndThePolicyPublicKey() {
         KeyGenerator.Result result = KeyGenerator.generate(SERVICES);
-        KeyringFile keyring = KeyGenerator.toKeyring(result);
+        KeyringFile keyring = KeyGenerator.toKeyring(result, NOT_AFTER);
 
         assertEquals(SERVICES.size(), keyring.services().size());
         for (String svc : SERVICES) {
             assertTrue(keyring.services().containsKey(svc));
         }
         assertNotNull(keyring.policy());
+        assertEquals(NOT_AFTER, keyring.notAfter());
+        assertTrue(keyring.verifies(keyring.policy()));
     }
 
     @Test
     void keyringPublicKeysDecodeBackToTheGeneratedKeys() {
         KeyGenerator.Result result = KeyGenerator.generate(SERVICES);
-        KeyringFile keyring = KeyGenerator.toKeyring(result);
+        KeyringFile keyring = KeyGenerator.toKeyring(result, NOT_AFTER);
 
         byte[] fromKeyring = Crypto.encodePublicKey(
                 Crypto.decodePublicKey(Base64Url.decode(keyring.services().get("gateway"))));

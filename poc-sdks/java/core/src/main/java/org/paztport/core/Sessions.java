@@ -37,7 +37,10 @@ public final class Sessions {
         return Base64Url.encode(Crypto.randomBytes(16));
     }
 
-    /** A root's wire form: JSON null when there is none. */
+    /**
+     * A root's wire form: JSON null when there is none, and its {@code notAfter} written inside it only for the new
+     * form, so an old-form root never carries one.
+     */
     static JsonNode rootJson(SignedRoot root) {
         if (root == null) {
             return JsonNodeFactory.instance.nullNode();
@@ -46,13 +49,19 @@ public final class Sessions {
         o.put("rootId", root.rootId());
         o.put("root", root.root());
         o.put("sig", root.sig());
+        if (root.notAfter() != null) {
+            o.put("notAfter", root.notAfter());
+        }
         return o;
     }
 
     /**
      * Reads a request, throwing {@link IllegalArgumentException} on a shape error (the spec's Invalid params). A
      * missing {@code clientKeyringSig} is legacy (null); a present one that is not a string reads as the empty
-     * string, which never verifies.
+     * string, which never verifies. The client root is read whole by {@link SignedRoot#parse}, its {@code notAfter}
+     * included. A present {@code clientKeyringNotAfter}, or a client root {@code notAfter}, that is not an integer
+     * in [0, 2^53 &minus; 1] (judged by value) is a shape error rather than an absent field: read as absent, a
+     * damaged window would pass for the old form.
      */
     public static SessionRequest parseRequest(JsonNode params) {
         if (params == null || !params.isObject()) {
@@ -64,8 +73,7 @@ public final class Sessions {
             throw new IllegalArgumentException("clientRoot must be an object or null");
         }
         if (r.isObject()) {
-            root = new SignedRoot(text(r.get("rootId"), "clientRoot.rootId"), text(r.get("root"), "clientRoot.root"),
-                    text(r.get("sig"), "clientRoot.sig"));
+            root = SignedRoot.parse(r);
         }
         JsonNode ring = params.get("clientKeyring");
         if (ring == null || !ring.isObject()) {
@@ -75,8 +83,21 @@ public final class Sessions {
         if (params.has("clientKeyringSig")) {
             sig = params.get("clientKeyringSig").isTextual() ? params.get("clientKeyringSig").textValue() : "";
         }
+        Long ringNotAfter = null;
+        if (params.has("clientKeyringNotAfter")) {
+            ringNotAfter = notAfter(params.get("clientKeyringNotAfter"));
+            if (ringNotAfter == null) {
+                throw new IllegalArgumentException("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
+            }
+        }
         return new SessionRequest(root, text(params.get("clientPolicyKey"), "clientPolicyKey"), stringMap(ring), sig,
-                text(params.get("nonce"), "nonce"));
+                ringNotAfter, text(params.get("nonce"), "nonce"));
+    }
+
+    /** A {@code notAfter}'s value when it is an integer in [0, 2^53 &minus; 1], judged by value; else null. */
+    private static Long notAfter(JsonNode n) {
+        Long v = JsonIntegers.safeInteger(n);
+        return v != null && v >= 0 ? v : null;
     }
 
     private static String text(JsonNode n, String what) {
@@ -162,6 +183,12 @@ public final class Sessions {
      * {@code "attested"} only when both roots verify under their own side's policy key, the client's policy key is
      * pinned and the client's keyring is signed by it; otherwise {@code "unsafe"}. With no pins every session is
      * unsafe, and a legacy request (no keyring signature) is unsafe live. Never throws.
+     *
+     * <p>Each signature is checked in its object's own form: a root over its own {@code notAfter} if it has one,
+     * the keyring over {@code clientKeyringNotAfter} if the request has one (see
+     * {@link SessionRequest#clientKeyringFile}). A window moved, added or dropped in transit therefore fails its
+     * signature. What the client's policy owner vouched for by signing is in {@link SignedRoot} and
+     * {@link KeyringFile}; whether the window has passed is not judged here.
      */
     public static String status(SessionRequest req, SignedRoot ownRoot, PublicKey ownPolicyKey,
             Set<String> pinnedClientKeys) {
@@ -169,9 +196,7 @@ public final class Sessions {
             PublicKey clientKey = Crypto.decodePublicKey(Base64Url.decode(req.clientPolicyKey()));
             boolean ok = req.clientRoot() != null && ownRoot != null && pinnedClientKeys.contains(req.clientPolicyKey())
                     && req.clientRoot().verify(clientKey) && ownRoot.verify(ownPolicyKey)
-                    && req.clientKeyringSig() != null && Crypto.verify(clientKey,
-                            KeyringFile.signingBytes(req.clientPolicyKey(), req.clientKeyring()),
-                            Base64Url.decode(req.clientKeyringSig()));
+                    && req.clientKeyringFile().verifies(req.clientPolicyKey());
             return ok ? ATTESTED : UNSAFE;
         } catch (IllegalArgumentException e) {
             return UNSAFE;
@@ -199,16 +224,24 @@ public final class Sessions {
 
     /**
      * The signing bytes of a received reply. The signature covers the reply's parsed value, as TypeScript's
-     * {@code JSON.parse} then JCS does, never the text it arrived in. The certificate's {@code notAfter} is the one
-     * number in a reply judged by value, so it is rewritten as the integer it parsed to: {@code 1798761600000.0} and
-     * {@code 1.7987616e12} then cover the same bytes as the plain digits, which {@link Jcs} would otherwise refuse.
-     * Everything else, extra certificate fields included, is canonicalised as received, so a non-integral number
-     * anywhere else still fails. Assumes {@link #wellShaped}, which has already parsed the certificate.
+     * {@code JSON.parse} then JCS does, never the text it arrived in. The numbers in a reply judged by value are the
+     * certificate's {@code notAfter}, {@code serverKeyringNotAfter} and the root's {@code notAfter}, so each is
+     * rewritten as the integer it parsed to: {@code 1798761600000.0} and {@code 1.7987616e12} then cover the same
+     * bytes as the plain digits, which {@link Jcs} would otherwise refuse, and Java and TypeScript give the same
+     * verdict. Everything else, extra certificate or root fields included, is canonicalised as received, so a
+     * non-integral number anywhere else still fails. Assumes {@link #wellShaped}, which has already checked that
+     * each is a safe integer in range.
      */
     private static byte[] receivedSigningBytes(JsonNode reply) {
         ObjectNode copy = reply.deepCopy();
         if (copy.get("serverReplyCert") instanceof ObjectNode cert) {
             cert.put("notAfter", ReplyCert.parse(cert).notAfter());
+        }
+        if (copy.has("serverKeyringNotAfter")) {
+            copy.put("serverKeyringNotAfter", notAfter(copy.get("serverKeyringNotAfter")));
+        }
+        if (copy.get("serverRoot") instanceof ObjectNode root && root.has("notAfter")) {
+            root.put("notAfter", notAfter(root.get("notAfter")));
         }
         return signingBytes(copy);
     }
@@ -218,16 +251,18 @@ public final class Sessions {
      * {@code serverKeyringSig} and {@code serverReplyCert}, the policy key when it carries neither. Any signature
      * already on the input is replaced. Only the key changed between the forms: the server must still say
      * {@code "attested"} only after its status checks ({@link #status}), since the signature vouches for whatever
-     * the reply says.
+     * the reply says. In the entry-key form {@code serverKeyringNotAfter} must be the window
+     * {@code serverKeyringSig} was made over, the keyring's own, or the client's check of that signature fails.
      */
     public static SessionReply signReply(SessionReply unsigned, PrivateKey signingKey) {
         SessionReply bare = new SessionReply(unsigned.serverRoot(), unsigned.serverPolicyKey(),
-                unsigned.serverKeyring(), unsigned.serverKeyringSig(), unsigned.serverReplyCert(), unsigned.nonce(),
-                unsigned.sess(), unsigned.status(), unsigned.disabled(), null);
+                unsigned.serverKeyring(), unsigned.serverKeyringSig(), unsigned.serverKeyringNotAfter(),
+                unsigned.serverReplyCert(), unsigned.nonce(), unsigned.sess(), unsigned.status(), unsigned.disabled(),
+                null);
         String sig = Base64Url.encode(Crypto.sign(signingKey, replySigningBytes(bare)));
         return new SessionReply(bare.serverRoot(), bare.serverPolicyKey(), bare.serverKeyring(),
-                bare.serverKeyringSig(), bare.serverReplyCert(), bare.nonce(), bare.sess(), bare.status(),
-                bare.disabled(), sig);
+                bare.serverKeyringSig(), bare.serverKeyringNotAfter(), bare.serverReplyCert(), bare.nonce(),
+                bare.sess(), bare.status(), bare.disabled(), sig);
     }
 
     /**
@@ -269,8 +304,7 @@ public final class Sessions {
             if (expected == null || !expected.equals(reply.get("sess").textValue())) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            if (!root.isNull() && !new SignedRoot(root.get("rootId").textValue(), root.get("root").textValue(),
-                    root.get("sig").textValue()).verify(pin)) {
+            if (!root.isNull() && !SignedRoot.parse(root).verify(pin)) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
@@ -285,7 +319,9 @@ public final class Sessions {
      * present, the keyring and the certificate verify under the pin, the certificate is for {@code serverEntry} and
      * names the key the keyring holds for it, and {@code nowMs} is no later than its {@code notAfter}: the keyring
      * alone is the reply's own claim until the policy key's signature covers it, and the certificate is what says
-     * the key is still current. Assumes {@link #wellShaped}.
+     * the key is still current. The keyring's signature is checked in its own form, over
+     * {@code serverKeyringNotAfter} when the reply has one, so a window moved or dropped in transit fails it.
+     * Assumes {@link #wellShaped}.
      */
     private static PublicKey replySigner(JsonNode reply, PublicKey pin, String pinText, String serverEntry,
             long nowMs) {
@@ -299,7 +335,8 @@ public final class Sessions {
         }
         Map<String, String> services = stringMap(reply.get("serverKeyring"));
         KeyringFile ring = new KeyringFile(services, reply.get("serverPolicyKey").textValue(),
-                reply.get("serverKeyringSig").textValue());
+                reply.get("serverKeyringSig").textValue(),
+                reply.has("serverKeyringNotAfter") ? notAfter(reply.get("serverKeyringNotAfter")) : null);
         ReplyCert cert = ReplyCert.parse(reply.get("serverReplyCert"));
         if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
                 || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()) {
@@ -308,13 +345,16 @@ public final class Sessions {
         return Crypto.decodePublicKey(Base64Url.decode(cert.key()));
     }
 
+    /**
+     * The reply's shape. A present {@code serverKeyringNotAfter}, or a root {@code notAfter}, that is not an
+     * integer in [0, 2^53 &minus; 1] (judged by value) makes the reply malformed rather than old form.
+     */
     private static boolean wellShaped(JsonNode r) {
         if (r == null || !r.isObject()) {
             return false;
         }
         JsonNode root = r.get("serverRoot");
-        boolean rootOk = root != null && (root.isNull() || (root.isObject() && isText(root.get("rootId"))
-                && isText(root.get("root")) && isText(root.get("sig"))));
+        boolean rootOk = root != null && (root.isNull() || parsesAsSignedRoot(root));
         JsonNode status = r.get("status");
         JsonNode ring = r.get("serverKeyring");
         JsonNode disabled = r.get("disabled");
@@ -323,7 +363,17 @@ public final class Sessions {
                 && (status.textValue().equals(ATTESTED) || status.textValue().equals(UNSAFE))
                 && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"))
                 && (!r.has("serverKeyringSig") || r.get("serverKeyringSig").isTextual())
+                && (!r.has("serverKeyringNotAfter") || notAfter(r.get("serverKeyringNotAfter")) != null)
                 && (!r.has("serverReplyCert") || parsesAsReplyCert(r.get("serverReplyCert")));
+    }
+
+    private static boolean parsesAsSignedRoot(JsonNode n) {
+        try {
+            SignedRoot.parse(n);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private static boolean parsesAsReplyCert(JsonNode n) {

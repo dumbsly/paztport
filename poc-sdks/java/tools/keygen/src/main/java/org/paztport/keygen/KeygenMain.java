@@ -25,7 +25,8 @@ import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 
 /**
- * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates.
+ * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The
+ * keyring is signed in the new form and vouches for its keys for seven days from the run.
  *
  * <pre>keygen [outDir] [service...] [--tls-only name...] [--org name]</pre>
  *
@@ -74,7 +75,8 @@ public final class KeygenMain {
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
-        MAPPER.writeValue(outDir.resolve("keyring.json").toFile(), KeyGenerator.toKeyring(result));
+        MAPPER.writeValue(outDir.resolve("keyring.json").toFile(), KeyGenerator.toKeyring(result,
+                System.currentTimeMillis() + KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS));
         Files.writeString(outDir.resolve("policy.pub"), KeyGenerator.policyPublicKey(result) + "\n");
 
         for (Map.Entry<String, KeyPair> e : result.services().entrySet()) {

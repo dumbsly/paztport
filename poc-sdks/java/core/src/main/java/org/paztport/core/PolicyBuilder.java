@@ -34,7 +34,12 @@ public final class PolicyBuilder {
     public record Result(SignedRoot signedRoot, Map<String, ProofBundle> bundles) {
     }
 
-    public static Result build(List<List<String>> routes, int depth, PrivateKey policyKey) {
+    /**
+     * Builds the tree and signs its root in the new form, vouched for until {@code notAfter} (milliseconds since the
+     * epoch, inclusive). The caller must currently allow every route in {@code routes}: the signature says so until
+     * {@code notAfter}, and nothing can take it back sooner.
+     */
+    public static Result build(List<List<String>> routes, int depth, long notAfter, PrivateKey policyKey) {
         List<String> routeStrings = routes.stream().map(r -> Routes.join(r)).toList();
         String rootId = newRootId();
 
@@ -42,7 +47,7 @@ public final class PolicyBuilder {
                 .map(route -> new MerkleLeaf(Crypto.randomBytes(SALT_BYTES), route))
                 .toList();
         MerkleTree tree = MerkleTree.build(leaves, depth, rootId, randomSlots(leaves.size(), depth));
-        SignedRoot signedRoot = SignedRoot.sign(tree.root(), rootId, policyKey);
+        SignedRoot signedRoot = SignedRoot.sign(tree.root(), rootId, notAfter, policyKey);
 
         // Every service that appears anywhere gets a bundle, empty by default.
         Map<String, Map<String, MerkleProof>> proofsByService = new LinkedHashMap<>();

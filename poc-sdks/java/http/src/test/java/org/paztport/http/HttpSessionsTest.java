@@ -22,14 +22,18 @@ import org.paztport.core.SignedRoot;
 /** The handshake's HTTP body: strict parsing in, a fixed error shape out. */
 class HttpSessionsTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     @Test
     void parsesRequestJson() throws Exception {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         String pin = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         Map<String, String> ring = Map.of("payment", "payment-key");
-        SessionRequest req = new SessionRequest(
-                SignedRoot.sign(Crypto.sha256("r".getBytes(StandardCharsets.UTF_8)), "v1", policy.getPrivate()), pin,
-                ring, KeyringFile.sign(ring, pin, policy.getPrivate()).sig(), Sessions.newNonce());
+        SessionRequest req = SessionRequest.of(
+                SignedRoot.sign(Crypto.sha256("r".getBytes(StandardCharsets.UTF_8)), "v1",
+                        NOT_AFTER, policy.getPrivate()),
+                pin, KeyringFile.sign(ring, pin, NOT_AFTER, policy.getPrivate()), Sessions.newNonce());
 
         SessionRequest back = HttpSessions.parseRequest(new ObjectMapper().writeValueAsBytes(req.toJson()));
 

@@ -20,6 +20,9 @@ import org.junit.jupiter.api.Test;
 /** The v3 stamper's output, checked by the live verifier it feeds: calls, committed influence and responses. */
 class StamperV3Test {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final long NOW = 1_000_000L;
     private static final String RID = "rid-1";
     private static final ObjectMapper MAPPER = new ObjectMapper();
@@ -29,7 +32,7 @@ class StamperV3Test {
     private final KeyPair paymentKey = Crypto.generateEd25519KeyPair();
     private final KeyPair policyKey = Crypto.generateEd25519KeyPair();
     private final PolicyBuilder.Result policy = PolicyBuilder.build(
-            List.of(List.of("gateway", "orders", "payment")), 4, policyKey.getPrivate());
+            List.of(List.of("gateway", "orders", "payment")), 4, NOT_AFTER, policyKey.getPrivate());
 
     private StamperV3 stamper(String svc, KeyPair key, boolean origin) {
         return new StamperV3(svc, svc + "-1", key.getPrivate(), origin, () -> RID, () -> NOW);
@@ -95,7 +98,7 @@ class StamperV3Test {
             new InfluenceEntry(InfluenceClass.PRIVATE, "db:orders", "h1", "cid-1", "alice"));
 
     private final PolicyBuilder.Result egress = PolicyBuilder.build(
-            List.of(List.of("payment", "psp")), 4, policyKey.getPrivate());
+            List.of(List.of("payment", "psp")), 4, NOT_AFTER, policyKey.getPrivate());
 
     private StamperV3.Stamped boundary(String sess, ProofBundle bundle) {
         StampV3 inbound = toPayment(toOrders("b1", List.of())).chain().get(1);
@@ -144,7 +147,7 @@ class StamperV3Test {
     private VerifyResult verifyAtPartner(StamperV3.Stamped b, String sess) {
         String pin = Base64Url.encode(Crypto.encodePublicKey(policyKey.getPublic()));
         KeyringFile ring = KeyringFile.sign(Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(
-                paymentKey.getPublic()))), pin, policyKey.getPrivate());
+                paymentKey.getPublic()))), pin, NOT_AFTER, policyKey.getPrivate());
         VerifierV3 partner = new VerifierV3(VerifierConfigV3.pinned(ring, egress.signedRoot(), pin,
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
         return partner.verify(new VerifyInputV3(json(b.chain()), "b3", Influence.toJson(BOUNDARY_INFLUENCE),

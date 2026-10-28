@@ -18,6 +18,9 @@ import org.paztport.core.KeyringFile;
  */
 public final class KeyGenerator {
 
+    /** How long a generated keyring vouches for its keys: seven days. */
+    public static final long DEFAULT_KEYRING_LIFETIME_MS = 7 * 86_400_000L;
+
     private KeyGenerator() {
     }
 
@@ -41,11 +44,15 @@ public final class KeyGenerator {
         return Base64Url.encode(Crypto.encodePublicKey(result.policy().getPublic()));
     }
 
-    /** The keyring, signed by the policy key so that a verifier holding the pin need not trust the file's origin. */
-    public static KeyringFile toKeyring(Result result) {
+    /**
+     * The keyring, signed by the policy key in the new form so that a verifier holding the pin need not trust the
+     * file's origin, and stops trusting it after {@code notAfter} (milliseconds since the epoch, inclusive). What the
+     * signature vouches for holds by construction: every listed key is the one just generated for its service.
+     */
+    public static KeyringFile toKeyring(Result result, long notAfter) {
         Map<String, String> services = new LinkedHashMap<>();
         result.services().forEach((svc, kp) ->
                 services.put(svc, Base64Url.encode(Crypto.encodePublicKey(kp.getPublic()))));
-        return KeyringFile.sign(services, policyPublicKey(result), result.policy().getPrivate());
+        return KeyringFile.sign(services, policyPublicKey(result), notAfter, result.policy().getPrivate());
     }
 }

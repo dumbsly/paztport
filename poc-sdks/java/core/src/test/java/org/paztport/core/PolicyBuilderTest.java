@@ -15,6 +15,9 @@ import org.junit.jupiter.api.Test;
 
 class PolicyBuilderTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final int DEPTH = 8;
 
     private static final List<List<String>> POC_PATHS = List.of(
@@ -25,7 +28,7 @@ class PolicyBuilderTest {
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
 
     private PolicyBuilder.Result build(List<List<String>> paths) {
-        return PolicyBuilder.build(paths, DEPTH, policy.getPrivate());
+        return PolicyBuilder.build(paths, DEPTH, NOT_AFTER, policy.getPrivate());
     }
 
     @Test

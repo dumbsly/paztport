@@ -28,6 +28,9 @@ import org.slf4j.LoggerFactory;
 
 class PublicWritesTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
     private static final InfluenceEntry RELAYED =
@@ -100,7 +103,8 @@ class PublicWritesTest {
     private static List<StampV3> chain(String rid) {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         KeyPair gateway = Crypto.generateEd25519KeyPair();
-        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "psp")), 4, policy.getPrivate());
+        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "psp")), 4,
+                NOT_AFTER, policy.getPrivate());
         return new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
                 .next(null, "psp", RequestBinding.compute("POST", "/charge", new byte[0]), List.of(),
                         built.bundles().get("gateway"))

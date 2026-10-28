@@ -114,7 +114,7 @@ class VectorsV3Test {
                 PrivateKey priv = priv(c.get("policyKey").asText());
                 assertEquals(c.get("sig").asText(), (file.isNewForm()
                         ? KeyringFile.sign(file.services(), file.policy(), file.notAfter(), priv)
-                        : KeyringFile.sign(file.services(), file.policy(), priv)).sig(), name);
+                        : KeyringFile.signOldForm(file.services(), file.policy(), priv)).sig(), name);
             }
         }
     }
@@ -147,7 +147,7 @@ class VectorsV3Test {
                 PrivateKey priv = priv(c.get("policyKey").asText());
                 assertEquals(root.sig(), (root.isNewForm()
                         ? SignedRoot.sign(root.rootBytes(), root.rootId(), root.notAfter(), priv)
-                        : SignedRoot.sign(root.rootBytes(), root.rootId(), priv)).sig(), name);
+                        : SignedRoot.signOldForm(root.rootBytes(), root.rootId(), priv)).sig(), name);
             }
         }
     }

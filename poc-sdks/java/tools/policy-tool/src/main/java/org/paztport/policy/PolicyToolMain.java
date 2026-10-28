@@ -6,6 +6,7 @@ package org.paztport.policy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
@@ -24,8 +25,9 @@ import org.paztport.core.SignedRoot;
  * <pre>policy-tool [paths.yaml] [keysDir] [outDir]</pre>
  *
  * Reads the policy private key from {@code keysDir/policy.key}. Depth comes from
- * {@code PAZTPORT_PROOF_DEPTH} (default 8). Only root id and service names are
- * logged, never salts or the tree.
+ * {@code PAZTPORT_PROOF_DEPTH} (default 8). The root is signed in the new form and
+ * vouches for its routes for seven days from the run. Only root id, its
+ * {@code notAfter} and service names are logged, never salts or the tree.
  *
  * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, it also writes {@code reply-cert.json}, a
  * {@link ReplyCert} for that service's key in {@code keysDir/keyring.json}, valid for
@@ -39,10 +41,12 @@ public final class PolicyToolMain {
     private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final long DAY_MS = 86_400_000L;
     private static final int DEFAULT_REPLY_CERT_DAYS = 7;
+    private static final int DEFAULT_ROOT_DAYS = 7;
 
     private PolicyToolMain() {
     }
 
+    /** Writes the root, valid for seven days from now, and the bundles; no reply certificate. */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth) throws IOException {
         run(pathsYaml, keysDir, outDir, depth, null, 0);
     }
@@ -55,12 +59,23 @@ public final class PolicyToolMain {
      */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, String replyCertSvc,
             long replyCertNotAfter) throws IOException {
+        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + DEFAULT_ROOT_DAYS * DAY_MS, replyCertSvc,
+                replyCertNotAfter);
+    }
+
+    /**
+     * As {@link #run(Path, Path, Path, int, String, long)}, with the root signed until {@code rootNotAfter}. Signing
+     * it vouches that every route in {@code paths.yaml} is allowed until then: the file is the policy owner's
+     * statement of the routes it currently allows.
+     */
+    public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, long rootNotAfter,
+            String replyCertSvc, long replyCertNotAfter) throws IOException {
         List<List<String>> routes = PathsReader.parse(Files.readAllBytes(pathsYaml));
         PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
         ReplyCert cert = replyCertSvc == null ? null
                 : issueReplyCert(keysDir.resolve("keyring.json"), replyCertSvc, replyCertNotAfter, policyKey);
 
-        PolicyBuilder.Result result = PolicyBuilder.build(routes, depth, policyKey);
+        PolicyBuilder.Result result = PolicyBuilder.build(routes, depth, rootNotAfter, policyKey);
 
         Files.createDirectories(outDir);
         MAPPER.writeValue(outDir.resolve("root.json").toFile(), result.signedRoot());
@@ -80,8 +95,8 @@ public final class PolicyToolMain {
     private static ReplyCert issueReplyCert(Path keyringFile, String svc, long notAfter, PrivateKey policyKey) {
         KeyringFile ring;
         try {
-            ring = MAPPER.readValue(keyringFile.toFile(), KeyringFile.class);
-        } catch (IOException e) {
+            ring = KeyringFile.load(keyringFile);
+        } catch (UncheckedIOException | IllegalArgumentException e) {
             throw new IllegalArgumentException(keyringFile + " is missing or not a keyring", e);
         }
         if (ring.policy() == null || !ring.verifies(ring.policy())) {
@@ -130,8 +145,9 @@ public final class PolicyToolMain {
             System.exit(2);
         }
 
-        SignedRoot root = new ObjectMapper().readValue(outDir.resolve("root.json").toFile(), SignedRoot.class);
-        System.out.println("policy-tool: wrote root " + root.rootId() + " and per-service bundles to " + outDir);
+        SignedRoot root = SignedRoot.load(outDir.resolve("root.json"));
+        System.out.println("policy-tool: wrote root " + root.rootId() + ", notAfter " + root.notAfter() + " ("
+                + Instant.ofEpochMilli(root.notAfter()) + "), and per-service bundles to " + outDir);
         if (replyCertSvc != null) {
             System.out.println("policy-tool: wrote reply certificate for " + replyCertSvc + ", notAfter " + notAfter
                     + " (" + Instant.ofEpochMilli(notAfter) + ")");

@@ -75,10 +75,12 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     }
 
     /**
-     * Signs the old form, with no validity window. Kept for the producers that have not moved to the new form;
-     * a verifier holding a live call to its rules will refuse such a keyring.
+     * Signs the old form, with no validity window: only for tests and vectors that need an old-form keyring on
+     * purpose. Such a keyring is never {@linkplain #isCurrent current}, so live verifiers refuse it; only offline
+     * judgement of recorded evidence accepts it.
      */
-    public static KeyringFile sign(Map<String, String> services, String policyPublicKey, PrivateKey policyKey) {
+    public static KeyringFile signOldForm(Map<String, String> services, String policyPublicKey,
+            PrivateKey policyKey) {
         byte[] sig = Crypto.sign(policyKey, signingBytes(policyPublicKey, services));
         return new KeyringFile(services, policyPublicKey, Base64Url.encode(sig));
     }

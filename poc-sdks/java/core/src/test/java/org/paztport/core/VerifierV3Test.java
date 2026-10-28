@@ -23,6 +23,9 @@ import org.junit.jupiter.api.Test;
 /** The edges of the v3 live verifier that the shared vectors do not reach: hostile input, a null peer, the pin. */
 class VerifierV3Test {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static JsonNode vectors;
     private static JsonNode peerOk;
 
@@ -85,16 +88,16 @@ class VerifierV3Test {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         String pin = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         byte[] root = new byte[32];
-        SignedRoot signed = SignedRoot.sign(root, "v1", policy.getPrivate());
+        SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
         KeyringFile unsigned = new KeyringFile(Map.of(), pin, null);
         assertThrows(IllegalArgumentException.class, () -> VerifierConfigV3.pinned(unsigned, signed, pin,
                 Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
-        KeyringFile good = KeyringFile.sign(Map.of(), pin, policy.getPrivate());
+        KeyringFile good = KeyringFile.sign(Map.of(), pin, NOT_AFTER, policy.getPrivate());
         VerifierConfigV3 cfg = VerifierConfigV3.pinned(good, signed, pin, Set.of("session"), "s",
                 new InMemoryNonceCache(), () -> 0L, 5000, 5000);
         assertEquals("v1", cfg.rootId());
         KeyPair other = Crypto.generateEd25519KeyPair();
-        SignedRoot forged = SignedRoot.sign(root, "v1", other.getPrivate());
+        SignedRoot forged = SignedRoot.sign(root, "v1", NOT_AFTER, other.getPrivate());
         assertThrows(IllegalArgumentException.class, () -> VerifierConfigV3.pinned(good, forged, pin,
                 Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
     }

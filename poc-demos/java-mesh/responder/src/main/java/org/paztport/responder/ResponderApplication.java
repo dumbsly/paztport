@@ -8,8 +8,6 @@ import com.github.dockerjava.core.DefaultDockerClientConfig;
 import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.transport.DockerHttpClient;
 import com.github.dockerjava.zerodep.ZerodepDockerHttpClient;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -56,11 +54,16 @@ public class ResponderApplication {
         return new DockerQuarantiner(docker, meshNetwork, quarantineNetwork);
     }
 
+    /**
+     * Reads the mounted keyring with the strict reader, so a {@code notAfter} that is not an integer fails startup
+     * rather than being truncated. The keyring is trusted as mounted, as before: neither its signature nor its
+     * window is checked here.
+     */
     @Bean
     EventVerifier eventVerifier(
             @Value("${responder.keyring-path}") String keyringPath,
-            @Value("${responder.allowed-signers}") Set<String> allowedSigners) throws IOException {
-        KeyringFile file = new ObjectMapper().readValue(Path.of(keyringPath).toFile(), KeyringFile.class);
+            @Value("${responder.allowed-signers}") Set<String> allowedSigners) {
+        KeyringFile file = KeyringFile.load(Path.of(keyringPath));
         return new EventVerifier(Keyring.fromFile(file), allowedSigners, System::currentTimeMillis);
     }
 

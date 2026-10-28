@@ -284,7 +284,7 @@ class VerifierV1Test {
                         new MerkleLeaf(salts.get("gateway/orders"), "gateway/orders"),
                         new MerkleLeaf(salts.get("gateway/search"), "gateway/search")),
                 DEPTH, "v1");
-        final SignedRoot signedRoot = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
+        final SignedRoot signedRoot = SignedRoot.signOldForm(tree.root(), "v1", policy.getPrivate());
         final Keyring keyring = Keyring.of(Map.of(
                 "gateway", gateway.getPublic(),
                 "orders", orders.getPublic(),

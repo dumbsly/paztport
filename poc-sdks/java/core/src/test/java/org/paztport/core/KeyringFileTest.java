@@ -43,7 +43,8 @@ class KeyringFileTest {
     }
 
     private static KeyringFile signed() {
-        return KeyringFile.sign(Map.of("pi", pub(Crypto.generateEd25519KeyPair())), pub(POLICY), POLICY.getPrivate());
+        return KeyringFile.sign(Map.of("pi", pub(Crypto.generateEd25519KeyPair())), pub(POLICY), NOT_AFTER,
+                POLICY.getPrivate());
     }
 
     @Test
@@ -59,7 +60,7 @@ class KeyringFileTest {
     @Test
     void failsWithOneServiceKeyChanged() {
         KeyringFile f = signed();
-        KeyringFile tampered = new KeyringFile(Map.of("pi", pub(OTHER)), f.policy(), f.sig());
+        KeyringFile tampered = new KeyringFile(Map.of("pi", pub(OTHER)), f.policy(), f.sig(), f.notAfter());
         assertFalse(tampered.verifies(pub(POLICY)));
     }
 
@@ -86,7 +87,7 @@ class KeyringFileTest {
     @Test
     void sigTextIsNotHeldToCanonicalEncoding() {
         KeyringFile f = signed();
-        assertTrue(new KeyringFile(f.services(), f.policy(), f.sig() + "==").verifies(pub(POLICY)));
+        assertTrue(new KeyringFile(f.services(), f.policy(), f.sig() + "==", f.notAfter()).verifies(pub(POLICY)));
     }
 
     @Test
@@ -134,14 +135,14 @@ class KeyringFileTest {
         KeyringFile f = newForm();
         assertFalse(new KeyringFile(f.services(), f.policy(), f.sig()).verifies(pub(POLICY)),
                 "dropping notAfter must not turn a new-form signature into an old-form one");
-        KeyringFile old = KeyringFile.sign(SERVICES, pub(POLICY), POLICY.getPrivate());
+        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
         assertFalse(new KeyringFile(old.services(), old.policy(), old.sig(), NOT_AFTER).verifies(pub(POLICY)),
                 "adding notAfter must not lend an old-form signature a window it never signed");
     }
 
     @Test
     void oldFormStillVerifies() throws Exception {
-        KeyringFile old = KeyringFile.sign(SERVICES, pub(POLICY), POLICY.getPrivate());
+        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
         assertFalse(old.isNewForm());
         assertNull(old.notAfter());
         assertTrue(old.verifies(pub(POLICY)));
@@ -156,12 +157,12 @@ class KeyringFileTest {
         KeyringFile f = newForm();
         assertTrue(f.isCurrent(NOT_AFTER));
         assertFalse(f.isCurrent(NOT_AFTER + 1));
-        assertFalse(KeyringFile.sign(SERVICES, pub(POLICY), POLICY.getPrivate()).isCurrent(0));
+        assertFalse(KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate()).isCurrent(0));
     }
 
     @Test
     void renewedKeepsServicesAndPolicy() {
-        KeyringFile old = KeyringFile.sign(SERVICES, pub(POLICY), POLICY.getPrivate());
+        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
         KeyringFile renewed = old.renewed(NOT_AFTER + 5, POLICY.getPrivate());
         assertEquals(old.services(), renewed.services());
         assertEquals(old.policy(), renewed.policy());
@@ -176,9 +177,10 @@ class KeyringFileTest {
                 + "\",\"sig\":\"" + f.sig() + "\",\"notAfter\":";
         assertEquals(1_000_000_000_000L, KeyringFile.parse(json(head + "1.0e12}")).notAfter());
         assertEquals(MAX_SAFE, KeyringFile.parse(json(head + MAX_SAFE + "}")).notAfter());
+        assertEquals(0L, KeyringFile.parse(json(head + "0}")).notAfter());
         assertTrue(KeyringFile.parse(json(head + "1798761600000.0}")).verifies(pub(POLICY)));
         for (String bad : new String[] {"1.5", "-1", String.valueOf(MAX_SAFE + 1), "\"1798761600000\"", "null",
-                "true", "{}"}) {
+                "true", "{}", "[]"}) {
             assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(json(head + bad + "}")), bad);
         }
     }

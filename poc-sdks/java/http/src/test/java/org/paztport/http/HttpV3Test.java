@@ -32,6 +32,9 @@ import org.paztport.core.VerifierV3;
 /** v3 over HTTP end to end: a real stamper feeds the encoders, and the real verifier reads what the decoders give. */
 class HttpV3Test {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final long NOW = 1_000_000L;
     private static final String RID = "rid-1";
     private static final byte[] BODY = "{\"ok\":true}".getBytes(StandardCharsets.UTF_8);
@@ -40,7 +43,8 @@ class HttpV3Test {
     private final KeyPair ordersKey = Crypto.generateEd25519KeyPair();
     private final KeyPair paymentKey = Crypto.generateEd25519KeyPair();
     private final PolicyBuilder.Result policy = PolicyBuilder.build(
-            List.of(List.of("gateway", "orders", "payment")), 4, Crypto.generateEd25519KeyPair().getPrivate());
+            List.of(List.of("gateway", "orders", "payment")), 4,
+                    NOT_AFTER, Crypto.generateEd25519KeyPair().getPrivate());
 
     private StamperV3 stamper(String svc, KeyPair key, boolean origin) {
         return new StamperV3(svc, svc + "-1", key.getPrivate(), origin, () -> RID, () -> NOW);

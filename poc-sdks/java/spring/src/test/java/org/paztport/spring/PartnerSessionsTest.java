@@ -43,6 +43,9 @@ import org.paztport.core.SignedRoot;
  */
 class PartnerSessionsTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final List<String> DISABLED = List.of("POST /refund");
     private static final String SHOP_CA = "CN=shop CA";
     private static final String FOREIGN_CA = "CN=foreign CA";
@@ -60,11 +63,12 @@ class PartnerSessionsTest {
         static Org of(String service, KeyPair policy) {
             KeyPair key = Crypto.generateEd25519KeyPair();
             return new Org(policy,
-                    KeyringFile.sign(Map.of(service, pub(key)), pub(policy), policy.getPrivate()),
+                    KeyringFile.sign(Map.of(service, pub(key)), pub(policy), NOT_AFTER, policy.getPrivate()),
                     key,
                     ReplyCert.issue(pub(policy), service, pub(key), System.currentTimeMillis() + 7 * 86_400_000L,
                             policy.getPrivate()),
-                    PolicyBuilder.build(List.of(List.of(service, "x")), 4, policy.getPrivate()).signedRoot());
+                    PolicyBuilder.build(List.of(List.of(service, "x")), 4,
+                            NOT_AFTER, policy.getPrivate()).signedRoot());
         }
 
         String pin() {
@@ -90,8 +94,7 @@ class PartnerSessionsTest {
     }
 
     private static SessionRequest request(Org client, SignedRoot root) {
-        return new SessionRequest(root, client.pin(), client.keyring().services(), client.keyring().sig(),
-                Sessions.newNonce());
+        return SessionRequest.of(root, client.pin(), client.keyring(), Sessions.newNonce());
     }
 
     private ReplyCheck check(SessionReply reply, SessionRequest req) {
@@ -247,8 +250,7 @@ class PartnerSessionsTest {
         PartnerSessions one = partner(1);
         String sess = open(one, SHOP_CA, "orders");
         // A nonce of the wrong length derives no session id.
-        SessionRequest bad = new SessionRequest(shop.root(), shop.pin(), shop.keyring().services(),
-                shop.keyring().sig(), "short");
+        SessionRequest bad = SessionRequest.of(shop.root(), shop.pin(), shop.keyring(), "short");
 
         assertThrows(IllegalArgumentException.class, () -> one.open(bad, SHOP_CA, "orders"));
         assertNotNull(one.find(SHOP_CA, "orders", sess));

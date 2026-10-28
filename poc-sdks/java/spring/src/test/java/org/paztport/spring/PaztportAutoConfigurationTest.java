@@ -56,6 +56,9 @@ import org.springframework.web.client.RestClientException;
 
 class PaztportAutoConfigurationTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(PaztportAutoConfiguration.class));
@@ -72,8 +75,9 @@ class PaztportAutoConfigurationTest {
         Files.writeString(dir.resolve("gateway.key"), Base64Url.encode(Crypto.encodePrivateKey(gateway.getPrivate())));
         Files.writeString(dir.resolve("policy.pub"), pub(policy) + "\n");
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), policy.getPrivate()));
-        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, policy.getPrivate());
+                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), NOT_AFTER, policy.getPrivate()));
+        PolicyBuilder.Result built = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4,
+                NOT_AFTER, policy.getPrivate());
         JSON.writeValue(dir.resolve("root.json").toFile(), built.signedRoot());
         JSON.writeValue(dir.resolve("proofs-gateway.json").toFile(), built.bundles().get("gateway"));
         return dir;
@@ -154,7 +158,7 @@ class PaztportAutoConfigurationTest {
         writeWorld(dir);
         KeyPair other = Crypto.generateEd25519KeyPair();
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(other), other.getPrivate()));
+                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(other), NOT_AFTER, other.getPrivate()));
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .run(context -> assertThat(context).hasFailed());
@@ -245,9 +249,10 @@ class PaztportAutoConfigurationTest {
         Files.writeString(dir.resolve("policy.pub"), pub(policy) + "\n");
         Files.writeString(dir.resolve("shop-policy.pub"), pub(Crypto.generateEd25519KeyPair()) + "\n");
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("psp", pub(psp), "ledger", pub(ledger)), pub(policy), policy.getPrivate()));
+                KeyringFile.sign(Map.of("psp", pub(psp), "ledger", pub(ledger)), pub(policy),
+                        NOT_AFTER, policy.getPrivate()));
         JSON.writeValue(dir.resolve("root.json").toFile(),
-                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, policy.getPrivate()).signedRoot());
+                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot());
         writeCert(dir, ReplyCert.issue(pub(policy), "psp", pub(psp), System.currentTimeMillis() + 7 * DAY_MS,
                 policy.getPrivate()));
         return dir;
@@ -316,7 +321,7 @@ class PaztportAutoConfigurationTest {
         writePartner(dir);
         KeyPair other = Crypto.generateEd25519KeyPair();
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("psp", pub(psp)), pub(other), other.getPrivate()));
+                KeyringFile.sign(Map.of("psp", pub(psp)), pub(other), NOT_AFTER, other.getPrivate()));
         partnerFails(dir, "does not verify under");
     }
 
@@ -324,7 +329,7 @@ class PaztportAutoConfigurationTest {
     void partnerKeyringMustHoldTheService(@TempDir Path dir) throws Exception {
         writePartner(dir);
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("ledger", pub(ledger)), pub(policy), policy.getPrivate()));
+                KeyringFile.sign(Map.of("ledger", pub(ledger)), pub(policy), NOT_AFTER, policy.getPrivate()));
         partnerFails(dir, "paztport.keyring-path has no key for paztport.service-name");
     }
 

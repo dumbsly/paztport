@@ -67,6 +67,9 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
  */
 class BoundaryClientTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final byte[] CHARGE = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final List<InfluenceEntry> INFLUENCE = List.of(
@@ -78,9 +81,9 @@ class BoundaryClientTest {
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
     private final String policyPub = pub(policy);
     private final PolicyBuilder.Result built = PolicyBuilder.build(
-            List.of(List.of("gateway", "payment"), List.of("payment", "psp")), 4, policy.getPrivate());
+            List.of(List.of("gateway", "payment"), List.of("payment", "psp")), 4, NOT_AFTER, policy.getPrivate());
     private final KeyringFile keyring = KeyringFile.sign(
-            Map.of("gateway", pub(gateway), "payment", pub(payment)), policyPub, policy.getPrivate());
+            Map.of("gateway", pub(gateway), "payment", pub(payment)), policyPub, NOT_AFTER, policy.getPrivate());
 
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");

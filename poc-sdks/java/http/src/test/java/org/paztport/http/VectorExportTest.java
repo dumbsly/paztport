@@ -128,7 +128,7 @@ class VectorExportTest {
         // Self-assert against the Java VerifierV1 before recording.
         Map<String, PublicKey> pubs = new LinkedHashMap<>();
         ring.forEach((svc, key) -> pubs.put(svc, keys.get(key).getPublic()));
-        SignedRoot sr = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
+        SignedRoot sr = SignedRoot.signOldForm(tree.root(), "v1", policy.getPrivate());
         VerifierConfigV1 cfg = VerifierConfigV1.pinned(Keyring.of(pubs), sr, policy.getPublic(), Set.copyOf(origins),
                 MAX_AGE, new InMemoryNonceCache(), () -> now);
         VerifierV1 verifier = new VerifierV1(cfg);
@@ -161,7 +161,7 @@ class VectorExportTest {
                 List.of(new MerkleLeaf(salts.get(PAY), PAY), new MerkleLeaf(salts.get(ORD), ORD),
                         new MerkleLeaf(salts.get(SRCH), SRCH)),
                 DEPTH, "v1");
-        SignedRoot signedRoot = SignedRoot.sign(tree.root(), "v1", policy.getPrivate());
+        SignedRoot signedRoot = SignedRoot.signOldForm(tree.root(), "v1", policy.getPrivate());
 
         byte[] body = utf8("{\"amount\":100}");
         String bindPay = RequestBinding.compute("POST", "/pay", body);

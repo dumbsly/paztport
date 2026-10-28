@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,8 +44,7 @@ class KeygenMainTest {
     void keyringJsonParsesAndCoversEveryService(@TempDir Path dir) throws Exception {
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
 
-        KeyringFile keyring = new ObjectMapper()
-                .readValue(Files.readAllBytes(dir.resolve("keyring.json")), KeyringFile.class);
+        KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
         for (String svc : SERVICES) {
             assertTrue(keyring.services().containsKey(svc));
         }
@@ -57,8 +55,7 @@ class KeygenMainTest {
     void writtenPrivateKeySignsWhatTheKeyringPublicKeyVerifies(@TempDir Path dir) throws Exception {
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
 
-        KeyringFile keyring = new ObjectMapper()
-                .readValue(Files.readAllBytes(dir.resolve("keyring.json")), KeyringFile.class);
+        KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
 
         String privB64 = Files.readString(dir.resolve("gateway.key")).trim();
         var priv = Crypto.decodePrivateKey(Base64Url.decode(privB64));
@@ -87,8 +84,7 @@ class KeygenMainTest {
     void keyringIsSignedAndVerifiesUnderThePolicyPin(@TempDir Path dir) throws Exception {
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
 
-        KeyringFile keyring = new ObjectMapper()
-                .readValue(Files.readAllBytes(dir.resolve("keyring.json")), KeyringFile.class);
+        KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
         String pin = Files.readString(dir.resolve("policy.pub")).trim();
         assertEquals(keyring.policy(), pin);
         assertTrue(keyring.verifies(pin));
@@ -96,12 +92,25 @@ class KeygenMainTest {
                 Crypto.encodePublicKey(Crypto.generateEd25519KeyPair().getPublic()))));
     }
 
+    /** The keyring is signed in the new form, vouching for its keys for seven days from the run. */
+    @Test
+    void keyringIsNewFormForSevenDays(@TempDir Path dir) throws Exception {
+        long before = System.currentTimeMillis();
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+        long after = System.currentTimeMillis();
+
+        KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
+        assertTrue(keyring.isNewForm());
+        assertTrue(keyring.notAfter() >= before + 7 * 86_400_000L && keyring.notAfter() <= after + 7 * 86_400_000L,
+                String.valueOf(keyring.notAfter()));
+        assertTrue(keyring.verifies(Files.readString(dir.resolve("policy.pub")).trim()));
+    }
+
     @Test
     void tlsOnlyNamesGetCertificatesButNeverEnterTheKeyring(@TempDir Path dir) throws Exception {
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
 
-        KeyringFile keyring = new ObjectMapper()
-                .readValue(Files.readAllBytes(dir.resolve("keyring.json")), KeyringFile.class);
+        KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
         for (String name : TLS_ONLY) {
             assertTrue(!keyring.services().containsKey(name), name);
             assertTrue(!Files.exists(dir.resolve(name + ".key")), name + " has no stamp key");

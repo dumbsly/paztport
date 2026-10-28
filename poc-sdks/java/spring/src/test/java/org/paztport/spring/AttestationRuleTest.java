@@ -67,6 +67,9 @@ import org.springframework.web.client.RestClient;
  */
 class AttestationRuleTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
@@ -128,7 +131,7 @@ class AttestationRuleTest {
         trust = Files.createTempDirectory("paztport-attestation-rule");
         KeyPair policy = Crypto.generateEd25519KeyPair();
         policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
-        built = PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, policy.getPrivate());
+        built = PolicyBuilder.build(List.of(List.of("localhost", "localhost")), 4, NOT_AFTER, policy.getPrivate());
         Files.writeString(trust.resolve("localhost.key"), Base64Url.encode(Crypto.encodePrivateKey(APP.getPrivate())));
         Files.writeString(trust.resolve("policy.pub"), policyPub);
         JSON.writeValue(trust.resolve("keyring.json").toFile(), keyring(policy));
@@ -143,7 +146,7 @@ class AttestationRuleTest {
 
     private static KeyringFile keyring(KeyPair policy) {
         return KeyringFile.sign(Map.of("localhost", Base64Url.encode(Crypto.encodePublicKey(APP.getPublic()))),
-                policyPub, policy.getPrivate());
+                policyPub, NOT_AFTER, policy.getPrivate());
     }
 
     /** Starts one app on a free port and answers the port. */

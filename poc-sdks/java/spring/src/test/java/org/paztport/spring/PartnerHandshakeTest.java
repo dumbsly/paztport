@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -74,6 +75,9 @@ import org.springframework.web.client.RestClient;
             "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key"})
 class PartnerHandshakeTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     /** The fixture CA's name, as the issuer of every fixture certificate but {@code foreign-orders}. */
     private static final String SHOP_CA = "CN=shop CA";
@@ -84,7 +88,7 @@ class PartnerHandshakeTest {
     private static final String SHOP_PIN = pub(SHOP_POLICY);
     private static final String PSP_PIN = pub(PSP_POLICY);
     private static final KeyringFile SHOP_RING =
-            KeyringFile.sign(Map.of("payment", pub(SHOP_KEY)), SHOP_PIN, SHOP_POLICY.getPrivate());
+            KeyringFile.sign(Map.of("payment", pub(SHOP_KEY)), SHOP_PIN, NOT_AFTER, SHOP_POLICY.getPrivate());
     /** The PSP's reply certificate for its entry key, valid for a week. */
     private static final ReplyCert CERT = ReplyCert.issue(PSP_PIN, "psp", pub(PSP_KEY),
             System.currentTimeMillis() + 7 * 86_400_000L, PSP_POLICY.getPrivate());
@@ -102,9 +106,10 @@ class PartnerHandshakeTest {
         JSON.writeValue(trust.resolve("reply-cert.json").toFile(), CERT.toJson());
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of("psp", pub(PSP_KEY)), PSP_PIN, PSP_POLICY.getPrivate()));
+                KeyringFile.sign(Map.of("psp", pub(PSP_KEY)), PSP_PIN, NOT_AFTER, PSP_POLICY.getPrivate()));
         JSON.writeValue(trust.resolve("root.json").toFile(),
-                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, PSP_POLICY.getPrivate()).signedRoot());
+                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
+                        NOT_AFTER, PSP_POLICY.getPrivate()).signedRoot());
 
         // The partner trusts both CAs, so a foreign-orders certificate reaches the filter rather than the handshake.
         Path bothCas = trust.resolve("partner-trust.crt");
@@ -193,9 +198,10 @@ class PartnerHandshakeTest {
     }
 
     private static SessionRequest request(String nonce) {
-        return new SessionRequest(
-                PolicyBuilder.build(List.of(List.of("payment", "x")), 4, SHOP_POLICY.getPrivate()).signedRoot(),
-                SHOP_PIN, SHOP_RING.services(), SHOP_RING.sig(), nonce);
+        return SessionRequest.of(
+                PolicyBuilder.build(List.of(List.of("payment", "x")), 4,
+                        NOT_AFTER, SHOP_POLICY.getPrivate()).signedRoot(),
+                SHOP_PIN, SHOP_RING, nonce);
     }
 
     private static byte[] json(SessionRequest req) throws IOException {
@@ -214,6 +220,26 @@ class PartnerHandshakeTest {
         assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
+    }
+
+    /**
+     * New-form material on both sides: the request carries the shop keyring's window and its root's, the partner
+     * keeps them, so its session is attested, and the reply carries the partner keyring's window and its root's, so
+     * the client's check attests it too. A side that dropped a window would fail the other's signature check.
+     */
+    @Test
+    void newFormMaterialOnBothSidesIsAttested() throws Exception {
+        SessionRequest req = request(Sessions.newNonce());
+        assertEquals(NOT_AFTER, req.toJson().get("clientKeyringNotAfter").longValue());
+        assertEquals(NOT_AFTER, req.toJson().get("clientRoot").get("notAfter").longValue());
+
+        JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
+
+        assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
+        assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
+        assertEquals("attested", reply.get("status").asText());
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertTrue(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()).attested());
     }
 
     // Forged: the reply checked for another entry, after its certificate's notAfter, and passed off as the

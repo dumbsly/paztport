@@ -70,13 +70,16 @@ import org.springframework.web.bind.annotation.RestController;
             "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"})
 class BoundaryGuardTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final byte[] BODY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final KeyPair GATEWAY = Crypto.generateEd25519KeyPair();
     private static final KeyPair PAYMENT = Crypto.generateEd25519KeyPair();
     private static final KeyPair POLICY = Crypto.generateEd25519KeyPair();
     private static final PolicyBuilder.Result BUILT = PolicyBuilder.build(
-            List.of(List.of("gateway", "payment"), List.of("payment", "psp")), 4, POLICY.getPrivate());
+            List.of(List.of("gateway", "payment"), List.of("payment", "psp")), 4, NOT_AFTER, POLICY.getPrivate());
     private static Path trust;
     private static StubPartner partner;
     /** Every list the egress reported sending, through the listener bean. */
@@ -106,7 +109,7 @@ class BoundaryGuardTest {
         Files.writeString(dir.resolve("psp-policy.pub"), stub.policyKey() + "\n");
         JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.sign(Map.of(
                 "gateway", Base64Url.encode(Crypto.encodePublicKey(GATEWAY.getPublic())),
-                "payment", Base64Url.encode(Crypto.encodePublicKey(PAYMENT.getPublic()))), policyPub,
+                "payment", Base64Url.encode(Crypto.encodePublicKey(PAYMENT.getPublic()))), policyPub, NOT_AFTER,
                 POLICY.getPrivate()));
         JSON.writeValue(dir.resolve("root.json").toFile(), BUILT.signedRoot());
         JSON.writeValue(dir.resolve("proofs-payment.json").toFile(), BUILT.bundles().get("payment"));

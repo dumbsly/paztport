@@ -22,9 +22,12 @@ final class ConfigLoader {
     private ConfigLoader() {
     }
 
-    /** The keyring as written; it is trusted only once it verifies under the pin. */
+    /**
+     * The keyring as written, by {@link KeyringFile#load}, so a {@code notAfter} that is not an integer is refused
+     * here rather than truncated; it is trusted only once it verifies under the pin.
+     */
     static KeyringFile loadKeyringFile(Path file) {
-        return read(file, KeyringFile.class);
+        return KeyringFile.load(file);
     }
 
     /**
@@ -63,8 +66,9 @@ final class ConfigLoader {
         return key;
     }
 
+    /** The signed root as written, by {@link SignedRoot#load}, with its {@code notAfter} read as strictly. */
     static SignedRoot loadSignedRoot(Path file) {
-        return read(file, SignedRoot.class);
+        return SignedRoot.load(file);
     }
 
     static ProofBundle loadProofBundle(Path file) {

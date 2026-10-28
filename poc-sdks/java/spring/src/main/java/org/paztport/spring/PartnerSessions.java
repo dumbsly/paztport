@@ -174,10 +174,9 @@ final class PartnerSessions {
         VerifierV3 verifier = null;
         if (Sessions.status(req, ownRoot, ownPolicyPublic, pinnedClientKeys).equals("attested")) {
             try {
-                verifier = new VerifierV3(VerifierConfigV3.pinned(
-                        new KeyringFile(req.clientKeyring(), req.clientPolicyKey(), req.clientKeyringSig()),
-                        req.clientRoot(), req.clientPolicyKey(), clientOrigins, sess, nonces, clock, callMaxAgeMs,
-                        runMaxAgeMs));
+                // The client's keyring whole, its window included, so it verifies in the form it was signed in.
+                verifier = new VerifierV3(VerifierConfigV3.pinned(req.clientKeyringFile(), req.clientRoot(),
+                        req.clientPolicyKey(), clientOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs));
             } catch (IllegalArgumentException e) {
                 verifier = null;
             }
@@ -187,7 +186,7 @@ final class PartnerSessions {
         TRACE.info("PAZTPORT_TRACE session peer={} status={}", LogSafe.of(peerSvc), attested ? "attested" : "unsafe");
         // The entry-key form: the status above is this side's own decision, and the entry key signs it.
         return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
-                ownReplyCert, serverNonce, sess, attested ? "attested" : "unsafe",
+                ownKeyring.notAfter(), ownReplyCert, serverNonce, sess, attested ? "attested" : "unsafe",
                 attested ? List.of() : unsafeDisabled, null), ownServiceKey);
     }
 

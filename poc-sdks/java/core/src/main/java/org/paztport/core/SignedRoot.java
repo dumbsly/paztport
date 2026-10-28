@@ -29,9 +29,11 @@ import java.security.PublicKey;
  * inclusive) and its signature covers {@code utf8("paztport-root\n") || JCS({notAfter, root, rootId})}, with
  * {@code root} as its base64url text. The old form, {@code utf8(rootId + "|" + root)} with no {@code notAfter},
  * still verifies because recorded evidence carries it; it is never {@linkplain #isCurrent current}. Which form a
- * root is in is decided by whether {@code notAfter} is present and by nothing else. The two forms cannot stand in
- * for each other, nor for a keyring: each new form opens with its own prefix, and an old-form text opens with a
- * {@code rootId} the policy owner chose ({@code v} and hex from the policy tool), never with either prefix.
+ * root is in is decided by whether {@code notAfter} is present and by nothing else. A new-form root cannot stand
+ * in for a keyring, nor a keyring for it: each opens with its own prefix. That an old-form text opens with
+ * neither prefix is only a convention of the producers, which choose a {@code rootId} of {@code v} and hex;
+ * {@link #verify} does not enforce it. Exploiting that would take a policy owner signing an old-form root whose
+ * text is also a meaningful new-form body, which is impractical, and an old-form root is never current anyway.
  *
  * <p>What the signer must have verified: the policy owner signs a root only for a tree whose routes it currently
  * allows, and {@code notAfter} is when it stops vouching for them. Renewing is signing the same tree again with a
@@ -53,10 +55,11 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
     }
 
     /**
-     * Signs the old form, with no validity window. Kept for the producers that have not moved to the new form;
-     * a verifier holding a live call to its rules will refuse such a root.
+     * Signs the old form, with no validity window: only for v1, which keeps it, and for tests and vectors that need
+     * an old-form root on purpose. Such a root is never {@linkplain #isCurrent current}, so live verifiers refuse
+     * it; only offline judgement of recorded evidence accepts it.
      */
-    public static SignedRoot sign(byte[] root, String rootId, PrivateKey policyKey) {
+    public static SignedRoot signOldForm(byte[] root, String rootId, PrivateKey policyKey) {
         String rootB64 = Base64Url.encode(root);
         String sig = Base64Url.encode(Crypto.sign(policyKey, signingBytes(rootId, rootB64)));
         return new SignedRoot(rootId, rootB64, sig);

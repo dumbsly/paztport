@@ -81,6 +81,9 @@ import org.springframework.web.client.RestClient;
             "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"})
 class PartnerRequestTest {
 
+    /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final String PARTNER = "localhost";
     private static final KeyPair SHOP_KEY = Crypto.generateEd25519KeyPair();
@@ -91,9 +94,9 @@ class PartnerRequestTest {
     private static final String SHOP_PIN = pub(SHOP_POLICY);
     private static final String PSP_PIN = pub(PSP_POLICY);
     private static final KeyringFile SHOP_RING =
-            KeyringFile.sign(Map.of("orders", pub(SHOP_KEY)), SHOP_PIN, SHOP_POLICY.getPrivate());
+            KeyringFile.sign(Map.of("orders", pub(SHOP_KEY)), SHOP_PIN, NOT_AFTER, SHOP_POLICY.getPrivate());
     private static final PolicyBuilder.Result SHOP_BUILT =
-            PolicyBuilder.build(List.of(List.of("orders", PARTNER)), 4, SHOP_POLICY.getPrivate());
+            PolicyBuilder.build(List.of(List.of("orders", PARTNER)), 4, NOT_AFTER, SHOP_POLICY.getPrivate());
     private static final byte[] REFUND = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final List<InfluenceEntry> INFLUENCE = List.of(
             new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null),
@@ -111,11 +114,12 @@ class PartnerRequestTest {
         Files.writeString(trust.resolve("entry.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_KEY.getPrivate())));
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
-                KeyringFile.sign(Map.of(PARTNER, pub(PSP_KEY)), PSP_PIN, PSP_POLICY.getPrivate()));
+                KeyringFile.sign(Map.of(PARTNER, pub(PSP_KEY)), PSP_PIN, NOT_AFTER, PSP_POLICY.getPrivate()));
         JSON.writeValue(trust.resolve("reply-cert.json").toFile(), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
                 System.currentTimeMillis() + 7 * 86_400_000L, PSP_POLICY.getPrivate()).toJson());
         JSON.writeValue(trust.resolve("root.json").toFile(),
-                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, PSP_POLICY.getPrivate()).signedRoot());
+                PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
+                        NOT_AFTER, PSP_POLICY.getPrivate()).signedRoot());
 
         registry.add("paztport.service-name", () -> PARTNER);
         registry.add("paztport.keyring-path", () -> trust.resolve("keyring.json").toString());
@@ -225,8 +229,8 @@ class PartnerRequestTest {
 
     /** Opens a session as {@code client}: attested with the shop's root, unsafe without one. */
     private String handshake(RestClient client, boolean withRoot) throws IOException {
-        SessionRequest req = new SessionRequest(withRoot ? SHOP_BUILT.signedRoot() : null, SHOP_PIN,
-                SHOP_RING.services(), SHOP_RING.sig(), Sessions.newNonce());
+        SessionRequest req = SessionRequest.of(withRoot ? SHOP_BUILT.signedRoot() : null, SHOP_PIN, SHOP_RING,
+                Sessions.newNonce());
         String reply = client.post()
                 .uri("https://localhost:" + port + HttpSessions.PATH)
                 .contentType(MediaType.APPLICATION_JSON)

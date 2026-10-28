@@ -11,6 +11,10 @@ import java.util.function.LongSupplier;
  * Everything a verifying service pins at startup. Build it with
  * {@link #pinned} so the signed root is checked against the policy key once,
  * up front; a bad policy signature fails fast rather than per request.
+ *
+ * <p>v1 is frozen and keeps the old root form ({@link SignedRoot#signOldForm}):
+ * {@link #pinned} checks the signature in whichever form the root is in, and
+ * judges no validity window.
  */
 public record VerifierConfigV1(
         Keyring keyring,

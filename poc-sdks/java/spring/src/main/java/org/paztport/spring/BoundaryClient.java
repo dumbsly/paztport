@@ -374,8 +374,7 @@ public final class BoundaryClient implements AutoCloseable {
      * reply to check) and the status the session ends with.
      */
     private Session open() {
-        SessionRequest full = new SessionRequest(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
-                Sessions.newNonce());
+        SessionRequest full = SessionRequest.of(ownRoot, ownPolicyKey, ownKeyring, Sessions.newNonce());
         ReplyCheck check = null;
         try {
             JsonNode reply = handshake(full);
@@ -390,8 +389,7 @@ public final class BoundaryClient implements AutoCloseable {
         } catch (IOException e) {
             // No usable answer: whatever the partner opened is left to expire, and the replacement is asked for.
         }
-        SessionRequest replacement = new SessionRequest(null, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
-                Sessions.newNonce());
+        SessionRequest replacement = SessionRequest.of(null, ownPolicyKey, ownKeyring, Sessions.newNonce());
         JsonNode reply;
         try {
             reply = handshake(replacement);
