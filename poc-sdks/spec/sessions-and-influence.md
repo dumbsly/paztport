@@ -156,10 +156,12 @@ RFC 2253 name) and its subject's common name, the service, never a name in the b
 changes: one session per connection, as [above](#the-handshake).
 
 - **A handshake adds a session and replaces none.** So clients that share a certificate, such as replicas, each
-  keep their own, and a client that opens a new session does not cut off calls still in flight in its earlier one.
-  A request that opens no session changes no session.
+  keep their own, up to the limit below, and a client that opens a new session does not cut off calls still in
+  flight in its earlier one. A request that opens no session changes no session.
 - **A peer holds at most N sessions**, a limit the server sets (16 in the Java SDK). A handshake that would give
-  it more evicts its least recently used. A server MUST NOT evict one peer's session for another peer's handshake.
+  it more evicts its least recently used. Replicas that share a certificate are one peer, so beyond N of them
+  evict each other's least recently used sessions, each eviction costing one refused call. A server MUST NOT
+  evict one peer's session for another peer's handshake.
 - **A session no call has used for the server's idle period expires** (15 minutes in the Java SDK).
 
 So the server keeps at most N sessions for each peer its CAs vouch for.
@@ -172,7 +174,8 @@ So the server keeps at most N sessions for each peer its CAs vouch for.
   `403 {"reason":"SESSION_UNKNOWN"}`. A server MUST take a session as the call's only when the issuer and the name
   it recorded for it are both those of the call's authenticated peer. A call with no client certificate, or one whose
   certificate has no issuer or names no single service, matches no session. So this covers another peer's id,
-  the same name's id under another issuer, an evicted or expired id, and one from before the server restarted.
+  the same name's id under another issuer (issuers are told apart by their distinguished name, not by the CA's
+  key), an evicted or expired id, and one from before the server restarted.
   The server MUST NOT take it as unsafe, or a caller refused in an attested session could step down to an unsafe
   one by naming a wrong id. A client that gets it drops the session and opens a new one on its next call.
 - **Otherwise** the call is in that session, attested or unsafe as the handshake said, and the session's idle
@@ -442,8 +445,9 @@ for it instead, and its policy key can stay offline. It does not attest what it 
 events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
-count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. The
-root README's known limits cover both.
+count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. It does
+not see the sources behind them: those cross only as blinded commitments that the sender can open. The root
+README's known limits cover both.
 
 ### Blinded influence
 

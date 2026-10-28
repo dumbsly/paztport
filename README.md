@@ -248,14 +248,19 @@ The details carry real weight:
   unsalted `gateway/orders/payment` could be confirmed by hashing a handful of
   guesses. With salts, sibling hashes and the root reveal nothing an observer can
   test guesses against. §3 explains why this is a hard rule, not a preference.
-- **Proofs are padded to a fixed depth** (8 levels, 256 leaf slots). Unused slots
-  are filled with random 32-byte values that look like any other hash. Proof
-  length therefore leaks nothing about how many routes exist.
+- **Proofs are padded to a fixed depth** (8 levels, 256 leaf slots). Each route
+  goes in a random slot, and unused slots are filled with random 32-byte values
+  that look like any other hash. Proof length and position therefore leak nothing
+  about how many routes exist or where in the policy one sits.
 - **The root is signed** by the policy key over `rootId | root`. A widened policy
-  can't be swapped in without that key. The `rootId` is derived from the policy
-  *content* (`v` + 12 hex chars of SHA-256 over the route list), so it's a stable
-  label for a given policy even though fresh salts change the root bytes on every
-  build.
+  can't be swapped in without that key. The `rootId` is a random label for each
+  build (`v` + 12 random hex chars), not derived from the policy, so two builds of
+  one policy share neither a root nor an id.
+
+The proof hides the policy, not the request's own route. The stamps name that route
+to whoever verifies them, and a proof is the same on every request over a route, so
+an observer of many proofs can still cluster requests by route (§5.2, Inherent). Across an
+organisational boundary the partner sees one route, `<egress>/<partner entry>`.
 
 ### 2.3 Why you need both
 
@@ -403,36 +408,30 @@ What any design of this kind meets, and what this one has not yet tackled.
   refuse on third-party text alone: it refuses when untrusted content and private
   data not owned by the destination are both in the influence. Untrusted content
   can still steer a customer's own data to that customer.
+- **The proof hides the policy, not the request's route.** The stamps name the
+  route to whoever verifies them, and a route's proof is the same on every
+  request, so a partner can count and cluster requests by route. It sees one
+  route, `<egress>/<partner entry>`, never the internal one. Hiding a request's
+  own route from its verifier is not what the proof is for.
 - **What a partner must learn.** To apply the owner-aware rule, a partner must
   learn each influence entry's class and owner, and match those against the
   destination's owner, which it takes from its own records. Those owners are
-  private to the sender.
+  private to the sender. The sources behind each class and owner cross only as
+  blinded commitments that the sender can open.
 
 **Not yet tackled**
 
-- **Proof linkability.** A route's proof is byte-identical on every request, so an
-  observer who sees many proofs can cluster requests by route and count distinct
-  and frequent routes without breaking any cryptography. Inside one mesh, mTLS
-  hides headers in transit, so the exposure is mainly to compromised nodes. Across
-  organizations a partner sees every proof, which makes this a real privacy gap.
-  Zero-knowledge membership proofs, whose output differs on every request, would
-  close it.
-- **The partner learns the influence's sources.** The influence crosses the
-  boundary with its owners, and its `src` values name internal services and
-  items (for example `http:orders`, `ticket:t-1`), besides the one egress name.
-  The route stays hidden, but not these names. They could be dropped or blinded at
-  the boundary. (The classes and owners a partner must learn are under Inherent.)
 - **Partner replies are not attested.** The egress records each reply from the
   partner as `local-untrusted`, and labels its own response the same, so whatever
   relays the reply passes it on as untrusted. A response stamp under the partner's
   keyring, which the egress already holds from the session reply, would attest it;
   that is a spec addition.
-- **One session per peer certificate.** Replicas that share a certificate replace
-  each other's session. Keying sessions by issuer and name, or by instance, would
-  fix it.
-- **The partner holds its policy private key online**, to sign its session replies,
-  as currently specified. The policy key could instead certify an offline-issued
-  session-signing key, the way it signs the keyring; that is a spec change.
+- **Signed keyrings and roots don't expire.** One sent in a handshake stays valid
+  for as long as its policy key is pinned, so a leaked service key, or a route
+  removed from a policy, stays usable by whoever holds the old keyring or root.
+  Fully retiring either takes a new policy key. Session reply keys are the
+  exception, through their expiring certificate. Expiring keyrings and roots
+  would close it.
 
 ### 5.3 Limits of this proof of concept
 

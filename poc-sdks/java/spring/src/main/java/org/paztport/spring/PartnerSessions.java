@@ -32,13 +32,15 @@ import org.slf4j.LoggerFactory;
  * session it opened, for the request filter to look up. HTTP has no connection to hold a session, so each session is
  * kept by its id and records the peer that opened it: the client certificate's issuer and common name, both of which
  * the TLS layer authenticated. A call is in a session only when that same issuer and name present its id; the name
- * alone is not enough, since another CA the container trusts could issue a certificate with the same name.
+ * alone is not enough, since another CA the container trusts could issue a certificate with the same name. CAs are
+ * told apart by their distinguished name, not by their key, so two CAs with identical subject names are not.
  *
  * <p>A handshake adds a session and replaces none, so replicas of one client that share a certificate each keep
- * their own, and a client re-opening never cuts off calls still in flight in its earlier session. What bounds
- * memory instead: a peer holds at most {@code maxSessionsPerPeer} sessions, its least recently used evicted when it
- * opens one more, and a session no call has used for {@code sessionIdleMs} expires. A peer can evict only its own
- * sessions, so no client can push out another's. Memory is therefore bounded by the peers the trusted CAs vouch
+ * their own up to the cap, beyond which they evict each other's least recently used sessions (each eviction costs
+ * one refused call), and a client re-opening never cuts off calls still in flight in its earlier session. What
+ * bounds memory instead: a peer holds at most {@code maxSessionsPerPeer} sessions, its least recently used evicted
+ * when it opens one more, and a session no call has used for {@code sessionIdleMs} expires. A peer can evict only
+ * its own sessions, so no client can push out another's. Memory is therefore bounded by the peers the trusted CAs vouch
  * for, times the cap. An evicted or expired id is simply unknown, as one from before a restart is.
  *
  * <p>Opening, eviction and lookup all run under one {@link ReentrantLock}, so concurrent handshakes from one peer
@@ -217,8 +219,8 @@ final class PartnerSessions {
 
     /**
      * The session {@code sess} when it is live and was opened by exactly this peer, the same issuer and name, else
-     * null: another peer's, one under the same name from another issuer, an evicted, expired or unknown id, or a
-     * peer with no certificate, issuer or name. A session found is used, so its idle period starts again.
+     * null: another peer's, one under the same name from another issuer (told apart by its distinguished name), an evicted, expired or
+     * unknown id, or a peer with no certificate, issuer or name. A session found is used, so its idle period starts again.
      */
     Session find(String peerIssuer, String peerSvc, String sess) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty() || sess == null) {
