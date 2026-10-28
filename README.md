@@ -398,11 +398,15 @@ What any design of this kind meets, and what this one has not yet tackled.
   person pasting text) is invisible to the rule. This is the general limit of
   information-flow tracking.
 - **The rule counts presence, not effect.** It can't tell whether third-party text
-  actually changed what a model did, which is undecidable for a model. So it
-  refuses conservatively, preferring a false refusal to a missed one.
+  actually changed what a model did, which can't be determined in general. So it
+  refuses conservatively, preferring a false refusal to a missed one. It doesn't
+  refuse on third-party text alone: it refuses when untrusted content and private
+  data not owned by the destination are both in the influence. Untrusted content
+  can still steer a customer's own data to that customer.
 - **What a partner must learn.** To apply the owner-aware rule, a partner must
-  learn the influence's classes and an owner id it can match against its own
-  records.
+  learn each influence entry's class and owner, and match those against the
+  destination's owner, which it takes from its own records. Those owners are
+  private to the sender.
 
 **Not yet tackled**
 
