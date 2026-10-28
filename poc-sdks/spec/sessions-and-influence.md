@@ -161,8 +161,8 @@ changes: one session per connection, as [above](#the-handshake).
 - **A peer holds at most N sessions**, a limit the server sets (16 in the Java SDK). A handshake that would give
   it more evicts its least recently used. Replicas that share a certificate are one peer, so beyond N of them
   evict each other's least recently used sessions. A call that then names an evicted session is refused, and the
-  client opens a new one on its next call. A server MUST NOT
-  evict one peer's session for another peer's handshake.
+  client opens a new one on its next call. A server MUST NOT evict one peer's session for another peer's
+  handshake.
 - **A session no call has used for the server's idle period expires** (15 minutes in the Java SDK).
 
 So the server keeps at most N sessions for each peer its CAs vouch for.

@@ -46,18 +46,21 @@ export function nodeAtLeast(version: string, floor: string): boolean {
 /** Files setup-demo writes. Keys made by an earlier version can lack some, such as the local-tools policy. */
 const KEY_FILES = ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"];
 
-/** Whether the server's reply certificate in `dir` is still current: the mock server refuses to start with an expired one. */
+/** How long the server's reply certificate must still have to run, so evidence a run saves still verifies afterwards. */
+const REPLY_CERT_MARGIN_MS = 86_400_000;
+
+/** Whether the server's reply certificate in `dir` runs for at least REPLY_CERT_MARGIN_MS more: the mock server refuses an expired one. */
 function replyCertCurrent(dir: string): boolean {
   try {
     const cert: unknown = JSON.parse(readFileSync(join(dir, "server/reply-cert.json"), "utf8"));
     const notAfter = typeof cert === "object" && cert !== null ? (cert as { notAfter?: unknown }).notAfter : undefined;
-    return typeof notAfter === "number" && Date.now() <= notAfter;
+    return typeof notAfter === "number" && Date.now() + REPLY_CERT_MARGIN_MS <= notAfter;
   } catch {
     return false;
   }
 }
 
-/** True when `dir` holds every file setup-demo writes, with a current reply certificate, so the keys there can be used as they are. */
+/** True when `dir` holds every file setup-demo writes, with a reply certificate current for a day more, so the keys there can be used as they are. */
 export function keysComplete(dir: string): boolean {
   return KEY_FILES.every((f) => existsSync(join(dir, f))) && replyCertCurrent(dir);
 }

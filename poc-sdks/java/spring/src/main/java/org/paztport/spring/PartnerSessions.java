@@ -38,11 +38,11 @@ import org.slf4j.LoggerFactory;
  * <p>A handshake adds a session and replaces none, so replicas of one client that share a certificate each keep
  * their own up to the cap, beyond which they evict each other's least recently used sessions (a call that then
  * names an evicted session is refused, and the client opens a new one on its next call), and a client re-opening
- * never cuts off calls still in flight in its earlier session. What
- * bounds memory instead: a peer holds at most {@code maxSessionsPerPeer} sessions, its least recently used evicted
- * when it opens one more, and a session no call has used for {@code sessionIdleMs} expires. A peer can evict only
- * its own sessions, so no client can push out another's. Memory is therefore bounded by the peers the trusted CAs
- * vouch for, times the cap. An evicted or expired id is simply unknown, as one from before a restart is.
+ * never cuts off calls still in flight in its earlier session. What bounds memory instead: a peer holds at most
+ * {@code maxSessionsPerPeer} sessions, its least recently used evicted when it opens one more, and a session no
+ * call has used for {@code sessionIdleMs} expires. A peer can evict only its own sessions, so no client can push
+ * out another's. Memory is therefore bounded by the peers the trusted CAs vouch for, times the cap. An evicted or
+ * expired id is simply unknown, as one from before a restart is.
  *
  * <p>Opening, eviction and lookup all run under one {@link ReentrantLock}, so concurrent handshakes from one peer
  * can never leave it over its cap. It is a lock rather than {@code synchronized} so that a virtual thread waiting on
