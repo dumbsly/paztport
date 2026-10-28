@@ -160,7 +160,8 @@ changes: one session per connection, as [above](#the-handshake).
   flight in its earlier one. A request that opens no session changes no session.
 - **A peer holds at most N sessions**, a limit the server sets (16 in the Java SDK). A handshake that would give
   it more evicts its least recently used. Replicas that share a certificate are one peer, so beyond N of them
-  evict each other's least recently used sessions, each eviction costing one refused call. A server MUST NOT
+  evict each other's least recently used sessions. A call that then names an evicted session is refused, and the
+  client opens a new one on its next call. A server MUST NOT
   evict one peer's session for another peer's handshake.
 - **A session no call has used for the server's idle period expires** (15 minutes in the Java SDK).
 
@@ -438,16 +439,16 @@ session, with the egress service as an allowed origin, `receiver` = its own entr
 influence, taking the destination owner from its own records.
 
 The partner signs its handshake replies in either form ([above](#the-reply)). The Java SDK's partner sends the
-policy-key form, so it holds a policy private key whose public half is its own pin, and checks at startup that
-the two match. A partner that sends the entry-key form holds its entry service's key and a current certificate
-for it instead, and its policy key can stay offline. It does not attest what it answers. In the Java SDK, partner mode
+entry-key form: it holds its entry service's key and a current reply certificate for it, and its policy key stays
+offline. It checks at startup that its keyring verifies under its own pin and holds that key, and that the
+certificate names it and has not expired. It does not attest what it answers. In the Java SDK, partner mode
 (`paztport.partner.enabled`) replaces the inbound filter with one that has no modes and sends no responder
 events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
 count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. It does
 not see the sources behind them: those cross only as blinded commitments that the sender can open. The root
-README's known limits cover both.
+README's known limits cover these.
 
 ### Blinded influence
 

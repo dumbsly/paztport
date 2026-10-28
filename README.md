@@ -257,10 +257,7 @@ The details carry real weight:
   build (`v` + 12 random hex chars), not derived from the policy, so two builds of
   one policy share neither a root nor an id.
 
-The proof hides the policy, not the request's own route. The stamps name that route
-to whoever verifies them, and a proof is the same on every request over a route, so
-an observer of many proofs can still cluster requests by route (§5.2, Inherent). Across an
-organisational boundary the partner sees one route, `<egress>/<partner entry>`.
+The proof hides the policy, not the request's own route (see §5.2, Inherent).
 
 ### 2.3 Why you need both
 

@@ -204,18 +204,19 @@ Glue, configured through `paztport.*` properties.
   Sessions are kept by id, each with the issuer and common name of the client
   certificate that opened it. A handshake adds a session and replaces none, so
   replicas sharing a certificate each keep their own up to the cap, beyond which
-  they evict each other's least recently used sessions and each eviction costs one
-  refused call; a peer can evict only its own sessions, so memory is bounded by the peers the trusted CAs vouch for times the
-  cap. A handshake body over 256 KiB is `INVALID_PARAMS`, and a certificate with no
-  single common name is `NO_SESSION`. One nonce cache is shared across sessions. A
-  call with no `X-Path-Session` is unsafe; one naming no live session opened by the
-  same issuer and common name (another peer's, an evicted or an expired one; issuers are told apart by their
-  distinguished name, not by the CA's key) is
-  `403 SESSION_UNKNOWN`. In an attested session the chain is verified by that
-  session's own verifier, and the handler gets the verified influence and chain.
-  The client's boundary chain is also the handler's `inboundChain()`, so a partner
-  entry should not call into its own mesh from a partner request: its stamps would
-  append to the client's chain.
+  they evict each other's least recently used sessions, and a call that then names
+  an evicted session is refused (the client opens a new one on its next call); a
+  peer can evict only its own sessions, so memory is bounded by the peers the
+  trusted CAs vouch for times the cap. A handshake body over 256 KiB is
+  `INVALID_PARAMS`, and a certificate with no single common name is `NO_SESSION`.
+  One nonce cache is shared across sessions. A call with no `X-Path-Session` is
+  unsafe; one naming no live session opened by the same issuer and common name
+  (another peer's, an evicted or an expired one; issuers are told apart by their
+  distinguished name, not by the CA's key) is `403 SESSION_UNKNOWN`. In an attested
+  session the chain is verified by that session's own verifier, and the handler gets
+  the verified influence and chain. The client's boundary chain is also the handler's
+  `inboundChain()`, so a partner entry should not call into its own mesh from a
+  partner request: its stamps would append to the client's chain.
   `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
   outside an attested session that matches an `unsafe-disabled` entry, by the
   handler Spring dispatched to, so `/refund;x=1` is `POST /refund`; a `HEAD` is

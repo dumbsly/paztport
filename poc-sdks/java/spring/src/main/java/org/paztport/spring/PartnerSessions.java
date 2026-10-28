@@ -36,8 +36,9 @@ import org.slf4j.LoggerFactory;
  * told apart by their distinguished name, not by their key, so two CAs with identical subject names are not.
  *
  * <p>A handshake adds a session and replaces none, so replicas of one client that share a certificate each keep
- * their own up to the cap, beyond which they evict each other's least recently used sessions (each eviction costs
- * one refused call), and a client re-opening never cuts off calls still in flight in its earlier session. What
+ * their own up to the cap, beyond which they evict each other's least recently used sessions (a call that then
+ * names an evicted session is refused, and the client opens a new one on its next call), and a client re-opening
+ * never cuts off calls still in flight in its earlier session. What
  * bounds memory instead: a peer holds at most {@code maxSessionsPerPeer} sessions, its least recently used evicted
  * when it opens one more, and a session no call has used for {@code sessionIdleMs} expires. A peer can evict only
  * its own sessions, so no client can push out another's. Memory is therefore bounded by the peers the trusted CAs
