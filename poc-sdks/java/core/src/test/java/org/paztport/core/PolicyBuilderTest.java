@@ -73,10 +73,23 @@ class PolicyBuilderTest {
     }
 
     @Test
-    void rootIdIsDeterministicForTheSamePolicyContent() {
-        // Salts (and thus root bytes) are fresh each run, but the rootId labels
-        // the policy content, so it is stable for the same paths.
-        assertEquals(build(POC_PATHS).signedRoot().rootId(), build(POC_PATHS).signedRoot().rootId());
+    void rootIdIsRandomPerBuild() {
+        String first = build(POC_PATHS).signedRoot().rootId();
+        String second = build(POC_PATHS).signedRoot().rootId();
+        assertNotEquals(first, second);
+        assertTrue(first.matches("^v[0-9a-f]{12}$"), first);
+        assertTrue(second.matches("^v[0-9a-f]{12}$"), second);
+    }
+
+    @Test
+    void slotsAreNotPolicyOrder() {
+        boolean moved = false;
+        for (int i = 0; i < 20 && !moved; i++) {
+            PolicyBuilder.Result r = build(POC_PATHS);
+            String dirs = r.bundles().get("orders").proofs().get("gateway/orders/payment").dirs();
+            moved = !dirs.equals("LLLLLLLL");
+        }
+        assertTrue(moved, "the first route stayed in slot 0 across 20 builds");
     }
 
     @Test

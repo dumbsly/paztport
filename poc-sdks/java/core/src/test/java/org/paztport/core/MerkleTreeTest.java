@@ -39,6 +39,25 @@ class MerkleTreeTest {
     }
 
     @Test
+    void explicitSlotsProveAndPlace() {
+        List<MerkleLeaf> leaves = saltedLeaves().subList(0, 2);
+        MerkleTree tree = MerkleTree.build(leaves, DEPTH, "v1", new int[] {5, 200});
+        for (MerkleLeaf leaf : leaves) {
+            assertTrue(tree.proofFor(leaf.path()).verify(leaf.path(), tree.root()));
+        }
+        // Slot 5 is binary 00000101, least significant bit first.
+        assertEquals("RLRLLLLL", tree.proofFor(leaves.get(0).path()).dirs());
+    }
+
+    @Test
+    void duplicateOrOutOfRangeSlotsRefused() {
+        List<MerkleLeaf> two = saltedLeaves().subList(0, 2);
+        assertThrows(IllegalArgumentException.class, () -> MerkleTree.build(two, DEPTH, "v1", new int[] {3, 3}));
+        List<MerkleLeaf> one = saltedLeaves().subList(0, 1);
+        assertThrows(IllegalArgumentException.class, () -> MerkleTree.build(one, DEPTH, "v1", new int[] {256}));
+    }
+
+    @Test
     void proofSiblingsAreAlwaysDepthLongRegardlessOfLeafCount() {
         MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
         MerkleProof proof = tree.proofFor("gateway/orders/payment");

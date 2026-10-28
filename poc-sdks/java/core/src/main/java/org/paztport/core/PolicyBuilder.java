@@ -4,6 +4,7 @@
 package org.paztport.core;
 
 import java.security.PrivateKey;
+import java.security.SecureRandom;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,12 +17,15 @@ import java.util.Map;
  *
  * <p>Each route's proof is handed only to its second-to-last hop (the caller
  * that attaches it), so a service with no legitimate route to a destination is
- * never given a proof for one. Salts are freshly random each run; the
- * {@code rootId} is derived from the policy content, so it is a stable label for
- * a given set of routes even as the root bytes change.
+ * never given a proof for one. Salts are freshly random each run. Routes go in
+ * random distinct slots, so a proof's {@code dirs} does not reveal the route's
+ * position in the policy (a lower bound on the route count). The {@code rootId}
+ * is a random label per build, not derived from the routes, so it cannot be used
+ * to confirm a guess at the policy's content.
  */
 public final class PolicyBuilder {
 
+    private static final SecureRandom RANDOM = new SecureRandom();
     private static final int SALT_BYTES = MerkleProof.SALT_BYTES;
 
     private PolicyBuilder() {
@@ -32,12 +36,12 @@ public final class PolicyBuilder {
 
     public static Result build(List<List<String>> routes, int depth, PrivateKey policyKey) {
         List<String> routeStrings = routes.stream().map(r -> Routes.join(r)).toList();
-        String rootId = deriveRootId(routeStrings);
+        String rootId = newRootId();
 
         List<MerkleLeaf> leaves = routeStrings.stream()
                 .map(route -> new MerkleLeaf(Crypto.randomBytes(SALT_BYTES), route))
                 .toList();
-        MerkleTree tree = MerkleTree.build(leaves, depth, rootId);
+        MerkleTree tree = MerkleTree.build(leaves, depth, rootId, randomSlots(leaves.size(), depth));
         SignedRoot signedRoot = SignedRoot.sign(tree.root(), rootId, policyKey);
 
         // Every service that appears anywhere gets a bundle, empty by default.
@@ -62,9 +66,27 @@ public final class PolicyBuilder {
         return new Result(signedRoot, bundles);
     }
 
-    /** {@code "v" + first 12 hex of SHA-256(routes joined by newline, in file order)}. */
-    private static String deriveRootId(List<String> routeStrings) {
-        byte[] digest = Crypto.sha256(String.join("\n", routeStrings).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-        return "v" + HexFormat.of().formatHex(digest).substring(0, 12);
+    /** {@code "v"} plus 12 lowercase hex characters from a CSPRNG. */
+    static String newRootId() {
+        return "v" + HexFormat.of().formatHex(Crypto.randomBytes(6));
+    }
+
+    /** The first {@code n} of a uniform shuffle of all {@code 2^depth} slots. */
+    private static int[] randomSlots(int n, int depth) {
+        int total = 1 << depth;
+        if (n > total) {
+            throw new IllegalArgumentException("depth " + depth + " holds " + total + " leaves, got " + n);
+        }
+        int[] all = new int[total];
+        for (int i = 0; i < total; i++) {
+            all[i] = i;
+        }
+        for (int i = total - 1; i > 0; i--) {
+            int j = RANDOM.nextInt(i + 1);
+            int t = all[i];
+            all[i] = all[j];
+            all[j] = t;
+        }
+        return java.util.Arrays.copyOf(all, n);
     }
 }
