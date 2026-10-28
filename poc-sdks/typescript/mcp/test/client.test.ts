@@ -12,7 +12,9 @@ import {
   NonceCache,
   NONCE_TTL_MS,
   signKeyring,
+  signSessionReply,
   type InfluenceEntry,
+  type ReplyCert,
   type SessionReply,
 } from "@paztport/core";
 import {
@@ -43,29 +45,41 @@ const CLIENT_POLICY = generateKeyPair();
 
 const DAY_MS = 86_400_000;
 
-/** `certify` issues the server's reply certificate, by default for mcp-entry's key until a day from now. */
-function serverPolicy(
-  certify: (p: { policy: { publicKey: string; privateKey: string }; keys: Record<string, string> }) => ServerPolicy["replyCert"] = ({ policy, keys }) =>
-    issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey),
-): ServerPolicy {
+type Certify = (p: { policy: { publicKey: string; privateKey: string }; keys: Record<string, string> }) => ReplyCert;
+
+/** mcp-entry's certificate, valid for a day. */
+const CERTIFY_ENTRY: Certify = ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey);
+
+/**
+ * A consistent server policy, and the certificate `certify` issues under its keys. McpServerSession refuses to start
+ * with a bad certificate, so a test of a server that serves one anyway signs it into the reply itself.
+ */
+function serverMaterial(certify: Certify = CERTIFY_ENTRY): { policy: ServerPolicy; served: ReplyCert } {
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
   const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
   const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
   return {
-    policyPublicKey: policy.publicKey,
-    signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
-    keyring: ring.services,
-    keyringSig: ring.sig,
-    replyCert: certify({ policy, keys: ring.services }),
-    signedRoot,
-    routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
-    inst: "mock-github-1",
-    hops: ["mcp-entry", "github-tools"],
-    serverId: "github",
-    pinnedClientKeys: [CLIENT_POLICY.publicKey],
+    policy: {
+      policyPublicKey: policy.publicKey,
+      signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
+      keyring: ring.services,
+      keyringSig: ring.sig,
+      replyCert: CERTIFY_ENTRY({ policy, keys: ring.services }),
+      signedRoot,
+      routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
+      inst: "mock-github-1",
+      hops: ["mcp-entry", "github-tools"],
+      serverId: "github",
+      pinnedClientKeys: [CLIENT_POLICY.publicKey],
+    },
+    served: certify({ policy, keys: ring.services }),
   };
+}
+
+function serverPolicy(): ServerPolicy {
+  return serverMaterial().policy;
 }
 
 function clientMaterial() {
@@ -85,13 +99,21 @@ function clientMaterial() {
   };
 }
 
-/** A server and a client that completed the handshake; `withRoot: false` gives an unsafe session. */
-function connected(opts: { withRoot?: boolean; policy?: ServerPolicy } = {}) {
+/**
+ * A server and a client that completed the handshake; `withRoot: false` gives an unsafe session. With `served`, the
+ * server is one that skipped the SDK's start-up check: its reply carries that certificate, signed by its entry key.
+ */
+function connected(opts: { withRoot?: boolean; policy?: ServerPolicy; served?: ReplyCert } = {}) {
   const policy = opts.policy ?? serverPolicy();
   const server = new McpServerSession(policy, RULES, Date.now);
   const client = clientMaterial();
   const req = sessionRequest({ ...client, signedRoot: opts.withRoot === false ? null : client.signedRoot });
-  const raw: unknown = JSON.parse(JSON.stringify(server.openSession(req)));
+  let reply = server.openSession(req);
+  if (opts.served !== undefined) {
+    const { sig: _sig, ...body } = reply;
+    reply = signSessionReply({ ...body, serverReplyCert: opts.served }, policy.signingKeys["mcp-entry"]!);
+  }
+  const raw: unknown = JSON.parse(JSON.stringify(reply));
   return { policy, server, client, req, raw };
 }
 
@@ -202,18 +224,19 @@ describe("classifySessionReply", () => {
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter + 1)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
-    const expired = serverPolicy(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
-    const c = connected({ policy: expired });
+    const expired = serverMaterial(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
+    const c = connected({ policy: expired.policy, served: expired.served });
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("aServerWithAForgedCertificateIsABadSignature", () => {
-    const forged: Record<string, Parameters<typeof serverPolicy>[0]> = {
+    const forged: Record<string, Certify> = {
       "signed by another policy key": ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, generateKeyPair().privateKey),
       "for another service": ({ policy, keys }) => issueReplyCert(policy.publicKey, "github-tools", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey),
       "for a key not the entry's": ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["github-tools"]!, Date.now() + DAY_MS, policy.privateKey),
     };
     for (const [name, certify] of Object.entries(forged)) {
-      const c = connected({ policy: serverPolicy(certify) });
+      const { policy, served } = serverMaterial(certify);
+      const c = connected({ policy, served });
       expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()), name).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
     }
   });

@@ -6,6 +6,7 @@ import {
   bindResult,
   decode,
   deriveSessionId,
+  keyPairMatches,
   newContentId,
   newNonce,
   NonceCache,
@@ -15,6 +16,8 @@ import {
   sessionStatus,
   signSessionReply,
   signStampV3,
+  verifyKeyring,
+  verifyReplyCert,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
@@ -42,7 +45,7 @@ export type ServerPolicy = {
   keyring: Record<string, string>;
   /** The policy key's signature over `keyring`. */
   keyringSig: string;
-  /** The policy key's certificate for the entry's key; whoever loads the policy checks it names `hops[0]` and its key and is unexpired. */
+  /** The policy key's certificate for the entry's key; checkServerPolicy refuses one that is not for `hops[0]`'s keyring key or has expired. */
   replyCert: ReplyCert;
   signedRoot: SignedRoot;
   /** Proof for the route `<entry>/<tools>` of `hops`. */
@@ -119,6 +122,39 @@ function parseSessionRequest(params: unknown): SessionRequest {
   };
 }
 
+/**
+ * Throws an Error naming the fault unless `policy` can sign replies a client accepts at `now`: the keyring is signed
+ * by `policyPublicKey`, `signingKeys[hops[0]]` is the entry's keyring key, and `replyCert` verifies under
+ * `policyPublicKey`, is for `hops[0]` and that key, and has not expired. McpServerSession calls it on construction.
+ */
+export function checkServerPolicy(policy: ServerPolicy, now: number): void {
+  const entry = policy.hops[0];
+  if (!verifyKeyring({ policy: policy.policyPublicKey, services: policy.keyring, sig: policy.keyringSig }, policy.policyPublicKey)) {
+    throw new Error("server policy refused: the keyring is not signed by policyPublicKey");
+  }
+  if (!Object.hasOwn(policy.keyring, entry)) {
+    throw new Error(`server policy refused: the keyring has no key for the entry ${entry}`);
+  }
+  const entryKey = policy.keyring[entry]!;
+  const signingKey = Object.hasOwn(policy.signingKeys, entry) ? policy.signingKeys[entry] : undefined;
+  if (typeof signingKey !== "string" || !keyPairMatches(signingKey, entryKey)) {
+    throw new Error(`server policy refused: signingKeys[${entry}] is not the entry's keyring key`);
+  }
+  const cert = policy.replyCert;
+  if (!verifyReplyCert(cert, policy.policyPublicKey)) {
+    throw new Error("server policy refused: replyCert is not signed by policyPublicKey");
+  }
+  if (cert.svc !== entry) {
+    throw new Error(`server policy refused: replyCert is for ${cert.svc}, not the entry ${entry}`);
+  }
+  if (cert.key !== entryKey) {
+    throw new Error("server policy refused: replyCert names a key other than the entry's keyring key");
+  }
+  if (now > cert.notAfter) {
+    throw new Error(`server policy refused: replyCert expired at ${new Date(cert.notAfter).toISOString()}`);
+  }
+}
+
 /** The server side of one MCP connection: its paztport/session handshake, call checks and response stamps. */
 export class McpServerSession {
   private readonly policy: ServerPolicy;
@@ -126,7 +162,9 @@ export class McpServerSession {
   private readonly now: () => number;
   private current: Session | undefined;
 
+  /** Throws, as checkServerPolicy does at `now()`, for a policy whose replies no client would accept. */
   constructor(policy: ServerPolicy, rules: SessionRules, now: () => number) {
+    checkServerPolicy(policy, now());
     this.policy = policy;
     this.rules = rules;
     this.now = now;

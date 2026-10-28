@@ -18,6 +18,7 @@ import {
   type SessionReply,
 } from "@paztport/core";
 import {
+  checkServerPolicy,
   decideServerCall,
   McpServerSession,
   META_ATTESTATION,
@@ -34,29 +35,97 @@ const RULES: SessionRules = {
 
 const DAY_MS = 86_400_000;
 
-function serverConfig(): ServerPolicy {
+/** A consistent server policy for `hops`, with the policy key that signed it so a test can forge parts. */
+function serverSetup(hops: readonly [string, string] = ["mcp-entry", "github-tools"]): { cfg: ServerPolicy; policyPrivateKey: string } {
+  const [entryName, toolsName] = hops;
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey);
-  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey);
-  return {
+  const { signedRoot, bundles } = buildPolicy([[entryName, toolsName]], 8, policy.privateKey);
+  const ring = signKeyring({ [entryName]: entry.publicKey, [toolsName]: tools.publicKey }, policy.publicKey, policy.privateKey);
+  const cfg: ServerPolicy = {
     policyPublicKey: policy.publicKey,
-    signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
+    signingKeys: { [entryName]: entry.privateKey, [toolsName]: tools.privateKey },
     keyring: ring.services,
     keyringSig: ring.sig,
-    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
+    replyCert: issueReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
     signedRoot,
-    routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
+    routeProof: bundles[entryName]!.proofs[`${entryName}/${toolsName}`]!,
     inst: "mock-github-1",
-    hops: ["mcp-entry", "github-tools"],
+    hops,
     serverId: "github",
     pinnedClientKeys: [CLIENT_POLICY.publicKey],
   };
+  return { cfg, policyPrivateKey: policy.privateKey };
+}
+
+function serverConfig(): ServerPolicy {
+  return serverSetup().cfg;
 }
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
 const CALL = { rid: "rid-1", callId: "call-1", name: "list_issues", args: { owner: "o", repo: "r" }, caller: "pi" };
+
+describe("checkServerPolicy", () => {
+  it("aConsistentPolicyPassesAndConstructs", () => {
+    const cfg = serverConfig();
+    expect(() => checkServerPolicy(cfg, Date.now())).not.toThrow();
+    expect(() => checkServerPolicy(cfg, cfg.replyCert.notAfter)).not.toThrow();
+    expect(() => new McpServerSession(cfg, RULES, Date.now)).not.toThrow();
+  });
+  it("refusesAKeyringItsPolicyKeyDidNotSign", () => {
+    const { cfg } = serverSetup();
+    const other = generateKeyPair();
+    const bad: Record<string, ServerPolicy> = {
+      tampered: { ...cfg, keyring: { ...cfg.keyring, "github-tools": generateKeyPair().publicKey } },
+      unsigned: { ...cfg, keyringSig: "" },
+      "signed by another key": { ...cfg, keyringSig: signKeyring(cfg.keyring, cfg.policyPublicKey, other.privateKey).sig },
+    };
+    for (const [name, policy] of Object.entries(bad)) {
+      expect(() => checkServerPolicy(policy, Date.now()), name).toThrow("the keyring is not signed by policyPublicKey");
+      expect(() => new McpServerSession(policy, RULES, Date.now), name).toThrow("the keyring is not signed by policyPublicKey");
+    }
+  });
+  it("refusesAnEntryWithNoKeyringKeyOrAnotherSigningKey", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const { "mcp-entry": _gone, ...services } = cfg.keyring;
+    const noEntry = { ...cfg, keyring: services, keyringSig: signKeyring(services, cfg.policyPublicKey, policyPrivateKey).sig };
+    expect(() => checkServerPolicy(noEntry, Date.now())).toThrow("the keyring has no key for the entry mcp-entry");
+    const inherited = { ...noEntry, keyring: Object.create({ "mcp-entry": cfg.keyring["mcp-entry"] }) };
+    Object.assign(inherited.keyring, services);
+    expect(() => checkServerPolicy(inherited, Date.now())).toThrow(/keyring/);
+    for (const key of [generateKeyPair().privateKey, cfg.signingKeys["github-tools"]!, "not-a-key"]) {
+      const other = { ...cfg, signingKeys: { ...cfg.signingKeys, "mcp-entry": key } };
+      expect(() => checkServerPolicy(other, Date.now())).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
+      expect(() => new McpServerSession(other, RULES, Date.now)).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
+    }
+    const { "mcp-entry": _k, ...noSigningKey } = cfg.signingKeys;
+    expect(() => checkServerPolicy({ ...cfg, signingKeys: noSigningKey }, Date.now())).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
+  });
+  it("refusesACertificateThatDoesNotCertifyTheEntryKey", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const later = Date.now() + DAY_MS;
+    const entryKey = cfg.keyring["mcp-entry"]!;
+    const another = generateKeyPair();
+    const forged: Record<string, [ServerPolicy["replyCert"], string]> = {
+      "for another service": [issueReplyCert(cfg.policyPublicKey, "github-tools", entryKey, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
+      "for another key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
+      "signed by another policy key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
+      "naming another policy key": [issueReplyCert(another.publicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
+      expired: [issueReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
+    };
+    for (const [name, [replyCert, why]] of Object.entries(forged)) {
+      expect(() => checkServerPolicy({ ...cfg, replyCert }, Date.now()), name).toThrow(why);
+      expect(() => new McpServerSession({ ...cfg, replyCert }, RULES, Date.now), name).toThrow(why);
+    }
+  });
+  it("judgesExpiryAtTheSessionsClock", () => {
+    const cfg = serverConfig();
+    const { notAfter } = cfg.replyCert;
+    expect(() => new McpServerSession(cfg, RULES, () => notAfter)).not.toThrow();
+    expect(() => new McpServerSession(cfg, RULES, () => notAfter + 1)).toThrow("replyCert expired at");
+  });
+});
 
 describe("session handshake", () => {
   it("attestedWhenBothRoots", () => {
@@ -310,13 +379,7 @@ describe("call check", () => {
     expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "" });
   });
   it("attestSignsThePolicyHops", () => {
-    const base = serverConfig();
-    const policy: ServerPolicy = {
-      ...base,
-      hops: ["edge", "tools"],
-      signingKeys: { edge: base.signingKeys["mcp-entry"]!, tools: base.signingKeys["github-tools"]! },
-    };
-    const srv = new McpServerSession(policy, RULES, Date.now);
+    const srv = new McpServerSession(serverSetup(["edge", "tools"]).cfg, RULES, Date.now);
     srv.openSession(makeClient().request());
     const att = (srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, any>)[META_ATTESTATION];
     expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);

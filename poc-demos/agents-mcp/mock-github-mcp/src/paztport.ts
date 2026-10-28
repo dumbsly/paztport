@@ -11,20 +11,16 @@ import {
   parseProof,
   provesPath,
   routeOf,
-  verifyKeyring,
-  verifyReplyCert,
   verifyRoot,
   type MerkleProof,
   type ReplyCert,
   type SignedRoot,
 } from "@paztport/core";
-import type { ServerPolicy } from "@paztport/mcp";
+import { checkServerPolicy, type ServerPolicy } from "@paztport/mcp";
 
 /** The two simulated services this server signs every response as, entry first. */
 const HOPS = ["mcp-entry", "github-tools"] as const;
 const ROUTE = routeOf(HOPS);
-/** The service whose key signs session replies, under its reply certificate. */
-const ENTRY = HOPS[0];
 /** The fix for files from an older setup, or ones that no longer hold together. */
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
 
@@ -62,23 +58,25 @@ function isPublicKey(key: string): boolean {
 }
 
 /**
- * Throws a clear Error unless the loaded files are mutually consistent and the reply certificate (read from
- * `certPath`) is the keyring.json policy key's, for ENTRY's key in keyring.json, and unexpired at `now`.
+ * Throws a clear Error unless the loaded files hold together at `now`. The SDK's checkServerPolicy judges the keyring
+ * signature, the entry's key and the reply certificate, as McpServerSession would on start; its refusal is passed on
+ * with the fix. This adds what the demo's own files must also agree on: the root, the tools hop's key and the route.
  */
-function validateServerConfig(cfg: ServerPolicy, certPath: string, now: number): void {
-  if (!verifyKeyring({ policy: cfg.policyPublicKey, services: cfg.keyring, sig: cfg.keyringSig }, cfg.policyPublicKey)) {
-    throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
+function validateServerConfig(cfg: ServerPolicy, dir: string, now: number): void {
+  try {
+    checkServerPolicy(cfg, now);
+  } catch (e) {
+    throw new Error(`${(e as Error).message} (loaded from ${dir}): ${REGENERATE}`);
   }
   if (!verifyRoot(cfg.signedRoot, cfg.policyPublicKey)) {
     throw new Error("root.json is not signed by the keyring.json policy key");
   }
-  for (const svc of HOPS) {
-    if (!Object.hasOwn(cfg.keyring, svc)) {
-      throw new Error(`keyring.json has no entry for ${svc}`);
-    }
-    if (!keyPairMatches(cfg.signingKeys[svc]!, cfg.keyring[svc]!)) {
-      throw new Error(`${svc}.key does not match its keyring.json entry`);
-    }
+  const tools = HOPS[1];
+  if (!Object.hasOwn(cfg.keyring, tools)) {
+    throw new Error(`keyring.json has no entry for ${tools}`);
+  }
+  if (!keyPairMatches(cfg.signingKeys[tools]!, cfg.keyring[tools]!)) {
+    throw new Error(`${tools}.key does not match its keyring.json entry`);
   }
   let rootBytes: Uint8Array;
   try {
@@ -88,19 +86,6 @@ function validateServerConfig(cfg: ServerPolicy, certPath: string, now: number):
   }
   if (!provesPath(cfg.routeProof, ROUTE, rootBytes, cfg.signedRoot.rootId)) {
     throw new Error(`route proof for ${ROUTE} does not verify against root.json`);
-  }
-  const cert = cfg.replyCert;
-  if (!verifyReplyCert(cert, cfg.policyPublicKey)) {
-    throw new Error(`${certPath} is not signed by the keyring.json policy key: ${REGENERATE}`);
-  }
-  if (cert.svc !== ENTRY) {
-    throw new Error(`${certPath} is not for ${ENTRY}: ${REGENERATE}`);
-  }
-  if (cert.key !== cfg.keyring[ENTRY]) {
-    throw new Error(`${certPath} is not for ${ENTRY}'s key in keyring.json: ${REGENERATE}`);
-  }
-  if (now > cert.notAfter) {
-    throw new Error(`${certPath} has expired: ${REGENERATE}`);
   }
 }
 
@@ -172,6 +157,6 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     serverId: "github",
     pinnedClientKeys: [clientPin],
   };
-  validateServerConfig(cfg, certPath, now);
+  validateServerConfig(cfg, dir, now);
   return cfg;
 }

@@ -119,15 +119,15 @@ describe("loadServerConfig", () => {
     const tampered = writeDir(cfg, (f) => {
       (f["keyring.json"] as { services: Record<string, string> }).services["github-tools"] = generateKeyPair().publicKey;
     });
-    expect(() => loadServerConfig(tampered)).toThrow(`keyring.json is not signed by its policy key: ${REGENERATE}`);
+    expect(() => loadServerConfig(tampered)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${tampered}): ${REGENERATE}`);
     const unsigned = writeDir(cfg, (f) => {
       delete (f["keyring.json"] as { sig?: string }).sig;
     });
-    expect(() => loadServerConfig(unsigned)).toThrow(`keyring.json is not signed by its policy key: ${REGENERATE}`);
+    expect(() => loadServerConfig(unsigned)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${unsigned}): ${REGENERATE}`);
     const other = writeDir(cfg, (f) => {
       (f["keyring.json"] as { sig: string }).sig = signKeyring(cfg.keyring, cfg.policyPublicKey, generateKeyPair().privateKey).sig;
     });
-    expect(() => loadServerConfig(other)).toThrow(`keyring.json is not signed by its policy key: ${REGENERATE}`);
+    expect(() => loadServerConfig(other)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${other}): ${REGENERATE}`);
   });
   it("loadServerConfigNamesTheFixWhenTheReplyCertificateIsMissingOrMalformed", () => {
     const missing = writeDir(serverConfig(), (f) => {
@@ -145,26 +145,28 @@ describe("loadServerConfig", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const later = Date.now() + DAY_MS;
     const forged: Record<string, [unknown, string]> = {
-      expired: [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, Date.now() - 1, policyPrivateKey), "has expired"],
-      "for github-tools": [issueReplyCert(cfg.policyPublicKey, "github-tools", cfg.keyring["github-tools"]!, later, policyPrivateKey), "is not for mcp-entry"],
-      "for another key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "is not for mcp-entry's key in keyring.json"],
+      expired: [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
+      "for github-tools": [issueReplyCert(cfg.policyPublicKey, "github-tools", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
+      "for another key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
       "signed by another policy key": [
         issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, generateKeyPair().privateKey),
-        "is not signed by the keyring.json policy key",
+        "replyCert is not signed by policyPublicKey",
       ],
       "naming another policy key": [
         (() => {
           const other = generateKeyPair();
           return issueReplyCert(other.publicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, other.privateKey);
         })(),
-        "is not signed by the keyring.json policy key",
+        "replyCert is not signed by policyPublicKey",
       ],
     };
     for (const [name, [cert, why]] of Object.entries(forged)) {
       const dir = writeDir(cfg, (f) => {
         f["reply-cert.json"] = cert;
       });
-      expect(() => loadServerConfig(dir), name).toThrow(`${dir}/reply-cert.json ${why}: ${REGENERATE}`);
+      // the SDK's start-up check refuses it; the demo passes the refusal on with where it loaded from and the fix
+      expect(() => loadServerConfig(dir), name).toThrow(`server policy refused: ${why}`);
+      expect(() => loadServerConfig(dir), name).toThrow(`(loaded from ${dir}): ${REGENERATE}`);
     }
   });
   it("aLoadedConfigsReplyVerifiesUnderTheEntryKeyNotThePolicyKey", () => {
@@ -234,12 +236,14 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig(dir)).toThrow(/root\.json/);
   });
   it("loadServerConfigRejectsMismatchedSigningKeys", () => {
-    for (const svc of ["mcp-entry", "github-tools"]) {
-      const dir = writeDir(serverConfig(), (f) => {
-        f[`${svc}.key`] = generateKeyPair().privateKey;
-      });
-      expect(() => loadServerConfig(dir)).toThrow(new RegExp(`${svc}\\.key`));
-    }
+    const entry = writeDir(serverConfig(), (f) => {
+      f["mcp-entry.key"] = generateKeyPair().privateKey;
+    });
+    expect(() => loadServerConfig(entry)).toThrow(`server policy refused: signingKeys[mcp-entry] is not the entry's keyring key (loaded from ${entry}): ${REGENERATE}`);
+    const tools = writeDir(serverConfig(), (f) => {
+      f["github-tools.key"] = generateKeyPair().privateKey;
+    });
+    expect(() => loadServerConfig(tools)).toThrow("github-tools.key does not match its keyring.json entry");
   });
   it("loadServerConfigRejectsMissingKeyringEntry", () => {
     const { cfg, policyPrivateKey } = serverSetup();
@@ -253,7 +257,7 @@ describe("loadServerConfig", () => {
     const dir = writeDir(serverConfig(), (f) => {
       f["mcp-entry.key"] = "not-a-key";
     });
-    expect(() => loadServerConfig(dir)).toThrow(/mcp-entry\.key/);
+    expect(() => loadServerConfig(dir)).toThrow("signingKeys[mcp-entry] is not the entry's keyring key");
   });
   it("loadServerConfigKeyringProtoKeyIsOrdinary", () => {
     const { cfg, policyPrivateKey } = serverSetup();

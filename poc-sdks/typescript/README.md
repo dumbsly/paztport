@@ -66,8 +66,10 @@ opens an attested session only for a client policy key in its `pinnedClientKeys`
 `McpServerSession` holds no policy private key: it answers handshakes in the
 [entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
-Whoever loads the policy checks that the certificate verifies, names the entry and
-its key, and is unexpired.
+Its constructor refuses to start, through the exported `checkServerPolicy`, with a
+policy whose keyring is not signed by its policy key, whose `signingKeys[hops[0]]` is
+not the entry's keyring key, or whose certificate does not verify under its policy
+key, names another service or key, or has expired at the session's clock.
 
 ## policy-tool
 
