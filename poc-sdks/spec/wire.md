@@ -44,6 +44,7 @@ side writes (in the agents demo, its setup script). Each holds one value, and re
 | `root.json` | [The signed root](#the-signed-root) | no |
 | `proofs-<svc>.json` | [A proof bundle](#proof-bundles-and-who-holds-what) | no, but it reveals its own routes |
 | `policy.pub` | The policy public key that a mesh's own services pin, written by the Java keygen | no |
+| `boundary.key` | An egress's [boundary key](sessions-and-influence.md#blinded-influence): 32 bytes as base64url. The Java keygen writes it only when it does not exist, since a new key makes the entries sent under the old one unopenable. It belongs to one egress service and its replicas, and MUST NOT be shared with another service | yes |
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 ## Stamps

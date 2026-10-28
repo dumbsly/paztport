@@ -18,6 +18,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +34,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.ContentLabel;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
@@ -89,6 +91,19 @@ class BoundaryClientTest {
     /** The client's clock, in nanoseconds, which a test moves on by hand. */
     private final AtomicLong nanos = new AtomicLong();
 
+    /** This egress's boundary key. */
+    private final byte[] blindingKey = new SecureRandom().generateSeed(BoundaryInfluence.KEY_LENGTH);
+
+    /** One call of the listener, with how many calls the partner had received when it ran. */
+    private record Heard(String rid, String partnerEntry, List<InfluenceEntry> originals,
+            List<InfluenceEntry> sent, int callsBefore) {
+    }
+
+    private final List<Heard> heard = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+    /** What the listener does after recording; a test makes it throw. */
+    private volatile BoundaryListener onSent = (rid, partnerEntry, originals, sent) -> { };
+
     private StubPartner partner;
     private BoundaryClient client;
 
@@ -103,7 +118,8 @@ class BoundaryClientTest {
                 new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get, IDLE_MS);
+                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
+                nanos::get, IDLE_MS);
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -118,6 +134,11 @@ class BoundaryClientTest {
         client.close();
         partner.close();
         PaztportContext.reset();
+    }
+
+    private void listen(String rid, String partnerEntry, List<InfluenceEntry> originals, List<InfluenceEntry> sent) {
+        heard.add(new Heard(rid, partnerEntry, originals, sent, partner.calls().size()));
+        onSent.sent(rid, partnerEntry, originals, sent);
     }
 
     private static SslBundle fixtureBundle(String name) {
@@ -185,7 +206,8 @@ class BoundaryClientTest {
         assertTrue(proof.verify("payment/psp", built.signedRoot().rootBytes()));
 
         List<InfluenceEntry> sent = Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE)));
-        assertEquals(INFLUENCE, sent, "the owners cross with the entries");
+        assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, "rid-1", "psp", "payment"), sent,
+                "the owners cross, blinded");
 
         // And the partner, holding only payment's keyring and root, verifies it in that session.
         VerifierV3 atPartner = new VerifierV3(VerifierConfigV3.pinned(keyring, built.signedRoot(), policyPub,
@@ -199,6 +221,150 @@ class BoundaryClientTest {
                 lines("PAZTPORT_TRACE session "));
         assertEquals(List.of("PAZTPORT_TRACE boundary rid=rid-1 receiver=psp session=attested status=200 "
                 + "classes=private,third-party"), lines("PAZTPORT_TRACE boundary "));
+    }
+
+    // The partner needs only each entry's class and owner; the sources and plain hashes are the shop's to keep.
+    @Test
+    void sendsReducedInfluence() throws Exception {
+        List<InfluenceEntry> influence = List.of(
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-ticket", "cid-1", null),
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:example.com", "h-page", null, null),
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", "alice"),
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-2", "cid-3", "alice"),
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", null));
+
+        try (PaztportContext.Scope scope = PaztportContext.open()) {
+            PaztportContext.markVerified(gatewayChain("rid-1"));
+            PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
+            assertEquals(200, charge().status());
+        }
+
+        StubPartner.Received call = partner.calls().get(0);
+        String header = call.header(PaztportHeaders.INFLUENCE);
+        List<InfluenceEntry> sent = Influence.parse(HttpV3.decodeInfluence(header));
+        assertEquals(3, sent.size(), "one entry per (class, owner)");
+        assertEquals(Set.of(InfluenceClass.THIRD_PARTY + "|null", InfluenceClass.PRIVATE + "|alice",
+                InfluenceClass.PRIVATE + "|null"), Set.copyOf(sent.stream().map(e -> e.cls() + "|" + e.owner())
+                        .toList()));
+        for (InfluenceEntry e : sent) {
+            assertEquals("boundary:payment", e.src());
+            assertNull(e.cid());
+        }
+        assertEquals(Influence.normalise(sent), sent, "the sent list is normalised");
+        assertEquals(BoundaryInfluence.reduce(influence, blindingKey, "rid-1", "psp", "payment"), sent);
+        JsonNode stamp = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN)).get(0);
+        assertEquals(Influence.commit(sent), stamp.get("infl").textValue(), "the stamp commits to what was sent");
+
+        String wire = new String(Base64Url.decode(header), StandardCharsets.UTF_8);
+        for (String secret : List.of("http:tickets", "web:example.com", "http:orders", "h-ticket", "h-order",
+                "cid-1")) {
+            assertFalse(wire.contains(secret), secret + " crossed the boundary");
+        }
+        // Nor is any of it logged.
+        for (String line : lines("PAZTPORT_TRACE ")) {
+            for (String secret : List.of("http:", "web:", "h-", "alice", "boundary:")) {
+                assertFalse(line.contains(secret), line);
+            }
+        }
+    }
+
+    @Test
+    void listenerSeesOriginalsAndSent() throws Exception {
+        verified("rid-1", this::charge);
+
+        assertEquals(1, heard.size());
+        Heard h = heard.get(0);
+        assertEquals("rid-1", h.rid());
+        assertEquals("psp", h.partnerEntry());
+        assertEquals(Influence.normalise(INFLUENCE), h.originals(), "every field of every original");
+        StubPartner.Received call = partner.calls().get(0);
+        assertEquals(Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))), h.sent(),
+                "exactly the list sent");
+        assertEquals(0, h.callsBefore(), "it runs before the request is sent");
+        assertThrows(UnsupportedOperationException.class, () -> h.originals().clear());
+    }
+
+    @Test
+    void openingFromListenerOpensWhatPartnerHolds() throws Exception {
+        verified("rid-1", this::charge);
+        verified("rid-2", this::charge);
+
+        List<InfluenceEntry> first = Influence.parse(HttpV3.decodeInfluence(
+                partner.calls().get(0).header(PaztportHeaders.INFLUENCE)));
+        List<InfluenceEntry> originals = heard.get(0).originals();
+        assertEquals(2, first.size());
+        for (InfluenceEntry e : first) {
+            BoundaryInfluence.Opening opening = client.opening("rid-1", e.cls(), e.owner(), originals);
+            assertTrue(BoundaryInfluence.opens(e, opening), e.toString());
+            assertEquals(1, opening.originals().size(), "only the group's own originals");
+        }
+
+        InfluenceEntry thirdParty = first.stream().filter(e -> e.cls() == InfluenceClass.THIRD_PARTY).findFirst()
+                .orElseThrow();
+        InfluenceEntry privateEntry = first.stream().filter(e -> e.cls() == InfluenceClass.PRIVATE).findFirst()
+                .orElseThrow();
+        // One group's opening does not open another's entry.
+        assertFalse(BoundaryInfluence.opens(privateEntry,
+                client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, originals)));
+        // An opening derived for another request does not open this one's, though the content is the same.
+        assertFalse(BoundaryInfluence.opens(thirdParty,
+                client.opening("rid-2", InfluenceClass.THIRD_PARTY, null, originals)));
+        // Nor does one whose originals were changed.
+        List<InfluenceEntry> altered = List.of(
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "http:tickets", "h-other", "cid-1", null));
+        assertFalse(BoundaryInfluence.opens(thirdParty,
+                client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, altered)));
+        // The same content in the next request was sent under another salt.
+        List<InfluenceEntry> second = Influence.parse(HttpV3.decodeInfluence(
+                partner.calls().get(1).header(PaztportHeaders.INFLUENCE)));
+        assertNotEquals(first, second);
+        assertThrows(IllegalArgumentException.class,
+                () -> client.opening("rid-1", InfluenceClass.LOCAL_UNTRUSTED, null, originals),
+                "no original is in that group");
+    }
+
+    // If the shop can't keep what the entries stood for, they must not be sent: it could never open them.
+    @Test
+    void listenerFailureSendsNothing() throws Exception {
+        onSent = (rid, partnerEntry, originals, sent) -> {
+            throw new IllegalStateException("store unavailable");
+        };
+
+        List<InfluenceEntry> after = verified("rid-1", () -> {
+            IllegalStateException thrown = assertThrows(IllegalStateException.class, this::charge);
+            assertEquals("store unavailable", thrown.getMessage());
+            return PaztportContext.influence();
+        });
+
+        assertEquals(1, heard.size());
+        assertEquals(List.of(), partner.calls(), "the request is not sent");
+        assertEquals(INFLUENCE, after, "and nothing came back to record");
+        assertEquals(List.of(), lines("PAZTPORT_TRACE boundary "));
+    }
+
+    @Test
+    void unsafeSessionSendsNoInfluenceAndNoListenerCall() throws Exception {
+        partner.status("unsafe");
+        verified("rid-1", this::charge);
+
+        // And the replacement after a reply this side cannot use: unsafe too.
+        try (BoundaryClient other = new BoundaryClient(
+                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis),
+                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
+                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
+                nanos::get, IDLE_MS)) {
+            partner.status("attested");
+            partner.signNextHandshakeWith(Crypto.generateEd25519KeyPair());
+            assertFalse(verified("rid-2", () -> other.post("/charge", CHARGE)).attested());
+        }
+
+        assertEquals(2, partner.calls().size());
+        for (StubPartner.Received call : partner.calls()) {
+            assertNull(call.header(PaztportHeaders.INFLUENCE));
+            assertNull(call.header(PaztportHeaders.CHAIN));
+        }
+        assertEquals(List.of(), heard, "no listener call in an unsafe session");
     }
 
     @Test
@@ -374,7 +540,8 @@ class BoundaryClientTest {
                 new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get, 1_000)) {
+                partner.policyKey(), blindingKey, null, PooledTlsClient.of(fixtureBundle("payment")), nanos::get,
+                1_000)) {
             partner.failNextHandshake(503);
             assertFalse(verified("rid-1", () -> shortIdle.post("/charge", CHARGE)).attested());
             assertEquals(2, partner.handshakes().size());
@@ -392,7 +559,22 @@ class BoundaryClientTest {
                     new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                             System::currentTimeMillis),
                     built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                    partner.policyKey(), tls, nanos::get, 0));
+                    partner.policyKey(), blindingKey, null, tls, nanos::get, 0));
+        }
+    }
+
+    // The salts are HMAC outputs under this key: a short one would be stretched or padded by the MAC, so it is
+    // refused rather than used.
+    @Test
+    void blindingKeyMustBe32Bytes() {
+        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
+            for (byte[] key : new byte[][] {null, new byte[31], new byte[33]}) {
+                assertThrows(RuntimeException.class, () -> new BoundaryClient(
+                        new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                                System::currentTimeMillis),
+                        built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
+                        partner.policyKey(), key, null, tls, nanos::get, IDLE_MS));
+            }
         }
     }
 

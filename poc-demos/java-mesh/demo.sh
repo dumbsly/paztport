@@ -144,12 +144,13 @@ echo "bringing up the mesh..."
 quietly "building the keygen and policy-tool images" \
   docker compose build keygen policy-tool keygen-psp policy-tool-psp
 # Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
-# services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced.
+# services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced;
+# so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it).
 # A bind-mount source Docker created as an empty directory (see below) would block keygen.
-for p in out/keys/policy.pub out/keys/tls/* out/psp-keys/policy.pub out/psp-keys/policy.key \
-  out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
+for p in out/keys/policy.pub out/keys/boundary.key out/keys/tls/* out/psp-keys/policy.pub \
+  out/psp-keys/policy.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
-  || [ ! -f out/psp-keys/policy.pub ]; then
+  || [ ! -f out/keys/boundary.key ] || [ ! -f out/psp-keys/policy.pub ]; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
   quietly "generating the PSP's keys and certificates (keygen-psp)" docker compose run --rm keygen-psp
 fi

@@ -397,7 +397,9 @@ one fall in two groups, so two entries are sent. No influence gives no entries, 
 owner-aware rule is the one it would reach on the originals.
 
 The egress holds a **boundary key** of exactly 32 bytes, which MUST NOT leave the sender; a key of any other
-length MUST be refused. For each group:
+length MUST be refused. The salt below does not name the egress, so a boundary key MUST belong to one egress
+service and MUST NOT be shared with another: two egress services with one key would derive the same salts for
+the same request and partner. Replicas of one egress share its key. For each group:
 
 ```
 salt       = HMAC-SHA256( key, utf8("paztport-boundary-salt\n")
@@ -431,7 +433,9 @@ the key makes earlier entries unopenable. The originals of one call are kept und
 names one call, because a second call from the egress with the same `rid` is `REPLAY` at the partner within the
 nonce window. A sender that may call the same partner again later in one request, after the window, keeps
 every call's originals, not only the last. Those calls derive the same salts, so opening one call's entry also
-reveals the salt of the same group's entry in the others.
+reveals the salt of the same group's entry in the others. The Java SDK's `BoundaryClient` hands each attested
+call's originals and sent list to a listener before the request is sent, and sends nothing if the listener
+fails, so no entry leaves that the sender could not open.
 
 `http-v3.json`'s `boundaryInfluence` pins the salts, the sent entries, an opening that opens and one with an extra
 original that does not.

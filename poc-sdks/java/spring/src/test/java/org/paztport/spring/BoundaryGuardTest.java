@@ -17,16 +17,20 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.Crypto;
+import org.paztport.core.Influence;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
 import org.paztport.core.StamperV3;
@@ -41,6 +45,7 @@ import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -73,6 +78,8 @@ class BoundaryGuardTest {
             List.of(List.of("gateway", "payment"), List.of("payment", "psp")), 4, POLICY.getPrivate());
     private static Path trust;
     private static StubPartner partner;
+    /** Every list the egress reported sending, through the listener bean. */
+    private static final List<List<String>> SENT = new CopyOnWriteArrayList<>();
 
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
@@ -102,6 +109,8 @@ class BoundaryGuardTest {
                 POLICY.getPrivate()));
         JSON.writeValue(dir.resolve("root.json").toFile(), BUILT.signedRoot());
         JSON.writeValue(dir.resolve("proofs-payment.json").toFile(), BUILT.bundles().get("payment"));
+        Files.writeString(dir.resolve("boundary.key"),
+                Base64Url.encode(new SecureRandom().generateSeed(BoundaryInfluence.KEY_LENGTH)) + "\n");
     }
 
     /** Every property the boundary client needs, as {@code name=value}. */
@@ -115,7 +124,8 @@ class BoundaryGuardTest {
                 "paztport.boundary.partner=psp",
                 "paztport.boundary.url=" + stub.url(),
                 "paztport.boundary.tls-bundle=psp",
-                "paztport.boundary.partner-policy-key-path=" + dir.resolve("psp-policy.pub"));
+                "paztport.boundary.partner-policy-key-path=" + dir.resolve("psp-policy.pub"),
+                "paztport.boundary.blinding-key-path=" + dir.resolve("boundary.key"));
     }
 
     @AfterAll
@@ -132,6 +142,12 @@ class BoundaryGuardTest {
     @EnableAutoConfiguration
     @Import(PayController.class)
     static class App {
+
+        /** Records the sent list of each call, as a store of openings would keep its originals. */
+        @Bean
+        BoundaryListener recordingListener() {
+            return (rid, partnerEntry, originals, sent) -> SENT.add(sent.stream().map(e -> e.src()).toList());
+        }
     }
 
     /** Sends what it is given on to the partner, and relays the answer. */
@@ -218,6 +234,10 @@ class BoundaryGuardTest {
         assertEquals("psp", chain.get(0).get("rcv").textValue());
         assertEquals(call.header(PaztportHeaders.SESSION), chain.get(0).get("sess").textValue());
         assertThat(call.header(PaztportHeaders.PROOF)).isNotNull();
+        // The auto-configured client reports to the listener bean what it sent.
+        assertThat(SENT).isNotEmpty();
+        assertEquals(Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))).stream()
+                .map(e -> e.src()).toList(), SENT.get(SENT.size() - 1));
     }
 
     // --- Startup ---
@@ -243,7 +263,7 @@ class BoundaryGuardTest {
         });
         for (String name : List.of("paztport.key-path", "paztport.keyring-path", "paztport.root-path",
                 "paztport.policy-key-path", "paztport.boundary.partner", "paztport.boundary.tls-bundle",
-                "paztport.boundary.partner-policy-key-path")) {
+                "paztport.boundary.partner-policy-key-path", "paztport.boundary.blinding-key-path")) {
             without(name).run(context -> {
                 assertThat(context).hasFailed();
                 assertThat(context.getStartupFailure()).rootCause().hasMessageContaining(name);
@@ -262,6 +282,22 @@ class BoundaryGuardTest {
                     assertThat(context.getStartupFailure()).rootCause()
                             .hasMessageContaining("paztport.boundary.url").hasMessageContaining("https");
                 });
+    }
+
+    // The key keys every salt; one of another length would be stretched or cut by the MAC, so it is refused.
+    @Test
+    void blindingKeyOfWrongLengthFailsStartup() throws IOException {
+        for (String text : List.of(Base64Url.encode(new byte[31]), Base64Url.encode(new byte[33]), "not base64!",
+                "")) {
+            Path bad = Files.writeString(trust.resolve("bad-boundary.key"), text);
+            runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                    .withPropertyValues("paztport.boundary.blinding-key-path=" + bad).run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause()
+                                .hasMessageContaining("paztport.boundary.blinding-key-path")
+                                .hasMessageContaining("32 bytes");
+                    });
+        }
     }
 
     @Test

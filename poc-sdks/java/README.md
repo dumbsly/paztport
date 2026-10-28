@@ -139,14 +139,26 @@ Glue, configured through `paztport.*` properties.
   `paztport.boundary.url` (`https`, a scheme and an authority, no path; any other
   scheme fails the startup, though the `BoundaryClient` constructor accepts one, for tests),
   `paztport.boundary.tls-bundle` (its own SSL bundle, apart from `paztport.tls-bundle`,
-  so the partner's CA is trusted only for the partner), and
-  `paztport.boundary.partner-policy-key-path` (the partner's pinned policy key), as
+  so the partner's CA is trusted only for the partner),
+  `paztport.boundary.partner-policy-key-path` (the partner's pinned policy key) and
+  `paztport.boundary.blinding-key-path` (its boundary key, 32 bytes as base64url,
+  which the keygen writes as `boundary.key`; any other length fails the startup), as
   well as its own stamp key, proofs, keyring, root and policy pin; the context
-  fails naming what is missing. The first call opens a session and every call after
-  it shares it. `post` throws `IllegalStateException` before anything, the handshake
-  included, is sent when `verifiedChain()` is null. In an attested session it signs
-  one boundary stamp, sends the proof for `<this service>/<partner>` and the
-  influence with its owners; in an unsafe one it sends only `X-Path-Session`. A reply
+  fails naming what is missing. The boundary key never leaves the organisation and
+  belongs to this one egress service: the salts it derives do not name the egress,
+  so it must not be shared with another service. Replicas of the egress share it.
+  The first call opens a session and every call after it shares it. `post` throws `IllegalStateException` before anything, the handshake
+  included, is sent when `verifiedChain()` is null. In an attested session it sends
+  the influence blinded: one entry per class and owner, `src` `boundary:<this service>`,
+  `h` a salted commitment to that group's originals (see
+  [blinded influence](../spec/sessions-and-influence.md#blinded-influence)). It signs
+  one boundary stamp over that list and sends the proof for `<this service>/<partner>`;
+  in an unsafe one it sends only `X-Path-Session`. A `BoundaryListener` bean, if there
+  is one, gets `sent(rid, partner, originals, sent)` in each attested call, after the
+  session opens and before the request goes; if it throws, the request is not sent
+  and `post` throws. Keep the originals it is given: `opening(rid, cls, owner,
+  originals)` gives what to reveal to open the entry sent for that group, its salt
+  derived again from the key. Nothing about the originals is logged. A reply
   that fails the client's check, an HTTP or I/O error (a `404` too) or no answer in
   10 s, the handshake's timeout, is followed by a handshake with no root, and the
   session is unsafe. That session is kept for at most 30 s, so a passing failure
@@ -229,9 +241,13 @@ One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
   TLS-only name (default `operator` and `responder`), which get a certificate but
   no stamp key, so they never enter the keyring. Certificates are ECDSA P-256 with
   `CN` and a DNS `SAN` of the name, subject and authority key identifiers, and are
-  valid as both server and client.
+  valid as both server and client;
+- `boundary.key`, the egress's boundary key (32 random bytes as base64url), written
+  only when it does not exist: every other key is new on each run, but a new
+  boundary key would make the influence entries sent under the old one unopenable.
+  It is for the mesh's one egress service and its replicas.
 
-Private keys are written owner-read/write only.
+Private keys and the boundary key are written owner-read/write only.
 
 ## tools/policy-tool
 

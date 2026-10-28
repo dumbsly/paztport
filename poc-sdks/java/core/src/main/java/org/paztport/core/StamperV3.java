@@ -37,6 +37,11 @@ public final class StamperV3 {
         this.clock = clock;
     }
 
+    /** The service this signs as: the {@code svc} of every stamp it makes. */
+    public String svc() {
+        return svc;
+    }
+
     /** The chain to send, and the proof for its route; {@code proof} is null when the bundle holds none. */
     public record Stamped(List<StampV3> chain, MerkleProof proof) {
     }

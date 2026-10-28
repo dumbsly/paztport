@@ -21,7 +21,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.Crypto;
+import org.paztport.core.Influence;
 import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
 import org.paztport.core.KeyringFile;
@@ -71,8 +73,21 @@ import org.slf4j.LoggerFactory;
  * opens a new one; a replacement's session goes at the end of its period or when idle, whichever comes first.
  *
  * <p>In an attested session a call carries the boundary stamp, the proof for {@code <this service>/<partner>}, and
- * the influence with its owners, so the partner can apply the owner-aware rule. In an unsafe session it carries
- * only the session id: the partner would not verify a stamp, and the owners in the influence are private.
+ * the influence reduced by {@link BoundaryInfluence#reduce}: one entry per class and owner, its {@code src}
+ * {@code boundary:<this service>} and its {@code h} a salted commitment to the originals of its group, so the
+ * partner can apply the owner-aware rule without learning the internal sources or confirming a guess at the
+ * content. What the signer has verified: the request's chain passed the live order at this hop (the guard), and
+ * only influence the request context holds after that is reduced; every (class, owner) pair of it is kept, so
+ * the partner's verdict is the one it would reach on the originals, and the boundary stamp commits to exactly the
+ * list sent. The salts come from this service's boundary key, the rid, the partner and the group, not from the
+ * service's name, so a boundary key belongs to one egress service and is never shared with another; its replicas
+ * share it. In an unsafe session a call carries only the session id: the partner would not verify a stamp, and
+ * the owners in the influence are private, so nothing is reduced.
+ *
+ * <p>The {@link BoundaryListener}, if there is one, is given the originals and the list sent before the request
+ * goes, in an attested session only, so the shop can keep what it needs to open any entry it sent with
+ * {@link #opening}. If it throws, the call stops there and nothing of the request is sent. Nothing about the
+ * originals, their owners or the hashes is logged.
  *
  * <p>The partner does not attest what it answers, so every reply is recorded as one {@code local-untrusted} entry,
  * as any unattested response is, and this request's own response is labelled {@code local-untrusted}: a handler
@@ -127,6 +142,8 @@ public final class BoundaryClient implements AutoCloseable {
     private final String partner;
     private final URI partnerUrl;
     private final String pinnedPartnerKey;
+    private final byte[] blindingKey;
+    private final BoundaryListener listener;
     private final PooledTlsClient tls;
     private final AtomicReference<Session> session = new AtomicReference<>();
     private final Object handshake = new Object();
@@ -142,21 +159,25 @@ public final class BoundaryClient implements AutoCloseable {
      * @param partner the partner's entry service, the boundary stamp's receiver
      * @param partnerUrl the partner's base URL: a scheme and an authority, with no path
      * @param pinnedPartnerKey the partner's policy public key, pinned at onboarding
+     * @param blindingKey this egress service's boundary key, exactly {@value BoundaryInfluence#KEY_LENGTH} bytes,
+     *     which never leaves this organisation and is shared with no other service (its replicas excepted);
+     *     copied
+     * @param listener told the originals and the list sent before each attested call, or null for none
      * @param tls the client that presents this service's certificate to the partner; closed with this one
      * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive, and below the
      *     partner's own idle period
      */
     public BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
-            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls,
-            long sessionIdleMs) {
-        this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, tls,
-                System::nanoTime, sessionIdleMs);
+            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
+            BoundaryListener listener, PooledTlsClient tls, long sessionIdleMs) {
+        this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, blindingKey,
+                listener, tls, System::nanoTime, sessionIdleMs);
     }
 
     /** As above, with the clock, in nanoseconds, that ages sessions; tests move it on. */
     BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
-            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls,
-            LongSupplier nanos, long sessionIdleMs) {
+            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
+            BoundaryListener listener, PooledTlsClient tls, LongSupplier nanos, long sessionIdleMs) {
         this.stamper = Objects.requireNonNull(stamper, "stamper");
         this.bundle = Objects.requireNonNull(bundle, "bundle");
         this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
@@ -165,10 +186,20 @@ public final class BoundaryClient implements AutoCloseable {
         this.partner = Objects.requireNonNull(partner, "partner");
         this.partnerUrl = Objects.requireNonNull(partnerUrl, "partnerUrl");
         this.pinnedPartnerKey = Objects.requireNonNull(pinnedPartnerKey, "pinnedPartnerKey");
+        // Refused rather than stretched or cut: every salt is keyed by it.
+        if (blindingKey == null || blindingKey.length != BoundaryInfluence.KEY_LENGTH) {
+            throw new IllegalArgumentException("the boundary key must be " + BoundaryInfluence.KEY_LENGTH
+                    + " bytes");
+        }
+        this.blindingKey = blindingKey.clone();
+        this.listener = listener;
         this.tls = Objects.requireNonNull(tls, "tls");
         this.nanos = Objects.requireNonNull(nanos, "nanos");
         if (partner.isEmpty()) {
             throw new IllegalArgumentException("the partner's entry service must be named");
+        }
+        if (stamper.svc() == null || stamper.svc().isEmpty()) {
+            throw new IllegalArgumentException("the egress service must be named");
         }
         if (sessionIdleMs <= 0) {
             throw new IllegalArgumentException("the session idle period must be positive");
@@ -189,7 +220,9 @@ public final class BoundaryClient implements AutoCloseable {
     }
 
     /**
-     * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none.
+     * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none. In an
+     * attested session the influence is reduced, the listener told, and the boundary stamp signed over the reduced
+     * list, in that order, before the request is sent.
      *
      * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
      * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
@@ -197,6 +230,7 @@ public final class BoundaryClient implements AutoCloseable {
      * @throws IllegalArgumentException with nothing sent, when {@code path} would leave the partner's origin or
      *     would not be sent as given
      * @throws UncheckedIOException when the call itself fails
+     * @throws RuntimeException whatever the listener throws, with the request not sent
      */
     public Response post(String path, byte[] json) {
         // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
@@ -215,17 +249,23 @@ public final class BoundaryClient implements AutoCloseable {
                 .header(PaztportHeaders.SESSION, current.sess())
                 .POST(HttpRequest.BodyPublishers.ofByteArray(json));
         List<InfluenceEntry> sent = List.of();
+        String rid = verified.get(0).rid();
         if (current.attested()) {
-            StamperV3.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, influence, bundle);
+            // Only influence held after the chain verified here, every (class, owner) pair of it kept.
+            sent = List.copyOf(BoundaryInfluence.reduce(influence, blindingKey, rid, partner, stamper.svc()));
+            if (listener != null) {
+                // Before anything of the request goes: if the shop can't keep the originals, nothing is sent.
+                listener.sent(rid, partner, List.copyOf(Influence.normalise(influence)), sent);
+            }
+            StamperV3.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
             request.header(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
             if (stamped.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
             }
-            String influenceHeader = HttpV3.encodeInfluence(influence);
+            String influenceHeader = HttpV3.encodeInfluence(sent);
             if (influenceHeader != null) {
                 request.header(PaztportHeaders.INFLUENCE, influenceHeader);
             }
-            sent = influence;
         }
 
         HttpResponse<byte[]> response;
@@ -246,9 +286,31 @@ public final class BoundaryClient implements AutoCloseable {
             session.compareAndSet(current, null);
         }
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(boundaryLine(verified.get(0).rid(), partner, current.attested(), status, sent));
+            TRACE.info(boundaryLine(rid, partner, current.attested(), status, sent));
         }
         return new Response(status, body, current.attested());
+    }
+
+    /**
+     * What to reveal to open the entry this client sent for the group ({@code cls}, {@code owner}) of request
+     * {@code rid}: the originals of that group, normalised, and the salt derived again from this client's key and
+     * partner. Pass the originals the {@link BoundaryListener} was given for that call; any of another group are
+     * left out. The opening opens the sent entry only if the originals are those committed to.
+     *
+     * @throws IllegalArgumentException when no original is in the group, so there is nothing to open
+     */
+    public BoundaryInfluence.Opening opening(String rid, InfluenceClass cls, String owner,
+            List<InfluenceEntry> originals) {
+        Objects.requireNonNull(rid, "rid");
+        Objects.requireNonNull(cls, "cls");
+        Objects.requireNonNull(originals, "originals");
+        List<InfluenceEntry> group = Influence.normalise(originals.stream()
+                .filter(e -> e.cls() == cls && Objects.equals(e.owner(), owner)).toList());
+        if (group.isEmpty()) {
+            throw new IllegalArgumentException("no original is in that group");
+        }
+        byte[] salt = BoundaryInfluence.salt(blindingKey, rid, partner, cls, owner);
+        return new BoundaryInfluence.Opening(cls, owner, Base64Url.encode(salt), group);
     }
 
     /**

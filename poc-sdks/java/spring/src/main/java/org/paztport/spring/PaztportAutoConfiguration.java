@@ -129,14 +129,16 @@ public class PaztportAutoConfiguration {
      * The egress's client to the partner. Everything it needs is checked first, and the context fails naming
      * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. A
      * partner URL that is not {@code https} fails it too (the client itself accepts one, for tests' stubs), as does
-     * an idle period that is not positive. It builds its own TLS client from {@code paztport.boundary.tls-bundle},
-     * never the shared one, so the partner's CA is trusted only on calls to the partner. The context closes it on
-     * shutdown.
+     * an idle period that is not positive, or a boundary key that is not 32 bytes. It builds its own TLS client from
+     * {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's CA is trusted only on calls to
+     * the partner. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends; two
+     * fail the context, rather than one being picked. The context closes the client on shutdown.
      */
     @Bean
     @ConditionalOnProperty("paztport.boundary.url")
     BoundaryClient paztportBoundaryClient(PaztportProperties props, ObjectProvider<StamperV3> stamper,
-            ObjectProvider<ProofBundle> bundle, ObjectProvider<SslBundles> ssl) {
+            ObjectProvider<ProofBundle> bundle, ObjectProvider<SslBundles> ssl,
+            ObjectProvider<BoundaryListener> listener) {
         PaztportProperties.Boundary b = props.getBoundary();
         Map<String, String> needed = new LinkedHashMap<>();
         needed.put("paztport.key-path", props.getKeyPath());
@@ -148,6 +150,7 @@ public class PaztportAutoConfiguration {
         needed.put("paztport.boundary.url", b.getUrl());
         needed.put("paztport.boundary.tls-bundle", b.getTlsBundle());
         needed.put("paztport.boundary.partner-policy-key-path", b.getPartnerPolicyKeyPath());
+        needed.put("paztport.boundary.blinding-key-path", b.getBlindingKeyPath());
         List<String> missing = new ArrayList<>();
         needed.forEach((name, value) -> {
             if (value == null || value.isBlank()) {
@@ -166,6 +169,8 @@ public class PaztportAutoConfiguration {
         if (b.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
         }
+        byte[] blindingKey = ConfigLoader.loadBoundaryKey(Path.of(b.getBlindingKeyPath()),
+                "paztport.boundary.blinding-key-path");
         SslBundles bundles = ssl.getIfAvailable();
         if (bundles == null) {
             throw new IllegalStateException(
@@ -180,6 +185,8 @@ public class PaztportAutoConfiguration {
                 b.getPartner(),
                 partnerUrl,
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
+                blindingKey,
+                listener.getIfAvailable(),
                 PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())),
                 b.getSessionIdleMs());
     }

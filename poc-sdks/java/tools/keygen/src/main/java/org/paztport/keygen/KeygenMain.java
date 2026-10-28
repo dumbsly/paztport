@@ -7,10 +7,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
 
@@ -32,6 +35,11 @@ import org.paztport.core.KeyringFile;
  * certificates and keys, and is what gets mounted; the CA key is written alone to {@code ca/ca.key}. {@code ca} is
  * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are logged; private key material
  * never is.
+ *
+ * <p>Every key is new on each run except {@code boundary.key}, the egress's boundary key (32 random bytes as
+ * base64url), which is written only when it does not exist: rotating it would make every influence entry the
+ * egress has sent unopenable. It belongs to the one egress service of the mesh and its replicas, never to another
+ * service.
  */
 public final class KeygenMain {
 
@@ -67,6 +75,12 @@ public final class KeygenMain {
             writePrivateKey(outDir.resolve(e.getKey() + ".key"), e.getValue());
         }
         writePrivateKey(outDir.resolve("policy.key"), result.policy());
+        Path boundaryKey = outDir.resolve("boundary.key");
+        if (!Files.exists(boundaryKey, LinkOption.NOFOLLOW_LINKS)) {
+            byte[] key = new byte[BoundaryInfluence.KEY_LENGTH];
+            new SecureRandom().nextBytes(key);
+            writeSecret(boundaryKey, Base64Url.encode(key) + "\n");
+        }
 
         Path tls = Files.createDirectories(outDir.resolve("tls"));
         TlsIssuer.Ca ca = TlsIssuer.newCa(org, TLS_VALIDITY);
@@ -139,7 +153,8 @@ public final class KeygenMain {
             Args a = parse(args);
             run(a.outDir(), a.services(), a.tlsOnly(), a.org());
             System.out.println("keygen: wrote signed keyring, policy pin, " + a.services().size()
-                    + " service keys, policy key and TLS certificates to " + a.outDir());
+                    + " service keys, policy key and TLS certificates to " + a.outDir()
+                    + " (boundary key written only if absent)");
         } catch (IllegalArgumentException e) {
             System.err.println("keygen: " + e.getMessage());
             System.err.println("usage: keygen [outDir] [service...] [--tls-only name...] [--org name]");

@@ -32,6 +32,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.Crypto;
 import org.paztport.core.Influence;
 import org.paztport.core.InfluenceClass;
@@ -410,12 +411,15 @@ class PartnerRequestTest {
                 "PAZTPORT_TRACE request rid=- reason=- receiver=localhost peer=orders (mTLS) session=unsafe");
     }
 
+    // The egress sends the influence blinded, and the partner verifies the boundary stamp's commitment to it and
+    // applies the owner-aware rule to its classes and owners, which survive.
     @Test
     void roundTrip() throws Exception {
         PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("orders"));
+        byte[] blindingKey = new java.security.SecureRandom().generateSeed(BoundaryInfluence.KEY_LENGTH);
         try (BoundaryClient boundary = new BoundaryClient(orders(), SHOP_BUILT.bundles().get("orders"),
                 SHOP_BUILT.signedRoot(), SHOP_RING, SHOP_PIN, PARTNER, URI.create("https://localhost:" + port),
-                PSP_PIN, tls, 600_000)) {
+                PSP_PIN, blindingKey, null, tls, 600_000)) {
             for (String rid : List.of("rid-t1", "rid-t2")) {
                 try (PaztportContext.Scope scope = PaztportContext.open()) {
                     PaztportContext.markVerified(internal(rid));
@@ -426,7 +430,8 @@ class PartnerRequestTest {
                     assertEquals(200, response.status(), new String(response.body(), StandardCharsets.UTF_8));
                     assertTrue(response.attested());
                     JsonNode seen = JSON.readTree(response.body());
-                    assertEquals(INFLUENCE, Influence.parse(seen.get("influence")));
+                    assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, rid, PARTNER, "orders"),
+                            Influence.parse(seen.get("influence")));
                     assertTrue(seen.get("verified").asBoolean());
                 }
             }

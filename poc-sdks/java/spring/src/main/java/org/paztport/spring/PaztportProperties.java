@@ -97,6 +97,13 @@ public class PaztportProperties {
         private String partnerPolicyKeyPath;
 
         /**
+         * Path to this egress's boundary key: 32 bytes as base64url, which salt the blinded influence it sends. It
+         * never leaves this organisation and belongs to this one egress service, shared only by its replicas: the
+         * salts do not name the egress, so another service with the same key would derive the same ones.
+         */
+        private String blindingKeyPath;
+
+        /**
          * How long the session is kept once no call has used it, in milliseconds, before the next call opens a new
          * one. It should be below the partner's own idle period, which forgets the session at its end: a call sent
          * in a session the partner has forgotten is refused, and is not retried.
@@ -133,6 +140,14 @@ public class PaztportProperties {
 
         public void setPartnerPolicyKeyPath(String partnerPolicyKeyPath) {
             this.partnerPolicyKeyPath = partnerPolicyKeyPath;
+        }
+
+        public String getBlindingKeyPath() {
+            return blindingKeyPath;
+        }
+
+        public void setBlindingKeyPath(String blindingKeyPath) {
+            this.blindingKeyPath = blindingKeyPath;
         }
 
         public long getSessionIdleMs() {

@@ -117,10 +117,12 @@ services:
       PAZTPORT_BOUNDARY_URL: https://psp:8080
       PAZTPORT_BOUNDARY_TLS_BUNDLE: psp
       PAZTPORT_BOUNDARY_PARTNER_POLICY_KEY_PATH: /config/partner/psp-policy.pub
+      PAZTPORT_BOUNDARY_BLINDING_KEY_PATH: /config/keys/boundary.key   # salts the influence sent to the PSP
     volumes:
       - ./out/keys/keyring.json:/config/keys/keyring.json:ro
       - ./out/keys/policy.pub:/config/keys/policy.pub:ro
       - ./out/keys/payment.key:/config/keys/payment.key:ro   # response attestation, event and boundary signing
+      - ./out/keys/boundary.key:/config/keys/boundary.key:ro   # payment's alone: no other service mounts it
       - ./out/policy/root.json:/config/policy/root.json:ro
       - ./out/policy/proofs-payment.json:/config/policy/proofs-payment.json:ro
       - ./out/keys/tls/payment.crt:/config/tls/payment.crt:ro

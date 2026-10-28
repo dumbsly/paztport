@@ -3,7 +3,9 @@
 
 package org.paztport.keygen;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -145,5 +147,31 @@ class KeygenMainTest {
         assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a,O=x"), List.of(), "shop"));
         assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("../a"), List.of(), "shop"));
         assertThrows(IllegalArgumentException.class, () -> KeygenMain.run(dir, List.of("a"), List.of(), "sh op"));
+    }
+
+    @Test
+    @DisabledOnOs(OS.WINDOWS)
+    void writesBoundaryKeyWhenAbsent(@TempDir Path dir) throws Exception {
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+
+        byte[] key = Base64Url.decode(Files.readString(dir.resolve("boundary.key")).trim());
+        assertEquals(32, key.length);
+        assertEquals(PosixFilePermissions.fromString("rw-------"),
+                Files.getPosixFilePermissions(dir.resolve("boundary.key")));
+    }
+
+    // Rotating the boundary key makes every entry sent under the old one unopenable, so a re-run keeps it, while
+    // every other key is new.
+    @Test
+    void keepsExistingBoundaryKey(@TempDir Path dir) throws Exception {
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+        byte[] boundary = Files.readAllBytes(dir.resolve("boundary.key"));
+        byte[] gateway = Files.readAllBytes(dir.resolve("gateway.key"));
+
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+
+        assertArrayEquals(boundary, Files.readAllBytes(dir.resolve("boundary.key")));
+        assertFalse(java.util.Arrays.equals(gateway, Files.readAllBytes(dir.resolve("gateway.key"))),
+                "the other keys are regenerated");
     }
 }

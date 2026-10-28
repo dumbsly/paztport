@@ -8,6 +8,8 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.SignedRoot;
@@ -35,6 +37,30 @@ final class ConfigLoader {
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
+    }
+
+    /**
+     * The boundary key: the trimmed text of the file, base64url of exactly 32 bytes. Anything else fails here, at
+     * startup, naming {@code property} but never the file's content.
+     */
+    static byte[] loadBoundaryKey(Path file, String property) {
+        String text;
+        try {
+            text = Files.readString(file).trim();
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read " + file, e);
+        }
+        byte[] key;
+        try {
+            key = Base64Url.decode(text);
+        } catch (IllegalArgumentException e) {
+            key = null;
+        }
+        if (key == null || key.length != BoundaryInfluence.KEY_LENGTH) {
+            throw new IllegalStateException(property + " must hold " + BoundaryInfluence.KEY_LENGTH
+                    + " bytes as base64url: " + file);
+        }
+        return key;
     }
 
     static SignedRoot loadSignedRoot(Path file) {
