@@ -345,6 +345,8 @@ function verifyFile(path: string, label: string): VerifyReport {
           sess: call.session.sess,
           nonces,
           now: rec.now,
+          // Recorded evidence keeps its current judgement here, old forms included: no window limits it.
+          policyNotAfter: Number.MAX_SAFE_INTEGER,
         });
         add(v.result.reason, v.legacy);
       }

@@ -6,6 +6,7 @@ import {
   buildPolicy,
   canonicalize,
   decode,
+  earliestNotAfter,
   generateKeyPair,
   issueReplyCert,
   signKeyring,
@@ -196,6 +197,32 @@ describe("session handshake", () => {
     expect(Object.hasOwn(req.clientRoot!, "notAfter")).toBe(false);
     expect(srv.openSession(req).status).toBe("attested");
   });
+  it("callsArePolicyExpiredOnceTheClientsRootOrKeyringWindowHasPassed", () => {
+    const T = 1_900_000_000_000;
+    for (const [what, opts] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
+      let now = Date.now();
+      const cfg = serverConfig();
+      const srv = new McpServerSession(cfg, RULES, () => now);
+      const client = makeClient(opts);
+      const reply = srv.openSession(client.request());
+      expect(reply.status, what).toBe("attested");
+      expect(client.acceptReply(reply, cfg.policyPublicKey), what).toBe(true);
+      now = T;
+      expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now: T })).reason, `${what} at notAfter`).toBe("OK");
+      now = T + 1;
+      const r = srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now: T + 1 }));
+      expect({ reason: r.reason, caller: r.caller, influence: r.influence }, `${what} one ms past`).toEqual({ reason: "POLICY_EXPIRED", caller: "", influence: [] });
+    }
+  });
+  it("anOldFormClientsCallsFailClosed", () => {
+    const cfg = serverConfig();
+    const srv = new McpServerSession(cfg, RULES, Date.now);
+    const client = makeClient({ oldForm: true });
+    const reply = srv.openSession(client.request());
+    expect(reply.status).toBe("attested");
+    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [])).reason).toBe("POLICY_EXPIRED");
+  });
   it("unsafeWithoutClientRootDisablesWrites", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const reply = srv.openSession(makeClient({ withRoot: false }).request());
@@ -381,6 +408,7 @@ describe("response attestation", () => {
       sess: s.sess,
       nonces: s.nonces,
       now: Date.now(),
+      policyNotAfter: earliestNotAfter(s.request.clientRoot!.notAfter, s.request.clientKeyringNotAfter),
     });
     expect(r.result.reason).toBe("OK");
   });

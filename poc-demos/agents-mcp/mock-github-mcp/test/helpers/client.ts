@@ -206,6 +206,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
         sess,
         nonces: responseNonces,
         now,
+        policyNotAfter: serverRoot.notAfter,
       });
       return { reason: r.result.reason, labels: r.labels };
     },

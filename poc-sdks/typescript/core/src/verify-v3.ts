@@ -5,6 +5,7 @@ import { checkCommitments, checkRoute, checkStamps, reject, type StampShape } fr
 import type { InfluenceEntry } from "./influence.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
+import { isNotAfter } from "./validity.ts";
 
 export const CALL_MAX_AGE_MS = 5000;
 export const RUN_MAX_AGE_MS = 1_800_000;
@@ -36,16 +37,26 @@ export type V3Config = {
   nonces: NonceCache;
   nonceKey: string;
   now: number;
+  /** The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; required, and undefined (old-form material, with no window) or anything but an integer in [0, 2^53 − 1] fails closed. */
+  policyNotAfter: number | undefined;
   callMaxAgeMs?: number;
   runMaxAgeMs?: number;
 };
 
 type LegacyResult = VerifyResult & { legacy: boolean };
 
-/** The attribution rule, in one place: with a peer, every result names it; without one, the chain's own rule stands. */
+/** The attribution rule, in one place: with a peer, every result of checks 1 to 12 names it; without one, the chain's own rule stands. */
 function blame<R extends VerifyResult>(result: R, peer: Peer | null | undefined): R {
   return peer == null ? result : { ...result, suspectSvc: peer.svc, suspectInst: peer.inst };
 }
+
+/** Check 0: the window is an integer in [0, 2^53 − 1] and a finite `now` has not passed it; a non-finite `now` is left to check 7, which fails it as EXPIRED. */
+function policyCurrent(cfg: V3Config): boolean {
+  return isNotAfter(cfg.policyNotAfter) && !(Number.isFinite(cfg.now) && cfg.now > cfg.policyNotAfter);
+}
+
+/** Check 0's refusal: about the verifier's own config, not the request, so it names no suspect, not even a peer; expiry is not the sender's fault. */
+const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
 
 /** Checks 1 to 12 in order, for the stamps `accept` allows; the result before attribution. */
 function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): LegacyResult {
@@ -95,6 +106,8 @@ function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): Leg
 
 /**
  * Verifies a v3 chain received live. The first failure is the result:
+ * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any stamp work: past it the keyring and root
+ *    no longer say what the policy owner allows, so no later check means anything; it names no one, peer included;
  * 1. the stamps parse, all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN);
@@ -110,9 +123,10 @@ function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): Leg
  * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root
  *     (PATH_NOT_ALLOWED);
  * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
- * With a peer, every result names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
+ * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
  */
 export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
+  if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   const { legacy: _legacy, ...result } = check(input, cfg, "v3");
   return blame(result, input.peer);
 }
@@ -122,5 +136,6 @@ export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
  * mixed chain is CHAIN_MISSING. For re-checking a recorded response at its recorded time.
  */
 export function verifyChainAcceptingLegacy(input: V3Input, cfg: V3Config): VerifyResult & { legacy: boolean } {
+  if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED, legacy: false };
   return blame(check(input, cfg, "v3-or-legacy-v2"), input.peer);
 }

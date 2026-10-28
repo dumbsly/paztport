@@ -42,7 +42,8 @@ class StamperV3Test {
         return new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders", ordersKey.getPublic(),
                         "payment", paymentKey.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
+                Set.of("gateway"), "",
                 new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
     }
 

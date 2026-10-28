@@ -355,12 +355,14 @@ the root.
 
 ## The verification pipeline
 
-`payment` runs the protocol's live order, twelve checks, and fails closed at the
-first one that doesn't hold:
+`payment` runs the protocol's live order, its own policy's window then twelve
+checks, and fails closed at the first one that doesn't hold:
 
 ```mermaid
 flowchart TD
-    A["request arrives at payment<br/>over mutual TLS"] --> S1["1. chain header present and<br/>parses as v3 stamps?"]
+    A["request arrives at payment<br/>over mutual TLS"] --> S0["0. payment's pinned keyring and root<br/>still within their notAfter?"]
+    S0 -->|no| R0["403 POLICY_EXPIRED"]
+    S0 -->|yes| S1["1. chain header present and<br/>parses as v3 stamps?"]
     S1 -->|no| R1["403 CHAIN_MISSING"]
     S1 -->|yes| S2["2. does a signed field<br/>hold the delimiter?"]
     S2 -->|yes| R2["403 BAD_SIGNATURE"]
@@ -390,7 +392,7 @@ flowchart TD
 
     classDef reject fill:#eb6f92,stroke:#b4637a,color:#ffffff
     classDef pass fill:#3e8f6e,stroke:#2a6b52,color:#ffffff
-    class R1,R2,R3,R4a,R4b,R4c,R5,R6,R7,R8,R9,R10,R11,R12 reject
+    class R0,R1,R2,R3,R4a,R4b,R4c,R5,R6,R7,R8,R9,R10,R11,R12 reject
     class OK pass
 ```
 
@@ -544,7 +546,8 @@ Why each piece is there:
   name; an event with no suspect takes the "ignore: can't attribute" branch.
 - **Only attributable refusals count.** `INFLUENCE_DENIED` and `UNSAFE_SESSION`
   are policy refusals of a sound chain, which an honest service misled by its
-  input can earn, so the responder never counts them.
+  input can earn, so the responder never counts them. Nor `POLICY_EXPIRED`: the
+  verifier's own pinned policy ran out, which no caller caused.
 - **Require a threshold** (3 in 60 s). One bad event doesn't trigger action, and
   audit-mode events never do.
 - **Circuit breaker** (by default at most 2 quarantines per service per 10 min).

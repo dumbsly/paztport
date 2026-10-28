@@ -11,6 +11,8 @@ package org.paztport.core;
  * under mutual TLS), every result, {@code OK} and every rejection alike, names
  * that peer: its service and the address it connected from. The peer's identity
  * does not depend on the chain, so it can be blamed whatever the chain says.
+ * The one exception is {@code POLICY_EXPIRED}, which names no one: it is about
+ * the verifier's own pinned policy, and expiry is not the sender's fault.
  *
  * <p>Without a peer, they name the last service that provably sent this
  * request, proven by its key, and the instance that service reported in its

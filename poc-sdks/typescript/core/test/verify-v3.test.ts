@@ -12,6 +12,8 @@ import { signStampV2, signStampV3, type StampV2, type StampV3 } from "../src/sta
 import { verifyChainAcceptingLegacy, verifyChainV3, type V3Config, type V3Input } from "../src/verify-v3.ts";
 
 const NOW = 10_000_000;
+/** The pinned keyring and root's window: 2100-01-01, past every clock here. */
+const POLICY_NOT_AFTER = 4_102_444_800_000;
 const RECEIVER = "mcp:github.t";
 const ROUTE = `session/pi/${RECEIVER}`;
 const SESS = "sess-1";
@@ -65,6 +67,7 @@ const cfg = (over: Partial<V3Config> = {}): V3Config => ({
   nonces: new NonceCache(60_000),
   nonceKey: "rid-1|pi|call-1",
   now: NOW,
+  policyNotAfter: POLICY_NOT_AFTER,
   ...over,
 });
 
@@ -311,5 +314,37 @@ describe("verifyChainV3", () => {
     expect(bindPrompt("hi")).toBe(encode(sha256(utf8("prompt\nhi"))));
     expect(bindResult({ a: 1, _meta: { x: 1 } })).toBe(bindResult({ a: 1 }));
     expect(bindResult({ a: 1 })).toBe(encode(sha256(utf8('result\n{"a":1}'))));
+  });
+});
+
+describe("the pinned policy's window", () => {
+  const expired = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
+  it("at notAfter still verifies", () => expect(verify(chain(), {}, cfg({ policyNotAfter: NOW })).reason).toBe("OK"));
+  it("one ms past it is POLICY_EXPIRED, naming no one", () => expect(verify(chain(), {}, cfg({ policyNotAfter: NOW - 1 }))).toEqual(expired));
+  it("expires while running: the same config refuses once its clock passes notAfter", () => {
+    const c = cfg({ policyNotAfter: NOW + 1000 });
+    expect(verify(chain(), {}, c).reason).toBe("OK");
+    expect(verify(chain(), {}, { ...c, now: NOW + 1001, nonceKey: "rid-1|pi|call-2" })).toEqual(expired);
+  });
+  it("is checked before the stamps, and names no peer", () => {
+    const c = cfg({ policyNotAfter: NOW - 1 });
+    expect(verify("garbage", { peer: { svc: "search", inst: "10.0.0.9" } }, c)).toEqual(expired);
+    expect(verify(chain({ tamperS1Sig: true }), { peer: { svc: "pi", inst: "10.0.0.7" } }, c)).toEqual(expired);
+    expect(verifyChainAcceptingLegacy(input(v2chain(), { peer: { svc: "pi", inst: "10.0.0.7" } }), c)).toEqual({ ...expired, legacy: false });
+  });
+  it("spends no nonce", () => {
+    const nonces = new NonceCache(60_000);
+    expect(verify(chain(), {}, cfg({ nonces, policyNotAfter: NOW - 1 })).reason).toBe("POLICY_EXPIRED");
+    expect(verify(chain(), {}, cfg({ nonces })).reason).toBe("OK");
+  });
+  it("a window that is absent or not a safe integer fails closed", () => {
+    for (const policyNotAfter of [undefined, NaN, Infinity, 1.5, -1, 2 ** 53, "9999999999999" as unknown as number]) {
+      expect(verify(chain(), {}, cfg({ policyNotAfter })), String(policyNotAfter)).toEqual(expired);
+    }
+    const { policyNotAfter: _dropped, ...noWindow } = cfg();
+    expect(verify(chain(), {}, noWindow as V3Config)).toEqual(expired);
+  });
+  it("a non-finite clock is left to freshness, which fails it", () => {
+    for (const now of [NaN, Infinity]) expect(verify(chain(), {}, cfg({ now, policyNotAfter: NOW })).reason, String(now)).toBe("EXPIRED");
   });
 });

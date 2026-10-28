@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -1071,6 +1071,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "OK",
@@ -1128,6 +1129,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "OK",
@@ -1185,6 +1187,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "OK",
@@ -1242,6 +1245,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "OK",
@@ -1312,6 +1316,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BINDING_MISMATCH",
@@ -1382,6 +1387,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BINDING_MISMATCH",
@@ -1443,6 +1449,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "CHAIN_MISSING",
@@ -1516,6 +1523,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "OK",
@@ -1589,6 +1597,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "PEER_MISMATCH",
@@ -1662,6 +1671,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BAD_SIGNATURE",
@@ -1732,6 +1742,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BAD_SIGNATURE",
@@ -1802,6 +1813,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "PATH_NOT_ALLOWED",
@@ -1872,6 +1884,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 2,
       "expected": {
         "reason": "REPLAY",
@@ -1942,6 +1955,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "INFLUENCE_MISMATCH",
@@ -2012,6 +2026,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BAD_SIGNATURE",
@@ -2085,6 +2100,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "PATH_NOT_ALLOWED",
@@ -2142,6 +2158,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BINDING_MISMATCH",
@@ -2211,6 +2228,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "CHAIN_MISSING",
@@ -2281,6 +2299,7 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "BAD_SIGNATURE",
@@ -2351,9 +2370,226 @@
       "callMaxAgeMs": 5000,
       "runMaxAgeMs": 1800000,
       "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
       "uses": 1,
       "expected": {
         "reason": "CHAIN_MISSING",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "at policy notAfter",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 1767225600000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "pi",
+        "suspectInst": "pi-1"
+      }
+    },
+    {
+      "name": "policy expired",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 1767225599999,
+      "uses": 1,
+      "expected": {
+        "reason": "POLICY_EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "policy expired beats bad signature, names no peer",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "tkStSYKIQ-OqpfbJ5IF8XFimwp_pjRZ-sbFGaxzcbCj00P1BJiZuMrgE4C89pO5acRIKU-hUuZw3TwFWBtg3DQ"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": {
+        "svc": "search",
+        "inst": "10.0.0.9"
+      },
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 1767225599999,
+      "uses": 1,
+      "expected": {
+        "reason": "POLICY_EXPIRED",
         "suspectSvc": "",
         "suspectInst": ""
       }

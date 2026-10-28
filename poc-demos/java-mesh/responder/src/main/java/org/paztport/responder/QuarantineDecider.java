@@ -26,10 +26,12 @@ import org.paztport.core.ResponderEvent;
 public final class QuarantineDecider {
 
     /**
-     * Refusals of a sound chain because of what shaped it. The sender did nothing wrong in transit, so these are
-     * the policy working, not evidence against an instance.
+     * Refusals that are not the sender's doing. {@code INFLUENCE_DENIED} and {@code UNSAFE_SESSION} refuse a sound
+     * chain because of what shaped it: the policy working, not evidence against an instance. {@code POLICY_EXPIRED}
+     * is the verifier's own pinned policy running out, which every honest caller meets; the verifier names no
+     * suspect for it, and this list keeps it out even if an event ever named one.
      */
-    private static final Set<String> POLICY_REFUSALS = Set.of("INFLUENCE_DENIED", "UNSAFE_SESSION");
+    private static final Set<String> POLICY_REFUSALS = Set.of("INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED");
 
     private final QuarantineConfig config;
     private final LongSupplier clock;

@@ -19,6 +19,7 @@ import {
   bindLocalTool,
   commitInfluence,
   decode,
+  earliestNotAfter,
   NonceCache,
   NONCE_TTL_MS,
   parseLocalRules,
@@ -328,6 +329,7 @@ describe("LocalGate evidence", () => {
           nonces: new NonceCache(NONCE_TTL_MS),
           nonceKey: rec.callId,
           now: rec.now,
+          policyNotAfter: earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter),
         },
       );
       expect(v).toMatchObject({ ok: true, reason: "OK" });

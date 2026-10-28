@@ -6,6 +6,7 @@ import {
   bindResult,
   decode,
   deriveSessionId,
+  earliestNotAfter,
   keyPairMatches,
   newContentId,
   newNonce,
@@ -232,7 +233,7 @@ export class McpServerSession {
     return this.current;
   }
 
-  /** Verifies a tools/call params object against the current attested session's client policy. */
+  /** Verifies a tools/call params object against the current attested session's client policy, until the earlier of the client root's and keyring's windows (POLICY_EXPIRED after it, and always for old-form material). */
   checkCall(params: Record<string, unknown>): ServerCallCheck {
     const session = this.current;
     if (session === undefined || session.status !== "attested" || session.request.clientRoot === null) {
@@ -252,6 +253,7 @@ export class McpServerSession {
       sess: session.sess,
       nonces: session.nonces,
       now: this.now(),
+      policyNotAfter: earliestNotAfter(session.request.clientRoot.notAfter, session.request.clientKeyringNotAfter),
     });
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
     const ok = reason === "OK";

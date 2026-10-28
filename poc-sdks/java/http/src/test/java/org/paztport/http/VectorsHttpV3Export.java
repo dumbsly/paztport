@@ -358,8 +358,10 @@ class VectorsHttpV3Export {
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
+        // The response cases carry no policy window: the mesh policy is pinned until 2100-01-01, past every now.
         VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(Keyring.of(ring),
-                Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), origins,
+                Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), 4_102_444_800_000L,
+                origins,
                 c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
         List<StampV3> sent = new ArrayList<>();

@@ -47,7 +47,7 @@ class VerifierV3Test {
                 Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
         long now = c.get("now").asLong();
         return new VerifierV3(new VerifierConfigV3(Keyring.of(keys), Base64Url.decode(policy.get("root").asText()),
-                policy.get("rootId").asText(), Set.of("session"), c.get("sess").asText(),
+                policy.get("rootId").asText(), NOT_AFTER, Set.of("session"), c.get("sess").asText(),
                 new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now, c.get("callMaxAgeMs").asLong(),
                 c.get("runMaxAgeMs").asLong()));
     }
@@ -180,7 +180,7 @@ class VerifierV3Test {
     private static VerifierV3 boundary(NonceCache cache, long callMax, long runMax) {
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic(),
                 "other", Crypto.generateEd25519KeyPair().getPublic()));
-        return new VerifierV3(new VerifierConfigV3(ring, TREE.root(), "vtest", Set.of("session"), "s", cache,
+        return new VerifierV3(new VerifierConfigV3(ring, TREE.root(), "vtest", NOT_AFTER, Set.of("session"), "s", cache,
                 () -> NOW, callMax, runMax));
     }
 
@@ -251,5 +251,75 @@ class VerifierV3Test {
             }
         };
         assertThrows(IllegalStateException.class, () -> run(new Case(), broken));
+    }
+
+    // The pinned policy's own window: checked before anything about the request, and blaming no one.
+
+    private static VerifyInputV3 boundaryInput(String nonceKey, Peer peer) {
+        return new VerifyInputV3(chain(new Case()), "b", null, PROOF, "target", true, nonceKey, peer);
+    }
+
+    /** A verifier pinned to a keyring valid until {@code ringNotAfter} and a root until {@code rootNotAfter}. */
+    private static VerifierV3 pinnedAt(long[] clock, long ringNotAfter, long rootNotAfter) {
+        KeyPair policy = Crypto.generateEd25519KeyPair();
+        String pin = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
+        Map<String, String> services = Map.of(
+                "session", Base64Url.encode(Crypto.encodePublicKey(SESSION.getPublic())),
+                "pi", Base64Url.encode(Crypto.encodePublicKey(PI.getPublic())));
+        KeyringFile ring = KeyringFile.sign(services, pin, ringNotAfter, policy.getPrivate());
+        SignedRoot root = SignedRoot.sign(TREE.root(), "vtest", rootNotAfter, policy.getPrivate());
+        return new VerifierV3(VerifierConfigV3.pinned(ring, root, pin, Set.of("session"), "s",
+                new InMemoryNonceCache(2 * CALL), () -> clock[0], CALL, RUN));
+    }
+
+    @Test
+    void expiresWhileRunning() {
+        long[] clock = {NOW};
+        VerifierV3 v = pinnedAt(clock, NOW + 1000, NOW + 2000);
+        assertEquals(ReasonCode.OK, v.verify(boundaryInput("k1", null)).reason());
+        clock[0] = NOW + 1001;
+        // The stamps are still fresh (within the call window), so only the keyring's window can refuse.
+        assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""), v.verify(boundaryInput("k2", null)));
+    }
+
+    @Test
+    void theEarlierWindowGoverns() {
+        long[] clock = {NOW};
+        VerifierV3 v = pinnedAt(clock, NOW + 2000, NOW + 1000);
+        assertEquals(ReasonCode.OK, v.verify(boundaryInput("k1", null)).reason());
+        clock[0] = NOW + 1001;
+        assertEquals(ReasonCode.POLICY_EXPIRED, v.verify(boundaryInput("k2", null)).reason());
+    }
+
+    @Test
+    void atNotAfterStillVerifies() {
+        long[] clock = {NOW};
+        VerifierV3 v = pinnedAt(clock, NOW, NOW);
+        assertEquals(new VerifyResult(ReasonCode.OK, "pi", "i"), v.verify(boundaryInput("k1", null)));
+        clock[0] = NOW + 1;
+        assertEquals(ReasonCode.POLICY_EXPIRED, v.verify(boundaryInput("k2", null)).reason());
+    }
+
+    @Test
+    void policyExpiredNamesNoPeerAndPrecedesEveryStampCheck() {
+        long[] clock = {NOW};
+        VerifierV3 v = pinnedAt(clock, NOW, NOW);
+        clock[0] = NOW + 1;
+        VerifyResult none = new VerifyResult(ReasonCode.POLICY_EXPIRED, "", "");
+        // Expiry is not the sender's fault, so even an authenticated peer is not named.
+        assertEquals(none, v.verify(boundaryInput("k1", new Peer("pi", "10.0.0.7"))));
+        assertEquals(none, v.verify(null));
+        assertEquals(none, v.verify(new VerifyInputV3(new TextNode("x"), "b", null, PROOF, "target", true, "k2",
+                new Peer("search", "10.0.0.9"))));
+    }
+
+    @Test
+    void anExpiredPolicySpendsNoNonce() {
+        long[] clock = {NOW};
+        VerifierV3 v = pinnedAt(clock, NOW, NOW + 2000);
+        clock[0] = NOW + 1;
+        assertEquals(ReasonCode.POLICY_EXPIRED, v.verify(boundaryInput("k1", null)).reason());
+        clock[0] = NOW;
+        assertEquals(ReasonCode.OK, v.verify(boundaryInput("k1", null)).reason(), "the refused call's key is unspent");
     }
 }

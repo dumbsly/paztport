@@ -102,7 +102,8 @@ class InboundFilterTest {
     private VerifierV3 paymentVerifier() {
         return new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
+                Set.of("gateway"), "",
                 new InMemoryNonceCache(), () -> NOW, 5000, 5000));
     }
 

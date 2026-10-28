@@ -62,6 +62,15 @@ class QuarantineDeciderTest {
     }
 
     @Test
+    void policyExpiredIsNotATrigger() {
+        // The verifier's own pinned policy ran out: nothing the named instance did. Even named, it never counts.
+        QuarantineDecider d = decider();
+        for (int i = 0; i < 3; i++) {
+            assertEquals(QuarantineDecision.NONE, d.observe(event("POLICY_EXPIRED", "search", "s1")));
+        }
+    }
+
+    @Test
     void blankInstanceIsNeverActioned() {
         QuarantineDecider d = decider();
         for (int i = 0; i < 5; i++) {

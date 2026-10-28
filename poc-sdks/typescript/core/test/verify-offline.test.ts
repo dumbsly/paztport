@@ -194,7 +194,7 @@ describe("verifyChainOffline", () => {
     const live = (stamps: unknown, over: { expectedBind?: string; influence?: InfluenceEntry[]; proof?: unknown; receiver?: string } = {}) =>
       verifyChainV3(
         { stamps, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true, ...over },
-        { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS },
+        { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
       ).reason;
     const offline = (stamps: unknown, over: Partial<OfflineInput> = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
     const [o, s] = w.chain() as [StampV3, StampV3];
@@ -241,7 +241,7 @@ describe("verifyChainOffline", () => {
       expect(
         verifyChainV3(
           { stamps: mixed, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true },
-          { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS },
+          { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
         ).reason,
       ).toBe("CHAIN_MISSING");
     }

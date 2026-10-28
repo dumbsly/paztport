@@ -28,8 +28,9 @@ request.
 | `receiver` | What the last stamp's `rcv` must name: the receiver's own name, or for a response, the calling client's `svc`. |
 | `receiverInRoute` | Whether the route ends at `receiver`: true for a call, false for a response. |
 | `peer` | Optional; null is the same as absent. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
-| `keyring` | Service name to public key, from a verified keyring. A key is looked up by own name only: inherited or default entries MUST NOT match. |
-| `root`, `rootId` | The pinned signed root, already verified against its policy key. |
+| `keyring` | Service name to public key, from a keyring verified against its policy key, in the new form ([wire.md](wire.md#the-signed-keyring)) and current. A key is looked up by own name only: inherited or default entries MUST NOT match. |
+| `root`, `rootId` | The pinned signed root: verified against its policy key, in the new form ([wire.md](wire.md#the-signed-root)) and current. |
+| `policyNotAfter` | The earliest `notAfter` of that keyring and root, in ms since the Unix epoch: the last moment the policy owner vouches for both. Material in the old form has none, and a verifier MUST NOT be built on it. |
 | `allowedOrigins` | The services that may sign an origin stamp. |
 | `sess` | The session id every stamp must carry. |
 | `nonces`, `nonceKey` | The replay cache and this chain's key in it. |
@@ -43,6 +44,7 @@ the checks differently disagree.
 
 | # | Check | Fails with |
 |---|---|---|
+| 0 | `now` is at most `policyNotAfter`. A missing `policyNotAfter`, or one that is not an integer in [0, 2<sup>53</sup> − 1], fails. A non-finite `now` is left to check 7. | `POLICY_EXPIRED` |
 | 1 | The stamps parse: a non-empty array of well-formed v3 stamps ([field rules](wire.md#stamp-field-rules)). A v2 stamp, or a mix, does not parse. | `CHAIN_MISSING` |
 | 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
@@ -60,6 +62,10 @@ Otherwise the result is `OK`.
 
 Why this order:
 
+- **The verifier's own policy first.** Check 0 is about the verifier's configuration, not the request, so it
+  precedes even parsing the stamps: past `policyNotAfter` the keyring and root no longer say which keys and
+  routes the policy owner allows, and no later check means anything against them. It names no one (see
+  attribution below). It also spends no nonce key.
 - **Receivers after the signature loop.** A bad signature or link anywhere always beats a bad `rcv`, so a
   forged chain is reported as forged, not as misdirected.
 - **A receiver mismatch is `BINDING_MISMATCH`.** `rcv` is part of what the stamp binds: a chain signed for
@@ -115,7 +121,9 @@ no peer, check 12 is skipped.
 
 **Attribution.** Every result carries `suspectSvc` and `suspectInst`, the party a responder may act against:
 
-- **With a peer**, every result of the live order, 1 to 12, names the peer, `OK` included:
+- **`POLICY_EXPIRED` names no one**, peer or not: expiry is the verifier's own material running out, not
+  anything the sender did.
+- **With a peer**, every result of checks 1 to 12 names the peer, `OK` included:
   `suspectSvc = peer.svc` and `suspectInst = peer.inst`. The transport authenticated that sender, so it is the
   party that really sent this request, whatever the chain says. The MCP wrappers' own pre-checks, below, run
   before the live order and name no one.
@@ -141,7 +149,8 @@ handshake, with `allowedOrigins` = the client's origin service, `receiver = mcp:
 1. `params` is an object with a string `name` and an object `_meta`, the name holds no `/` or `|`, the server
    id no `/`, `|` or `.`, `paztport/callId` is a string, and `paztport/chain` parses (`CHAIN_MISSING`).
 2. The `tools/call` binding can be computed (`BINDING_MISMATCH`).
-3. The live order, 1 to 12.
+3. The live order, 0 to 12, with `policyNotAfter` the earlier of the client root's `notAfter` and
+   `clientKeyringNotAfter`.
 4. The server reports `PATH_NOT_ALLOWED` against the client's policy as `CLIENT_PATH_NOT_ALLOWED`, so its logs
    tell the client's policy from its own.
 
@@ -159,8 +168,9 @@ client's own configuration names it (`["mcp-entry"]` in the agents demo), never 
    array `chain`, a string `resultHash` and an array of well-formed `labels` (`CHAIN_MISSING`).
 2. The first stamp's `rid` is the call's (`RID_MISMATCH`).
 3. `resultHash` equals the result binding of the result received (`BINDING_MISMATCH`).
-4. The live order, 1 to 12, with `expectedBind` = the response binding of `resultHash`, the call id and the
-   labels.
+4. The live order, 0 to 12, with `expectedBind` = the response binding of `resultHash`, the call id and the
+   labels, and `policyNotAfter` the server root's `notAfter`, or in the entry-key form the earlier of it and
+   `serverKeyringNotAfter`. In the policy-key form the keyring carries no signature of its own, only the reply's.
 
 The labels count as influence only when the whole response verifies. A response that fails, or arrives in an
 unsafe session, counts as `local-untrusted`.
@@ -172,7 +182,7 @@ these codes, and MUST replace anything else, `OK` included, with `UNKNOWN`:
 
 `CHAIN_MISSING`, `BAD_ORIGIN`, `BAD_SIGNATURE`, `BROKEN_LINK`, `EXPIRED`, `RID_MISMATCH`, `BINDING_MISMATCH`,
 `REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`, `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH`,
-`INFLUENCE_DENIED`, `UNSAFE_SESSION`, `SCOPE_DENIED`, `UNCHECKABLE`, `PEER_MISMATCH`.
+`INFLUENCE_DENIED`, `UNSAFE_SESSION`, `SCOPE_DENIED`, `UNCHECKABLE`, `PEER_MISMATCH`, `POLICY_EXPIRED`.
 
 That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH` and
 `PROMPT_MISMATCH`.
@@ -184,7 +194,7 @@ handshake: its services pin one policy key, root and keyring in advance, and `se
 organisations there is one ([sessions-and-influence.md](sessions-and-influence.md#over-http)), and the partner
 verifies as below with these inputs.
 
-**A request, at the receiver.** The receiver runs the live order, 1 to 12, with `receiver` = its own name,
+**A request, at the receiver.** The receiver runs the live order, 0 to 12, with `receiver` = its own name,
 `receiverInRoute = true`, `expectedBind` = the HTTP binding of the request received, over the raw path and query,
 `influence` = `X-Path-Influence` (`[]` when absent), `proof` = `X-Path-Proof` and
 `nonceKey = <rid>|<last svc>|req`. A header that is present but does not decode is left to the check that reads
@@ -196,7 +206,9 @@ new request tree, so it carries neither the chain nor the influence a request br
 
 **At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
-session id, the client's allowed origins, and the partner's own windows and nonce cache. The inputs are the same
+session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root in the
+old form or past its `notAfter` builds no verifier, so the session is unsafe; and once the session's material
+expires, every call in it is `POLICY_EXPIRED`. The inputs are the same
 as above, with `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated
 client, who MUST be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and
 `influence` are of the request and the entries received. The session is the one `X-Path-Session` names, and only
@@ -209,7 +221,7 @@ passes it as `peer`: `peer.svc` is the certificate subject's common name when it
 otherwise, so a certificate with none or several fails check 12 (`PEER_MISMATCH`) rather than picking one;
 `peer.inst` is the TCP address the connection came from. With no client certificate there is no peer.
 
-**Who attests.** A service attests a response only when the request's chain passed the live order, 1 to 12, at
+**Who attests.** A service attests a response only when the request's chain passed the live order, 0 to 12, at
 that service, as for a request at the receiver above: its own pinned material, `receiver` = its own name, the
 request's proof and influence, and the peer when there is one. This holds whether or not the service refuses
 requests that fail: one that does not enforce MUST still run the live order before it attests, and a failure there
@@ -228,7 +240,7 @@ response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = 
    (`CHAIN_MISSING`).
 2. The response binding of `resultHash`, the request's `rid` and the labels can be computed
    (`BINDING_MISMATCH`).
-3. The live order, 1 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, so
+3. The live order, 0 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, so
    check 4 requires the response stamp to be the target's; the route is the request's own, so the proof the
    caller sent proves it.
 
@@ -244,6 +256,7 @@ The offline verifier runs the live checks in the live order, with these differen
 
 | # | Offline |
 |---|---|
+| 0 | Not run: a record is judged at its own recorded time, not against a clock. |
 | 1 | The stamps parse all v3, or all v2 as legacy. A mix is `CHAIN_MISSING`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 4 | The receiver checks run for a v3 chain only. |
@@ -260,6 +273,7 @@ Each kind of record is checked this way:
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
+  Its `policyNotAfter` is 2<sup>53</sup> − 1, so check 0 does not limit it and old-form material is accepted.
 - **A recorded local step**: the offline chain verifier with `signers` (the origin service then the client hop,
   both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
   <rid>|<callId>|local`. Then the decision it signed is checked again against the signed rules.
@@ -320,6 +334,7 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
+| `POLICY_EXPIRED` | live | The verifier's own pinned keyring or root has expired: `now` is past `policyNotAfter`, or there is none. Names no one. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
 | `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name for `PATH_NOT_ALLOWED` against the client's policy. |
@@ -340,7 +355,9 @@ A responder acts on rejections, for example by isolating the named instance.
 
 - **Only attributable rejections are triggers.** `INFLUENCE_DENIED` and `UNSAFE_SESSION` are about content and
   capability, not compromise: an honest component misled by poisoned input gets them. A responder MUST NOT
-  quarantine on them. It SHOULD log them. The same holds for the client-local codes.
+  quarantine on them. It SHOULD log them. The same holds for the client-local codes, and for `POLICY_EXPIRED`,
+  which is about the verifier's own configuration: every honest caller gets it once the verifier's policy
+  expires, so it is never attributable, and the policy owner, not the responder, is the one to act.
 - **Act only on a named suspect.** A result with empty suspect fields names no one, by design: acting on it
   would let a forged chain point at anyone.
 - **Under mTLS, `suspectInst` is the transport peer's address.** The responder resolves it to an instance on

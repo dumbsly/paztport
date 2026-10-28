@@ -186,8 +186,8 @@ class AttestationRuleTest {
     private static RestClient caller(ClientHttpRequestInterceptor... extra) {
         VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("localhost", APP.getPublic())), built.signedRoot().rootBytes(),
-                built.signedRoot().rootId(), Set.of("localhost"), "", new InMemoryNonceCache(15_000),
-                System::currentTimeMillis, 5000, 5000));
+                built.signedRoot().rootId(), built.signedRoot().notAfter(), Set.of("localhost"), "",
+                new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000));
         RestClient.Builder b = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new StamperV3("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost"));

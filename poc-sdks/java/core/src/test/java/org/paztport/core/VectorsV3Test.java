@@ -251,7 +251,8 @@ class VectorsV3Test {
             c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
             long now = c.get("now").asLong();
             VerifierConfigV3 cfg = new VerifierConfigV3(keyring(c.get("keyring")),
-                    Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), origins,
+                    Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
+                    c.get("policyNotAfter").asLong(), origins,
                     c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                     c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
             JsonNode route = c.get("proofRoute");

@@ -18,3 +18,8 @@ export function readNotAfter(o: object, key: string): number | undefined {
   if (!isNotAfter(n)) throw new TypeError(`${key} must be an integer in [0, 2^53 - 1]`);
   return n;
 }
+
+/** The earliest of `windows`, the policyNotAfter of a live verifier pinned to that material; undefined when any is undefined, since an old-form keyring or root has no window and so is never current. */
+export function earliestNotAfter(...windows: (number | undefined)[]): number | undefined {
+  return windows.some((w) => w === undefined) ? undefined : Math.min(...(windows as number[]));
+}

@@ -103,7 +103,8 @@ class OutboundInterceptorTest {
     private VerifierV3 gatewayVerifier() {
         return new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
+                Set.of("gateway"), "",
                 new InMemoryNonceCache(), () -> 2500L, 5000, 5000));
     }
 

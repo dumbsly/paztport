@@ -42,7 +42,8 @@ const ABOUT =
   'first leaves in order; padding leaf i is SHA-256(utf8("paztport-v3-vector-pad:" + rootId + ":" + i)). ' +
   "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
   "Ed25519 is deterministic, so the file is reproduced byte for byte. " +
-  "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result. " +
+  "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; " +
+  "its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. " +
   "An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, " +
   "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
@@ -218,12 +219,15 @@ export function buildVectorsV3(): Record<string, unknown> {
   const rootOf = (name: CaseInputs["policy"]) => decode(policies[name].root);
   const proofOf = (c: CaseInputs) => (c.proofRoute === null ? null : policies[c.policy].proofs[c.proofRoute]);
 
-  type Live = CaseInputs & { peer: Peer | null; uses: number };
+  /** A verify case's pinned policy window unless it sets its own: 2100-01-01, far past `now`. */
+  const PINNED_NOT_AFTER = 4_102_444_800_000;
+  type Live = CaseInputs & { peer: Peer | null; uses: number; policyNotAfter?: number };
   const live = (c: Live, expected: Expected) => {
     const nonces = new NonceCache(NONCE_TTL_MS);
+    const policyNotAfter = c.policyNotAfter ?? PINNED_NOT_AFTER;
     const cfg = {
       keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins,
-      sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
+      sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, policyNotAfter,
     };
     const input = {
       stamps: c.chain, expectedBind: c.expectedBind, influence: c.influence, proof: proofOf(c), receiver: c.receiver,
@@ -235,7 +239,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey, uses } = c;
     return {
       name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey,
-      now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, nonceTtlMs: NONCE_TTL_MS, uses, expected,
+      now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, nonceTtlMs: NONCE_TTL_MS, policyNotAfter, uses, expected,
     };
   };
   const ok = (svc: string, inst: string): Expected => ({ reason: "OK", suspectSvc: svc, suspectInst: inst });
@@ -279,6 +283,10 @@ export function buildVectorsV3(): Record<string, unknown> {
     live(callCase("v3 stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
     live(callCase("rcv holding the delimiter", { chain: malformed({ ...hop, rcv: "a|b" }) }), no("BAD_SIGNATURE")),
     live(callCase("non-string rcv", { chain: malformed({ ...hop, rcv: 7 }) }), no("CHAIN_MISSING")),
+    // The verifier's own pinned policy: checked before the stamps, and naming no one, not even a peer.
+    live(callCase("at policy notAfter", { policyNotAfter: NOW }), ok("pi", "pi-1")),
+    live(callCase("policy expired", { policyNotAfter: NOW - 1 }), no("POLICY_EXPIRED")),
+    live(callCase("policy expired beats bad signature, names no peer", { policyNotAfter: NOW - 1, chain: forgedCall, peer: { svc: "search", inst: "10.0.0.9" } }), no("POLICY_EXPIRED")),
   ];
 
   /** An offline case; the recorded time defaults to the last stamp's, the prompt to the run's, and `seen` to none. */

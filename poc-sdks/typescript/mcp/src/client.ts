@@ -5,6 +5,7 @@ import {
   bindResult,
   commitInfluence,
   decode,
+  earliestNotAfter,
   isNotAfter,
   isReplyCert,
   newNonce,
@@ -265,6 +266,12 @@ export type ToolResultReading =
   | { kind: "malformed"; verifiedAt?: number }
   | { kind: "read"; verdict?: string; verification?: string; verifiedAt?: number; influence: ResultInfluence };
 
+/** A response check's policyNotAfter: the server root's window, and the keyring's too in the entry-key form, the only one where the keyring has its own policy-key signature; undefined (fails closed) when either is old form. */
+export function serverPolicyNotAfter(reply: SessionReply): number | undefined {
+  const root = reply.serverRoot?.notAfter;
+  return Object.hasOwn(reply, "serverKeyringSig") ? earliestNotAfter(root, reply.serverKeyringNotAfter) : earliestNotAfter(root);
+}
+
 /** Reads a tools/call result: its verdict, its verification and what it adds to influence. Never throws. */
 export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext): ToolResultReading {
   const verdict = verdictOf(raw);
@@ -288,6 +295,7 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
         sess: ctx.reply.sess,
         nonces: ctx.nonces,
         now: verifiedAt,
+        policyNotAfter: serverPolicyNotAfter(ctx.reply),
       });
       const influence: ResultInfluence = v.result.ok ? { kind: "labels", labels: v.labels, hash } : { kind: "untrusted", hash };
       return { kind: "read", ...withVerdict, verification: v.result.reason, verifiedAt, influence };

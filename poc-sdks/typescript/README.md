@@ -37,9 +37,14 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `BINDING_MISMATCH`, not a route failure, so a forwarded chain no longer names its last signer.
 - **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
-  result. No transport here supplies one yet: the MCP wrappers (`verifyCall`, `verifyMcpResponse`,
-  `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over stdio the live order
-  ends at check 11, and the peer check is core's (`verifyChainV3`).
+  result but `POLICY_EXPIRED`. No transport here supplies one yet: the MCP wrappers (`verifyCall`,
+  `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
+  stdio the live order ends at check 11, and the peer check is core's (`verifyChainV3`).
+- **The policy's window.** A live config requires `policyNotAfter`, the earliest `notAfter` of the keyring and
+  root it pins (`earliestNotAfter`); past it, or with none (old-form material), every chain is `POLICY_EXPIRED`,
+  before any stamp is read. Every live verifier here is per session: the server's call check takes the client
+  root's and `clientKeyringNotAfter`, and the client's response check the server root's and, in the entry-key
+  form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
   request carries the signature as `clientKeyringSig`, with the keyring's `notAfter` as `clientKeyringNotAfter`.
   A request without the signature is legacy offline and unsafe live. One whose signature is present but

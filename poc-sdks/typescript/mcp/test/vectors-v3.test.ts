@@ -38,7 +38,7 @@ function shared(v: any, c: any) {
 /** Runs a live case `uses` times against one nonce cache; the last result. */
 function replayLive(v: any, c: any) {
   const { cfg, input } = shared(v, c);
-  const live: V3Config = { ...cfg, nonces: new NonceCache(c.nonceTtlMs), now: c.now, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs };
+  const live: V3Config = { ...cfg, nonces: new NonceCache(c.nonceTtlMs), now: c.now, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter };
   const full: V3Input = c.peer === null ? input : { ...input, peer: c.peer };
   let result = verifyChainV3(full, live);
   for (let i = 1; i < c.uses; i++) result = verifyChainV3(full, live);

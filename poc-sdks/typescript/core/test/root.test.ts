@@ -7,7 +7,7 @@ import { generateKeyPair, sha256, utf8 } from "../src/crypto.ts";
 import * as core from "../src/index.ts";
 import { signKeyring, verifyKeyring } from "../src/keyring.ts";
 import { parseSignedRoot, renewRoot, rootSigningBytes, signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../src/root.ts";
-import { isCurrent, readNotAfter } from "../src/validity.ts";
+import { earliestNotAfter, isCurrent, readNotAfter } from "../src/validity.ts";
 
 const POLICY = generateKeyPair();
 const NOT_AFTER = 1_798_761_600_000;
@@ -171,5 +171,16 @@ describe("readNotAfter", () => {
     }
     expect(readNotAfter(Object.create({ w: NOT_AFTER }), "w"), "inherited").toBeUndefined();
     expect(core.readNotAfter).toBe(readNotAfter);
+  });
+});
+
+describe("earliestNotAfter", () => {
+  it("is the earliest window, and undefined when any is missing (old form)", () => {
+    expect(earliestNotAfter(NOT_AFTER, NOT_AFTER + 1)).toBe(NOT_AFTER);
+    expect(earliestNotAfter(MAX_SAFE, 0)).toBe(0);
+    expect(earliestNotAfter(NOT_AFTER)).toBe(NOT_AFTER);
+    expect(earliestNotAfter(NOT_AFTER, undefined)).toBeUndefined();
+    expect(earliestNotAfter(undefined, NOT_AFTER)).toBeUndefined();
+    expect(core.earliestNotAfter).toBe(earliestNotAfter);
   });
 });

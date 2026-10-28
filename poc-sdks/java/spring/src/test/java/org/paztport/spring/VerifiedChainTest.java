@@ -72,7 +72,8 @@ class VerifiedChainTest {
     private VerifierV3 verifier(KeyPair ordersKey) {
         return new VerifierV3(new VerifierConfigV3(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", ordersKey.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
+                Set.of("gateway"), "",
                 new InMemoryNonceCache(), () -> NOW, 5000, 5000));
     }
 

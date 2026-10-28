@@ -30,6 +30,7 @@ function world() {
     sess: SESS,
     nonces: new NonceCache(60_000),
     now: NOW,
+    policyNotAfter: 4_102_444_800_000,
     ...over,
   });
   const labels: ContentLabel[] = [{ cls: "third-party", cid: newContentId() }];

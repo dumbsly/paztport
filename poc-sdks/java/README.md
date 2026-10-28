@@ -28,9 +28,11 @@ has one, the authenticated peer.
   strictly, as checks 1 and 2 of the live order, and never throws; `ts` is read by
   value, so `1.0` is 1. A v2 chain parses only as legacy, and a v1 chain, which has
   no `v`, not at all.
-- **Verifying.** `VerifierV3` runs the twelve checks of the live order.
-  `VerifierConfigV3.pinned` checks the keyring and the root against the pinned
-  policy key, and refuses to build a config if either fails. `OfflineVerifier` re-checks a
+- **Verifying.** `VerifierV3` runs the live order: first its own policy's window
+  (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
+  its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
+  keyring and the root against the pinned policy key, and refuses to build a config if
+  either fails, is in the old form or has expired. `OfflineVerifier` re-checks a
   recorded chain, all v3, or all v2 as legacy.
 - **Stamping.** `StamperV3` stamps a hop's outbound call, starting a chain only at
   an origin, and stamps a response as one more stamp on the request chain, back to

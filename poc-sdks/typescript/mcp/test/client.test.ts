@@ -27,6 +27,7 @@ import {
   META_PROOF,
   readToolResult,
   replacementRequest,
+  serverPolicyNotAfter,
   sessionRequest,
   stampToolCall,
   toolCallProof,
@@ -425,6 +426,35 @@ describe("readToolResult", () => {
     const s = attestedSession();
     const r = readToolResult({ ...RESULT }, attestedContext(s, "call-1", () => PROMPT_TS));
     expect(r).toEqual({ kind: "read", verification: "CHAIN_MISSING", verifiedAt: PROMPT_TS, influence: { kind: "untrusted", hash: bindResult(RESULT) } });
+  });
+  it("aResponseIsPolicyExpiredOnceTheServersRootOrKeyringWindowHasPassed", () => {
+    const s = attestedSession();
+    const args = { owner: "o" };
+    const check = s.server.checkCall(stampedParams(s, "list_issues", args, "call-1"));
+    const attested = s.server.attest(check.session, RESULT, { rid: RID, callId: "call-1", name: "list_issues", args, caller: check.caller }, "third-party");
+    const raw = JSON.parse(JSON.stringify(attested)) as Record<string, unknown>;
+    const at = Date.now();
+    // The reply was verified at the handshake; only its windows are moved here, to reach the response check.
+    const read = (reply: typeof s.reply) => readToolResult(raw, { ...(attestedContext(s, "call-1", () => at) as Extract<ResultContext, { session: "attested" }>), reply });
+    const expired = { kind: "read", verification: "POLICY_EXPIRED", verifiedAt: at, influence: { kind: "untrusted", hash: bindResult(RESULT) } };
+    expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at }, serverKeyringNotAfter: at })).toMatchObject({ verification: "OK" });
+    expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at - 1 } })).toEqual(expired);
+    expect(read({ ...s.reply, serverKeyringNotAfter: at - 1 })).toEqual(expired);
+    const { notAfter: _w, ...oldRoot } = s.reply.serverRoot!;
+    expect(read({ ...s.reply, serverRoot: oldRoot }), "an old-form root has no window").toEqual(expired);
+  });
+  it("serverPolicyNotAfterCountsTheKeyringOnlyInTheEntryKeyForm", () => {
+    const s = attestedSession();
+    const reply = { ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: 20 }, serverKeyringNotAfter: 10 };
+    expect(Object.hasOwn(reply, "serverKeyringSig")).toBe(true);
+    expect(serverPolicyNotAfter(reply)).toBe(10);
+    expect(serverPolicyNotAfter({ ...reply, serverKeyringNotAfter: 30 })).toBe(20);
+    const { serverKeyringNotAfter: _k, ...oldRing } = reply;
+    expect(serverPolicyNotAfter(oldRing), "an old-form keyring in the entry-key form").toBeUndefined();
+    // The policy-key form: its keyring is signed through the reply by the online policy key, so only the root is judged.
+    const { serverKeyringSig: _s, serverReplyCert: _c, ...policyKeyForm } = reply;
+    expect(serverPolicyNotAfter(policyKeyForm)).toBe(20);
+    expect(serverPolicyNotAfter({ ...policyKeyForm, serverRoot: null })).toBeUndefined();
   });
   it("noServerRootIsUntrustedWithoutVerifying", () => {
     const s = attestedSession();

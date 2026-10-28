@@ -9,8 +9,14 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * Verifies a v3 chain received live: the twelve checks of the live order, the first failure being the result.
- * Every branch fails closed, and {@link #verify} never throws on malformed input; it is a typed rejection.
+ * Verifies a v3 chain received live: the checks of the live order, the first failure being the result. Every
+ * branch fails closed, and {@link #verify} never throws on malformed input; it is a typed rejection.
+ *
+ * <p>Check 0, before any stamp work: the clock has not passed the pinned policy's {@code policyNotAfter}
+ * (POLICY_EXPIRED). It is about the verifier's own configuration, not the request, so it comes first: past that
+ * moment the keyring and root no longer say which keys and routes the policy owner allows, and no later check
+ * means anything against them. It names no suspect, not even a peer, because expiry is not the sender's fault;
+ * a responder acting on it would quarantine every honest caller.
  *
  * <ol>
  * <li>the stamps parse, all v3 (CHAIN_MISSING);
@@ -28,10 +34,10 @@ import java.util.Objects;
  * <li>with a peer, the peer's service is the last signer (PEER_MISMATCH).
  * </ol>
  *
- * <p>Attribution: with a peer, every result names it, because the transport authenticated that sender whatever
- * the chain says. Without one, only OK and PATH_NOT_ALLOWED name the last stamp, since by then the signatures,
- * receivers, times, binding and replay checks held; any earlier name would be unsigned, or belong to a replayed
- * or forwarded capture.
+ * <p>Attribution: with a peer, every result of checks 1 to 12 names it, because the transport authenticated that
+ * sender whatever the chain says. Without one, only OK and PATH_NOT_ALLOWED name the last stamp, since by then
+ * the signatures, receivers, times, binding and replay checks held; any earlier name would be unsigned, or belong
+ * to a replayed or forwarded capture.
  */
 public final class VerifierV3 {
 
@@ -62,15 +68,20 @@ public final class VerifierV3 {
      * rather than being hidden as a rejection.
      */
     public VerifyResult verify(VerifyInputV3 in) {
+        long now = cfg.clock().getAsLong();
+        // 0. The pinned policy is still vouched for; first, and blaming no one (see the class comment).
+        if (now > cfg.policyNotAfter()) {
+            return VerifyResult.reject(ReasonCode.POLICY_EXPIRED);
+        }
         if (in == null) {
             return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
-        VerifyResult result = check(in);
+        VerifyResult result = check(in, now);
         Peer peer = in.peer();
         return peer == null ? result : new VerifyResult(result.reason(), peer.svc(), peer.inst());
     }
 
-    private VerifyResult check(VerifyInputV3 in) {
+    private VerifyResult check(VerifyInputV3 in, long now) {
         // 1-6. Parse, delimiter, origin, signatures and links, then receivers, shared rid, session.
         ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), cfg.keyring(), cfg.allowedOrigins(), cfg.sess(),
                 ChainChecks.Shape.live(in.receiver()));
@@ -82,7 +93,6 @@ public final class VerifierV3 {
         RecordedStamp last = stamps.get(stamps.size() - 1);
 
         // 7. Freshness: the call stamp is recent; the run (origin) is not too old nor from the future.
-        long now = cfg.clock().getAsLong();
         if (!fresh(now, first.ts(), last.ts())) {
             return VerifyResult.reject(ReasonCode.EXPIRED);
         }

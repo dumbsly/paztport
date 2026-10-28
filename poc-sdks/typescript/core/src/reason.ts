@@ -35,6 +35,7 @@ export type OfflineReasonCode = "TIME_MISMATCH" | "PROMPT_MISMATCH";
  * proven by its key, and `suspectInst` the instance that service reported in its own stamp; they are set only
  * for `OK` and `PATH_NOT_ALLOWED`, and every other rejection leaves them empty, because the name would be
  * unsigned or the genuine stamp would belong to another request. A v3 stamp binds its receiver, so a chain
- * forwarded unchanged to another receiver is BINDING_MISMATCH, and names no one without a peer.
+ * forwarded unchanged to another receiver is BINDING_MISMATCH, and names no one without a peer. POLICY_EXPIRED
+ * names no one even with a peer: it is the verifier's own policy running out, not the sender's doing.
  */
 export type VerifyResult = { ok: boolean; reason: ReasonCode; suspectSvc: string; suspectInst: string };

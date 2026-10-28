@@ -30,6 +30,7 @@ function world(extraRoutes: string[] = []) {
     sess: SESS,
     nonces: new NonceCache(NONCE_TTL_MS),
     now: NOW,
+    policyNotAfter: 4_102_444_800_000,
     ...over,
   });
   /**

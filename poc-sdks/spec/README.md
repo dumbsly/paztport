@@ -33,7 +33,7 @@ What v3 changed, deliberately:
   signature fails, not a legacy one. A server attests a session only for a client
   policy key it has pinned.
 - **The transport peer.** A verifier given an authenticated peer checks it is the last signer
-  (`PEER_MISMATCH`), and names it in every result.
+  (`PEER_MISMATCH`), and names it in every result but `POLICY_EXPIRED`.
 - **Owners.** An influence entry and a content label may carry an `owner`, and one owner-aware rule decides
   public writes.
 - **Legacy is reported.** An item verified from v2 stamps, or from a session request with no keyring signature,

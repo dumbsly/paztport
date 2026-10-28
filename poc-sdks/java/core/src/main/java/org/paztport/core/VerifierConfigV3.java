@@ -4,6 +4,7 @@
 package org.paztport.core;
 
 import java.security.PublicKey;
+import java.time.Instant;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.LongSupplier;
@@ -12,11 +13,17 @@ import java.util.function.LongSupplier;
  * Everything a v3 verifier pins at startup. Build it with {@link #pinned} so the keyring and the signed root
  * are checked against the pinned policy key once, up front; a bad signature fails fast rather than per request.
  * Freshness is explicit: {@code callMaxAgeMs} bounds the last stamp's age, {@code runMaxAgeMs} the origin's.
+ *
+ * <p>{@code policyNotAfter} is the earliest {@code notAfter} of the keyring and the root (milliseconds since the
+ * epoch, inclusive): the last moment the policy owner vouches for both. The verifier refuses every request once
+ * its clock passes it, so a verifier left running is not trusted for longer than its material. {@link #pinned}
+ * records it; a direct constructor is for tests and vectors that hold material already judged.
  */
 public record VerifierConfigV3(
         Keyring keyring,
         byte[] root,
         String rootId,
+        long policyNotAfter,
         Set<String> allowedOrigins,
         String sess,
         NonceCache nonces,
@@ -44,8 +51,11 @@ public record VerifierConfigV3(
 
     /**
      * Pins the policy key, a base64url SPKI string (the {@code policy.pub} text): the keyring file must name it
-     * and verify under it, and so must the signed root. Throws {@link IllegalArgumentException} otherwise, so a
-     * verifier is never built on material the pin does not vouch for.
+     * and verify under it, and so must the signed root. Both must also be in the new form and current by
+     * {@code clock}: an old-form keyring or root carries no window, so the policy owner never said how long it
+     * vouches for it, and an expired one it no longer vouches for. Throws {@link IllegalArgumentException}
+     * otherwise, naming the keyring or the root, so a verifier is never built on material the pin does not vouch
+     * for now. The earlier of the two windows is recorded as {@code policyNotAfter}.
      */
     public static VerifierConfigV3 pinned(
             KeyringFile keyring,
@@ -60,6 +70,13 @@ public record VerifierConfigV3(
         if (!keyring.verifies(pinnedPolicyKey)) {
             throw new IllegalArgumentException("keyring does not verify under the pinned policy key");
         }
+        long now = clock.getAsLong();
+        if (!keyring.isNewForm()) {
+            throw new IllegalArgumentException("keyring is in the old form, with no notAfter; sign it in the new form");
+        }
+        if (!keyring.isCurrent(now)) {
+            throw new IllegalArgumentException("keyring expired: " + window(keyring.notAfter(), now));
+        }
         boolean rootOk;
         try {
             PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedPolicyKey));
@@ -70,13 +87,29 @@ public record VerifierConfigV3(
         if (!rootOk) {
             throw new IllegalArgumentException("root does not verify under the pinned policy key");
         }
+        if (!root.isNewForm()) {
+            throw new IllegalArgumentException("root is in the old form, with no notAfter; sign it in the new form");
+        }
+        if (!root.isCurrent(now)) {
+            throw new IllegalArgumentException("root expired: " + window(root.notAfter(), now));
+        }
         byte[] rootBytes;
         try {
             rootBytes = root.rootBytes();
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("root is not base64url", e);
         }
-        return new VerifierConfigV3(Keyring.fromFile(keyring), rootBytes, root.rootId(), allowedOrigins, sess,
-                nonces, clock, callMaxAgeMs, runMaxAgeMs);
+        return new VerifierConfigV3(Keyring.fromFile(keyring), rootBytes, root.rootId(),
+                Math.min(keyring.notAfter(), root.notAfter()), allowedOrigins, sess, nonces, clock, callMaxAgeMs,
+                runMaxAgeMs);
+    }
+
+    /**
+     * The window and the clock, each as its integer then its instant. Never throws, since an {@link Instant} spans
+     * every {@code long} of milliseconds; the integer leads because it is what was signed.
+     */
+    private static String window(long notAfter, long now) {
+        return "notAfter " + notAfter + " (" + Instant.ofEpochMilli(notAfter) + ") is before now " + now + " ("
+                + Instant.ofEpochMilli(now) + ")";
     }
 }

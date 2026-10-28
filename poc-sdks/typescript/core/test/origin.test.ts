@@ -59,6 +59,7 @@ describe("mintOrigin", () => {
         nonces: new NonceCache(60_000),
         nonceKey: "k",
         now: 1000,
+        policyNotAfter: 4_102_444_800_000,
       },
     );
     expect(r.reason).toBe("OK");
