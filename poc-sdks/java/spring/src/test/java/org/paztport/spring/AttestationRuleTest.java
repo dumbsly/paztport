@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -46,6 +47,7 @@ import org.springframework.boot.builder.SpringApplicationBuilder;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.client.ClientHttpRequestInterceptor;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -69,6 +71,11 @@ class AttestationRuleTest {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
+    /**
+     * One JDK client for every call the test makes. A fresh one per call was never closed, and on JDK 27 its selector
+     * thread could be gone while a send still waited, so the run hung.
+     */
+    private static HttpClient http;
     private static Path trust;
     private static PolicyBuilder.Result built;
     private static String policyPub;
@@ -121,6 +128,7 @@ class AttestationRuleTest {
 
     @BeforeAll
     static void startApps() throws IOException {
+        http = HttpClient.newHttpClient();
         trust = Files.createTempDirectory("paztport-attestation-rule");
         KeyPair policy = Crypto.generateEd25519KeyPair();
         policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
@@ -167,6 +175,7 @@ class AttestationRuleTest {
     @AfterAll
     static void stopApps() throws IOException {
         APPS.forEach(ConfigurableApplicationContext::close);
+        http.close();
         try (Stream<Path> files = Files.walk(trust)) {
             for (Path p : files.sorted(Comparator.reverseOrder()).toList()) {
                 Files.delete(p);
@@ -180,7 +189,8 @@ class AttestationRuleTest {
                 Keyring.of(Map.of("localhost", APP.getPublic())), built.signedRoot().rootBytes(),
                 built.signedRoot().rootId(), Set.of("localhost"), "", new InMemoryNonceCache(15_000),
                 System::currentTimeMillis, 5000, 5000));
-        RestClient.Builder b = RestClient.builder().requestInterceptor(new OutboundInterceptor(
+        RestClient.Builder b = RestClient.builder().requestFactory(new JdkClientHttpRequestFactory(http))
+                .requestInterceptor(new OutboundInterceptor(
                 new StamperV3("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost"));
         for (ClientHttpRequestInterceptor i : extra) {
@@ -220,7 +230,7 @@ class AttestationRuleTest {
     @Test
     void inTheMeshShapeTheOriginsCallToAHopComesBackVerified() throws Exception {
         // The test asks the origin to call the hop: gateway calling orders, both auto-configured.
-        Answer answer = get(RestClient.create(), origin, "/call?port=" + hop + "&path=/labelled");
+        Answer answer = get(RestClient.builder().requestFactory(new JdkClientHttpRequestFactory(http)).build(), origin, "/call?port=" + hop + "&path=/labelled");
 
         Map<?, ?> reported = JSON.readValue(answer.body(), Map.class);
         assertEquals(200, reported.get("status"));

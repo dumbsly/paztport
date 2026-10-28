@@ -16,6 +16,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +50,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -70,6 +72,8 @@ class ResponseAttestationTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
+    /** One JDK client for every call: a fresh, never-closed one per call could hang a send on JDK 27. */
+    private static final HttpClient http = HttpClient.newHttpClient();
     private static Path trust;
 
     @DynamicPropertySource
@@ -101,6 +105,7 @@ class ResponseAttestationTest {
 
     @AfterAll
     static void removeTrustFiles() throws IOException {
+        http.close();
         try (Stream<Path> files = Files.walk(trust)) {
             for (Path p : files.sorted(Comparator.reverseOrder()).toList()) {
                 Files.delete(p);
@@ -179,7 +184,7 @@ class ResponseAttestationTest {
 
     /** The origin's client: it starts each chain, and checks each answer with the app's own trust material. */
     private RestClient.Builder origin() {
-        return RestClient.builder().requestInterceptor(new OutboundInterceptor(
+        return RestClient.builder().requestFactory(new JdkClientHttpRequestFactory(http)).requestInterceptor(new OutboundInterceptor(
                 new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), bundle, verifier, "localhost"));
     }
