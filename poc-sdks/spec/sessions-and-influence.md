@@ -48,11 +48,25 @@ the session is unsafe (offline it is legacy; see [Recorded handshakes](#recorded
 | `serverRoot` | signed root, or `null` | The server's signed root. |
 | `serverPolicyKey` | string | The server's policy public key. |
 | `serverKeyring` | object | The server's services: name to public key. |
+| `serverKeyringSig` | string, entry-key form only | The server policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ policy: serverPolicyKey, services: serverKeyring })`. |
+| `serverReplyCert` | object, entry-key form only | A [reply certificate](wire.md#the-reply-certificate) from the server policy key for the server's entry service and its key. |
 | `nonce` | string | 16 fresh random bytes from the server, base64url. |
 | `sess` | string | [The session id](#the-session-id). |
 | `status` | `"attested"` or `"unsafe"` | See [Status](#status). |
 | `disabled` | array of strings | The tools refused in this session: the server's unsafe-session list when `status` is `"unsafe"`, and `[]` when it is `"attested"`. |
-| `sig` | string | The server policy key's signature over the reply's other fields. |
+| `sig` | string | The signature over the reply's other fields: by the entry service's key in the entry-key form, by the server policy key in the policy-key form. |
+
+A reply is in one of two forms, told apart only by which fields are present:
+
+- **The entry-key form** carries both `serverKeyringSig` and `serverReplyCert`, and `sig` is made with the key the
+  certificate names, the server's entry service's own key. The policy key signs the keyring and the certificate
+  offline, so it need not be online to answer handshakes.
+- **The policy-key form** carries neither, and `sig` is made with the server policy key. Replies recorded before
+  the entry-key form are in this form.
+
+A reply with one of the two fields and not the other is in neither form, and fails the check. A server SHOULD send
+the entry-key form, so that its policy private key can stay offline. Either way the server MUST say
+`"attested"` only after the checks of [Status](#status): only the signing key differs between the forms.
 
 The reply's signed bytes are:
 
@@ -60,19 +74,62 @@ The reply's signed bytes are:
 utf8( "paztport-session-reply\n" ‖ JCS(reply without its "sig" field) )
 ```
 
-That one signature covers the server's root, keyring, nonce, session id, status and disabled list. So the
-server's keyring is signed by its policy key through the reply, and needs no signature of its own here.
+That is the reply as parsed, every field but `sig`: the new fields and any field the client does not know
+included. A certificate in the reply is covered as its parsed JSON value, like any other field, never as the raw
+text it arrived in.
+
+That one signature covers the server's root, keyring, nonce, session id, status and disabled list. In the
+policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form the
+signer is only the entry service, so the keyring carries the policy key's own signature, and the certificate says
+that the signing key is the entry service's and is still current. Without the keyring's signature the keyring
+would be only the reply's own claim, and could name any key as the entry service's.
 
 ### The client's check of the reply
 
-A client pins the server's policy key in advance. In order, the first failure is the outcome:
+A client pins the server's policy key in advance, and knows the name of the server's entry service,
+`serverEntry`, from its own configuration. It MUST NOT take `serverEntry` from the reply. The check is made at a
+time `now`, in milliseconds since the Unix epoch: live, the client's current time. In order, the first failure is
+the outcome:
 
-1. The reply has the shape above (`MALFORMED_REPLY`).
+1. The reply has the shape above; `serverKeyringSig`, when present, is a string; and `serverReplyCert`, when
+   present, is a well-formed [reply certificate](wire.md#the-reply-certificate). A field whose value is `null` is
+   present (`MALFORMED_REPLY`).
 2. `serverPolicyKey` equals the pinned key (`PIN_MISMATCH`).
-3. `sig` verifies under the pinned key; an `"attested"` reply has both roots non-null; `sess` equals the session
-   id the client derives from its own request and the reply; and `serverRoot`, when present, verifies under the
-   pinned key (`BAD_SIGNATURE`).
+3. The signature, then the roots and the session id (`BAD_SIGNATURE`):
+   - When `serverKeyringSig` or `serverReplyCert` is present: both are; the keyring
+     `{ policy: serverPolicyKey, services: serverKeyring, sig: serverKeyringSig }` verifies under the pinned key;
+     the certificate verifies under the pinned key; its `svc` equals `serverEntry`; `serverKeyring` has a member
+     of its own named `serverEntry`, equal to the certificate's `key`; `now <= notAfter`; and `sig` verifies under
+     the certificate's `key`.
+   - When neither is present: `sig` verifies under the pinned key.
+
+   Then, in both forms: an `"attested"` reply has both roots non-null; `sess` equals the session id the client
+   derives from its own request and the reply; and `serverRoot`, when present, verifies under the pinned key.
 4. `status` is `"attested"`: the session is attested. Otherwise it is unsafe (`UNSAFE`).
+
+The form is decided by which fields are present, never by which key verifies. A client MUST NOT try the pinned
+key when the certificate's key fails, or the other way round: a reply stripped of its certificate, or given one,
+would then pass under whichever key signed it. A lookup of `serverEntry` in `serverKeyring` MUST find only the
+object's own members, so that a name such as `constructor` finds nothing in a keyring that does not list it.
+
+**What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can
+forge a reply's nonce, session id, status and disabled list, and can present any root or keyring the policy key
+ever signed, but can make none: roots and keyrings are verified under the pinned key. That key already signs every
+response stamp the server attests, so a server that attests its responses trusts it no further than before. Once
+its certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's
+lifetime ([wire.md](wire.md#the-reply-certificate)).
+
+**Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
+as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
+keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|` or `3|`.
+
+`v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
+a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
+other than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring
+altered after signing or signed by another policy key; an entry absent from the keyring; either new field without
+the other, whichever key signed the reply; neither field, signed by a key the reply's own keyring names for the
+entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `notAfter` that is not
+an integer; an entry named in the reply, which is ignored; and a pin mismatch.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
@@ -203,9 +260,15 @@ for a call that verified.
 ## Recorded handshakes
 
 Offline, a recorded handshake opened an attested session only when the reply's `status` is `"attested"`, the
-reply passes the client's check against the recorded pin, both roots verify against their sides' policy keys,
-and the keyring signature verifies. When the request has no `clientKeyringSig` field at all, it is legacy: the
-keyring check is skipped, and the result is marked legacy ([verification.md](verification.md#the-legacy-rule)).
+reply passes the client's check against the recorded pin and the server's entry service from the verifier's own
+configuration, both roots verify against their sides' policy keys, and the keyring signature verifies. When the
+request has no `clientKeyringSig` field at all, it is legacy: the keyring check is skipped, and the result is
+marked legacy ([verification.md](verification.md#the-legacy-rule)).
+
+The handshake record carries no signed time, so an entry-key reply is judged at each call's recorded time: `now`
+in the check is the time of the record being judged. One session can therefore be attested for the calls
+recorded up to its certificate's `notAfter` and not for those after it. A policy-key reply has no certificate,
+and is judged the same at any time.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.
@@ -341,8 +404,8 @@ MUST:
    unchanged.
 5. In an unsafe session, sign no stamp and send no influence. The partner would not verify the stamp, and the
    owners in the influence are private. The call carries only the session id.
-6. Pin the partner's policy key and check the handshake reply against it
-   ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an HTTP error (a `404`
+6. Pin the partner's policy key and check the handshake reply against it, with `serverEntry` the partner's entry
+   service ([above](#the-clients-check-of-the-reply)). Over HTTP, a reply the client cannot use, an HTTP error (a `404`
    included) or no answer within the handshake's timeout (10 s in the Java SDK) is followed by the replacement
    with no root, and the session is taken as unsafe whatever that reply says. From a server with no Paztport the
    replacement gets a `404` too, and the call fails.
@@ -369,8 +432,10 @@ session, with the egress service as an allowed origin, `receiver` = its own entr
 `receiverInRoute = true`, and the authenticated peer. It then applies [the owner-aware rule](#the-owner-aware-rule) to the carried
 influence, taking the destination owner from its own records.
 
-The partner signs its handshake replies, so it holds a policy private key whose public half is its own pin. The
-Java SDK checks at startup that the two match. It does not attest what it answers. In the Java SDK, partner mode
+The partner signs its handshake replies in either form ([above](#the-reply)). The Java SDK's partner sends the
+policy-key form, so it holds a policy private key whose public half is its own pin, and checks at startup that
+the two match. A partner that sends the entry-key form holds its entry service's key and a current certificate
+for it instead, and its policy key can stay offline. It does not attest what it answers. In the Java SDK, partner mode
 (`paztport.partner.enabled`) replaces the inbound filter with one that has no modes and sends no responder
 events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
 

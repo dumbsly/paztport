@@ -206,7 +206,7 @@ final class StubPartner implements AutoCloseable {
         String replyStatus = req.clientRoot() == null ? "unsafe" : status;
         return Sessions.signReply(new SessionReply(serverRoot,
                 Base64Url.encode(Crypto.encodePublicKey(signer.getPublic())),
-                Map.of("psp", Base64Url.encode(Crypto.encodePublicKey(signer.getPublic()))), nonce, sess,
+                Map.of("psp", Base64Url.encode(Crypto.encodePublicKey(signer.getPublic()))), null, null, nonce, sess,
                 replyStatus, replyStatus.equals("unsafe") ? List.of("POST /refund") : List.of(), null),
                 signer.getPrivate());
     }

@@ -87,7 +87,7 @@ class PartnerSessionsTest {
     }
 
     private ReplyCheck check(SessionReply reply, SessionRequest req) {
-        return Sessions.checkReply(reply.toJson(), req, psp.pin());
+        return Sessions.checkReply(reply.toJson(), req, psp.pin(), "psp", System.currentTimeMillis());
     }
 
     @Test

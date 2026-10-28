@@ -130,7 +130,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
   return {
     request,
     acceptReply(reply, pinnedServerKey) {
-      if (req === undefined || !verifySessionReply(reply, req, pinnedServerKey)) {
+      if (req === undefined || !verifySessionReply(reply, req, pinnedServerKey, "mcp-entry", Date.now())) {
         return false;
       }
       sess = reply.sess;

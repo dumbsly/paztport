@@ -386,7 +386,8 @@ Both SDKs' keygens write signed keyrings.
 ## The reply certificate
 
 `reply-cert.json` is the policy key's statement that `key` is service `svc`'s key until `notAfter`. It lets that
-key sign what the policy key would otherwise have to sign online, while the policy key stays offline:
+key sign what the policy key would otherwise have to sign online, a
+[session reply](sessions-and-influence.md#the-reply), while the policy key stays offline:
 
 ```json
 { "policy": "<policy public key>", "svc": "<service>", "key": "<that service's public key>", "notAfter": <integer>, "sig": "<b64url>" }
@@ -448,9 +449,11 @@ the proof travels with.
 | Party | Holds | Never holds |
 |---|---|---|
 | Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
-| Each service | Its own private key, and its own proof bundle. | Other services' keys, other routes' salts. |
+| Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions-and-influence.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
 | Each verifier | The pinned policy public key, the signed root and the signed keyring. | The tree, the route list or any salt but those in the proofs it is shown. |
-| The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. | Its map. |
+| The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. A client also knows the server's entry service by name, from its own configuration, to check an entry-key reply. | Its map. |
 
-In the agents demo the client's policy private key is deleted once it has signed the client root and keyring;
-the server's stays, because it signs session replies.
+A server that answers in the entry-key form needs its policy private key only offline, to sign its root, keyring
+and reply certificates; one that answers in the policy-key form keeps it online to sign each reply. In the agents
+demo the client's policy private key is deleted once it has signed the client root and keyring; the server's
+stays, because the demo's MCP server signs its session replies in the policy-key form.

@@ -5,6 +5,7 @@ import { decode, encode } from "./b64url.ts";
 import { concat, randomBytes, sha256, sign, utf8, verify } from "./crypto.ts";
 import { canonicalize } from "./jcs.ts";
 import { verifyKeyring } from "./keyring.ts";
+import { isReplyCert, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { verifyRoot, type SignedRoot } from "./root.ts";
 
 /** `clientKeyringSig` is the client policy key's signature over its keyring (see signKeyring). */
@@ -27,10 +28,16 @@ export function isLegacySessionRequest(req: SessionRequest | LegacySessionReques
   return !Object.hasOwn(req, "clientKeyringSig");
 }
 
+/**
+ * A reply carrying `serverKeyringSig` and `serverReplyCert` is signed by the entry service's certified key; one
+ * with neither is signed by the server policy key. Which form it is depends only on which fields are present.
+ */
 export type SessionReply = {
   serverRoot: SignedRoot | null;
   serverPolicyKey: string;
   serverKeyring: Record<string, string>;
+  serverKeyringSig?: string;
+  serverReplyCert?: ReplyCert;
   nonce: string;
   sess: string;
   status: "attested" | "unsafe";
@@ -105,19 +112,61 @@ function replySigningBytes(body: Omit<SessionReply, "sig">): Uint8Array {
   return utf8("paztport-session-reply\n" + canonicalize(body));
 }
 
-/** Signs the reply; any "sig" already on the input is dropped first. */
-export function signSessionReply(reply: Omit<SessionReply, "sig">, serverPolicyPrivateKey: string): SessionReply {
+/**
+ * Signs the reply with the entry service's key (the entry-key form) or the policy key (the policy-key form); any
+ * "sig" on the input is dropped first. Only the key changed: the server says "attested" only after its status checks.
+ */
+export function signSessionReply(reply: Omit<SessionReply, "sig">, signingPrivateKey: string): SessionReply {
   const { sig: _stray, ...body } = reply as Omit<SessionReply, "sig"> & { sig?: unknown };
-  return { ...body, sig: encode(sign(serverPolicyPrivateKey, replySigningBytes(body))) };
+  return { ...body, sig: encode(sign(signingPrivateKey, replySigningBytes(body))) };
 }
 
-export function verifySessionReply(reply: SessionReply, req: SessionRequest | LegacySessionRequest, pinnedServerPolicyKey: string): boolean {
+/**
+ * The key the reply's `sig` must verify under, or undefined when none may: the pin for the policy-key form; for the
+ * entry-key form, the certified key of `serverEntry`, only if the keyring and certificate verify under the pin, the
+ * certificate names `serverEntry` and the keyring's key for it, and `at` is no later than its `notAfter`.
+ */
+function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: number): string | undefined {
+  const hasRingSig = Object.hasOwn(reply, "serverKeyringSig");
+  const hasCert = Object.hasOwn(reply, "serverReplyCert");
+  if (!hasRingSig && !hasCert) {
+    return pin;
+  }
+  const cert = reply.serverReplyCert;
+  if (!hasRingSig || !hasCert || typeof reply.serverKeyringSig !== "string" || !isReplyCert(cert)) {
+    return undefined;
+  }
+  const ring = reply.serverKeyring;
+  const ok =
+    verifyKeyring({ policy: reply.serverPolicyKey, services: ring, sig: reply.serverKeyringSig }, pin) &&
+    verifyReplyCert(cert, pin) &&
+    cert.svc === serverEntry &&
+    Object.hasOwn(ring, serverEntry) &&
+    ring[serverEntry] === cert.key &&
+    typeof at === "number" &&
+    at <= cert.notAfter;
+  return ok ? cert.key : undefined;
+}
+
+/**
+ * The client's check of a reply at time `at` (ms), after the pin: `sig` under the key the reply's form names
+ * (see replySigner), then the roots and the session id. `serverEntry` is the client's own configuration, never
+ * the reply's. Never throws.
+ */
+export function verifySessionReply(
+  reply: SessionReply,
+  req: SessionRequest | LegacySessionRequest,
+  pinnedServerPolicyKey: string,
+  serverEntry: string,
+  at: number,
+): boolean {
   try {
     if (reply.serverPolicyKey !== pinnedServerPolicyKey) {
       return false;
     }
+    const signer = replySigner(reply, pinnedServerPolicyKey, serverEntry, at);
     const { sig, ...body } = reply;
-    if (!verify(pinnedServerPolicyKey, replySigningBytes(body), decode(sig))) {
+    if (signer === undefined || !verify(signer, replySigningBytes(body), decode(sig))) {
       return false;
     }
     if (reply.status === "attested" && (reply.serverRoot === null || req.clientRoot === null)) {
@@ -138,13 +187,22 @@ export function verifySessionReply(reply: SessionReply, req: SessionRequest | Le
  * pin, and both roots verify against their sides' policy keys. The reply binds the client root's signature
  * but not its contents, so the client root is checked here too, and so is the keyring's signature unless
  * the request is legacy. There is no client pin offline: the server's signed "attested" reply, whose
- * session id binds the client's policy key and keyring, is its statement that it pinned them. Never throws.
+ * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
+ * of the record judged (a call's recorded time), since the handshake record carries no signed time: an entry-key
+ * reply is attested only for records no later than its certificate's `notAfter`. Policy-key replies ignore it.
+ * Never throws.
  */
-export function isAttestedSession(req: SessionRequest | LegacySessionRequest, reply: SessionReply, pinnedServerPolicyKey: string): boolean {
+export function isAttestedSession(
+  req: SessionRequest | LegacySessionRequest,
+  reply: SessionReply,
+  pinnedServerPolicyKey: string,
+  serverEntry: string,
+  at: number,
+): boolean {
   try {
     return (
       reply.status === "attested" &&
-      verifySessionReply(reply, req, pinnedServerPolicyKey) &&
+      verifySessionReply(reply, req, pinnedServerPolicyKey, serverEntry, at) &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&
       (isLegacySessionRequest(req) || keyringVerifies(req))
     );

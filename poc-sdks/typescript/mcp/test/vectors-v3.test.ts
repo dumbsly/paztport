@@ -7,13 +7,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, canonicalize, commitInfluence, decode, encode, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
-  replyCertSigningBytes, sign, signingBytesV3, utf8, verifyChainOffline, verifyChainV3, verifyKeyring, verifyReplyCert,
+  NonceCache, canonicalize, commitInfluence, decode, encode, isAttestedSession, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
+  publicWriteRefused, replyCertSigningBytes, sign, signSessionReply, signingBytesV3, utf8, verifyChainOffline, verifyChainV3, verifyKeyring, verifyReplyCert,
 } from "@paztport/core";
-import type { OfflineConfig, OfflineInput, V3Config, V3Input } from "@paztport/core";
+import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
+import { classifySessionReply } from "../src/index.ts";
 import { buildVectorsV3 } from "./vectors-v3-export.ts";
 
-type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "verify" | "offline" | "replyCert";
+type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "verify" | "offline" | "replyCert" | "sessionReply";
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(
   readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"),
 );
@@ -79,6 +80,30 @@ describe("v3 known-answer vectors", () => {
     expect(verifyReplyCert(c.cert, committed.keys[c.pin].pub)).toBe(c.verifies);
     // Every certificate that verifies is reproduced byte for byte by issuing it.
     if (c.verifies) expect(issueReplyCert(policy, svc, key, notAfter, committed.keys[c.signer].priv).sig).toBe(sig);
+  });
+
+  it("session reply section", () => expect(committed.sessionReply.length).toBeGreaterThan(0));
+
+  it.each(committed.sessionReply.map((c: any): [string, any] => [c.name, c]))("session reply %s", (_n, c: any) => {
+    const pin = committed.keys[c.pin].pub;
+    const outcome = classifySessionReply(c.reply, c.request, pin, c.serverEntry, c.now);
+    expect(outcome.status === "attested" ? "ATTESTED" : outcome.reason).toBe(c.expected);
+    // Offline, judged at the same time, the handshake is attested exactly when the live check says so.
+    expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED");
+  });
+
+  // A configured entry named like an Object.prototype member must not find a key in a keyring that lacks it.
+  it.each(["constructor", "__proto__", "toString"])("protoEntryHasNoKey %s", (entry) => {
+    const good = committed.sessionReply.find((c: any) => c.name === "new form attested");
+    const keys = committed.keys;
+    const cert = issueReplyCert(keys["server-policy"].pub, entry, keys["mcp-entry"].pub, good.reply.serverReplyCert.notAfter, keys["server-policy"].priv);
+    expect(verifyReplyCert(cert, keys["server-policy"].pub)).toBe(true);
+    const { sig: _sig, ...body } = good.reply;
+    const reply = signSessionReply({ ...body, serverReplyCert: cert } as Omit<SessionReply, "sig">, keys["mcp-entry"].priv);
+    expect(classifySessionReply(reply, good.request, keys["server-policy"].pub, entry, good.now)).toEqual({
+      status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true,
+    });
+    expect(isAttestedSession(good.request, reply, keys["server-policy"].pub, entry, good.now)).toBe(false);
   });
 
   it("keyring signing bytes and named services match the signed keyring", () => {

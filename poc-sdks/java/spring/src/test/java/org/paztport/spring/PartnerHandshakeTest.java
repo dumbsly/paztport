@@ -195,7 +195,7 @@ class PartnerHandshakeTest {
 
         assertEquals(200, answer.status());
         JsonNode reply = JSON.readTree(answer.body());
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");

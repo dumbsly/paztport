@@ -15,9 +15,10 @@ import {
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
+  deriveSessionId, signRoot, signSessionReply,
 } from "@paztport/core";
-import type { InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, StampV3 } from "@paztport/core";
-import { bindMcpCall, mcpReceiver } from "../src/index.ts";
+import type { InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, StampV3 } from "@paztport/core";
+import { bindMcpCall, classifySessionReply, mcpReceiver } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
 const V2_JSON = new URL("../../../spec/vectors/v2.json", import.meta.url);
@@ -396,6 +397,83 @@ export function buildVectorsV3(): Record<string, unknown> {
     certCase("largest notAfter", "server-policy", issueCert("server-policy", Number.MAX_SAFE_INTEGER, "server-policy"), true),
   ];
 
+  // Session replies under the server pin: the entry-key ("new") form, signed by mcp-entry's key under its
+  // certificate and the signed server keyring, the policy-key ("old") form, and forms that must fail.
+  const nonce16 = (label: string) => encode(sha256(utf8("paztport-v3-vector-nonce:" + label)).slice(0, 16));
+  const clientRoot = signRoot(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv);
+  const request: SessionRequest = {
+    clientRoot, clientPolicyKey: keys["client-policy"].pub, clientKeyring: signedKeyring.signed.services,
+    clientKeyringSig: signedKeyring.sig, nonce: nonce16("client"),
+  };
+  const SERVER_NONCE = nonce16("server");
+  const serverRoot = signRoot(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv);
+  const serverRing = signKeyring(resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" }), keys["server-policy"].pub, keys["server-policy"].priv);
+  const certFor = (svc: string, key: KeyName, signer: KeyName = "server-policy") =>
+    issueReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
+  const entryCert = certFor("mcp-entry", "mcp-entry");
+  const sessFor = (root: { sig: string } | null) => deriveSessionId(clientRoot.sig, root?.sig ?? null, request.nonce, SERVER_NONCE, request);
+  /** A reply in the entry-key form by default; `drop` leaves fields out, and `signer` signs it. */
+  const reply = (signer: KeyName, o: Record<string, unknown> = {}, drop: string[] = []): Record<string, unknown> => {
+    const root = (o.serverRoot ?? serverRoot) as { sig: string };
+    const body: Record<string, unknown> = {
+      serverRoot: root, serverPolicyKey: keys["server-policy"].pub, serverKeyring: serverRing.services, serverKeyringSig: serverRing.sig,
+      serverReplyCert: entryCert, nonce: SERVER_NONCE, sess: sessFor(root), status: "attested", disabled: [], ...o,
+    };
+    for (const f of drop) delete body[f];
+    return signSessionReply(body as unknown as Omit<SessionReply, "sig">, keys[signer].priv) as unknown as Record<string, unknown>;
+  };
+  const OLD = ["serverKeyringSig", "serverReplyCert"];
+  const sessionReplyCase = (name: string, raw: Record<string, unknown>, expected: string, o: { pin?: KeyName; serverEntry?: string; now?: number } = {}) => {
+    const pin = o.pin ?? "server-policy";
+    const serverEntry = o.serverEntry ?? "mcp-entry";
+    const now = o.now ?? NOW;
+    const outcome = classifySessionReply(raw, request, keys[pin].pub, serverEntry, now);
+    check(`session reply ${name}`, outcome.status === "attested" ? "ATTESTED" : outcome.reason, expected);
+    return { name, request, reply: raw, pin, serverEntry, now, expected };
+  };
+  const attackerRing = { ...serverRing.services, "mcp-entry": keys.orders.pub };
+  const sessionReply = [
+    sessionReplyCase("new form attested", reply("mcp-entry"), "ATTESTED"),
+    sessionReplyCase("new form unsafe", reply("mcp-entry", { status: "unsafe", disabled: [TOOL] }), "UNSAFE"),
+    sessionReplyCase("old form attested", reply("server-policy", {}, OLD), "ATTESTED"),
+    sessionReplyCase("at notAfter", reply("mcp-entry"), "ATTESTED", { now: CERT_NOT_AFTER }),
+    sessionReplyCase("one ms after notAfter", reply("mcp-entry"), "BAD_SIGNATURE", { now: CERT_NOT_AFTER + 1 }),
+    sessionReplyCase("certificate for another service", reply("github-tools", { serverReplyCert: certFor("github-tools", "github-tools") }), "BAD_SIGNATURE"),
+    sessionReplyCase("certificate key not the keyring's entry key", reply("orders", { serverReplyCert: certFor("mcp-entry", "orders") }), "BAD_SIGNATURE"),
+    sessionReplyCase("certificate signed by another policy key", reply("mcp-entry", { serverReplyCert: certFor("mcp-entry", "mcp-entry", "client-policy") }), "BAD_SIGNATURE"),
+    sessionReplyCase("signed by another service", reply("github-tools"), "BAD_SIGNATURE"),
+    sessionReplyCase("keyring altered after signing", reply("mcp-entry", { serverKeyring: { ...serverRing.services, "github-tools": keys.orders.pub } }), "BAD_SIGNATURE"),
+    sessionReplyCase(
+      "keyring signed by another policy key",
+      reply("mcp-entry", { serverKeyringSig: encode(sign(keys["client-policy"].priv, keyringSigningBytes(keys["server-policy"].pub, serverRing.services))) }),
+      "BAD_SIGNATURE",
+    ),
+    sessionReplyCase(
+      "entry absent from keyring",
+      (() => {
+        const ring = signKeyring(resolveKeyring({ "github-tools": "github-tools" }), keys["server-policy"].pub, keys["server-policy"].priv);
+        return reply("mcp-entry", { serverKeyring: ring.services, serverKeyringSig: ring.sig });
+      })(),
+      "BAD_SIGNATURE",
+    ),
+    sessionReplyCase("keyring signature without certificate", reply("mcp-entry", {}, ["serverReplyCert"]), "BAD_SIGNATURE"),
+    sessionReplyCase("certificate without keyring signature", reply("mcp-entry", {}, ["serverKeyringSig"]), "BAD_SIGNATURE"),
+    // The form is decided by which fields are present, never by which key verifies.
+    sessionReplyCase("keyring signature without certificate, signed by the policy key", reply("server-policy", {}, ["serverReplyCert"]), "BAD_SIGNATURE"),
+    sessionReplyCase("certificate without keyring signature, signed by the policy key", reply("server-policy", {}, ["serverKeyringSig"]), "BAD_SIGNATURE"),
+    sessionReplyCase("neither field, signed by the keyring's entry key", reply("orders", { serverKeyring: attackerRing }, OLD), "BAD_SIGNATURE"),
+    sessionReplyCase("server root signed by the entry key", reply("mcp-entry", { serverRoot: signRoot(decode(policies.server.root), policies.server.rootId, keys["mcp-entry"].priv) }), "BAD_SIGNATURE"),
+    sessionReplyCase("serverKeyringSig empty", reply("mcp-entry", { serverKeyringSig: "" }), "BAD_SIGNATURE"),
+    sessionReplyCase("serverKeyringSig null", reply("mcp-entry", { serverKeyringSig: null }), "MALFORMED_REPLY"),
+    sessionReplyCase("notAfter not an integer", reply("mcp-entry", { serverReplyCert: { ...entryCert, notAfter: 1.5 } }), "MALFORMED_REPLY"),
+    sessionReplyCase(
+      "entry named in the reply is ignored",
+      reply("github-tools", { serverEntry: "github-tools", serverReplyCert: certFor("github-tools", "github-tools") }),
+      "BAD_SIGNATURE",
+    ),
+    sessionReplyCase("pin mismatch", reply("mcp-entry"), "PIN_MISMATCH", { pin: "client-policy" }),
+  ];
+
   return {
     about: ABOUT,
     keys,
@@ -408,6 +486,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     verify,
     offline,
     replyCert,
+    sessionReply,
   };
 }
 

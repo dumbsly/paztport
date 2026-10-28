@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 class SessionsTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final long NOW = 1_767_225_600_000L;
 
     private final KeyPair clientPolicy = Crypto.generateEd25519KeyPair();
     private final KeyPair serverPolicy = Crypto.generateEd25519KeyPair();
@@ -44,8 +45,10 @@ class SessionsTest {
         String nonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
                 root == null ? null : root.sig(), req.nonce(), nonce, req.clientPolicyKey(), req.clientKeyring());
-        return Sessions.signReply(new SessionReply(root, serverKey, Map.of("pay", "server-key"), nonce, sess, status,
-                status.equals("attested") ? List.of() : List.of("send"), null), serverPolicy.getPrivate());
+        // The policy-key form: no keyring signature or certificate, signed by the policy key.
+        return Sessions.signReply(new SessionReply(root, serverKey, Map.of("pay", "server-key"), null, null, nonce,
+                sess, status, status.equals("attested") ? List.of() : List.of("send"), null),
+                serverPolicy.getPrivate());
     }
 
     private JsonNode wire(SessionReply r) {
@@ -59,7 +62,7 @@ class SessionsTest {
         assertTrue(Sessions.opensSession(req));
 
         SessionReply reply = reply(req, serverRoot, "attested");
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(wire(reply), req, serverKey));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(wire(reply), req, serverKey, "pay", NOW));
         assertEquals(Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), reply.nonce(), clientKey,
                 clientRing), reply.sess());
         // the request survives its own wire form
@@ -89,22 +92,57 @@ class SessionsTest {
         SessionRequest req = request(clientRoot);
         SessionReply attested = reply(req, serverRoot, "attested");
 
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(JSON.valueToTree("nope"), req, serverKey));
+        assertEquals(ReplyCheck.MALFORMED_REPLY,
+                Sessions.checkReply(JSON.valueToTree("nope"), req, serverKey, "pay", NOW));
         ObjectNode noStatus = (ObjectNode) wire(attested);
         noStatus.remove("status");
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(noStatus, req, serverKey));
-        assertEquals(ReplyCheck.PIN_MISMATCH, Sessions.checkReply(wire(attested), req, key(clientPolicy)));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(noStatus, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.PIN_MISMATCH, Sessions.checkReply(wire(attested), req, key(clientPolicy), "pay", NOW));
 
         ObjectNode altered = (ObjectNode) wire(attested);
         altered.put("nonce", Sessions.newNonce());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(altered, req, serverKey));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(altered, req, serverKey, "pay", NOW));
 
         SessionReply nullRoot = reply(req, null, "attested");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(wire(nullRoot), req, serverKey));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(wire(nullRoot), req, serverKey, "pay", NOW));
 
         SessionReply unsafe = reply(req, serverRoot, "unsafe");
-        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(wire(unsafe), req, serverKey));
+        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(wire(unsafe), req, serverKey, "pay", NOW));
         assertNotNull(unsafe.sig());
+    }
+
+    /**
+     * The entry-key form: signed by the entry service's key, which the reply's signed keyring and certificate
+     * vouch for. The forged cases: an expired certificate, an entry the client did not configure, the same reply
+     * signed by the policy key (the form is decided by the fields, so the pin is never tried), and a certificate
+     * the record drops (the policy-key form then needs the policy key, which did not sign it).
+     */
+    @Test
+    void entryKeyForm() {
+        KeyPair entry = Crypto.generateEd25519KeyPair();
+        Map<String, String> ring = Map.of("pay", key(entry), "ledger", "ledger-key");
+        KeyringFile signedRing = KeyringFile.sign(ring, serverKey, serverPolicy.getPrivate());
+        ReplyCert cert = ReplyCert.issue(serverKey, "pay", key(entry), NOW + 1000, serverPolicy.getPrivate());
+        SessionRequest req = request(clientRoot);
+        String nonce = Sessions.newNonce();
+        String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
+                clientRing);
+        SessionReply unsigned = new SessionReply(serverRoot, serverKey, ring, signedRing.sig(), cert, nonce, sess,
+                "attested", List.of(), null);
+
+        JsonNode byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
+        assertEquals(cert.toJson(), byEntry.get("serverReplyCert"));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW + 1000));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW + 1001));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "ledger", NOW));
+
+        JsonNode byPolicy = wire(Sessions.signReply(unsigned, serverPolicy.getPrivate()));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byPolicy, req, serverKey, "pay", NOW));
+
+        ObjectNode noCert = (ObjectNode) byEntry.deepCopy();
+        noCert.remove("serverReplyCert");
+        noCert.remove("serverKeyringSig");
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(noCert, req, serverKey, "pay", NOW));
     }
 
     @Test

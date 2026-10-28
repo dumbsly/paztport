@@ -5,6 +5,7 @@ import {
   bindResult,
   commitInfluence,
   decode,
+  isReplyCert,
   newNonce,
   routeOf,
   signStampV3,
@@ -64,12 +65,15 @@ function isSignedRoot(v: unknown): boolean {
   return isObject(v) && typeof v.rootId === "string" && typeof v.root === "string" && typeof v.sig === "string";
 }
 
+/** The reply's shape; `serverKeyringSig` and `serverReplyCert` are optional, but each, when present (even as null), must be well formed. */
 function isSessionReply(v: unknown): v is SessionReply {
   return (
     isObject(v) &&
     (v.serverRoot === null || isSignedRoot(v.serverRoot)) &&
     typeof v.serverPolicyKey === "string" &&
     isStringMap(v.serverKeyring) &&
+    (!Object.hasOwn(v, "serverKeyringSig") || typeof v.serverKeyringSig === "string") &&
+    (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
     typeof v.nonce === "string" &&
     typeof v.sess === "string" &&
     (v.status === "attested" || v.status === "unsafe") &&
@@ -110,15 +114,18 @@ export type SessionOutcome =
 
 const unusable = (reason: string): SessionOutcome => ({ status: "unsafe", reason, replaceSession: true });
 
-/** Classifies a paztport/session reply against the request it answers and the pinned server policy key. */
-export function classifySessionReply(raw: unknown, req: SessionRequest, pin: string): SessionOutcome {
+/**
+ * Classifies a paztport/session reply against the request it answers, the pinned server policy key, the server's
+ * entry service from the client's own configuration, and the time `now` (ms).
+ */
+export function classifySessionReply(raw: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
   if (!isSessionReply(raw)) {
     return unusable("MALFORMED_REPLY");
   }
   if (raw.serverPolicyKey !== pin) {
     return unusable("PIN_MISMATCH");
   }
-  if (!verifySessionReply(raw, req, pin)) {
+  if (!verifySessionReply(raw, req, pin, serverEntry, now)) {
     return unusable("BAD_SIGNATURE");
   }
   return raw.status === "attested" ? { status: "attested", reply: raw } : { status: "unsafe", reason: "UNSAFE", replaceSession: false };

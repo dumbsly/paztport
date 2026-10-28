@@ -148,6 +148,7 @@ public final class BoundaryClient implements AutoCloseable {
     private final AtomicReference<Session> session = new AtomicReference<>();
     private final Object handshake = new Object();
     private final LongSupplier nanos;
+    private final LongSupplier millis;
     private final long sessionIdleNanos;
 
     /**
@@ -171,13 +172,17 @@ public final class BoundaryClient implements AutoCloseable {
             String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
             BoundaryListener listener, PooledTlsClient tls, long sessionIdleMs) {
         this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, blindingKey,
-                listener, tls, System::nanoTime, sessionIdleMs);
+                listener, tls, System::nanoTime, System::currentTimeMillis, sessionIdleMs);
     }
 
-    /** As above, with the clock, in nanoseconds, that ages sessions; tests move it on. */
+    /**
+     * As above, with the clocks: {@code nanos}, monotonic, ages sessions; {@code millis}, the time of day in
+     * milliseconds since the epoch, is what a reply certificate's {@code notAfter} is compared with. Tests set both.
+     */
     BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
             String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
-            BoundaryListener listener, PooledTlsClient tls, LongSupplier nanos, long sessionIdleMs) {
+            BoundaryListener listener, PooledTlsClient tls, LongSupplier nanos, LongSupplier millis,
+            long sessionIdleMs) {
         this.stamper = Objects.requireNonNull(stamper, "stamper");
         this.bundle = Objects.requireNonNull(bundle, "bundle");
         this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
@@ -195,6 +200,7 @@ public final class BoundaryClient implements AutoCloseable {
         this.listener = listener;
         this.tls = Objects.requireNonNull(tls, "tls");
         this.nanos = Objects.requireNonNull(nanos, "nanos");
+        this.millis = Objects.requireNonNull(millis, "millis");
         if (partner.isEmpty()) {
             throw new IllegalArgumentException("the partner's entry service must be named");
         }
@@ -373,7 +379,7 @@ public final class BoundaryClient implements AutoCloseable {
         ReplyCheck check = null;
         try {
             JsonNode reply = handshake(full);
-            check = Sessions.checkReply(reply, full, pinnedPartnerKey);
+            check = Sessions.checkReply(reply, full, pinnedPartnerKey, partner, millis.getAsLong());
             if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
                 // The check derived the same id from both sides' inputs, so it is a real session id.
                 Session s = new Session(reply.get("sess").textValue(), check == ReplyCheck.ATTESTED, false,

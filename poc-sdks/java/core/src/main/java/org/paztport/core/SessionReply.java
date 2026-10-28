@@ -11,24 +11,39 @@ import java.util.Map;
 
 /**
  * The server's half of the handshake. {@code status} is {@code "attested"} or {@code "unsafe"}; {@code disabled}
- * lists the tools refused in an unsafe session. {@code sig} is the server policy key's signature over every other
- * field, and is null until {@link Sessions#signReply} has set it.
+ * lists the tools refused in an unsafe session. {@code sig} is the signature over every other field, and is null
+ * until {@link Sessions#signReply} has set it.
+ *
+ * <p>The reply comes in two forms, told apart only by which fields are present. In the entry-key form,
+ * {@code serverKeyringSig} (the policy key's signature over the keyring) and {@code serverReplyCert} (the policy
+ * key's short-lived certificate for the entry service's key) are both set and {@code sig} is the entry service's,
+ * so the policy key can stay offline. In the policy-key form both are null and {@code sig} is the policy key's.
  */
 public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<String, String> serverKeyring,
-        String nonce, String sess, String status, List<String> disabled, String sig) {
+        String serverKeyringSig, ReplyCert serverReplyCert, String nonce, String sess, String status,
+        List<String> disabled, String sig) {
 
     public SessionReply {
         serverKeyring = Map.copyOf(serverKeyring);
         disabled = List.copyOf(disabled);
     }
 
-    /** The wire form: a null root is JSON null, and {@code sig} is left out while it is null. */
+    /**
+     * The wire form: a null root is JSON null, and {@code serverKeyringSig}, {@code serverReplyCert} and
+     * {@code sig} are each left out while null.
+     */
     public ObjectNode toJson() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.set("serverRoot", Sessions.rootJson(serverRoot));
         o.put("serverPolicyKey", serverPolicyKey);
         ObjectNode ring = o.putObject("serverKeyring");
         serverKeyring.forEach(ring::put);
+        if (serverKeyringSig != null) {
+            o.put("serverKeyringSig", serverKeyringSig);
+        }
+        if (serverReplyCert != null) {
+            o.set("serverReplyCert", serverReplyCert.toJson());
+        }
         o.put("nonce", nonce);
         o.put("sess", sess);
         o.put("status", status);

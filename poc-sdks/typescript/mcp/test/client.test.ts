@@ -88,7 +88,7 @@ function connected(opts: { withRoot?: boolean } = {}) {
 
 function attestedSession() {
   const c = connected();
-  const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey);
+  const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
   if (outcome.status !== "attested") {
     throw new Error("expected an attested session");
   }
@@ -147,33 +147,38 @@ describe("sessionRequest", () => {
 describe("classifySessionReply", () => {
   it("attestedReplyIsUsed", () => {
     const c = connected();
-    const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey);
+    const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
     expect(outcome).toEqual({ status: "attested", reply: c.raw });
   });
   it("unsafeReplyKeepsTheServersSession", () => {
     const c = connected({ withRoot: false });
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey)).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
+    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
   });
   it("malformedReplyIsReplaced", () => {
     const c = connected();
     const { sig: _sig, ...unsigned } = c.raw as SessionReply;
-    for (const raw of [undefined, null, "reply", {}, unsigned, { ...(c.raw as SessionReply), status: "open" }]) {
-      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey)).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
+    const bad = [
+      undefined, null, "reply", {}, unsigned, { ...(c.raw as SessionReply), status: "open" },
+      // a new field present (even null) must be well formed
+      { ...(c.raw as SessionReply), serverKeyringSig: null }, { ...(c.raw as SessionReply), serverReplyCert: {} },
+    ];
+    for (const raw of bad) {
+      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
     }
   });
   it("otherServerKeyIsAPinMismatch", () => {
     const c = connected();
-    expect(classifySessionReply(c.raw, c.req, generateKeyPair().publicKey)).toEqual({ status: "unsafe", reason: "PIN_MISMATCH", replaceSession: true });
+    expect(classifySessionReply(c.raw, c.req, generateKeyPair().publicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "PIN_MISMATCH", replaceSession: true });
   });
   it("tamperedReplyIsABadSignature", () => {
     const c = connected();
     const tampered = { ...(c.raw as SessionReply), disabled: ["list_issues"] };
-    expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("replyToAnotherRequestIsABadSignature", () => {
     const c = connected();
     const other = sessionRequest(c.client);
-    expect(classifySessionReply(c.raw, other, c.policy.policyPublicKey)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(c.raw, other, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
 });
 

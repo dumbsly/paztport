@@ -131,6 +131,18 @@ class VectorsV3Test {
         }
     }
 
+    @Test
+    void sessionReply() {
+        JsonNode cases = vectors.get("sessionReply");
+        assertTrue(cases != null && cases.size() > 0, "sessionReply section");
+        for (JsonNode c : cases) {
+            String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
+            SessionRequest req = Sessions.parseRequest(c.get("request"));
+            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(c.get("reply"), req, pin,
+                    c.get("serverEntry").asText(), c.get("now").asLong()), c.get("name").asText());
+        }
+    }
+
     static Keyring keyring(JsonNode names) {
         Map<String, PublicKey> keys = new LinkedHashMap<>();
         names.fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(

@@ -178,7 +178,10 @@ public final class Sessions {
         }
     }
 
-    /** The bytes the reply signature covers: a domain prefix, then the JCS of the reply without its signature. */
+    /**
+     * The bytes the reply signature covers: a domain prefix, then the JCS of the reply without its signature. A
+     * certificate in the reply is covered as parsed, never as its raw text.
+     */
     public static byte[] replySigningBytes(SessionReply reply) {
         return signingBytes(reply.toJson());
     }
@@ -194,22 +197,36 @@ public final class Sessions {
         return out;
     }
 
-    /** Signs the reply with the server policy key; any signature already on the input is replaced. */
-    public static SessionReply signReply(SessionReply unsigned, PrivateKey serverPolicyKey) {
+    /**
+     * Signs the reply with {@code signingKey}: the entry service's key when the reply carries
+     * {@code serverKeyringSig} and {@code serverReplyCert}, the policy key when it carries neither. Any signature
+     * already on the input is replaced. Only the key changed between the forms: the server must still say
+     * {@code "attested"} only after its status checks ({@link #status}), since the signature vouches for whatever
+     * the reply says.
+     */
+    public static SessionReply signReply(SessionReply unsigned, PrivateKey signingKey) {
         SessionReply bare = new SessionReply(unsigned.serverRoot(), unsigned.serverPolicyKey(),
-                unsigned.serverKeyring(), unsigned.nonce(), unsigned.sess(), unsigned.status(), unsigned.disabled(),
-                null);
-        String sig = Base64Url.encode(Crypto.sign(serverPolicyKey, replySigningBytes(bare)));
-        return new SessionReply(bare.serverRoot(), bare.serverPolicyKey(), bare.serverKeyring(), bare.nonce(),
-                bare.sess(), bare.status(), bare.disabled(), sig);
+                unsigned.serverKeyring(), unsigned.serverKeyringSig(), unsigned.serverReplyCert(), unsigned.nonce(),
+                unsigned.sess(), unsigned.status(), unsigned.disabled(), null);
+        String sig = Base64Url.encode(Crypto.sign(signingKey, replySigningBytes(bare)));
+        return new SessionReply(bare.serverRoot(), bare.serverPolicyKey(), bare.serverKeyring(),
+                bare.serverKeyringSig(), bare.serverReplyCert(), bare.nonce(), bare.sess(), bare.status(),
+                bare.disabled(), sig);
     }
 
     /**
-     * The client's check of a reply against the request it sent and the server policy key it pinned, in the
-     * spec's order: shape, pin, then signature, roots and session id, then status. Takes the raw JSON so that
-     * the shape check is the first outcome. Never throws.
+     * The client's check of a reply against the request it sent, the server policy key it pinned, the server's
+     * entry service from its own configuration (never from the reply) and the time {@code nowMs}, in the spec's
+     * order: shape, pin, then signature, roots and session id, then status. Takes the raw JSON so that the shape
+     * check is the first outcome, and so the signature is checked over the reply as received, any extra field
+     * included. Never throws.
+     *
+     * <p>The form is decided by which fields are present, never by which key verifies: trying the policy key and
+     * then the entry key would let a reply stripped of its certificate, or carrying a certificate it should not,
+     * pass under whichever key an attacker holds.
      */
-    public static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey) {
+    public static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey,
+            String serverEntry, long nowMs) {
         if (!wellShaped(reply)) {
             return ReplyCheck.MALFORMED_REPLY;
         }
@@ -219,7 +236,9 @@ public final class Sessions {
         }
         try {
             PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
-            if (!Crypto.verify(pin, signingBytes(reply), Base64Url.decode(reply.get("sig").textValue()))) {
+            PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs);
+            if (signer == null
+                    || !Crypto.verify(signer, signingBytes(reply), Base64Url.decode(reply.get("sig").textValue()))) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             JsonNode root = reply.get("serverRoot");
@@ -238,9 +257,38 @@ public final class Sessions {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
-        } catch (IllegalArgumentException e) {
+        } catch (RuntimeException e) {
             return ReplyCheck.BAD_SIGNATURE;
         }
+    }
+
+    /**
+     * The key the reply's {@code sig} must verify under, or null when no key may. The policy-key form (neither
+     * new field) names the pin. The entry-key form names the certificate's key, and only when both fields are
+     * present, the keyring and the certificate verify under the pin, the certificate is for {@code serverEntry} and
+     * names the key the keyring holds for it, and {@code nowMs} is no later than its {@code notAfter}: the keyring
+     * alone is the reply's own claim until the policy key's signature covers it, and the certificate is what says
+     * the key is still current. Assumes {@link #wellShaped}.
+     */
+    private static PublicKey replySigner(JsonNode reply, PublicKey pin, String pinText, String serverEntry,
+            long nowMs) {
+        boolean hasRingSig = reply.has("serverKeyringSig");
+        boolean hasCert = reply.has("serverReplyCert");
+        if (!hasRingSig && !hasCert) {
+            return pin;
+        }
+        if (!hasRingSig || !hasCert || serverEntry == null) {
+            return null;
+        }
+        Map<String, String> services = stringMap(reply.get("serverKeyring"));
+        KeyringFile ring = new KeyringFile(services, reply.get("serverPolicyKey").textValue(),
+                reply.get("serverKeyringSig").textValue());
+        ReplyCert cert = ReplyCert.parse(reply.get("serverReplyCert"));
+        if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
+                || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()) {
+            return null;
+        }
+        return Crypto.decodePublicKey(Base64Url.decode(cert.key()));
     }
 
     private static boolean wellShaped(JsonNode r) {
@@ -256,7 +304,18 @@ public final class Sessions {
         return rootOk && isText(r.get("serverPolicyKey")) && ring != null && ring.isObject() && allText(ring)
                 && isText(r.get("nonce")) && isText(r.get("sess")) && status != null && status.isTextual()
                 && (status.textValue().equals(ATTESTED) || status.textValue().equals(UNSAFE))
-                && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"));
+                && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"))
+                && (!r.has("serverKeyringSig") || r.get("serverKeyringSig").isTextual())
+                && (!r.has("serverReplyCert") || parsesAsReplyCert(r.get("serverReplyCert")));
+    }
+
+    private static boolean parsesAsReplyCert(JsonNode n) {
+        try {
+            ReplyCert.parse(n);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     private static boolean isText(JsonNode n) {

@@ -6,6 +6,7 @@ import { decode, encode } from "../src/b64url.ts";
 import { generateKeyPair, randomBytes, sign, utf8, verify } from "../src/crypto.ts";
 import { canonicalize } from "../src/jcs.ts";
 import { signKeyring } from "../src/keyring.ts";
+import { issueReplyCert } from "../src/reply-cert.ts";
 import { signRoot } from "../src/root.ts";
 import {
   deriveSessionId,
@@ -19,6 +20,9 @@ import {
   type SessionReply,
   type SessionRequest,
 } from "../src/session.ts";
+
+const ENTRY = "mcp-entry";
+const NOW = 1_767_225_600_000;
 
 function world() {
   const clientPolicy = generateKeyPair();
@@ -136,57 +140,57 @@ describe("session reply", () => {
   it("replyVerifies", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey)).toBe(true);
+    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
   it("replyTamperedStatusFails", () => {
     const w = world();
     const reply = signSessionReply({ ...w.body(), status: "unsafe" }, w.serverPolicy.privateKey);
-    expect(verifySessionReply({ ...reply, status: "attested" }, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply({ ...reply, status: "attested" }, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("replyWrongPinnedKeyFails", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, w.req, generateKeyPair().publicKey)).toBe(false);
+    expect(verifySessionReply(reply, w.req, generateKeyPair().publicKey, ENTRY, NOW)).toBe(false);
   });
   it("replySessMismatchFails", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, { ...w.req, nonce: newNonce() }, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(reply, { ...w.req, nonce: newNonce() }, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("clientKeyringSwapFails", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, { ...w.req, clientKeyring: { session: "evil" } }, w.serverPolicy.publicKey)).toBe(false);
-    expect(verifySessionReply(reply, { ...w.req, clientPolicyKey: generateKeyPair().publicKey }, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(reply, { ...w.req, clientKeyring: { session: "evil" } }, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    expect(verifySessionReply(reply, { ...w.req, clientPolicyKey: generateKeyPair().publicKey }, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("attestedWithNullRootRejected", () => {
     const w = world();
     const noServer = signSessionReply({ ...w.body(), serverRoot: null, sess: deriveSessionId(w.clientRoot.sig, null, w.req.nonce, w.body().nonce, w.req) }, w.serverPolicy.privateKey);
-    expect(verifySessionReply(noServer, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(noServer, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     const body = w.body();
     const noClientReq = { ...w.req, clientRoot: null };
     const sess = deriveSessionId(null, w.serverRoot.sig, noClientReq.nonce, body.nonce, noClientReq);
     const reply = signSessionReply({ ...body, sess }, w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, noClientReq, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(reply, noClientReq, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("nullServerRootReplyVerifies", () => {
     const w = world();
     const body = w.body();
     const sess = deriveSessionId(w.clientRoot.sig, null, w.req.nonce, body.nonce, w.req);
     const reply = signSessionReply({ ...body, serverRoot: null, sess, status: "unsafe" }, w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey)).toBe(true);
+    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
   it("replyTamperedKeyringOrDisabledFails", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply({ ...reply, serverKeyring: { "mcp-entry": "evil" } }, w.req, w.serverPolicy.publicKey)).toBe(false);
-    expect(verifySessionReply({ ...reply, disabled: ["x"] }, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply({ ...reply, serverKeyring: { "mcp-entry": "evil" } }, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    expect(verifySessionReply({ ...reply, disabled: ["x"] }, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("replyBadServerRootFails", () => {
     const w = world();
     const bad = { ...w.serverRoot, sig: encode(randomBytes(64)) };
     const reply = signSessionReply({ ...w.body(), serverRoot: bad }, w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("replySignatureIsDomainSeparated", () => {
     const w = world();
@@ -196,7 +200,7 @@ describe("session reply", () => {
     expect(verify(w.serverPolicy.publicKey, prefixed, decode(reply.sig))).toBe(true);
     // a signature over the bare canonical body (no domain prefix) is not accepted
     const bare = encode(sign(w.serverPolicy.privateKey, utf8(canonicalize(body))));
-    expect(verifySessionReply({ ...reply, sig: bare }, w.req, w.serverPolicy.publicKey)).toBe(false);
+    expect(verifySessionReply({ ...reply, sig: bare }, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("signSessionReplyIgnoresStraySig", () => {
     const w = world();
@@ -205,7 +209,7 @@ describe("session reply", () => {
     const stray = signSessionReply({ ...body, sig: "stray" } as Omit<SessionReply, "sig">, w.serverPolicy.privateKey);
     expect(stray.sig).not.toBe("stray");
     expect(stray).toEqual(clean); // Ed25519 is deterministic: same body, same signature
-    expect(verifySessionReply(stray, w.req, w.serverPolicy.publicKey)).toBe(true);
+    expect(verifySessionReply(stray, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
 });
 
@@ -213,41 +217,41 @@ describe("isAttestedSession", () => {
   it("anAttestedReplyWithBothRootsIsAttested", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey)).toBe(true);
+    expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
   it("anyFlawIsNotAttested", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     // another pin, a tampered reply, an unsafe one
-    expect(isAttestedSession(w.req, reply, generateKeyPair().publicKey)).toBe(false);
-    expect(isAttestedSession(w.req, { ...reply, sess: "AAAA" }, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession(w.req, reply, generateKeyPair().publicKey, ENTRY, NOW)).toBe(false);
+    expect(isAttestedSession(w.req, { ...reply, sess: "AAAA" }, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     const unsafe = signSessionReply({ ...w.body(), status: "unsafe" }, w.serverPolicy.privateKey);
-    expect(isAttestedSession(w.req, unsafe, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession(w.req, unsafe, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     // the reply binds the client root's signature, not its contents: those must verify against the client policy key
     const swapped = { ...w.req, clientRoot: { ...w.clientRoot, root: encode(randomBytes(32)) } };
-    expect(isAttestedSession(swapped, reply, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession(swapped, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     // no client root
     const noClient = { ...w.req, clientRoot: null };
     const body = w.body();
     const sess = deriveSessionId(null, w.serverRoot.sig, noClient.nonce, body.nonce, noClient);
-    expect(isAttestedSession(noClient, signSessionReply({ ...body, sess, status: "unsafe" }, w.serverPolicy.privateKey), w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession(noClient, signSessionReply({ ...body, sess, status: "unsafe" }, w.serverPolicy.privateKey), w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     // what a recorded file may hold instead of a reply
-    expect(isAttestedSession(w.req, {} as SessionReply, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession(w.req, {} as SessionReply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("aV3RequestWhoseKeyringSignatureFailsIsNotAttested", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     // the session id binds the keyring but not its signature, so only the keyring check catches this
     const forged = signKeyring({ session: "k" }, w.clientPolicy.publicKey, generateKeyPair().privateKey).sig;
-    expect(isAttestedSession({ ...w.req, clientKeyringSig: forged }, reply, w.serverPolicy.publicKey)).toBe(false);
-    expect(isAttestedSession({ ...w.req, clientKeyringSig: "" }, reply, w.serverPolicy.publicKey)).toBe(false);
+    expect(isAttestedSession({ ...w.req, clientKeyringSig: forged }, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    expect(isAttestedSession({ ...w.req, clientKeyringSig: "" }, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("aLegacyRequestWithAnAttestedReplyIsAttested", () => {
     const w = world();
     const { clientKeyringSig: _sig, ...legacy } = w.req;
     const req: LegacySessionRequest = legacy;
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey)).toBe(true);
+    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
   it("aKeyringSignatureThatIsPresentButNotAStringIsNotLegacy", () => {
     const w = world();
@@ -255,7 +259,56 @@ describe("isAttestedSession", () => {
     for (const sig of [null, 1]) {
       const req = { ...w.req, clientKeyringSig: sig } as unknown as SessionRequest;
       expect(isLegacySessionRequest(req), String(sig)).toBe(false);
-      expect(isAttestedSession(req, reply, w.serverPolicy.publicKey), String(sig)).toBe(false);
+      expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW), String(sig)).toBe(false);
+    }
+  });
+});
+
+describe("the entry key form", () => {
+  /** A reply signed by mcp-entry's key, with the server keyring's signature and a certificate valid until NOW + 1000. */
+  function entryWorld() {
+    const w = world();
+    const entry = generateKeyPair();
+    const services = { "mcp-entry": entry.publicKey, "github-tools": generateKeyPair().publicKey };
+    const ring = signKeyring(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey);
+    const cert = issueReplyCert(w.serverPolicy.publicKey, ENTRY, entry.publicKey, NOW + 1000, w.serverPolicy.privateKey);
+    const body = { ...w.body(), serverKeyring: services, serverKeyringSig: ring.sig, serverReplyCert: cert };
+    return { ...w, entry, body, reply: signSessionReply(body, entry.privateKey) };
+  }
+  it("replySignedByTheCertifiedEntryKeyVerifies", () => {
+    const w = entryWorld();
+    expect(verifySessionReply(w.reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
+  });
+  it("theSameReplySignedByThePolicyKeyFails", () => {
+    // the form is decided by the fields present, so the pin is never tried for an entry-key reply
+    const w = entryWorld();
+    expect(verifySessionReply(signSessionReply(w.body, w.serverPolicy.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+  });
+  it("anEntryKeyReplyStrippedToTheOldFormFails", () => {
+    const w = entryWorld();
+    const { serverKeyringSig: _s, serverReplyCert: _c, ...stripped } = w.body;
+    expect(verifySessionReply(signSessionReply(stripped, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+  });
+  it("anotherConfiguredEntryFails", () => {
+    const w = entryWorld();
+    expect(verifySessionReply(w.reply, w.req, w.serverPolicy.publicKey, "github-tools", NOW)).toBe(false);
+  });
+  it("offlineOneSessionIsAttestedForCallsUpToNotAfterOnly", () => {
+    const w = entryWorld();
+    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1000)).toBe(true);
+    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1001)).toBe(false);
+    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, Number.NaN)).toBe(false);
+  });
+  it("oldFormIgnoresTheTime", () => {
+    const w = world();
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, Number.MAX_SAFE_INTEGER)).toBe(true);
+  });
+  it("malformedNewFieldsFailWithoutThrowing", () => {
+    const w = entryWorld();
+    for (const bad of [{ serverKeyringSig: null }, { serverKeyringSig: 7 }, { serverReplyCert: null }, { serverReplyCert: { ...w.body.serverReplyCert, notAfter: 1.5 } }]) {
+      const reply = signSessionReply({ ...w.body, ...bad } as unknown as Omit<SessionReply, "sig">, w.entry.privateKey);
+      expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW), JSON.stringify(bad)).toBe(false);
     }
   });
 });

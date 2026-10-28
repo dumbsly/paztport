@@ -91,6 +91,9 @@ class BoundaryClientTest {
     /** The client's clock, in nanoseconds, which a test moves on by hand. */
     private final AtomicLong nanos = new AtomicLong();
 
+    /** The client's time of day, in milliseconds since the epoch, against which reply certificates are judged. */
+    private final AtomicLong millis = new AtomicLong(1_767_225_600_000L);
+
     /** This egress's boundary key. */
     private final byte[] blindingKey = new SecureRandom().generateSeed(BoundaryInfluence.KEY_LENGTH);
 
@@ -119,7 +122,7 @@ class BoundaryClientTest {
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
                 partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
-                nanos::get, IDLE_MS);
+                nanos::get, millis::get, IDLE_MS);
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -353,7 +356,7 @@ class BoundaryClientTest {
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
                 partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
-                nanos::get, IDLE_MS)) {
+                nanos::get, millis::get, IDLE_MS)) {
             partner.status("attested");
             partner.signNextHandshakeWith(Crypto.generateEd25519KeyPair());
             assertFalse(verified("rid-2", () -> other.post("/charge", CHARGE)).attested());
@@ -541,7 +544,7 @@ class BoundaryClientTest {
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
                 partner.policyKey(), blindingKey, null, PooledTlsClient.of(fixtureBundle("payment")), nanos::get,
-                1_000)) {
+                millis::get, 1_000)) {
             partner.failNextHandshake(503);
             assertFalse(verified("rid-1", () -> shortIdle.post("/charge", CHARGE)).attested());
             assertEquals(2, partner.handshakes().size());
@@ -559,7 +562,7 @@ class BoundaryClientTest {
                     new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                             System::currentTimeMillis),
                     built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                    partner.policyKey(), blindingKey, null, tls, nanos::get, 0));
+                    partner.policyKey(), blindingKey, null, tls, nanos::get, millis::get, 0));
         }
     }
 
@@ -573,7 +576,7 @@ class BoundaryClientTest {
                         new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                                 System::currentTimeMillis),
                         built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                        partner.policyKey(), key, null, tls, nanos::get, IDLE_MS));
+                        partner.policyKey(), key, null, tls, nanos::get, millis::get, IDLE_MS));
             }
         }
     }

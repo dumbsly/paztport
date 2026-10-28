@@ -211,7 +211,8 @@ export class ServerConnection {
     } catch (e) {
       outcome = classifySessionError(e instanceof McpError ? e.code : undefined);
     }
-    outcome ??= classifySessionReply(raw, req, pin);
+    // "mcp-entry": the server's entry service, as in SERVER_ORIGINS.
+    outcome ??= classifySessionReply(raw, req, pin, "mcp-entry", Date.now());
     if (outcome.status === "attested") {
       this.reply = outcome.reply;
       this.state = "attested";

@@ -160,8 +160,10 @@ final class PartnerSessions {
         boolean attested = verifier != null;
         add(new PeerKey(peerIssuer, peerSvc), new Session(sess, attested, verifier));
         TRACE.info("PAZTPORT_TRACE session peer={} status={}", LogSafe.of(peerSvc), attested ? "attested" : "unsafe");
-        return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), serverNonce, sess,
-                attested ? "attested" : "unsafe", attested ? List.of() : unsafeDisabled, null), ownPolicyPrivate);
+        // The policy-key form, signed by the policy key: no keyring signature or reply certificate.
+        return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), null, null,
+                serverNonce, sess, attested ? "attested" : "unsafe", attested ? List.of() : unsafeDisabled, null),
+                ownPolicyPrivate);
     }
 
     /**

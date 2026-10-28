@@ -136,7 +136,8 @@ function verifySession(r: Rec): Session | undefined {
     if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
       return undefined;
     }
-    if (!isAttestedSession(request, reply, r.pin)) {
+    // Judged now: the recorded server signs with its policy key, and that form ignores the time.
+    if (!isAttestedSession(request, reply, r.pin, "mcp-entry", Date.now())) {
       return undefined;
     }
     return {
