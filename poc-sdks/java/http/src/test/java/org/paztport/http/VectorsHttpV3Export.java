@@ -33,10 +33,13 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.paztport.core.Base64Url;
+import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.ContentLabel;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
+import org.paztport.core.Influence;
 import org.paztport.core.InfluenceClass;
+import org.paztport.core.InfluenceEntry;
 import org.paztport.core.Keyring;
 import org.paztport.core.MerkleProof;
 import org.paztport.core.ReasonCode;
@@ -66,8 +69,12 @@ class VectorsHttpV3Export {
             + " `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex)"
             + " with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one"
             + " nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK."
-            + " Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over"
-            + " HTTP, so the TypeScript SDK does not replay this file.";
+            + " boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key`"
+            + " (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry"
+            + " `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per"
+            + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, and `opens`"
+            + " says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the"
+            + " Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
@@ -78,6 +85,10 @@ class VectorsHttpV3Export {
     private static final byte[] REQUEST_BODY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
     private static final byte[] RESPONSE_BODY = "{\"paid\":true}".getBytes(StandardCharsets.UTF_8);
     private static final String KEY_PREFIX = "302e020100300506032b657004220420";
+    private static final byte[] BOUNDARY_KEY =
+            Crypto.sha256("paztport-http-v3-vector-boundary-key".getBytes(StandardCharsets.UTF_8));
+    private static final String PARTNER_ENTRY = "psp";
+    private static final String EGRESS = "payment";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -196,9 +207,85 @@ class VectorsHttpV3Export {
                 ReasonCode.REPLAY, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
 
+        out.set("boundaryInfluence", boundaryInfluence());
+
         // Replay what was just built, so an export can never record a wrong answer.
         assertAll(out, v3);
         return out;
+    }
+
+    /**
+     * Two private entries of alice's, a third-party ticket and private data with no owner, so the cases cover a
+     * group of two, an owned group and the no-owner groups. The extra-original case adds an alice entry the sender
+     * never committed to.
+     */
+    private static ObjectNode boundaryInfluence() {
+        List<InfluenceEntry> input = List.of(
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-1", "cid-order-1", "alice"),
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:cards", "h-card-1", null, "alice"),
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "h-ticket-1", "cid-ticket-1", null),
+                new InfluenceEntry(InfluenceClass.PRIVATE, "http:ledger", "h-ledger-1", null, null));
+        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(input, BOUNDARY_KEY, RID, PARTNER_ENTRY, EGRESS);
+        ObjectNode b = JsonNodeFactory.instance.objectNode();
+        b.put("key", Base64Url.encode(BOUNDARY_KEY));
+        b.put("rid", RID);
+        b.put("rcv", PARTNER_ENTRY);
+        b.put("egress", EGRESS);
+        b.set("input", Influence.toJson(input));
+        ArrayNode salts = b.putArray("salts");
+        for (InfluenceEntry e : reduced) {
+            ObjectNode s = salts.addObject();
+            s.put("cls", e.cls().wire());
+            if (e.owner() != null) {
+                s.put("owner", e.owner());
+            }
+            s.put("salt", boundarySalt(e));
+        }
+        b.set("reduced", Influence.toJson(reduced));
+        InfluenceEntry aliceSent = reduced.stream().filter(e -> "alice".equals(e.owner())).findFirst().orElseThrow();
+        List<InfluenceEntry> aliceOriginals = input.stream().filter(e -> "alice".equals(e.owner())).toList();
+        List<InfluenceEntry> withExtra = new ArrayList<>(aliceOriginals);
+        withExtra.add(new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-2", null, "alice"));
+        ArrayNode openings = b.putArray("openings");
+        openings.add(openingCase("genuine opening", aliceSent, aliceOriginals, true));
+        openings.add(openingCase("extra original", aliceSent, withExtra, false));
+        return b;
+    }
+
+    private static String boundarySalt(InfluenceEntry sent) {
+        return Base64Url.encode(BoundaryInfluence.salt(BOUNDARY_KEY, RID, PARTNER_ENTRY, sent.cls(), sent.owner()));
+    }
+
+    private static ObjectNode openingCase(String name, InfluenceEntry sent, List<InfluenceEntry> originals,
+            boolean opens) {
+        ObjectNode c = JsonNodeFactory.instance.objectNode();
+        c.put("name", name);
+        c.set("sent", sent.toJson());
+        c.set("opening", new BoundaryInfluence.Opening(sent.cls(), sent.owner(), boundarySalt(sent), originals).toJson());
+        c.put("opens", opens);
+        return c;
+    }
+
+    private static void assertBoundaryInfluence(JsonNode b) {
+        byte[] key = Base64Url.decode(b.get("key").asText());
+        String rid = b.get("rid").asText();
+        String rcv = b.get("rcv").asText();
+        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(b.get("input")), key, rid, rcv,
+                b.get("egress").asText());
+        assertEquals(b.get("reduced"), Influence.toJson(reduced), "boundary reduced");
+        assertEquals(b.get("salts").size(), reduced.size(), "a salt per group");
+        for (JsonNode s : b.get("salts")) {
+            InfluenceClass cls = InfluenceClass.fromWire(s.get("cls").asText());
+            String owner = s.has("owner") ? s.get("owner").asText() : null;
+            assertEquals(s.get("salt").asText(), Base64Url.encode(BoundaryInfluence.salt(key, rid, rcv, cls, owner)),
+                    "boundary salt " + s);
+        }
+        for (JsonNode c : b.get("openings")) {
+            InfluenceEntry sent = Influence.parse(JsonNodeFactory.instance.arrayNode().add(c.get("sent"))).get(0);
+            assertEquals(c.get("opens").asBoolean(),
+                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(c.get("opening"))),
+                    c.get("name").asText());
+        }
     }
 
     private static String responseBinding(String resultHash, List<ContentLabel> labels) {
@@ -255,6 +342,7 @@ class VectorsHttpV3Export {
         for (JsonNode c : http.get("responses")) {
             assertResponse(c, http, v3);
         }
+        assertBoundaryInfluence(http.get("boundaryInfluence"));
     }
 
     private static PublicKey publicKey(String name, JsonNode http, JsonNode v3) {

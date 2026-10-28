@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.",
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -318,5 +318,115 @@
       "resultHash" : "UU4OiqfyEERcK0QPyXKb9wRTpEagtkBgmP0vzFxX770"
     },
     "proofRoute" : "gateway/orders/payment"
-  } ]
+  } ],
+  "boundaryInfluence" : {
+    "key" : "AAUfgGLdjeo1V7yVo37Q6S7_oU7vCp6ebTIGhqOP2Yw",
+    "rid" : "rid-http-1",
+    "rcv" : "psp",
+    "egress" : "payment",
+    "input" : [ {
+      "cls" : "private",
+      "src" : "http:orders",
+      "h" : "h-order-1",
+      "cid" : "cid-order-1",
+      "owner" : "alice"
+    }, {
+      "cls" : "private",
+      "src" : "http:cards",
+      "h" : "h-card-1",
+      "owner" : "alice"
+    }, {
+      "cls" : "third-party",
+      "src" : "ticket:t-1",
+      "h" : "h-ticket-1",
+      "cid" : "cid-ticket-1"
+    }, {
+      "cls" : "private",
+      "src" : "http:ledger",
+      "h" : "h-ledger-1"
+    } ],
+    "salts" : [ {
+      "cls" : "private",
+      "owner" : "alice",
+      "salt" : "-kN8YOjmxnwiGm4BTq9hXw"
+    }, {
+      "cls" : "third-party",
+      "salt" : "zQWiqgWZBnMqPTmIK7hOsw"
+    }, {
+      "cls" : "private",
+      "salt" : "s5VIRUEsqB_NUuHi_TPYWg"
+    } ],
+    "reduced" : [ {
+      "cls" : "private",
+      "src" : "boundary:payment",
+      "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+      "owner" : "alice"
+    }, {
+      "cls" : "third-party",
+      "src" : "boundary:payment",
+      "h" : "gRdRS5sINcb6SUdooNBZZ8qUxL9RNWsxO_L0OPY6HEo"
+    }, {
+      "cls" : "private",
+      "src" : "boundary:payment",
+      "h" : "w9UGykjY-KQy5U7LJ7xPnriI5KolffE5BTHAh6XN_IY"
+    } ],
+    "openings" : [ {
+      "name" : "genuine opening",
+      "sent" : {
+        "cls" : "private",
+        "src" : "boundary:payment",
+        "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+        "owner" : "alice"
+      },
+      "opening" : {
+        "cls" : "private",
+        "owner" : "alice",
+        "salt" : "-kN8YOjmxnwiGm4BTq9hXw",
+        "originals" : [ {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-1",
+          "cid" : "cid-order-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:cards",
+          "h" : "h-card-1",
+          "owner" : "alice"
+        } ]
+      },
+      "opens" : true
+    }, {
+      "name" : "extra original",
+      "sent" : {
+        "cls" : "private",
+        "src" : "boundary:payment",
+        "h" : "Kp_I-ofNJ0CLjd_Ne45_DgIwwU1rDdcb1pw-8NBOGCs",
+        "owner" : "alice"
+      },
+      "opening" : {
+        "cls" : "private",
+        "owner" : "alice",
+        "salt" : "-kN8YOjmxnwiGm4BTq9hXw",
+        "originals" : [ {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-1",
+          "cid" : "cid-order-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:cards",
+          "h" : "h-card-1",
+          "owner" : "alice"
+        }, {
+          "cls" : "private",
+          "src" : "http:orders",
+          "h" : "h-order-2",
+          "owner" : "alice"
+        } ]
+      },
+      "opens" : false
+    } ]
+  }
 }

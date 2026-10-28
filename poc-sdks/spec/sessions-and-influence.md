@@ -233,7 +233,7 @@ An influence entry is a JSON object:
 | Field | Required | Rule |
 |---|---|---|
 | `cls` | yes | One of the four classes. |
-| `src` | yes | A string naming the source, for example `server:<serverId>`, `web:example.com` or, for an HTTP response, `http:<target>`. |
+| `src` | yes | A string naming the source, for example `server:<serverId>`, `web:example.com`, for an HTTP response `http:<target>`, or, for a [blinded entry](#blinded-influence) from another organisation, `boundary:<egress>`. |
 | `h` | yes | A string identifying the content, such as a hash of it; the agents demo uses the result binding, and the Java SDK an HTTP response's result hash. |
 | `cid` | no | A string: the content id from the label the entry came from. |
 | `owner` | no | A **non-empty** string: an opaque id of whose data this is. |
@@ -329,14 +329,16 @@ MUST:
    - `sess`: the id of the session the sender opened with the partner;
    - `rcv`: the partner's entry service;
    - `bind`: the binding of the request it sends;
-   - `infl`: the commitment to the accumulated influence, **with owners**;
+   - `infl`: the commitment to the influence entries it sends (step 3), which carry the owners;
    - `prev`: `""`.
 
    A boundary stamp MUST have a non-empty `sess`, so it is never valid inside a mesh, where `sess` is `""`.
-3. Send the influence entries, with their owners, and the proof for the route `<egress>/<partner entry>`, which
-   the sender's root MUST hold.
-4. Never forward an internal stamp. So the partner learns one service name and the influence, not the route
-   behind it, and check 6 (every stamp carries the session) holds unchanged.
+3. Send the influence as [blinded entries](#blinded-influence), one per class and owner, and the proof for the
+   route `<egress>/<partner entry>`, which the sender's root MUST hold. It MUST NOT send the original entries:
+   their `src` names internal services and items, and their `h` values could be confirmed by guessing.
+4. Never forward an internal stamp. So the partner learns one service name and the classes and owners of the
+   influence, not the route or the sources behind them, and check 6 (every stamp carries the session) holds
+   unchanged.
 5. In an unsafe session, sign no stamp and send no influence. The partner would not verify the stamp, and the
    owners in the influence are private. The call carries only the session id.
 6. Pin the partner's policy key and check the handshake reply against it
@@ -373,4 +375,63 @@ Java SDK checks at startup that the two match. It does not attest what it answer
 events; its properties are in the [Java SDK README](../java/README.md#paztport-spring).
 
 What the partner can still learn: the boundary proof is the same on every request over that route, so it can
-count and cluster requests by route. The root README's known limits cover that.
+count and cluster requests by route. It also sees each request's classes and owners, which the rule needs. The
+root README's known limits cover both.
+
+### Blinded influence
+
+The owner-aware rule reads only each entry's class and owner, so that is all the egress sends. It normalises
+the influence the request context holds after the internal chain passed the live order at this hop, groups the
+entries by (`cls`, `owner`), with no owner a group of its own, and sends one entry per group:
+
+| Field | Value |
+|---|---|
+| `cls` | The group's class. |
+| `src` | `boundary:<egress>`. |
+| `h` | The group's commitment, below. |
+| `owner` | The group's owner, left out when the group has none. |
+
+A sent entry has no `cid`, and the sent list is normalised. An entry with an owner and the same entry without
+one fall in two groups, so two entries are sent. No influence gives no entries, committed as `""`. Every
+(class, owner) pair of the originals is in the sent list and no other is, so the partner's verdict under the
+owner-aware rule is the one it would reach on the originals.
+
+The egress holds a **boundary key** of exactly 32 bytes, which MUST NOT leave the sender; a key of any other
+length MUST be refused. For each group:
+
+```
+salt       = HMAC-SHA256( key, utf8("paztport-boundary-salt\n")
+                               ‖ utf8( JCS({ "cls": cls, "owner": owner, "rcv": <partner entry>, "rid": rid }) ) )[0..16]
+commitment = b64url( H( utf8("paztport-boundary-entry\n") ‖ salt ‖ utf8( JCS( normalise(group) ) ) ) )
+```
+
+`owner` is left out of the salt's object when the group has none, and `[0..16]` is the first 16 bytes. The
+commitment covers every field of every original in the group. The salt is per request and per partner, so the
+same content gives a different `h` each time: the partner can't tell that two requests carried the same
+content, or confirm a guess at it. It is derived, so the sender stores nothing per call to make it, and can
+always derive it again.
+
+**Opening an entry.** To show what one sent entry stood for, the sender reveals an opening:
+`{ "cls", "owner", "salt", "originals" }`, with `owner` left out when the entry has none, `salt` base64url and
+`originals` a list of entries. An opening opens a sent entry only when all of these hold:
+
+1. `originals` is not empty.
+2. The opening's `cls` and `owner` are the sent entry's, and so are every original's: both absent, or equal.
+3. `salt` decodes to exactly 16 bytes.
+4. The commitment to `originals` under `salt` is the sent entry's `h`.
+
+A checker MUST answer "does not open" for anything else, a malformed opening included, and MUST NOT fail in any
+other way. Revealing one salt opens only that entry: every other group, request and partner has its own salt.
+Two calls to one partner in one request are the exception, below.
+
+An opening proves what the sender committed to when it sent the entry, not that the originals were true.
+
+The sender MUST keep the original entries and its boundary key for as long as it wants to open entries; rotating
+the key makes earlier entries unopenable. The originals of one call are kept under (`rid`, partner entry). That
+names one call, because a second call from the egress with the same `rid` is `REPLAY` at the partner within the
+nonce window. A sender that may call the same partner again later in one request, after the window, keeps
+every call's originals, not only the last. Those calls derive the same salts, so opening one call's entry also
+reveals the salt of the same group's entry in the others.
+
+`http-v3.json`'s `boundaryInfluence` pins the salts, the sent entries, an opening that opens and one with an extra
+original that does not.
