@@ -341,31 +341,71 @@ that the route taken is in a private, committed policy**.
 
 ## 5. Known limits
 
+The limits come in three parts: what a deployment must supply for Paztport to
+hold, what any design of this kind cannot do, and the shortcuts this repository
+takes.
+
+### 5.1 Using it soundly
+
+What Paztport needs from a deployment, and what it deliberately doesn't cover yet.
+
+- **An authenticated transport.** A v3 verifier checks that the last signer is the
+  transport's authenticated sender (`PEER_MISMATCH`) only when it is given one. The
+  Java mesh gives it one: every hop is mutual TLS, and `payment` takes the service
+  named in the client certificate as the sender
+  ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)). The agents
+  demo runs over stdio, which has no TLS, so there the check is skipped and the last
+  signer is known only by its signature. This also decides who can blame a replica.
+  Without a peer, the instance in a stamp is reported by the service that signed it.
+  The responder refuses a container that doesn't run the named service, but a
+  compromised service can still name any replica of itself. With a peer, a rejection
+  names the sender's own TCP address instead, which the responder resolves to a
+  container on the mesh network, so a replica can only be blamed for what it sent.
+  That rests on the address being the sender's: behind a proxy or NAT it would name
+  the proxy. A certificate is per service, not per container, so blaming one
+  container needs per-instance certificates; until then the responder still checks
+  that the container runs the named service.
+- **Async is out of scope**, for now. Queues, caches, and scheduled jobs break the
+  linear-chain model (see the async direction in
+  [section 6](#6-where-this-could-go)).
+- **The rule judges whose data shaped a write, not who may receive it.** A
+  hijacked request that read no private data passes the rule whatever destination
+  it names. In the demo, who may receive a refund is the PSP's own payer check
+  (only a card held by whoever paid for the order, else `NOT_PAYER`), and the PSP
+  registers a card's owner only from a charge the shop vouched for and no untrusted
+  content shaped. A service whose destinations are not its own records needs a
+  check of its own.
+- **The rule judges only the influence the request carries.** `PublicWrites` sees
+  that influence only where the request's chain verified at that hop. In `off`
+  mode, after an audit-mode failure, or in an unsafe partner session it may be
+  incomplete or empty, and the rule passes what it cannot see. A partner must
+  therefore list its public writes in `paztport.partner.unsafe-disabled`.
+
+In v1 a forwarded chain could blame its last signer. v3 binds the receiver, so
+this no longer applies to anything the demos send.
+
+### 5.2 Limits of the concept
+
+What any design of this kind meets, and what this one has not yet tackled.
+
+**Inherent**
+
 - **Position, not trust.** A compromised hop on a valid route can still misuse
   that route (see the Java demo's
   [threat model](poc-demos/java-mesh/README.md#threat-model)).
-- **The caller-identity check needs an authenticated transport.** A v3 verifier
-  checks that the last signer is the transport's authenticated sender
-  (`PEER_MISMATCH`) only when it is given one. The Java mesh gives it one: every hop
-  is mutual TLS, and `payment` takes the service named in the client certificate as
-  the sender ([check 12](poc-demos/java-mesh/README.md#the-verification-pipeline)).
-  The agents demo runs over stdio, which has no TLS, so there the check is skipped
-  and the last signer is known only by its signature.
-- **A forwarded chain can blame its last signer, in v1.** A v1 stamp doesn't bind the
-  service it was meant for, so a chain forwarded unchanged to a different service
-  with a matching method and path can still give `PATH_NOT_ALLOWED` and name the
-  innocent last signer. Every demo now signs v3, which binds the receiver, so there
-  such a chain is `BINDING_MISMATCH` and names no one. The limit stands only for v1
-  chains, which no demo sends any more.
-- **A compromised service can blame its own replicas, without a peer.** The
-  instance in a stamp is reported by the service that signed it. The responder
-  refuses a container that doesn't run the named service, but a compromised service
-  can still name any replica of itself. In the Java mesh, under mutual TLS, a
-  rejection names the sender's own TCP address instead, which the responder
-  resolves to a container on the mesh network, so a replica can only be blamed for
-  what it sent. That rests on the address being the sender's: behind a proxy or
-  NAT it would name the proxy. A certificate is per service, not per container, so
-  the responder still checks that the container runs the named service.
+- **Influence is only as complete as the instrumented path.** Content that reaches a
+  component outside an attested hop (a cache, a side channel, training data, a
+  person pasting text) is invisible to the rule. This is the general limit of
+  information-flow tracking.
+- **The rule counts presence, not effect.** It can't tell whether third-party text
+  actually changed what a model did, which is undecidable for a model. So it
+  refuses conservatively, preferring a false refusal to a missed one.
+- **What a partner must learn.** To apply the owner-aware rule, a partner must
+  learn the influence's classes and an owner id it can match against its own
+  records.
+
+**Not yet tackled**
+
 - **Proof linkability.** A route's proof is byte-identical on every request, so an
   observer who sees many proofs can cluster requests by route and count distinct
   and frequent routes without breaking any cryptography. Inside one mesh, mTLS
@@ -376,30 +416,24 @@ that the route taken is in a private, committed policy**.
 - **The partner learns the influence's sources.** The influence crosses the
   boundary with its owners, and its `src` values name internal services and
   items (for example `http:orders`, `ticket:t-1`), besides the one egress name.
-  The route stays hidden, but not these names.
+  The route stays hidden, but not these names. They could be dropped or blinded at
+  the boundary. (The classes and owners a partner must learn are under Inherent.)
 - **Partner replies are not attested.** The egress records each reply from the
   partner as `local-untrusted`, and labels its own response the same, so whatever
-  relays the reply passes it on as untrusted.
-- **`PublicWrites` judges the influence it is shown.** That influence is verified
-  only where the request's chain verified at that hop. In `off` mode, after an
-  audit-mode failure, or in an unsafe partner session it may be incomplete or
-  empty, and the rule passes what it cannot see. A partner must therefore list its
-  public writes in `paztport.partner.unsafe-disabled`.
+  relays the reply passes it on as untrusted. A response stamp under the partner's
+  keyring, which the egress already holds from the session reply, would attest it;
+  that is a spec addition.
 - **One session per peer certificate.** Replicas that share a certificate replace
-  each other's session.
-- **The partner holds its policy private key online**, to sign its session replies.
-- **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
-  and the mailer's directory are fixtures, and `assistant` is scripted, with no
-  model.
-- **The rule judges whose data shaped a write, not who may receive it.** A
-  hijacked request that read no private data passes the rule whatever destination
-  it names. In the demo, who may receive a refund is the PSP's own payer check
-  (only a card held by whoever paid for the order, else `NOT_PAYER`), and the PSP
-  registers a card's owner only from a charge the shop vouched for and no untrusted
-  content shaped. A service whose destinations are not its own records needs a
-  check of its own.
-- **Async is out of scope.** Queues, caches, and scheduled jobs break the
-  linear-chain model.
+  each other's session. Keying sessions by issuer and name, or by instance, would
+  fix it.
+- **The partner holds its policy private key online**, to sign its session replies,
+  as currently specified. The policy key could instead certify an offline-issued
+  session-signing key, the way it signs the keyring; that is a spec change.
+
+### 5.3 Limits of this proof of concept
+
+Engineering shortcuts of this repository, not of the design.
+
 - **The responder mounts the Docker socket**, which is host-level control.
   Acceptable for a local demo only; never do this in a real deployment.
 - **The responder's keyring is unpinned.** It checks event signatures against
@@ -419,6 +453,9 @@ that the route taken is in a private, committed policy**.
   demo can replay and mutate a genuinely valid request. The harness lives in the
   demo and reaches requests through the Spring SDK's `ReceivedRequestListener`
   hook. It simulates an on-the-wire capture and isn't part of the attestation
+  model.
+- **The demo's support desk is a stand-in.** The bearer tokens, the seeded orders
+  and the mailer's directory are fixtures, and `assistant` is scripted, with no
   model.
 
 ## 6. Where this could go
