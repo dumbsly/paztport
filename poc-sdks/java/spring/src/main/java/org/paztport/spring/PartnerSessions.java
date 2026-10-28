@@ -5,10 +5,13 @@ package org.paztport.spring;
 
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
@@ -25,9 +28,22 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The partner's side of the session handshake: it answers a client's request with a signed reply and remembers the
- * session it opened, for the request filter to look up. There is one session per authenticated peer, the HTTP
- * stand-in for one session per connection, so a new handshake from a peer replaces its earlier session, and a
- * session id is honoured only for the peer it was opened with.
+ * session it opened, for the request filter to look up. HTTP has no connection to hold a session, so each session is
+ * kept by its id and records the peer that opened it: the client certificate's issuer and common name, both of which
+ * the TLS layer authenticated. A call is in a session only when that same issuer and name present its id; the name
+ * alone is not enough, since another CA the container trusts could issue a certificate with the same name.
+ *
+ * <p>A handshake adds a session and replaces none, so replicas of one client that share a certificate each keep
+ * their own, and a client re-opening never cuts off calls still in flight in its earlier session. What bounds
+ * memory instead: a peer holds at most {@code maxSessionsPerPeer} sessions, its least recently used evicted when it
+ * opens one more, and a session no call has used for {@code sessionIdleMs} expires. A peer can evict only its own
+ * sessions, so no client can push out another's. Memory is therefore bounded by the peers the trusted CAs vouch
+ * for, times the cap. An evicted or expired id is simply unknown, as one from before a restart is.
+ *
+ * <p>Opening, eviction and lookup all run under one {@link ReentrantLock}, so concurrent handshakes from one peer
+ * can never leave it over its cap. It is a lock rather than {@code synchronized} so that a virtual thread waiting on
+ * it does not pin its carrier. The handshake's signature checks and the verifier are built before the lock is
+ * taken; only the bookkeeping is done under it.
  *
  * <p>A session is attested only when {@link Sessions#status} says so: the client's root and keyring verify under a
  * policy key this side has pinned out of band. An attested session gets its own verifier, pinned to the client's
@@ -40,8 +56,25 @@ final class PartnerSessions {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
 
-    /** A peer's current session; {@code verifier} is null when it is unsafe. */
+    /** A session a peer opened; {@code verifier} is null when it is unsafe. */
     record Session(String sess, boolean attested, VerifierV3 verifier) {
+    }
+
+    /** The authenticated peer a session belongs to: the client certificate's issuer, RFC 2253, and common name. */
+    private record PeerKey(String issuer, String svc) {
+    }
+
+    /** A live session, its peer, and when a call last used it, by {@link #clock}; changed only under the lock. */
+    private static final class Entry {
+        final PeerKey peer;
+        final Session session;
+        long lastUsedMs;
+
+        Entry(PeerKey peer, Session session, long lastUsedMs) {
+            this.peer = peer;
+            this.session = session;
+            this.lastUsedMs = lastUsedMs;
+        }
     }
 
     private final SignedRoot ownRoot;
@@ -56,11 +89,30 @@ final class PartnerSessions {
     private final LongSupplier clock;
     private final long callMaxAgeMs;
     private final long runMaxAgeMs;
-    private final Map<String, Session> sessions = new ConcurrentHashMap<>();
+    private final int maxSessionsPerPeer;
+    private final long sessionIdleMs;
 
+    private final ReentrantLock lock = new ReentrantLock();
+    /** Every session kept, by id; an expired one stays until a lookup finds it or a handshake sweeps it out. */
+    private final Map<String, Entry> byId = new HashMap<>();
+    /** Each peer's live sessions, least recently used first: a lookup moves its session to the end. */
+    private final Map<PeerKey, LinkedHashMap<String, Entry>> byPeer = new HashMap<>();
+
+    /**
+     * @param clock the time in milliseconds, which the session verifiers check stamps against and which ages an
+     *     idle session
+     * @param maxSessionsPerPeer how many sessions one peer may hold at once; at least 1
+     * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive
+     */
     PartnerSessions(SignedRoot ownRoot, KeyringFile ownKeyring, String ownPolicyKey, PrivateKey ownPolicyPrivate,
             Set<String> pinnedClientKeys, Set<String> clientOrigins, List<String> unsafeDisabled, NonceCache nonces,
-            LongSupplier clock, long callMaxAgeMs, long runMaxAgeMs) {
+            LongSupplier clock, long callMaxAgeMs, long runMaxAgeMs, int maxSessionsPerPeer, long sessionIdleMs) {
+        if (maxSessionsPerPeer < 1) {
+            throw new IllegalArgumentException("a peer must be allowed at least one session");
+        }
+        if (sessionIdleMs <= 0) {
+            throw new IllegalArgumentException("the idle period must be positive");
+        }
         this.ownRoot = ownRoot;
         this.ownKeyring = ownKeyring;
         this.ownPolicyKey = ownPolicyKey;
@@ -73,14 +125,21 @@ final class PartnerSessions {
         this.clock = clock;
         this.callMaxAgeMs = callMaxAgeMs;
         this.runMaxAgeMs = runMaxAgeMs;
+        this.maxSessionsPerPeer = maxSessionsPerPeer;
+        this.sessionIdleMs = sessionIdleMs;
     }
 
     /**
-     * Opens a session for {@code peerSvc}, replacing any it had, and returns the signed reply. The caller has
-     * already checked {@link Sessions#opensSession}; a request that fails it throws
-     * {@link IllegalArgumentException}, with the peer's current session left in place.
+     * Opens a session for the peer {@code peerIssuer}, {@code peerSvc}, evicting that peer's least recently used
+     * one if it already holds its cap, and returns the signed reply. The caller has already checked
+     * {@link Sessions#opensSession}. It throws {@link IllegalArgumentException}, with every session left as it was,
+     * when the request opens no session, when the peer has no issuer or no name (so no session is ever kept under
+     * a missing one), or when the id is already in use, which would take a repeated server nonce.
      */
-    SessionReply open(SessionRequest req, String peerSvc) {
+    SessionReply open(SessionRequest req, String peerIssuer, String peerSvc) {
+        if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty()) {
+            throw new IllegalArgumentException("a session is opened only for a peer with an issuer and a name");
+        }
         String serverNonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
                 ownRoot.sig(), req.nonce(), serverNonce, req.clientPolicyKey(), req.clientKeyring());
@@ -99,16 +158,98 @@ final class PartnerSessions {
             }
         }
         boolean attested = verifier != null;
-        sessions.put(peerSvc, new Session(sess, attested, verifier));
+        add(new PeerKey(peerIssuer, peerSvc), new Session(sess, attested, verifier));
         TRACE.info("PAZTPORT_TRACE session peer={} status={}", LogSafe.of(peerSvc), attested ? "attested" : "unsafe");
         return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), serverNonce, sess,
                 attested ? "attested" : "unsafe", attested ? List.of() : unsafeDisabled, null), ownPolicyPrivate);
     }
 
-    /** The peer's current session when its id is {@code sess}, else null: another peer's, a replaced or an unknown id. */
-    Session find(String peerSvc, String sess) {
-        Session current = peerSvc == null ? null : sessions.get(peerSvc);
-        return current != null && current.sess().equals(sess) ? current : null;
+    /**
+     * Keeps {@code session} for {@code peer}: drops every expired session, refuses an id already in use, then adds
+     * it and evicts the peer's least recently used sessions down to the cap. All of it under the lock, so the cap
+     * holds however many handshakes one peer runs at once.
+     */
+    private void add(PeerKey peer, Session session) {
+        lock.lock();
+        try {
+            long now = clock.getAsLong();
+            dropExpired(now);
+            if (byId.containsKey(session.sess())) {
+                throw new IllegalArgumentException("session id already in use");
+            }
+            Entry entry = new Entry(peer, session, now);
+            byId.put(session.sess(), entry);
+            LinkedHashMap<String, Entry> own = byPeer.computeIfAbsent(peer, k -> new LinkedHashMap<>(16, 0.75f, true));
+            own.put(session.sess(), entry);
+            Iterator<Entry> oldest = own.values().iterator();
+            while (own.size() > maxSessionsPerPeer) {
+                byId.remove(oldest.next().session.sess());
+                oldest.remove();
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * The session {@code sess} when it is live and was opened by exactly this peer, the same issuer and name, else
+     * null: another peer's, one under the same name from another issuer, an evicted, expired or unknown id, or a
+     * peer with no certificate, issuer or name. A session found is used, so its idle period starts again.
+     */
+    Session find(String peerIssuer, String peerSvc, String sess) {
+        if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty() || sess == null) {
+            return null;
+        }
+        lock.lock();
+        try {
+            Entry entry = byId.get(sess);
+            if (entry == null || !entry.peer.equals(new PeerKey(peerIssuer, peerSvc))) {
+                return null;
+            }
+            long now = clock.getAsLong();
+            if (expired(entry, now)) {
+                remove(entry);
+                return null;
+            }
+            entry.lastUsedMs = now;
+            byPeer.get(entry.peer).get(sess); // marks it most recently used
+            return entry.session;
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private boolean expired(Entry entry, long now) {
+        return now - entry.lastUsedMs >= sessionIdleMs;
+    }
+
+    /** Drops every expired session, and every peer left with none; under the lock. */
+    private void dropExpired(long now) {
+        Iterator<LinkedHashMap<String, Entry>> peers = byPeer.values().iterator();
+        while (peers.hasNext()) {
+            LinkedHashMap<String, Entry> own = peers.next();
+            Iterator<Entry> sessions = own.values().iterator();
+            while (sessions.hasNext()) {
+                Entry e = sessions.next();
+                if (expired(e, now)) {
+                    byId.remove(e.session.sess());
+                    sessions.remove();
+                }
+            }
+            if (own.isEmpty()) {
+                peers.remove();
+            }
+        }
+    }
+
+    /** Forgets one session, and its peer when it was the last; under the lock. */
+    private void remove(Entry entry) {
+        byId.remove(entry.session.sess());
+        LinkedHashMap<String, Entry> own = byPeer.get(entry.peer);
+        own.remove(entry.session.sess());
+        if (own.isEmpty()) {
+            byPeer.remove(entry.peer);
+        }
     }
 
     /** The operations an unsafe session may not perform, as the reply lists them. */

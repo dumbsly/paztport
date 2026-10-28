@@ -154,8 +154,11 @@ Glue, configured through `paztport.*` properties.
   it tries the full handshake again. A genuine unsafe reply to the full handshake
   (the partner has not pinned this organisation) is kept. The calls themselves have
   no timeout. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
-  new one; the refused call is not retried. Every partner reply becomes one
-  `local-untrusted` entry, and the request's own response is labelled
+  new one; the refused call is not retried. Since a refused call is not retried, the
+  egress also drops a session no call has used for `paztport.boundary.session-idle-ms`
+  (default `600000`, 10 minutes), before the partner forgets it, and the next call
+  opens a new one. Keep it below the partner's `session-idle-ms`. Every partner
+  reply becomes one `local-untrusted` entry, and the request's own response is labelled
   `local-untrusted`, so a handler that relays the reply passes it on as untrusted. A path that would change the host or not be sent as given is refused before
   any I/O. The constructor refuses a root or keyring that does not verify under the
   service's own policy key.
@@ -171,14 +174,18 @@ Glue, configured through `paztport.*` properties.
   | `paztport.partner.client-policy-key-paths` | The `policy.pub` of each organisation whose sessions may be attested. Required. |
   | `paztport.partner.client-origins` | The service names allowed to start a chain in a client's attested session. Required. |
   | `paztport.partner.unsafe-disabled` | Operations an unsafe session may not perform, as `METHOD /pattern`; the reply's `disabled`. |
+  | `paztport.partner.max-sessions-per-peer` | How many sessions one client certificate (issuer and common name) may hold; its least recently used is evicted when it opens one more. Default `16`. |
+  | `paztport.partner.session-idle-ms` | How long a session no call has used is kept, in milliseconds. Default `900000` (15 minutes). |
 
-  One session is kept per client certificate common name, so a partner serves one
-  client organisation: two whose egresses share a common name would replace each
-  other's sessions. A handshake body over
-  256 KiB is `INVALID_PARAMS`, and a certificate with no single common name is
-  `NO_SESSION`. One nonce cache is shared across sessions. A call with no
-  `X-Path-Session` is unsafe; one naming a session that is not the peer's current one
-  is `403 SESSION_UNKNOWN`. In an attested session the chain is verified by that
+  Sessions are kept by id, each with the issuer and common name of the client
+  certificate that opened it. A handshake adds a session and replaces none, so
+  replicas sharing a certificate each keep their own; a peer can evict only its own
+  sessions, so memory is bounded by the peers the trusted CAs vouch for times the
+  cap. A handshake body over 256 KiB is `INVALID_PARAMS`, and a certificate with no
+  single common name is `NO_SESSION`. One nonce cache is shared across sessions. A
+  call with no `X-Path-Session` is unsafe; one naming no live session opened by the
+  same issuer and common name (another peer's, an evicted or an expired one) is
+  `403 SESSION_UNKNOWN`. In an attested session the chain is verified by that
   session's own verifier, and the handler gets the verified influence and chain.
   The client's boundary chain is also the handler's `inboundChain()`, so a partner
   entry should not call into its own mesh from a partner request: its stamps would

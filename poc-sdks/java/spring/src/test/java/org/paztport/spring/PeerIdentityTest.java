@@ -57,4 +57,21 @@ class PeerIdentityTest {
 
         assertEquals(new Peer("", "172.18.0.6"), PeerIdentity.from(request), "still a peer, so the check runs");
     }
+
+    @Test
+    void theIssuerIsTheLeafCertificatesIssuerInRfc2253() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
+        request.setAttribute("jakarta.servlet.request.X509Certificate",
+                new X509Certificate[] {fixture("foreign-orders"), fixture("orders")});
+
+        assertEquals("CN=foreign CA", PeerIdentity.issuer(request));
+    }
+
+    @Test
+    void withoutAClientCertificateThereIsNoIssuer() {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
+        assertNull(PeerIdentity.issuer(request));
+        request.setAttribute("jakarta.servlet.request.X509Certificate", new X509Certificate[0]);
+        assertNull(PeerIdentity.issuer(request));
+    }
 }

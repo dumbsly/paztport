@@ -19,6 +19,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
@@ -37,6 +38,7 @@ import org.paztport.core.ReplyCheck;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
 import org.paztport.http.HttpSessions;
+import org.paztport.http.PaztportHeaders;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -57,7 +59,8 @@ import org.springframework.web.client.RestClient;
 /**
  * The partner's handshake through the real container under mutual TLS. The app is the partner's entry, serving the
  * fixture {@code payment} certificate; the clients are other fixture services, so the peer a session belongs to is
- * the certificate's service. The startup refusals are checked in a context of their own.
+ * the certificate's issuer and service. Each peer may hold two sessions here. The startup refusals are checked in a
+ * context of their own.
  */
 @SpringBootTest(classes = PartnerHandshakeTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {
@@ -70,6 +73,8 @@ import org.springframework.web.client.RestClient;
 class PartnerHandshakeTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
+    /** The fixture CA's name, as the issuer of every fixture certificate. */
+    private static final String SHOP_CA = "CN=shop CA";
     private static final KeyPair SHOP_KEY = Crypto.generateEd25519KeyPair();
     private static final KeyPair SHOP_POLICY = Crypto.generateEd25519KeyPair();
     private static final KeyPair PSP_KEY = Crypto.generateEd25519KeyPair();
@@ -106,6 +111,7 @@ class PartnerHandshakeTest {
         registry.add("paztport.partner.client-policy-key-paths[0]", () -> trust.resolve("shop-policy.pub").toString());
         registry.add("paztport.partner.client-origins[0]", () -> "payment");
         registry.add("paztport.partner.unsafe-disabled[0]", () -> "POST /refund");
+        registry.add("paztport.partner.max-sessions-per-peer", () -> "2");
     }
 
     @AfterAll
@@ -190,7 +196,7 @@ class PartnerHandshakeTest {
         assertEquals(200, answer.status());
         JsonNode reply = JSON.readTree(answer.body());
         assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN));
-        assertNotNull(sessions.find("orders", reply.get("sess").asText()));
+        assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
     }
@@ -200,8 +206,32 @@ class PartnerHandshakeTest {
         String sess = JSON.readTree(post(client("orders"), json(request(Sessions.newNonce()))).body())
                 .get("sess").asText();
 
-        assertNotNull(sessions.find("orders", sess));
-        assertNull(sessions.find("gateway", sess));
+        assertNotNull(sessions.find(SHOP_CA, "orders", sess));
+        assertNull(sessions.find(SHOP_CA, "gateway", sess));
+    }
+
+    // Forged: an id the peer opened itself, sent after two newer handshakes of its own evicted it.
+    @Test
+    void sessionUnknownForEvictedId() throws Exception {
+        RestClient gateway = client("gateway");
+        List<String> opened = new ArrayList<>();
+        for (int i = 0; i < 3; i++) {
+            opened.add(JSON.readTree(post(gateway, json(request(Sessions.newNonce()))).body()).get("sess").asText());
+        }
+
+        Answer evicted = gateway.post()
+                .uri("https://localhost:" + port + "/anything")
+                .header(PaztportHeaders.SESSION, opened.get(0))
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{}")
+                .exchange((request, response) -> new Answer(response.getStatusCode().value(),
+                        new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
+
+        assertEquals(403, evicted.status());
+        assertEquals("SESSION_UNKNOWN", JSON.readTree(evicted.body()).get("reason").asText());
+        assertNull(sessions.find(SHOP_CA, "gateway", opened.get(0)));
+        assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(1)));
+        assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(2)));
     }
 
     @Test
@@ -260,6 +290,15 @@ class PartnerHandshakeTest {
         runner().withPropertyValues("paztport.verify=true")
                 .run(context -> assertThat(context).hasFailed().getFailure()
                         .hasStackTraceContaining("cannot be combined with paztport.verify=true"));
+    }
+
+    @Test
+    void nonPositiveLimitsFailStartup() {
+        for (String property : List.of("paztport.partner.max-sessions-per-peer", "paztport.partner.session-idle-ms")) {
+            runner().withPropertyValues(property + "=0")
+                    .run(context -> assertThat(context).hasFailed().getFailure()
+                            .hasStackTraceContaining(property));
+        }
     }
 
     @Test

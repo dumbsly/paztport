@@ -199,8 +199,9 @@ the client presented in the handshake, pinned under the client policy key the pa
 session id, the client's allowed origins, and the partner's own windows and nonce cache. The inputs are the same
 as above, with `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated
 client, who MUST be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and
-`influence` are of the request and the entries received. The session is the one `X-Path-Session` names for that
-peer. In an unsafe session there is no verifier and nothing is verified. All sessions share one nonce cache,
+`influence` are of the request and the entries received. The session is the one `X-Path-Session` names, and only
+when the peer it was opened by, the certificate's issuer and name, is this call's
+([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and nothing is verified. All sessions share one nonce cache,
 keyed as above.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
@@ -316,7 +317,7 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `BINDING_MISMATCH` | live, offline | A `rcv` names the wrong hop, or the binding does not match what was received. |
 | `REPLAY` | live, offline | The nonce key was seen before. |
 | `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against the root. Also the local gate's verdict for a tool its route list doesn't have. |
-| `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` is not the sending peer's current session. |
+| `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |

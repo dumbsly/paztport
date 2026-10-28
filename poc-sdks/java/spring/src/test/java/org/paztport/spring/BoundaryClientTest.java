@@ -60,8 +60,8 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 /**
  * The egress on its own, against a stub partner: one handshake per session, one boundary stamp per attested call
  * and nothing else of the internal chain, no chain or influence in an unsafe session, the replacement after a reply
- * it cannot use, and a fresh session after the partner forgets one. Above all, nothing at all leaves, the handshake
- * included, unless this hop verified the request's chain.
+ * it cannot use, and a fresh session after the partner forgets one or this side has left one idle. Above all, nothing
+ * at all leaves, the handshake included, unless this hop verified the request's chain.
  */
 class BoundaryClientTest {
 
@@ -83,6 +83,9 @@ class BoundaryClientTest {
     private final ListAppender<ILoggingEvent> traces = new ListAppender<>();
     private final Logger traceLog = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
 
+    /** How long this side keeps a session no call has used. */
+    private static final long IDLE_MS = 600_000;
+
     /** The client's clock, in nanoseconds, which a test moves on by hand. */
     private final AtomicLong nanos = new AtomicLong();
 
@@ -100,7 +103,7 @@ class BoundaryClientTest {
                 new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis),
                 built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get);
+                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get, IDLE_MS);
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -340,6 +343,57 @@ class BoundaryClientTest {
         verified("rid-2", this::charge);
 
         assertEquals(1, partner.handshakes().size());
+    }
+
+    // The partner forgets a session left idle, and a refused call is not retried, so this side must drop it first.
+    @Test
+    void idleSessionIsReopened() throws Exception {
+        verified("rid-1", this::charge);
+
+        nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+        assertEquals(200, verified("rid-2", this::charge).status());
+        assertEquals(1, partner.handshakes().size(), "no new handshake just under the period");
+
+        // That call renewed it, so a whole period must pass again from there.
+        nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS) - 1);
+        assertEquals(200, verified("rid-3", this::charge).status());
+        assertEquals(1, partner.handshakes().size());
+
+        nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(IDLE_MS));
+        BoundaryClient.Response after = verified("rid-4", this::charge);
+        assertEquals(200, after.status());
+        assertTrue(after.attested());
+        assertEquals(2, partner.handshakes().size(), "the idle session is dropped and a new one opened");
+        assertEquals(partner.issued().get(1), partner.calls().get(3).header(PaztportHeaders.SESSION));
+    }
+
+    // A replacement's session goes idle like any other, before its own period is up.
+    @Test
+    void idleFallbackSessionIsReopened() throws Exception {
+        try (BoundaryClient shortIdle = new BoundaryClient(
+                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis),
+                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
+                partner.policyKey(), PooledTlsClient.of(fixtureBundle("payment")), nanos::get, 1_000)) {
+            partner.failNextHandshake(503);
+            assertFalse(verified("rid-1", () -> shortIdle.post("/charge", CHARGE)).attested());
+            assertEquals(2, partner.handshakes().size());
+
+            nanos.addAndGet(TimeUnit.MILLISECONDS.toNanos(1_000));
+            assertTrue(verified("rid-2", () -> shortIdle.post("/charge", CHARGE)).attested());
+            assertEquals(3, partner.handshakes().size());
+        }
+    }
+
+    @Test
+    void idlePeriodMustBePositive() {
+        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
+            assertThrows(IllegalArgumentException.class, () -> new BoundaryClient(
+                    new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                            System::currentTimeMillis),
+                    built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
+                    partner.policyKey(), tls, nanos::get, 0));
+        }
     }
 
     @Test

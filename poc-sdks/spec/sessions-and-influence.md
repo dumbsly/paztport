@@ -88,23 +88,36 @@ session is the same.
 |---|---|
 | Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
 | Not JSON, or not a readable request | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
-| A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service. |
+| A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
-**One session per authenticated peer.** HTTP has no connection to hold a session, so the peer stands in for
-it: the service named by the client certificate's common name, which the TLS layer authenticated, and never a
-name in the body. A new handshake from a peer replaces that peer's session, as a new handshake does on a
-connection. A request that opens no session leaves the peer's session in place.
+**Sessions are kept by id, each bound to the peer that opened it.** HTTP has no connection to hold a session, so
+the server records, with each session, the peer the TLS layer authenticated: the client certificate's issuer (its
+RFC 2253 name) and its subject's common name, the service, never a name in the body. Over MCP nothing
+changes: one session per connection, as [above](#the-handshake).
+
+- **A handshake adds a session and replaces none.** So clients that share a certificate, such as replicas, each
+  keep their own, and a client that opens a new session does not cut off calls still in flight in its earlier one.
+  A request that opens no session changes no session.
+- **A peer holds at most N sessions**, a limit the server sets (16 in the Java SDK). A handshake that would give
+  it more evicts its least recently used. A server MUST NOT evict one peer's session for another peer's handshake.
+- **A session no call has used for the server's idle period expires** (15 minutes in the Java SDK).
+
+So the server keeps at most N sessions for each peer its CAs vouch for.
 
 **Calls name their session** in the `X-Path-Session` request header, whose value is the session id
 ([wire.md](wire.md#http-v3)).
 
 - **No header** means the caller never opened a session. The server treats the call as in an unsafe session.
-- **A header that is not the sending peer's current session id** is refused `403 {"reason":"SESSION_UNKNOWN"}`.
-  That covers another peer's id, an id a later handshake replaced, and one from before the server restarted. The
-  server MUST NOT take it as unsafe, or a caller refused in an attested session could step down to an unsafe
+- **A header that names no live session opened by this call's peer** is refused
+  `403 {"reason":"SESSION_UNKNOWN"}`. A server MUST take a session as the call's only when the issuer and the name
+  it recorded for it are both those of the call's authenticated peer. A call with no client certificate, or one whose
+  certificate has no issuer or names no single service, matches no session. So this covers another peer's id,
+  the same name's id under another issuer, an evicted or expired id, and one from before the server restarted.
+  The server MUST NOT take it as unsafe, or a caller refused in an attested session could step down to an unsafe
   one by naming a wrong id. A client that gets it drops the session and opens a new one on its next call.
-- **Otherwise** the call is in that session, attested or unsafe as the handshake said.
+- **Otherwise** the call is in that session, attested or unsafe as the handshake said, and the session's idle
+  period starts again.
 
 In an attested session each call is verified by a verifier of its own, built from the client's keyring and
 root as the handshake presented them, with `sess` = the session id, so a stamp made in one session never
@@ -338,7 +351,10 @@ The Java SDK's `BoundaryClient` also checks, when it is built, that its own root
 policy key, since a partner could not attest either; that the partner's URL is a scheme and an authority with no
 path; and, per call, that the path will be sent exactly as given and cannot change the host. A call refused for
 that is refused before any I/O. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a new one; the
-refused call is not retried, since it may have changed something.
+refused call is not retried, since it may have changed something. Because it is not retried, a session the
+partner has expired would fail the next call, so the client also drops a session no call has used for its own
+idle period (10 minutes in the Java SDK), and the next call opens a new one. That period SHOULD be below the
+partner's.
 
 **The partner.** The partner MUST pin the sender's policy key in advance, out of band, as partner onboarding.
 It pins the key, not a root, so the sender can rotate roots and keyrings without being pinned again. In the

@@ -265,6 +265,16 @@ class BoundaryGuardTest {
     }
 
     @Test
+    void nonPositiveIdlePeriodFailsStartup() {
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withPropertyValues("paztport.boundary.session-idle-ms=0").run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("paztport.boundary.session-idle-ms");
+                });
+    }
+
+    @Test
     void fullConfigStartsWithItsOwnTlsClient() {
         // No paztport.tls-bundle: there is no shared client, so the boundary's must be its own.
         runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new)).run(context -> {

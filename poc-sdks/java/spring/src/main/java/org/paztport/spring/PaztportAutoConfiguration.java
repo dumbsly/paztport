@@ -128,9 +128,10 @@ public class PaztportAutoConfiguration {
     /**
      * The egress's client to the partner. Everything it needs is checked first, and the context fails naming
      * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. A
-     * partner URL that is not {@code https} fails it too: the client itself accepts one, for tests' stubs. It
-     * builds its own TLS client from {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's
-     * CA is trusted only on calls to the partner. The context closes it on shutdown.
+     * partner URL that is not {@code https} fails it too (the client itself accepts one, for tests' stubs), as does
+     * an idle period that is not positive. It builds its own TLS client from {@code paztport.boundary.tls-bundle},
+     * never the shared one, so the partner's CA is trusted only on calls to the partner. The context closes it on
+     * shutdown.
      */
     @Bean
     @ConditionalOnProperty("paztport.boundary.url")
@@ -162,6 +163,9 @@ public class PaztportAutoConfiguration {
         if (!"https".equalsIgnoreCase(partnerUrl.getScheme())) {
             throw new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
         }
+        if (b.getSessionIdleMs() <= 0) {
+            throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
+        }
         SslBundles bundles = ssl.getIfAvailable();
         if (bundles == null) {
             throw new IllegalStateException(
@@ -176,13 +180,15 @@ public class PaztportAutoConfiguration {
                 b.getPartner(),
                 partnerUrl,
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
-                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())));
+                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())),
+                b.getSessionIdleMs());
     }
 
     /**
      * The partner's session registry. Everything it needs is checked first, and the context fails naming what is
-     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, or a policy
-     * private key that does not belong to the pin, which would sign replies no client could accept.
+     * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, a session
+     * cap or idle period that is not positive, or a policy private key that does not belong to the pin, which would
+     * sign replies no client could accept.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
@@ -212,6 +218,12 @@ public class PaztportAutoConfiguration {
             throw new IllegalStateException("paztport.partner.enabled is set but these are not: "
                     + String.join(", ", missing));
         }
+        if (p.getMaxSessionsPerPeer() < 1) {
+            throw new IllegalStateException("paztport.partner.max-sessions-per-peer must be at least 1");
+        }
+        if (p.getSessionIdleMs() <= 0) {
+            throw new IllegalStateException("paztport.partner.session-idle-ms must be positive");
+        }
         String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         PrivateKey signer = KeyFiles.loadPrivateKey(Path.of(p.getPolicyPrivateKeyPath()));
         byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
@@ -239,7 +251,9 @@ public class PaztportAutoConfiguration {
                 new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
-                runMaxAgeMs);
+                runMaxAgeMs,
+                p.getMaxSessionsPerPeer(),
+                p.getSessionIdleMs());
     }
 
     @Bean

@@ -27,13 +27,15 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * session the caller named, against the keyring and root it presented in that session's handshake, rather than
  * against this organisation's own. It has no modes, publishes no events and attests no responses.
  *
- * <p>The session is named by {@code X-Path-Session}, and is looked up for the peer the TLS layer authenticated:
+ * <p>The session is named by {@code X-Path-Session}, and is looked up for the peer the TLS layer authenticated, by
+ * its certificate's issuer and common name:
  *
  * <ul>
  *   <li>No header means the caller never opened a session, which is treated as unsafe.</li>
- *   <li>A header that is not the peer's current session id is refused {@code 403 SESSION_UNKNOWN}: another peer's
- *       id, one a later handshake replaced, one from before a restart, or a peer with no session. It is never
- *       taken as unsafe, or a caller could step down from a session it was refused in by naming a wrong one.</li>
+ *   <li>A header that does not name a live session this peer opened is refused {@code 403 SESSION_UNKNOWN}: another
+ *       peer's id (another name, or the same name under another issuer), an evicted or expired one, one from
+ *       before a restart, or a caller with no certificate. It is never taken as unsafe, or a caller could step down
+ *       from a session it was refused in by naming a wrong one.</li>
  *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler starts with
  *       no influence and no verified chain, whatever headers came, and {@link PartnerGate} refuses the operations
  *       switched off for such sessions.</li>
@@ -96,7 +98,8 @@ public final class PartnerFilter extends OncePerRequestFilter {
             request.setAttribute(SESSION_STATUS, UNSAFE);
             PartnerSessions.Session session = null;
             if (sessionHeader != null) {
-                session = sessions.find(peer == null ? null : peer.svc(), sessionHeader);
+                session = sessions.find(PeerIdentity.issuer(request), peer == null ? null : peer.svc(),
+                        sessionHeader);
                 if (session == null) {
                     VerifyResult unknown = new VerifyResult(ReasonCode.SESSION_UNKNOWN,
                             peer == null ? "" : peer.svc(), peer == null ? "" : peer.inst());

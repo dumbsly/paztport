@@ -350,18 +350,16 @@ class PartnerRequestTest {
         assertEquals(403, madeUp.status());
         assertEquals("SESSION_UNKNOWN", madeUp.reason());
 
-        String replaced = handshake(orders, true);
-        Answer old = post(orders, "/refund", boundary(sess, "rid-p3", "/refund", REFUND), REFUND);
-        assertEquals(403, old.status());
-        assertEquals("SESSION_UNKNOWN", old.reason());
-
         // An empty id names no session either, and is not taken as no header.
         Answer empty = post(orders, "/charge", Map.of(PaztportHeaders.SESSION, ""), REFUND);
         assertEquals(403, empty.status());
         assertEquals("SESSION_UNKNOWN", empty.reason());
 
-        // The replacement session works, so the refusals above were about the ids alone.
-        assertEquals(200, post(orders, "/refund", boundary(replaced, "rid-p4", "/refund", REFUND), REFUND).status());
+        // A second handshake adds a session and replaces none, so both work, and the refusals above were about
+        // the ids alone.
+        String second = handshake(orders, true);
+        assertEquals(200, post(orders, "/refund", boundary(sess, "rid-p3", "/refund", REFUND), REFUND).status());
+        assertEquals(200, post(orders, "/refund", boundary(second, "rid-p4", "/refund", REFUND), REFUND).status());
     }
 
     @Test
@@ -417,7 +415,7 @@ class PartnerRequestTest {
         PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("orders"));
         try (BoundaryClient boundary = new BoundaryClient(orders(), SHOP_BUILT.bundles().get("orders"),
                 SHOP_BUILT.signedRoot(), SHOP_RING, SHOP_PIN, PARTNER, URI.create("https://localhost:" + port),
-                PSP_PIN, tls)) {
+                PSP_PIN, tls, 600_000)) {
             for (String rid : List.of("rid-t1", "rid-t2")) {
                 try (PaztportContext.Scope scope = PaztportContext.open()) {
                     PaztportContext.markVerified(internal(rid));

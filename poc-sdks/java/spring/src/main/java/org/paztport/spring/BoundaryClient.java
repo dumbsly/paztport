@@ -15,6 +15,8 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
 import java.util.regex.Pattern;
@@ -49,18 +51,24 @@ import org.slf4j.LoggerFactory;
  * that is off, a chain that failed in audit, a hop with no verifier), {@link #post} throws before anything is sent,
  * the handshake included, so a request this service never accepted cannot even make it open a session.
  *
- * <p>The session is opened on the first call and shared by every call after it, since the partner keeps one per
- * peer and a new handshake replaces the old one: concurrent first calls wait for the one handshake in flight rather
- * than each replacing the session the others are using. The partner's reply is checked against its pinned policy
- * key. A reply that is genuine gives an attested or an unsafe session, as it says. Anything else (a reply this side
- * cannot use, an HTTP error, no answer) may have left an attested session open at the partner that this side
- * cannot stamp for, so every call would be refused: the request is sent again with no root and a fresh nonce,
- * which asks for an unsafe session, and its {@code sess} is taken as unsafe whatever the reply says. That failure
+ * <p>The session is opened on the first call and shared by every call after it. The partner adds a session for
+ * each handshake and replaces none, but it keeps only so many per peer and evicts the least recently used, so this
+ * side opens one only when it needs one: concurrent first calls wait for the one handshake in flight rather than
+ * each opening their own. The partner's reply is checked against its pinned policy key. A reply that is genuine
+ * gives an attested or an unsafe session, as it says. Anything else (a reply this side cannot use, an HTTP error,
+ * no answer) gives it no session it can stamp in, though the partner may have opened one, which it leaves to
+ * expire there: the request is sent again with no root and a fresh nonce, which asks for an unsafe session, and
+ * its {@code sess} is taken as unsafe whatever the reply says. That failure
  * may be passing (a partner restarting, a network blip), so a session from the replacement is kept for at most
  * {@link #FALLBACK_PERIOD}, and the first call after it tries the full handshake again; a genuine unsafe reply to
  * the full handshake is the partner's answer (it has not pinned this organisation), so that session is kept. A
  * handshake holds every first caller, so it is given a timeout, {@link #HANDSHAKE_TIMEOUT}; the calls themselves
  * have none.
+ *
+ * <p>The partner also forgets a session no call has used for its idle period, and a refused call is not retried
+ * (below), so a session left idle at the partner would fail the next call. So this side drops a session, attested
+ * or not, once no call has used it for its own idle period, which should be below the partner's, and the next call
+ * opens a new one; a replacement's session goes at the end of its period or when idle, whichever comes first.
  *
  * <p>In an attested session a call carries the boundary stamp, the proof for {@code <this service>/<partner>}, and
  * the influence with its owners, so the partner can apply the owner-aware rule. In an unsafe session it carries
@@ -70,8 +78,8 @@ import org.slf4j.LoggerFactory;
  * as any unattested response is, and this request's own response is labelled {@code local-untrusted}: a handler
  * that relays the partner's answer would otherwise have it attested with no labels, and its caller would take
  * the partner's words as clean. A {@code 403 SESSION_UNKNOWN} means the partner no longer knows the session (it
- * restarted, or the session was replaced), so it is dropped and the next call opens a new one; the refused call is
- * not retried, since it may have changed something.
+ * expired there, newer sessions of this peer's evicted it, or the partner restarted), so it is dropped and the next
+ * call opens a new one; the refused call is not retried, since it may have changed something.
  *
  * <p>Each handshake logs one {@code PAZTPORT_TRACE session} line and each call one {@code PAZTPORT_TRACE boundary}
  * line. It owns its TLS client, built from the partner's bundle, and closes it with itself.
@@ -98,9 +106,13 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * A session with the partner: its id, whether calls in it are stamped, whether it came from the replacement,
-     * and when it was opened, by the clock that ages a replacement's.
+     * when it was opened and when a call last took it, both by the clock that ages sessions.
      */
-    private record Session(String sess, boolean attested, boolean fallback, long openedAt) {
+    private record Session(String sess, boolean attested, boolean fallback, long openedAt, AtomicLong lastUsed) {
+
+        Session(String sess, boolean attested, boolean fallback, long now) {
+            this(sess, attested, fallback, now, new AtomicLong(now));
+        }
     }
 
     /** The partner's answer: its status and body, and whether the call went out in an attested session. */
@@ -119,6 +131,7 @@ public final class BoundaryClient implements AutoCloseable {
     private final AtomicReference<Session> session = new AtomicReference<>();
     private final Object handshake = new Object();
     private final LongSupplier nanos;
+    private final long sessionIdleNanos;
 
     /**
      * @param stamper this service's stamper; the boundary stamp is signed with its key
@@ -130,17 +143,20 @@ public final class BoundaryClient implements AutoCloseable {
      * @param partnerUrl the partner's base URL: a scheme and an authority, with no path
      * @param pinnedPartnerKey the partner's policy public key, pinned at onboarding
      * @param tls the client that presents this service's certificate to the partner; closed with this one
+     * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive, and below the
+     *     partner's own idle period
      */
     public BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
-            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls) {
+            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls,
+            long sessionIdleMs) {
         this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, tls,
-                System::nanoTime);
+                System::nanoTime, sessionIdleMs);
     }
 
-    /** As above, with the clock, in nanoseconds, that ages a session from the replacement; tests move it on. */
+    /** As above, with the clock, in nanoseconds, that ages sessions; tests move it on. */
     BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
             String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, PooledTlsClient tls,
-            LongSupplier nanos) {
+            LongSupplier nanos, long sessionIdleMs) {
         this.stamper = Objects.requireNonNull(stamper, "stamper");
         this.bundle = Objects.requireNonNull(bundle, "bundle");
         this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
@@ -154,6 +170,10 @@ public final class BoundaryClient implements AutoCloseable {
         if (partner.isEmpty()) {
             throw new IllegalArgumentException("the partner's entry service must be named");
         }
+        if (sessionIdleMs <= 0) {
+            throw new IllegalArgumentException("the session idle period must be positive");
+        }
+        this.sessionIdleNanos = TimeUnit.MILLISECONDS.toNanos(sessionIdleMs);
         if (partnerUrl.getScheme() == null || partnerUrl.getRawAuthority() == null
                 || !(partnerUrl.getRawPath() == null || partnerUrl.getRawPath().isEmpty()
                         || partnerUrl.getRawPath().equals("/"))
@@ -249,13 +269,13 @@ public final class BoundaryClient implements AutoCloseable {
     }
 
     /**
-     * The current session, opened if there is none or it is a replacement's that has had its period; one handshake
-     * at a time, and only when still needed.
+     * The current session, marked as used now, opened if there is none or it has expired; one handshake at a time,
+     * and only when still needed.
      */
     private Session session() {
         Session s = session.get();
         if (s != null && !expired(s)) {
-            return s;
+            return used(s);
         }
         synchronized (handshake) {
             s = session.get();
@@ -263,12 +283,21 @@ public final class BoundaryClient implements AutoCloseable {
                 s = open();
                 session.set(s);
             }
-            return s;
+            return used(s);
         }
     }
 
+    /** Starts the session's idle period again; never moved back by a call that read the clock earlier. */
+    private Session used(Session s) {
+        s.lastUsed().accumulateAndGet(nanos.getAsLong(), Math::max);
+        return s;
+    }
+
+    /** No call has used it for the idle period, or it is a replacement's that has had its period. */
     private boolean expired(Session s) {
-        return s.fallback() && nanos.getAsLong() - s.openedAt() >= FALLBACK_PERIOD.toNanos();
+        long now = nanos.getAsLong();
+        return now - s.lastUsed().get() >= sessionIdleNanos
+                || s.fallback() && now - s.openedAt() >= FALLBACK_PERIOD.toNanos();
     }
 
     /**
@@ -291,7 +320,7 @@ public final class BoundaryClient implements AutoCloseable {
                 return s;
             }
         } catch (IOException e) {
-            // No usable answer: the partner may still have opened a session, so it is replaced as below.
+            // No usable answer: whatever the partner opened is left to expire, and the replacement is asked for.
         }
         SessionRequest replacement = new SessionRequest(null, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
                 Sessions.newNonce());

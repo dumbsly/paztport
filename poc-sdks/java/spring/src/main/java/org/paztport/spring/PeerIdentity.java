@@ -34,10 +34,23 @@ final class PeerIdentity {
 
     /** The authenticated sender, or null when no client certificate came with the request (plain HTTP, or no mTLS). */
     static Peer from(HttpServletRequest request) {
-        if (!(request.getAttribute(CERTIFICATES) instanceof X509Certificate[] chain) || chain.length == 0) {
-            return null;
-        }
-        return new Peer(commonName(chain[0].getSubjectX500Principal()), request.getRemoteAddr());
+        X509Certificate leaf = leaf(request);
+        return leaf == null ? null : new Peer(commonName(leaf.getSubjectX500Principal()), request.getRemoteAddr());
+    }
+
+    /**
+     * The client certificate's issuer, in RFC 2253, or null when no client certificate came with the request. A
+     * partner keeps sessions by issuer as well as name: the container may trust more than one CA, and each could
+     * issue a certificate with the same name, so the name alone does not tell their holders apart.
+     */
+    static String issuer(HttpServletRequest request) {
+        X509Certificate leaf = leaf(request);
+        return leaf == null ? null : leaf.getIssuerX500Principal().getName(X500Principal.RFC2253);
+    }
+
+    private static X509Certificate leaf(HttpServletRequest request) {
+        return request.getAttribute(CERTIFICATES) instanceof X509Certificate[] chain && chain.length > 0
+                ? chain[0] : null;
     }
 
     /** The subject's CN when it has exactly one, else {@code ""}. */

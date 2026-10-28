@@ -96,6 +96,13 @@ public class PaztportProperties {
         /** Path to the partner's policy public key, pinned out of band; its session replies must be signed by it. */
         private String partnerPolicyKeyPath;
 
+        /**
+         * How long the session is kept once no call has used it, in milliseconds, before the next call opens a new
+         * one. It should be below the partner's own idle period, which forgets the session at its end: a call sent
+         * in a session the partner has forgotten is refused, and is not retried.
+         */
+        private long sessionIdleMs = 600_000;
+
         public String getPartner() {
             return partner;
         }
@@ -127,6 +134,14 @@ public class PaztportProperties {
         public void setPartnerPolicyKeyPath(String partnerPolicyKeyPath) {
             this.partnerPolicyKeyPath = partnerPolicyKeyPath;
         }
+
+        public long getSessionIdleMs() {
+            return sessionIdleMs;
+        }
+
+        public void setSessionIdleMs(long sessionIdleMs) {
+            this.sessionIdleMs = sessionIdleMs;
+        }
     }
 
     /** Set on a partner's entry service, which answers other organisations' session handshakes. */
@@ -152,6 +167,12 @@ public class PaztportProperties {
 
         /** What an unsafe session may not do, as {@code METHOD /path}; the reply tells the client. */
         private List<String> unsafeDisabled = List.of();
+
+        /** How many sessions one client certificate may hold at once; its least recently used goes first. */
+        private int maxSessionsPerPeer = 16;
+
+        /** How long a session no call has used is kept, in milliseconds. */
+        private long sessionIdleMs = 900_000;
 
         public boolean isEnabled() {
             return enabled;
@@ -191,6 +212,22 @@ public class PaztportProperties {
 
         public void setUnsafeDisabled(List<String> unsafeDisabled) {
             this.unsafeDisabled = unsafeDisabled;
+        }
+
+        public int getMaxSessionsPerPeer() {
+            return maxSessionsPerPeer;
+        }
+
+        public void setMaxSessionsPerPeer(int maxSessionsPerPeer) {
+            this.maxSessionsPerPeer = maxSessionsPerPeer;
+        }
+
+        public long getSessionIdleMs() {
+            return sessionIdleMs;
+        }
+
+        public void setSessionIdleMs(long sessionIdleMs) {
+            this.sessionIdleMs = sessionIdleMs;
         }
     }
 

@@ -244,7 +244,7 @@ A request carries Paztport in three headers, each the base64url of UTF-8 JSON, a
 | `X-Path-Chain` | The chain, as a JSON array of v3 stamps, origin first. The last stamp's `rcv` is the receiving service, and its `bind` the [HTTP binding](#bindings) of the request sent. |
 | `X-Path-Proof` | The [proof object](#proof-object) for the full route, receiving service included. |
 | `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
-| `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that is not the peer's current session is refused `SESSION_UNKNOWN`. |
+| `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
 A response carries the answering service's attestation in one header, also the base64url of UTF-8 JSON:
 
