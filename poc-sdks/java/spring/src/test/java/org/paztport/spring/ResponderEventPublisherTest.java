@@ -6,17 +6,30 @@ package org.paztport.spring;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.time.Duration;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.Crypto;
 import org.paztport.core.EventEnvelope;
+import org.slf4j.LoggerFactory;
 
 class ResponderEventPublisherTest {
 
@@ -28,9 +41,11 @@ class ResponderEventPublisherTest {
     private static final HttpClient HTTP = TestHttp.newClient();
 
     private final KeyPair key = Crypto.generateEd25519KeyPair();
-    private final ResponderEventPublisher publisher =
-            new ResponderEventPublisher(TestHttp.restClient(HTTP).build(), "http://127.0.0.1:1", "payment",
-                    key.getPrivate(), () -> 1234L);
+    private final ResponderEventPublisher publisher = publisherTo("http://127.0.0.1:1", Duration.ofSeconds(2));
+
+    private ResponderEventPublisher publisherTo(String url, Duration timeout) {
+        return new ResponderEventPublisher(() -> HTTP, timeout, url, "payment", key.getPrivate(), () -> 1234L);
+    }
 
     @AfterAll
     static void closeClient() {
@@ -70,5 +85,77 @@ class ResponderEventPublisherTest {
     @Test
     void everyEventGetsItsOwnId() {
         assertNotEquals(publisher.envelope(EVENT).payload(), publisher.envelope(EVENT).payload());
+    }
+
+    /** What a test responder was sent: the path, the content type and the body. */
+    private record Received(String path, String contentType, byte[] body) {
+    }
+
+    @Test
+    void postsTheSignedEnvelopeAsJsonToEvents() throws Exception {
+        BlockingQueue<Received> received = new LinkedBlockingQueue<>();
+        HttpServer responder = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        responder.createContext("/", exchange -> {
+            received.add(new Received(exchange.getRequestURI().getPath(),
+                    exchange.getRequestHeaders().getFirst("Content-Type"), exchange.getRequestBody().readAllBytes()));
+            exchange.sendResponseHeaders(204, -1);
+            exchange.close();
+        });
+        responder.start();
+        try {
+            publisherTo("http://127.0.0.1:" + responder.getAddress().getPort(), Duration.ofSeconds(2)).publish(EVENT);
+
+            Received r = received.poll(5, TimeUnit.SECONDS);
+            assertTrue(r != null, "the responder got the event");
+            assertEquals("/events", r.path());
+            assertEquals("application/json", r.contentType());
+            EventEnvelope sent = JSON.readValue(r.body(), EventEnvelope.class);
+            assertEquals("payment", sent.signer());
+            assertTrue(sent.verifiesWith(key.getPublic()));
+            assertEquals("PATH_NOT_ALLOWED", JSON.readTree(sent.payloadBytes()).get("reason").asText());
+        } finally {
+            responder.stop(0);
+        }
+    }
+
+    /**
+     * A responder that takes the event and never finishes answering, before its headers or part way through the
+     * body: publish gives up at the event timeout, on any JDK, logs it and returns, as for any other failure.
+     */
+    @Test
+    void aSilentResponderIsGivenUpAtTheEventTimeout() throws Exception {
+        Logger log = (Logger) LoggerFactory.getLogger(ResponderEventPublisher.class);
+        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+        warnings.start();
+        log.addAppender(warnings);
+        log.setLevel(Level.WARN);
+        try {
+            for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
+                try (SilentPeer responder = new SilentPeer(stall)) {
+                    ResponderEventPublisher silent = publisherTo(responder.url(), Duration.ofMillis(300));
+
+                    long start = System.nanoTime();
+                    assertDoesNotThrow(() -> silent.publish(EVENT));
+                    Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+                    assertEquals(1, responder.connections(), stall.name());
+                    assertTrue(took.compareTo(Duration.ofMillis(250)) >= 0
+                            && took.compareTo(Duration.ofSeconds(3)) < 0, stall + " took " + took);
+                }
+            }
+            assertEquals(2, warnings.list.stream()
+                    .filter(e -> e.getFormattedMessage().startsWith("could not reach responder")).count());
+        } finally {
+            log.detachAppender(warnings);
+            log.setLevel(null);
+        }
+    }
+
+    @Test
+    void theTimeoutMustBePositive() {
+        for (Duration bad : new Duration[] {Duration.ZERO, Duration.ofMillis(-1)}) {
+            assertThrows(IllegalArgumentException.class, () -> publisherTo("http://127.0.0.1:1", bad));
+        }
+        assertThrows(NullPointerException.class, () -> publisherTo("http://127.0.0.1:1", null));
     }
 }

@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.paztport.core.Base64Url;
@@ -83,6 +84,8 @@ final class StubPartner implements AutoCloseable {
     private final Deque<KeyPair> nextSigners = new ArrayDeque<>();
     private final Deque<Answer> nextAnswers = new ArrayDeque<>();
     private final Deque<Integer> handshakeFailures = new ArrayDeque<>();
+    private final Deque<SilentPeer.Stall> nextStalls = new ArrayDeque<>();
+    private final CountDownLatch closed = new CountDownLatch(1);
     private volatile String status = "attested";
     private volatile long handshakeDelayMs;
     private volatile boolean policyKeyForm;
@@ -157,6 +160,14 @@ final class StubPartner implements AutoCloseable {
         nextAnswers.add(new Answer(status, body));
     }
 
+    /**
+     * The next non-handshake request is never finished: it gets no answer, or a 200's headers and the start of a
+     * body, as {@code stall} says, and then nothing until this partner is closed.
+     */
+    synchronized void stallNextCall(SilentPeer.Stall stall) {
+        nextStalls.add(stall);
+    }
+
     /** The next handshake with a client root is answered with this status and no body, as a failing partner's. */
     synchronized void failNextHandshake(int status) {
         handshakeFailures.add(status);
@@ -212,9 +223,15 @@ final class StubPartner implements AutoCloseable {
                 send(exchange, 200, reply(req).toJson().toString());
                 return;
             }
+            SilentPeer.Stall stall;
             Answer answer;
             synchronized (this) {
-                answer = nextAnswers.poll();
+                stall = nextStalls.poll();
+                answer = stall == null ? nextAnswers.poll() : null;
+            }
+            if (stall != null) {
+                stall(exchange, stall);
+                return;
             }
             if (answer == null) {
                 answer = new Answer(200, "{\"ok\":true}");
@@ -263,12 +280,26 @@ final class StubPartner implements AutoCloseable {
         }
     }
 
-    /** Stops answering; a second close does nothing. */
+    private void stall(HttpExchange exchange, SilentPeer.Stall stall) throws IOException {
+        if (stall == SilentPeer.Stall.AFTER_HEADERS) {
+            exchange.sendResponseHeaders(200, 100);
+            exchange.getResponseBody().write("{\"o".getBytes(StandardCharsets.UTF_8));
+            exchange.getResponseBody().flush();
+        }
+        try {
+            closed.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Stops answering, and lets go of any call it is stalling; a second close does nothing. */
     @Override
     public synchronized void close() {
         if (executor.isShutdown()) {
             return;
         }
+        closed.countDown();
         server.stop(0);
         executor.shutdownNow();
     }

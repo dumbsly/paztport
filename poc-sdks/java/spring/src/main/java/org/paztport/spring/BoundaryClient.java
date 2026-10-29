@@ -64,9 +64,15 @@ import org.slf4j.LoggerFactory;
  * its {@code sess} is taken as unsafe whatever the reply says. That failure
  * may be passing (a partner restarting, a network blip), so a session from the replacement is kept for at most
  * {@link #FALLBACK_PERIOD}, and the first call after it tries the full handshake again; a genuine unsafe reply to
- * the full handshake is the partner's answer (it has not pinned this organisation), so that session is kept. A
- * handshake holds every first caller, so it is given a timeout, {@link #HANDSHAKE_TIMEOUT}; the calls themselves
- * have none.
+ * the full handshake is the partner's answer (it has not pinned this organisation), so that session is kept.
+ *
+ * <p>A handshake holds every first caller, so it has its own timeout, {@link #HANDSHAKE_TIMEOUT}; each call has
+ * the read timeout of the TLS client this is given ({@code paztport.read-timeout-ms}, 30 s unless set), so that a
+ * partner that takes a call and never answers cannot hold the calling thread for ever. Each bounds the whole
+ * exchange, the body included, on every JDK ({@link PooledTlsClient#send}), since the partner is another
+ * organisation: one that sends its headers and then stops is cut off too. A handshake past its timeout counts as no
+ * answer (above). A call past its timeout is cancelled and {@link #post} throws, as for any call that fails; the
+ * session is kept, since the partner may have taken the call in it, and the call is not retried.
  *
  * <p>The partner also forgets a session no call has used for its idle period, and a refused call is not retried
  * (below), so a session left idle at the partner would fail the next call. So this side drops a session, attested
@@ -171,7 +177,8 @@ public final class BoundaryClient implements AutoCloseable {
      *     which never leaves this organisation and is shared with no other service (its replicas excepted);
      *     copied
      * @param listener told the originals and the list sent before each attested call, or null for none
-     * @param tls the client that presents this service's certificate to the partner; closed with this one
+     * @param tls the client that presents this service's certificate to the partner, whose read timeout each call
+     *     has; closed with this one
      * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive, and below the
      *     partner's own idle period
      */
@@ -251,7 +258,8 @@ public final class BoundaryClient implements AutoCloseable {
      *     there is no request scope; or when no session could be opened
      * @throws IllegalArgumentException with nothing sent, when {@code path} would leave the partner's origin or
      *     would not be sent as given
-     * @throws UncheckedIOException when the call itself fails
+     * @throws UncheckedIOException when the call itself fails, or has no whole answer within the read timeout (its
+     *     cause then an {@link java.net.http.HttpTimeoutException})
      * @throws RuntimeException whatever the listener throws, with the request not sent
      */
     public Response post(String path, byte[] json) {
@@ -269,6 +277,7 @@ public final class BoundaryClient implements AutoCloseable {
         HttpRequest.Builder request = HttpRequest.newBuilder(target)
                 .header("Content-Type", "application/json")
                 .header(PaztportHeaders.SESSION, current.sess())
+                .timeout(tls.readTimeout())
                 .POST(HttpRequest.BodyPublishers.ofByteArray(json));
         List<InfluenceEntry> sent = List.of();
         String rid = verified.get(0).rid();
@@ -429,7 +438,7 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * Sends one handshake and reads its reply: the JSON, or null for a body that is not one JSON value. Any status
-     * but 200, and no answer within the timeout, is an {@link IOException}.
+     * but 200, and no whole answer within the timeout, is an {@link IOException}.
      */
     private JsonNode handshake(SessionRequest req) throws IOException {
         byte[] body = JSON.writeValueAsBytes(req.toJson());
@@ -449,13 +458,9 @@ public final class BoundaryClient implements AutoCloseable {
         }
     }
 
+    /** Sends {@code request}, which has its timeout, and reads its whole answer within it. */
     private HttpResponse<byte[]> send(HttpRequest request) throws IOException {
-        try {
-            return tls.httpClient().send(request, HttpResponse.BodyHandlers.ofByteArray());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("interrupted", e);
-        }
+        return PooledTlsClient.send(tls.httpClient(), request, HttpResponse.BodyHandlers.ofByteArray());
     }
 
     /** The {@code reason} of a JSON refusal body, or null when there is none. */
@@ -505,6 +510,11 @@ public final class BoundaryClient implements AutoCloseable {
         return String.format("PAZTPORT_TRACE boundary rid=%s receiver=%s session=%s status=%d classes=%s",
                 rid.isEmpty() ? "-" : LogSafe.of(rid), LogSafe.of(receiver), attested ? "attested" : "unsafe",
                 status, classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
+    }
+
+    /** The read timeout each call has: its TLS client's. */
+    Duration readTimeout() {
+        return tls.readTimeout();
     }
 
     /** Closes the TLS client; calls after this fail. */

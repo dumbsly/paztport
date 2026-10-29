@@ -5,6 +5,7 @@ package org.paztport.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
@@ -14,11 +15,14 @@ import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.http.HttpClient;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
@@ -32,6 +36,7 @@ import org.springframework.boot.ssl.SslBundleKey;
 import org.springframework.boot.ssl.SslOptions;
 import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -56,7 +61,10 @@ class PooledTlsClientTest {
 
     /** A pooled client presenting {@code bundle}, closed after the test. */
     private PooledTlsClient pooled(SslBundle bundle) {
-        PooledTlsClient client = PooledTlsClient.of(bundle);
+        return pooled(PooledTlsClient.of(bundle));
+    }
+
+    private PooledTlsClient pooled(PooledTlsClient client) {
         clients.add(client);
         return client;
     }
@@ -126,6 +134,8 @@ class PooledTlsClientTest {
 
         assertThat(http.version()).isEqualTo(HttpClient.Version.HTTP_1_1);
         assertThat(http.connectTimeout()).contains(PooledTlsClient.CONNECT_TIMEOUT);
+        assertThat(pooled(SslBundle.of(stores("orders"))).readTimeout())
+                .isEqualTo(PooledTlsClient.DEFAULT_READ_TIMEOUT).isEqualTo(Duration.ofSeconds(30));
         assertThat(http.sslParameters().getEndpointIdentificationAlgorithm()).isEqualTo("HTTPS");
     }
 
@@ -174,5 +184,56 @@ class PooledTlsClientTest {
         assertThat(ports).hasSize(paths.size());
         assertThat(ports.stream().distinct().count()).as("connections for %s calls: %s", paths.size(), ports)
                 .isEqualTo(1);
+    }
+
+    /** Far above the small timeouts these tests set, far below a call that waits for ever. */
+    private static final Duration PROMPTLY = Duration.ofSeconds(3);
+
+    /** A peer that takes the connection and never answers: the call fails at the read timeout, as a timeout. */
+    @Test
+    void aCallNobodyAnswersFailsAtTheReadTimeout() throws Exception {
+        try (SilentPeer peer = new SilentPeer(SilentPeer.Stall.BEFORE_HEADERS)) {
+            RestClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("orders")), Duration.ofMillis(300)))
+                    .builder().build();
+
+            long start = System.nanoTime();
+            assertThatThrownBy(() -> call(client, peer.url() + "/ok"))
+                    .isInstanceOf(ResourceAccessException.class)
+                    .rootCause().isInstanceOfAny(TimeoutException.class, HttpTimeoutException.class);
+            Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
+        }
+    }
+
+    /**
+     * A peer that sends a response's headers and then stops part way through the body. The read timeout Spring
+     * puts on the JDK client is the request's own timeout, and only a JDK that applies that timeout to the body as
+     * well ends this call: 27 does, 21 does not (it waits for ever), and the versions between were not tried. So
+     * this pins what the JDK running the tests does, and is skipped on one older than 27.
+     */
+    @Test
+    void onAJdkThatTimesTheBodyTheReadTimeoutAlsoEndsABodyThatStalls() throws Exception {
+        assumeTrue(Runtime.version().feature() >= 27, "JDK 21 does not apply the request timeout to the body");
+        try (SilentPeer peer = new SilentPeer(SilentPeer.Stall.AFTER_HEADERS)) {
+            RestClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("orders")), Duration.ofMillis(300)))
+                    .builder().build();
+
+            long start = System.nanoTime();
+            assertThatThrownBy(() -> call(client, peer.url() + "/ok")).isInstanceOf(ResourceAccessException.class);
+            Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+            assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
+        }
+    }
+
+    @Test
+    void theReadTimeoutMustBePositive() {
+        SslBundle bundle = SslBundle.of(stores("orders"));
+        for (Duration bad : List.of(Duration.ZERO, Duration.ofMillis(-1))) {
+            assertThatThrownBy(() -> PooledTlsClient.of(bundle, bad))
+                    .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("positive");
+        }
+        assertThatThrownBy(() -> PooledTlsClient.of(bundle, null)).isInstanceOf(NullPointerException.class);
     }
 }

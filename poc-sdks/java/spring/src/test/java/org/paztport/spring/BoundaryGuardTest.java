@@ -18,6 +18,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -344,7 +345,28 @@ class BoundaryGuardTest {
             assertThat(context).hasNotFailed();
             assertThat(context).hasSingleBean(BoundaryClient.class);
             assertThat(context).doesNotHaveBean(PooledTlsClient.class);
+            assertThat(context.getBean(BoundaryClient.class).readTimeout()).isEqualTo(Duration.ofSeconds(30));
         });
+    }
+
+    @Test
+    void theCallsTakeTheReadTimeout() {
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withPropertyValues("paztport.read-timeout-ms=1234")
+                .run(context -> assertThat(context.getBean(BoundaryClient.class).readTimeout())
+                        .isEqualTo(Duration.ofMillis(1234)));
+    }
+
+    @Test
+    void nonPositiveReadTimeoutFailsStartup() {
+        for (String value : List.of("0", "-1")) {
+            runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                    .withPropertyValues("paztport.read-timeout-ms=" + value).run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause()
+                                .hasMessageContaining("paztport.read-timeout-ms").hasMessageContaining("positive");
+                    });
+        }
     }
 
     // The egress takes one listener: two with none primary fail the startup rather than one being picked at

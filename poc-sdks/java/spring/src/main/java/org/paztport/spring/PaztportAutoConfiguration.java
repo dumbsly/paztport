@@ -7,9 +7,11 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivateKey;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -18,6 +20,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.function.LongSupplier;
+import java.util.function.Supplier;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
@@ -39,7 +42,6 @@ import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.core.Ordered;
-import org.springframework.web.client.RestClient;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -68,7 +70,10 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
  * the shared builder so that events are never stamped. Both draw on one
  * {@link PooledTlsClient}, so their connections are pooled and reused rather
  * than opened per call. A bundle that does not exist fails the context at
- * startup.
+ * startup. The calls have the read timeout {@code paztport.read-timeout-ms},
+ * as do the egress's calls to the partner; events have their own short one,
+ * {@code paztport.event-timeout-ms}, with a bundle or without. Either one that
+ * is not positive fails the context at startup where it is used.
  *
  * <p>Setting {@code paztport.boundary.url} makes this service the egress to a
  * partner organisation, with a {@link BoundaryClient} that presents its own
@@ -121,7 +126,19 @@ public class PaztportAutoConfiguration {
             throw new IllegalStateException(
                     "paztport.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        return PooledTlsClient.of(bundles.getBundle(props.getTlsBundle()));
+        return PooledTlsClient.of(bundles.getBundle(props.getTlsBundle()), readTimeout(props));
+    }
+
+    /** {@code paztport.read-timeout-ms}, refused unless positive. */
+    private static Duration readTimeout(PaztportProperties props) {
+        return positiveMs(props.getReadTimeoutMs(), "paztport.read-timeout-ms");
+    }
+
+    private static Duration positiveMs(long ms, String property) {
+        if (ms <= 0) {
+            throw new IllegalStateException(property + " must be positive");
+        }
+        return Duration.ofMillis(ms);
     }
 
     /** Kept apart from the stamping customizer, so a service that only verifies still presents its certificate. */
@@ -176,6 +193,7 @@ public class PaztportAutoConfiguration {
         if (b.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
         }
+        Duration readTimeout = readTimeout(props);
         byte[] blindingKey = ConfigLoader.loadBoundaryKey(Path.of(b.getBlindingKeyPath()),
                 "paztport.boundary.blinding-key-path");
         SslBundles bundles = ssl.getIfAvailable();
@@ -199,7 +217,7 @@ public class PaztportAutoConfiguration {
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
                 blindingKey,
                 listener.getIfAvailable(),
-                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle())),
+                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout),
                 b.getSessionIdleMs());
     }
 
@@ -402,6 +420,10 @@ public class PaztportAutoConfiguration {
         return new ModeHolder(VerificationMode.fromProperty(props.getMode()));
     }
 
+    /**
+     * Events go to the responder, if there is one, on the bare JDK client, each bounded by the event timeout
+     * ({@link ResponderEventPublisher}); otherwise only to the log.
+     */
     @Bean
     @ConditionalOnProperty(name = "paztport.verify", havingValue = "true")
     EventPublisher eventPublisher(PaztportProperties props, ObjectProvider<PooledTlsClient> tls) {
@@ -412,10 +434,23 @@ public class PaztportAutoConfiguration {
                 throw new IllegalStateException(
                         "paztport.responder-url is set but paztport.event-key-path is not");
             }
-            // TLS only, never the shared builder's stamping interceptor.
-            RestClient.Builder http = props.getTlsBundle() != null ? tls.getObject().builder() : RestClient.builder();
+            Duration timeout = positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
+            // The bare JDK client, never the shared builder's stamping interceptor: the pooled one over the TLS
+            // bundle, read on the first event, else a plain one of the starter's own.
+            Supplier<HttpClient> http;
+            if (props.getTlsBundle() != null) {
+                PooledTlsClient pooled = tls.getObject();
+                http = pooled::httpClient;
+            } else {
+                HttpClient plain = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(timeout)
+                        .build();
+                http = () -> plain;
+            }
             return new ResponderEventPublisher(
-                    http.build(),
+                    http,
+                    timeout,
                     responderUrl,
                     props.getServiceName(),
                     KeyFiles.loadPrivateKey(Path.of(eventKeyPath)),

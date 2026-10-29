@@ -112,14 +112,26 @@ Glue, configured through `paztport.*` properties.
   `PooledTlsClient` per application, a JDK `HttpClient` speaking HTTP/1.1 that
   pools its connections, checks the server's name against its certificate and
   honours the bundle's protocols and ciphers; its `builder()` gives a client with
-  TLS and no stamping, for calls that set their own headers. Only a connect
-  timeout is set, no read timeout, so a pooled connection whose peer vanishes
-  without closing it can block a call until TCP gives up. On a request that
-  came with a client certificate, `PeerIdentity` makes the verifier's peer: the
-  subject's common name when there is exactly one, else `""`, at the TCP address
-  the connection came from. A certificate that names no service is still a peer,
+  TLS and no stamping, for calls that set their own headers. Its timeouts are
+  under **Timeouts**, below. On a request that came with a client certificate,
+  `PeerIdentity` makes the verifier's peer: the subject's common name when there
+  is exactly one, else `""`, at the TCP address the connection came from. A certificate that names no service is still a peer,
   so the check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
   Responses are checked with no peer.
+- **Timeouts.** Every client the starter builds has them, so that a peer that
+  takes a call and never answers cannot hold the calling thread for ever. Both
+  settings must be positive; one that is not fails the startup, naming it, in a
+  service that uses it.
+
+  | Property | Default | What it bounds |
+  |---|---|---|
+  | `paztport.read-timeout-ms` | `30000` | Calls through the `PooledTlsClient`, which with `paztport.tls-bundle` set is every call on the shared `RestClient.Builder`: the wait for the response's headers, and the body too on a JDK that applies a request's timeout to it (27 does; 21 does not, so there a peer that sends its headers and then stops part way through the body still holds the call). Such a call fails with a `ResourceAccessException`. The egress's calls to the partner: the whole exchange, body included, on any JDK. |
+  | `paztport.event-timeout-ms` | `2000` | Each event to the responder, whole: connecting, sending and reading the answer to its end, on any JDK, with a TLS bundle or without. An event is sent on the request thread before the refusal is answered, so a refusal waits at most this long for it; past it the event is given up and logged, and the refusal goes ahead. |
+
+  Two more are fixed: the pooled client connects within 5 s, and the egress's
+  handshake has 10 s, whatever `paztport.read-timeout-ms` is. Without
+  `paztport.tls-bundle` the shared builder keeps the application's own request
+  factory, and its timeouts are the application's to set.
 - **The verified chain.** `PaztportContext.verifiedChain()` is the request's chain
   once it has passed the full live order at this hop, and is null otherwise: in `off`
   mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
@@ -169,8 +181,10 @@ Glue, configured through `paztport.*` properties.
   session is unsafe. That session is kept for at most 30 s, so a passing failure
   does not leave the egress unsafe for the life of the process: the first call after
   it tries the full handshake again. A genuine unsafe reply to the full handshake
-  (the partner has not pinned this organisation) is kept. The calls themselves have
-  no timeout. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
+  (the partner has not pinned this organisation) is kept. Each call has the read
+  timeout, `paztport.read-timeout-ms` (below); one past it throws
+  `UncheckedIOException` and keeps the session, as any failed call does, and is not
+  retried. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
   new one; the refused call is not retried. A `403 POLICY_EXPIRED` clears it too: once
   the egress's own root or keyring passes its `notAfter` while it runs, the partner
   refuses every call in the attested session with it, and the next call's handshake

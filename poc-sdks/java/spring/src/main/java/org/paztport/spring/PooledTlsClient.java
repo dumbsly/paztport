@@ -3,8 +3,17 @@
 
 package org.paztport.spring;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.time.Duration;
+import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import org.springframework.boot.ssl.SslBundle;
@@ -31,39 +40,69 @@ import org.springframework.web.client.RestClient;
  * host in the URL, as the JDK client does by default; the parameters set here say so too, so neither naming
  * protocols or ciphers nor the JDK's own switch for its client can turn it off.
  *
- * <p>Only a connect timeout is set, not a read timeout: a pooled connection whose peer vanishes without closing it
- * can block a call until TCP itself gives up.
+ * <p>Two timeouts bound a call through the request factory. The connect timeout, {@link #CONNECT_TIMEOUT}, bounds
+ * opening a connection. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), is Spring's on the
+ * JDK client, which makes it the request's own timeout: a peer that takes the call and sends no answer, or a
+ * pooled connection whose peer has vanished without closing it, fails the call at the read timeout, as a timeout
+ * (from a {@code RestClient}, a {@code ResourceAccessException}), instead of holding the calling thread for ever.
+ * It bounds the wait for the response's headers. Whether it also bounds the body depends on the JDK: 27 applies a
+ * request's timeout to the body as well, 21 does not, so there a peer that sends its headers and then stops part
+ * way through the body still holds the call. The calls through the factory are the mesh's, to this organisation's
+ * own services under mutual TLS, so that is left as it is; the egress's calls to another organisation and the
+ * events, which are on the path of every refusal, are each bounded whole by {@link #send}.
  *
  * <p>The client stamps nothing. {@link #builder()} gives a builder with TLS only, for calls that must not be a
- * step on a request's path (events) or that set their own headers; the starter puts the same request factory on
- * the shared {@code RestClient.Builder}, beside the stamping interceptor.
+ * step on a request's path or that set their own headers; the starter puts the same request factory on the shared
+ * {@code RestClient.Builder}, beside the stamping interceptor, and sends events on the JDK client itself.
  */
 public final class PooledTlsClient implements AutoCloseable {
 
     /** Long enough for a handshake on a loaded host, short enough that an unreachable service fails the call. */
     static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(5);
 
+    /**
+     * The read timeout unless one is given: far beyond any answer a working service gives, so it ends only calls
+     * that would otherwise wait for ever. {@code paztport.read-timeout-ms} has the same default.
+     */
+    static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
+
     /** The JDK client and Spring's factory over it, made together on the first call. */
     private record Pool(HttpClient http, ClientHttpRequestFactory factory) {
     }
 
     private final SslBundle bundle;
+    private final Duration readTimeout;
     private final ClientHttpRequestFactory requestFactory =
             (uri, method) -> pool().factory().createRequest(uri, method);
     private volatile Pool pool;
     private boolean closed;
 
-    private PooledTlsClient(SslBundle bundle) {
+    private PooledTlsClient(SslBundle bundle, Duration readTimeout) {
         this.bundle = bundle;
+        this.readTimeout = readTimeout;
     }
 
     /**
-     * A client presenting {@code bundle}. Its key material is read on the first call, not here, as Spring's own
-     * SSL clients do, so an application can start, and be tested, where its certificate files are not mounted; a
-     * bundle that cannot be read fails every call, clearly, until it can.
+     * A client presenting {@code bundle}, with the default read timeout, {@link #DEFAULT_READ_TIMEOUT}. Its key
+     * material is read on the first call, not here, as Spring's own SSL clients do, so an application can start,
+     * and be tested, where its certificate files are not mounted; a bundle that cannot be read fails every call,
+     * clearly, until it can.
      */
     public static PooledTlsClient of(SslBundle bundle) {
-        return new PooledTlsClient(bundle);
+        return of(bundle, DEFAULT_READ_TIMEOUT);
+    }
+
+    /**
+     * As {@link #of(SslBundle)}, with {@code readTimeout} as the read timeout.
+     *
+     * @throws IllegalArgumentException when {@code readTimeout} is not positive
+     */
+    public static PooledTlsClient of(SslBundle bundle, Duration readTimeout) {
+        Objects.requireNonNull(readTimeout, "readTimeout");
+        if (readTimeout.isNegative() || readTimeout.isZero()) {
+            throw new IllegalArgumentException("the read timeout must be positive: " + readTimeout);
+        }
+        return new PooledTlsClient(bundle, readTimeout);
     }
 
     private Pool pool() {
@@ -82,7 +121,9 @@ public final class PooledTlsClient implements AutoCloseable {
                             .sslContext(context)
                             .sslParameters(parameters(context, bundle.getOptions()))
                             .build();
-                    p = new Pool(http, new JdkClientHttpRequestFactory(http));
+                    JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
+                    factory.setReadTimeout(readTimeout);
+                    p = new Pool(http, factory);
                     pool = p;
                 }
             }
@@ -116,8 +157,44 @@ public final class PooledTlsClient implements AutoCloseable {
         return RestClient.builder().requestFactory(requestFactory);
     }
 
+    /** The read timeout of every call through {@link #requestFactory()}. */
+    Duration readTimeout() {
+        return readTimeout;
+    }
+
     HttpClient httpClient() {
         return pool().http();
+    }
+
+    /**
+     * Sends {@code request} on {@code http} and waits for the whole answer, its body included, for no longer than
+     * the request's timeout, which it must have. Waiting here is what bounds the body on every JDK, since 21 applies
+     * a request's timeout only to the wait for the headers. Past it the exchange is cancelled, which closes its
+     * connection, and the call fails as an {@link HttpTimeoutException}.
+     *
+     * @throws IOException when the call fails, has no whole answer within the timeout, or the thread is
+     *     interrupted (whose interrupt is kept)
+     */
+    static <T> HttpResponse<T> send(HttpClient http, HttpRequest request, HttpResponse.BodyHandler<T> body)
+            throws IOException {
+        Duration timeout = request.timeout()
+                .orElseThrow(() -> new IllegalArgumentException("the request must have a timeout"));
+        CompletableFuture<HttpResponse<T>> answer = http.sendAsync(request, body);
+        try {
+            return answer.get(timeout.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException e) {
+            answer.cancel(true);
+            throw new HttpTimeoutException("no whole answer within " + timeout.toMillis() + " ms");
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof IOException io) {
+                throw io;
+            }
+            throw new IOException(e.getCause());
+        } catch (InterruptedException e) {
+            answer.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new IOException("interrupted", e);
+        }
     }
 
     /**

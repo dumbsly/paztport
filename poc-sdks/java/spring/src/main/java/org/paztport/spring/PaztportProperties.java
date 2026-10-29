@@ -31,6 +31,23 @@ public class PaztportProperties {
     /** Private key that signs events sent to the responder; required when {@code responderUrl} is set. */
     private String eventKeyPath;
 
+    /**
+     * How long an event to the responder may take, in milliseconds, from connecting to the end of the answer;
+     * positive. It is short because the event is sent on the request thread, before a refusal is answered: a
+     * responder that is slow or silent would otherwise hold every refusal, and anyone sending forged requests
+     * could tie up the request threads with it. An event that takes longer is given up and logged.
+     */
+    private long eventTimeoutMs = 2_000;
+
+    /**
+     * How long a call may wait for its answer, in milliseconds; positive. It is the read timeout of the client
+     * {@code paztport.tls-bundle} makes, and so of every call on the shared {@code RestClient.Builder}, and of the
+     * egress's calls to the partner: a peer that takes a call and never answers fails it as a timeout rather than
+     * holding the calling thread for ever. {@link PooledTlsClient} and {@link BoundaryClient} say exactly what it
+     * bounds on each. Generous, so that a slow but working peer is not cut off.
+     */
+    private long readTimeoutMs = 30_000;
+
     /** Shared token for {@code /admin/mode}; unset or blank disables the endpoint. */
     private String adminToken;
 
@@ -305,6 +322,22 @@ public class PaztportProperties {
 
     public void setEventKeyPath(String eventKeyPath) {
         this.eventKeyPath = eventKeyPath;
+    }
+
+    public long getEventTimeoutMs() {
+        return eventTimeoutMs;
+    }
+
+    public void setEventTimeoutMs(long eventTimeoutMs) {
+        this.eventTimeoutMs = eventTimeoutMs;
+    }
+
+    public long getReadTimeoutMs() {
+        return readTimeoutMs;
+    }
+
+    public void setReadTimeoutMs(long readTimeoutMs) {
+        this.readTimeoutMs = readTimeoutMs;
     }
 
     public String getAdminToken() {

@@ -20,11 +20,13 @@ import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.cert.CertificateException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -33,9 +35,11 @@ import java.util.Map;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
@@ -60,6 +64,10 @@ import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.mock.web.MockFilterChain;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -748,5 +756,136 @@ class PaztportAutoConfigurationTest {
         withClients.withPropertyValues(stampingVerifier(dir, "https://127.0.0.1:1"))
                 .withPropertyValues("paztport.tls-bundle=missing")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    // --- Timeouts ---
+
+    /** Far above the small timeouts these tests set, far below a call that waits for ever. */
+    private static final Duration PROMPTLY = Duration.ofSeconds(3);
+
+    @Test
+    void theTimeoutsDefaultToThirtySecondsForCallsAndTwoForEvents(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .run(context -> {
+                    PaztportProperties props = context.getBean(PaztportProperties.class);
+                    assertThat(props.getReadTimeoutMs()).isEqualTo(30_000L);
+                    assertThat(props.getEventTimeoutMs()).isEqualTo(2_000L);
+                    assertThat(context.getBean(PooledTlsClient.class).readTimeout())
+                            .isEqualTo(Duration.ofSeconds(30)).isEqualTo(PooledTlsClient.DEFAULT_READ_TIMEOUT);
+                    assertThat(((ResponderEventPublisher) context.getBean(EventPublisher.class)).timeout())
+                            .isEqualTo(Duration.ofSeconds(2));
+                });
+    }
+
+    @Test
+    void theTimeoutsCanBeSet(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                .withPropertyValues("paztport.read-timeout-ms=1234", "paztport.event-timeout-ms=567")
+                .run(context -> {
+                    assertThat(context.getBean(PooledTlsClient.class).readTimeout()).isEqualTo(Duration.ofMillis(1234));
+                    assertThat(((ResponderEventPublisher) context.getBean(EventPublisher.class)).timeout())
+                            .isEqualTo(Duration.ofMillis(567));
+                });
+    }
+
+    @Test
+    void aTimeoutThatIsNotPositiveFailsAtStartupNamingIt(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        for (String value : List.of("0", "-1")) {
+            withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                    .withPropertyValues(MESH_BUNDLE).withPropertyValues("paztport.read-timeout-ms=" + value)
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause()
+                                .hasMessageContaining("paztport.read-timeout-ms").hasMessageContaining("positive");
+                    });
+            // Without a TLS bundle too: the event client is built either way.
+            withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                    .withPropertyValues("paztport.event-timeout-ms=" + value)
+                    .run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause()
+                                .hasMessageContaining("paztport.event-timeout-ms").hasMessageContaining("positive");
+                    });
+        }
+    }
+
+    /**
+     * A responder that takes the connection and never answers must not hold a refusal: the event is given up at
+     * the event timeout, the failure logged and swallowed, and the request still refused. Without a TLS bundle,
+     * the event client is the starter's own plain one.
+     */
+    @Test
+    @Timeout(10)
+    void aRejectedRequestIsRefusedPromptlyWhileTheResponderIsSilent(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        try (SilentPeer responder = new SilentPeer(SilentPeer.Stall.BEFORE_HEADERS)) {
+            runner.withPropertyValues(VERIFIER_PROPS)
+                    .withPropertyValues(trust(dir))
+                    .withPropertyValues(
+                            "paztport.responder-url=" + responder.url(),
+                            "paztport.event-key-path=" + dir.resolve("gateway.key"),
+                            "paztport.event-timeout-ms=300")
+                    .run(context -> {
+                        @SuppressWarnings("unchecked")
+                        InboundFilter filter = ((FilterRegistrationBean<InboundFilter>)
+                                context.getBean("inboundFilterRegistration", FilterRegistrationBean.class))
+                                .getFilter();
+                        MockHttpServletRequest forged = new MockHttpServletRequest("POST", "/pay");
+                        forged.setContent("{}".getBytes());
+                        MockHttpServletResponse response = new MockHttpServletResponse();
+
+                        long start = System.nanoTime();
+                        filter.doFilter(forged, response, new MockFilterChain());
+                        Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+                        assertThat(response.getStatus()).isEqualTo(403);
+                        assertThat(response.getContentAsString()).contains("CHAIN_MISSING");
+                        assertThat(responder.connections()).as("the event was sent").isEqualTo(1);
+                        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
+                    });
+        }
+    }
+
+    /** Over the TLS bundle, the event client shares the pooled client, and is still bounded by its own timeout. */
+    @Test
+    @Timeout(10)
+    void anEventOverTheTlsBundleIsGivenUpAtTheEventTimeout(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        try (SilentPeer responder = new SilentPeer(SilentPeer.Stall.BEFORE_HEADERS)) {
+            withClients.withPropertyValues(stampingVerifier(dir, responder.url())).withPropertyValues(MESH_BUNDLE)
+                    .withPropertyValues("paztport.event-timeout-ms=300")
+                    .run(context -> {
+                        long start = System.nanoTime();
+                        publishInsideARequest(context.getBean(EventPublisher.class));
+                        Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+                        assertThat(responder.connections()).isEqualTo(1);
+                        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
+                    });
+        }
+    }
+
+    /** A call on the shared builder to a peer that never answers fails at the read timeout, as a timeout. */
+    @Test
+    @Timeout(10)
+    void aCallOnTheSharedBuilderFailsAtTheReadTimeout(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        try (SilentPeer peer = new SilentPeer(SilentPeer.Stall.BEFORE_HEADERS)) {
+            withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
+                    .withPropertyValues("paztport.read-timeout-ms=300")
+                    .run(context -> {
+                        RestClient client = context.getBean(RestClient.Builder.class).build();
+                        long start = System.nanoTime();
+                        assertThatThrownBy(() -> client.post().uri(peer.url() + "/call").body("{}").retrieve()
+                                .toBodilessEntity())
+                                .isInstanceOf(ResourceAccessException.class)
+                                .rootCause().isInstanceOfAny(TimeoutException.class, HttpTimeoutException.class);
+                        Duration took = Duration.ofNanos(System.nanoTime() - start);
+                        assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
+                    });
+        }
     }
 }

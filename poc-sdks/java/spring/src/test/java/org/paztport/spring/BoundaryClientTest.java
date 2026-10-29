@@ -17,9 +17,12 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.UncheckedIOException;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -800,5 +803,47 @@ class BoundaryClientTest {
         partner.close();
 
         assertThrows(IllegalStateException.class, () -> verified("rid-1", this::charge));
+    }
+
+    /**
+     * A partner that takes a call and never finishes answering it, either before its headers or part way through
+     * the body: the call fails at the read timeout, as the {@code UncheckedIOException} a failed call always is, on
+     * any JDK, and the session is kept as after any failed call, so the next call goes out in it with no handshake.
+     */
+    @Test
+    void aCallThePartnerNeverFinishesFailsAtTheReadTimeoutAndKeepsTheSession() throws Exception {
+        for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
+            try (StubPartner stalling = new StubPartner();
+                    BoundaryClient bounded = new BoundaryClient(
+                            new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                                    System::currentTimeMillis),
+                            built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp",
+                            stalling.url(), stalling.policyKey(), blindingKey, null,
+                            PooledTlsClient.of(fixtureBundle("payment"), Duration.ofMillis(300)), nanos::get,
+                            millis::get, IDLE_MS)) {
+                stalling.stallNextCall(stall);
+
+                long start = System.nanoTime();
+                UncheckedIOException e = assertThrows(UncheckedIOException.class,
+                        () -> verified("rid-1", () -> bounded.post("/charge", CHARGE)), stall.name());
+                Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+                assertTrue(e.getCause() instanceof HttpTimeoutException, stall + ": " + e.getCause());
+                assertTrue(took.compareTo(Duration.ofMillis(250)) >= 0 && took.compareTo(Duration.ofSeconds(3)) < 0,
+                        stall + " took " + took);
+                assertEquals(1, stalling.handshakes().size());
+
+                BoundaryClient.Response next = verified("rid-2", () -> bounded.post("/charge", CHARGE));
+                assertEquals(200, next.status(), stall.name());
+                assertTrue(next.attested());
+                assertEquals(1, stalling.handshakes().size(), stall + ": the session is kept");
+                assertEquals(stalling.issued().get(0), stalling.calls().get(1).header(PaztportHeaders.SESSION));
+            }
+        }
+    }
+
+    @Test
+    void theCallsGetTheReadTimeoutOfTheirTlsClient() {
+        assertEquals(PooledTlsClient.DEFAULT_READ_TIMEOUT, client.readTimeout());
     }
 }
