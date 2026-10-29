@@ -11,6 +11,7 @@ import java.util.Objects;
 import org.paztport.core.BoundaryInfluence;
 import org.paztport.core.InfluenceEntry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -45,9 +46,9 @@ public class OpeningCheckController {
      *
      * <p>The body arrives as bytes and is read with the SDK's own Jackson, since
      * {@link BoundaryInfluence.Opening#parse} takes that Jackson's tree; the web layer's Jackson is another major
-     * version, and cannot read a body into it.
+     * version, and cannot read a body into it. Only JSON is taken: any other content type is answered {@code 415}.
      */
-    @PostMapping("/debug/check-opening")
+    @PostMapping(path = "/debug/check-opening", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
         BoundaryInfluence.Opening opening;
         try {

@@ -55,8 +55,8 @@ public class OpeningController {
      * partner is held, or none of its originals is in the group; {@code 400} for a class that does not exist.
      *
      * <p>The opening is written with the SDK's own Jackson and handed to the web layer as a string, so the body is
-     * exactly what {@code Opening.toJson()} says; the web layer's Jackson is another major version, and would not
-     * write that tree as JSON.
+     * exactly what {@code Opening.toJson()} says; the web layer's Jackson is another major version, and would
+     * write that tree as a bean, not as the JSON it holds.
      */
     @GetMapping("/debug/boundary-opening")
     public ResponseEntity<?> opening(@RequestParam String rid, @RequestParam String cls,
