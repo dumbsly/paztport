@@ -755,9 +755,10 @@ tools re-sign it.
 
 The policy tools sign the root and re-sign the keyring with one lifetime,
 `PAZTPORT_POLICY_DAYS` days from the run (default 7); `psp`'s reply certificate has
-its own, `PAZTPORT_REPLY_CERT_DAYS` (default 7). Every service but the responder,
-which holds no root or pin, checks its own keyring and root against the pin at
-startup:
+its own, `PAZTPORT_REPLY_CERT_DAYS` (default 7). Compose passes neither through, so
+change them per run, for example `docker compose run --rm -e PAZTPORT_POLICY_DAYS=30
+policy-tool`. Every service but the responder, which holds no root or pin, checks its
+own keyring and root against the pin at startup:
 
 - It **refuses to start** if either is in the old form or past its `notAfter`, with
   a message naming the property (`paztport.keyring-path` or `paztport.root-path`)
@@ -842,9 +843,10 @@ exposed to the host.
 | `PAZTPORT_MODE` | `enforce` | `payment` (`off`, `audit`, `enforce`) |
 | `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
 | `PAZTPORT_ORIGINS` | `gateway` | `payment`. The callers' response checks use the same property, `paztport.origins`, with the same default |
-| `PAZTPORT_PROOF_DEPTH` | `8` | policy-tool |
-| `PAZTPORT_POLICY_DAYS` | `7` | `policy-tool`, `policy-tool-psp`: the lifetime, in days from the run, of the root and the keyring they sign |
-| `PAZTPORT_RENEW` | unset, so a rebuild | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
+| `PAZTPORT_PROOF_DEPTH` | `8`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp` |
+| `PAZTPORT_POLICY_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: the lifetime, in days from the run, of the root and the keyring they sign; `keygen`, `keygen-psp`: that of the keyring they first write |
+| `PAZTPORT_RENEW` | unset, so a rebuild; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
+| `PAZTPORT_REPLY_CERT_DAYS` | `7`; Compose does not pass it through, so set it with `docker compose run -e` | `policy-tool-psp`: the lifetime, in days from the run, of the reply certificate it writes |
 | `ATTACK_MODE` | `false` | search |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |

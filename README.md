@@ -372,13 +372,16 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the proxy. A certificate is per service, not per container, so blaming one
   container needs per-instance certificates; until then the responder still checks
   that the container runs the named service.
-- **Revocation takes up to a lifetime.** A keyring or root presented in a
-  handshake stays usable by someone replaying it until its `notAfter`, so a leaked
-  service key, or a route removed from a policy, can be used until the keyring or
-  root that names it expires: 7 days by default. A deployment can shorten that by
-  remembering the newest keyring and root it has seen per policy key, or end it at
-  once by re-pinning a new policy key. Choosing the lifetime and running the
-  renewals are the deployment's job.
+- **Revocation takes up to a lifetime.** A keyring or root presented when a
+  session opens with a partner (the handshake) stays usable by someone replaying it
+  until its `notAfter`, so a leaked service key, or a route removed from a policy,
+  can be used until the keyring or root that names it expires: 7 days by default.
+  A deployment can shorten that by refusing any keyring or root whose `notAfter` is
+  earlier than the latest it has seen per policy key, but that holds only while
+  every issue's `notAfter` is later than the one before, since a renewal can write
+  an earlier one; nothing signed says which issue is newer (a version number would
+  make it exact, but the format carries none). Re-pinning a new policy key ends it
+  at once. Choosing the lifetime and running the renewals are the deployment's job.
 - **Async is out of scope**, for now. Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in
   [section 6](#6-where-this-could-go)).
@@ -443,9 +446,9 @@ Engineering shortcuts of this repository, not of the design.
 - **The responder mounts the Docker socket**, which is host-level control.
   Acceptable for a local demo only; never do this in a real deployment.
 - **The responder's keyring is unpinned.** It checks event signatures against
-  `keyring.json` as mounted, without verifying the keyring against the policy pin,
-  which the mesh services do. Anyone who could replace that file could name their
-  own event signer.
+  `keyring.json` as mounted, without verifying the keyring against the policy pin
+  or checking its `notAfter`, both of which the mesh services do. Anyone who could
+  replace that file could name their own event signer.
 - **The nonce cache is in-memory and unbounded** in this POC. The freshness window
   means it only *needs* to remember twice the 5 s window, and a real deployment
   would use a shared, expiring store.

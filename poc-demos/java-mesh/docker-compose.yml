@@ -32,8 +32,10 @@
 # verify requests, and its own stamp key, which attests its responses and signs
 # the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
 # is mounted nowhere. The policy tools mount the policy key and keyring.json, each
-# as a single file; the keyring is writable there alone, because the tool re-signs
-# it in place, and never the keys directory, which holds every service's key.
+# as a single file, and never the keys directory, which holds every service's key;
+# of the containers that read the keyring, only the policy tools may write it,
+# because they re-sign it in place. The keygens, which write the keys, mount the
+# keys directory writable, and run only when the keys are made.
 #
 # The PSP is another organisation, with its own keys (out/psp-keys), its own CA
 # and its own root (out/psp-policy), on its own network. Payment, the shop's
