@@ -152,7 +152,11 @@ public final class PooledTlsClient implements AutoCloseable {
         return requestFactory;
     }
 
-    /** A fresh builder over the shared request factory, with nothing else on it: TLS, and no stamping. */
+    /**
+     * A fresh builder over the shared request factory, with nothing else on it: TLS, and no stamping. Each response
+     * is read whole and held in memory before the caller sees it, so it suits the small bodies mesh calls carry,
+     * not large streamed downloads.
+     */
     public RestClient.Builder builder() {
         return RestClient.builder().requestFactory(requestFactory);
     }

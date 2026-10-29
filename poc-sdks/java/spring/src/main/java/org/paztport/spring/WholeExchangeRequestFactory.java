@@ -30,9 +30,12 @@ import org.springframework.http.client.ClientHttpResponse;
  * {@code JdkClientHttpRequestFactory} hands back the body as a stream, so its read timeout bounds only the wait for
  * the headers, and on JDK 21 a peer that sends its headers and then stops holds the call for ever.
  *
- * <p>So the request body is buffered and the response's is read whole before the caller sees either. Nothing is lost
- * by it: the stamping interceptor reads every response whole anyway, to bind the result hash, and holds the request
- * body to bind the request. Status, headers and body come back as sent, error statuses and empty bodies included.
+ * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
+ * either. Stamped calls lose nothing by it, since the stamping interceptor reads every response whole anyway, to bind
+ * the result hash, and holds the request body to bind the request; an unstamped call through
+ * {@link PooledTlsClient#builder()} can no longer stream its response. The status code, the headers and the body come
+ * back as the peer sent them, error statuses and empty bodies included; the status text is {@code HttpStatus}'s
+ * reason phrase for the code, or empty for a code it does not know, since the JDK client does not expose the peer's.
  */
 final class WholeExchangeRequestFactory implements ClientHttpRequestFactory {
 
