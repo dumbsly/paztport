@@ -50,13 +50,12 @@ import org.springframework.core.Ordered;
  * partner's entry, which answers other organisations' session handshakes and verifies their calls with
  * {@link PartnerFilter} in place of the inbound filter, behind {@link PartnerGate}.
  *
- * <p>Each feature's beans are built by a configuration class of its own, which this imports; the two filters,
- * which alone may mark a chain verified, are registered here.
+ * <p>Each feature's beans are built by a configuration class of its own, which this imports. The request path's
+ * own beans are defined here: the two filters, which alone may mark a chain verified, and the public-writes rule.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)
-@Import({TrustConfiguration.class, OutboundConfiguration.class, PartnerConfiguration.class, EventConfiguration.class,
-        InboundConfiguration.class})
+@Import({TrustConfiguration.class, OutboundConfiguration.class, PartnerConfiguration.class, EventConfiguration.class})
 public class PaztportAutoConfiguration {
 
     /**
@@ -72,6 +71,12 @@ public class PaztportAutoConfiguration {
         registration.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registration.addUrlPatterns("/*");
         return registration;
+    }
+
+    /** Always present: the rule needs no keys, only this service's name for its trace line. */
+    @Bean
+    PublicWrites paztportPublicWrites(PaztportProperties props) {
+        return new PublicWrites(props.getServiceName());
     }
 
     /**
