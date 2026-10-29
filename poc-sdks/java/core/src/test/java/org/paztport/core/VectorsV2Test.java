@@ -57,7 +57,7 @@ class VectorsV2Test {
         JsonNode d = vectors.get("deriveSessionId");
         JsonNode keys = d.get("keys");
         Map<String, String> keyring = new LinkedHashMap<>();
-        keys.get("clientKeyring").fields().forEachRemaining(e -> keyring.put(e.getKey(), e.getValue().asText()));
+        keys.get("clientKeyring").properties().forEach(e -> keyring.put(e.getKey(), e.getValue().asText()));
         for (JsonNode c : d.get("cases")) {
             assertEquals(c.get("expected").asText(),
                     Sessions.deriveSessionId(fixed(c.get("clientRootSig")), fixed(c.get("serverRootSig")),

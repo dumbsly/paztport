@@ -11,7 +11,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -103,9 +102,7 @@ public final class Sessions {
 
     private static Map<String, String> stringMap(JsonNode o) {
         Map<String, String> out = new LinkedHashMap<>();
-        Iterator<Map.Entry<String, JsonNode>> it = o.fields();
-        while (it.hasNext()) {
-            Map.Entry<String, JsonNode> e = it.next();
+        for (Map.Entry<String, JsonNode> e : o.properties()) {
             out.put(e.getKey(), text(e.getValue(), "entry " + e.getKey()));
         }
         return out;

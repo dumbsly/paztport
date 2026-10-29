@@ -354,7 +354,7 @@ class VectorsHttpV3Export {
         String name = c.get("name").asText();
         JsonNode policy = v3.get("policies").get(c.get("policy").asText());
         Map<String, PublicKey> ring = new LinkedHashMap<>();
-        c.get("keyring").fields().forEachRemaining(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, v3)));
+        c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, v3)));
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();

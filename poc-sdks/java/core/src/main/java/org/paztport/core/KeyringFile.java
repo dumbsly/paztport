@@ -156,7 +156,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
             throw new IllegalArgumentException("keyring services must be an object");
         }
         Map<String, String> services = new LinkedHashMap<>();
-        s.fields().forEachRemaining(e -> {
+        s.properties().forEach(e -> {
             if (!e.getValue().isTextual()) {
                 throw new IllegalArgumentException("keyring service keys must be strings");
             }

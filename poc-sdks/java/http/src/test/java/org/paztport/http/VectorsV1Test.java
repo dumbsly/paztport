@@ -57,7 +57,7 @@ class VectorsV1Test {
             throw new IllegalStateException("spec/vectors/v1.json not found above " + dir);
         }
         vectors = new ObjectMapper().readTree(Files.readAllBytes(file));
-        vectors.get("keys").fields().forEachRemaining(e ->
+        vectors.get("keys").properties().forEach(e ->
                 PUBLIC_KEYS.put(e.getKey(), Crypto.decodePublicKey(Base64Url.decode(e.getValue().get("pub").asText()))));
     }
 
@@ -113,7 +113,7 @@ class VectorsV1Test {
         int cases = 0;
         for (JsonNode c : vectors.get("verify")) {
             Map<String, PublicKey> ring = new HashMap<>();
-            c.get("keyring").fields().forEachRemaining(e -> ring.put(e.getKey(), PUBLIC_KEYS.get(e.getValue().asText())));
+            c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), PUBLIC_KEYS.get(e.getValue().asText())));
             Set<String> origins = new java.util.HashSet<>();
             c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
             long now = c.get("now").asLong();

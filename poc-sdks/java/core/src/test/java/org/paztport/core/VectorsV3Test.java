@@ -255,7 +255,7 @@ class VectorsV3Test {
 
     static Keyring keyring(JsonNode names) {
         Map<String, PublicKey> keys = new LinkedHashMap<>();
-        names.fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
+        names.properties().forEach(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
                 Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
         return Keyring.of(keys);
     }

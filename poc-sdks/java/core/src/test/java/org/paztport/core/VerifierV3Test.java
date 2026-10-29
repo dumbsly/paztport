@@ -43,7 +43,7 @@ class VerifierV3Test {
         JsonNode c = peerOk;
         JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
         Map<String, PublicKey> keys = new LinkedHashMap<>();
-        c.get("keyring").fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
+        c.get("keyring").properties().forEach(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
                 Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
         long now = c.get("now").asLong();
         return new VerifierV3(new VerifierConfigV3(Keyring.of(keys), Base64Url.decode(policy.get("root").asText()),
