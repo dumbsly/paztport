@@ -166,8 +166,8 @@ public final class PooledTlsClient implements AutoCloseable {
     /**
      * The bare JDK client under the shared pool, made on first use: it presents the bundle and stamps nothing. A
      * call sent on it directly is bounded only by the connect timeout and the request's own timeout, which on JDK 25
-     * covers only the wait for the headers; calls through {@link #requestFactory()}, or sent with
-     * {@link WholeExchange#send}, are bounded whole.
+     * covers only the wait for the headers; calls through {@link #requestFactory()}, and the starter's
+     * own calls, are bounded whole.
      */
     public HttpClient httpClient() {
         return pool().http();

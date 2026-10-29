@@ -11,14 +11,15 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
 
 /**
- * Request-scoped carrier of what one request has seen. The inbound filter stores the chain a service received and
- * the influence that came with it; the handler adds the influence of whatever else it reads, and labels what it
- * produces; the outbound interceptor reads the chain to append the next stamp and commits the influence so far.
+ * Request-scoped carrier of what one request has seen. The inbound filter, or on a partner the partner filter, stores
+ * the chain a service received and the influence that came with it; the handler adds the influence of whatever else
+ * it reads, and labels what it produces; the outbound interceptor reads the chain to append the next stamp and commits
+ * the influence so far.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
  * unit of work learns must not outlive it: influence left behind would be committed to another request's calls,
- * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. The
- * inbound filter opens one per request; outside any scope the outbound interceptor neither reads the context nor
+ * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. Each of
+ * the two filters opens one per request; outside any scope the outbound interceptor neither reads the context nor
  * records responses into it, so calls made there stamp with no influence and leave nothing behind.
  */
 public final class PaztportContext {
@@ -42,9 +43,10 @@ public final class PaztportContext {
     }
 
     /**
-     * Marks the inbound chain as having passed the live order at this hop. Only the inbound filter calls this, and
-     * only from the result that decides attestation, so that anything which later signs on the strength of it (the
-     * boundary signer) can rely on it never being set by a chain that failed, was not checked, or came to an origin.
+     * Marks the inbound chain as having passed the live order at this hop. Only the two request filters call this, the
+     * inbound filter and the partner filter, each only from the result that decides attestation, so that anything
+     * which later signs on the strength of it (the boundary signer) can rely on it never being set by a chain that
+     * failed, was not checked, or came to an origin.
      */
     static void markVerified(List<StampV3> chain) {
         VERIFIED.set(chain);
