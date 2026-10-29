@@ -26,9 +26,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * The beans built from the files and settings {@code paztport.*} names: this service's stamper and route proofs,
- * the pinned verifier, and the verification mode with its admin endpoint. {@link PaztportAutoConfiguration} imports
- * it; it is not for an application to use directly.
+ * Builds what this service signs and verifies with from its {@code paztport.*} files and settings: its stamper and
+ * route proofs, the pinned verifier, and the verification mode with its admin endpoint.
+ * {@link PaztportAutoConfiguration} imports it; it is not for an application to use directly.
  */
 @Configuration(proxyBeanMethods = false)
 public class TrustConfiguration {
