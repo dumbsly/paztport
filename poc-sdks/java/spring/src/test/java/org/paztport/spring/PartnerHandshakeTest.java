@@ -216,6 +216,7 @@ class PartnerHandshakeTest {
 
         assertEquals(200, answer.status());
         JsonNode reply = JSON.readTree(answer.body());
+        assertEquals(reply.toString(), answer.body(), "the reply exactly as the SDK writes it");
         assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
@@ -321,6 +322,20 @@ class PartnerHandshakeTest {
         assertNull(sessions.find(SHOP_CA, "gateway", opened.get(0)));
         assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(1)));
         assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(2)));
+    }
+
+    /** The reply and a refusal alike go out as the SDK wrote them, labelled JSON and nothing more. */
+    @Test
+    void sessionAnswersAreJson() throws Exception {
+        for (byte[] body : List.of(json(request(Sessions.newNonce())), "{}".getBytes(StandardCharsets.UTF_8))) {
+            String type = client("orders").post()
+                    .uri("https://localhost:" + port + HttpSessions.PATH)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .exchange((request, response) -> response.getHeaders().getFirst("Content-Type"));
+
+            assertEquals("application/json", type);
+        }
     }
 
     @Test

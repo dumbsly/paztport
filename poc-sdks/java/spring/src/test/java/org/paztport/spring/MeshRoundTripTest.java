@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
@@ -68,6 +69,7 @@ class MeshRoundTripTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final KeyPair APP = Crypto.generateEd25519KeyPair();
+    private static final String ADMIN_TOKEN = "admin-" + UUID.randomUUID();
     private static Path trust;
 
     @DynamicPropertySource
@@ -95,6 +97,7 @@ class MeshRoundTripTest {
         registry.add("paztport.keyring-path", () -> trust.resolve("keyring.json").toString());
         registry.add("paztport.root-path", () -> trust.resolve("root.json").toString());
         registry.add("paztport.policy-key-path", () -> trust.resolve("policy.pub").toString());
+        registry.add("paztport.admin-token", () -> ADMIN_TOKEN);
     }
 
     @AfterAll
@@ -169,5 +172,27 @@ class MeshRoundTripTest {
         // The answer comes back attested, since the chain verified, and the caller verifies it.
         assertEquals(1, responses.size(), lines.toString());
         assertTrue(responses.get(0).contains(" from=localhost reason=OK receiver=localhost ✓ "), responses.get(0));
+    }
+
+    /**
+     * The control channel's answers through the real container, byte for byte. Spring MVC writes them from maps of
+     * strings, so a change in how the framework serialises a body would show here rather than reach a client.
+     */
+    @Test
+    void adminModeAnswersExactly() throws Exception {
+        URI mode = URI.create("http://localhost:" + port + "/admin/mode");
+        try (HttpClient http = TestHttp.newClient()) {
+            HttpResponse<String> refused = http.send(TestHttp.request(mode).GET().build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> read = http.send(TestHttp.request(mode).header("X-Admin-Token", ADMIN_TOKEN).GET()
+                    .build(), HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(403, refused.statusCode());
+            assertEquals("{\"error\":\"admin token required\"}", refused.body());
+            assertEquals("application/json", refused.headers().firstValue("Content-Type").orElse(null));
+            assertEquals(200, read.statusCode());
+            assertEquals("{\"mode\":\"ENFORCE\"}", read.body());
+            assertEquals("application/json", read.headers().firstValue("Content-Type").orElse(null));
+        }
     }
 }
