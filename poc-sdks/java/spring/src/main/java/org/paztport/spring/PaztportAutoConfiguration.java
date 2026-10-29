@@ -216,8 +216,8 @@ public class PaztportAutoConfiguration {
      * certificate must be reissued and the service restarted before it expires. Its own keyring and root are the
      * other case: once either expires the partner keeps running and opens only unsafe sessions
      * ({@link PartnerSessions}). The time all of this is judged by, at startup and in every handshake and call
-     * after it (stamp freshness included), is the system clock, fixed when the bean is made: no bean an application
-     * defines can move it. No message carries key material.
+     * after it (stamp freshness included), is the system clock, fixed when the bean is made: an ordinary application
+     * bean cannot move it. No message carries key material.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
@@ -229,8 +229,9 @@ public class PaztportAutoConfiguration {
     /**
      * The partner's session registry as {@link #paztportPartnerSessions} builds it, judged by {@code clock} (ms since
      * the epoch) at startup and from then on. Only this package can call it, or define a {@link PartnerSessions}
-     * bean in place of the one above, since the type is package-private: tests do, to move time, and an application
-     * cannot.
+     * bean in place of the one above, since the type is package-private: tests do, to move time. An application
+     * cannot without reaching into this package (a class of its own in it, or a bean definition registered by
+     * reflection), which is no accident; the module system would close even that, and this starter does not use it.
      */
     static PartnerSessions partnerSessions(PaztportProperties props, LongSupplier clock) {
         PaztportProperties.Partner p = props.getPartner();
