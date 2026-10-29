@@ -21,16 +21,16 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
-import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.Keyring;
-import org.paztport.core.stamp.PathChainV1;
-import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.PathChainV1;
 import org.paztport.core.stamp.StampV1;
-import org.paztport.core.verify.VerifierV1;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV1;
+import org.paztport.core.verify.VerifierV1;
 import org.paztport.core.verify.VerifyResult;
 
 /**

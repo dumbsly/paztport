@@ -12,12 +12,12 @@ import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.core.policy.SignedRoot;
 
 /** The handshake's HTTP body: strict parsing in, a fixed error shape out. */
 class HttpSessionsTest {

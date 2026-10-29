@@ -5,8 +5,8 @@ package org.paztport.http;
 
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
 
 /**
  * Binds a stamp to the request a hop actually sent: {@code bind} is the

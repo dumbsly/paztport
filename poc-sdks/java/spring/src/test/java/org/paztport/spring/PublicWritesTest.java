@@ -20,9 +20,9 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.RequestBinding;
 import org.slf4j.LoggerFactory;
 

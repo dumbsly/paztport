@@ -7,8 +7,8 @@ import java.security.KeyPair;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 
 /**

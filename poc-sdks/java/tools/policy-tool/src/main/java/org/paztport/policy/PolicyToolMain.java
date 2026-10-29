@@ -16,14 +16,14 @@ import java.security.PrivateKey;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.session.ReplyCert;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.session.ReplyCert;
 
 /**
  * CLI: build, or renew, a signed root and per-service proof bundles from paths.yaml, and re-sign the keyring beside
