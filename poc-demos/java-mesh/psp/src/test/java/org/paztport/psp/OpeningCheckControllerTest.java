@@ -88,6 +88,13 @@ class OpeningCheckControllerTest {
     }
 
     @Test
+    void aBodyOfAnotherContentTypeIsUnsupported() throws Exception {
+        mvc.perform(post("/debug/check-opening").param("rid", RID)
+                        .contentType(MediaType.TEXT_PLAIN).content(aliceOpening(ORIGINALS).toJson().toString()))
+                .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
     void aBodyThatIsNotJsonIsABadRequest() throws Exception {
         mvc.perform(post("/debug/check-opening").param("rid", RID)
                         .contentType(MediaType.APPLICATION_JSON).content("{\"cls\":"))
