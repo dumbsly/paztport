@@ -9,9 +9,10 @@
 #   mvn -q package -DskipTests
 #
 # This script is idempotent. On each run it regenerates keys if missing,
-# restores the original policy and rebuilds the root, (re)starts the mesh, and
-# resets payment to enforce mode. All calls go over the mesh network via a
-# throwaway curl container, so only the gateway port need ever be exposed.
+# restores the original policy, rebuilds the root and re-signs the keyrings,
+# (re)starts the mesh, and resets payment to enforce mode. All calls go over the
+# mesh network via a throwaway curl container, so only the gateway port need ever
+# be exposed.
 # Every hop is mutual TLS, so that container presents the operator's certificate.
 
 set -u
@@ -107,10 +108,12 @@ write_paths() { # writes policy/paths.yaml with the given extra route flag
   } > policy/paths.yaml
 }
 
-rebuild_policy() { # rebuilds root + bundles; all proof/root holders must reload together
+rebuild_policy() { # rebuilds root + bundles and re-signs the keyring; all proof/root holders must reload together
   # Each policy-tool run uses fresh salts, so the root bytes change; every service
   # that pins a root or holds proofs must recreate to reload the files (and to rejoin
-  # the mesh if a prior run left it quarantined).
+  # the mesh if a prior run left it quarantined). The run also re-signs keyring.json
+  # in place with a new notAfter, listing the same keys, so the responder, which is
+  # not recreated here, keeps a keyring that still names payment's key.
   quietly "building the policy root (policy-tool)" docker compose run --rm policy-tool
   docker compose up -d --force-recreate gateway orders payment search tickets assistant mailer >/dev/null 2>&1
   wait_ready
@@ -145,12 +148,16 @@ quietly "building the keygen and policy-tool images" \
   docker compose build keygen policy-tool keygen-psp policy-tool-psp
 # Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
 # services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced;
-# so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it).
-# A bind-mount source Docker created as an empty directory (see below) would block keygen.
-for p in out/keys/policy.pub out/keys/boundary.key out/keys/tls/* out/psp-keys/policy.pub \
+# so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it),
+# and keys with no keyring, which the policy tools need to re-sign. A keyring past its notAfter, or
+# in the old form, is not a reason to regenerate: the policy tools re-sign both keyrings on every run.
+# A bind-mount source Docker created as an empty directory (see below) would block keygen, or the
+# policy tool's write of the keyring.
+for p in out/keys/policy.pub out/keys/boundary.key out/keys/keyring.json out/keys/tls/* out/psp-keys/policy.pub \
   out/psp-keys/policy.key out/psp-keys/psp.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
-  || [ ! -f out/keys/boundary.key ] || [ ! -f out/psp-keys/policy.pub ]; then
+  || [ ! -f out/keys/boundary.key ] || [ ! -f out/keys/keyring.json ] \
+  || [ ! -f out/psp-keys/policy.pub ] || [ ! -f out/psp-keys/keyring.json ]; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
   quietly "generating the PSP's keys and certificates (keygen-psp)" docker compose run --rm keygen-psp
 fi
@@ -160,6 +167,7 @@ export PAZTPORT_ADMIN_TOKEN
 # The policy files must exist before the first `up`: Docker creates a missing bind-mount
 # source as an empty directory, which the services then fail to read and the policy-tool
 # cannot overwrite. So write the policy and build the root before starting the mesh.
+# Each policy tool also re-signs its keyring, so a keyring of any age starts the mesh current.
 for p in out/policy/* out/psp-policy/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done   # leftovers from such a run
 write_paths            # restore original policy
 quietly "building the policy root (policy-tool)" docker compose run --rm policy-tool

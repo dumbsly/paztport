@@ -103,7 +103,7 @@ sequenceDiagram
     Note over O: check [s0] as receiver orders, with the proof gateway sent:<br/>orders doesn't refuse, but attests only a chain that verified
     Note over O: s1 = Sign(k_orders, …, rcv = payment, prev = sig of s0)<br/>bind = hash of the /pay request it is about to send<br/>attach proof(gateway/orders/payment)
     O->>P: POST /pay (mTLS, orders' certificate)<br/>X-Path-Chain = [s0, s1]<br/>X-Path-Proof = proof(gateway/orders/payment)
-    Note over P: the twelve checks: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders/payment against the root,<br/>and the peer: the last signer is orders
+    Note over P: check 0: its own keyring and root are within their notAfter,<br/>then the twelve checks: signatures, links and receivers,<br/>rid, freshness, binding, influence, nonce,<br/>the route gateway/orders/payment against the root,<br/>and the peer: the last signer is orders
     Note over P: r1 = Sign(k_payment, …, rcv = orders, prev = sig of s1)<br/>bind = the 200 and its body
     P-->>O: 200 PAID<br/>X-Path-Response = r1
     Note over O: check [s0, s1, r1] as receiver orders,<br/>with the proof it sent
@@ -297,6 +297,7 @@ flowchart LR
     kg["keygen"] --> polkey[("policy.key")]
     polkey --> pt
     kg --> keyring[("keyring.json<br/>signed, public keys only")]
+    pt -->|"re-signs in place"| keyring
     kg --> pin[("policy.pub<br/>the pin")]
     kg --> privkeys[("one stamp .key<br/>per service")]
     kg --> tls[("tls/: ca.crt, and a .crt and .key<br/>per service, operator, responder")]
@@ -332,7 +333,7 @@ and key and `ca.crt`, and the callers (`gateway`, `orders`, `search`) also get
 | search | Own stamp key; an **empty** bundle; the signed keyring, root and pin; own TLS certificate and key, and `ca.crt` | Any proof for a route ending at `payment`, because none exists |
 | responder | The keyring, read as mounted, to check that events are signed by `payment`; own TLS certificate and key, and `ca.crt`; the Docker socket | Any stamp key, the pin, the root, the tree, salts, proofs |
 | operator (`demo.sh`, `measure.sh`) | A TLS certificate and key, and `ca.crt` | Any stamp key: it is not in the keyring, so it can't start or extend a chain |
-| policy-tool | `policy.key`, the full tree and every salt | Nothing is mounted *from* it into services |
+| policy-tool | `policy.key`; `keyring.json`, mounted writable because it re-signs it in place on every run; the full tree and every salt. `policy-tool-psp` holds the same for the PSP. | Any service's private key: it mounts those two files, not the keys directory. Nothing is mounted *from* it into services |
 
 Each service verifies the keyring and the root against `policy.pub`,
 held apart from the keyring it vouches for, and refuses to start if either fails.
@@ -343,9 +344,10 @@ job. `psp` signs its session replies with its own key, which `payment` accepts o
 while the reply certificate for it is valid, so a key that is not reissued a
 certificate stops being accepted within 7 days.
 In Compose every service's key-material mount is a single file; only the one-shot
-`keygen` job mounts `out/keys` whole, because it writes there. Each service
-container sees only the specific files its role needs, never a shared volume of
-keys.
+`keygen` job mounts `out/keys` whole, because it writes there. The policy tools
+mount `keyring.json` writable, but as a single file too, since they re-sign it and
+need no other key there. Each service container sees only the specific files its
+role needs, read-only, never a shared volume of keys.
 
 The heart of the demo is `search`'s empty bundle. `search` can reach `payment` on
 the network and can sign stamps with its own key. It was never given a proof for a
@@ -723,8 +725,8 @@ mvn -q package -DskipTests              # build every module
 docker compose build keygen policy-tool keygen-psp policy-tool-psp   # package the freshly built jars
 docker compose run --rm keygen          # stamp keys, signed keyring, policy pin, CA and certificates
 docker compose run --rm keygen-psp      # the PSP's own keys, keyring, policy pin, CA and certificate
-docker compose run --rm policy-tool     # signed root + per-service proof bundles
-docker compose run --rm policy-tool-psp # the PSP's signed root and its reply certificate
+docker compose run --rm policy-tool     # signed root + per-service proof bundles; re-signs the keyring
+docker compose run --rm policy-tool-psp # the PSP's signed root and its reply certificate; re-signs its keyring
 export PAZTPORT_ADMIN_TOKEN=$(openssl rand -hex 16)   # token for /admin/mode
 docker compose up -d --build            # the mesh + responder
 ./demo.sh                               # run every scenario, print pass/fail
@@ -744,8 +746,44 @@ again before generating keys or policy. Otherwise the old jars run, and you get
 output in the old format, for example private keys that aren't owner-only.
 `up --build` rebuilds the mesh services itself. Private key files, the TLS keys
 and the CA's included, are written owner-read/write only (`0600`). `demo.sh`
-regenerates the keys when `policy.pub` or `tls/ca.crt` is missing, so keys from
-before mutual TLS are replaced.
+regenerates the keys when `policy.pub`, `tls/ca.crt` or `keyring.json` is missing,
+so keys from before mutual TLS are replaced. A keyring that has expired, or is in
+the old form with no `notAfter`, is not a reason to regenerate: each run's policy
+tools re-sign it.
+
+### Lifetimes and renewal
+
+The policy tools sign the root and re-sign the keyring with one lifetime,
+`PAZTPORT_POLICY_DAYS` days from the run (default 7); `psp`'s reply certificate has
+its own, `PAZTPORT_REPLY_CERT_DAYS` (default 7). Every service but the responder,
+which holds no root or pin, checks its own keyring and root against the pin at
+startup:
+
+- It **refuses to start** if either is in the old form or past its `notAfter`, with
+  a message naming the property (`paztport.keyring-path` or `paztport.root-path`)
+  and the fix: re-sign with the policy tool.
+- It **logs one warning** naming the file and its `notAfter` when 42 hours (a
+  quarter of the default week) or less remain.
+- A verifying service that keeps running past its own `notAfter` answers every
+  request `403 POLICY_EXPIRED` (check 0 of the pipeline), which the responder does
+  not count. The PSP, past its own, opens only unsafe sessions.
+
+**Renewal is the routine operation.** It signs the same tree and keyring again
+with a new `notAfter`, keeping the root's `rootId` and every proof bundle, so the
+services may pick up the renewed files in any order, even one at a time. Run it
+well before the warning, with the tools, since only they hold the policy keys:
+
+```bash
+docker compose run --rm -e PAZTPORT_RENEW=true policy-tool       # root.json and keyring.json; bundles untouched
+docker compose run --rm -e PAZTPORT_RENEW=true policy-tool-psp   # the PSP's, and its reply certificate
+docker compose restart                                            # services read the files at startup
+```
+
+A rebuild (the plain `policy-tool` run) is for changing the routes: it draws a new
+tree, so every holder must reload together. `demo.sh` rebuilds on every run, which
+also re-signs both keyrings, so the demo never needs renewing first, however old
+its keys are. The tools refuse, exit 2, with nothing written, a keyring or root
+the policy key did not sign; expired and old-form files are renewed all the same.
 
 Every hop is mutual TLS, so every call is `https` and presents a certificate from
 the mesh CA. `demo.sh` and `measure.sh` make their calls from throwaway containers
@@ -757,7 +795,8 @@ certificate and key, `ca.crt`, and `gateway` as the host name, since that is the
 name in the gateway's certificate.
 
 `demo.sh` is idempotent. It cleans up any replacement containers, restores the
-original policy, rebuilds the root, resets the mode to `enforce`, and runs these,
+original policy, rebuilds the root and re-signs the keyrings, resets the mode to
+`enforce`, and runs these,
 printing `payment`'s trace line for scenario 1:
 
 | # | Scenario | Expected |
@@ -803,6 +842,8 @@ exposed to the host.
 | `PAZTPORT_MAX_AGE_MS` | `5000` | `payment`: both freshness windows, the last stamp's and the origin's. The callers' response checks use the same property, `paztport.max-age-ms`, with the same default |
 | `PAZTPORT_ORIGINS` | `gateway` | `payment`. The callers' response checks use the same property, `paztport.origins`, with the same default |
 | `PAZTPORT_PROOF_DEPTH` | `8` | policy-tool |
+| `PAZTPORT_POLICY_DAYS` | `7` | `policy-tool`, `policy-tool-psp`: the lifetime, in days from the run, of the root and the keyring they sign |
+| `PAZTPORT_RENEW` | unset, so a rebuild | `policy-tool`, `policy-tool-psp`: `true` renews the root and the keyring, keeping the tree and the bundles |
 | `ATTACK_MODE` | `false` | search |
 | `PAZTPORT_ADMIN_TOKEN` | empty, so `/admin/mode` refuses every request | `payment`, `tickets`, `assistant`, `mailer` (the demo generates one per run) |
 | `PAZTPORT_CAPTURE` | `false`; `true` for `payment` in Compose | `payment` (the replay harness) |

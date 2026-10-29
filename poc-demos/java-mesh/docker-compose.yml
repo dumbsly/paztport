@@ -8,6 +8,17 @@
 #   docker compose run --rm policy-tool-psp
 #   docker compose up -d --build
 #
+# The policy tools sign the root and re-sign the keyring for PAZTPORT_POLICY_DAYS
+# days (default 7), and a service refuses to start once either has expired. To
+# keep them current without changing the routes, renew rather than rebuild: the
+# tree and the proofs are kept, so the services may restart in any order, even
+# one at a time. They read the files at startup, so restart them to load the
+# renewed ones.
+#
+#   docker compose run --rm -e PAZTPORT_RENEW=true policy-tool
+#   docker compose run --rm -e PAZTPORT_RENEW=true policy-tool-psp
+#   docker compose restart
+#
 # Least knowledge is enforced by the volume mounts: each service bind-mounts
 # only the specific files its role needs, never a directory of keys. Every
 # service gets its own TLS certificate and key and the CA certificate, since
@@ -20,7 +31,9 @@
 # stamp key (to attest its answers) and no proofs. Payment sees the same public files to
 # verify requests, and its own stamp key, which attests its responses and signs
 # the events it sends the responder. The CA's private key (out/keys/ca/ca.key)
-# is mounted nowhere.
+# is mounted nowhere. The policy tools mount the policy key and keyring.json, each
+# as a single file; the keyring is writable there alone, because the tool re-signs
+# it in place, and never the keys directory, which holds every service's key.
 #
 # The PSP is another organisation, with its own keys (out/psp-keys), its own CA
 # and its own root (out/psp-policy), on its own network. Payment, the shop's
@@ -79,7 +92,8 @@ services:
         JAR: poc-sdks/java/tools/policy-tool/target/policy-tool.jar
     volumes:
       - ./policy:/policy:ro
-      - ./out/keys/policy.key:/out/keys/policy.key:ro   # signs the root; nothing else is needed
+      - ./out/keys/policy.key:/out/keys/policy.key:ro   # signs the root and the keyring
+      - ./out/keys/keyring.json:/out/keys/keyring.json   # writable: re-signed in place on every run
       - ./out/policy:/out/policy
     command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
 
@@ -94,8 +108,8 @@ services:
       PAZTPORT_REPLY_CERT_SVC: psp   # also writes reply-cert.json, for psp's key, valid for 7 days
     volumes:
       - ./psp-policy:/policy:ro
-      - ./out/psp-keys/policy.key:/out/keys/policy.key:ro   # signs the PSP's root and psp's reply certificate
-      - ./out/psp-keys/keyring.json:/out/keys/keyring.json:ro   # the key the certificate is for
+      - ./out/psp-keys/policy.key:/out/keys/policy.key:ro   # signs the PSP's root, keyring and reply certificate
+      - ./out/psp-keys/keyring.json:/out/keys/keyring.json   # writable: re-signed in place; names the key the certificate is for
       - ./out/psp-policy:/out/policy
     command: ["/policy/paths.yaml", "/out/keys", "/out/policy"]
 
