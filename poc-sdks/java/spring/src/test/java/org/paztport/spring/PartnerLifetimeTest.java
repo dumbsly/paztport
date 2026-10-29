@@ -166,7 +166,7 @@ class PartnerLifetimeTest {
         /** Takes the place of the auto-configured sessions, which judge by the system clock. */
         @Bean
         PartnerSessions movableClockPartnerSessions(PaztportProperties props) {
-            return PaztportAutoConfiguration.partnerSessions(props, CLOCK::millis);
+            return PartnerConfiguration.partnerSessions(props, CLOCK::millis);
         }
     }
 
