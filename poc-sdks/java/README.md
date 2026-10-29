@@ -306,8 +306,11 @@ Either mode first checks that the keyring verifies under the policy key it names
 not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Any of these
 failing is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
 renamed over), so it can be a single file mounted writable into the tool. It is written first, so a keyring
-the tool cannot write (mounted read-only, say) stops the run with `policy-tool: cannot write <file> (mounted
-read-only?)` and nothing written. I/O errors like that one exit 1, not 2. A rebuild vouches that the routes in
+the tool cannot write stops the run with `policy-tool: cannot write <file>: <reason>`, the file system's reason
+(`Read-only file system`, `Permission denied`, `No space left on device`), and nothing written. I/O errors like
+that one exit 1, not 2. Writing in place is not atomic: a crash or a full disk part-way through leaves the
+keyring empty or truncated, which the next run refuses, and since the tool only re-signs a keyring, recovering
+means new keys from the keygen. A rebuild vouches that the routes in
 `paths.yaml` are the ones allowed now; a renewal, that the existing tree's routes all still are, since
 narrowing a policy is a rebuild. Re-signing the keyring vouches that each listed key is still its service's
 current key: the tool can check only that this policy key signed the keyring before, so retiring a key, which

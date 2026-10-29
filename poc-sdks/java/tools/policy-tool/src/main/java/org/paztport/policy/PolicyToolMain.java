@@ -7,7 +7,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.time.Instant;
@@ -46,8 +49,11 @@ import org.paztport.core.SignedRoot;
  * in either form and whether or not it has expired, and that the keyring names that key; on a refusal it writes
  * nothing and exits 2. The keyring is written in place, truncated and rewritten rather than replaced by a rename,
  * so that it can be a single file mounted into the tool. It is written first, so a keyring that cannot be written
- * (mounted read-only, say) stops the run with one line, {@code policy-tool: cannot write <file> (mounted
- * read-only?)}, and nothing written; that and any other I/O error exit 1.
+ * (mounted read-only, say) stops the run with one line, {@code policy-tool: cannot write <file>: <reason>}, the
+ * reason being the file system's ({@code Read-only file system}, {@code No space left on device}), and nothing
+ * written; that and any other I/O error exit 1. Written in place, it is not written atomically: a crash or a full
+ * disk part-way through leaves it empty or truncated, which the next run refuses as not a keyring. This tool only
+ * re-signs a keyring, never writes one from nothing, so recovering from that means new keys from the keygen.
  *
  * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, either mode also writes {@code reply-cert.json}, a
  * {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days
@@ -178,7 +184,9 @@ public final class PolicyToolMain {
     /**
      * Writes the keyring over the existing file in place, truncating it, rather than writing a new file and
      * renaming it over the old: the keyring may be a single file mounted into the tool, and a rename onto such a
-     * mount fails. It is serialised first, so a failure there leaves the file as it was.
+     * mount fails. It is serialised first, so a failure there leaves the file as it was; a failure during the write
+     * itself (a crash, a full disk) leaves it empty or truncated, which the next run refuses, and the way back is new
+     * keys from the keygen, since this tool only re-signs a keyring.
      */
     private static void writeKeyringInPlace(Path keyringFile, KeyringFile ring) throws IOException {
         byte[] bytes = MAPPER.writeValueAsBytes(ring);
@@ -192,11 +200,32 @@ public final class PolicyToolMain {
     /**
      * The keyring could not be written. It is the first file either mode writes, after every check has passed, so
      * this is where a keyring mounted read-only into the tool shows up, with nothing yet written; the message says
-     * so in one line rather than a stack trace. An I/O error, not a refusal, so it exits 1.
+     * so in one line rather than a stack trace, with the reason the file system gave rather than a guess, since a
+     * full disk or a missing permission needs a different fix. An I/O error, not a refusal, so it exits 1.
      */
     static final class CannotWrite extends IOException {
         CannotWrite(Path file, IOException cause) {
-            super("cannot write " + file + " (mounted read-only?)", cause);
+            super("cannot write " + file + ": " + reason(cause), cause);
+        }
+
+        /**
+         * The cause in a few words. Java names some causes only by their type, with the path as the message, so
+         * those are spelt out, and any other with no reason is named by its type, never by the path again.
+         */
+        private static String reason(IOException e) {
+            if (e instanceof FileSystemException fs) {
+                if (fs.getReason() != null) {
+                    return fs.getReason();
+                }
+                if (fs instanceof AccessDeniedException) {
+                    return "Permission denied";
+                }
+                if (fs instanceof NoSuchFileException) {
+                    return "No such file or directory";
+                }
+                return fs.getClass().getSimpleName();
+            }
+            return e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
         }
     }
 

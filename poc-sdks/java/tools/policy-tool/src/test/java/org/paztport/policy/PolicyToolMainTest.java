@@ -10,7 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
+import java.nio.file.AccessDeniedException;
+import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.util.Map;
@@ -475,15 +479,31 @@ class PolicyToolMainTest {
 
             PolicyToolMain.CannotWrite rebuild = assertThrows(PolicyToolMain.CannotWrite.class,
                     () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
-            assertEquals("cannot write " + keyring + " (mounted read-only?)", rebuild.getMessage());
+            assertEquals("cannot write " + keyring + ": Permission denied", rebuild.getMessage());
             assertEquals(before, snapshot(keys, out));
 
             PolicyToolMain.CannotWrite renew = assertThrows(PolicyToolMain.CannotWrite.class,
                     () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, "orders", NOT_AFTER));
-            assertEquals("cannot write " + keyring + " (mounted read-only?)", renew.getMessage());
+            assertEquals("cannot write " + keyring + ": Permission denied", renew.getMessage());
             assertEquals(before, snapshot(keys, out));
         } finally {
             keyring.toFile().setWritable(true);
         }
+    }
+
+    /** The one line names the cause the file system gave, rather than guessing at it. */
+    @Test
+    void cannotWriteSaysWhy() {
+        Path file = Path.of("keys", "keyring.json");
+        assertEquals("cannot write " + file + ": Read-only file system", new PolicyToolMain.CannotWrite(file,
+                new FileSystemException(file.toString(), null, "Read-only file system")).getMessage());
+        assertEquals("cannot write " + file + ": No space left on device",
+                new PolicyToolMain.CannotWrite(file, new IOException("No space left on device")).getMessage());
+        assertEquals("cannot write " + file + ": Permission denied",
+                new PolicyToolMain.CannotWrite(file, new AccessDeniedException(file.toString())).getMessage());
+        assertEquals("cannot write " + file + ": No such file or directory",
+                new PolicyToolMain.CannotWrite(file, new NoSuchFileException(file.toString())).getMessage());
+        assertEquals("cannot write " + file + ": FileSystemException",
+                new PolicyToolMain.CannotWrite(file, new FileSystemException(file.toString())).getMessage());
     }
 }
