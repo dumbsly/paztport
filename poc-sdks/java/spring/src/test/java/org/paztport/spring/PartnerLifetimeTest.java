@@ -19,9 +19,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
-import java.time.Clock;
-import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,8 +65,10 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
 
 /**
- * What the partner does as time passes, through the real container under mutual TLS, with a clock the test moves
- * (the bean named {@code paztportClock}). Its own root and keyring last three days; the shop's last one day or a
+ * What the partner does as time passes, through the real container under mutual TLS, with a clock the test moves:
+ * the partner's sessions are built as the auto-configuration builds them, by the package's factory, given that
+ * clock in place of the system clock, and the filter, gate and handshake endpoint are the auto-configuration's own.
+ * Its own root and keyring last three days; the shop's last one day or a
  * month, as each test needs. A handshake judged after the shop's material has lapsed, or from material in the old
  * form, opens an unsafe session; a session attested while it was current is refused {@code POLICY_EXPIRED} once the
  * earlier of its client's two windows has passed; and when the partner's own material lapses it carries on, opening
@@ -103,31 +102,15 @@ class PartnerLifetimeTest {
     private static Path trust;
 
     /** A clock that runs from the real time at {@link #START} and is moved forward by hand. */
-    static final class MovableClock extends Clock {
+    static final class MovableClock {
         private final AtomicLong now = new AtomicLong(START);
 
         void moveTo(long millis) {
             now.set(millis);
         }
 
-        @Override
-        public long millis() {
+        long millis() {
             return now.get();
-        }
-
-        @Override
-        public Instant instant() {
-            return Instant.ofEpochMilli(now.get());
-        }
-
-        @Override
-        public java.time.ZoneId getZone() {
-            return ZoneOffset.UTC;
-        }
-
-        @Override
-        public Clock withZone(java.time.ZoneId zone) {
-            return this;
         }
     }
 
@@ -180,9 +163,10 @@ class PartnerLifetimeTest {
     @EnableAutoConfiguration
     @Import(Handlers.class)
     static class App {
-        @Bean("paztportClock")
-        Clock paztportClock() {
-            return CLOCK;
+        /** Takes the place of the auto-configured sessions, which judge by the system clock. */
+        @Bean
+        PartnerSessions movableClockPartnerSessions(PaztportProperties props) {
+            return PaztportAutoConfiguration.partnerSessions(props, CLOCK::millis);
         }
     }
 

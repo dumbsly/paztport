@@ -7,7 +7,6 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
-import java.time.Clock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivateKey;
@@ -31,8 +30,8 @@ import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.ssl.SslBundles;
@@ -216,13 +215,24 @@ public class PaztportAutoConfiguration {
      * is not caught here: replies then fail at the client, which falls back to an unsafe session, so the
      * certificate must be reissued and the service restarted before it expires. Its own keyring and root are the
      * other case: once either expires the partner keeps running and opens only unsafe sessions
-     * ({@link PartnerSessions}). The clock is the bean named {@code paztportClock} when an application defines one,
-     * as tests do to move time, and the system clock otherwise. No message carries key material.
+     * ({@link PartnerSessions}). The time all of this is judged by, at startup and in every handshake and call
+     * after it (stamp freshness included), is the system clock, fixed when the bean is made: no bean an application
+     * defines can move it. No message carries key material.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
-    PartnerSessions paztportPartnerSessions(PaztportProperties props,
-            @Qualifier("paztportClock") ObjectProvider<Clock> clock) {
+    @ConditionalOnMissingBean(PartnerSessions.class)
+    PartnerSessions paztportPartnerSessions(PaztportProperties props) {
+        return partnerSessions(props, System::currentTimeMillis);
+    }
+
+    /**
+     * The partner's session registry as {@link #paztportPartnerSessions} builds it, judged by {@code clock} (ms since
+     * the epoch) at startup and from then on. Only this package can call it, or define a {@link PartnerSessions}
+     * bean in place of the one above, since the type is package-private: tests do, to move time, and an application
+     * cannot.
+     */
+    static PartnerSessions partnerSessions(PaztportProperties props, LongSupplier clock) {
         PaztportProperties.Partner p = props.getPartner();
         if (props.isVerify()) {
             throw new IllegalStateException("paztport.partner.enabled cannot be combined with paztport.verify=true");
@@ -256,13 +266,12 @@ public class PaztportAutoConfiguration {
         if (p.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.partner.session-idle-ms must be positive");
         }
-        LongSupplier partnerClock = () -> clock.getIfAvailable(() -> Clock.systemUTC()).millis();
         String service = props.getServiceName();
         String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
         SignedRoot ownRoot = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
-                partnerClock.getAsLong());
+                clock.getAsLong());
         String entryKey = keyring.services().get(service);
         if (entryKey == null) {
             throw new IllegalStateException("paztport.keyring-path has no key for paztport.service-name");
@@ -291,7 +300,7 @@ public class PaztportAutoConfiguration {
         if (!cert.key().equals(entryKey)) {
             throw new IllegalStateException("paztport.partner.reply-cert-path is not for the key at paztport.key-path");
         }
-        if (partnerClock.getAsLong() > cert.notAfter()) {
+        if (clock.getAsLong() > cert.notAfter()) {
             throw new IllegalStateException("paztport.partner.reply-cert-path has expired");
         }
         Set<String> clientKeys = new LinkedHashSet<>();
@@ -308,7 +317,7 @@ public class PaztportAutoConfiguration {
                 Set.copyOf(p.getClientOrigins()),
                 p.getUnsafeDisabled(),
                 new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
-                partnerClock,
+                clock,
                 props.getMaxAgeMs(),
                 runMaxAgeMs,
                 p.getMaxSessionsPerPeer(),

@@ -24,6 +24,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.cert.CertificateException;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -402,6 +405,17 @@ class PaztportAutoConfigurationTest {
     void partnerStartsWithNoPolicyPrivateKey(@TempDir Path dir) throws Exception {
         writePartner(dir);
         runner.withPropertyValues(partner(dir))
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class));
+    }
+
+    // The partner judges by the system clock alone: an application bean that looks like a clock for it, here one
+    // set past the reply certificate's notAfter, would otherwise stop it starting or move its every decision.
+    @Test
+    void partnerIgnoresAnApplicationClock(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        Clock late = Clock.fixed(Instant.ofEpochMilli(System.currentTimeMillis() + 30 * DAY_MS), ZoneOffset.UTC);
+        runner.withPropertyValues(partner(dir))
+                .withBean("paztportClock", Clock.class, () -> late)
                 .run(context -> assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class));
     }
 

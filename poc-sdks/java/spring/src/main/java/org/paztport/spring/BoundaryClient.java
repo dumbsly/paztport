@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.LongSupplier;
@@ -94,7 +95,11 @@ import org.slf4j.LoggerFactory;
  * that relays the partner's answer would otherwise have it attested with no labels, and its caller would take
  * the partner's words as clean. A {@code 403 SESSION_UNKNOWN} means the partner no longer knows the session (it
  * expired there, newer sessions of this peer's evicted it, or the partner restarted), so it is dropped and the next
- * call opens a new one; the refused call is not retried, since it may have changed something.
+ * call opens a new one; the refused call is not retried, since it may have changed something. A
+ * {@code 403 POLICY_EXPIRED} means this side's root or keyring, as the handshake presented them, has passed its
+ * {@code notAfter}, and the partner refuses every call in that session from then on, so it is dropped too: the next
+ * call's handshake gives an unsafe session, which is what this side then has until its files are renewed and it is
+ * restarted. Its own lapse is logged once, the first time a handshake or such a refusal finds it.
  *
  * <p>Each handshake logs one {@code PAZTPORT_TRACE session} line and each call one {@code PAZTPORT_TRACE boundary}
  * line. It owns its TLS client, built from the partner's bundle, and closes it with itself.
@@ -114,6 +119,7 @@ public final class BoundaryClient implements AutoCloseable {
     static final Duration FALLBACK_PERIOD = Duration.ofSeconds(30);
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private static final Logger LOG = LoggerFactory.getLogger(BoundaryClient.class);
     private static final ObjectMapper JSON = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     /** What a session id must look like before it goes in a header: base64url, as every derived id is. */
@@ -146,6 +152,7 @@ public final class BoundaryClient implements AutoCloseable {
     private final BoundaryListener listener;
     private final PooledTlsClient tls;
     private final AtomicReference<Session> session = new AtomicReference<>();
+    private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
     private final Object handshake = new Object();
     private final LongSupplier nanos;
     private final LongSupplier millis;
@@ -296,9 +303,13 @@ public final class BoundaryClient implements AutoCloseable {
                 HttpV3.resultHash(status, body), null, null));
         // And so does whatever this request answers, since a handler may relay it; the guard ensured a scope.
         PaztportContext.label(InfluenceClass.LOCAL_UNTRUSTED, null);
-        if (status == 403 && ReasonCode.SESSION_UNKNOWN.name().equals(reason(body))) {
+        String reason = status == 403 ? reason(body) : null;
+        if (ReasonCode.SESSION_UNKNOWN.name().equals(reason) || ReasonCode.POLICY_EXPIRED.name().equals(reason)) {
             // Only the session this call used: one a concurrent call has opened since is left alone.
             session.compareAndSet(current, null);
+        }
+        if (ReasonCode.POLICY_EXPIRED.name().equals(reason)) {
+            logOwnLapse();
         }
         if (TRACE.isInfoEnabled()) {
             TRACE.info(boundaryLine(rid, partner, current.attested(), status, sent));
@@ -383,6 +394,7 @@ public final class BoundaryClient implements AutoCloseable {
      * reply to check) and the status the session ends with.
      */
     private Session open() {
+        logOwnLapse();
         SessionRequest full = SessionRequest.of(ownRoot, ownPolicyKey, ownKeyring, Sessions.newNonce());
         ReplyCheck check = null;
         try {
@@ -454,6 +466,23 @@ public final class BoundaryClient implements AutoCloseable {
             return reason != null && reason.isTextual() ? reason.textValue() : null;
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    /**
+     * Says, once, that this egress's own root or keyring has expired by its clock, which is why the partner refuses
+     * its attested calls and judges its handshakes unsafe: the operator would otherwise see only refusals and unsafe
+     * sessions and no cause. Checked by every handshake and every {@code POLICY_EXPIRED} refusal, and silent after the
+     * first line; a refusal while both are still current by this clock (the two clocks disagree) logs nothing.
+     */
+    private void logOwnLapse() {
+        long now = millis.getAsLong();
+        boolean rootLapsed = !ownRoot.isCurrent(now);
+        boolean keyringLapsed = !ownKeyring.isCurrent(now);
+        if ((rootLapsed || keyringLapsed) && ownLapseLogged.compareAndSet(false, true)) {
+            LOG.warn("this egress's own {} has expired, so the partner refuses its calls and opens only unsafe "
+                    + "sessions until it is re-signed with the policy tool and the service restarted",
+                    rootLapsed && keyringLapsed ? "root and keyring" : rootLapsed ? "root" : "keyring");
         }
     }
 

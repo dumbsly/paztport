@@ -3,6 +3,7 @@
 
 package org.paztport.spring;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -500,6 +501,55 @@ class BoundaryClientTest {
         verified("rid-2", this::charge);
         assertEquals(2, partner.handshakes().size());
         assertEquals(partner.issued().get(1), partner.calls().get(1).header(PaztportHeaders.SESSION));
+    }
+
+    // Once the egress's own root or keyring lapses, the partner refuses every call in the attested session
+    // POLICY_EXPIRED; the session is dropped so that the next call opens a new handshake, which the partner judges
+    // unsafe, and the egress says why, once.
+    @Test
+    void policyExpiredDropsTheSessionAndOwnLapseIsLoggedOnce() throws Exception {
+        long notAfter = millis.get() + 60_000;
+        PolicyBuilder.Result lapsing = PolicyBuilder.build(List.of(List.of("gateway", "payment"),
+                List.of("payment", "psp")), 4, notAfter, policy.getPrivate());
+        KeyringFile lapsingRing = KeyringFile.sign(Map.of("gateway", pub(gateway), "payment", pub(payment)),
+                policyPub, notAfter, policy.getPrivate());
+        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+        Logger clientLog = (Logger) LoggerFactory.getLogger(BoundaryClient.class);
+        warnings.start();
+        clientLog.addAppender(warnings);
+        clientLog.setLevel(Level.WARN);
+        try (BoundaryClient egress = new BoundaryClient(
+                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis),
+                lapsing.bundles().get("payment"), lapsing.signedRoot(), lapsingRing, policyPub, "psp", partner.url(),
+                partner.policyKey(), blindingKey, null, PooledTlsClient.of(fixtureBundle("payment")), nanos::get,
+                millis::get, IDLE_MS)) {
+            assertTrue(verified("rid-1", () -> egress.post("/charge", CHARGE)).attested());
+            assertThat(warnings.list).isEmpty();
+
+            millis.set(notAfter + 1);
+            partner.status("unsafe");
+            partner.answerNext(403, "{\"reason\":\"POLICY_EXPIRED\"}");
+            BoundaryClient.Response refused = verified("rid-2", () -> egress.post("/charge", CHARGE));
+            assertEquals(403, refused.status());
+            assertTrue(refused.attested());
+            assertEquals(1, partner.handshakes().size());
+
+            BoundaryClient.Response next = verified("rid-3", () -> egress.post("/charge", CHARGE));
+            assertEquals(2, partner.handshakes().size(), "the next call opens a new session");
+            assertFalse(next.attested());
+            assertEquals(partner.issued().get(1), partner.calls().get(2).header(PaztportHeaders.SESSION));
+            verified("rid-4", () -> egress.post("/charge", CHARGE));
+            assertEquals(2, partner.handshakes().size());
+
+            List<String> said = warnings.list.stream().filter(e -> e.getLevel() == Level.WARN)
+                    .map(ILoggingEvent::getFormattedMessage).toList();
+            assertThat(said).hasSize(1);
+            assertThat(said.get(0)).contains("root and keyring").contains("expired").contains("policy tool");
+        } finally {
+            clientLog.detachAppender(warnings);
+            clientLog.setLevel(null);
+        }
     }
 
     @Test

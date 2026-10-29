@@ -483,10 +483,12 @@ The Java SDK's `BoundaryClient` also checks, when it is built, that its own root
 policy key, since a partner could not attest either; that the partner's URL is a scheme and an authority with no
 path; and, per call, that the path will be sent exactly as given and cannot change the host. A call refused for
 that is refused before any I/O. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a new one; the
-refused call is not retried, since it may have changed something. Because it is not retried, a session the
-partner has expired would fail the next call, so the client also drops a session no call has used for its own
-idle period (10 minutes in the Java SDK), and the next call opens a new one. That period SHOULD be below the
-partner's.
+refused call is not retried, since it may have changed something. A `403 POLICY_EXPIRED` clears it too: the
+partner gives that to every call in an attested session once the client's root or keyring has passed its
+`notAfter`, so the next call's handshake gives an unsafe session, and the client logs its own expiry once. Because
+a refused call is not retried, a session the partner has expired would fail the next call, so the client also
+drops a session no call has used for its own idle period (10 minutes in the Java SDK), and the next call opens a
+new one. That period SHOULD be below the partner's.
 
 **The partner.** The partner MUST pin the sender's policy key in advance, out of band, as partner onboarding.
 It pins the key, not a root, so the sender can rotate roots and keyrings without being pinned again. In the

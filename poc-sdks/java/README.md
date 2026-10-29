@@ -171,7 +171,11 @@ Glue, configured through `paztport.*` properties.
   it tries the full handshake again. A genuine unsafe reply to the full handshake
   (the partner has not pinned this organisation) is kept. The calls themselves have
   no timeout. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
-  new one; the refused call is not retried. Since a refused call is not retried, the
+  new one; the refused call is not retried. A `403 POLICY_EXPIRED` clears it too: once
+  the egress's own root or keyring passes its `notAfter` while it runs, the partner
+  refuses every call in the attested session with it, and the next call's handshake
+  gives an unsafe session. The egress logs one warning naming which of its own files has
+  expired; renew them and restart it. Since a refused call is not retried, the
   egress also drops a session no call has used for `paztport.boundary.session-idle-ms`
   (default `600000`, 10 minutes), before the partner forgets it, and the next call
   opens a new one. Keep it below the partner's `session-idle-ms`. Every partner
@@ -204,8 +208,7 @@ Glue, configured through `paztport.*` properties.
   default week) or less remain. A partner whose own root or keyring expires *while
   running* does not stop, since that would cut off callers it serves without attestation
   too: it opens only unsafe sessions, as it would for any unattested caller, and logs the
-  reason once. Renew the files and restart it. A test can move the partner's time with a
-  `java.time.Clock` bean named `paztportClock`.
+  reason once. Renew the files and restart it.
 
   The policy private key is not configured anywhere: a reply carries the policy
   key's signature over the keyring and the certificate, and is signed with the
