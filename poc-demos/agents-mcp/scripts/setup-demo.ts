@@ -26,10 +26,10 @@ function run(script: string, args: string[]): void {
   }
 }
 
-/** Keys, keyring, root and proofs into `dir`; `extra` is passed to the policy tool. */
+/** Keys, keyring, root and proofs into `dir`, the policy tool re-signing the keyring beside the root; `extra` is passed to the policy tool. */
 function setup(dir: string, services: string, paths: string, extra: string[] = []): void {
   run(KEYGEN, ["--out", dir, "--services", services]);
-  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--out", dir, ...extra]);
+  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--keyring", join(dir, "keyring.json"), "--out", dir, ...extra]);
   console.log(dir);
 }
 
@@ -51,19 +51,19 @@ if (existsSync(out) && !force) {
   console.error(USAGE);
   process.exit(2);
 }
-// keygen signs the server keyring; the policy tool signs the root and the certificate for mcp-entry's key
+// keygen signs the server keyring; the policy tool signs the root, re-signs the keyring beside it, and signs the certificate for mcp-entry's key
 setup(join(out, "server"), "mcp-entry,github-tools", join(AGENTS, "policies/server.paths.yaml"), [
   "--reply-cert-svc", "mcp-entry",
-  "--keyring", join(out, "server/keyring.json"),
   "--reply-cert-days", "30",
 ]);
 // the server's session replies are signed by mcp-entry's key, so its policy key has nothing left to sign
 rmSync(join(out, "server/policy.key"));
 setup(join(out, "client"), "session,pi", join(AGENTS, "policies/client.paths.yaml"));
-// the same client policy key also signs a second root that binds the local folder rules (read by the pi extension)
+// the same client policy key also signs a second root that binds the local folder rules (read by the pi extension), re-signing the client keyring again
 run(POLICY, [
   "--paths", join(AGENTS, "policies/client-local-tools.paths.yaml"),
   "--policy-key", join(out, "client/policy.key"),
+  "--keyring", join(out, "client/keyring.json"),
   "--out", join(out, "client/local-tools"),
 ]);
 // the server opens attested sessions only for the client policy key it pins

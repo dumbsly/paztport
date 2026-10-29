@@ -4,19 +4,20 @@
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { generateKeyPair, signKeyring } from "@paztport/core";
-import { writeJson, writePrivate, type Keyring } from "./files.ts";
+import { describeNotAfter, notAfterInDays, writeKeyring, writePrivate } from "./files.ts";
 
-const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c";
+const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c [--policy-days 7]";
 
-/** How long a keyring keygen writes stays valid: seven days. */
-const KEYRING_LIFETIME_MS = 7 * 86_400_000;
+/** How long a keyring keygen writes stays valid unless `--policy-days` says otherwise: seven days. */
+const DEFAULT_POLICY_DAYS = 7;
 
 function main(): void {
   let out: string | undefined;
   let services: string | undefined;
+  let days: string | undefined;
   try {
-    ({ out, services } = parseArgs({
-      options: { out: { type: "string" }, services: { type: "string" } },
+    ({ out, services, "policy-days": days } = parseArgs({
+      options: { out: { type: "string" }, services: { type: "string" }, "policy-days": { type: "string" } },
       strict: true,
     }).values);
   } catch {
@@ -29,7 +30,8 @@ function main(): void {
   const bad =
     new Set(lower).size !== lower.length ||
     lower.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\"));
-  if (!out || names.length === 0 || bad) {
+  const notAfter = notAfterInDays(days, DEFAULT_POLICY_DAYS);
+  if (!out || names.length === 0 || bad || notAfter === undefined) {
     console.error(USAGE);
     process.exit(2);
   }
@@ -43,10 +45,8 @@ function main(): void {
   const policy = generateKeyPair();
   writePrivate(join(out, "policy.key"), policy.privateKey);
   // the policy key has just made every listed key, so each is that service's current key
-  const signed = signKeyring(keys, policy.publicKey, policy.privateKey, Date.now() + KEYRING_LIFETIME_MS);
-  const ring: Keyring = { services: signed.services, policy: signed.policy, sig: signed.sig, notAfter: signed.notAfter };
-  writeJson(join(out, "keyring.json"), ring);
-  console.log(`keygen: wrote ${names.length} service keys, policy key and keyring to ${out}`);
+  writeKeyring(join(out, "keyring.json"), signKeyring(keys, policy.publicKey, policy.privateKey, notAfter));
+  console.log(`keygen: wrote ${names.length} service keys, policy key and keyring (${describeNotAfter(notAfter)}) to ${out}`);
 }
 
 main();

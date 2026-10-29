@@ -7,7 +7,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { decode, sign, signKeyringOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot } from "@paztport/core";
+import {
+  decode, isCurrent, renewKeyring, renewRoot, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
+} from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
 
@@ -105,7 +107,7 @@ describe("policy-tool CLIs", () => {
       const out = tmp();
       const yamlPath = join(keys, "paths.yaml");
       writeFileSync(yamlPath, `paths:\n  - [gateway, ${node}]\n`);
-      const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out]);
+      const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--keyring", join(keys, "keyring.json"), "--out", out]);
       expect(r.status, node).toBe(2);
       expect(r.stderr, node).toContain("Usage");
       expect(readdirSync(out), node).toEqual([]);
@@ -122,7 +124,7 @@ describe("policy-tool CLIs", () => {
       "paths:\n  - [gateway, orders, payment]\n  - [gateway, orders]\n  - [gateway, search]\n",
     );
     const before = Date.now();
-    const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out]);
+    const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--keyring", join(keys, "keyring.json"), "--out", out]);
     const after = Date.now();
     expect(r.status).toBe(0);
     const ring = readKeyring(join(keys, "keyring.json"));
@@ -199,9 +201,9 @@ describe("policy-tool CLIs", () => {
   });
 
   it("policyWritesNoReplyCertUnlessAsked", () => {
-    const { policyArgs } = certWorld();
+    const { keys, policyArgs } = certWorld();
     const out = tmp();
-    expect(run(policy, policyArgs(out)).status).toBe(0);
+    expect(run(policy, policyArgs(out, "--keyring", join(keys, "keyring.json"))).status).toBe(0);
     expect(existsSync(join(out, "reply-cert.json"))).toBe(false);
   });
 
@@ -266,7 +268,6 @@ describe("policy-tool CLIs", () => {
     const ring = join(keys, "keyring.json");
     for (const extra of [
       ["--reply-cert-svc", "orders"],
-      ["--keyring", ring],
       ["--reply-cert-days", "7"],
       ["--keyring", ring, "--reply-cert-days", "7"],
       ["--reply-cert-svc", "orders", "--keyring", ring, "--reply-cert-days", "0"],
@@ -281,6 +282,240 @@ describe("policy-tool CLIs", () => {
       expect(r.stderr, extra.join(" ")).toContain("Usage");
       expect(readdirSync(out), extra.join(" ")).toEqual([]);
     }
+  });
+
+  /** Every file under `dirs`, by path, as its bytes and modification time: what "writes nothing" compares. */
+  function snapshot(...dirs: string[]): Record<string, string> {
+    const files: Record<string, string> = {};
+    for (const d of dirs) {
+      if (!existsSync(d)) continue;
+      for (const f of readdirSync(d, { recursive: true, encoding: "utf8" })) {
+        const p = join(d, f);
+        if (statSync(p).isFile()) files[p] = `${readFileSync(p, "base64")}@${statSync(p).mtimeMs}`;
+      }
+    }
+    return files;
+  }
+
+  it("keygenWritesNewFormKeyring", () => {
+    const out = tmp();
+    const before = Date.now();
+    const r = run(keygen, ["--out", out, "--services", "a,b", "--policy-days", "30"]);
+    const after = Date.now();
+    expect(r.status, r.stderr).toBe(0);
+    const ring = readKeyring(join(out, "keyring.json"));
+    expect(ring.notAfter).toBeGreaterThanOrEqual(before + 30 * DAY_MS);
+    expect(ring.notAfter).toBeLessThanOrEqual(after + 30 * DAY_MS);
+    expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
+    expect(r.stdout).toContain(`notAfter ${ring.notAfter}`);
+    // a lifetime past 2^53 - 1 ms is refused, as is anything but a positive whole number of days
+    for (const bad of ["0", "-1", "1.5", "x", "", "1e300", "200000000"]) {
+      const empty = tmp();
+      const b = run(keygen, ["--out", empty, "--services", "a", "--policy-days", bad]);
+      expect(b.status, bad).toBe(2);
+      expect(b.stderr, bad).toContain("Usage");
+      expect(readdirSync(empty), bad).toEqual([]);
+    }
+  });
+
+  it("rebuildSignsRootAndKeyringWithLifetime", () => {
+    const { keys, policyArgs } = certWorld();
+    const before = readKeyring(join(keys, "keyring.json"));
+    const out = tmp();
+    const start = Date.now();
+    const r = run(policy, policyArgs(out, "--keyring", join(keys, "keyring.json"), "--policy-days", "30"));
+    const end = Date.now();
+    expect(r.status, r.stderr).toBe(0);
+    const root = readJson<SignedRoot>(join(out, "root.json"));
+    const ring = readKeyring(join(keys, "keyring.json"));
+    // both signed in the new form until the one notAfter
+    expect(root.notAfter).toBeGreaterThanOrEqual(start + 30 * DAY_MS);
+    expect(root.notAfter).toBeLessThanOrEqual(end + 30 * DAY_MS);
+    expect(ring.notAfter).toBe(root.notAfter);
+    expect(Object.keys(readJson<object>(join(keys, "keyring.json")))).toEqual(["services", "policy", "sig", "notAfter"]);
+    expect(verifyRoot(root, before.policy)).toBe(true);
+    expect(verifyKeyring(ring as SignedKeyring, before.policy)).toBe(true);
+    expect(ring.services).toEqual(before.services);
+    expect(ring.policy).toBe(before.policy);
+    // only file names and notAfter are printed
+    expect(r.stdout).toContain(join(keys, "keyring.json"));
+    expect(r.stdout).toContain(join(out, "root.json"));
+    expect(r.stdout).toContain(`notAfter ${root.notAfter}`);
+    for (const secret of [ring.policy, ring.sig!, root.sig, root.root, readKey(join(keys, "policy.key"))]) {
+      expect(r.stdout + r.stderr).not.toContain(secret);
+    }
+  });
+
+  it("rebuildRefusesForeignKeyring", () => {
+    const { keys, policyArgs } = certWorld();
+    const { keys: otherKeys } = certWorld();
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const cases: Record<string, unknown> = {
+      "another policy key's": readKeyring(join(otherKeys, "keyring.json")),
+      tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
+      unsigned: { services: ring.services, policy: ring.policy },
+    };
+    for (const [name, bad] of Object.entries(cases)) {
+      writeFileSync(join(keys, "keyring.json"), JSON.stringify(bad));
+      const out = tmp();
+      const before = snapshot(keys);
+      const r = run(policy, policyArgs(out, "--keyring", join(keys, "keyring.json")));
+      expect(r.status, name).toBe(2);
+      expect(r.stderr, name).toContain("refused");
+      expect(r.stderr, name).toContain("keyring");
+      expect(snapshot(keys), name).toEqual(before);
+      expect(readdirSync(out), name).toEqual([]);
+    }
+    const out = tmp();
+    const r = run(policy, policyArgs(out, "--keyring", join(keys, "missing.json")));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("refused");
+    expect(existsSync(join(keys, "missing.json"))).toBe(false);
+    expect(readdirSync(out)).toEqual([]);
+  });
+
+  /** A built policy: keys, a root and bundles in `out`, all as the tools write them. */
+  function builtWorld(...extra: string[]) {
+    const world = certWorld();
+    const out = tmp();
+    const r = run(policy, world.policyArgs(out, "--keyring", join(world.keys, "keyring.json"), ...extra));
+    expect(r.status, r.stderr).toBe(0);
+    const renewArgs = (...more: string[]) => ["--renew", "--policy-key", join(world.keys, "policy.key"), "--keyring", join(world.keys, "keyring.json"), "--out", out, ...more];
+    return { ...world, out, renewArgs };
+  }
+
+  it("renewKeepsTreeAndProofs", () => {
+    const { keys, out, yamlPath, renewArgs } = builtWorld("--policy-days", "1");
+    const built = readJson<SignedRoot>(join(out, "root.json"));
+    const ringBefore = readKeyring(join(keys, "keyring.json"));
+    const bundles = snapshot(out);
+    delete bundles[join(out, "root.json")];
+    // renewal reads no paths file: a narrowed one is not looked at
+    writeFileSync(yamlPath, "paths:\n  - [orders, gateway]\n");
+    const r = run(policy, renewArgs("--policy-days", "30", "--reply-cert-svc", "orders"));
+    expect(r.status, r.stderr).toBe(0);
+    const renewed = readJson<SignedRoot>(join(out, "root.json"));
+    expect(renewed.rootId).toBe(built.rootId);
+    expect(renewed.root).toBe(built.root);
+    expect(renewed.notAfter).toBeGreaterThan(built.notAfter!);
+    expect(Object.keys(renewed)).toEqual(["rootId", "root", "sig", "notAfter"]);
+    expect(verifyRoot(renewed, ringBefore.policy)).toBe(true);
+    // the bundles are untouched and still prove against the renewed root
+    const after = snapshot(out);
+    delete after[join(out, "root.json")];
+    delete after[join(out, "reply-cert.json")];
+    expect(after).toEqual(bundles);
+    const bundle = readJson<ProofBundle>(join(out, "proofs-gateway.json"));
+    expect(bundle.rootId).toBe(renewed.rootId);
+    expect(verifyProof(bundle.proofs["gateway/orders"] as MerkleProof, "gateway/orders", decode(renewed.root))).toBe(true);
+    // the keyring is renewed beside it, and the certificate reissued
+    const ring = readKeyring(join(keys, "keyring.json"));
+    expect(ring.notAfter).toBe(renewed.notAfter);
+    expect(ring.services).toEqual(ringBefore.services);
+    expect(verifyKeyring(ring as SignedKeyring, ringBefore.policy)).toBe(true);
+    const cert = readJson<ReplyCert>(join(out, "reply-cert.json"));
+    expect(verifyReplyCert(cert, ring.policy)).toBe(true);
+    expect(cert.key).toBe(ring.services.orders);
+    expect(r.stdout).toContain(`notAfter ${renewed.notAfter}`);
+    expect(r.stdout).toContain(join(out, "root.json"));
+    for (const secret of [ring.policy, ring.sig!, renewed.sig, renewed.root, cert.sig, readKey(join(keys, "policy.key"))]) {
+      expect(r.stdout + r.stderr).not.toContain(secret);
+    }
+  });
+
+  it("renewRefusesForeignRoot", () => {
+    const { keys, out, renewArgs } = builtWorld();
+    const { out: otherOut } = builtWorld();
+    const built = readJson<SignedRoot>(join(out, "root.json"));
+    const cases: Record<string, unknown> = {
+      "another policy key's": readJson<SignedRoot>(join(otherOut, "root.json")),
+      "window moved": { ...built, notAfter: built.notAfter! + 1 },
+      "not a root": { rootId: built.rootId },
+    };
+    for (const [name, bad] of Object.entries(cases)) {
+      writeFileSync(join(out, "root.json"), JSON.stringify(bad));
+      const before = snapshot(keys, out);
+      const r = run(policy, renewArgs("--reply-cert-svc", "orders"));
+      expect(r.status, name).toBe(2);
+      expect(r.stderr, name).toContain("refused");
+      expect(r.stderr, name).toContain("root.json");
+      expect(snapshot(keys, out), name).toEqual(before);
+    }
+  });
+
+  it("renewRefusesForeignKeyring", () => {
+    const { keys, out, renewArgs } = builtWorld();
+    const { keys: otherKeys } = builtWorld();
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const cases: Record<string, unknown> = {
+      "another policy key's": readKeyring(join(otherKeys, "keyring.json")),
+      tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
+      "window moved": { ...ring, notAfter: ring.notAfter! + 1 },
+    };
+    for (const [name, bad] of Object.entries(cases)) {
+      writeFileSync(join(keys, "keyring.json"), JSON.stringify(bad));
+      const before = snapshot(keys, out);
+      const r = run(policy, renewArgs());
+      expect(r.status, name).toBe(2);
+      expect(r.stderr, name).toContain("refused");
+      expect(r.stderr, name).toContain("keyring");
+      expect(snapshot(keys, out), name).toEqual(before);
+    }
+  });
+
+  it("renewAcceptsExpiredAndOldForm", () => {
+    const { keys, out, renewArgs } = builtWorld();
+    const built = readJson<SignedRoot>(join(out, "root.json"));
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const priv = readKey(join(keys, "policy.key"));
+    const expiredRoot = renewRoot(built, 1000, priv);
+    const oldRoot = signRootOldForm(decode(built.root), built.rootId, priv);
+    const expiredRing = renewKeyring(ring as SignedKeyring, 1000, priv);
+    const oldRing = signKeyringOldForm(ring.services, ring.policy, priv);
+    for (const [name, root, keyring] of [["old root, expired keyring", oldRoot, expiredRing], ["expired root, old keyring", expiredRoot, oldRing]] as const) {
+      writeFileSync(join(out, "root.json"), JSON.stringify(root));
+      writeFileSync(join(keys, "keyring.json"), JSON.stringify(keyring));
+      const r = run(policy, renewArgs());
+      expect(r.status, `${name}: ${r.stderr}`).toBe(0);
+      const now = Date.now();
+      const renewed = readJson<SignedRoot>(join(out, "root.json"));
+      expect(isCurrent(renewed, now), name).toBe(true);
+      expect(renewed.rootId).toBe(built.rootId);
+      expect(renewed.root).toBe(built.root);
+      expect(verifyRoot(renewed, ring.policy), name).toBe(true);
+      const renewedRing = readKeyring(join(keys, "keyring.json"));
+      expect(isCurrent(renewedRing, now), name).toBe(true);
+      expect(verifyKeyring(renewedRing as SignedKeyring, ring.policy), name).toBe(true);
+    }
+  });
+
+  it("policyLifetimeAndModeBadArgsExitNonZero", () => {
+    const { keys, yamlPath, out: built, renewArgs } = builtWorld();
+    const ring = join(keys, "keyring.json");
+    const key = join(keys, "policy.key");
+    const rebuild = ["--paths", yamlPath, "--policy-key", key, "--keyring", ring];
+    for (const args of [
+      ["--paths", yamlPath, "--policy-key", key],
+      [...rebuild, "--policy-days", "0"],
+      [...rebuild, "--policy-days", "1.5"],
+      [...rebuild, "--policy-days", "x"],
+      [...rebuild, "--policy-days", "200000000"],
+      ["--renew", "--policy-key", key],
+      ["--renew", "--paths", yamlPath, "--policy-key", key, "--keyring", ring],
+      ["--renew", "--depth", "8", "--policy-key", key, "--keyring", ring],
+    ]) {
+      const out = tmp();
+      const before = snapshot(keys);
+      const r = run(policy, [...args, "--out", out]);
+      expect(r.status, args.join(" ")).toBe(2);
+      expect(r.stderr, args.join(" ")).toContain("Usage");
+      expect(readdirSync(out), args.join(" ")).toEqual([]);
+      expect(snapshot(keys), args.join(" ")).toEqual(before);
+    }
+    const before = snapshot(keys, built);
+    const r = run(policy, renewArgs("--policy-days", "0"));
+    expect(r.status).toBe(2);
+    expect(snapshot(keys, built)).toEqual(before);
   });
 
   it("badArgsExitNonZero", () => {

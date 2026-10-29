@@ -92,19 +92,37 @@ class KeygenMainTest {
                 Crypto.encodePublicKey(Crypto.generateEd25519KeyPair().getPublic()))));
     }
 
-    /** The keyring is signed in the new form, vouching for its keys for seven days from the run. */
+    /**
+     * The keyring is signed in the new form, vouching for its keys for seven days from the run unless
+     * {@code PAZTPORT_POLICY_DAYS} says otherwise.
+     */
     @Test
-    void keyringIsNewFormForSevenDays(@TempDir Path dir) throws Exception {
+    void keygenWritesNewFormKeyring(@TempDir Path dir) throws Exception {
         long before = System.currentTimeMillis();
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
         long after = System.currentTimeMillis();
 
         KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
         assertTrue(keyring.isNewForm());
-        assertTrue(keyring.notAfter() >= before + 7 * 86_400_000L && keyring.notAfter() <= after + 7 * 86_400_000L,
+        assertTrue(keyring.notAfter() >= before + 7 * DAY_MS && keyring.notAfter() <= after + 7 * DAY_MS,
                 String.valueOf(keyring.notAfter()));
         assertTrue(keyring.verifies(Files.readString(dir.resolve("policy.pub")).trim()));
+
+        long thirtyDays = KeygenMain.keyringNotAfter("30", 1000);
+        assertEquals(1000 + 30 * DAY_MS, thirtyDays);
+        assertEquals(1000 + 7 * DAY_MS, KeygenMain.keyringNotAfter(null, 1000));
+        Path other = dir.resolve("other");
+        KeygenMain.run(other, SERVICES, TLS_ONLY, "shop", thirtyDays);
+        KeyringFile set = KeyringFile.load(other.resolve("keyring.json"));
+        assertEquals(thirtyDays, set.notAfter());
+        assertTrue(set.verifies(Files.readString(other.resolve("policy.pub")).trim()));
+        // Days whose end would pass 2^53 - 1 ms are refused, not signed.
+        for (String bad : new String[] {"0", "-1", "x", "", "1.5", "200000000"}) {
+            assertThrows(IllegalArgumentException.class, () -> KeygenMain.keyringNotAfter(bad, 1000), bad);
+        }
     }
+
+    private static final long DAY_MS = 86_400_000L;
 
     @Test
     void tlsOnlyNamesGetCertificatesButNeverEnterTheKeyring(@TempDir Path dir) throws Exception {

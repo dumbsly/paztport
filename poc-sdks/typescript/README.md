@@ -86,8 +86,26 @@ key, names another service or key, or has expired at the session's clock.
 ## policy-tool
 
 `@paztport/policy-tool`: two command-line tools. `paztport-keygen` writes a
-keypair per service, a policy keypair and a keyring signed by the policy key, valid for seven days;
-`paztport-policy` turns a `paths.yaml` into a root signed for seven days and one proof bundle per
-service, and with `--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]` also writes
-`reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key. It
-refuses, writing nothing, a keyring that is not signed by its policy key or has no key for the service.
+keypair per service, a policy keypair and a keyring signed by the policy key, valid for `--policy-days` days
+(default 7). `paztport-policy` signs roots and re-signs the keyring, both in the new form and valid for
+`--policy-days` days (default 7), in one of two modes:
+
+- **Rebuild**, `--paths <yaml> --policy-key <file> --keyring <keyring.json> --out <dir> [--depth 8]`: a new tree
+  from the `paths.yaml`, so a new `root.json`, `rootId` and proof bundles, which every holder must reload
+  together, and the keyring re-signed. Rebuild when the routes change.
+- **Renew**, `--renew --policy-key <file> --keyring <keyring.json> --out <dir>`: the `root.json` in `--out` and
+  the keyring signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof bundles
+  (and any `rules.json`) stay valid and are not touched, and holders can pick up the renewed files one at a time.
+  It takes no `--paths` or `--depth`. Renewal is the routine operation, run well before `notAfter`; old-form
+  and expired files are renewed into the new form all the same.
+
+Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
+not, and that that key is the `--policy-key`; renewing also checks the root verifies under it. Any failure is
+refused, exit 2, with nothing written. A rebuild vouches that the routes in the `paths.yaml` are the ones
+allowed now; a renewal, that the existing tree's routes all still are, since narrowing a policy is a rebuild.
+Re-signing the keyring vouches that each listed key is still its service's current key: the tool can check only
+that this policy key signed the keyring before, so retiring a key, which needs a new keyring rather than a
+renewed one, is the policy owner's to ensure. With `--reply-cert-svc <name> [--reply-cert-days 7]` either mode
+also writes `reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's
+key, its lifetime set apart from the policy's, refusing a service the keyring has no key for. `paztport-policy`
+prints only file names, their `notAfter` and the certificate's service.

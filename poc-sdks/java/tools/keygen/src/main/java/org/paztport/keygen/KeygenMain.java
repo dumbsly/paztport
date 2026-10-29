@@ -14,6 +14,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -26,7 +27,8 @@ import org.paztport.core.KeyringFile;
 
 /**
  * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The
- * keyring is signed in the new form and vouches for its keys for seven days from the run.
+ * keyring is signed in the new form and vouches for its keys for {@code PAZTPORT_POLICY_DAYS} days from the run
+ * (default 7), the setting the policy tool reads for the roots and keyrings it signs.
  *
  * <pre>keygen [outDir] [service...] [--tls-only name...] [--org name]</pre>
  *
@@ -48,12 +50,20 @@ public final class KeygenMain {
     private static final List<String> DEFAULT_SERVICES = List.of("gateway", "orders", "payment", "search");
     private static final List<String> DEFAULT_TLS_ONLY = List.of("operator", "responder");
     private static final Duration TLS_VALIDITY = Duration.ofDays(825);
+    private static final long DAY_MS = 86_400_000L;
     private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     private KeygenMain() {
     }
 
+    /** As {@link #run(Path, List, List, String, long)}, the keyring vouching for its keys for seven days from now. */
     public static void run(Path outDir, List<String> services, List<String> tlsOnly, String org) throws IOException {
+        run(outDir, services, tlsOnly, org, System.currentTimeMillis() + KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS);
+    }
+
+    /** Writes every file, the keyring signed until {@code keyringNotAfter} (milliseconds since the epoch). */
+    public static void run(Path outDir, List<String> services, List<String> tlsOnly, String org, long keyringNotAfter)
+            throws IOException {
         List<String> names = new ArrayList<>(services);
         names.addAll(tlsOnly);
         Set<String> seen = new HashSet<>();
@@ -75,8 +85,7 @@ public final class KeygenMain {
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
-        MAPPER.writeValue(outDir.resolve("keyring.json").toFile(), KeyGenerator.toKeyring(result,
-                System.currentTimeMillis() + KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS));
+        MAPPER.writeValue(outDir.resolve("keyring.json").toFile(), KeyGenerator.toKeyring(result, keyringNotAfter));
         Files.writeString(outDir.resolve("policy.pub"), KeyGenerator.policyPublicKey(result) + "\n");
 
         for (Map.Entry<String, KeyPair> e : result.services().entrySet()) {
@@ -141,6 +150,24 @@ public final class KeygenMain {
         Files.writeString(file, content);
     }
 
+    /**
+     * Now plus {@code days} days (default 7 when null). Refuses anything but a positive whole number of days, and a
+     * lifetime that would end past 2^53 &minus; 1 ms, which no keyring can carry.
+     */
+    static long keyringNotAfter(String days, long nowMs) {
+        long d;
+        try {
+            d = days == null ? KeyGenerator.DEFAULT_KEYRING_LIFETIME_MS / DAY_MS : Integer.parseInt(days);
+        } catch (NumberFormatException e) {
+            d = 0;
+        }
+        if (d < 1 || d > (KeyringFile.MAX_NOT_AFTER - nowMs) / DAY_MS) {
+            throw new IllegalArgumentException("PAZTPORT_POLICY_DAYS must be a positive whole number of days"
+                    + " ending before 2^53 - 1 ms");
+        }
+        return nowMs + d * DAY_MS;
+    }
+
     /** Parsed command line. */
     record Args(Path outDir, List<String> services, List<String> tlsOnly, String org) {
     }
@@ -176,8 +203,10 @@ public final class KeygenMain {
     public static void main(String[] args) throws IOException {
         try {
             Args a = parse(args);
-            run(a.outDir(), a.services(), a.tlsOnly(), a.org());
-            System.out.println("keygen: wrote signed keyring, policy pin, " + a.services().size()
+            long notAfter = keyringNotAfter(System.getenv("PAZTPORT_POLICY_DAYS"), System.currentTimeMillis());
+            run(a.outDir(), a.services(), a.tlsOnly(), a.org(), notAfter);
+            System.out.println("keygen: wrote signed keyring (notAfter " + notAfter + ", "
+                    + Instant.ofEpochMilli(notAfter) + "), policy pin, " + a.services().size()
                     + " service keys, policy key and TLS certificates to " + a.outDir()
                     + " (boundary key written only if absent)");
         } catch (IllegalArgumentException e) {

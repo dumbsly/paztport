@@ -253,7 +253,8 @@ Glue, configured through `paztport.*` properties.
 One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
 
 - a per-service Ed25519 stamp key (`<svc>.key`) and a policy key (`policy.key`);
-- `keyring.json`, signed by the policy key, and `policy.pub`, the pin;
+- `keyring.json`, signed by the policy key in the new form, valid for `PAZTPORT_POLICY_DAYS` days (default 7),
+  and `policy.pub`, the pin;
 - one CA per run, named by `--org` (default `shop`), whose key is written alone to
   `ca/ca.key`, outside `tls/`, so it sits apart from the certificates and keys that
   services mount (each service mounts only its own files, one by one);
@@ -272,8 +273,31 @@ Private keys and the boundary key are written owner-read/write only.
 
 ## tools/policy-tool
 
-One-shot job: `paths.yaml` → salted tree → signed `root.json` plus one proof
-bundle per service. When `PAZTPORT_REPLY_CERT_SVC` names a service it also writes
-`reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key in
-`keysDir/keyring.json`, valid for `PAZTPORT_REPLY_CERT_DAYS` days (default 7). It refuses, writing nothing, a
-keyring that is not signed by its policy key or has no key for the service.
+One-shot job, `policy-tool [--renew] [paths.yaml] [keysDir] [outDir]` (defaults `policy/paths.yaml`,
+`out/keys`, `out/policy`). It reads `keysDir/policy.key` and `keysDir/keyring.json`, and signs the root and the
+keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7). It has two modes:
+
+- **Rebuild**, the default: `paths.yaml` → salted tree → signed `outDir/root.json` plus one proof bundle per
+  service (depth `PAZTPORT_PROOF_DEPTH`, default 8), and `keyring.json` re-signed beside it. The tree is new, so
+  the `rootId` and every bundle change, and every service holding a root or proofs must reload them together.
+  Rebuild when the routes change.
+- **Renew**, with `--renew` or `PAZTPORT_RENEW=true` (so the same command line serves both): `outDir/root.json`
+  and `keyring.json` signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof
+  bundles stay valid and are not touched, and holders can pick up the renewed files one at a time.
+  `paths.yaml` is not read. Renewal is the routine operation, run well before `notAfter`; old-form and expired
+  files are renewed into the new form all the same.
+
+Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
+not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Any failure
+is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
+renamed over), so it can be a single file mounted writable into the tool. A rebuild vouches that the routes in
+`paths.yaml` are the ones allowed now; a renewal, that the existing tree's routes all still are, since
+narrowing a policy is a rebuild. Re-signing the keyring vouches that each listed key is still its service's
+current key: the tool can check only that this policy key signed the keyring before, so retiring a key, which
+needs a new keyring rather than a renewed one, is the policy owner's to ensure.
+
+When `PAZTPORT_REPLY_CERT_SVC` names a service, either mode also writes `outDir/reply-cert.json`, a
+[reply certificate](../spec/wire.md#the-reply-certificate) for that service's key in the keyring, valid for
+`PAZTPORT_REPLY_CERT_DAYS` days (default 7), set apart from the policy's lifetime. It refuses, writing nothing,
+a service the keyring has no key for. The tool prints only file names, their `notAfter` and the certificate's
+service.

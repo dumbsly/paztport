@@ -3,6 +3,11 @@
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { SignedKeyring } from "@paztport/core";
+
+const DAY_MS = 86_400_000;
+/** Date's own limit: `toISOString` throws beyond it. */
+const DATE_MAX_MS = 8.64e15;
 
 /** `sig` is the policy key's signature over the keyring (see signKeyring), and `notAfter` its window, present exactly in the new form. */
 export type Keyring = { services: Record<string, string>; policy: string; sig?: string; notAfter?: number };
@@ -22,6 +27,24 @@ export function readKeyring(path: string): Keyring {
     throw new Error(`malformed keyring: ${path}`);
   }
   return ring;
+}
+
+/** Writes a new-form keyring over `path` in place, its fields in the order the keygen has always written them. */
+export function writeKeyring(path: string, k: SignedKeyring): void {
+  const ring: Keyring = { services: k.services, policy: k.policy, sig: k.sig, notAfter: k.notAfter };
+  writeJson(path, ring);
+}
+
+/** Now plus `days` days (`fallback` when undefined), or undefined unless `days` is a positive whole number whose end is a safe integer. */
+export function notAfterInDays(days: string | undefined, fallback: number): number | undefined {
+  const d = days === undefined ? fallback : Number(days);
+  const notAfter = Date.now() + d * DAY_MS;
+  return days !== "" && Number.isSafeInteger(d) && d >= 1 && Number.isSafeInteger(notAfter) ? notAfter : undefined;
+}
+
+/** `notAfter` as printed: the integer, with its ISO time when Date can show it; never throws. */
+export function describeNotAfter(notAfter: number): string {
+  return Math.abs(notAfter) <= DATE_MAX_MS ? `notAfter ${notAfter} (${new Date(notAfter).toISOString()})` : `notAfter ${notAfter}`;
 }
 
 export function writeJson(path: string, value: unknown): void {

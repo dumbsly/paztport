@@ -11,7 +11,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import org.paztport.core.Base64Url;
+import org.paztport.core.Crypto;
 import org.paztport.core.KeyFiles;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
@@ -20,63 +23,83 @@ import org.paztport.core.ReplyCert;
 import org.paztport.core.SignedRoot;
 
 /**
- * CLI: build a signed root and per-service proof bundles from paths.yaml.
+ * CLI: build, or renew, a signed root and per-service proof bundles from paths.yaml, and re-sign the keyring beside
+ * them.
  *
- * <pre>policy-tool [paths.yaml] [keysDir] [outDir]</pre>
+ * <pre>policy-tool [--renew] [paths.yaml] [keysDir] [outDir]</pre>
  *
- * Reads the policy private key from {@code keysDir/policy.key}. Depth comes from
- * {@code PAZTPORT_PROOF_DEPTH} (default 8). The root is signed in the new form and
- * vouches for its routes for seven days from the run. Only root id, its
- * {@code notAfter} and service names are logged, never salts or the tree.
+ * Reads the policy private key from {@code keysDir/policy.key} and the keyring from {@code keysDir/keyring.json}.
+ * The root and the keyring are signed in the new form and vouch for {@code PAZTPORT_POLICY_DAYS} days from the run
+ * (default 7). Two modes:
  *
- * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, it also writes {@code reply-cert.json}, a
- * {@link ReplyCert} for that service's key in {@code keysDir/keyring.json}, valid for
- * {@code PAZTPORT_REPLY_CERT_DAYS} days (default 7). It is reissued on every run, and a key that is not reissued
- * stops being accepted when its certificate expires. Before writing anything it checks that the keyring is
- * signed by this policy key and names the service, since that check is what a certificate vouches for; on a
- * refusal it writes nothing and exits 2. It prints only the service and {@code notAfter}, never key material.
+ * <ul>
+ *   <li>Rebuild, the default: a new salted tree from {@code paths.yaml} (depth from {@code PAZTPORT_PROOF_DEPTH},
+ *       default 8), so a new {@code rootId}, new {@code root.json} and new bundles, which every holder must reload
+ *       together; and the keyring re-signed.</li>
+ *   <li>Renew, with {@code --renew} or {@code PAZTPORT_RENEW=true}: {@code outDir/root.json} and the keyring signed
+ *       again with a new {@code notAfter}, the same {@code root} and {@code rootId}, so the bundles stay valid and
+ *       are not touched, and holders can pick up the renewed files one at a time. {@code paths.yaml} is not
+ *       read.</li>
+ * </ul>
+ *
+ * Either mode first checks the keyring (and, renewing, the root) is signed by the policy key in {@code policy.key},
+ * in either form and whether or not it has expired, and that the keyring names that key; on a refusal it writes
+ * nothing and exits 2. The keyring is written in place, truncated and rewritten rather than replaced by a rename,
+ * so that it can be a single file mounted into the tool.
+ *
+ * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, either mode also writes {@code reply-cert.json}, a
+ * {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days
+ * (default 7). It is reissued on every run, and a key that is not reissued stops being accepted when its
+ * certificate expires. Before writing anything it checks that the keyring names the service, since that check is
+ * what a certificate vouches for.
+ *
+ * <p>It prints only file names, each one's {@code notAfter} and the certificate's service; never key material,
+ * salts or the tree.
  */
 public final class PolicyToolMain {
 
     private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final long DAY_MS = 86_400_000L;
-    private static final int DEFAULT_REPLY_CERT_DAYS = 7;
-    private static final int DEFAULT_ROOT_DAYS = 7;
+    private static final int DEFAULT_DAYS = 7;
 
     private PolicyToolMain() {
     }
 
-    /** Writes the root, valid for seven days from now, and the bundles; no reply certificate. */
+    /** Rebuilds with the root and keyring valid for seven days from now; no reply certificate. */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth) throws IOException {
         run(pathsYaml, keysDir, outDir, depth, null, 0);
     }
 
     /**
      * As {@link #run(Path, Path, Path, int)}, and when {@code replyCertSvc} is not null also writes
-     * {@code reply-cert.json} for that service, valid until {@code replyCertNotAfter}. Throws
-     * {@link IllegalArgumentException}, having written nothing, when the keyring does not verify under the policy
-     * key or lacks the service.
+     * {@code reply-cert.json} for that service, valid until {@code replyCertNotAfter}.
      */
     public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, String replyCertSvc,
             long replyCertNotAfter) throws IOException {
-        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + DEFAULT_ROOT_DAYS * DAY_MS, replyCertSvc,
+        run(pathsYaml, keysDir, outDir, depth, System.currentTimeMillis() + DEFAULT_DAYS * DAY_MS, replyCertSvc,
                 replyCertNotAfter);
     }
 
     /**
-     * As {@link #run(Path, Path, Path, int, String, long)}, with the root signed until {@code rootNotAfter}. Signing
-     * it vouches that every route in {@code paths.yaml} is allowed until then: the file is the policy owner's
-     * statement of the routes it currently allows.
+     * Rebuilds: a new tree from {@code paths.yaml} and its bundles, the root signed until {@code policyNotAfter}, and
+     * the keyring re-signed until then too. Throws {@link IllegalArgumentException}, having written nothing, when
+     * the paths file is malformed, the keyring is missing, does not verify under the key it names or that key is
+     * not this policy key, or a requested certificate's service is not in the keyring.
      */
-    public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, long rootNotAfter,
+    public static void run(Path pathsYaml, Path keysDir, Path outDir, int depth, long policyNotAfter,
             String replyCertSvc, long replyCertNotAfter) throws IOException {
         List<List<String>> routes = PathsReader.parse(Files.readAllBytes(pathsYaml));
         PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
+        Path keyringFile = keysDir.resolve("keyring.json");
+        KeyringFile ring = renewedKeyring(keyringFile, policyNotAfter, policyKey);
         ReplyCert cert = replyCertSvc == null ? null
-                : issueReplyCert(keysDir.resolve("keyring.json"), replyCertSvc, replyCertNotAfter, policyKey);
+                : issueReplyCert(keyringFile, ring, replyCertSvc, replyCertNotAfter, policyKey);
 
-        PolicyBuilder.Result result = PolicyBuilder.build(routes, depth, rootNotAfter, policyKey);
+        // Signing vouches that every route in paths.yaml is allowed until policyNotAfter: the file is the policy
+        // owner's statement of the routes it allows now. The tool cannot check that; the owner keeps the file true.
+        PolicyBuilder.Result result = PolicyBuilder.build(routes, depth, policyNotAfter, policyKey);
 
+        writeKeyringInPlace(keyringFile, ring);
         Files.createDirectories(outDir);
         MAPPER.writeValue(outDir.resolve("root.json").toFile(), result.signedRoot());
         for (ProofBundle bundle : result.bundles().values()) {
@@ -88,11 +111,52 @@ public final class PolicyToolMain {
     }
 
     /**
-     * The certificate for {@code svc}'s key in the keyring, after the checks it vouches for: the keyring verifies
-     * under its own policy key, that key is the one in {@code policy.key} (the certificate signed with it must
-     * verify under the keyring's policy key), and the keyring names the service.
+     * Renews: {@code outDir/root.json} and {@code keysDir/keyring.json} signed again until {@code policyNotAfter},
+     * each keeping what it lists (the root its {@code root} and {@code rootId}, so the bundles in {@code outDir}
+     * still prove against it and are left alone), and, when {@code replyCertSvc} is not null, the certificate
+     * reissued until {@code replyCertNotAfter}. Either file may be in the old form or expired: renewing is how
+     * lapsed material comes back. Throws {@link IllegalArgumentException}, having written nothing, when either is
+     * missing or malformed, the keyring does not verify under the key it names or that key is not this policy key,
+     * the root does not verify under it, or a requested certificate's service is not in the keyring.
      */
-    private static ReplyCert issueReplyCert(Path keyringFile, String svc, long notAfter, PrivateKey policyKey) {
+    public static void renew(Path keysDir, Path outDir, long policyNotAfter, String replyCertSvc,
+            long replyCertNotAfter) throws IOException {
+        PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
+        Path keyringFile = keysDir.resolve("keyring.json");
+        Path rootFile = outDir.resolve("root.json");
+        KeyringFile ring = renewedKeyring(keyringFile, policyNotAfter, policyKey);
+        SignedRoot root;
+        try {
+            root = SignedRoot.load(rootFile);
+        } catch (UncheckedIOException | IllegalArgumentException e) {
+            throw new IllegalArgumentException(rootFile + " is missing or not a signed root", e);
+        }
+        if (!root.verify(Crypto.decodePublicKey(Base64Url.decode(ring.policy())))) {
+            throw new IllegalArgumentException(rootFile + " is not signed by this policy key (policy.key)");
+        }
+        ReplyCert cert = replyCertSvc == null ? null
+                : issueReplyCert(keyringFile, ring, replyCertSvc, replyCertNotAfter, policyKey);
+
+        // Renewing vouches that every route in the existing tree is still allowed until policyNotAfter. The tool
+        // checks only that this policy key signed the tree before; that the owner still allows all of it is the
+        // owner's to know. A narrowed policy is a rebuild, never a renewal.
+        SignedRoot renewed = root.renewed(policyNotAfter, policyKey);
+
+        writeKeyringInPlace(keyringFile, ring);
+        MAPPER.writeValue(rootFile.toFile(), renewed);
+        if (cert != null) {
+            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), cert.toJson());
+        }
+    }
+
+    /**
+     * The keyring re-signed until {@code notAfter}, after the checks re-signing it rests on: it verifies, in either
+     * form and expired or not, under the policy key it names, and that key is the one in {@code policy.key} (the
+     * re-signed keyring must verify under it). Re-signing vouches that each listed key is still its service's
+     * current key. The tool can check only that this policy key vouched for them before; that none has been
+     * retired since is the policy owner's to ensure, since a retired key needs a new keyring, not a renewed one.
+     */
+    private static KeyringFile renewedKeyring(Path keyringFile, long notAfter, PrivateKey policyKey) {
         KeyringFile ring;
         try {
             ring = KeyringFile.load(keyringFile);
@@ -102,55 +166,144 @@ public final class PolicyToolMain {
         if (ring.policy() == null || !ring.verifies(ring.policy())) {
             throw new IllegalArgumentException(keyringFile + " is not signed by its policy key");
         }
+        KeyringFile renewed = ring.renewed(notAfter, policyKey);
+        if (!renewed.verifies(ring.policy())) {
+            throw new IllegalArgumentException(keyringFile + " is not signed by this policy key (policy.key)");
+        }
+        return renewed;
+    }
+
+    /**
+     * Writes the keyring over the existing file in place, truncating it, rather than writing a new file and
+     * renaming it over the old: the keyring may be a single file mounted into the tool, and a rename onto such a
+     * mount fails. It is serialised first, so a failure there leaves the file as it was.
+     */
+    private static void writeKeyringInPlace(Path keyringFile, KeyringFile ring) throws IOException {
+        Files.write(keyringFile, MAPPER.writeValueAsBytes(ring));
+    }
+
+    /**
+     * The certificate for {@code svc}'s key in {@code ring}, already checked to be this policy key's keyring; the
+     * certificate vouches that the key is {@code svc}'s in it, so a service the keyring lacks is refused.
+     */
+    private static ReplyCert issueReplyCert(Path keyringFile, KeyringFile ring, String svc, long notAfter,
+            PrivateKey policyKey) {
         String key = ring.services().get(svc);
         if (key == null) {
             throw new IllegalArgumentException(keyringFile + " has no key for service " + svc);
         }
-        ReplyCert cert = ReplyCert.issue(ring.policy(), svc, key, notAfter, policyKey);
-        if (!cert.verifies(ring.policy())) {
-            throw new IllegalArgumentException(keyringFile + " is not signed by this policy key (policy.key)");
-        }
-        return cert;
+        return ReplyCert.issue(ring.policy(), svc, key, notAfter, policyKey);
     }
 
-    /** Now plus {@code days} days (default 7 when null); refuses anything but a positive whole number of days. */
+    /** The reply certificate's {@code notAfter}: see {@link #daysFromNow}. */
     static long replyCertNotAfter(String days, long nowMs) {
-        int d;
+        return daysFromNow("PAZTPORT_REPLY_CERT_DAYS", days, nowMs);
+    }
+
+    /** The root's and keyring's {@code notAfter}: see {@link #daysFromNow}. */
+    static long policyNotAfter(String days, long nowMs) {
+        return daysFromNow("PAZTPORT_POLICY_DAYS", days, nowMs);
+    }
+
+    /**
+     * Now plus {@code days} days (default 7 when null). Refuses anything but a positive whole number of days, and a
+     * lifetime that would end past 2^53 &minus; 1 ms, which nothing this tool signs can carry.
+     */
+    private static long daysFromNow(String setting, String days, long nowMs) {
+        long d;
         try {
-            d = days == null ? DEFAULT_REPLY_CERT_DAYS : Integer.parseInt(days);
+            d = days == null ? DEFAULT_DAYS : Integer.parseInt(days);
         } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("PAZTPORT_REPLY_CERT_DAYS must be a positive whole number of days");
+            d = 0;
         }
-        if (d < 1) {
-            throw new IllegalArgumentException("PAZTPORT_REPLY_CERT_DAYS must be a positive whole number of days");
+        if (d < 1 || d > (SignedRoot.MAX_NOT_AFTER - nowMs) / DAY_MS) {
+            throw new IllegalArgumentException(setting + " must be a positive whole number of days"
+                    + " ending before 2^53 - 1 ms");
         }
         return nowMs + d * DAY_MS;
     }
 
-    public static void main(String[] args) throws IOException {
-        Path pathsYaml = Path.of(args.length > 0 ? args[0] : "policy/paths.yaml");
-        Path keysDir = Path.of(args.length > 1 ? args[1] : "out/keys");
-        Path outDir = Path.of(args.length > 2 ? args[2] : "out/policy");
-        int depth = Integer.parseInt(System.getenv().getOrDefault("PAZTPORT_PROOF_DEPTH", "8"));
-        String replyCertSvc = System.getenv("PAZTPORT_REPLY_CERT_SVC");
+    /** Parsed command line: the three paths, defaulted, and whether to renew. */
+    record Args(Path pathsYaml, Path keysDir, Path outDir, boolean renew) {
+    }
 
-        long notAfter = 0;
-        try {
-            if (replyCertSvc != null) {
-                notAfter = replyCertNotAfter(System.getenv("PAZTPORT_REPLY_CERT_DAYS"), System.currentTimeMillis());
+    /**
+     * Positional paths with {@code --renew} anywhere among them; {@code renewEnv} is {@code PAZTPORT_RENEW}, which
+     * also asks for renewal when {@code true}, so the same command line serves both modes. Any other flag, or any
+     * other value of the variable but {@code false} or empty, is refused.
+     */
+    static Args parse(String[] args, String renewEnv) {
+        boolean renew = false;
+        List<String> positional = new ArrayList<>();
+        for (String a : args) {
+            if (a.equals("--renew")) {
+                renew = true;
+            } else if (a.startsWith("--")) {
+                throw new IllegalArgumentException("unknown option " + a);
+            } else {
+                positional.add(a);
             }
-            run(pathsYaml, keysDir, outDir, depth, replyCertSvc, notAfter);
+        }
+        if (positional.size() > 3) {
+            throw new IllegalArgumentException("at most three paths");
+        }
+        if (renewEnv != null && !renewEnv.isEmpty()) {
+            if (renewEnv.equals("true")) {
+                renew = true;
+            } else if (!renewEnv.equals("false")) {
+                throw new IllegalArgumentException("PAZTPORT_RENEW must be true or false");
+            }
+        }
+        return new Args(Path.of(positional.size() > 0 ? positional.get(0) : "policy/paths.yaml"),
+                Path.of(positional.size() > 1 ? positional.get(1) : "out/keys"),
+                Path.of(positional.size() > 2 ? positional.get(2) : "out/policy"), renew);
+    }
+
+    public static void main(String[] args) throws IOException {
+        String replyCertSvc = System.getenv("PAZTPORT_REPLY_CERT_SVC");
+        Args a;
+        long policyNotAfter;
+        long certNotAfter = 0;
+        int depth;
+        try {
+            a = parse(args, System.getenv("PAZTPORT_RENEW"));
+            long now = System.currentTimeMillis();
+            policyNotAfter = policyNotAfter(System.getenv("PAZTPORT_POLICY_DAYS"), now);
+            if (replyCertSvc != null) {
+                certNotAfter = replyCertNotAfter(System.getenv("PAZTPORT_REPLY_CERT_DAYS"), now);
+            }
+            depth = Integer.parseInt(System.getenv().getOrDefault("PAZTPORT_PROOF_DEPTH", "8"));
         } catch (IllegalArgumentException e) {
             System.err.println("policy-tool: " + e.getMessage());
+            System.err.println("usage: policy-tool [--renew] [paths.yaml] [keysDir] [outDir]");
             System.exit(2);
+            return;
+        }
+        try {
+            if (a.renew()) {
+                renew(a.keysDir(), a.outDir(), policyNotAfter, replyCertSvc, certNotAfter);
+            } else {
+                run(a.pathsYaml(), a.keysDir(), a.outDir(), depth, policyNotAfter, replyCertSvc, certNotAfter);
+            }
+        } catch (IllegalArgumentException e) {
+            System.err.println("policy-tool: refused: " + e.getMessage());
+            System.exit(2);
+            return;
         }
 
-        SignedRoot root = SignedRoot.load(outDir.resolve("root.json"));
-        System.out.println("policy-tool: wrote root " + root.rootId() + ", notAfter " + root.notAfter() + " ("
-                + Instant.ofEpochMilli(root.notAfter()) + "), and per-service bundles to " + outDir);
+        String when = "notAfter " + policyNotAfter + " (" + Instant.ofEpochMilli(policyNotAfter) + ")";
+        if (a.renew()) {
+            System.out.println("policy-tool: renewed " + a.outDir().resolve("root.json") + " and "
+                    + a.keysDir().resolve("keyring.json") + ", " + when + "; proof bundles in " + a.outDir()
+                    + " unchanged");
+        } else {
+            System.out.println("policy-tool: wrote " + a.outDir().resolve("root.json") + " and "
+                    + a.keysDir().resolve("keyring.json") + ", " + when + ", and per-service bundles to "
+                    + a.outDir());
+        }
         if (replyCertSvc != null) {
-            System.out.println("policy-tool: wrote reply certificate for " + replyCertSvc + ", notAfter " + notAfter
-                    + " (" + Instant.ofEpochMilli(notAfter) + ")");
+            System.out.println("policy-tool: wrote " + a.outDir().resolve("reply-cert.json") + " for " + replyCertSvc
+                    + ", notAfter " + certNotAfter + " (" + Instant.ofEpochMilli(certNotAfter) + ")");
         }
     }
 }

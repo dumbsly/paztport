@@ -480,8 +480,8 @@ policy key or has no key for the service; that the keyring given is the current 
 ensure.
 The Java policy tool issues a certificate when `PAZTPORT_REPLY_CERT_SVC` names the service, valid for
 `PAZTPORT_REPLY_CERT_DAYS` days. The TypeScript one takes
-`--reply-cert-svc <name> --keyring <keyring.json> [--reply-cert-days 7]`. Both print only the service and
-`notAfter`.
+`--reply-cert-svc <name> [--reply-cert-days 7]`, beside the `--keyring <keyring.json>` it always takes. Both
+print only the file, the service and `notAfter`.
 
 `v3.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
 `server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
@@ -511,3 +511,13 @@ and reply certificates; one that answers in the policy-key form keeps it online 
 demo neither side keeps its policy private key: the client's is deleted once it has signed the client root and
 keyring, and the server's once it has signed the server root, keyring and a 30-day reply certificate for
 `mcp-entry`'s key, since the demo's MCP server answers in the entry-key form.
+
+The policy owner renews its root and keyring on a schedule, well before their `notAfter`, offline, where the
+policy private key is kept. Renewing keeps the tree, so the proof bundles stay valid, and each holder can pick up
+the renewed root and keyring on its own, one at a time. A rebuild is different: it changes the routes, so it is a
+new tree with a new `rootId` and new proof bundles, and every holder of the root or of proofs must reload them
+together, since a proof from one tree does not prove against the other's root. Both policy tools renew
+(`--renew`, or `PAZTPORT_RENEW=true` for the Java one) and rebuild (the default), re-signing the keyring either
+way; they check that the keyring and, renewing, the root were signed by the policy key before, and refuse,
+writing nothing, otherwise. That the keyring's keys are still the services' current keys, and that the tree's
+routes are still allowed, is the policy owner's to ensure.

@@ -13,6 +13,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.util.Map;
+import java.util.TreeMap;
+import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.Base64Url;
@@ -36,10 +38,12 @@ class PolicyToolMainTest {
               - [gateway, search]
             """;
 
+    /** Writes the policy key, a keyring it signed, and the paths file: what a rebuild reads. */
     private KeyPair writeWorld(Path keys, Path pathsYaml) throws Exception {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         Files.createDirectories(keys);
         Files.writeString(keys.resolve("policy.key"), Base64Url.encode(Crypto.encodePrivateKey(policy.getPrivate())));
+        writeKeyring(keys, policy, policy);
         Files.writeString(pathsYaml, PATHS_YAML);
         return policy;
     }
@@ -209,5 +213,245 @@ class PolicyToolMainTest {
         for (String bad : new String[] {"0", "-1", "x", "", "1.5"}) {
             assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.replyCertNotAfter(bad, 1000), bad);
         }
+    }
+
+    /** Every file under {@code dirs}, by path, as its bytes and modification time: what "writes nothing" compares. */
+    private static Map<Path, String> snapshot(Path... dirs) throws Exception {
+        Map<Path, String> files = new TreeMap<>();
+        for (Path d : dirs) {
+            if (!Files.exists(d)) {
+                continue;
+            }
+            try (Stream<Path> walk = Files.walk(d)) {
+                for (Path f : walk.filter(Files::isRegularFile).toList()) {
+                    files.put(f, Base64Url.encode(Files.readAllBytes(f)) + "@" + Files.getLastModifiedTime(f).toMillis());
+                }
+            }
+        }
+        return files;
+    }
+
+    /** A rebuild signs a new root and re-signs the keyring, both until the one {@code notAfter} it is given. */
+    @Test
+    void rebuildSignsRootAndKeyringWithLifetime(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        KeyPair policy = writeWorld(keys, pathsYaml);
+        KeyringFile before = KeyringFile.load(keys.resolve("keyring.json"));
+        long notAfter = PolicyToolMain.policyNotAfter("30", System.currentTimeMillis());
+
+        PolicyToolMain.run(pathsYaml, keys, out, 8, notAfter, null, 0);
+
+        SignedRoot root = SignedRoot.load(out.resolve("root.json"));
+        assertTrue(root.isNewForm());
+        assertEquals(notAfter, root.notAfter());
+        assertTrue(root.verify(policy.getPublic()));
+        KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
+        assertTrue(ring.isNewForm());
+        assertEquals(notAfter, ring.notAfter());
+        assertTrue(ring.verifies(pub(policy)));
+        assertEquals(before.services(), ring.services());
+        assertEquals(before.policy(), ring.policy());
+    }
+
+    @Test
+    void policyLifetimeIsDaysFromNowDefaultSeven() {
+        assertEquals(1000 + 7 * DAY_MS, PolicyToolMain.policyNotAfter(null, 1000));
+        assertEquals(1000 + 30 * DAY_MS, PolicyToolMain.policyNotAfter("30", 1000));
+        // Days whose end would pass 2^53 - 1 ms are refused, not signed; so for certificates.
+        for (String bad : new String[] {"0", "-1", "x", "", "1.5", "200000000"}) {
+            assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.policyNotAfter(bad, 1000), bad);
+        }
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.replyCertNotAfter("200000000", 1000));
+    }
+
+    /** A rebuild refuses, writing nothing, a keyring that is missing, unsound, or another policy key's. */
+    @Test
+    void rebuildRefusesForeignKeyring(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        writeKeyring(keys, other, other);
+        Map<Path, String> before = snapshot(keys);
+
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertEquals(before, snapshot(keys));
+        assertFalse(Files.exists(out));
+
+        // Signed by this policy key, but naming another: it does not verify under the key it names.
+        KeyPair policy = Crypto.generateEd25519KeyPair();
+        Files.writeString(keys.resolve("policy.key"), Base64Url.encode(Crypto.encodePrivateKey(policy.getPrivate())));
+        writeKeyring(keys, other, policy);
+        before = snapshot(keys);
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertEquals(before, snapshot(keys));
+        assertFalse(Files.exists(out));
+
+        Files.delete(keys.resolve("keyring.json"));
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8));
+        assertFalse(Files.exists(keys.resolve("keyring.json")));
+        assertFalse(Files.exists(out));
+    }
+
+    /**
+     * Renewal signs the same tree again: {@code rootId} and {@code root} are kept, so the bundles already held still
+     * prove against the renewed root, untouched; the keyring and the reply certificate are renewed beside it.
+     */
+    @Test
+    void renewKeepsTreeAndProofs(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        KeyPair policy = writeWorld(keys, pathsYaml);
+        long now = System.currentTimeMillis();
+        PolicyToolMain.run(pathsYaml, keys, out, 8, now + DAY_MS, null, 0);
+        SignedRoot built = SignedRoot.load(out.resolve("root.json"));
+        KeyringFile ringBefore = KeyringFile.load(keys.resolve("keyring.json"));
+        Map<Path, String> bundles = new TreeMap<>(snapshot(out));
+        bundles.remove(out.resolve("root.json"));
+        // Renewal reads neither the paths file nor anything but root.json from the output: a narrowed one is ignored.
+        Files.writeString(pathsYaml, "paths:\n  - [gateway, search]\n");
+
+        long later = now + 30 * DAY_MS;
+        PolicyToolMain.renew(keys, out, later, "orders", NOT_AFTER);
+
+        SignedRoot renewed = SignedRoot.load(out.resolve("root.json"));
+        assertEquals(built.rootId(), renewed.rootId());
+        assertEquals(built.root(), renewed.root());
+        assertEquals(later, renewed.notAfter());
+        assertTrue(renewed.notAfter() > built.notAfter());
+        assertTrue(renewed.verify(policy.getPublic()));
+        Map<Path, String> after = new TreeMap<>(snapshot(out));
+        after.remove(out.resolve("root.json"));
+        after.remove(out.resolve("reply-cert.json"));
+        assertEquals(bundles, after);
+        ProofBundle orders = JSON.readValue(Files.readAllBytes(out.resolve("proofs-orders.json")), ProofBundle.class);
+        assertEquals(renewed.rootId(), orders.rootId());
+        assertTrue(orders.proofs().get("gateway/orders/payment").verify("gateway/orders/payment", renewed.rootBytes()));
+
+        KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
+        assertEquals(later, ring.notAfter());
+        assertEquals(ringBefore.services(), ring.services());
+        assertTrue(ring.verifies(pub(policy)));
+        ReplyCert cert = ReplyCert.load(out.resolve("reply-cert.json"));
+        assertTrue(cert.verifies(pub(policy)));
+        assertEquals(ring.services().get("orders"), cert.key());
+        assertEquals(NOT_AFTER, cert.notAfter());
+    }
+
+    /** A root another policy key signed is not renewed, and nothing is written, the keyring included. */
+    @Test
+    void renewRefusesForeignRoot(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        SignedRoot built = SignedRoot.load(out.resolve("root.json"));
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        JSON.writeValue(out.resolve("root.json").toFile(),
+                SignedRoot.sign(built.rootBytes(), built.rootId(), KEYRING_NOT_AFTER, other.getPrivate()));
+        Map<Path, String> before = snapshot(keys, out);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, "orders", NOT_AFTER));
+        assertEquals(before, snapshot(keys, out));
+
+        // A tampered root, and a missing one, are refused alike.
+        JSON.writeValue(out.resolve("root.json").toFile(),
+                new SignedRoot(built.rootId(), built.root(), built.sig(), built.notAfter() + 1));
+        before = snapshot(keys, out);
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(before, snapshot(keys, out));
+        Files.delete(out.resolve("root.json"));
+        before = snapshot(keys, out);
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(before, snapshot(keys, out));
+    }
+
+    /** A keyring another policy key signed, or one tampered with, is not renewed, and nothing is written. */
+    @Test
+    void renewRefusesForeignKeyring(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        KeyringFile signed = KeyringFile.load(keys.resolve("keyring.json"));
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        writeKeyring(keys, other, other);
+        Map<Path, String> before = snapshot(keys, out);
+
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(before, snapshot(keys, out));
+
+        JSON.writeValue(keys.resolve("keyring.json").toFile(), new KeyringFile(
+                Map.of("orders", pub(other)), signed.policy(), signed.sig(), signed.notAfter()));
+        before = snapshot(keys, out);
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(before, snapshot(keys, out));
+    }
+
+    /** Lapsed and old-form material is renewed all the same, into the new form: renewal is how it comes back. */
+    @Test
+    void renewAcceptsExpiredAndOldForm(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        KeyPair policy = writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        SignedRoot built = SignedRoot.load(out.resolve("root.json"));
+        KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
+        long later = System.currentTimeMillis() + 30 * DAY_MS;
+
+        // An old-form root with an expired keyring, then an expired root with an old-form keyring.
+        JSON.writeValue(out.resolve("root.json").toFile(),
+                SignedRoot.signOldForm(built.rootBytes(), built.rootId(), policy.getPrivate()));
+        JSON.writeValue(keys.resolve("keyring.json").toFile(), ring.renewed(1000, policy.getPrivate()));
+        PolicyToolMain.renew(keys, out, later, null, 0);
+        assertRenewed(keys, out, built, policy, later);
+
+        JSON.writeValue(out.resolve("root.json").toFile(), built.renewed(1000, policy.getPrivate()));
+        JSON.writeValue(keys.resolve("keyring.json").toFile(),
+                KeyringFile.signOldForm(ring.services(), ring.policy(), policy.getPrivate()));
+        PolicyToolMain.renew(keys, out, later + 1, null, 0);
+        assertRenewed(keys, out, built, policy, later + 1);
+    }
+
+    private static void assertRenewed(Path keys, Path out, SignedRoot built, KeyPair policy, long notAfter) {
+        SignedRoot root = SignedRoot.load(out.resolve("root.json"));
+        assertTrue(root.isNewForm() && root.isCurrent(System.currentTimeMillis()));
+        assertEquals(notAfter, root.notAfter());
+        assertEquals(built.rootId(), root.rootId());
+        assertEquals(built.root(), root.root());
+        assertTrue(root.verify(policy.getPublic()));
+        KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
+        assertTrue(ring.isNewForm() && ring.isCurrent(System.currentTimeMillis()));
+        assertEquals(notAfter, ring.notAfter());
+        assertTrue(ring.verifies(pub(policy)));
+    }
+
+    /** Renewal is asked for by {@code --renew} anywhere on the line or by {@code PAZTPORT_RENEW=true}. */
+    @Test
+    void renewIsAnArgumentOrTheEnvironment() {
+        PolicyToolMain.Args rebuild = PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, null);
+        assertFalse(rebuild.renew());
+        assertEquals(Path.of("p.yaml"), rebuild.pathsYaml());
+        assertEquals(Path.of("k"), rebuild.keysDir());
+        assertEquals(Path.of("o"), rebuild.outDir());
+        assertFalse(PolicyToolMain.parse(new String[] {}, "false").renew());
+        assertFalse(PolicyToolMain.parse(new String[] {}, "").renew());
+        assertEquals(Path.of("out/keys"), PolicyToolMain.parse(new String[] {}, null).keysDir());
+
+        PolicyToolMain.Args renew = PolicyToolMain.parse(new String[] {"p.yaml", "--renew", "k", "o"}, null);
+        assertTrue(renew.renew());
+        assertEquals(Path.of("k"), renew.keysDir());
+        assertEquals(Path.of("o"), renew.outDir());
+        assertTrue(PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, "true").renew());
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {}, "yes"));
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {"--rebuild"}, null));
     }
 }
