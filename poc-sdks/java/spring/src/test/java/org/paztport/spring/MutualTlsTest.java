@@ -42,16 +42,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.http.client.ClientHttpRequestFactoryBuilder;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.boot.web.client.ClientHttpRequestFactories;
-import org.springframework.boot.web.client.ClientHttpRequestFactorySettings;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -209,13 +208,14 @@ class MutualTlsTest {
     }
 
     /**
-     * As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot gives an SSL bundle itself. Its
-     * reads block without heeding an interrupt, so only its own timeouts can end a stalled call.
+     * As {@link #client}, but over {@code HttpURLConnection}, the client Spring Boot builds for an SSL bundle when an
+     * application asks for its simple one. Its reads block without heeding an interrupt, so only its own timeouts can
+     * end a stalled call.
      */
     private static RestClient urlConnectionClient(String name) {
         return RestClient.builder()
-                .requestFactory(ClientHttpRequestFactories.get(SimpleClientHttpRequestFactory.class,
-                        ClientHttpRequestFactorySettings.DEFAULTS.withSslBundle(fixture(name))
+                .requestFactory(ClientHttpRequestFactoryBuilder.simple().build(
+                        HttpClientSettings.ofSslBundle(fixture(name))
                                 .withConnectTimeout(TestHttp.REQUEST_TIMEOUT)
                                 .withReadTimeout(TestHttp.REQUEST_TIMEOUT)))
                 .build();

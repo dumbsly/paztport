@@ -36,6 +36,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.Test;
@@ -59,12 +60,12 @@ import org.paztport.http.PaztportHeaders;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration;
+import org.springframework.boot.restclient.RestClientCustomizer;
+import org.springframework.boot.restclient.autoconfigure.RestClientAutoConfiguration;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
-import org.springframework.boot.web.client.RestClientCustomizer;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -613,7 +614,9 @@ class PaztportAutoConfigurationTest {
         server.setHttpsConfigurator(new HttpsConfigurator(fixtureBundle(name).createSslContext()) {
             @Override
             public void configure(HttpsParameters params) {
-                params.setNeedClientAuth(true);
+                SSLParameters ssl = getSSLContext().getDefaultSSLParameters();
+                ssl.setNeedClientAuth(true);
+                params.setSSLParameters(ssl);
             }
         });
         server.createContext("/", exchange -> {

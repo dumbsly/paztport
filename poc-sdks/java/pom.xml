@@ -34,32 +34,22 @@
     </modules>
 
     <properties>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>25</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring.boot.version>3.3.5</spring.boot.version>
-        <jackson.version>2.17.2</jackson.version>
-        <junit.version>5.11.4</junit.version>
+        <spring.boot.version>4.1.1</spring.boot.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <!-- Manages the SDK's Jackson 2 (com.fasterxml.jackson, which its API and canonical JSON are
+                 built on), the Jackson 3 that Spring MVC uses, and JUnit. Neither is pinned beside it: a
+                 BOM imported after this one loses to it, and a single pinned Jackson module would split
+                 Jackson 2 across two lines. -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
                 <version>${spring.boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-            <dependency>
-                <groupId>com.fasterxml.jackson.dataformat</groupId>
-                <artifactId>jackson-dataformat-yaml</artifactId>
-                <version>${jackson.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.junit</groupId>
-                <artifactId>junit-bom</artifactId>
-                <version>${junit.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>

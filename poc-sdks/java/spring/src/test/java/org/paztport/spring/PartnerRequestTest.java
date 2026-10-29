@@ -14,6 +14,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.URI;
@@ -150,31 +151,35 @@ class PartnerRequestTest {
     static class App {
     }
 
-    /** Each handler answers with what the request scope held when it ran. */
+    /**
+     * Each handler answers with what the request scope held when it ran. The body is written here with the SDK's own
+     * Jackson and handed over as a string, so the assertions read the influence exactly as the SDK writes it rather
+     * than as the web framework would serialise the SDK's objects.
+     */
     @RestController
     static class Handlers {
 
-        @PostMapping("/charge")
-        Map<String, Object> charge(HttpServletRequest request) {
+        @PostMapping(path = "/charge", produces = MediaType.APPLICATION_JSON_VALUE)
+        String charge(HttpServletRequest request) throws IOException {
             return seen(request);
         }
 
-        @PostMapping("/refund")
-        Map<String, Object> refund(HttpServletRequest request) {
+        @PostMapping(path = "/refund", produces = MediaType.APPLICATION_JSON_VALUE)
+        String refund(HttpServletRequest request) throws IOException {
             return seen(request);
         }
 
-        @GetMapping("/statement")
-        Map<String, Object> statement(HttpServletRequest request) {
+        @GetMapping(path = "/statement", produces = MediaType.APPLICATION_JSON_VALUE)
+        String statement(HttpServletRequest request) throws IOException {
             return seen(request);
         }
 
-        private static Map<String, Object> seen(HttpServletRequest request) {
-            Map<String, Object> seen = new LinkedHashMap<>();
-            seen.put("influence", Influence.toJson(PaztportContext.influence()));
+        private static String seen(HttpServletRequest request) throws IOException {
+            ObjectNode seen = JSON.createObjectNode();
+            seen.set("influence", Influence.toJson(PaztportContext.influence()));
             seen.put("verified", PaztportContext.verifiedChain() != null);
-            seen.put("session", request.getAttribute(PartnerFilter.SESSION_STATUS));
-            return seen;
+            seen.put("session", (String) request.getAttribute(PartnerFilter.SESSION_STATUS));
+            return JSON.writeValueAsString(seen);
         }
     }
 
