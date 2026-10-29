@@ -616,8 +616,8 @@ unit tests. Each of these was root-caused before it was fixed:
   `RestClient` an SSL bundle switched it to `HttpURLConnection`, which hands over
   an error response's body only once the status has been read, and otherwise
   throws. Every refusal seen through a stamping client became an exception until
-  the interceptor read the status first. Only the live mesh showed it: scenario 4 answered 500 instead of
-  mirroring `payment`'s 403.
+  the interceptor read the status first. Only the live mesh showed it: scenario 4
+  answered 500 instead of mirroring `payment`'s 403.
 - **An SSL bundle's client silently defeated keep-alive.** On Spring Boot 3.3,
   the client an SSL bundle gives `RestClient` installs a new socket factory on
   every connection, and the JDK only reuses a kept-alive connection for the socket
@@ -640,11 +640,11 @@ runtime) with k6 driving the legitimate path at 10 virtual users, via
 [measure.sh](measure.sh), mutual TLS on every hop. `payment` is switched between
 `off`, where Paztport is off on that hop, and `enforce`, with everything else
 identical. Each mode first gets a 10 s warm-up that is thrown away, so neither
-carries most of the JVMs' and the connections' warm-up. Then three rounds each run both modes
-for 20 s, the leading mode alternating (`off` then `enforce`, `enforce` then `off`,
-`off` then `enforce`), so drift over the session doesn't favour one mode. The
-table gives each mode's median over its three runs, with the three runs' range. No
-request failed in any run.
+carries most of the JVMs' and the connections' warm-up. Then three rounds each
+run both modes for 20 s, the leading mode alternating (`off` then `enforce`,
+`enforce` then `off`, `off` then `enforce`), so drift over the session doesn't
+favour one mode. The table gives each mode's median over its three runs, with
+the three runs' range. No request failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
@@ -655,8 +655,8 @@ The services call each other over pooled mutual-TLS connections, so these number
 don't include a handshake per hop per request. In steady load a connection is
 replaced, with a new handshake, mostly when the server it goes to retires it after
 its 100th request (Tomcat's default); the client also opens more as concurrency
-rises and closes those left idle. Earlier measurements were distorted by a connection leak in
-the inter-service client, now fixed: it opened a new connection for every call and
+rises and closes those left idle. Earlier measurements were distorted by a
+connection leak in the inter-service client, now fixed: it opened a new connection for every call and
 left each one open for a minute, which under load filled the receiving server's
 connection limit and stalled the mesh.
 
@@ -702,8 +702,8 @@ Caveats:
   none is measured on its own. Only `payment`'s work is switched here, so a
   design that verifies at every hop pays that cost once per verifying hop.
 - **A maximum is one request.** It moves more from run to run than the
-  percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to 35.19 ms), so read it as this run's
-  slowest request, not as a cost.
+  percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to
+  35.19 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks from an earlier
   measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated
   for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
