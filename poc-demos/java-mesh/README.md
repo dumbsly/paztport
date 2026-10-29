@@ -612,11 +612,11 @@ unit tests. Each of these was root-caused before it was fixed:
   first verified *every* path, including the admin and debug endpoints, and
   rejected them for lacking a chain. Attestation applies to the attested data path,
   not to the control plane.
-- **An SSL bundle changed the HTTP client.** On Spring Boot 3.3, giving `RestClient`
-  an SSL bundle switched it to `HttpURLConnection`, which hands over an error response's body
-  only once the status has been read, and otherwise throws. Every refusal seen
-  through a stamping client became an exception until the interceptor read the
-  status first. Only the live mesh showed it: scenario 4 answered 500 instead of
+- **An SSL bundle changed the HTTP client.** On Spring Boot 3.3, giving
+  `RestClient` an SSL bundle switched it to `HttpURLConnection`, which hands over
+  an error response's body only once the status has been read, and otherwise
+  throws. Every refusal seen through a stamping client became an exception until
+  the interceptor read the status first. Only the live mesh showed it: scenario 4 answered 500 instead of
   mirroring `payment`'s 403.
 - **An SSL bundle's client silently defeated keep-alive.** On Spring Boot 3.3,
   the client an SSL bundle gives `RestClient` installs a new socket factory on
@@ -672,7 +672,7 @@ What the numbers say:
 - **`enforce` adds about 2.6 ms at the median at this load.** Every `enforce` run's
   p50 was 2.5–2.7 ms above every `off` run's, so the gap is far larger than the
   run-to-run spread, but three runs per mode support "about 2.6 ms", not a finer
-  figure. The p99 gap is about 3 ms (2.9–3.3 ms between any two runs). The
+  figure. The p99 gap is about 3 ms (3.0–3.3 ms between any two runs). The
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
@@ -702,7 +702,7 @@ Caveats:
   none is measured on its own. Only `payment`'s work is switched here, so a
   design that verifies at every hop pays that cost once per verifying hop.
 - **A maximum is one request.** It moves more from run to run than the
-  percentiles do (`enforce`'s ran from 19 to 39 ms), so read it as this run's
+  percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to 35.19 ms), so read it as this run's
   slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks from an earlier
   measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated

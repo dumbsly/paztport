@@ -27,14 +27,14 @@ import org.springframework.web.client.RestClient;
  * it shares one connection pool, so calls to a service reuse open mutual-TLS connections instead of each paying a
  * handshake.
  *
- * <p>It exists to give every call to a service one shared connection pool and a whole-exchange bound, which the
- * client Spring Boot builds for an SSL bundle does not. With no Apache, Jetty or Reactor client on the classpath,
- * Spring Boot 4 builds the JDK's {@link HttpClient} for a bundle, but afresh each time the bundle is applied to a
- * {@code RestClient} builder, so each {@code RestClient} gets a pool of its own, and its request factory bounds only
- * the wait for the headers (below). One client is made here per bundle and shared by every {@code RestClient}
- * built over it. (Spring Boot 3.3's client for an SSL bundle was worse: {@code HttpURLConnection}, given a new
- * socket factory on every connection, which the JDK's keep-alive cache will not reuse a connection across, so
- * every call opened a fresh connection and left it open at the server until its keep-alive timed out.)
+ * <p>It exists to give every call to a service one shared connection pool and one timeout. With no Apache, Jetty
+ * or Reactor client on the classpath, Spring Boot 4 builds the JDK's {@link HttpClient} for an SSL bundle, but
+ * afresh each time the bundle is applied to a {@code RestClient} builder: the {@code RestClient}s built from one
+ * builder share its pool, and each further builder gets a pool of its own. One client is made here per bundle and
+ * shared by every {@code RestClient} built over it. (Spring Boot 3.3's client for an SSL bundle was worse:
+ * {@code HttpURLConnection}, given a new socket factory on every connection, when the JDK's keep-alive cache
+ * reuses a connection only for the socket factory that opened it, so every call opened a fresh connection and left
+ * it open at the server until its keep-alive timed out.)
  *
  * <p>It speaks HTTP/1.1 only, as Spring Boot's servers do unless configured for HTTP/2, so the connection
  * behaviour stays the same whatever a server offers over ALPN. The server's certificate is checked against the
@@ -47,10 +47,12 @@ import org.springframework.web.client.RestClient;
  * sends no answer, one that sends its headers and then stops part way through the body, or a pooled connection whose
  * peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a {@code RestClient},
  * a {@code ResourceAccessException}), instead of holding the calling thread for ever. Spring's own JDK request
- * factory would not do: its read timeout is the JDK client's request timeout, which on JDK 25 ends only the wait
- * for the headers, and a body that stalls after them holds the call for ever. So the factory here is
- * {@link WholeExchangeRequestFactory}, which reads each response whole within the timeout ({@link #send}), on
- * whichever JDK. The egress's calls to the partner and the events are bounded by
+ * factory, which Spring Boot 4 gives an SSL bundle, ends a stalled body too, since Spring Framework 6.2 (Boot 3.3's
+ * 6.1 did not), but not as this class promises: a stall after the headers reaches the caller as a
+ * {@code RestClientException} over an {@code IOException} ("closed"), not as a timeout, and Spring Boot sets no
+ * read timeout unless one is configured, so without one the call waits for ever. So the factory here is
+ * {@link WholeExchangeRequestFactory}, which reads each response whole within the one timeout ({@link #send}) and
+ * fails every stall as a timeout. The egress's calls to the partner and the events are bounded by
  * {@link #send} too.
  *
  * <p>The client stamps nothing. {@link #builder()} gives a builder with TLS only, for calls that must not be a

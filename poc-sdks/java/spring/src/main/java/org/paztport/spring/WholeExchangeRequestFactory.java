@@ -27,8 +27,11 @@ import org.springframework.http.client.ClientHttpResponse;
 /**
  * Spring's request factory over a JDK client, with each call bounded whole, by {@link PooledTlsClient#send}:
  * connecting, sending, the response's headers and its body, on every JDK. It exists because Spring's own
- * {@code JdkClientHttpRequestFactory} hands back the body as a stream, so its read timeout bounds only the wait for
- * the headers, and on JDK 25 a peer that sends its headers and then stops holds the call for ever.
+ * {@code JdkClientHttpRequestFactory} hands back the body as a stream, so a peer that sends its headers and then
+ * stops fails the caller's read of the body with an {@code IOException} ("closed"), not a timeout, and with no read
+ * timeout configured holds the call for ever; before Spring Framework 6.2 it did so whatever the timeout. Here every
+ * stall, before the headers or after them, fails as a timeout, at the one timeout the pooled client and the
+ * events share.
  *
  * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
  * either. Stamped calls lose nothing by it, since the stamping interceptor reads every response whole anyway, to bind
