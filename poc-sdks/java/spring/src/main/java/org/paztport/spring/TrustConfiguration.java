@@ -3,8 +3,6 @@
 
 package org.paztport.spring;
 
-import static org.paztport.spring.Durations.nonceTtlMs;
-
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
@@ -63,7 +61,7 @@ class TrustConfiguration {
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",
-                new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
+                new InMemoryNonceCache(Durations.nonceTtlMs(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs);

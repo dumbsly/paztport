@@ -3,9 +3,6 @@
 
 package org.paztport.spring;
 
-import static org.paztport.spring.Durations.nonceTtlMs;
-import static org.paztport.spring.Durations.readTimeout;
-
 import java.io.UncheckedIOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -90,7 +87,7 @@ class PartnerConfiguration {
         if (b.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
         }
-        Duration readTimeout = readTimeout(props);
+        Duration readTimeout = Durations.readTimeout(props);
         byte[] blindingKey = ConfigLoader.loadBoundaryKey(Path.of(b.getBlindingKeyPath()),
                 "paztport.boundary.blinding-key-path");
         SslBundles bundles = ssl.getIfAvailable();
@@ -232,7 +229,7 @@ class PartnerConfiguration {
                 clientKeys,
                 Set.copyOf(p.getClientOrigins()),
                 p.getUnsafeDisabled(),
-                new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
+                new InMemoryNonceCache(Durations.nonceTtlMs(props.getMaxAgeMs())),
                 clock,
                 props.getMaxAgeMs(),
                 runMaxAgeMs,

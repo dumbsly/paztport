@@ -3,8 +3,6 @@
 
 package org.paztport.spring;
 
-import static org.paztport.spring.Durations.positiveMs;
-
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -36,7 +34,7 @@ class EventConfiguration {
                 throw new IllegalStateException(
                         "paztport.responder-url is set but paztport.event-key-path is not");
             }
-            Duration timeout = positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
+            Duration timeout = Durations.positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
             // The bare JDK client, never the shared builder's stamping interceptor: the pooled one over the TLS
             // bundle, read on the first event, else a plain one of the starter's own.
             Supplier<HttpClient> http;

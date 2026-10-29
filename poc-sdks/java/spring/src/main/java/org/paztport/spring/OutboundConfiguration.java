@@ -3,8 +3,6 @@
 
 package org.paztport.spring;
 
-import static org.paztport.spring.Durations.readTimeout;
-
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.VerifierV3;
@@ -47,7 +45,7 @@ class OutboundConfiguration {
             throw new IllegalStateException(
                     "paztport.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        return PooledTlsClient.of(bundles.getBundle(props.getTlsBundle()), readTimeout(props));
+        return PooledTlsClient.of(bundles.getBundle(props.getTlsBundle()), Durations.readTimeout(props));
     }
 
     /** Kept apart from the stamping customizer, so a service that only verifies still presents its certificate. */
