@@ -5,8 +5,6 @@ package org.paztport.spring;
 
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.VerifierV3;
-import org.paztport.spring.config.ModeHolder;
-import org.paztport.spring.config.TrustConfiguration;
 import org.paztport.spring.event.EventConfiguration;
 import org.paztport.spring.event.EventPublisher;
 import org.paztport.spring.outbound.OutboundConfiguration;
@@ -14,6 +12,8 @@ import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.BoundaryClient;
 import org.paztport.spring.partner.PartnerConfiguration;
 import org.paztport.spring.partner.PartnerSessions;
+import org.paztport.spring.trust.ModeHolder;
+import org.paztport.spring.trust.TrustConfiguration;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

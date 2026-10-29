@@ -6,4 +6,4 @@
  * pinned verifier built from the files {@code paztport.*} names, and the mode an operator can switch at runtime. The
  * files themselves are read by {@link org.paztport.spring.internal.ConfigLoader}.
  */
-package org.paztport.spring.config;
+package org.paztport.spring.trust;

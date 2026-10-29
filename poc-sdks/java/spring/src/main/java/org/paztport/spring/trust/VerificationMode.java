@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.config;
+package org.paztport.spring.trust;
 
 /** How a verifying service treats a request. */
 public enum VerificationMode {
