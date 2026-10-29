@@ -13,7 +13,8 @@ import { EvidenceLog } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { RunState } from "../src/runs.ts";
-import { CANARY, DOCS, githubArgs, records, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { POLICY_EXPIRED_TEXT } from "../src/refusals.ts";
+import { CANARY, DOCS, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 const CALL_ID = /^[A-Za-z0-9_-]{1,128}$/;
 const FIXED_README = "# Acme website\n\nWelcome to the Acme website.\n\nThis repository holds the public marketing site.\n";
@@ -242,6 +243,36 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(reads).toBe(3);
   });
 
+  it("responseAfterServerRootExpiresIsUntrusted", async () => {
+    // the server's root (or keyring) lasts an hour; the response is checked at its notAfter and 1 ms after. The SDK
+    // limits the check to the server's windows, so past them the response is POLICY_EXPIRED and counts local-untrusted
+    // whatever else holds; at notAfter it is judged as usual (here EXPIRED, the stamp being an hour old).
+    for (const which of ["serverRoot", "serverKeyring"] as const) {
+      const notAfter = Date.now() + 3_600_000;
+      const dir = resignDemo(demo, join(tmp, `resigned-${n++}`), { [which]: notAfter });
+      for (const [at, verify] of [[notAfter, "EXPIRED"], [notAfter + 1, "POLICY_EXPIRED"]] as const) {
+        // the clock is read for the handshake, the call's stamp and the response check, in that order
+        let reads = 0;
+        const c = ctx("enforce", loadClientMaterial(join(dir, "client")), () => (reads++ < 2 ? Date.now() : at));
+        const conn = await connect(c, {
+          id: "github",
+          command: process.execPath,
+          args: githubArgs(dir, "enforce", join(tmp, `outcome-${n++}.jsonl`)),
+          attested: true,
+          pin: join(dir, "client/server-policy.pub"),
+        });
+        expect(conn.status(), which).toBe("attested");
+        c.runs.start("fix the typo", Date.now());
+        const out = await call(conn, "get_file_contents", { owner: "acme", repo: "payroll-notes", path: "README.md" });
+        expect(out.isError, which).toBe(false);
+        expect(out.details.verify, `${which} at ${at - notAfter}`).toBe(verify);
+        expect(out.details.labels).toBeUndefined();
+        expect(c.influence.entries()).toEqual([expect.objectContaining({ cls: "local-untrusted", src: "server:github" })]);
+        expect(reads).toBe(3);
+      }
+    }
+  });
+
   it("auditVerdictIsRecordedAsInfluence", async () => {
     const c = ctx();
     const { conn, log } = await github(c, "audit");
@@ -391,6 +422,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
       ["EXPIRED", "EXPIRED", "Paztport refused this call: EXPIRED"],
       ["INFLUENCE_DENIED", "INFLUENCE_DENIED", UNSAFE_TEXT],
       ["UNSAFE_SESSION", "UNSAFE_SESSION", UNSAFE_TEXT],
+      ["POLICY_EXPIRED", "POLICY_EXPIRED", POLICY_EXPIRED_TEXT],
     ] as const) {
       const out = await call(conn, "verdict", { reason });
       expect(out.isError).toBe(true);
@@ -403,7 +435,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     expect(text).not.toContain("IGNORE");
     expect(text).not.toContain("server-chosen");
     const responses = events(c).filter((e) => e.type === "response");
-    expect(responses.map((e) => e.verdict)).toEqual(["UNKNOWN", "UNKNOWN", "UNKNOWN", "EXPIRED", "INFLUENCE_DENIED", "UNSAFE_SESSION"]);
+    expect(responses.map((e) => e.verdict)).toEqual(["UNKNOWN", "UNKNOWN", "UNKNOWN", "EXPIRED", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED"]);
     for (const e of responses) expect(e.classes).toEqual({ "third-party": 0, private: 0, public: 0, "local-untrusted": 0 });
   });
 

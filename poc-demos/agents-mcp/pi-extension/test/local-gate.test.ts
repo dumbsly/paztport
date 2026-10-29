@@ -34,7 +34,7 @@ import { EvidenceLog } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { BUILTIN_LOCAL_TOOLS, LocalGate } from "../src/local/gate.ts";
-import { localRefusalText, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
+import { isRefusalText, localRefusalText, POLICY_EXPIRED_TEXT, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
 import { RunState } from "../src/runs.ts";
 import { setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
@@ -58,7 +58,7 @@ afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 let n = 0;
 type Rig = { gate: LocalGate; influence: InfluenceStore; runs: RunState; eventsPath: string; evidencePath: string };
 
-function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[]; home?: string; workspace?: string } = {}): Rig {
+function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boolean; events?: EventLog; refused?: string[]; home?: string; workspace?: string; now?: number } = {}): Rig {
   const eventsPath = join(tmp, `events-${n}.jsonl`);
   const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
   const influence = new InfluenceStore();
@@ -71,7 +71,7 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
     runs,
     events: opts.events ?? new EventLog(eventsPath),
     evidence: new EvidenceLog(evidencePath),
-    now: () => 2_000,
+    now: () => opts.now ?? 2_000,
     workspace: opts.workspace ?? ws,
     refused: opts.refused ?? [secret],
     ...(opts.home !== undefined ? { home: opts.home } : {}),
@@ -103,6 +103,18 @@ describe("refusal texts", () => {
     expect(refusalText("INFLUENCE_DENIED")).toBe(UNSAFE_TEXT);
     expect(refusalText("UNSAFE_SESSION")).toBe(UNSAFE_TEXT);
     expect(refusalText("REPLAY")).toBe("Paztport refused this call: REPLAY");
+  });
+
+  it("policyExpiredHasItsOwnText", () => {
+    // not the unsafe text: an expired policy is no sign of an injection, but nothing will work until it is renewed
+    expect(POLICY_EXPIRED_TEXT).toBe(
+      "Paztport refused this action: the signed policy it is checked against has expired, so it was not carried out. " +
+        "Retrying will not work until the user renews the policy. End your turn now and tell the user that the " +
+        "Paztport policy has expired and must be renewed.",
+    );
+    expect(refusalText("POLICY_EXPIRED")).toBe(POLICY_EXPIRED_TEXT);
+    // a blocked call holding it is a refusal on restore, as the other local texts are
+    expect(isRefusalText([{ type: "text", text: POLICY_EXPIRED_TEXT }])).toBe(true);
   });
 
   it("builtinList", () => {
@@ -239,6 +251,43 @@ describe("LocalGate modes", () => {
     // with no rules nothing is resolved, and the stamp binds that and the verdict
     expect(rec!.resolved).toEqual({ paths: [], programs: [], parse: "ok", readOnly: false });
     expect(rec!.chain[1].bind).toBe(bindLocalTool("read", rec!.input, { callId: "c1", resolved: rec!.resolved, verdict: "SCOPE_DENIED", routeAllowed: true, rulesHash: null }));
+  });
+
+  it("gateRefusesWhenLocalRootExpired", () => {
+    // the gate reads the windows startup verified: at notAfter the rules still apply, one ms after none do
+    const at = (signedRoot: number | undefined, keyringNotAfter: number | undefined): ClientMaterial => {
+      const { notAfter: _r, ...root } = material.signedRoot;
+      const { keyringNotAfter: _k, ...rest } = material;
+      return {
+        ...rest,
+        signedRoot: signedRoot === undefined ? root : { ...root, notAfter: signedRoot },
+        ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}),
+      };
+    };
+    const write = { path: "website/README.md", content: "x" };
+    const onTime = rig("enforce", { material: at(2_000, 9_000), now: 2_000 });
+    expect(onTime.gate.check("write", write, "c1")).toEqual({ block: false });
+    expect(lines(onTime.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
+    for (const [what, m] of [
+      ["root", at(1_999, 9_000)],
+      ["keyring", at(9_000, 1_999)],
+      ["old-form root", at(undefined, 9_000)],
+      ["old-form keyring", at(9_000, undefined)],
+    ] as const) {
+      const { gate, eventsPath, evidencePath } = rig("enforce", { material: m, now: 2_000 });
+      // fail closed: rules no current root covers are not applied, so reads are refused too
+      for (const [tool, input] of [["write", write], ["read", { path: "website/README.md" }], ["bash", { command: "ls" }]] as const) {
+        expect(gate.check(tool, { ...input }, `c-${tool}`), what).toEqual({ block: true, reason: POLICY_EXPIRED_TEXT });
+        expect(gate.labelsFor(`c-${tool}`)).toBeUndefined();
+      }
+      // an event for each, and nothing signed with material past its window
+      expect(lines(eventsPath).map((e) => [e.tool, e.verdict]), what).toEqual([["write", "POLICY_EXPIRED"], ["read", "POLICY_EXPIRED"], ["bash", "POLICY_EXPIRED"]]);
+      expect(readFileSync(evidencePath, "utf8"), what).toBe("");
+    }
+    // modes with no rules to apply keep their own refusal
+    const noRoot = rig("no-root", { material: at(1_999, 9_000), now: 2_000 });
+    expect(noRoot.gate.check("write", write, "c1")).toEqual({ block: true, reason: SCOPE_TEXT });
+    expect(rig("off", { material: at(1_999, 9_000), now: 2_000 }).gate.check("write", write, "c1")).toEqual({ block: false });
   });
 
   it("noActiveRunRefusesWithAnEventOnly", () => {

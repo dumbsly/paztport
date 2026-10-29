@@ -128,7 +128,8 @@ const decision = (verdict: string): string => (verdict === "OK" ? "allowed" : `r
  * every call there as out of scope, so it must be SCOPE_DENIED. A run with Paztport on is in enforce mode, which
  * writes the client record before any local call, so local events made during a run need one. A call that the
  * gate allowed and something later stopped (another handler, an abort) has an OK record and an OK event; that
- * is not a disagreement.
+ * is not a disagreement. A POLICY_EXPIRED event during a run is unsigned by design too (the gate signs nothing with
+ * material past its window), so it needs no record; it gives no credit, as scoring makes such a run an error.
  *
  * Local steps are signed by the client alone, so a genuine step could be copied from another run made with the
  * same keys. When the outcome log shows attested calls, each local record's rid must be one the server saw in
@@ -180,6 +181,7 @@ function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePat
       continue;
     }
     const rec = verified.get(k);
+    if (rec === undefined && e.verdict === "POLICY_EXPIRED") continue;
     if (rec === undefined) {
       problems.push(`the events log shows local call ${e.callId} (${String(e.tool)}) ${decision(e.verdict)}, which has no verified local record in evidence.jsonl`);
     } else if (rec.tool !== e.tool) {

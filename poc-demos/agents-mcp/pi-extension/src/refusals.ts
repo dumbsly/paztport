@@ -11,6 +11,16 @@ export const SCOPE_TEXT = "Paztport refused this action: it is outside what this
 /** For a `bash` command the gate could not check. It helps legitimate work and tells an attacker nothing useful. */
 export const UNCHECKABLE_TEXT = "Paztport couldn't check this command, so it wasn't run. Use simple commands with plain paths.";
 
+/**
+ * For POLICY_EXPIRED, from the server or the local gate: the signed policy the call is checked against is past its
+ * notAfter. Not the unsafe text, as expiry is no sign of an injection; it asks the model to stop because nothing will
+ * pass until the user renews the policy, and naming expiry helps no attacker, who cannot renew it.
+ */
+export const POLICY_EXPIRED_TEXT =
+  "Paztport refused this action: the signed policy it is checked against has expired, so it was not carried out. " +
+  "Retrying will not work until the user renews the policy. End your turn now and tell the user that the " +
+  "Paztport policy has expired and must be renewed.";
+
 const UNSAFE_TEXT =
   "Paztport stopped this action. The system flagged it as unsafe, and it was not carried out. Actions like it stay " +
   "blocked for the rest of this session, so retrying it or trying another way will not work. A stop like this is the " +
@@ -19,13 +29,16 @@ const UNSAFE_TEXT =
 
 /**
  * The text the model gets for a refusal. An influence or session refusal says only that the action was
- * unsafe and stays blocked for the session, never why, and asks the model to stop and tell the user. The
- * wording only nudges; the call is refused whatever the model does next. Other codes are technical, not
- * sticky, and keep the plain message with the code.
+ * unsafe and stays blocked for the session, never why, and asks the model to stop and tell the user. An expired
+ * policy has its own text (POLICY_EXPIRED_TEXT). The wording only nudges; the call is refused whatever the model
+ * does next. Other codes are technical, not sticky, and keep the plain message with the code.
  */
 export function refusalText(reason: string): string {
   if (reason === "INFLUENCE_DENIED" || reason === "UNSAFE_SESSION") {
     return UNSAFE_TEXT;
+  }
+  if (reason === "POLICY_EXPIRED") {
+    return POLICY_EXPIRED_TEXT;
   }
   return `Paztport refused this call: ${reason}`;
 }
@@ -43,7 +56,7 @@ export function localRefusalText(v: Exclude<LocalVerdict, "OK">): string {
   }
 }
 
-const REFUSAL_TEXTS = new Set([UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT]);
+const REFUSAL_TEXTS = new Set([UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT, POLICY_EXPIRED_TEXT]);
 
 /** Whether a tool result's content is exactly one of the local refusal texts (the whole text, nothing more). */
 export function isRefusalText(content: unknown): boolean {

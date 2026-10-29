@@ -7,6 +7,7 @@
 import { homedir } from "node:os";
 import {
   decideLocalCall,
+  earliestNotAfter,
   influenceClasses,
   localReceiver,
   NOTHING_RESOLVED,
@@ -24,7 +25,7 @@ import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
 import { CLIENT_CHAIN, PI_SVC, type ClientMaterial } from "../keys.ts";
-import { localRefusalText, SCOPE_TEXT } from "../refusals.ts";
+import { localRefusalText, POLICY_EXPIRED_TEXT, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
@@ -84,6 +85,11 @@ function spellings(path: string): string[] {
  * no-root mode has no rules to check against and refuses every call.
  * off mode allows everything and records nothing.
  *
+ * Once the root the rules come from, or the keyring whose keys sign the steps, is past its notAfter, enforce mode
+ * refuses every call POLICY_EXPIRED with an event only, before resolving anything: rules no current root covers are
+ * not applied, and nothing is signed with material an offline verifier would no longer accept. It relies on the
+ * windows loadClientMaterial verified at startup and on the injected clock.
+ *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
  * unvalidated. So an allowed call's input is deep-frozen once checked: a later handler that changes it
  * in place throws, and pi turns the throw into a blocked call. pi's built-in tools only read their params.
@@ -116,12 +122,19 @@ export class LocalGate {
       return { block: false };
     }
     const run = runs.current();
-    const emit = (verdict: LocalVerdict) =>
+    const emit = (verdict: LocalVerdict | "POLICY_EXPIRED") =>
       events.emit({ type: "local", tool: toolName, callId: toolCallId, ...(run !== undefined ? { rid: run.rid } : {}), verdict });
     if (mode === "no-root" || run === undefined) {
       // no rules to check against, or no user prompt to chain from: nothing is signed
       emit("SCOPE_DENIED");
       return { block: true, reason: localRefusalText("SCOPE_DENIED") };
+    }
+    const now = this.deps.now();
+    // undefined (an old-form root or keyring) is never current: fail closed
+    const notAfter = earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter);
+    if (notAfter === undefined || !(now <= notAfter)) {
+      emit("POLICY_EXPIRED");
+      return { block: true, reason: POLICY_EXPIRED_TEXT };
     }
 
     const route = routeOf([...CLIENT_CHAIN, localReceiver(toolName)]);
@@ -139,7 +152,6 @@ export class LocalGate {
 
     try {
       const origin = runs.origin("", material.sessionKey, INST);
-      const now = this.deps.now();
       const routeAllowed = proof !== null;
       const hash = rules !== undefined ? rulesHash(rules) : null;
       const signedInput = encodePlaceholders(input, { workspace: spellings(this.deps.workspace), home: spellings(this.deps.home ?? homedir()) });

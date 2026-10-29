@@ -133,12 +133,10 @@ describe("v3 known-answer vectors", () => {
 
   it("session reply section", () => expect(committed.sessionReply.length).toBeGreaterThan(0));
 
-  // The cases the live check refuses only for the server's root or keyring being old form or not current: offline,
-  // a recorded handshake is accepted in the old forms, and a new-form window is not judged there.
-  const OFFLINE_ACCEPTS = new Set([
-    "server root expired", "server root expired, policy-key form", "server root old form", "server root old form, policy-key form",
-    "server keyring expired", "server keyring old form",
-  ]);
+  // The cases the live check refuses only for the server's root or keyring being in the old form: offline, a recorded
+  // handshake is accepted in the old forms. A new-form window is judged offline too, at the record's time (`now`), so
+  // the expired cases are refused there as well.
+  const OFFLINE_ACCEPTS = new Set(["server root old form", "server root old form, policy-key form", "server keyring old form"]);
   it("the cases offline accepts are in the file", () => {
     for (const name of OFFLINE_ACCEPTS) expect(committed.sessionReply.find((c: any) => c.name === name)?.expected, name).toBe("BAD_SIGNATURE");
   });
@@ -146,8 +144,7 @@ describe("v3 known-answer vectors", () => {
     const pin = committed.keys[c.pin].pub;
     const outcome = classifySessionReply(c.reply, c.request, pin, c.serverEntry, c.now);
     expect(outcome.status === "attested" ? "ATTESTED" : outcome.reason).toBe(c.expected);
-    // Offline, judged at the same time, the handshake is attested when the live check says so, and for the old forms
-    // and windows offline does not refuse.
+    // Offline, judged at the same time, the handshake is attested when the live check says so, and for the old forms.
     expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED" || OFFLINE_ACCEPTS.has(c.name));
   });
 

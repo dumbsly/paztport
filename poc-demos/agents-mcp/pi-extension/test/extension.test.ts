@@ -20,8 +20,8 @@ import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
-import { SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
-import { CANARY, DOCS, githubArgs, records, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { POLICY_EXPIRED_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
+import { CANARY, DOCS, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
 type Result = AgentToolResult<CallOutcome["details"]>;
@@ -215,6 +215,23 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     await expect(broken.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/cannot read config/);
     expect(broken.pi.registrations).toEqual([]);
     expect(existsSync(broken.eventsPath)).toBe(false);
+  });
+
+  it("refusesExpiredClientMaterialAndWarnsNearExpiry", async () => {
+    // an expired keyring: refused at startup, naming the file and the fix, with refused_start
+    const expired = resignDemo(demo, join(tmp, `expired-${n++}`), { clientKeyring: Date.now() - 1 });
+    const bad = setup([], { clientDir: join(expired, "client") });
+    await expect(bad.pi.emit("session_start", { reason: "startup" })).rejects.toThrow(/Paztport refused to start: .*keyring\.json expired at .*npm run setup-demo -- --force/);
+    expect(bad.pi.registrations).toEqual([]);
+    expect(records(bad.eventsPath)).toEqual([expect.objectContaining({ type: "refused_start", code: "CLIENT_MATERIAL" })]);
+    // a root an hour from its notAfter: it starts, and the user is shown one warning naming the file
+    const soon = resignDemo(demo, join(tmp, `soon-${n++}`), { clientRoot: Date.now() + 3_600_000 });
+    const ok = setup([], { clientDir: join(soon, "client") });
+    const notes: [string, string | undefined][] = [];
+    const ui = { notify: (m: string, type?: string) => void notes.push([m, type]) };
+    await ok.pi.emit("session_start", { reason: "startup" }, { ...ok.pi.ctx, hasUI: true, ui } as unknown as ExtensionContext);
+    expect(notes).toEqual([[expect.stringMatching(/^paztport: .*client\/root\.json expires soon \(notAfter \d+ \(.*Z\)\); regenerate the demo keys/), "warning"]]);
+    expect(records(ok.eventsPath).filter((e) => e.type === "refused_start")).toEqual([]);
   });
 
   it("refusesWhenConfigOrPinInsideWorkspace", async () => {
@@ -471,7 +488,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const labelled = toolResultEntry("read", text("notes"), { paztport: { labels: ["local-untrusted"] } });
     expect(await restore([labelled])).toEqual({ ...ZERO, "local-untrusted": 2 });
     // a blocked call: the refusal text on an error result, whichever text it was
-    for (const t of [UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT]) {
+    for (const t of [UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT, POLICY_EXPIRED_TEXT]) {
       expect(await restore([toolResultEntry("write", text(t), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
       expect(await restore([toolResultEntry("read", text(t), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
     }

@@ -351,7 +351,9 @@ export default function paztport(pi: ExtensionAPI): void {
         }
       }
       code = "CLIENT_MATERIAL";
-      const material = loadClientMaterial(config.clientDir, config.clientPolicyDir);
+      // a keyring or root near its notAfter: one warning line each, shown to the user (stderr without a UI)
+      const warn = (message: string) => (ctx.hasUI ? ctx.ui.notify(message, "warning") : console.error(message));
+      const material = loadClientMaterial(config.clientDir, config.clientPolicyDir, Date.now(), warn);
       return { config, events, evidence: evidenceLog, material };
     } catch (e) {
       events?.emit({ type: "refused_start", code });

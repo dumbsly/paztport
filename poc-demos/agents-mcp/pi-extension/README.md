@@ -62,7 +62,12 @@ then classify the run from the outcome log as the
   defaults to `clientDir`. It holds no policy private key: setup-demo deletes the client's
   `policy.key` once it has signed the root and keyring, and both are checked with the policy public
   key from `keyring.json`. A `keyring.json` with no `sig` is refused with a message naming
-  `npm run setup-demo -- --force`.
+  `npm run setup-demo -- --force`. The keyring and the root (from `clientPolicyDir`: the client root,
+  or the local-tools root that also binds the folder rules) must each be in the new form, with a
+  `notAfter` its signature covers, and not past it. An old-form or expired one stops the extension
+  at startup with a message naming the file, its `notAfter` and the same fix. One with 42 hours or
+  less left starts with one warning line naming the file and its `notAfter`, shown in pi's UI (on
+  stderr when pi has none). setup-demo issues them for 30 days.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An
   attested server also takes `pin`, the path to the server policy public key file. It defaults to
   `<clientDir>/server-policy.pub`.
@@ -122,7 +127,10 @@ sent.
   It doesn't give the reason, because a reason would help a steered model find a way around the
   block. The code is still in `details` (see below). Other refusals are technical, such as an
   expired stamp, and don't last for the session; they come back as `Paztport refused this call:
-  <CODE>`. **The wording only nudges the model.** Nothing makes the model end its turn or tell the
+  <CODE>`. A `POLICY_EXPIRED` refusal (the server found the client's root or keyring past its
+  `notAfter`) has a text of its own, the same one the local gate uses (see
+  [What the model sees from the local gate](#what-the-model-sees-from-the-local-gate)): expiry is no
+  sign of an injection, but nothing passes until the user renews the policy. **The wording only nudges the model.** Nothing makes the model end its turn or tell the
   user; it may retry or try something else. The refusal is the control: the refused call is not run,
   whatever the model does next. In production you would likely want more than a nudge: an automatic
   pause on the first refusal that the model can't override, which stops the agent and hands control
@@ -130,7 +138,9 @@ sent.
   session has read, so writes the influence rule refuses stay refused. This proof of concept doesn't
   pause; the model sees the refusal text and decides what to do next. Local failures, such as an
   unreachable server, a malformed result, or no active run, come back as plain error text. A result that fails verification still
-  reaches the model; it is recorded as `local-untrusted`.
+  reaches the model; it is recorded as `local-untrusted`. That includes a result checked after the
+  server's root, or its keyring in the entry-key form, passed its `notAfter` (`POLICY_EXPIRED` in
+  `details.verify`), so a live run never credits what an offline check would refuse.
 - **Details.** Paztport data goes in the tool result's `details`: the server, call id, rid, verdict
   and verification codes, the response's label classes, the session state, and influence **counts
   per class**. A refusal or local failure is marked `refused: true`: the extension wrote its text and
@@ -175,6 +185,12 @@ By mode: `enforce` checks every call as described here. `no-root` has no rules t
 refuses every local call. `off` allows everything and records nothing, and pi's own `bash` stays in
 place. A local call made before any user prompt is refused.
 
+In `enforce` mode, once the root the rules come from, or the keyring, is past its `notAfter`, every
+local call is refused `POLICY_EXPIRED` before any rule is applied, reads included: rules that no
+current root covers are not applied. The refusal is an event only. Nothing is signed with material
+an offline check would no longer accept. Startup refuses expired material, so this is for a pi
+session that runs past the `notAfter`.
+
 ### The order of checks
 
 The first check that fails decides, in this order:
@@ -215,8 +231,8 @@ spelling of the workspace or home it used. An input with two keys that would enc
 is refused as `UNCHECKABLE` and is not signed. The tool runs with the input as given. In eval and
 demo runs, `<home>` is the run's own home folder, which the runner gives pi, not yours. A call
 whose input can't be signed (a lone surrogate, a number JSON can't hold) is refused as `UNCHECKABLE`
-and is not signed. In `no-root` mode, and for a call made before any user prompt, the call is refused
-with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
+and is not signed. In `no-root` mode, for a call made before any user prompt, and once the root or
+keyring has expired (`POLICY_EXPIRED`), the call is refused with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
 verdict. After a call is allowed, its input is frozen (see [Hook order](#hook-order)).
 
 ### Folder rules
@@ -284,7 +300,7 @@ name, schema and output handling, but it differs in how it starts commands:
 
 ### What the model sees from the local gate
 
-A refused local call comes back as a tool error with one of three fixed texts. None says which rule
+A refused local call comes back as a tool error with one of four fixed texts. None says which rule
 applied.
 
 For `INFLUENCE_DENIED`, the same text as for the server's refusals above:
@@ -298,6 +314,10 @@ For `SCOPE_DENIED` and `PATH_NOT_ALLOWED`. Scope is not evidence of an injection
 For `UNCHECKABLE`:
 
 > Paztport couldn't check this command, so it wasn't run. Use simple commands with plain paths.
+
+For `POLICY_EXPIRED`, from the gate or the server. Expiry is no sign of an injection, but nothing passes until the policy is renewed, so this text asks the model to stop:
+
+> Paztport refused this action: the signed policy it is checked against has expired, so it was not carried out. Retrying will not work until the user renews the policy. End your turn now and tell the user that the Paztport policy has expired and must be renewed.
 
 As with the other refusal text, the wording only nudges the model. The refusal is the control.
 

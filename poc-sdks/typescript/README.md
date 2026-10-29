@@ -54,8 +54,8 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   opens a session unsafe when either side's root or keyring is in the old form or past its `notAfter`, so a server
   whose own material has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check)
   refuses the server's root, and in the entry-key form its keyring, when old form or expired, as `BAD_SIGNATURE`.
-  `isAttestedSession` checks a recorded handshake offline, where the old forms are accepted and no window is
-  judged.
+  `isAttestedSession` checks a recorded handshake offline at the record's time: an old-form root or keyring is
+  accepted and sets no limit, and a new-form one, on either side, counts only up to its `notAfter`.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 

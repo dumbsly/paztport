@@ -257,7 +257,7 @@ The offline verifier runs the live checks in the live order, with these differen
 
 | # | Offline |
 |---|---|
-| 0 | Not run: a record is judged at its own recorded time, not against a clock. |
+| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a new-form root or keyring counts only for a record no later than its `notAfter`, and an old-form one sets no limit. |
 | 1 | The stamps parse all v3, or all v2 as legacy. A mix is `CHAIN_MISSING`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 4 | The receiver checks run for a v3 chain only. |
@@ -270,17 +270,28 @@ Each kind of record is checked this way:
 
 - **A recorded call**: the server-side call check above, with the offline chain verifier, the age limits and the
   time the calling hop recorded stamping it. A chain that verifies but names a different call id from the
-  record's is `RID_MISMATCH`.
+  record's is `RID_MISMATCH`. The call counts in its session only up to the session's limits, judged at the last
+  stamp's `ts` (see the handshake below).
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
-  Its `policyNotAfter` is 2<sup>53</sup> − 1, so check 0 does not limit it and old-form material is accepted.
+  Check 0 runs at that time, with the `policyNotAfter` the client used: the earliest `notAfter` of the server's
+  root and, in the entry-key form, its keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when
+  neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
 - **A recorded local step**: the offline chain verifier with `signers` (the origin service then the client hop,
   both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
-  <rid>|<callId>|local`. Then the decision it signed is checked again against the signed rules.
+  <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
+  later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the decision it signed is
+  checked again against the signed rules.
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
-  verifies ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)).
+  verifies. It is judged at the time of each record that relies on it: a new-form root or keyring, on either side,
+  counts only up to its `notAfter`, as the reply certificate does. An old-form one is accepted, sets no limit, and
+  is not marked legacy for it ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)).
+
+Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
+or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it
+relies on every recorded time. No edit to a record moves a `notAfter`, because the policy key's signature covers it.
 
 ## The legacy rule
 

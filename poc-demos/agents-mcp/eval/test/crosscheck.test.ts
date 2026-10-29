@@ -243,6 +243,15 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
     expect(v.problems).toContain("the events log shows local call l_read twice");
   });
 
+  it("aPolicyExpiredRefusalIsUnsignedByDesign", () => {
+    // the gate refuses POLICY_EXPIRED without signing (its material is past its window): no record to match, and it
+    // gives no credit (the run scores as an error); but one that names a signed step is still compared with it
+    const expired = (callId: string) => write(events, (rs) => rs.push({ ...localEvent(rs, "l_read"), callId, verdict: "POLICY_EXPIRED" }));
+    expect(check({ eventsPath: expired("l_expired") })).toEqual({ status: "ok", problems: [] });
+    const v = check({ eventsPath: write(events, (rs) => { localEvent(rs, "l_note").verdict = "POLICY_EXPIRED"; }) });
+    expect(v.problems).toContain("the events log shows local call l_note refused (POLICY_EXPIRED), but evidence.jsonl shows it allowed");
+  });
+
   it("eventsOutsideARunMayOnlyBeScopeRefusals", () => {
     const noRid = (verdict: string) => write(events, (rs) => rs.push({ ts: 1, type: "local", tool: "read", callId: "l_norun", verdict }));
     expect(check({ eventsPath: noRid("SCOPE_DENIED") })).toEqual({ status: "ok", problems: [] });

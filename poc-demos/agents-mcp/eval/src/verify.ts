@@ -8,6 +8,7 @@ import {
   encode,
   isAttestedSession,
   isLegacySessionRequest,
+  isNotAfter,
   isReplyCert,
   NonceCache,
   ORIGIN_SVC,
@@ -38,7 +39,7 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  * Results beyond the library's reason codes:
  * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
  * - NO_SESSION: a call or response whose server has no verified session before it, or a call recorded after its
- *   session's reply certificate expired.
+ *   session's reply certificate, or a root or keyring of its handshake in the new form (either side's), expired.
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
@@ -72,6 +73,14 @@ import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedCli
  * serverId "github", which is the record's server id in every shipped configuration. Calls have no freshness
  * window offline: each is checked against the time recorded with it. Responses keep the library's window,
  * at the time the client recorded verifying them.
+ *
+ * Lifetimes are judged at each record's own time, as the client signed it, never at the time verify runs: a call at
+ * its last stamp's `ts` (the record's `now`, which must equal it, else TIME_MISMATCH), a local step likewise, and a
+ * response at the time the client recorded checking it, which the library's freshness window ties to the server's
+ * signed stamps. The client signs those times itself, so a client that lies about them can make its own records count
+ * longer than they should; what it cannot do is move a window, which the policy key signed. Old-form roots and
+ * keyrings in a record set no limit and are not marked legacy: records made before keyrings and roots expired keep
+ * their outcomes. A response past the server's new-form root or keyring window is POLICY_EXPIRED.
  */
 export type VerifyItem = {
   line: number;
@@ -119,9 +128,13 @@ const isString = (v: unknown): v is string => typeof v === "string";
 /** The mock server's entry service, from this verifier's own configuration: its responses start there, and its reply certificate names it. */
 const SERVER_ENTRY = "mcp-entry";
 
-/** What a verified session gives the checks that follow it; `attestedAt` judges it at a call's recorded time. */
+/**
+ * What a verified session gives the checks that follow it; `attestedAt` judges it at a call's recorded time, and
+ * `serverNotAfter` limits the responses checked against the server's material.
+ */
 type Session = {
   attestedAt: (at: number) => boolean;
+  serverNotAfter: number;
   clientKeyring: Record<string, string>;
   clientRoot: Uint8Array;
   clientRootId: string;
@@ -136,6 +149,30 @@ export function pinFingerprint(pin: string): string {
   return encode(sha256(utf8(pin))).slice(0, 16);
 }
 
+/** `o`'s own `field` when it is a valid notAfter (a new-form window), else undefined: the old form sets no limit offline. */
+function ownWindow(o: unknown, field: string): number | undefined {
+  if (!isObject(o) || !Object.hasOwn(o, field)) return undefined;
+  const n = o[field];
+  return isNotAfter(n) ? n : undefined;
+}
+
+/** The earliest of `windows`, or `none` when no item has one. */
+function earliest(windows: (number | undefined)[], none: number): number {
+  const set = windows.filter((w): w is number => w !== undefined);
+  return set.length === 0 ? none : Math.min(...set);
+}
+
+/**
+ * A recorded response's policyNotAfter: as the client's live check, the server root's window and, in the entry-key form
+ * (the only one whose keyring the policy key signs), the keyring's. Old-form items set no limit, so all-old-form
+ * material gives 2^53 − 1. The windows are read here before the session's signatures are checked, but only a session
+ * that verified (each window under its signature) reaches a response.
+ */
+function serverWindow(reply: SessionReply): number {
+  const ring = Object.hasOwn(reply, "serverKeyringSig") ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
+  return earliest([ownWindow(reply.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER);
+}
+
 function verifySession(r: Rec): Session | undefined {
   try {
     const request = r.request as SessionRequest;
@@ -143,16 +180,28 @@ function verifySession(r: Rec): Session | undefined {
     if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
       return undefined;
     }
-    // The record carries no signed time, so the session itself is judged at the latest time its certificate allows
-    // (a policy-key reply ignores the time), and each call is judged again at its own recorded time.
+    // The record carries no signed time, so the session itself is judged at the latest time it can be attested: the
+    // earliest of its certificate's window and those of its new-form roots and keyrings, both sides (old-form items
+    // set none; with none at all the time is ignored). Each is an upper bound, so a session attested at none of them
+    // is attested at no time. Each call is then judged again at its own recorded time.
     const pin = r.pin;
     const attestedAt = (at: number) => isAttestedSession(request, reply, pin, SERVER_ENTRY, at);
-    const latest = isReplyCert(reply.serverReplyCert) ? reply.serverReplyCert.notAfter : 0;
+    const latest = earliest(
+      [
+        isReplyCert(reply.serverReplyCert) ? reply.serverReplyCert.notAfter : undefined,
+        ownWindow(request.clientRoot, "notAfter"),
+        ownWindow(request, "clientKeyringNotAfter"),
+        ownWindow(reply.serverRoot, "notAfter"),
+        ownWindow(reply, "serverKeyringNotAfter"),
+      ],
+      0,
+    );
     if (!attestedAt(latest)) {
       return undefined;
     }
     return {
       attestedAt,
+      serverNotAfter: serverWindow(reply),
       clientKeyring: request.clientKeyring,
       clientRoot: decode(request.clientRoot!.root),
       clientRootId: request.clientRoot!.rootId,
@@ -345,8 +394,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           sess: call.session.sess,
           nonces,
           now: rec.now,
-          // Recorded evidence keeps its current judgement here, old forms included: no window limits it.
-          policyNotAfter: Number.MAX_SAFE_INTEGER,
+          policyNotAfter: call.session.serverNotAfter,
         });
         add(v.result.reason, v.legacy);
       }

@@ -144,7 +144,7 @@ function ownKeyring(policy: ServerPolicy): SignedKeyring {
 }
 
 /** `notAfter` as the integer and, when it is in Date's range, its ISO time; never throws. */
-function describeNotAfter(notAfter: number): string {
+export function describeNotAfter(notAfter: number): string {
   return Math.abs(notAfter) <= 8.64e15 ? `${notAfter} (${new Date(notAfter).toISOString()})` : `${notAfter}`;
 }
 

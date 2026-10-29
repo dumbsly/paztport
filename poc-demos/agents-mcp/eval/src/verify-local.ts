@@ -56,9 +56,12 @@ import {
  *    rulesHash), so none of them can be changed after signing (BINDING_MISMATCH), and commits to the recorded
  *    influence (INFLUENCE_MISMATCH); its (rid, call id) is new in the file (REPLAY); and the route
  *    `session/pi/local:<tool>` is proven against the client root, or not;
- * 3. `routeAllowed` is true exactly when the route is proven, and a route that is not has no proof (BAD_PROOF);
+ * 3. the step's time (the record's `now`, tied to the pi stamp's signed `ts` above) is no later than the `notAfter` of
+ *    the client record's root and keyring, each in the new form; an old-form one sets no limit (POLICY_EXPIRED). The
+ *    client signs that time itself: verify relies on it, as on every recorded time, but no edit moves a window;
+ * 4. `routeAllowed` is true exactly when the route is proven, and a route that is not has no proof (BAD_PROOF);
  *    `rulesHash` is the client record's rules hash, or null when it has no rules (RULES_MISMATCH);
- * 4. `resolved` and the verdict are what the gate's own rule (decideLocalCall) gives for the recorded
+ * 5. `resolved` and the verdict are what the gate's own rule (decideLocalCall) gives for the recorded
  *    resolution and influence under the signed rules: with the route not listed or no rules nothing is
  *    resolved, and with no rules every call is SCOPE_DENIED (VERDICT_MISMATCH).
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
@@ -80,8 +83,8 @@ export type LocalResult =
   | "RULES_MISMATCH"
   | "VERDICT_MISMATCH";
 
-/** What a verified client record gives the local records that follow it. */
-export type Client = { keyring: Record<string, string>; root: Uint8Array; rootId: string; rules: LocalRules | null; rulesHash: string | null };
+/** What a verified client record gives the local records that follow it; `notAfter` is the earliest new-form window of its root and keyring, undefined when both are old form. */
+export type Client = { keyring: Record<string, string>; root: Uint8Array; rootId: string; rules: LocalRules | null; rulesHash: string | null; notAfter: number | undefined };
 
 /** A client root, policy key, keyring and keyring window that a session record in the file names. */
 export type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown; keyringNotAfter: unknown };
@@ -146,7 +149,9 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     } else if (r.rulesProof !== null) {
       return undefined;
     }
-    return { keyring: keyring as Record<string, string>, root, rootId: signedRoot.rootId, rules, rulesHash: hash };
+    const windows = [signedRoot.notAfter, keyringNotAfter].filter((w): w is number => w !== undefined);
+    const notAfter = windows.length === 0 ? undefined : Math.min(...windows);
+    return { keyring: keyring as Record<string, string>, root, rootId: signedRoot.rootId, rules, rulesHash: hash, notAfter };
   } catch {
     return undefined;
   }
@@ -231,6 +236,10 @@ function checkLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => 
   // an unproven route is how a refusal for an unlisted tool verifies; anything else is the record's failure
   if (v.reason !== "OK" && v.reason !== "PATH_NOT_ALLOWED") {
     return v.reason;
+  }
+  // judged at the step's own signed time, now that the chain check has tied the record's `now` to it
+  if (client.notAfter !== undefined && !(r.now <= client.notAfter)) {
+    return "POLICY_EXPIRED";
   }
   const proven = v.reason === "OK";
   if (proven !== r.routeAllowed || (!proven && r.proof !== null)) {

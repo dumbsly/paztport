@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUILTIN_SCENARIO_DIR, loadScenario, scenarioFixtures } from "../../mock-github-mcp/src/scenario.ts";
 import { OutcomeLog, type OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { NEVER_PROGRAMS } from "@paztport/core";
-import { localRefusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../../pi-extension/src/refusals.ts";
+import { localRefusalText, POLICY_EXPIRED_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../../pi-extension/src/refusals.ts";
 import { OFF_MODE_COPY } from "../src/runner.ts";
 import { parseCli } from "../src/eval-main.ts";
 import { runEval, type EvalOptions } from "../src/eval.ts";
@@ -239,9 +239,9 @@ describe("the local gate documents", () => {
     expect(flat(EVAL_README)).toContain(OFF_MODE_COPY);
   });
 
-  it("thePiReadmeQuotesTheThreeRefusalTexts", () => {
+  it("thePiReadmeQuotesTheRefusalTexts", () => {
     const quoted = (t: string): string => flat(PI_README).includes(`> ${t}`) ? t : "";
-    for (const t of [localRefusalText("INFLUENCE_DENIED"), SCOPE_TEXT, UNCHECKABLE_TEXT]) expect(quoted(t), t).toBe(t);
+    for (const t of [localRefusalText("INFLUENCE_DENIED"), SCOPE_TEXT, UNCHECKABLE_TEXT, POLICY_EXPIRED_TEXT]) expect(quoted(t), t).toBe(t);
   });
 
   it("thePiReadmeListsEveryNeverProgram", () => {

@@ -6,7 +6,8 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, signKeyringOldForm, signRootOldForm, verifyKeyring, verifyProof, decode } from "@paztport/core";
+import { generateKeyPair, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyKeyring, verifyProof, decode } from "@paztport/core";
+import { WARN_WITHIN_MS } from "@paztport/mcp";
 import { loadClientMaterial, readPin } from "../src/keys.ts";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -83,19 +84,94 @@ describe("loadClientMaterial", () => {
     const rootDir = copy();
     writeFileSync(join(rootDir, "root.json"), JSON.stringify({ ...json(join(rootDir, "root.json")), notAfter: bad }));
     expect(() => loadClientMaterial(rootDir)).toThrow("root.json.notAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => loadClientMaterial(rootDir)).toThrow("npm run setup-demo -- --force");
   });
 
-  it("oldFormMaterialStillLoads", () => {
-    // nothing is refused for being in the old form yet: re-sign the same keys and tree in the old form
+  /**
+   * Signs the client keyring, root.json and local-tools/root.json again under a fresh policy key, each with the given
+   * window (or the old form for "old"), the rest until 2100; returns the copy's directory.
+   */
+  function resigned(w: { ring?: number | "old"; root?: number | "old"; localRoot?: number | "old" }): string {
     const dir = copy();
     const policy = generateKeyPair();
     const ring = json(join(dir, "keyring.json"));
-    writeFileSync(join(dir, "keyring.json"), JSON.stringify(signKeyringOldForm(ring.services, policy.publicKey, policy.privateKey)));
-    const root = json(join(dir, "root.json"));
-    writeFileSync(join(dir, "root.json"), JSON.stringify(signRootOldForm(decode(root.root), root.rootId, policy.privateKey)));
-    const m = loadClientMaterial(dir);
-    expect(Object.hasOwn(m, "keyringNotAfter")).toBe(false);
-    expect(Object.hasOwn(m.signedRoot, "notAfter")).toBe(false);
+    const ringAt = w.ring ?? FAR;
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify(ringAt === "old" ? signKeyringOldForm(ring.services, policy.publicKey, policy.privateKey) : signKeyring(ring.services, policy.publicKey, policy.privateKey, ringAt)));
+    for (const [path, at] of [["root.json", w.root], ["local-tools/root.json", w.localRoot]] as const) {
+      const root = json(join(dir, path));
+      const rootAt = at ?? FAR;
+      writeFileSync(join(dir, path), JSON.stringify(rootAt === "old" ? signRootOldForm(decode(root.root), root.rootId, policy.privateKey) : signRoot(decode(root.root), root.rootId, policy.privateKey, rootAt)));
+    }
+    return dir;
+  }
+  const FIX = "npm run setup-demo -- --force";
+  const FAR = 4_102_444_800_000;
+  const T = 1_800_000_000_000;
+  /** loadClientMaterial at `now`, with its warnings collected. */
+  const load = (dir: string, policyDir: string, now: number) => {
+    const warnings: string[] = [];
+    loadClientMaterial(dir, policyDir, now, (m) => warnings.push(m));
+    return warnings;
+  };
+
+  it("clientRefusesOldFormMaterial", () => {
+    // an old-form keyring or root has no window, so it is never current: refused at startup, naming the file and the fix
+    const ring = resigned({ ring: "old" });
+    expect(() => loadClientMaterial(ring)).toThrow(`${join(ring, "keyring.json")} is in the old form (no notAfter): regenerate`);
+    expect(() => loadClientMaterial(ring)).toThrow(FIX);
+    const root = resigned({ root: "old" });
+    expect(() => loadClientMaterial(root)).toThrow(`${join(root, "root.json")} is in the old form (no notAfter): regenerate`);
+    expect(() => loadClientMaterial(root)).toThrow(FIX);
+    const local = resigned({ localRoot: "old" });
+    expect(() => loadClientMaterial(local)).not.toThrow();
+    expect(() => loadClientMaterial(local, join(local, "local-tools"))).toThrow(`${join(local, "local-tools/root.json")} is in the old form`);
+  });
+
+  it("clientRefusesExpiredOwnRoot", () => {
+    const dir = resigned({ root: T });
+    // at notAfter it still counts; one ms after it does not
+    expect(load(dir, dir, T - WARN_WITHIN_MS - 1)).toEqual([]);
+    expect(() => load(dir, dir, T)).not.toThrow();
+    expect(() => load(dir, dir, T + 1)).toThrow(`${join(dir, "root.json")} expired at ${T} (${new Date(T).toISOString()}): regenerate`);
+    expect(() => load(dir, dir, T + 1)).toThrow(FIX);
+  });
+
+  it("clientRefusesExpiredLocalToolsRoot", () => {
+    const dir = resigned({ localRoot: T });
+    const lt = join(dir, "local-tools");
+    expect(() => load(dir, lt, T)).not.toThrow();
+    expect(() => load(dir, lt, T + 1)).toThrow(`${join(lt, "root.json")} expired at ${T}`);
+    // the client root beside it is not the one this run uses
+    expect(() => load(dir, dir, T + 1)).not.toThrow();
+  });
+
+  it("clientRefusesExpiredKeyring", () => {
+    const dir = resigned({ ring: T });
+    expect(() => load(dir, dir, T)).not.toThrow();
+    expect(() => load(dir, dir, T + 1)).toThrow(`${join(dir, "keyring.json")} expired at ${T}`);
+    expect(() => load(dir, join(dir, "local-tools"), T + 1)).toThrow(FIX);
+  });
+
+  it("nearExpiryWarnsNamingTheFileAndWindow", () => {
+    const dir = resigned({ ring: T, root: T + 1000, localRoot: T + 2000 });
+    expect(load(dir, dir, T - WARN_WITHIN_MS - 1)).toEqual([]);
+    expect(load(dir, dir, T - WARN_WITHIN_MS)).toEqual([
+      `paztport: ${join(dir, "keyring.json")} expires soon (notAfter ${T} (${new Date(T).toISOString()})); regenerate the demo keys with ${FIX}`,
+    ]);
+    expect(load(dir, join(dir, "local-tools"), T + 2000 - WARN_WITHIN_MS)).toEqual([
+      expect.stringContaining(`${join(dir, "keyring.json")} expires soon`),
+      expect.stringContaining(`${join(dir, "local-tools/root.json")} expires soon (notAfter ${T + 2000}`),
+    ]);
+  });
+
+  it("messagesNamingAWindowNeverThrow", () => {
+    // past Date's range a window is named by its integer alone
+    const big = 8_900_000_000_000_000;
+    const dir = resigned({ root: big });
+    expect(() => load(dir, dir, big + 1)).toThrow(`${join(dir, "root.json")} expired at ${big}: regenerate`);
+    const top = Number.MAX_SAFE_INTEGER;
+    const max = resigned({ ring: top, root: top });
+    expect(load(max, max, top)).toEqual([expect.stringContaining(`expires soon (notAfter ${top})`), expect.stringContaining(`expires soon (notAfter ${top})`)]);
   });
 
   it("anUnsignedKeyringNamesTheFix", () => {

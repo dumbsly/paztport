@@ -20,6 +20,7 @@ import {
   type MerkleProof,
   type SignedRoot,
 } from "@paztport/core";
+import { describeNotAfter, WARN_WITHIN_MS } from "@paztport/mcp";
 
 /** The service pi signs as: every call and local step, and the hop each run's origin names as its receiver. */
 export const PI_SVC = "pi";
@@ -45,8 +46,22 @@ export type ClientMaterial = {
   rules?: LocalRules;
 };
 
-/** The fix for a keyring.json from before keyrings were signed, or one whose signature does not hold. */
+/** The fix for a keyring.json or root.json that is unsigned, malformed, in the old form, expired or not signed as it should be. */
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
+
+/**
+ * Throws unless the window `notAfter` (undefined: the old form) of the file at `path` is current at `now`: an old-form
+ * keyring or root is never current, and at `notAfter` it still is. Called only once the signature over the window has
+ * verified, so the window read is the one the policy key signed.
+ */
+function requireCurrent(path: string, notAfter: number | undefined, now: number): void {
+  if (notAfter === undefined) {
+    throw new Error(`${path} is in the old form (no notAfter): ${REGENERATE}`);
+  }
+  if (!(now <= notAfter)) {
+    throw new Error(`${path} expired at ${describeNotAfter(notAfter)}: ${REGENERATE}`);
+  }
+}
 
 function readText(dir: string, name: string): string {
   try {
@@ -88,11 +103,15 @@ export function readPin(path: string): string {
  * Loads and validates the files the policy-tool keygen and policy CLIs write for the client mesh
  * (session, pi). Throws a clear Error if they are not mutually consistent. Least privilege: the root
  * is checked with the policy public key alone, so the policy private key (policy.key) is not read.
- * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir`. The
- * keyring must be signed by its policy key (over its notAfter when it has one), and a rules.json covered by a
- * verifying proof for its hash, or loading fails. The root is read whole; a window that is not an integer is refused.
+ * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir` (the client root,
+ * or the local-tools root that also binds the folder rules). The keyring must be signed by its policy key over its
+ * notAfter, and a rules.json covered by a verifying proof for its hash, or loading fails. The root is read whole; a
+ * window that is not an integer is refused. At `now` the keyring and the root must each be in the new form and
+ * current (at their notAfter they still are), each judged only after its signature verified; otherwise loading
+ * fails naming the file and the fix. Each with no more than WARN_WITHIN_MS left is passed to `warn` as one line
+ * naming the file and its notAfter. The windows are what later checks rely on: the local gate re-reads them per call.
  */
-export function loadClientMaterial(dir: string, policyDir: string = dir): ClientMaterial {
+export function loadClientMaterial(dir: string, policyDir: string = dir, now: number = Date.now(), warn: (message: string) => void = console.error): ClientMaterial {
   const ring = readJson(dir, "keyring.json");
   if (!isObject(ring) || !isObject(ring.services)) {
     throw new Error("malformed keyring.json");
@@ -116,7 +135,12 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
   if (!isObject(root)) {
     throw new Error("malformed root.json");
   }
-  const signedRoot: SignedRoot = parseSignedRoot(root, "root.json");
+  let signedRoot: SignedRoot;
+  try {
+    signedRoot = parseSignedRoot(root, "root.json");
+  } catch (e) {
+    throw new Error(`${(e as Error).message}: ${REGENERATE}`);
+  }
   const m = {
     sessionKey: readText(dir, "session.key"),
     piKey: readText(dir, "pi.key"),
@@ -125,6 +149,8 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
   if (!verifyRoot(signedRoot, policyPublicKey)) {
     throw new Error("root.json is not signed by the keyring.json policy key");
   }
+  const rootPath = join(policyDir, "root.json");
+  requireCurrent(rootPath, signedRoot.notAfter, now);
   for (const [svc, key] of [["session", m.sessionKey], ["pi", m.piKey]] as const) {
     if (!Object.hasOwn(keyring, svc)) {
       throw new Error(`keyring.json has no entry for ${svc}`);
@@ -137,6 +163,8 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
   if (!verifyKeyring(keyringNotAfter === undefined ? signedRing : { ...signedRing, notAfter: keyringNotAfter }, policyPublicKey)) {
     throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
   }
+  const ringPath = join(dir, "keyring.json");
+  requireCurrent(ringPath, keyringNotAfter, now);
 
   let rootBytes: Uint8Array;
   try {
@@ -174,6 +202,11 @@ export function loadClientMaterial(dir: string, policyDir: string = dir): Client
       throw new Error("rules.json is not covered by the signed client root");
     }
     material.rules = rules;
+  }
+  for (const [path, notAfter] of [[ringPath, keyringNotAfter!], [rootPath, signedRoot.notAfter!]] as const) {
+    if (notAfter - now <= WARN_WITHIN_MS) {
+      warn(`paztport: ${path} expires soon (notAfter ${describeNotAfter(notAfter)}); ${REGENERATE}`);
+    }
   }
   return material;
 }

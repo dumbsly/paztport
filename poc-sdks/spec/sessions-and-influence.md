@@ -321,18 +321,22 @@ configuration, both roots verify against their sides' policy keys, and the keyri
 request has no `clientKeyringSig` field at all, it is legacy: the keyring check is skipped, and the result is
 marked legacy ([verification.md](verification.md#the-legacy-rule)).
 
-The handshake record carries no signed time, so an entry-key reply is judged at each call's recorded time: `now`
-in the check is the time of the record being judged. One session can therefore be attested for the calls
-recorded up to its certificate's `notAfter` and not for those after it. A policy-key reply has no certificate,
-and is judged the same at any time.
+The handshake record carries no signed time, so it is judged at each call's recorded time, the call's last stamp's
+`ts`, which the client signed: `now` in the check is the time of the record being judged. One session can therefore
+be attested for the calls recorded up to its limits and not for those after them. Its limits are the certificate's
+`notAfter` (entry-key form) and the `notAfter` of each root and keyring in the new form, the client's and the
+server's. A verifier asking whether the session was attested at all judges it at the earliest of those, since each
+is an upper bound. A policy-key reply over old-form material has no limit, and is judged the same at any time.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.
 
-Offline, a root or keyring in the old form is accepted, as recorded evidence holds it, and a window is not judged:
-the client's check of the reply is made without the live judging of the server's material, and the client's
-material is checked by its signatures alone. A window still selects the bytes its signature is checked over, so one
-moved or dropped in the record fails offline too.
+Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit, and the
+session is not marked legacy for it (only a request with no `clientKeyringSig` is). A root or keyring in the new
+form is judged at the record's time, on both sides, as above, but only after its own signature has verified: the
+root's under its side's policy key, the client keyring's under the client policy key, and the server keyring's under
+the pin. A window still selects the bytes its signature is checked over, so one moved or dropped in the record fails
+offline too, and an inherited one never counts.
 
 ## Influence
 

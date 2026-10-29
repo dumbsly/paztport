@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signStampV2, signStampV3 } from "@paztport/core";
+import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signSessionReply, signStampV2, signStampV3 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -15,7 +15,7 @@ import { InfluenceStore } from "../../pi-extension/src/influence.ts";
 import { loadClientMaterial, type ClientMaterial } from "../../pi-extension/src/keys.ts";
 import { LocalGate } from "../../pi-extension/src/local/gate.ts";
 import { RunState } from "../../pi-extension/src/runs.ts";
-import { githubArgs, setupDemo } from "../../pi-extension/test/helpers/demo.ts";
+import { githubArgs, resignDemo, setupDemo, type DemoWindows } from "../../pi-extension/test/helpers/demo.ts";
 import { verifyClient, verifyLocal } from "../src/verify-local.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
@@ -35,15 +35,15 @@ beforeAll(async () => {
 }, 60_000);
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-/** A real attested run against the mock server: three reads, then a write the server refuses. */
-async function produce(pin = join(demo, "client/server-policy.pub")): Promise<string[]> {
+/** A real attested run against the mock server (the demo keys in `dir`): three reads, then a write the server refuses. */
+async function produce(pin = join(demo, "client/server-policy.pub"), dir = demo): Promise<string[]> {
   const evidencePath = join(tmp, `gen-${n++}.jsonl`);
   const evidence = new EvidenceLog(evidencePath);
   const runs = new RunState();
   const conn = new ServerConnection(
-    { id: "github", command: process.execPath, args: githubArgs(demo, "enforce", join(tmp, `outcome-${n++}.jsonl`)), attested: true, pin },
+    { id: "github", command: process.execPath, args: githubArgs(dir, "enforce", join(tmp, `outcome-${n++}.jsonl`)), attested: true, pin },
     "enforce",
-    loadClientMaterial(join(demo, "client")),
+    loadClientMaterial(join(dir, "client"), join(dir, "client"), Date.now(), () => {}),
     new InfluenceStore(),
     runs,
     new EventLog(join(tmp, `events-${n++}.jsonl`)),
@@ -299,14 +299,22 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     const r = verifyEvidence(write(genuine));
     expect(r.ok).toBe(true);
     expect(results(r.items, "session")).toEqual(["OK"]);
-    // a window moved in the record fails the keyring or root signature it is covered by
+    // a window moved in the record fails the keyring or root signature it is covered by. The server's windows are in
+    // the reply, which the entry key signs: the reply is signed again over the moved window, as a server holding that
+    // key could, so its own signature holds and only the policy key's signature over the window can fail
     const session = (rs: any[]) => rs.find((x) => x.type === "session");
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const resignReply = (rs: any[]) => {
+      const { sig: _sig, ...body } = session(rs).reply;
+      session(rs).reply = signSessionReply(body, entryKey);
+    };
+    expect(results(verifyEvidence(write(genuine, resignReply)).items, "session")).toEqual(["OK"]);
     for (const [what, edit] of [
       ["client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter += 1; }],
       ["client keyring dropped", (rs: any[]) => { delete session(rs).request.clientKeyringNotAfter; }],
       ["client root", (rs: any[]) => { session(rs).request.clientRoot.notAfter += 1; }],
-      ["server keyring", (rs: any[]) => { session(rs).reply.serverKeyringNotAfter += 1; }],
-      ["server root", (rs: any[]) => { session(rs).reply.serverRoot.notAfter += 1; }],
+      ["server keyring", (rs: any[]) => { session(rs).reply.serverKeyringNotAfter += 1; resignReply(rs); }],
+      ["server root", (rs: any[]) => { session(rs).reply.serverRoot.notAfter += 1; resignReply(rs); }],
       ["malformed client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter = "x"; }],
     ] as [string, (rs: any[]) => void][]) {
       const bad = verifyEvidence(write(genuine, edit));
@@ -712,6 +720,87 @@ describe("verify CLI", { timeout: 30_000 }, () => {
   });
 });
 
+describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () => {
+  // Each record is judged at its own signed time: a call at its last stamp's ts (TIME_MISMATCH ties the record's `now`
+  // to it), a local step likewise, a response at the time the client recorded checking it. A window here is ten
+  // minutes off and the rest thirty days, so each test isolates one window.
+  const callOf = (rs: any[], id: string) => rs.find((x) => x.type === "call" && x.callId === id);
+  /** A genuine run against a copy of the demo with `windows` signed in, and that copy's client material. */
+  async function runWith(windows: DemoWindows): Promise<{ lines: string[]; material: ClientMaterial; dir: string }> {
+    const dir = resignDemo(demo, join(tmp, `resigned-${n++}`), windows);
+    const lines = await produce(join(dir, "client/server-policy.pub"), dir);
+    return { lines, material: loadClientMaterial(join(dir, "client"), join(dir, "client"), Date.now(), () => {}), dir };
+  }
+  /** A copy of toolu_a made at `ts`, origin and hop signed by the client then, as a later run's call would be. */
+  function callAt(rs: any[], ts: number, id: string, m: ClientMaterial): any {
+    const c = structuredClone(callOf(rs, "toolu_a"));
+    c.callId = id;
+    c.now = ts;
+    const meta = c.params._meta;
+    meta["paztport/callId"] = id;
+    const chain = meta["paztport/chain"];
+    const { sig: _o, v: _ov, ...origin } = chain[0];
+    chain[0] = signStampV3({ ...origin, ts }, m.sessionKey);
+    const { sig: _p, v: _pv, ...hop } = chain[1];
+    chain[1] = signStampV3({ ...hop, ts, bind: bindMcpCall(c.params.name, id, c.params.arguments), prev: chain[0].sig }, m.piKey);
+    return c;
+  }
+  /** The calls of `lines` with two copies of toolu_a after it, at `t` and 1 ms after, reported by call id. */
+  function callsAround(lines: string[], t: number, m: ClientMaterial): { session: string[]; calls: string[][] } {
+    const r = verifyEvidence(write(lines, (rs) => {
+      rs.splice(rs.indexOf(callOf(rs, "toolu_a")) + 1, 0, callAt(rs, t, "toolu_on_time", m), callAt(rs, t + 1, "toolu_late", m));
+    }));
+    return { session: results(r.items, "session"), calls: r.items.filter((x) => x.type === "call").map((x) => [x.callId!, x.result]) };
+  }
+  const AROUND = [["toolu_a", "OK"], ["toolu_on_time", "OK"], ["toolu_late", "NO_SESSION"], ["toolu_b", "OK"], ["toolu_c", "OK"], ["toolu_d", "OK"]];
+
+  it("callAfterClientKeyringNotAfterNotAttested", async () => {
+    const t = Date.now() + 600_000;
+    const { lines, material } = await runWith({ clientKeyring: t });
+    expect(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).request.clientKeyringNotAfter).toBe(t);
+    // the session is found (it was attested before t), and counts for the calls up to t only
+    expect(callsAround(lines, t, material)).toEqual({ session: ["OK"], calls: AROUND });
+  });
+
+  it("callAfterServerRootNotAfterNotAttested", async () => {
+    const t = Date.now() + 600_000;
+    const { lines, material } = await runWith({ serverRoot: t });
+    expect(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).reply.serverRoot.notAfter).toBe(t);
+    expect(callsAround(lines, t, material)).toEqual({ session: ["OK"], calls: AROUND });
+  });
+
+  it("callAfterClientRootOrServerKeyringNotAfterNotAttested", async () => {
+    for (const w of ["clientRoot", "serverKeyring"] as const) {
+      const t = Date.now() + 600_000;
+      const { lines, material } = await runWith({ [w]: t });
+      expect(callsAround(lines, t, material), w).toEqual({ session: ["OK"], calls: AROUND });
+    }
+  });
+
+  it("aResponseRecordedAfterTheServersWindowIsPolicyExpired", async () => {
+    // the client's live check is limited by the server's root and keyring windows, and so is its recheck: past either the
+    // response is POLICY_EXPIRED before any stamp is read; at the window it is judged as usual (EXPIRED: the stamps are
+    // ten minutes older than the time recorded). The client's own windows do not limit a response.
+    const responseAt = (lines: string[], at: number) =>
+      verifyEvidence(write(lines, (rs) => { rs.find((x) => x.type === "response" && x.callId === "toolu_a").now = at; })).items.find((i) => i.type === "response" && i.callId === "toolu_a")!.result;
+    for (const [w, past] of [["serverRoot", "POLICY_EXPIRED"], ["serverKeyring", "POLICY_EXPIRED"], ["clientKeyring", "EXPIRED"], ["clientRoot", "EXPIRED"]] as const) {
+      const t = Date.now() + 600_000;
+      const { lines } = await runWith({ [w]: t });
+      expect(responseAt(lines, t), w).toBe("EXPIRED");
+      expect(responseAt(lines, t + 1), w).toBe(past);
+    }
+  });
+
+  it("aWindowEarlierThanTheHandshakeLeavesNoSessionToFind", async () => {
+    // a record moved to before its window cannot help: the session is judged at the earliest window, and every signature
+    // it rests on is still checked there
+    const t = Date.now() + 600_000;
+    const { lines } = await runWith({ clientKeyring: t });
+    const moved = verifyEvidence(write(lines, (rs) => { rs.find((x) => x.type === "session").request.clientKeyringNotAfter = 0; }));
+    expect(results(moved.items, "session")).toEqual(["BAD_SESSION"]);
+  });
+});
+
 describe("verifyEvidence: phase-1 folders are unchanged", { timeout: 30_000 }, () => {
   // Made before local records existed (a real attested run, a tampered copy, a run-record-only copy and an
   // off run), with the reports and CLI output verify gave then. Phase-1 evidence must verify byte for byte as before.
@@ -722,6 +811,23 @@ describe("verifyEvidence: phase-1 folders are unchanged", { timeout: 30_000 }, (
     expect(JSON.stringify(verifyResultsDir(FIXTURE), null, 2) + "\n").toBe(expected("expected-folder-report.json"));
     const file = join(FIXTURE, "runs/on-001/evidence.jsonl");
     expect((JSON.stringify(verifyEvidence(file), null, 2) + "\n").replaceAll(FIXTURE, "<fixture>")).toBe(expected("expected-file-report.json"));
+  });
+
+  it("recordedFixturesUnchanged", () => {
+    // the recorded handshakes are old form throughout (no window on either root or keyring, a policy-key reply): offline
+    // they are accepted at any time, and the session is not newly marked legacy (only its unsigned keyring makes it so)
+    for (const run of ["on-001", "on-002", "on-003"]) {
+      const file = join(FIXTURE, "runs", run, "evidence.jsonl");
+      const sessions = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.type === "session");
+      for (const s of sessions) {
+        expect(Object.hasOwn(s.request.clientRoot, "notAfter"), run).toBe(false);
+        expect(Object.hasOwn(s.request, "clientKeyringNotAfter"), run).toBe(false);
+        expect(Object.hasOwn(s.reply.serverRoot ?? {}, "notAfter"), run).toBe(false);
+        expect(Object.hasOwn(s.reply, "serverKeyringNotAfter"), run).toBe(false);
+      }
+    }
+    // every run's report, item by item and legacy mark by legacy mark, is the one recorded before lifetimes were judged
+    expect(JSON.stringify(verifyResultsDir(FIXTURE), null, 2) + "\n").toBe(expected("expected-folder-report.json"));
   });
 
   it("recordedRunIsLegacy", () => {
@@ -1069,7 +1175,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
    */
   function gateRun(
     steps: (gate: LocalGate, influence: InfluenceStore, workspace: string) => void,
-    opts: { home?: string; material?: ClientMaterial } = {},
+    opts: { home?: string; material?: ClientMaterial; now?: () => number } = {},
   ): string[] {
     const dir = realpathSync.native(mkdtempSync(join(tmp, "gate-run-")));
     const workspace = join(dir, "workspace");
@@ -1092,7 +1198,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       runs,
       events: new EventLog(join(dir, "events.jsonl")),
       evidence,
-      now: Date.now,
+      now: opts.now ?? Date.now,
       workspace,
       refused: [join(workspace, "secret")],
       home: opts.home ?? dir,
@@ -1164,6 +1270,35 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       ["l_home", "REFUSED"],
       ["l_out", "REFUSED"],
     ]);
+  });
+
+  /**
+   * A local step at the client's root or keyring window and a copy of it 1 ms later, signed by the pi key as a gate
+   * that did not check the window would sign it (the real gate refuses there unsigned, POLICY_EXPIRED).
+   */
+  function stepsAround(which: "localToolsRoot" | "clientKeyring"): [string, string][] {
+    const t = Date.now() + 600_000;
+    const dir = resignDemo(demo, join(tmp, `resigned-${n++}`), { [which]: t });
+    const material = loadClientMaterial(join(dir, "client"), join(dir, "client/local-tools"), Date.now(), () => {});
+    const lines = gateRun((gate) => void gate.check("read", { path: "website/README.md" }, "l_on_time"), { material, now: () => t });
+    const r = verifyEvidence(write(lines, (rs) => {
+      const late = structuredClone(localOf(rs, "l_on_time"));
+      late.callId = "l_late";
+      late.now = t + 1;
+      late.chain[1].ts = t + 1;
+      resign(late);
+      rs.push(late);
+    }));
+    expect(results(r.items, "client")).toEqual(["OK"]);
+    return r.items.filter((i) => i.type === "local").map((i) => [i.callId!, i.result]);
+  }
+
+  it("localStepAfterClientRootNotAfterFails", () => {
+    expect(stepsAround("localToolsRoot")).toEqual([["l_on_time", "OK"], ["l_late", "POLICY_EXPIRED"]]);
+  });
+
+  it("localStepAfterClientKeyringNotAfterFails", () => {
+    expect(stepsAround("clientKeyring")).toEqual([["l_on_time", "OK"], ["l_late", "POLICY_EXPIRED"]]);
   });
 
   it("cliSaysLocalRefusalsAreSigned", () => {
