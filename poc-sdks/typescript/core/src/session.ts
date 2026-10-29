@@ -272,7 +272,8 @@ export function verifySessionReply(
  * the request is legacy. There is no client pin offline: the server's signed "attested" reply, whose
  * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
  * of the record judged, since the handshake record carries no signed time: the caller passes a time the client signed
- * (a call's last stamp `ts`). The session is attested only for records no later than its certificate's `notAfter`
+ * (a call's last stamp `ts`). A legacy request that carries `clientKeyringNotAfter` is not attested, since no
+ * signature covers that window. The session is attested only for records no later than its certificate's `notAfter`
  * (entry-key form) and the `notAfter` of each root and keyring in the new form, on both sides, each read only after
  * its own signature verified. Old-form roots and keyrings are accepted as recorded evidence holds them and set no
  * limit, so a policy-key reply over old-form material is attested at any time. The caller must not take `at` from
@@ -290,7 +291,7 @@ export function isAttestedSession(
       reply.status === "attested" &&
       checkSessionReply(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&
-      (isLegacySessionRequest(req) || keyringVerifies(req)) &&
+      (isLegacySessionRequest(req) ? !Object.hasOwn(req, "clientKeyringNotAfter") : keyringVerifies(req)) &&
       windowAllows(req.clientRoot!, "notAfter", at) &&
       windowAllows(req, "clientKeyringNotAfter", at)
     );

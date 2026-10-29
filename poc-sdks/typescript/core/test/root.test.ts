@@ -6,6 +6,7 @@ import { decode, encode } from "../src/b64url.ts";
 import { generateKeyPair, sha256, utf8 } from "../src/crypto.ts";
 import * as core from "../src/index.ts";
 import { signKeyring, verifyKeyring } from "../src/keyring.ts";
+import { issueReplyCert, verifyReplyCert } from "../src/reply-cert.ts";
 import { parseSignedRoot, renewRoot, rootSigningBytes, signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../src/root.ts";
 import { earliestNotAfter, isCurrent, readNotAfter } from "../src/validity.ts";
 
@@ -136,6 +137,15 @@ describe("signed root", () => {
     expect(verifyKeyring({ policy: POLICY.publicKey, services, sig: root.sig, notAfter: root.notAfter }, POLICY.publicKey), "a root signature as a keyring's").toBe(false);
     const ring = signKeyring(services, POLICY.publicKey, POLICY.privateKey, NOT_AFTER);
     expect(verifyRoot({ ...root, sig: ring.sig }, POLICY.publicKey), "a keyring signature as a root's").toBe(false);
+  });
+
+  // These would also fail incidentally, since the bodies differ; the literal signing-bytes tests are what pin the prefixes.
+  it("crossPrefixReplyCert", () => {
+    const root = newForm();
+    const cert = issueReplyCert(POLICY.publicKey, "mcp-entry", generateKeyPair().publicKey, NOT_AFTER, POLICY.privateKey);
+    expect(verifyRoot(root, POLICY.publicKey) && verifyReplyCert(cert, POLICY.publicKey)).toBe(true);
+    expect(verifyRoot({ ...root, sig: cert.sig }, POLICY.publicKey), "a reply-certificate signature as a root's").toBe(false);
+    expect(verifyReplyCert({ ...cert, sig: root.sig }, POLICY.publicKey), "a root signature as a reply certificate's").toBe(false);
   });
 
   it("protoNotAfterIgnored", () => {

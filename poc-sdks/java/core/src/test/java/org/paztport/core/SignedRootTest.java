@@ -244,4 +244,18 @@ class SignedRootTest {
         assertFalse(new SignedRoot(root.rootId(), root.root(), ring.sig(), ring.notAfter()).verify(POLICY.getPublic()),
                 "a keyring signature offered as a root's");
     }
+
+    // These would also fail incidentally, since the bodies differ; the literal signing-bytes tests are what pin the
+    // prefixes.
+    @Test
+    void rootSignatureIsNotAReplyCertificateSignature() {
+        SignedRoot root = newForm();
+        ReplyCert cert = ReplyCert.issue(pub(POLICY), "partner", pub(Crypto.generateEd25519KeyPair()), NOT_AFTER,
+                POLICY.getPrivate());
+        assertTrue(root.verify(POLICY.getPublic()) && cert.verifies(pub(POLICY)));
+        assertFalse(new SignedRoot(root.rootId(), root.root(), cert.sig(), cert.notAfter()).verify(POLICY.getPublic()),
+                "a reply-certificate signature offered as a root's");
+        assertFalse(new ReplyCert(cert.policy(), cert.svc(), cert.key(), cert.notAfter(), root.sig())
+                .verifies(pub(POLICY)), "a root signature offered as a reply certificate's");
+    }
 }

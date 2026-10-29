@@ -5,7 +5,9 @@ package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -285,11 +287,26 @@ class SessionsTest {
         assertEquals(NOT_AFTER, fresh.get("clientRoot").get("notAfter").longValue());
         assertFalse(wire(reply(request(clientRoot), serverRoot, "attested")).has("serverKeyringNotAfter"));
 
-        String sn = Sessions.newNonce();
+        // The same root and nonce with the keyring in either form, each as the server parses it off the wire: the
+        // two differ in the keyring's signature and window, and in nothing the session id binds.
         String cn = Sessions.newNonce();
-        assertEquals(Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), cn, sn, clientKey, clientRing),
-                Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), cn, sn, clientKey,
-                        oldRing.services()));
+        SessionRequest newRing = Sessions.parseRequest(
+                SessionRequest.of(clientRoot, clientKey, clientKeyring, cn).toJson());
+        SessionRequest oldFormRing = Sessions.parseRequest(
+                SessionRequest.of(clientRoot, clientKey, oldRing, cn).toJson());
+        assertNotEquals(newRing.clientKeyringSig(), oldFormRing.clientKeyringSig());
+        assertEquals(NOT_AFTER, newRing.clientKeyringNotAfter());
+        assertNull(oldFormRing.clientKeyringNotAfter());
+        String sn = Sessions.newNonce();
+        assertEquals(sessionId(newRing, sn), sessionId(oldFormRing, sn));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(wire(reply(newRing, serverRoot, "attested")),
+                oldFormRing, serverKey, "pay", NOW), "a reply to one is a reply to the other");
+    }
+
+    /** The session id the server derives for {@code req} with its own root and nonce {@code serverNonce}. */
+    private String sessionId(SessionRequest req, String serverNonce) {
+        return Sessions.deriveSessionId(req.clientRoot().sig(), serverRoot.sig(), req.nonce(), serverNonce,
+                req.clientPolicyKey(), req.clientKeyring());
     }
 
     /**

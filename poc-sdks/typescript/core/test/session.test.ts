@@ -154,9 +154,19 @@ describe("sessionStatus", () => {
     const { clientKeyringNotAfter: _window, ...rest } = w.req;
     expect(status(w, { ...rest, clientKeyringSig: oldRing.sig })).toBe("unsafe");
     // a request whose material is all in the old form, as the TypeScript and Java servers both now refuse to attest
+    // (the server's root is its own, in the new form, so the client's old form is the only reason)
     const old = world(true);
     expect(Object.hasOwn(old.req, "clientKeyringNotAfter")).toBe(false);
-    expect(status(old, old.req, { serverRoot: w.serverRoot })).toBe("unsafe");
+    const serverRoot = signRoot(old.serverRootBytes, "v2", old.serverPolicy.privateKey, NOT_AFTER);
+    expect(status(old, old.req, { serverRoot })).toBe("unsafe");
+    const ring = signKeyring(old.req.clientKeyring, old.clientPolicy.publicKey, old.clientPolicy.privateKey, NOT_AFTER);
+    const renewed: SessionRequest = {
+      ...old.req,
+      clientRoot: signRoot(old.clientRootBytes, "v1", old.clientPolicy.privateKey, NOT_AFTER),
+      clientKeyringSig: ring.sig,
+      clientKeyringNotAfter: NOT_AFTER,
+    };
+    expect(status(old, renewed, { serverRoot }), "the same material in the new form").toBe("attested");
   });
   it("aClientRootWhoseWindowWasMovedIsUnsafeByItsOwnSignature", () => {
     // an expired root with its window moved on: current by the moved value, so only the root's signature stops it
@@ -412,10 +422,20 @@ describe("isAttestedSession", () => {
   });
   it("aLegacyRequestWithAnAttestedReplyIsAttested", () => {
     const w = world();
-    const { clientKeyringSig: _sig, ...legacy } = w.req;
+    const { clientKeyringSig: _sig, clientKeyringNotAfter: _window, ...legacy } = w.req;
     const req: LegacySessionRequest = legacy;
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
+  });
+  it("aLegacyRequestCarryingAKeyringWindowIsNotAttested", () => {
+    // no signature covers the window, so it could have been added or moved by anyone holding the file
+    const w = world();
+    const { clientKeyringSig: _sig, ...legacy } = w.req;
+    const req: LegacySessionRequest = legacy;
+    expect(Object.hasOwn(req, "clientKeyringNotAfter")).toBe(true);
+    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
+    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    expect(isAttestedSession({ ...req, clientKeyringNotAfter: NOW - 1 }, reply, w.serverPolicy.publicKey, ENTRY, NOW - 2)).toBe(false);
   });
   it("aKeyringSignatureThatIsPresentButNotAStringIsNotLegacy", () => {
     const w = world();

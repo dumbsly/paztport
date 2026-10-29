@@ -27,7 +27,7 @@ export function signKeyring(services: Record<string, string>, policyPublicKey: s
   return signForm(services, policyPublicKey, policyPrivateKey, notAfter);
 }
 
-/** Signs a keyring in the old form, which is never current: only for deliberate old-form cases (recorded evidence, vectors, tests). */
+/** Signs a keyring in the old form, which is never current; the caller must have checked that each key is that service's current key, as for signKeyring. It exists only for deliberate old-form cases (recorded evidence, vectors, tests). */
 export function signKeyringOldForm(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string): SignedKeyring {
   return signForm(services, policyPublicKey, policyPrivateKey);
 }

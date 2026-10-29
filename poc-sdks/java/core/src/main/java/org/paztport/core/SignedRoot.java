@@ -37,7 +37,7 @@ import java.security.PublicKey;
  *
  * <p>What the signer must have verified: the policy owner signs a root only for a tree whose routes it currently
  * allows, and {@code notAfter} is when it stops vouching for them. Renewing is signing the same tree again with a
- * later {@code notAfter}; narrowing is not renewing.
+ * new {@code notAfter}; narrowing is not renewing.
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record SignedRoot(String rootId, String root, String sig, Long notAfter) {
