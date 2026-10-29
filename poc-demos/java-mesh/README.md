@@ -769,7 +769,8 @@ startup:
   not count. The PSP, past its own, opens only unsafe sessions.
 
 **Renewal is the routine operation.** It signs the same tree and keyring again
-with a new `notAfter`, keeping the root's `rootId` and every proof bundle, so the
+with a new `notAfter` (the run's time plus `PAZTPORT_POLICY_DAYS`, so it can shorten
+a longer window), keeping the root's `rootId` and every proof bundle, so the
 services may pick up the renewed files in any order, even one at a time. Run it
 well before the warning, with the tools, since only they hold the policy keys:
 

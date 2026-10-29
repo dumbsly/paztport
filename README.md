@@ -252,10 +252,14 @@ The details carry real weight:
   goes in a random slot, and unused slots are filled with random 32-byte values
   that look like any other hash. Proof length and position therefore leak nothing
   about how many routes exist or where in the policy one sits.
-- **The root is signed** by the policy key over `rootId | root`. A widened policy
-  can't be swapped in without that key. The `rootId` is a random label for each
-  build (`v` + 12 random hex chars), not derived from the policy, so two builds of
-  one policy share neither a root nor an id.
+- **The root is signed** by the policy key over its `rootId`, the root and a
+  validity window, `notAfter`. A widened policy can't be swapped in without that
+  key, and a verifier stops relying on the root once its window has passed. The
+  `rootId` is a random label for each build (`v` + 12 random hex chars), not
+  derived from the policy, so two builds of one policy share neither a root nor an
+  id. The window is 7 days by default. Renewing signs the same tree again under
+  the same `rootId` with a later `notAfter`, so proof bundles stay valid. The
+  policy key signs each service keyring the same way, with its own window.
 
 The proof hides the policy, not the request's own route (see §5.2, Inherent).
 
@@ -367,6 +371,13 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the proxy. A certificate is per service, not per container, so blaming one
   container needs per-instance certificates; until then the responder still checks
   that the container runs the named service.
+- **Revocation takes up to a lifetime.** A keyring or root presented in a
+  handshake stays usable by someone replaying it until its `notAfter`, so a leaked
+  service key, or a route removed from a policy, can be used until the keyring or
+  root that names it expires: 7 days by default. A deployment can shorten that by
+  remembering the newest keyring and root it has seen per policy key, or end it at
+  once by re-pinning a new policy key. Choosing the lifetime and running the
+  renewals are the deployment's job.
 - **Async is out of scope**, for now. Queues, caches, and scheduled jobs break the
   linear-chain model (see the async direction in
   [section 6](#6-where-this-could-go)).
@@ -423,12 +434,6 @@ What any design of this kind meets, and what this one has not yet tackled.
   relays the reply passes it on as untrusted. A response stamp under the partner's
   keyring, which the egress already holds from the session reply, would attest it;
   that is a spec addition.
-- **Signed keyrings and roots don't expire.** One sent in a handshake stays valid
-  for as long as its policy key is pinned, so a leaked service key, or a route
-  removed from a policy, stays usable by whoever holds the old keyring or root.
-  Fully retiring either takes a new policy key. Session reply keys are the
-  exception, through their expiring certificate. Expiring keyrings and roots
-  would close it.
 
 ### 5.3 Limits of this proof of concept
 

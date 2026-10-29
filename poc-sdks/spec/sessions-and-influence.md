@@ -148,7 +148,7 @@ lifetime ([wire.md](wire.md#the-reply-certificate)).
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
 roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|`
 or `3|`. v1 stamps and old-form roots have no prefix, and neither is accepted live
-([wire.md](wire.md#v1-the-http-mesh-format)).
+([v1 stamps](wire.md#v1-the-http-mesh-format), [old-form roots](wire.md#the-signed-root)).
 
 `v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
 a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
@@ -326,7 +326,9 @@ The handshake record carries no signed time, so it is judged at each call's reco
 be attested for the calls recorded up to its limits and not for those after them. Its limits are the certificate's
 `notAfter` (entry-key form) and the `notAfter` of each root and keyring in the new form, the client's and the
 server's. A verifier asking whether the session was attested at all judges it at the earliest of those, since each
-is an upper bound. A policy-key reply over old-form material has no limit, and is judged the same at any time.
+is an upper bound. A policy-key reply over old-form material has no limit, and is judged the same at any time. A recorded response
+is limited only by the server's root window and, in the entry-key form, the server keyring's: the client's windows
+and the certificate do not limit it.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.

@@ -285,8 +285,9 @@ Each kind of record is checked this way:
   checked again against the signed rules.
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
-  verifies. It is judged at the time of each record that relies on it: a new-form root or keyring, on either side,
-  counts only up to its `notAfter`, as the reply certificate does. An old-form one is accepted, sets no limit, and
+  verifies. It is judged at the time of each call that relies on it: a new-form root or keyring, on either side,
+  counts only up to its `notAfter`, as the reply certificate does. A response relies on it too, but only the
+  server's root and keyring windows limit a response; the client's windows and the certificate do not. An old-form one is accepted, sets no limit, and
   is not marked legacy for it ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)).
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),

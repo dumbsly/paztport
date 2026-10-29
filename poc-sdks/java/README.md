@@ -294,7 +294,8 @@ keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7).
   Rebuild when the routes change.
 - **Renew**, with `--renew` or `PAZTPORT_RENEW=true` (so the same command line serves both): `outDir/root.json`
   and `keyring.json` signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof
-  bundles stay valid and are not touched, and holders can pick up the renewed files one at a time.
+  bundles stay valid and are not touched, and holders can pick up the renewed files one at a time. The new
+  `notAfter` is the run's time plus `PAZTPORT_POLICY_DAYS`, so a renewal can shorten a longer existing window.
   `paths.yaml` is not read. Renewal is the routine operation, run well before `notAfter`; old-form and expired
   files are renewed into the new form all the same.
 

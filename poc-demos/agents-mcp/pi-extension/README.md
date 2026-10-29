@@ -195,6 +195,8 @@ session that runs past the `notAfter`.
 
 The first check that fails decides, in this order:
 
+0. **Expiry.** In `enforce` mode, is the root the rules come from, and the keyring, still within its
+   `notAfter`? If not, the call is refused `POLICY_EXPIRED`, before anything is resolved.
 1. **Route.** Is `session/pi/local:<tool>` listed in the signed policy? If not, the call is refused
    (`PATH_NOT_ALLOWED`).
 2. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,

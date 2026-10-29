@@ -434,8 +434,9 @@ integer and a root signature offered as a keyring signature, which fail; a `notA
 refuses; one written `1798761600000.0`, which a reader reads by value; and an old-form keyring, whose signature
 verifies but which only an offline verifier may rely on, and which is never valid.
 
-Both SDKs' keygens write signed keyrings in the new form, valid for seven days, and both policy tools sign roots
-in the new form, valid for seven days.
+Both SDKs' keygens write signed keyrings in the new form, by default valid for seven days, and both policy tools
+sign roots in the new form, by default valid for seven days. The policy tools also re-sign the keyring on every
+rebuild and renew.
 
 ## The reply certificate
 
