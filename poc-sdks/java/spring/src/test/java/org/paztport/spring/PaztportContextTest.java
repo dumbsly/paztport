@@ -10,6 +10,8 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -157,6 +159,19 @@ class PaztportContextTest {
         try (PaztportContext.Scope current = PaztportContext.open()) {
             leaked.close();
             assertTrue(PaztportContext.isOpen(), "the leaked scope, closed late, does not end the new one");
+        }
+    }
+
+    /**
+     * Only the filters beside this class may mark a chain verified, since the boundary signer and the public-writes
+     * rule trust the chain marked, and only they may end a scope that other code opened; neither may widen.
+     */
+    @Test
+    void markVerifiedAndResetAreNotPublic() throws Exception {
+        for (Method m : List.of(PaztportContext.class.getDeclaredMethod("markVerified", List.class),
+                PaztportContext.class.getDeclaredMethod("reset"))) {
+            assertFalse(Modifier.isPublic(m.getModifiers()), m.getName() + " must not be public");
+            assertFalse(Modifier.isProtected(m.getModifiers()), m.getName() + " must not be protected");
         }
     }
 }

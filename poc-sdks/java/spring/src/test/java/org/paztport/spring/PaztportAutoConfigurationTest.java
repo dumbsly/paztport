@@ -36,6 +36,7 @@ import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import javax.security.auth.x500.X500Principal;
@@ -58,6 +59,8 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.http.PaztportHeaders;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.AnnotatedBeanDefinition;
+import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.restclient.RestClientCustomizer;
@@ -67,6 +70,8 @@ import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.core.Ordered;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -761,6 +766,185 @@ class PaztportAutoConfigurationTest {
         withClients.withPropertyValues(stampingVerifier(dir, "https://127.0.0.1:1"))
                 .withPropertyValues("paztport.tls-bundle=missing")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    // --- The wiring, as the auto-configuration lays it out ---
+
+    /**
+     * The names of the beans the starter defines, sorted. A bean is the starter's when an {@code @Bean} method
+     * declared on a class in {@code org.paztport.spring} or a package below it makes it, or when it is the
+     * {@link PaztportProperties} that {@code @EnableConfigurationProperties} registers. The configuration classes'
+     * own beans are left out: their names follow how the wiring is split into classes, not what it wires. The
+     * property sets below add no configuration of their own, so nothing else matches.
+     */
+    private static List<String> starterBeans(ConfigurableApplicationContext context) {
+        ConfigurableListableBeanFactory factory = context.getBeanFactory();
+        List<String> names = new ArrayList<>(List.of(context.getBeanNamesForType(PaztportProperties.class)));
+        for (String name : factory.getBeanDefinitionNames()) {
+            if (factory.getBeanDefinition(name) instanceof AnnotatedBeanDefinition bean
+                    && bean.getFactoryMethodMetadata() != null
+                    && bean.getFactoryMethodMetadata().getDeclaringClassName().startsWith("org.paztport.spring.")) {
+                names.add(name);
+            }
+        }
+        return names.stream().sorted().toList();
+    }
+
+    private static void assertStarterBeans(ApplicationContextRunner runner, String... expected) {
+        runner.run(context -> {
+            assertThat(context).hasNotFailed();
+            assertThat(starterBeans(context)).containsExactly(expected);
+        });
+    }
+
+    /**
+     * Each role's beans, by name, since a bean's name is how an application refers to it or replaces it. The lists
+     * must stay as they are however the wiring is spread across configuration classes or packages.
+     */
+    @Test
+    void theBeansEachPropertySetCreatesAreAsBefore(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        // None: every service has the inbound filter and the public-writes rule.
+        assertStarterBeans(runner,
+                "inboundFilterRegistration",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportPublicWrites");
+        // A caller: a key and its proofs.
+        assertStarterBeans(runner.withPropertyValues(
+                        "paztport.service-name=gateway",
+                        "paztport.origin=true",
+                        "paztport.key-path=" + dir.resolve("gateway.key"),
+                        "paztport.proofs-path=" + dir.resolve("proofs-gateway.json")),
+                "inboundFilterRegistration",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportPublicWrites",
+                "paztportRestClientCustomizer",
+                "proofBundle",
+                "stamper");
+        // Verify on, with a key and the three trust paths.
+        assertStarterBeans(runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
+                        .withPropertyValues("paztport.key-path=" + dir.resolve("gateway.key")),
+                "adminModeController",
+                "eventPublisher",
+                "inboundFilterRegistration",
+                "modeHolder",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportPublicWrites",
+                "paztportRestClientCustomizer",
+                "stamper",
+                "verifier");
+        // The same with a responder and paztport.tls-bundle, as an application would have its clients.
+        assertStarterBeans(withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                        .withPropertyValues(MESH_BUNDLE),
+                "adminModeController",
+                "eventPublisher",
+                "inboundFilterRegistration",
+                "modeHolder",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportPublicWrites",
+                "paztportRestClientCustomizer",
+                "paztportTlsClient",
+                "paztportTlsRestClientCustomizer",
+                "stamper",
+                "verifier");
+        // paztport.boundary.url: an egress to a partner, with everything its client needs.
+        Files.writeString(dir.resolve("partner-policy.pub"), pub(Crypto.generateEd25519KeyPair()) + "\n");
+        // Only the blinding key's length is checked at startup.
+        Files.writeString(dir.resolve("boundary.key"), Base64Url.encode(new byte[32]) + "\n");
+        assertStarterBeans(new ApplicationContextRunner()
+                        .withConfiguration(AutoConfigurations.of(SslAutoConfiguration.class,
+                                PaztportAutoConfiguration.class))
+                        .withPropertyValues(trust(dir))
+                        .withPropertyValues(
+                                "paztport.service-name=gateway",
+                                "paztport.key-path=" + dir.resolve("gateway.key"),
+                                "paztport.proofs-path=" + dir.resolve("proofs-gateway.json"),
+                                "paztport.boundary.partner=psp",
+                                "paztport.boundary.url=https://127.0.0.1:1",
+                                "paztport.boundary.tls-bundle=psp",
+                                "paztport.boundary.partner-policy-key-path=" + dir.resolve("partner-policy.pub"),
+                                "paztport.boundary.blinding-key-path=" + dir.resolve("boundary.key"),
+                                "spring.ssl.bundle.pem.psp.keystore.certificate=classpath:tls/payment.crt",
+                                "spring.ssl.bundle.pem.psp.keystore.private-key=classpath:tls/payment.key",
+                                "spring.ssl.bundle.pem.psp.truststore.certificate=classpath:tls/ca.crt"),
+                "inboundFilterRegistration",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportBoundaryClient",
+                "paztportPublicWrites",
+                "paztportRestClientCustomizer",
+                "proofBundle",
+                "stamper",
+                "verifier");
+        // paztport.partner.enabled=true: a partner's entry.
+        Path partnerDir = Files.createDirectory(dir.resolve("partner"));
+        writePartner(partnerDir);
+        assertStarterBeans(runner.withPropertyValues(partner(partnerDir)),
+                "partnerFilterRegistration",
+                "paztport-org.paztport.spring.PaztportProperties",
+                "paztportPartnerGate",
+                "paztportPartnerSessionController",
+                "paztportPartnerSessions",
+                "paztportPublicWrites",
+                "paztportRestClientCustomizer",
+                "stamper",
+                "verifier");
+    }
+
+    /** Whichever filter a service has runs before any other, so nothing sees a request it has not checked. */
+    @Test
+    void bothFiltersRegisterFirst(@TempDir Path dir) throws Exception {
+        runner.run(context -> {
+            FilterRegistrationBean<?> inbound = context.getBean("inboundFilterRegistration",
+                    FilterRegistrationBean.class);
+            assertThat(inbound.getOrder()).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
+            assertThat(inbound.getUrlPatterns()).containsExactly("/*");
+        });
+        writePartner(dir);
+        runner.withPropertyValues(partner(dir)).run(context -> {
+            FilterRegistrationBean<?> entry = context.getBean("partnerFilterRegistration",
+                    FilterRegistrationBean.class);
+            assertThat(entry.getOrder()).isEqualTo(Ordered.HIGHEST_PRECEDENCE);
+            assertThat(entry.getUrlPatterns()).containsExactly("/*");
+        });
+    }
+
+    /**
+     * The order the shared builder is given the starter's two customizers in, which is the order Spring Boot's
+     * builder applies them: neither carries an order of its own, so it is the order they are defined in.
+     */
+    @Test
+    void theRestClientCustomizersApplyInTheirOrder(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(
+                        "paztport.service-name=gateway", "paztport.key-path=" + dir.resolve("gateway.key"))
+                .withPropertyValues(MESH_BUNDLE)
+                .run(context -> {
+                    Map<String, RestClientCustomizer> byName = context.getBeansOfType(RestClientCustomizer.class);
+                    List<String> order = context.getBeanProvider(RestClientCustomizer.class).orderedStream()
+                            .map(c -> byName.entrySet().stream().filter(e -> e.getValue() == c)
+                                    .map(Map.Entry::getKey).findFirst().orElseThrow())
+                            .filter(name -> name.startsWith("paztport"))
+                            .toList();
+                    assertThat(order)
+                            .containsExactly("paztportRestClientCustomizer", "paztportTlsRestClientCustomizer");
+                });
+    }
+
+    /** An application's own sessions take the starter's place, which then defines none. */
+    @Test
+    void anApplicationsPartnerSessionsReplacesTheStartersOwn(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        AtomicReference<PartnerSessions> application = new AtomicReference<>();
+        runner.withPropertyValues(partner(dir)).run(context -> application.set(context.getBean(PartnerSessions.class)));
+        assertThat(application.get()).isNotNull();
+
+        runner.withPropertyValues(partner(dir))
+                .withBean("applicationPartnerSessions", PartnerSessions.class, application::get)
+                .run(context -> {
+                    assertThat(context).hasNotFailed().hasSingleBean(PartnerSessions.class)
+                            .hasBean("applicationPartnerSessions").doesNotHaveBean("paztportPartnerSessions");
+                    assertThat(context.getBean(PartnerSessions.class)).isSameAs(application.get());
+                });
     }
 
     // --- Timeouts ---
