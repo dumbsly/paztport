@@ -59,6 +59,7 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.spring.event.AttestationEvent;
+import org.paztport.spring.event.EventAccess;
 import org.paztport.spring.event.EventPublisher;
 import org.paztport.spring.event.LoggingEventPublisher;
 import org.paztport.spring.event.ResponderEventPublisher;
@@ -971,7 +972,7 @@ class PaztportAutoConfigurationTest {
                     assertThat(props.getEventTimeoutMs()).isEqualTo(2_000L);
                     assertThat(context.getBean(PooledTlsClient.class).readTimeout())
                             .isEqualTo(Duration.ofSeconds(30)).isEqualTo(PooledTlsClient.DEFAULT_READ_TIMEOUT);
-                    assertThat(((ResponderEventPublisher) context.getBean(EventPublisher.class)).timeout())
+                    assertThat(EventAccess.timeout((ResponderEventPublisher) context.getBean(EventPublisher.class)))
                             .isEqualTo(Duration.ofSeconds(2));
                 });
     }
@@ -983,7 +984,7 @@ class PaztportAutoConfigurationTest {
                 .withPropertyValues("paztport.read-timeout-ms=1234", "paztport.event-timeout-ms=567")
                 .run(context -> {
                     assertThat(context.getBean(PooledTlsClient.class).readTimeout()).isEqualTo(Duration.ofMillis(1234));
-                    assertThat(((ResponderEventPublisher) context.getBean(EventPublisher.class)).timeout())
+                    assertThat(EventAccess.timeout((ResponderEventPublisher) context.getBean(EventPublisher.class)))
                             .isEqualTo(Duration.ofMillis(567));
                 });
     }

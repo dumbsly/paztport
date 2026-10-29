@@ -103,7 +103,7 @@ public final class ResponderEventPublisher implements EventPublisher {
     }
 
     /** How long one event may take. */
-    public Duration timeout() {
+    Duration timeout() {
         return timeout;
     }
 
