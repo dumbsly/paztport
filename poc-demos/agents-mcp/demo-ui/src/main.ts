@@ -43,26 +43,36 @@ export function nodeAtLeast(version: string, floor: string): boolean {
   return true;
 }
 
-/** Files setup-demo writes. Keys made by an earlier version can lack some, such as the local-tools policy. */
-const KEY_FILES = ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"];
+/** Files setup-demo writes that only have to exist. Keys made by an earlier version can lack some, such as the local-tools policy. */
+const KEY_FILES = ["client/server-policy.pub", "client/local-tools/rules.json"];
 
-/** How long the server's reply certificate must still have to run, so evidence a run saves still verifies afterwards. */
-const REPLY_CERT_MARGIN_MS = 86_400_000;
+/** Files setup-demo writes that carry a `notAfter`: each keyring, root and the server's reply certificate. */
+const WINDOWED_FILES = [
+  "server/keyring.json",
+  "server/root.json",
+  "client/keyring.json",
+  "client/root.json",
+  "client/local-tools/root.json",
+  "server/reply-cert.json",
+];
 
-/** Whether the server's reply certificate in `dir` runs for at least REPLY_CERT_MARGIN_MS more: the mock server refuses an expired one. */
-function replyCertCurrent(dir: string): boolean {
+/** How long each keyring, root and the reply certificate must still have to run, so evidence a run saves still verifies afterwards. */
+const POLICY_MARGIN_MS = 86_400_000;
+
+/** Whether `file` in `dir` names a `notAfter` at least POLICY_MARGIN_MS from now: the mock server refuses expired material, and old-form material has none. */
+function windowCurrent(dir: string, file: string): boolean {
   try {
-    const cert: unknown = JSON.parse(readFileSync(join(dir, "server/reply-cert.json"), "utf8"));
-    const notAfter = typeof cert === "object" && cert !== null ? (cert as { notAfter?: unknown }).notAfter : undefined;
-    return typeof notAfter === "number" && Date.now() + REPLY_CERT_MARGIN_MS <= notAfter;
+    const x: unknown = JSON.parse(readFileSync(join(dir, file), "utf8"));
+    const notAfter = typeof x === "object" && x !== null ? (x as { notAfter?: unknown }).notAfter : undefined;
+    return typeof notAfter === "number" && Date.now() + POLICY_MARGIN_MS <= notAfter;
   } catch {
     return false;
   }
 }
 
-/** True when `dir` holds every file setup-demo writes, with a reply certificate current for a day more, so the keys there can be used as they are. */
+/** True when `dir` holds every file setup-demo writes, with every keyring, root and the reply certificate current for a day more, so the keys there can be used as they are. */
 export function keysComplete(dir: string): boolean {
-  return KEY_FILES.every((f) => existsSync(join(dir, f))) && replyCertCurrent(dir);
+  return KEY_FILES.every((f) => existsSync(join(dir, f))) && WINDOWED_FILES.every((f) => windowCurrent(dir, f));
 }
 
 function defaultEnsureKeys(dir: string): void {

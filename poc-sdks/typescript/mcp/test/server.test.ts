@@ -22,6 +22,7 @@ import {
 import {
   checkServerPolicy,
   decideServerCall,
+  expiryWarnings,
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,
@@ -94,7 +95,6 @@ describe("checkServerPolicy", () => {
       unsigned: { ...cfg, keyringSig: "" },
       "signed by another key": { ...cfg, keyringSig: signKeyring(cfg.keyring, cfg.policyPublicKey, other.privateKey, NOT_AFTER).sig },
       "window moved": { ...cfg, keyringNotAfter: NOT_AFTER + 1 },
-      "window dropped": { ...cfg, keyringNotAfter: undefined },
       "window not an integer": { ...cfg, keyringNotAfter: 1.5 },
     };
     for (const [name, policy] of Object.entries(bad)) {
@@ -135,12 +135,85 @@ describe("checkServerPolicy", () => {
       expect(() => new McpServerSession({ ...cfg, replyCert }, RULES, Date.now), name).toThrow(why);
     }
   });
-  it("acceptsAnOldFormKeyringWithNoWindow", () => {
-    // nothing is refused for being in the old form yet
+  it("refusesAnOldFormKeyringWithNoWindow", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const { keyringNotAfter: _w, ...rest } = cfg;
-    const old: ServerPolicy = { ...rest, keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig };
-    expect(() => checkServerPolicy(old, Date.now())).not.toThrow();
+    const old = { ...rest, keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig } as ServerPolicy;
+    expect(() => checkServerPolicy(old, Date.now())).toThrow("the keyring is in the old form");
+    expect(() => new McpServerSession(old, RULES, Date.now)).toThrow("the keyring is in the old form");
+  });
+  it("expiredKeyring", () => {
+    const { cfg } = serverSetup(undefined, { keyringNotAfter: 5_000 });
+    expect(() => checkServerPolicy(cfg, 5_000)).not.toThrow();
+    expect(() => checkServerPolicy(cfg, 5_001)).toThrow("the keyring expired at 5000 (1970-01-01T00:00:05.000Z)");
+  });
+  it("anExpiredRootIsRefused", () => {
+    const { cfg } = serverSetup(undefined, { rootNotAfter: 5_000 });
+    expect(() => checkServerPolicy(cfg, 5_001)).toThrow("the root expired at 5000");
+  });
+  it("oldFormRoot", () => {
+    const { cfg } = serverSetup();
+    const { notAfter: _n, ...old } = cfg.signedRoot;
+    expect(() => checkServerPolicy({ ...cfg, signedRoot: old }, Date.now())).toThrow("the root is in the old form");
+  });
+  it("rootNotSignedByPolicyKey", () => {
+    const { cfg } = serverSetup();
+    const other = serverSetup().cfg.signedRoot;
+    for (const signedRoot of [other, { ...cfg.signedRoot, sig: other.sig }, { ...cfg.signedRoot, notAfter: NOT_AFTER + 1 }]) {
+      expect(() => checkServerPolicy({ ...cfg, signedRoot }, Date.now())).toThrow("the root is not signed by policyPublicKey");
+    }
+  });
+  it("routeProofDoesNotProve", () => {
+    const { cfg } = serverSetup();
+    const elsewhere = serverSetup(["mcp-entry", "other-tools"]).cfg.routeProof;
+    expect(() => checkServerPolicy({ ...cfg, routeProof: elsewhere }, Date.now())).toThrow("the route proof for mcp-entry/github-tools does not prove against the root");
+  });
+  it("toolsKeyMismatch", () => {
+    const { cfg } = serverSetup();
+    for (const key of [generateKeyPair().privateKey, cfg.signingKeys["mcp-entry"]!, "not-a-key"]) {
+      const bad = { ...cfg, signingKeys: { ...cfg.signingKeys, "github-tools": key } };
+      expect(() => checkServerPolicy(bad, Date.now())).toThrow("signingKeys[github-tools] is not the tools hop's keyring key");
+    }
+    const { "github-tools": _t, ...noKey } = cfg.signingKeys;
+    expect(() => checkServerPolicy({ ...cfg, signingKeys: noKey }, Date.now())).toThrow("signingKeys[github-tools]");
+  });
+  it("aToolsHopNamedOnlyByInheritanceHasNoKey", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const { "github-tools": inheritedKey, ...services } = cfg.keyring;
+    const ring = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
+    const keyring = Object.assign(Object.create({ "github-tools": inheritedKey }), services) as Record<string, string>;
+    expect(() => checkServerPolicy({ ...cfg, keyring, keyringSig: ring.sig }, Date.now())).toThrow(/keyring/);
+  });
+  it("aNotAfterBeyondDateRangeNeverMakesAMessageThrow", () => {
+    const big = Number.MAX_SAFE_INTEGER;
+    const { cfg } = serverSetup(undefined, { keyringNotAfter: big });
+    expect(() => checkServerPolicy(cfg, Date.now())).not.toThrow();
+    expect(() => checkServerPolicy(cfg, big + 1)).toThrow(`the keyring expired at ${big}`);
+    const { cfg: c2 } = serverSetup(undefined, { rootNotAfter: 1 });
+    expect(() => checkServerPolicy(c2, 2)).toThrow("the root expired at 1 (1970-01-01T00:00:00.001Z)");
+    const warned: string[] = [];
+    new McpServerSession(cfg, RULES, Date.now, (m) => warned.push(m));
+    expect(warned.every((m) => !m.includes("keyring"))).toBe(true);
+  });
+  it("warnsNearExpiry", () => {
+    const now = Date.now();
+    const near = now + 41 * 3_600_000;
+    const { cfg, policyPrivateKey } = serverSetup(undefined, { keyringNotAfter: near, rootNotAfter: near });
+    const warned: string[] = [];
+    new McpServerSession(cfg, RULES, () => now, (m) => warned.push(m));
+    // the certificate, valid for a day, is near its end too
+    expect(warned).toHaveLength(3);
+    expect(warned[2]).toContain("replyCert");
+    expect(warned[0]).toContain("keyring");
+    expect(warned[0]).toContain(`notAfter ${near} (${new Date(near).toISOString()})`);
+    expect(warned[1]).toContain("root");
+    const certNear = { ...cfg, replyCert: issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, near, policyPrivateKey) };
+    expect(expiryWarnings(certNear, now).map((m) => m.includes("replyCert"))).toContain(true);
+    const { cfg: farCfg, policyPrivateKey: farKey } = serverSetup();
+    const far = { ...farCfg, replyCert: issueReplyCert(farCfg.policyPublicKey, "mcp-entry", farCfg.keyring["mcp-entry"]!, now + 30 * DAY_MS, farKey) };
+    const quiet: string[] = [];
+    new McpServerSession(far, RULES, () => now, (m) => quiet.push(m));
+    expect(quiet).toEqual([]);
   });
   it("judgesExpiryAtTheSessionsClock", () => {
     const cfg = serverConfig();
@@ -316,17 +389,6 @@ describe("session handshake", () => {
     const { serverKeyringSig: _ks, serverReplyCert: _rc, ...stripped } = reply;
     expect(verifySessionReply(stripped as SessionReply, req, cfg.policyPublicKey, "mcp-entry", Date.now())).toBe(false);
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
-  });
-  it("anOldFormKeyringReplyCarriesNoWindowAndIsRefused", () => {
-    // a server on an old-form keyring opens every session unsafe, and a client refuses its reply live
-    const { cfg, policyPrivateKey } = serverSetup();
-    const { keyringNotAfter: _w, ...rest } = cfg;
-    const old: ServerPolicy = { ...rest, keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig };
-    const client = makeClient();
-    const reply = new McpServerSession(old, RULES, Date.now).openSession(client.request());
-    expect(Object.hasOwn(reply, "serverKeyringNotAfter")).toBe(false);
-    expect(reply.status).toBe("unsafe");
-    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(false);
   });
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };

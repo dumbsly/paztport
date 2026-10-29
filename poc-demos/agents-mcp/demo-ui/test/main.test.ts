@@ -60,14 +60,15 @@ describe("demo launcher", () => {
     // keys from an earlier version lack client/local-tools, and the extension then refuses to start
     const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
     try {
-      for (const f of ["client/root.json", "client/server-policy.pub", "server/root.json"]) {
+      for (const f of ["client/root.json", "client/server-policy.pub", "server/root.json", "client/keyring.json", "server/keyring.json"]) {
         mkdirSync(join(dir, f, ".."), { recursive: true });
-        writeFileSync(join(dir, f), "{}");
+        writeFileSync(join(dir, f), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
       }
       writeFileSync(join(dir, "server/reply-cert.json"), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
       expect(keysComplete(dir)).toBe(false);
       mkdirSync(join(dir, "client/local-tools"), { recursive: true });
       writeFileSync(join(dir, "client/local-tools/rules.json"), "{}");
+      writeFileSync(join(dir, "client/local-tools/root.json"), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
       expect(keysComplete(dir)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -79,9 +80,9 @@ describe("demo launcher", () => {
     // and evidence saved near notAfter would fail verify later, so a day short of it they are made again too
     const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
     try {
-      for (const f of ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "server/root.json"]) {
+      for (const f of ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "client/local-tools/root.json", "server/root.json", "client/keyring.json", "server/keyring.json"]) {
         mkdirSync(join(dir, f, ".."), { recursive: true });
-        writeFileSync(join(dir, f), "{}");
+        writeFileSync(join(dir, f), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
       }
       const cert = join(dir, "server/reply-cert.json");
       expect(keysComplete(dir)).toBe(false);
@@ -94,6 +95,34 @@ describe("demo launcher", () => {
       }
       writeFileSync(cert, JSON.stringify({ notAfter: Date.now() + day + 60_000 }));
       expect(keysComplete(dir)).toBe(true);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("demo keys with less than a day left on any one keyring, root or the certificate are not complete", () => {
+    const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
+    const day = 86_400_000;
+    const files = ["server/keyring.json", "server/root.json", "client/keyring.json", "client/root.json", "client/local-tools/root.json", "server/reply-cert.json"];
+    const write = (f: string, notAfter: unknown) => {
+      mkdirSync(join(dir, f, ".."), { recursive: true });
+      writeFileSync(join(dir, f), JSON.stringify(notAfter === undefined ? {} : { notAfter }));
+    };
+    try {
+      for (const f of ["client/server-policy.pub", "client/local-tools/rules.json"]) write(f, undefined);
+      const fresh = () => files.forEach((f) => write(f, Date.now() + 2 * day));
+      fresh();
+      expect(keysComplete(dir)).toBe(true);
+      for (const f of files) {
+        for (const notAfter of [Date.now() + day - 60_000, Date.now() - 1, undefined, "later"]) {
+          fresh();
+          write(f, notAfter);
+          expect(keysComplete(dir), `${f} ${String(notAfter)}`).toBe(false);
+        }
+      }
+      fresh();
+      rmSync(join(dir, "client/keyring.json"));
+      expect(keysComplete(dir)).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

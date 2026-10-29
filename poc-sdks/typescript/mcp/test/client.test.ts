@@ -75,7 +75,7 @@ function serverMaterial(
       signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
       keyring: ring.services,
       keyringSig: ring.sig,
-      keyringNotAfter: ring.notAfter,
+      keyringNotAfter: ring.notAfter!,
       replyCert: CERTIFY_ENTRY({ policy, keys: ring.services }),
       signedRoot,
       routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,

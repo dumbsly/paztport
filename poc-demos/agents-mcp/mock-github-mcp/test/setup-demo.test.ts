@@ -58,6 +58,23 @@ describe("setup-demo", () => {
     expect(loadServerConfig(join(out, "server")).replyCert).toEqual(cert);
   });
 
+  it("setupWritesThirtyDayNewFormMaterialForBothSides", () => {
+    const out = join(tmp, "thirty");
+    const before = Date.now();
+    const r = setup("--out", out);
+    const after = Date.now();
+    expect(r.status, r.stderr).toBe(0);
+    const DAYS_30 = 30 * 86_400_000;
+    const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8")) as { notAfter?: number };
+    for (const f of ["server/keyring.json", "server/root.json", "client/keyring.json", "client/root.json", "client/local-tools/root.json"]) {
+      const { notAfter } = read(f);
+      expect(notAfter, f).toBeGreaterThanOrEqual(before + DAYS_30);
+      expect(notAfter, f).toBeLessThanOrEqual(after + DAYS_30);
+    }
+    // the client keyring is re-signed beside the local-tools root with the same window
+    expect(verifyKeyring(read("client/keyring.json") as never, clientPolicy(out))).toBe(true);
+  });
+
   it("setupBuildsLocalToolsPolicy", () => {
     const out = join(tmp, "local");
     const r = setup("--out", out);

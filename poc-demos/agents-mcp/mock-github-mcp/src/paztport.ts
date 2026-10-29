@@ -7,13 +7,10 @@ import { join } from "node:path";
 import {
   decode,
   isReplyCert,
-  keyPairMatches,
   parseProof,
   parseSignedRoot,
-  provesPath,
   readNotAfter,
   routeOf,
-  verifyRoot,
   type MerkleProof,
   type ReplyCert,
   type SignedRoot,
@@ -59,35 +56,12 @@ function isPublicKey(key: string): boolean {
   }
 }
 
-/**
- * Throws a clear Error unless the loaded files hold together at `now`. The SDK's checkServerPolicy judges the keyring
- * signature, the entry's key and the reply certificate, as McpServerSession would on start; its refusal is passed on
- * with the fix. This adds what the demo's own files must also agree on: the root, the tools hop's key and the route.
- */
+/** Runs the SDK's whole server-policy check at `now`; its refusal is passed on with where the files came from and the fix. */
 function validateServerConfig(cfg: ServerPolicy, dir: string, now: number): void {
   try {
     checkServerPolicy(cfg, now);
   } catch (e) {
     throw new Error(`${(e as Error).message} (loaded from ${dir}): ${REGENERATE}`);
-  }
-  if (!verifyRoot(cfg.signedRoot, cfg.policyPublicKey)) {
-    throw new Error("root.json is not signed by the keyring.json policy key");
-  }
-  const tools = HOPS[1];
-  if (!Object.hasOwn(cfg.keyring, tools)) {
-    throw new Error(`keyring.json has no entry for ${tools}`);
-  }
-  if (!keyPairMatches(cfg.signingKeys[tools]!, cfg.keyring[tools]!)) {
-    throw new Error(`${tools}.key does not match its keyring.json entry`);
-  }
-  let rootBytes: Uint8Array;
-  try {
-    rootBytes = decode(cfg.signedRoot.root);
-  } catch {
-    throw new Error("root.json root is not valid base64url");
-  }
-  if (!provesPath(cfg.routeProof, ROUTE, rootBytes, cfg.signedRoot.rootId)) {
-    throw new Error(`route proof for ${ROUTE} does not verify against root.json`);
   }
 }
 
@@ -120,8 +94,9 @@ function withFix<T>(read: () => T, prefix = ""): T {
 /**
  * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, including the
  * reply certificate, and the client policy key the server pins (client-policy.pub, written by setup-demo). It reads
- * no policy private key, and refuses a certificate that is not current at `now`. The root is read whole and the
- * keyring's window kept, so each is checked in its own form; a window that is not an integer is refused.
+ * no policy private key, and leaves every judgement of the material, its signatures, lifetime and agreement, to the
+ * SDK's checkServerPolicy at `now`. The root is read whole and the keyring's window kept; a window that is not an
+ * integer is refused.
  */
 export function loadServerConfig(dir: string, now: number = Date.now()): ServerPolicy {
   const ring = readJson(join(dir, "keyring.json"));
@@ -162,7 +137,8 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     keyring,
     // an unsigned keyring reads as "", which never verifies
     keyringSig: typeof ring.sig === "string" ? ring.sig : "",
-    ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}),
+    // an old-form keyring has none; checkServerPolicy refuses that with the fix
+    keyringNotAfter: keyringNotAfter as number,
     replyCert,
     signedRoot,
     routeProof,

@@ -2,11 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, issueReplyCert, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
+import { buildPolicy, decode, generateKeyPair, issueReplyCert, signKeyring, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
@@ -33,8 +33,8 @@ function serverSetup(): { cfg: ServerPolicy; policyPrivateKey: string } {
     signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
     keyring: ring.services,
     keyringSig: ring.sig,
-    keyringNotAfter: ring.notAfter,
-    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
+    keyringNotAfter: ring.notAfter!,
+    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",
@@ -137,7 +137,7 @@ describe("loadServerConfig", () => {
       (f["keyring.json"] as { sig: string }).sig = signKeyring(cfg.keyring, cfg.policyPublicKey, generateKeyPair().privateKey, NOT_AFTER).sig;
     });
     expect(() => loadServerConfig(other)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${other}): ${REGENERATE}`);
-    // the keyring's window is covered by its signature, moved or dropped
+    // the keyring's window is covered by its signature when moved
     const moved = writeDir(cfg, (f) => {
       (f["keyring.json"] as { notAfter: number }).notAfter = NOT_AFTER + 1;
     });
@@ -145,7 +145,7 @@ describe("loadServerConfig", () => {
     const dropped = writeDir(cfg, (f) => {
       delete (f["keyring.json"] as { notAfter?: number }).notAfter;
     });
-    expect(() => loadServerConfig(dropped)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${dropped}): ${REGENERATE}`);
+    expect(() => loadServerConfig(dropped)).toThrow(`server policy refused: the keyring is in the old form (no notAfter); re-sign it with the policy tool (loaded from ${dropped}): ${REGENERATE}`);
   });
   it.each([1.5, -1, 2 ** 53, "x", null, true])("loadServerConfigRefusesAWindowThatIsNotAnInteger %j", (bad) => {
     const ring = writeDir(serverConfig(), (f) => {
@@ -157,19 +157,23 @@ describe("loadServerConfig", () => {
     });
     expect(() => loadServerConfig(root)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
   });
-  it("loadServerConfigStillAcceptsOldFormFiles", () => {
-    // nothing is refused for being in the old form yet
+  it("theLoaderDelegatesEveryJudgementToTheSdkCheck", () => {
+    const source = readFileSync(join(import.meta.dirname, "../src/paztport.ts"), "utf8");
+    for (const helper of ["verifyRoot", "provesPath", "keyPairMatches", "verifyKeyring", "isCurrent"]) {
+      expect(source, helper).not.toContain(helper);
+    }
+    expect(source).toContain("checkServerPolicy(cfg, now)");
+  });
+  it("loadServerConfigRefusesOldFormFilesThroughTheSdkCheck", () => {
     const { cfg, policyPrivateKey } = serverSetup();
-    const { keyringNotAfter: _w, ...rest } = cfg;
-    const old: ServerPolicy = {
-      ...rest,
-      keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig,
-      signedRoot: signRootOldForm(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, policyPrivateKey),
-    };
-    const loaded = loadServerConfig(writeDir(old));
-    expect(loaded).toEqual(old);
-    expect(Object.hasOwn(loaded, "keyringNotAfter")).toBe(false);
-    expect(Object.hasOwn(loaded.signedRoot, "notAfter")).toBe(false);
+    const { signedRoot: _r, ...rest } = cfg;
+    const oldRoot = signRootOldForm(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, policyPrivateKey);
+    const dir = writeDir({ ...rest, signedRoot: oldRoot });
+    expect(() => loadServerConfig(dir)).toThrow(`server policy refused: the root is in the old form (no notAfter); re-sign it with the policy tool (loaded from ${dir}): ${REGENERATE}`);
+  });
+  it("loadServerConfigRefusesAnExpiredRootAndKeyringWithTheFix", () => {
+    const dir = writeDir(serverConfig());
+    expect(() => loadServerConfig(dir, NOT_AFTER + 1)).toThrow(`server policy refused: the keyring expired at ${NOT_AFTER} (2100-01-01T00:00:00.000Z) (loaded from ${dir}): ${REGENERATE}`);
   });
   it("loadServerConfigNamesTheFixWhenTheReplyCertificateIsMissingOrMalformed", () => {
     const missing = writeDir(serverConfig(), (f) => {
@@ -256,18 +260,18 @@ describe("loadServerConfig", () => {
     expect(() => loadServerConfig(dir)).toThrow(/route proof/);
   });
   it("loadServerConfigNamesTheRouteWhenItsProofDoesNotVerify", () => {
-    const message = "route proof for mcp-entry/github-tools does not verify against root.json";
+    const message = `server policy refused: the route proof for mcp-entry/github-tools does not prove against the root (loaded from DIR): ${REGENERATE}`;
     const cfg = serverConfig();
     const p = cfg.routeProof;
     const flipped = (p.leafSalt[0] === "A" ? "B" : "A") + p.leafSalt.slice(1);
     const wrongProof = writeDir(cfg, (f) => {
       f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, leafSalt: flipped } } };
     });
-    expect(() => loadServerConfig(wrongProof)).toThrow(message);
+    expect(() => loadServerConfig(wrongProof)).toThrow(message.replace("DIR", wrongProof));
     const wrongRoot = writeDir(cfg, (f) => {
       f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, rootId: "vother" } } };
     });
-    expect(() => loadServerConfig(wrongRoot)).toThrow(message);
+    expect(() => loadServerConfig(wrongRoot)).toThrow(message.replace("DIR", wrongRoot));
   });
   it("loadServerConfigRejectsRootNotSignedByPolicyKey", () => {
     const cfg = serverConfig();
@@ -275,7 +279,7 @@ describe("loadServerConfig", () => {
     const dir = writeDir(cfg, (f) => {
       f["root.json"] = forged;
     });
-    expect(() => loadServerConfig(dir)).toThrow(/root\.json/);
+    expect(() => loadServerConfig(dir)).toThrow(`server policy refused: the root is not signed by policyPublicKey (loaded from ${dir}): ${REGENERATE}`);
   });
   it("loadServerConfigRejectsMismatchedSigningKeys", () => {
     const entry = writeDir(serverConfig(), (f) => {
@@ -285,7 +289,7 @@ describe("loadServerConfig", () => {
     const tools = writeDir(serverConfig(), (f) => {
       f["github-tools.key"] = generateKeyPair().privateKey;
     });
-    expect(() => loadServerConfig(tools)).toThrow("github-tools.key does not match its keyring.json entry");
+    expect(() => loadServerConfig(tools)).toThrow(`server policy refused: signingKeys[github-tools] is not the tools hop's keyring key (loaded from ${tools}): ${REGENERATE}`);
   });
   it("loadServerConfigRejectsMissingKeyringEntry", () => {
     const { cfg, policyPrivateKey } = serverSetup();
@@ -293,7 +297,7 @@ describe("loadServerConfig", () => {
     const dir = writeDir(cfg, (f) => {
       f["keyring.json"] = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
     });
-    expect(() => loadServerConfig(dir)).toThrow("keyring.json has no entry for github-tools");
+    expect(() => loadServerConfig(dir)).toThrow(`server policy refused: the keyring has no key for the tools hop github-tools (loaded from ${dir}): ${REGENERATE}`);
   });
   it("loadServerConfigRejectsUnusableKey", () => {
     const dir = writeDir(serverConfig(), (f) => {

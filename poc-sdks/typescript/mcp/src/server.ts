@@ -7,6 +7,7 @@ import {
   decode,
   deriveSessionId,
   earliestNotAfter,
+  isCurrent,
   keyPairMatches,
   newContentId,
   newNonce,
@@ -14,6 +15,7 @@ import {
   NONCE_TTL_MS,
   ORIGIN_SVC,
   parseSignedRoot,
+  provesPath,
   publicWriteRefused,
   readNotAfter,
   sessionStatus,
@@ -21,6 +23,7 @@ import {
   signStampV3,
   verifyKeyring,
   verifyReplyCert,
+  verifyRoot,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
@@ -47,10 +50,10 @@ export type ServerPolicy = {
   /** Each hop's private key, by service name. */
   signingKeys: Record<string, string>;
   keyring: Record<string, string>;
-  /** The policy key's signature over `keyring`, over `keyringNotAfter` too when it is set. */
+  /** The policy key's signature over `keyring` and `keyringNotAfter`. */
   keyringSig: string;
-  /** The keyring's window, set exactly when the keyring is in the new form; replies carry it as `serverKeyringNotAfter`. */
-  keyringNotAfter?: number;
+  /** The keyring's window, which checkServerPolicy requires (a policy without one is the old form); replies carry it as `serverKeyringNotAfter`. */
+  keyringNotAfter: number;
   /** The policy key's certificate for the entry's key; checkServerPolicy refuses one that is not for `hops[0]`'s keyring key or has expired. */
   replyCert: ReplyCert;
   signedRoot: SignedRoot;
@@ -134,22 +137,38 @@ function parseSessionRequest(params: unknown): SessionRequest {
   };
 }
 
-/** The server's own keyring as signed: over `keyringNotAfter` when the policy has one. */
+/** The server's own keyring as signed, over `keyringNotAfter` when the policy has one. */
 function ownKeyring(policy: ServerPolicy): SignedKeyring {
   const ring: SignedKeyring = { policy: policy.policyPublicKey, services: policy.keyring, sig: policy.keyringSig };
   return policy.keyringNotAfter !== undefined ? { ...ring, notAfter: policy.keyringNotAfter } : ring;
 }
 
+/** `notAfter` as the integer and, when it is in Date's range, its ISO time; never throws. */
+function describeNotAfter(notAfter: number): string {
+  return Math.abs(notAfter) <= 8.64e15 ? `${notAfter} (${new Date(notAfter).toISOString()})` : `${notAfter}`;
+}
+
+/** A quarter of the default seven-day lifetime, 42 hours: a server warns at construction when its keyring, root or certificate has no more than this left. */
+export const WARN_WITHIN_MS = (7 * 86_400_000) / 4;
+
 /**
- * Throws an Error naming the fault unless `policy` can sign replies a client accepts at `now`: the keyring is signed
- * by `policyPublicKey` (over `keyringNotAfter` when it is set), `signingKeys[hops[0]]` is the entry's keyring key,
- * and `replyCert` verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired.
- * McpServerSession calls it on construction.
+ * Throws an Error naming the fault unless `policy` can serve at `now`: the keyring is in the new form, signed by
+ * `policyPublicKey` over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert`
+ * verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is in the new form,
+ * current and signed by `policyPublicKey`; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
+ * it; and `routeProof` proves `hops[0]/hops[1]` against the root. McpServerSession calls it on construction.
  */
 export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   const entry = policy.hops[0];
+  const tools = policy.hops[1];
+  if (policy.keyringNotAfter === undefined) {
+    throw new Error("server policy refused: the keyring is in the old form (no notAfter); re-sign it with the policy tool");
+  }
   if (!verifyKeyring(ownKeyring(policy), policy.policyPublicKey)) {
     throw new Error("server policy refused: the keyring is not signed by policyPublicKey");
+  }
+  if (!isCurrent({ notAfter: policy.keyringNotAfter }, now)) {
+    throw new Error(`server policy refused: the keyring expired at ${describeNotAfter(policy.keyringNotAfter)}`);
   }
   if (!Object.hasOwn(policy.keyring, entry)) {
     throw new Error(`server policy refused: the keyring has no key for the entry ${entry}`);
@@ -170,8 +189,46 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
     throw new Error("server policy refused: replyCert names a key other than the entry's keyring key");
   }
   if (now > cert.notAfter) {
-    throw new Error(`server policy refused: replyCert expired at ${new Date(cert.notAfter).toISOString()}`);
+    throw new Error(`server policy refused: replyCert expired at ${describeNotAfter(cert.notAfter)}`);
   }
+  const root = policy.signedRoot;
+  if (!Object.hasOwn(root, "notAfter")) {
+    throw new Error("server policy refused: the root is in the old form (no notAfter); re-sign it with the policy tool");
+  }
+  if (!verifyRoot(root, policy.policyPublicKey)) {
+    throw new Error("server policy refused: the root is not signed by policyPublicKey");
+  }
+  if (!isCurrent(root, now)) {
+    throw new Error(`server policy refused: the root expired at ${describeNotAfter(root.notAfter!)}`);
+  }
+  if (!Object.hasOwn(policy.keyring, tools)) {
+    throw new Error(`server policy refused: the keyring has no key for the tools hop ${tools}`);
+  }
+  const toolsKey = Object.hasOwn(policy.signingKeys, tools) ? policy.signingKeys[tools] : undefined;
+  if (typeof toolsKey !== "string" || !keyPairMatches(toolsKey, policy.keyring[tools]!)) {
+    throw new Error(`server policy refused: signingKeys[${tools}] is not the tools hop's keyring key`);
+  }
+  let rootBytes: Uint8Array;
+  try {
+    rootBytes = decode(root.root);
+  } catch {
+    throw new Error("server policy refused: the root is not valid base64url");
+  }
+  if (!provesPath(policy.routeProof, `${entry}/${tools}`, rootBytes, root.rootId)) {
+    throw new Error(`server policy refused: the route proof for ${entry}/${tools} does not prove against the root`);
+  }
+}
+
+/** One warning per item (keyring, root, reply certificate) with no more than WARN_WITHIN_MS left at `now`, naming it and its `notAfter`. */
+export function expiryWarnings(policy: ServerPolicy, now: number): string[] {
+  const items: [string, number | undefined][] = [
+    ["keyring", policy.keyringNotAfter],
+    ["root", policy.signedRoot.notAfter],
+    ["replyCert", policy.replyCert.notAfter],
+  ];
+  return items
+    .filter(([, n]) => n !== undefined && n - now <= WARN_WITHIN_MS)
+    .map(([what, n]) => `paztport: the server's ${what} expires soon (notAfter ${describeNotAfter(n!)}); re-sign it with the policy tool`);
 }
 
 /** The server side of one MCP connection: its paztport/session handshake, call checks and response stamps. */
@@ -181,9 +238,13 @@ export class McpServerSession {
   private readonly now: () => number;
   private current: Session | undefined;
 
-  /** Throws, as checkServerPolicy does at `now()`, for a policy whose replies no client would accept. */
-  constructor(policy: ServerPolicy, rules: SessionRules, now: () => number) {
+  /**
+   * Throws, as checkServerPolicy does at `now()`, for a policy whose replies no client would accept. Then passes each
+   * expiryWarnings message to `warn`, by default `console.error` (stderr: a stdio server's stdout carries the protocol).
+   */
+  constructor(policy: ServerPolicy, rules: SessionRules, now: () => number, warn: (message: string) => void = console.error) {
     checkServerPolicy(policy, now());
+    for (const message of expiryWarnings(policy, now())) warn(message);
     this.policy = policy;
     this.rules = rules;
     this.now = now;
@@ -225,7 +286,7 @@ export class McpServerSession {
         serverPolicyKey: this.policy.policyPublicKey,
         serverKeyring: this.policy.keyring,
         serverKeyringSig: this.policy.keyringSig,
-        ...(this.policy.keyringNotAfter !== undefined ? { serverKeyringNotAfter: this.policy.keyringNotAfter } : {}),
+        serverKeyringNotAfter: this.policy.keyringNotAfter,
         serverReplyCert: this.policy.replyCert,
         nonce: serverNonce,
         sess,

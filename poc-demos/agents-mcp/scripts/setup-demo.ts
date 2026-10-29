@@ -4,7 +4,7 @@
 // Generates demo keys and signed policies: <out>/server (mcp-entry, github-tools) and <out>/client (session, pi),
 // plus <out>/client/local-tools (the client root with the local folder rules), <out>/client/server-policy.pub, the server policy public key the client pins,
 // and <out>/server/client-policy.pub, the client policy public key the server pins, and <out>/server/reply-cert.json,
-// a 30-day reply certificate for mcp-entry's key, the key that signs the server's session replies. Neither policy
+// a 30-day reply certificate for mcp-entry's key (every keyring and root also lasts 30 days), the key that signs the server's session replies. Neither policy
 // private key is kept: each is deleted once it has signed its side's root and keyring, and the server's its certificate.
 // Refuses an existing <out> unless --force (which regenerates the keys in place).
 // Prints only paths, never key material.
@@ -18,6 +18,9 @@ const AGENTS = join(import.meta.dirname, "..");
 const KEYGEN = join(AGENTS, "node_modules/@paztport/policy-tool/src/keygen.ts");
 const POLICY = join(AGENTS, "node_modules/@paztport/policy-tool/src/policy.ts");
 
+/** How long each keyring and root lasts: 30 days, on both sides, so a demo checkout keeps working for a month. */
+const POLICY_DAYS = "30";
+
 function run(script: string, args: string[]): void {
   const r = spawnSync(process.execPath, [script, ...args], { encoding: "utf8" });
   if (r.status !== 0) {
@@ -28,8 +31,8 @@ function run(script: string, args: string[]): void {
 
 /** Keys, keyring, root and proofs into `dir`, the policy tool re-signing the keyring beside the root; `extra` is passed to the policy tool. */
 function setup(dir: string, services: string, paths: string, extra: string[] = []): void {
-  run(KEYGEN, ["--out", dir, "--services", services]);
-  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--keyring", join(dir, "keyring.json"), "--out", dir, ...extra]);
+  run(KEYGEN, ["--out", dir, "--services", services, "--policy-days", POLICY_DAYS]);
+  run(POLICY, ["--paths", paths, "--policy-key", join(dir, "policy.key"), "--keyring", join(dir, "keyring.json"), "--out", dir, "--policy-days", POLICY_DAYS, ...extra]);
   console.log(dir);
 }
 
@@ -65,6 +68,7 @@ run(POLICY, [
   "--policy-key", join(out, "client/policy.key"),
   "--keyring", join(out, "client/keyring.json"),
   "--out", join(out, "client/local-tools"),
+  "--policy-days", POLICY_DAYS,
 ]);
 // the server opens attested sessions only for the client policy key it pins
 const clientRing = JSON.parse(readFileSync(join(out, "client/keyring.json"), "utf8")) as { policy: string };

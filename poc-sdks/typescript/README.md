@@ -42,7 +42,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   stdio the live order ends at check 11, and the peer check is core's (`verifyChainV3`).
 - **The policy's window.** A live config requires `policyNotAfter`, the earliest `notAfter` of the keyring and
   root it pins (`earliestNotAfter`); past it, or with none (old-form material), every chain is `POLICY_EXPIRED`,
-  before any stamp is read. Every live verifier here is per session: the server's call check takes the client
+  before the live order's checks. Every live verifier here is per session: the server's call check takes the client
   root's and `clientKeyringNotAfter`, and the client's response check the server root's and, in the entry-key
   form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
@@ -79,9 +79,14 @@ opens an attested session only for a client policy key in its `pinnedClientKeys`
 [entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
 Its constructor refuses to start, through the exported `checkServerPolicy`, with a
-policy whose keyring is not signed by its policy key, whose `signingKeys[hops[0]]` is
-not the entry's keyring key, or whose certificate does not verify under its policy
-key, names another service or key, or has expired at the session's clock.
+policy that does not hold together at the session's clock, lifetime included: a
+keyring or root in the old form, expired, or not signed by its policy key; a
+`signingKeys[hops[0]]` that is not the entry's keyring key, or a `signingKeys[hops[1]]` that is not
+the tools hop's own keyring key; a route proof for `hops[0]/hops[1]` that does not prove against the
+root; or a certificate that does not verify under its policy key, names another service or key, or
+has expired. Material that is current but has 42 hours (a quarter of the default lifetime) or less
+left is warned about once per item (keyring, root, certificate) at construction, naming its `notAfter`,
+through the constructor's `warn` argument, `console.error` by default.
 
 ## policy-tool
 
