@@ -9,8 +9,8 @@ import java.util.List;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.spring.PartnerFilter;
 import org.paztport.spring.PaztportContext;
+import org.paztport.spring.internal.DecisionLine;
 import org.paztport.spring.internal.SessionStatus;
-import org.paztport.spring.internal.TraceLines;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -59,7 +59,7 @@ final class PartnerGate implements HandlerInterceptor {
             return true;
         }
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(TraceLines.decisionLine(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
+            TRACE.info(DecisionLine.of(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
                     PaztportContext.influence()));
         }
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);

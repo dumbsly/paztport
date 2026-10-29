@@ -12,12 +12,13 @@ import org.paztport.spring.PaztportContext;
 import org.paztport.spring.PublicWrites;
 
 /**
- * The trace line that more than one part of the starter logs in the same form, so that operators and the demo read
- * one format wherever it comes from. It holds no state and is not for an application to use.
+ * The {@code PAZTPORT_TRACE decision} line, which the public-write rule and the partner's unsafe-session gate both
+ * log, built in one place so that operators and the demo read one format wherever it comes from. It holds no state
+ * and is not for an application to use.
  */
-public final class TraceLines {
+public final class DecisionLine {
 
-    private TraceLines() {
+    private DecisionLine() {
     }
 
     /**
@@ -26,7 +27,7 @@ public final class TraceLines {
      * chain's, else {@code -}. It comes from the request, so it goes through {@link LogSafe}, as do the receiver and
      * the classes.
      */
-    public static String decisionLine(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
+    public static String of(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
         List<StampV3> chain = PaztportContext.verifiedChain() != null
                 ? PaztportContext.verifiedChain() : PaztportContext.inboundChain();
         String rid = chain == null || chain.isEmpty() || chain.get(0).rid().isEmpty()

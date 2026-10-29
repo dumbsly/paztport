@@ -8,7 +8,7 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.spring.internal.TraceLines;
+import org.paztport.spring.internal.DecisionLine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +55,7 @@ public final class PublicWrites {
                         influence.stream().map(InfluenceEntry::fact).toList(), destinationOwner);
         ReasonCode reason = refused ? ReasonCode.INFLUENCE_DENIED : ReasonCode.OK;
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(TraceLines.decisionLine(receiver, "public-write", reason, influence));
+            TRACE.info(DecisionLine.of(receiver, "public-write", reason, influence));
         }
         return reason;
     }
@@ -76,7 +76,7 @@ public final class PublicWrites {
                 && influence.stream().noneMatch(e -> e.cls() == InfluenceClass.THIRD_PARTY
                         || e.cls() == InfluenceClass.LOCAL_UNTRUSTED);
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(TraceLines.decisionLine(receiver, "trusted-record",
+            TRACE.info(DecisionLine.of(receiver, "trusted-record",
                     trusted ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED, influence));
         }
         return trusted;
