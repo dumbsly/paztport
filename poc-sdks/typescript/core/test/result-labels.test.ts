@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { resultLabels, type Resolved } from "../src/local-decision.ts";
-import { parseLocalRules } from "../src/local-rules.ts";
+import { resultLabels, type Resolved } from "../src/influence/local-decision.ts";
+import { parseLocalRules } from "../src/policy/local-rules.ts";
 
 const rules = parseLocalRules({
   v: 1,
