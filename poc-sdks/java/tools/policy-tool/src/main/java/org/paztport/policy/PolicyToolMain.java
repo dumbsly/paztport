@@ -45,7 +45,9 @@ import org.paztport.core.SignedRoot;
  * Either mode first checks the keyring (and, renewing, the root) is signed by the policy key in {@code policy.key},
  * in either form and whether or not it has expired, and that the keyring names that key; on a refusal it writes
  * nothing and exits 2. The keyring is written in place, truncated and rewritten rather than replaced by a rename,
- * so that it can be a single file mounted into the tool.
+ * so that it can be a single file mounted into the tool. It is written first, so a keyring that cannot be written
+ * (mounted read-only, say) stops the run with one line, {@code policy-tool: cannot write <file> (mounted
+ * read-only?)}, and nothing written; that and any other I/O error exit 1.
  *
  * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, either mode also writes {@code reply-cert.json}, a
  * {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days
@@ -179,7 +181,23 @@ public final class PolicyToolMain {
      * mount fails. It is serialised first, so a failure there leaves the file as it was.
      */
     private static void writeKeyringInPlace(Path keyringFile, KeyringFile ring) throws IOException {
-        Files.write(keyringFile, MAPPER.writeValueAsBytes(ring));
+        byte[] bytes = MAPPER.writeValueAsBytes(ring);
+        try {
+            Files.write(keyringFile, bytes);
+        } catch (IOException e) {
+            throw new CannotWrite(keyringFile, e);
+        }
+    }
+
+    /**
+     * The keyring could not be written. It is the first file either mode writes, after every check has passed, so
+     * this is where a keyring mounted read-only into the tool shows up, with nothing yet written; the message says
+     * so in one line rather than a stack trace. An I/O error, not a refusal, so it exits 1.
+     */
+    static final class CannotWrite extends IOException {
+        CannotWrite(Path file, IOException cause) {
+            super("cannot write " + file + " (mounted read-only?)", cause);
+        }
     }
 
     /**
@@ -288,6 +306,10 @@ public final class PolicyToolMain {
         } catch (IllegalArgumentException e) {
             System.err.println("policy-tool: refused: " + e.getMessage());
             System.exit(2);
+            return;
+        } catch (CannotWrite e) {
+            System.err.println("policy-tool: " + e.getMessage());
+            System.exit(1);
             return;
         }
 

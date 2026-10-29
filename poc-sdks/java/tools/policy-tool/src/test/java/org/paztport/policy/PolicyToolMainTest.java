@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
@@ -453,5 +454,36 @@ class PolicyToolMainTest {
         assertTrue(PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, "true").renew());
         assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {}, "yes"));
         assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {"--rebuild"}, null));
+    }
+
+    /**
+     * A keyring the tool cannot write (as when it is mounted read-only) stops either mode with one named line, not a
+     * stack trace, and since the keyring is the first write, nothing at all is written.
+     */
+    @Test
+    void anUnwritableKeyringIsNamedAndNothingIsWritten(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        Path keyring = keys.resolve("keyring.json");
+        assertTrue(keyring.toFile().setWritable(false));
+        try {
+            assumeFalse(Files.isWritable(keyring), "running as a user who can write a read-only file");
+            Map<Path, String> before = snapshot(keys, out);
+
+            PolicyToolMain.CannotWrite rebuild = assertThrows(PolicyToolMain.CannotWrite.class,
+                    () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
+            assertEquals("cannot write " + keyring + " (mounted read-only?)", rebuild.getMessage());
+            assertEquals(before, snapshot(keys, out));
+
+            PolicyToolMain.CannotWrite renew = assertThrows(PolicyToolMain.CannotWrite.class,
+                    () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, "orders", NOT_AFTER));
+            assertEquals("cannot write " + keyring + " (mounted read-only?)", renew.getMessage());
+            assertEquals(before, snapshot(keys, out));
+        } finally {
+            keyring.toFile().setWritable(true);
+        }
     }
 }

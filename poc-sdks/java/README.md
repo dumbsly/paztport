@@ -299,9 +299,11 @@ keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7).
   files are renewed into the new form all the same.
 
 Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
-not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Any failure
-is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
-renamed over), so it can be a single file mounted writable into the tool. A rebuild vouches that the routes in
+not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Any of these
+failing is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
+renamed over), so it can be a single file mounted writable into the tool. It is written first, so a keyring
+the tool cannot write (mounted read-only, say) stops the run with `policy-tool: cannot write <file> (mounted
+read-only?)` and nothing written. I/O errors like that one exit 1, not 2. A rebuild vouches that the routes in
 `paths.yaml` are the ones allowed now; a renewal, that the existing tree's routes all still are, since
 narrowing a policy is a rebuild. Re-signing the keyring vouches that each listed key is still its service's
 current key: the tool can check only that this policy key signed the keyring before, so retiring a key, which
