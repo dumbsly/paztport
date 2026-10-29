@@ -41,6 +41,8 @@ import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.KeyringFile;
@@ -801,14 +803,18 @@ class PaztportAutoConfigurationTest {
                         assertThat(context.getStartupFailure()).rootCause()
                                 .hasMessageContaining("paztport.read-timeout-ms").hasMessageContaining("positive");
                     });
-            // Without a TLS bundle too: the event client is built either way.
-            withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
-                    .withPropertyValues("paztport.event-timeout-ms=" + value)
-                    .run(context -> {
-                        assertThat(context).hasFailed();
-                        assertThat(context.getStartupFailure()).rootCause()
-                                .hasMessageContaining("paztport.event-timeout-ms").hasMessageContaining("positive");
-                    });
+            // The event client is built with a TLS bundle or without, and refuses it either way.
+            for (String[] bundle : List.of(new String[0], MESH_BUNDLE)) {
+                withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1"))
+                        .withPropertyValues(bundle)
+                        .withPropertyValues("paztport.event-timeout-ms=" + value)
+                        .run(context -> {
+                            assertThat(context).hasFailed();
+                            assertThat(context.getStartupFailure()).rootCause()
+                                    .hasMessageContaining("paztport.event-timeout-ms")
+                                    .hasMessageContaining("positive");
+                        });
+            }
         }
     }
 
@@ -868,12 +874,18 @@ class PaztportAutoConfigurationTest {
         }
     }
 
-    /** A call on the shared builder to a peer that never answers fails at the read timeout, as a timeout. */
-    @Test
+    /**
+     * A call on the shared builder, which stamps, to a peer that never finishes answering, before its headers or part
+     * way through the body, fails at the read timeout, as a timeout. On JDK 27 the JDK's own request timeout would
+     * also end the stalled body, so there this passes even without the starter's whole-exchange bound; on JDK 21,
+     * which applies a request's timeout only to the headers, it shows that bound, and it was run there.
+     */
+    @ParameterizedTest
+    @EnumSource(SilentPeer.Stall.class)
     @Timeout(10)
-    void aCallOnTheSharedBuilderFailsAtTheReadTimeout(@TempDir Path dir) throws Exception {
+    void aCallOnTheSharedBuilderFailsAtTheReadTimeout(SilentPeer.Stall stall, @TempDir Path dir) throws Exception {
         writeWorld(dir);
-        try (SilentPeer peer = new SilentPeer(SilentPeer.Stall.BEFORE_HEADERS)) {
+        try (SilentPeer peer = new SilentPeer(stall)) {
             withClients.withPropertyValues(stampingVerifier(dir, "http://127.0.0.1:1")).withPropertyValues(MESH_BUNDLE)
                     .withPropertyValues("paztport.read-timeout-ms=300")
                     .run(context -> {

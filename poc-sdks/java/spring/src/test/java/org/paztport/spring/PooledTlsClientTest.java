@@ -5,7 +5,6 @@ package org.paztport.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsParameters;
@@ -27,6 +26,7 @@ import javax.net.ssl.SSLHandshakeException;
 import javax.net.ssl.SSLParameters;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.paztport.core.Crypto;
 import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
@@ -36,6 +36,8 @@ import org.springframework.boot.ssl.SslBundleKey;
 import org.springframework.boot.ssl.SslOptions;
 import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -105,6 +107,7 @@ class PooledTlsClientTest {
             ports.add(exchange.getRemoteAddress().getPort());
             exchange.getRequestBody().readAllBytes();
             Answer answer = ANSWERS.get(exchange.getRequestURI().getPath());
+            exchange.getResponseHeaders().set("X-Answered", exchange.getRequestURI().getPath());
             if (answer.body() == null) {
                 exchange.sendResponseHeaders(answer.status(), -1);
             } else {
@@ -207,24 +210,45 @@ class PooledTlsClientTest {
     }
 
     /**
-     * A peer that sends a response's headers and then stops part way through the body. The read timeout Spring
-     * puts on the JDK client is the request's own timeout, and only a JDK that applies that timeout to the body as
-     * well ends this call: 27 does, 21 does not (it waits for ever), and the versions between were not tried. So
-     * this pins what the JDK running the tests does, and is skipped on one older than 27.
+     * A peer that sends a response's headers and then stops part way through the body: the call still fails at the
+     * read timeout, since the whole exchange is bounded, not only the wait for the headers. On JDK 27 the JDK's own
+     * request timeout would end this call too, so there this test passes even without the starter's bound; it is on
+     * JDK 21, which applies a request's timeout only to the headers, that it shows the bound, and it was run there.
      */
     @Test
-    void onAJdkThatTimesTheBodyTheReadTimeoutAlsoEndsABodyThatStalls() throws Exception {
-        assumeTrue(Runtime.version().feature() >= 27, "JDK 21 does not apply the request timeout to the body");
+    @Timeout(10)
+    void aBodyThatStallsAfterItsHeadersFailsAtTheReadTimeout() throws Exception {
         try (SilentPeer peer = new SilentPeer(SilentPeer.Stall.AFTER_HEADERS)) {
             RestClient client = pooled(PooledTlsClient.of(SslBundle.of(stores("orders")), Duration.ofMillis(300)))
                     .builder().build();
 
             long start = System.nanoTime();
-            assertThatThrownBy(() -> call(client, peer.url() + "/ok")).isInstanceOf(ResourceAccessException.class);
+            assertThatThrownBy(() -> call(client, peer.url() + "/ok"))
+                    .isInstanceOf(ResourceAccessException.class)
+                    .rootCause().isInstanceOf(HttpTimeoutException.class);
             Duration took = Duration.ofNanos(System.nanoTime() - start);
 
             assertThat(took).isGreaterThanOrEqualTo(Duration.ofMillis(250)).isLessThan(PROMPTLY);
         }
+    }
+
+    /**
+     * Without the stamping interceptor, through Spring's own handling: a refusal's body reaches the exception, and
+     * a HEAD's answer has its headers and no body.
+     */
+    @Test
+    void anUnstampedClientGetsRefusalsAndHeadAnswersAsSent() throws Exception {
+        String url = serve();
+        RestClient client = pooled(SslBundle.of(stores("gateway"))).builder().build();
+
+        assertThatThrownBy(() -> client.post().uri(url + "/refuse").body("{}").retrieve().toEntity(String.class))
+                .isInstanceOfSatisfying(HttpClientErrorException.Forbidden.class, e -> assertThat(
+                        e.getResponseBodyAsString()).isEqualTo(ANSWERS.get("/refuse").body()));
+
+        ResponseEntity<String> head = client.head().uri(url + "/ok").retrieve().toEntity(String.class);
+        assertThat(head.getStatusCode().value()).isEqualTo(200);
+        assertThat(head.getHeaders().getFirst("x-answered")).isEqualTo("/ok");
+        assertThat(head.getBody()).isNull();
     }
 
     @Test

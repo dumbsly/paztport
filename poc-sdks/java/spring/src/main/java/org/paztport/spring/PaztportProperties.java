@@ -34,8 +34,9 @@ public class PaztportProperties {
     /**
      * How long an event to the responder may take, in milliseconds, from connecting to the end of the answer;
      * positive. It is short because the event is sent on the request thread, before a refusal is answered: a
-     * responder that is slow or silent would otherwise hold every refusal, and anyone sending forged requests
-     * could tie up the request threads with it. An event that takes longer is given up and logged.
+     * responder that is slow or silent would otherwise hold every refusal for as long as it liked, and this caps
+     * that at this long per refusal. It does not stop forged requests sent fast enough from keeping request threads
+     * busy, each for up to this long. An event that takes longer is given up and logged.
      */
     private long eventTimeoutMs = 2_000;
 

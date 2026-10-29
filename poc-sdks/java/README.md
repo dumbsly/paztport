@@ -115,9 +115,10 @@ Glue, configured through `paztport.*` properties.
   TLS and no stamping, for calls that set their own headers. Its timeouts are
   under **Timeouts**, below. On a request that came with a client certificate,
   `PeerIdentity` makes the verifier's peer: the subject's common name when there
-  is exactly one, else `""`, at the TCP address the connection came from. A certificate that names no service is still a peer,
-  so the check runs and fails (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`.
-  Responses are checked with no peer.
+  is exactly one, else `""`, at the TCP address the connection came from. A
+  certificate that names no service is still a peer, so the check runs and fails
+  (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`. Responses are checked with
+  no peer.
 - **Timeouts.** Every client the starter builds has them, so that a peer that
   takes a call and never answers cannot hold the calling thread for ever. Both
   settings must be positive; one that is not fails the startup, naming it, in a
@@ -125,8 +126,8 @@ Glue, configured through `paztport.*` properties.
 
   | Property | Default | What it bounds |
   |---|---|---|
-  | `paztport.read-timeout-ms` | `30000` | Calls through the `PooledTlsClient`, which with `paztport.tls-bundle` set is every call on the shared `RestClient.Builder`: the wait for the response's headers, and the body too on a JDK that applies a request's timeout to it (27 does; 21 does not, so there a peer that sends its headers and then stops part way through the body still holds the call). Such a call fails with a `ResourceAccessException`. The egress's calls to the partner: the whole exchange, body included, on any JDK. |
-  | `paztport.event-timeout-ms` | `2000` | Each event to the responder, whole: connecting, sending and reading the answer to its end, on any JDK, with a TLS bundle or without. An event is sent on the request thread before the refusal is answered, so a refusal waits at most this long for it; past it the event is given up and logged, and the refusal goes ahead. |
+  | `paztport.read-timeout-ms` | `30000` | Each call through the `PooledTlsClient` (with `paztport.tls-bundle` set, every call on the shared `RestClient.Builder`, and its `builder()`'s), and each of the egress's calls to the partner: the whole exchange, from sending the request to the end of the response's body, on any JDK, so a peer that sends its headers and then stops part way through the body is cut off too. For that the pooled client reads each response whole before the caller sees it, as the stamping interceptor already did. A call past it fails as a timeout: a `ResourceAccessException` from a `RestClient`, an `UncheckedIOException` from `BoundaryClient.post`. |
+  | `paztport.event-timeout-ms` | `2000` | Each event to the responder, whole: connecting, sending and reading the answer to its end, on any JDK, with a TLS bundle or without. An event is sent on the request thread before the refusal is answered, so a slow or silent responder would otherwise hold every refusal for as long as it liked; this caps that at this long per refusal, after which the event is given up and logged and the refusal goes ahead. Forged requests sent fast enough can still keep request threads busy, each for up to this long. |
 
   Two more are fixed: the pooled client connects within 5 s, and the egress's
   handshake has 10 s, whatever `paztport.read-timeout-ms` is. Without

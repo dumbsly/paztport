@@ -29,12 +29,13 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Nor may it hold verification up for long. The event is sent on the request
  * thread, before a refusal is answered, so a responder that is slow or silent
- * would otherwise hold every refusal, and anyone sending forged requests could
- * tie up the request threads with it. So the whole POST, connecting, sending and
- * reading the answer to its end, is bounded by the event timeout
- * ({@code paztport.event-timeout-ms}, 2 s unless set) on every JDK; past it the
- * POST is cancelled, logged as any other failure, and the refusal goes ahead. A
- * refusal therefore waits at most that long for its event.
+ * would otherwise hold every refusal for as long as it liked. So the whole POST,
+ * connecting, sending and reading the answer to its end, is bounded by the event
+ * timeout ({@code paztport.event-timeout-ms}, 2 s unless set) on every JDK; past
+ * it the POST is cancelled, logged as any other failure, and the refusal goes
+ * ahead. A refusal therefore waits at most that long for its event. That caps the
+ * wait per refusal, no more: forged requests sent fast enough can still keep
+ * request threads busy, each for up to that long, while the responder is slow.
  *
  * <p>The JDK client is given, not built here, so that it can carry this service's
  * TLS certificate, and as a supplier, so that a TLS client still reads its key

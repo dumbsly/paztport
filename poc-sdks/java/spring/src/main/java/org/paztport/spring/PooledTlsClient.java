@@ -19,7 +19,6 @@ import javax.net.ssl.SSLParameters;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslOptions;
 import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -41,15 +40,15 @@ import org.springframework.web.client.RestClient;
  * protocols or ciphers nor the JDK's own switch for its client can turn it off.
  *
  * <p>Two timeouts bound a call through the request factory. The connect timeout, {@link #CONNECT_TIMEOUT}, bounds
- * opening a connection. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), is Spring's on the
- * JDK client, which makes it the request's own timeout: a peer that takes the call and sends no answer, or a
- * pooled connection whose peer has vanished without closing it, fails the call at the read timeout, as a timeout
- * (from a {@code RestClient}, a {@code ResourceAccessException}), instead of holding the calling thread for ever.
- * It bounds the wait for the response's headers. Whether it also bounds the body depends on the JDK: 27 applies a
- * request's timeout to the body as well, 21 does not, so there a peer that sends its headers and then stops part
- * way through the body still holds the call. The calls through the factory are the mesh's, to this organisation's
- * own services under mutual TLS, so that is left as it is; the egress's calls to another organisation and the
- * events, which are on the path of every refusal, are each bounded whole by {@link #send}.
+ * opening a connection. The read timeout, {@code paztport.read-timeout-ms} (30 s unless set), bounds the whole
+ * exchange, from sending the request to the end of the response's body, on every JDK: a peer that takes the call and
+ * sends no answer, one that sends its headers and then stops part way through the body, or a pooled connection whose
+ * peer has vanished without closing it, fails the call at the read timeout, as a timeout (from a {@code RestClient},
+ * a {@code ResourceAccessException}), instead of holding the calling thread for ever. Spring's own JDK request
+ * factory would not do: its read timeout bounds only the wait for the headers, and JDK 21 applies a request's
+ * timeout to nothing more, so the factory here is {@link WholeExchangeRequestFactory}, which reads each response
+ * whole within the timeout ({@link #send}). The egress's calls to the partner and the events are bounded by
+ * {@link #send} too.
  *
  * <p>The client stamps nothing. {@link #builder()} gives a builder with TLS only, for calls that must not be a
  * step on a request's path or that set their own headers; the starter puts the same request factory on the shared
@@ -121,9 +120,7 @@ public final class PooledTlsClient implements AutoCloseable {
                             .sslContext(context)
                             .sslParameters(parameters(context, bundle.getOptions()))
                             .build();
-                    JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(http);
-                    factory.setReadTimeout(readTimeout);
-                    p = new Pool(http, factory);
+                    p = new Pool(http, new WholeExchangeRequestFactory(http, readTimeout));
                     pool = p;
                 }
             }
@@ -147,7 +144,10 @@ public final class PooledTlsClient implements AutoCloseable {
         return params;
     }
 
-    /** The shared request factory: every RestClient given it draws on this client's one pool. */
+    /**
+     * The shared request factory: every RestClient given it draws on this client's one pool, and each of its calls,
+     * the response's body included, ends within the read timeout.
+     */
     public ClientHttpRequestFactory requestFactory() {
         return requestFactory;
     }
@@ -169,8 +169,9 @@ public final class PooledTlsClient implements AutoCloseable {
     /**
      * Sends {@code request} on {@code http} and waits for the whole answer, its body included, for no longer than
      * the request's timeout, which it must have. Waiting here is what bounds the body on every JDK, since 21 applies
-     * a request's timeout only to the wait for the headers. Past it the exchange is cancelled, which closes its
-     * connection, and the call fails as an {@link HttpTimeoutException}.
+     * a request's timeout only to the wait for the headers (27 applies it to the body too, so there the JDK's own
+     * timeout may end the call first). Past it the exchange is cancelled, which closes its connection, and the call
+     * fails as an {@link HttpTimeoutException}.
      *
      * @throws IOException when the call fails, has no whole answer within the timeout, or the thread is
      *     interrupted (whose interrupt is kept)
