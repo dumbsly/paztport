@@ -69,7 +69,7 @@ import org.slf4j.LoggerFactory;
  * <p>A handshake holds every first caller, so it has its own timeout, {@link #HANDSHAKE_TIMEOUT}; each call has
  * the read timeout of the TLS client this is given ({@code paztport.read-timeout-ms}, 30 s unless set), so that a
  * partner that takes a call and never answers cannot hold the calling thread for ever. Each bounds the whole
- * exchange, the body included, on every JDK ({@link PooledTlsClient#send}), since the partner is another
+ * exchange, the body included, on every JDK ({@link WholeExchange#send}), since the partner is another
  * organisation: one that sends its headers and then stops is cut off too. A handshake past its timeout counts as no
  * answer (above). A call past its timeout is cancelled and {@link #post} throws, as for any call that fails; the
  * session is kept, since the partner may have taken the call in it, and the call is not retried.
@@ -460,7 +460,7 @@ public final class BoundaryClient implements AutoCloseable {
 
     /** Sends {@code request}, which has its timeout, and reads its whole answer within it. */
     private HttpResponse<byte[]> send(HttpRequest request) throws IOException {
-        return PooledTlsClient.send(tls.httpClient(), request, HttpResponse.BodyHandlers.ofByteArray());
+        return WholeExchange.send(tls.httpClient(), request, HttpResponse.BodyHandlers.ofByteArray());
     }
 
     /** The {@code reason} of a JSON refusal body, or null when there is none. */

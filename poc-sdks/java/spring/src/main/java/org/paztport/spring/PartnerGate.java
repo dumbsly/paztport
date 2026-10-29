@@ -43,7 +43,7 @@ final class PartnerGate implements HandlerInterceptor {
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws Exception {
-        if (PartnerFilter.ATTESTED.equals(request.getAttribute(PartnerFilter.SESSION_STATUS))) {
+        if (SessionStatus.ATTESTED.equals(request.getAttribute(PartnerFilter.SESSION_STATUS))) {
             return true;
         }
         // Every Spring MVC mapping sets the pattern; without one, the raw path is the closest there is.
@@ -55,7 +55,7 @@ final class PartnerGate implements HandlerInterceptor {
             return true;
         }
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(PublicWrites.decisionLine(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
+            TRACE.info(TraceLines.decisionLine(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
                     PaztportContext.influence()));
         }
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);

@@ -144,7 +144,7 @@ class BoundaryClientTest {
         traceLog.setAdditive(true);
         client.close();
         partner.close();
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     private void listen(String rid, String partnerEntry, List<InfluenceEntry> originals, List<InfluenceEntry> sent) {
@@ -170,7 +170,7 @@ class BoundaryClientTest {
     /** Runs {@code call} in a fresh scope holding a verified gateway chain and the two influence entries. */
     private <T> T verified(String rid, Callable<T> call) throws Exception {
         try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.markVerified(gatewayChain(rid));
+            ContextAccess.markVerified(gatewayChain(rid));
             PaztportContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
             return call.call();
         }
@@ -245,7 +245,7 @@ class BoundaryClientTest {
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", null));
 
         try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.markVerified(gatewayChain("rid-1"));
+            ContextAccess.markVerified(gatewayChain("rid-1"));
             PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             assertEquals(200, charge().status());
         }
@@ -782,7 +782,7 @@ class BoundaryClientTest {
     @Test
     void emptyVerifiedChainSendsNothing() throws Exception {
         try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.markVerified(List.of());
+            ContextAccess.markVerified(List.of());
             assertThrows(IllegalStateException.class, this::charge);
         }
         assertEquals(List.of(), partner.received());

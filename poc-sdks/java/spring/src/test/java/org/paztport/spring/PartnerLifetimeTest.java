@@ -208,7 +208,7 @@ class PartnerLifetimeTest {
         CLOCK.moveTo(START);
         partnerLog.detachAppender(logs);
         partnerLog.setLevel(null);
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     private static final List<PooledTlsClient> POOLED = new CopyOnWriteArrayList<>();

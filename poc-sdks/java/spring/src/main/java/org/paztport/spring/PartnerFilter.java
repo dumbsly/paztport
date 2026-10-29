@@ -56,9 +56,6 @@ public final class PartnerFilter extends OncePerRequestFilter {
     /** The request attribute holding the session's status, {@code attested} or {@code unsafe}. */
     public static final String SESSION_STATUS = "org.paztport.spring.partner.session";
 
-    static final String ATTESTED = "attested";
-    static final String UNSAFE = "unsafe";
-
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
 
     private final PartnerSessions sessions;
@@ -95,7 +92,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
         InboundFilter.endLeakedScope();
         try (PaztportContext.Scope scope = PaztportContext.open()) {
             // Marked unsafe until the request has verified, so a refusal is never taken for attested.
-            request.setAttribute(SESSION_STATUS, UNSAFE);
+            request.setAttribute(SESSION_STATUS, SessionStatus.UNSAFE);
             PartnerSessions.Session session = null;
             if (sessionHeader != null) {
                 session = sessions.find(PeerIdentity.issuer(request), peer == null ? null : peer.svc(),
@@ -121,7 +118,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
             VerifyResult result = session.verifier().verify(input);
             // On OK these are the entries the boundary stamp committed to; otherwise what was received.
             List<InfluenceEntry> influence = InboundFilter.parseInfluence(input.influence());
-            trace(InboundFilter.traceLine(rid, result, receiver, peer, influence, ATTESTED));
+            trace(InboundFilter.traceLine(rid, result, receiver, peer, influence, SessionStatus.ATTESTED));
             if (!result.ok()) {
                 InboundFilter.reject(response, result);
                 return;
@@ -134,7 +131,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
             PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             PaztportContext.setInboundChain(received);
             PaztportContext.markVerified(received);
-            request.setAttribute(SESSION_STATUS, ATTESTED);
+            request.setAttribute(SESSION_STATUS, SessionStatus.ATTESTED);
             chain.doFilter(wrapped, response);
         }
     }

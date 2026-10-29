@@ -25,12 +25,12 @@ import org.springframework.http.client.ClientHttpRequestFactory;
 import org.springframework.http.client.ClientHttpResponse;
 
 /**
- * Spring's request factory over a JDK client, with each call bounded whole, by {@link PooledTlsClient#send}:
+ * Spring's request factory over a JDK client, with each call bounded whole, by {@link WholeExchange#send}:
  * connecting, sending, the response's headers and its body, on every JDK. It exists because Spring's own
  * {@code JdkClientHttpRequestFactory} hands back the body as a stream, so a peer that sends its headers and then
  * stops fails the caller's read of the body with an {@code IOException} ("closed"), not a timeout, and with no read
  * timeout configured holds the call for ever. Here every stall, before the headers or after them, fails as a
- * timeout, by the same {@link PooledTlsClient#send} that bounds the events and the partner calls (each at its own
+ * timeout, by the same {@link WholeExchange#send} that bounds the events and the partner calls (each at its own
  * timeout).
  *
  * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
@@ -99,7 +99,7 @@ final class WholeExchangeRequestFactory implements ClientHttpRequestFactory {
             byte[] bytes = body.toByteArray();
             request.method(method.name(), bytes.length == 0
                     ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofByteArray(bytes));
-            return new Response(PooledTlsClient.send(http, request.build(), HttpResponse.BodyHandlers.ofByteArray()));
+            return new Response(WholeExchange.send(http, request.build(), HttpResponse.BodyHandlers.ofByteArray()));
         }
     }
 

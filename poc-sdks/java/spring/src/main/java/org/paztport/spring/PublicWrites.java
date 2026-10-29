@@ -4,12 +4,10 @@
 package org.paztport.spring;
 
 import java.util.List;
-import java.util.TreeSet;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.stamp.StampV3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +54,7 @@ public final class PublicWrites {
                         influence.stream().map(InfluenceEntry::fact).toList(), destinationOwner);
         ReasonCode reason = refused ? ReasonCode.INFLUENCE_DENIED : ReasonCode.OK;
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(decisionLine(receiver, "public-write", reason, influence));
+            TRACE.info(TraceLines.decisionLine(receiver, "public-write", reason, influence));
         }
         return reason;
     }
@@ -77,26 +75,9 @@ public final class PublicWrites {
                 && influence.stream().noneMatch(e -> e.cls() == InfluenceClass.THIRD_PARTY
                         || e.cls() == InfluenceClass.LOCAL_UNTRUSTED);
         if (TRACE.isInfoEnabled()) {
-            TRACE.info(decisionLine(receiver, "trusted-record", trusted ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED,
-                    influence));
+            TRACE.info(TraceLines.decisionLine(receiver, "trusted-record",
+                    trusted ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED, influence));
         }
         return trusted;
-    }
-
-    /**
-     * {@code PAZTPORT_TRACE decision rid=… receiver=… rule=… reason=… ✓|✗ classes=…}, for this rule and the partner's
-     * unsafe-session gate. The rid is the verified chain's, else the inbound chain's, else {@code -}. It comes from
-     * the request, so it goes through {@link LogSafe}, as do the receiver and the classes.
-     */
-    static String decisionLine(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
-        List<StampV3> chain = PaztportContext.verifiedChain() != null
-                ? PaztportContext.verifiedChain() : PaztportContext.inboundChain();
-        String rid = chain == null || chain.isEmpty() || chain.get(0).rid().isEmpty()
-                ? "-" : LogSafe.of(chain.get(0).rid());
-        TreeSet<String> classes = new TreeSet<>();
-        influence.forEach(e -> classes.add(e.cls().wire()));
-        return String.format("PAZTPORT_TRACE decision rid=%s receiver=%s rule=%s reason=%s %s classes=%s",
-                rid, LogSafe.of(receiver), rule, reason, reason == ReasonCode.OK ? "✓" : "✗",
-                classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 }

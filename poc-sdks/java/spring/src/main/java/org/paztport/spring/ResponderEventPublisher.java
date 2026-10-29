@@ -91,7 +91,7 @@ public final class ResponderEventPublisher implements EventPublisher {
                     .timeout(timeout)
                     .POST(HttpRequest.BodyPublishers.ofByteArray(JSON.writeValueAsBytes(envelope(event))))
                     .build();
-            int status = PooledTlsClient.send(http.get(), request, HttpResponse.BodyHandlers.discarding())
+            int status = WholeExchange.send(http.get(), request, HttpResponse.BodyHandlers.discarding())
                     .statusCode();
             if (status >= 400) {
                 log.warn("the responder at {} refused the event: {}", responderUrl, status);
