@@ -387,9 +387,9 @@ be swapped in without the policy private key. A verifier MUST check the signatur
 in the root's own form, before using the root. Any other field is ignored and not signed.
 
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
-vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a later
-`notAfter`, so proof bundles stay valid and holders can pick up the renewed root one at a time. A renewed root
-keeps its `rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
+vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
+`notAfter` (the policy tools use the run's time plus the lifetime, which may be earlier than the old one), so
+proof bundles stay valid and holders can pick up the renewed root one at a time. A renewed root keeps its `rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
 renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
 `v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`

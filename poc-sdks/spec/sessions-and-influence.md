@@ -326,9 +326,9 @@ The handshake record carries no signed time, so it is judged at each call's reco
 be attested for the calls recorded up to its limits and not for those after them. Its limits are the certificate's
 `notAfter` (entry-key form) and the `notAfter` of each root and keyring in the new form, the client's and the
 server's. A verifier asking whether the session was attested at all judges it at the earliest of those, since each
-is an upper bound. A policy-key reply over old-form material has no limit, and is judged the same at any time. A recorded response
-is limited only by the server's root window and, in the entry-key form, the server keyring's: the client's windows
-and the certificate do not limit it.
+is an upper bound. A policy-key reply over old-form material has no limit, and is judged the same at any
+time. A recorded response is limited only by the server's root window and, in the entry-key form, the server
+keyring's: the client's windows and the certificate do not limit it.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.

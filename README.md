@@ -258,8 +258,9 @@ The details carry real weight:
   `rootId` is a random label for each build (`v` + 12 random hex chars), not
   derived from the policy, so two builds of one policy share neither a root nor an
   id. The window is 7 days by default. Renewing signs the same tree again under
-  the same `rootId` with a later `notAfter`, so proof bundles stay valid. The
-  policy key signs each service keyring the same way, with its own window.
+  the same `rootId` with a new `notAfter`, so proof bundles stay valid. The
+  policy key also signs the keyring, which names every service's key, the same way,
+  with its own window.
 
 The proof hides the policy, not the request's own route (see §5.2, Inherent).
 

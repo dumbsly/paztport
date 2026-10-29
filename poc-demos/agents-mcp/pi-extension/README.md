@@ -195,19 +195,21 @@ session that runs past the `notAfter`.
 
 The first check that fails decides, in this order:
 
-0. **Expiry.** In `enforce` mode, is the root the rules come from, and the keyring, still within its
+0. **Prompt and root.** Is there a user prompt to chain from, and a root to check against? If not (`no-root`
+   mode, or a call before any prompt), the call is refused (`SCOPE_DENIED`), with an event only.
+1. **Expiry.** In `enforce` mode, are the root the rules come from, and the keyring, still within their
    `notAfter`? If not, the call is refused `POLICY_EXPIRED`, before anything is resolved.
-1. **Route.** Is `session/pi/local:<tool>` listed in the signed policy? If not, the call is refused
+2. **Route.** Is `session/pi/local:<tool>` listed in the signed policy? If not, the call is refused
    (`PATH_NOT_ALLOWED`).
-2. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,
+3. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,
    a path with a `..` part in a command, a link it cannot follow, or a tool input it cannot sign
    makes the call `UNCHECKABLE`. `powershell` is `UNCHECKABLE` when its route is listed; when it is
    not, the route check refuses it first (`PATH_NOT_ALLOWED`), as it does any unlisted tool.
-3. **Scope.** Every path must fall under a folder rule that allows the access needed (read, write or
+4. **Scope.** Every path must fall under a folder rule that allows the access needed (read, write or
    exec), and every program must be allowed. Otherwise `SCOPE_DENIED`. A path that resolves outside
    the workspace with no rule for it, or into a place the extension keeps for itself (the config, the
    keys and pins, the logs, pi's session and agent folders), is refused.
-4. **Influence.** If the session holds `private` content together with `third-party` or
+5. **Influence.** If the session holds `private` content together with `third-party` or
    `local-untrusted` content, a write to a folder whose `destination` is `public` is refused
    (`INFLUENCE_DENIED`). This is the same rule the mock server applies to public repositories. A
    call's own reads of private-labelled folders count too: if the call reads a folder labelled
