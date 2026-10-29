@@ -12,11 +12,15 @@ import java.util.Objects;
  * Verifies a v3 chain received live: the checks of the live order, the first failure being the result. Every
  * branch fails closed, and {@link #verify} never throws on malformed input; it is a typed rejection.
  *
- * <p>Check 0, before any stamp work: the clock has not passed the pinned policy's {@code policyNotAfter}
- * (POLICY_EXPIRED). It is about the verifier's own configuration, not the request, so it comes first: past that
- * moment the keyring and root no longer say which keys and routes the policy owner allows, and no later check
- * means anything against them. It names no suspect, not even a peer, because expiry is not the sender's fault;
- * a responder acting on it would quarantine every honest caller.
+ * <p>Check 0, before any stamp work: {@code policyNotAfter} is a window, an integer in [0, 2^53 &minus; 1], and the
+ * clock has not passed it (POLICY_EXPIRED). It is about the verifier's own configuration, not the request, so it
+ * comes first: past that moment the keyring and root no longer say which keys and routes the policy owner allows,
+ * and no later check means anything against them. It names no suspect, not even a peer, because expiry is not the
+ * sender's fault; a responder acting on it would quarantine every honest caller. {@link VerifierConfigV3#pinned}
+ * only ever records a window it read from signed material, which is in range; a config built directly with one out
+ * of range (2^53 would otherwise be a window that never closes) is refused here, per request, rather than by the
+ * constructor, so that it fails exactly as the TypeScript verifier does and as the spec's check 0 says, and one
+ * vector pins the answer for both.
  *
  * <ol>
  * <li>the stamps parse, all v3 (CHAIN_MISSING);
@@ -70,7 +74,7 @@ public final class VerifierV3 {
     public VerifyResult verify(VerifyInputV3 in) {
         long now = cfg.clock().getAsLong();
         // 0. The pinned policy is still vouched for; first, and blaming no one (see the class comment).
-        if (now > cfg.policyNotAfter()) {
+        if (!JsonIntegers.isNotAfter(cfg.policyNotAfter()) || now > cfg.policyNotAfter()) {
             return VerifyResult.reject(ReasonCode.POLICY_EXPIRED);
         }
         if (in == null) {

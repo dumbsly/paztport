@@ -111,14 +111,24 @@ the outcome:
      `{ policy: serverPolicyKey, services: serverKeyring, sig: serverKeyringSig }`, with
      `notAfter: serverKeyringNotAfter` when the reply has that member, verifies under the pinned key in its own form;
      the certificate verifies under the pinned key; its `svc` equals `serverEntry`; `serverKeyring` has a member
-     of its own named `serverEntry`, equal to the certificate's `key`; `now <= notAfter`; and `sig` verifies under
-     the certificate's `key`.
-   - When neither is present: `sig` verifies under the pinned key.
+     of its own named `serverEntry`, equal to the certificate's `key`; `now <= notAfter`; the keyring is in the new
+     form (the reply has `serverKeyringNotAfter`) and `now <= serverKeyringNotAfter`; and `sig` verifies under the
+     certificate's `key`.
+   - When neither is present: the reply has no `serverKeyringNotAfter` either, and `sig` verifies under the
+     pinned key. In this form the keyring has no signature of its own (the policy key signs it through the reply),
+     so a keyring window there is vouched for by nothing, and fails like either field without the other.
 
    Then, in both forms: an `"attested"` reply has both roots non-null; `sess` equals the session id the client
    derives from its own request and the reply; and `serverRoot`, when present, verifies under the pinned key in
-   its own form.
+   its own form, is in the new form, and `now <= serverRoot.notAfter`.
 4. `status` is `"attested"`: the session is attested. Otherwise it is unsafe (`UNSAFE`).
+
+The server's root, and in the entry-key form its keyring, are judged at `now` whatever the reply's `status`: an
+old-form or expired one is `BAD_SIGNATURE`, so the client takes its replacement path. A window is relied on only
+after the policy key's signature over it has verified, the root's under the pin and the keyring's as above: the
+entry key signs the reply, windows included, so the reply's own signature never vouches for one. A server whose own
+material has expired ([Status](#status)) is therefore unsafe at the client too. This is the live check; a recorded
+handshake is checked offline, where the old forms are accepted ([Recorded handshakes](#recorded-handshakes)).
 
 The form is decided by which fields are present, never by which key verifies. A client MUST NOT try the pinned
 key when the certificate's key fails, or the other way round: a reply stripped of its certificate, or given one,
@@ -127,15 +137,18 @@ object's own members, so that a name such as `constructor` finds nothing in a ke
 
 **What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can
 forge a reply's nonce, session id, status and disabled list, and can present any root or keyring the policy key
-ever signed, but can make none: roots and keyrings are verified under the pinned key. That key already signs every
-response stamp the server attests, so a server that attests its responses trusts it no further than before. Once
+signed that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings, windows
+included, are verified under the pinned key, and a client refuses an old-form or expired one live. That key
+already signs every response stamp the server attests, so a server that attests its responses trusts it no
+further than before. Once
 its certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's
 lifetime ([wire.md](wire.md#the-reply-certificate)).
 
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
-keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|` or `3|`. v1 stamps have no
-prefix, and v1 is never accepted live ([wire.md](wire.md#v1-the-http-mesh-format)).
+roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|`
+or `3|`. v1 stamps and old-form roots have no prefix, and neither is accepted live
+([wire.md](wire.md#v1-the-http-mesh-format)).
 
 `v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
 a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
@@ -145,9 +158,13 @@ the other, whichever key signed the reply; neither field, signed by a key the re
 entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `null`
 `serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply, which is ignored; a pin
 mismatch; and a `serverKeyringNotAfter` moved or dropped after signing, one that is not an integer and one that is
-`null`, and a server root `notAfter` moved after signing and one that is not an integer. Both sides' roots and
-keyrings in these cases are in the new form, valid until long after every case's `now`, so each entry-key reply
-carries `serverKeyringNotAfter` and each request `clientKeyringNotAfter`.
+`null`, and a server root `notAfter` moved after signing and one that is not an integer. It pins the judging of
+the server's material too: a server root at its `notAfter`, and expired (in the entry-key form, in the policy-key
+form and in an unsafe reply), in the old form in either form, and expired with its `notAfter` moved past `now` in a
+reply signed again by the entry key; a server keyring at its `notAfter`, expired, and in the old form; and a
+`serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is in the new form,
+valid until long after every case's `now`, so each entry-key reply carries `serverKeyringNotAfter` and each request
+`clientKeyringNotAfter`.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
@@ -243,12 +260,29 @@ A server opens an **attested** session only when all of these hold, and an **uns
 - `clientRoot` verifies under `clientPolicyKey`, and its own root under its own policy key;
 - `clientPolicyKey` is one of the client policy keys the server has pinned;
 - `clientKeyringSig` verifies as the signature of the keyring `{ policy: clientPolicyKey, services: clientKeyring }`
-  under `clientPolicyKey`, in its own form: over `clientKeyringNotAfter` when the request has one.
+  under `clientPolicyKey`, in its own form: over `clientKeyringNotAfter` when the request has one;
+- both keyrings and both roots are in the new form and current at the handshake, at the server's time `now`:
+  `now <= clientRoot.notAfter` and `now <= clientKeyringNotAfter`, and the same for the server's own root and
+  keyring.
 
 A server with no pinned client keys MUST open every session unsafe. Without the pin, anyone could make a policy
 key, sign a root and keyring with it, and be attested. Without the keyring signature, the keyring would be the
 client's own claim. Pinning the policy key rather than a root lets the client rotate its roots and keyrings
 without being pinned again.
+
+Without the windows, a root or keyring the client's policy owner once signed would be attested for ever, a narrowed
+policy or a retired key among them; an old-form one carries no window, so its owner never said how long it vouches
+for it. Each client window is relied on only once the signature over it has verified, so one moved in transit makes
+the session unsafe: the root's own signature is all that guards the root's window. A server whose own root or
+keyring has expired while it runs degrades rather than stops: it opens every new session unsafe, refusing the tools
+in its unsafe list and running the rest as for any unattested caller. Sessions it attested earlier are still
+verified against the client's material, and their calls are refused `POLICY_EXPIRED` once that expires
+([verification.md](verification.md#the-live-order)).
+
+`v3.json` pins this in `sessionStatus`, each case a request, the server's own root and keyring, its policy key, the
+client keys it pinned and `now`: attested; an unpinned client key; the client's root and keyring each at its
+`notAfter`, expired, in the old form, and expired with its window moved past `now`; the server's root and keyring at
+their `notAfter`; and each expired and in the old form.
 
 ## Unsafe sessions
 
@@ -294,6 +328,11 @@ and is judged the same at any time.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.
+
+Offline, a root or keyring in the old form is accepted, as recorded evidence holds it, and a window is not judged:
+the client's check of the reply is made without the live judging of the server's material, and the client's
+material is checked by its signatures alone. A window still selects the bytes its signature is checked over, so one
+moved or dropped in the record fails offline too.
 
 ## Influence
 

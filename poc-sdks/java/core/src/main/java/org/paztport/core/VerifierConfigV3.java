@@ -17,7 +17,9 @@ import java.util.function.LongSupplier;
  * <p>{@code policyNotAfter} is the earliest {@code notAfter} of the keyring and the root (milliseconds since the
  * epoch, inclusive): the last moment the policy owner vouches for both. The verifier refuses every request once
  * its clock passes it, so a verifier left running is not trusted for longer than its material. {@link #pinned}
- * records it; a direct constructor is for tests and vectors that hold material already judged.
+ * records it; a direct constructor is for tests and vectors that hold material already judged. The constructor does
+ * not range-check it: the verifier's check 0 refuses every request under a window outside [0, 2^53 &minus; 1], as the
+ * spec and the TypeScript verifier do, so a vector pins one answer for both.
  */
 public record VerifierConfigV3(
         Keyring keyring,

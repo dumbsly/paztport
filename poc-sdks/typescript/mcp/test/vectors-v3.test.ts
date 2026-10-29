@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, canonicalize, commitInfluence, decode, encode, isAttestedSession, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, canonicalize, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
@@ -15,7 +15,7 @@ import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } fro
 import { classifySessionReply } from "../src/index.ts";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
-type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "replyCert" | "sessionReply";
+type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "replyCert" | "sessionReply" | "sessionStatus";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
 
@@ -133,12 +133,33 @@ describe("v3 known-answer vectors", () => {
 
   it("session reply section", () => expect(committed.sessionReply.length).toBeGreaterThan(0));
 
+  // The cases the live check refuses only for the server's root or keyring being old form or not current: offline,
+  // a recorded handshake is accepted in the old forms, and a new-form window is not judged there.
+  const OFFLINE_ACCEPTS = new Set([
+    "server root expired", "server root expired, policy-key form", "server root old form", "server root old form, policy-key form",
+    "server keyring expired", "server keyring old form",
+  ]);
+  it("the cases offline accepts are in the file", () => {
+    for (const name of OFFLINE_ACCEPTS) expect(committed.sessionReply.find((c: any) => c.name === name)?.expected, name).toBe("BAD_SIGNATURE");
+  });
   it.each(committed.sessionReply.map((c: any): [string, any] => [c.name, c]))("session reply %s", (_n, c: any) => {
     const pin = committed.keys[c.pin].pub;
     const outcome = classifySessionReply(c.reply, c.request, pin, c.serverEntry, c.now);
     expect(outcome.status === "attested" ? "ATTESTED" : outcome.reason).toBe(c.expected);
-    // Offline, judged at the same time, the handshake is attested exactly when the live check says so.
-    expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED");
+    // Offline, judged at the same time, the handshake is attested when the live check says so, and for the old forms
+    // and windows offline does not refuse.
+    expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED" || OFFLINE_ACCEPTS.has(c.name));
+  });
+
+  it("session status section", () => expect(committed.sessionStatus.length).toBeGreaterThan(0));
+
+  it.each(committed.sessionStatus.map((c: any): [string, any] => [c.name, c]))("session status %s", (_n, c: any) => {
+    const ring = c.serverKeyring;
+    const ringNotAfter = Object.hasOwn(ring, "notAfter") ? ring.notAfter : undefined;
+    const pinned = c.pinned.map((n: string) => committed.keys[n].pub);
+    expect(sessionStatus(c.request, c.serverRoot, ringNotAfter, committed.keys[c.serverPolicyKey].pub, pinned, c.now)).toBe(c.expected);
+    // the server's own keyring is the one it signed, in its own form
+    expect(verifyKeyring(ring, committed.keys[c.serverPolicyKey].pub)).toBe(true);
   });
 
   // A configured entry named like an Object.prototype member must not find a key in a keyring that lacks it. Here

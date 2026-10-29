@@ -193,8 +193,10 @@ export class McpServerSession {
    * Handles a paztport/session handshake. There is one session per connection: a new handshake
    * replaces the current session (its keyring, nonces and served classes), so calls signed for the
    * old session are refused afterwards. A malformed request throws InvalidParams. The reply is in the entry-key
-   * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks.
-   * It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
+   * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks, at
+   * `now()`: an old-form or expired client root or keyring makes the session unsafe, and so does this server's own
+   * root or keyring once it has expired, so a server left running past its material degrades to unattested
+   * sessions rather than stopping. It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
@@ -203,7 +205,14 @@ export class McpServerSession {
     } catch (e) {
       throw new InvalidParams((e as Error).message);
     }
-    const status = sessionStatus(request, this.policy.signedRoot, this.policy.policyPublicKey, this.policy.pinnedClientKeys);
+    const status = sessionStatus(
+      request,
+      this.policy.signedRoot,
+      this.policy.keyringNotAfter,
+      this.policy.policyPublicKey,
+      this.policy.pinnedClientKeys,
+      this.now(),
+    );
     const serverNonce = newNonce();
     const sess = deriveSessionId(request.clientRoot?.sig ?? null, this.policy.signedRoot.sig, request.nonce, serverNonce, {
       clientPolicyKey: request.clientPolicyKey,

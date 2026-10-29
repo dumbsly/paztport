@@ -55,14 +55,20 @@ const CERTIFY_ENTRY: Certify = ({ policy, keys }) => issueReplyCert(policy.publi
 
 /**
  * A consistent server policy, and the certificate `certify` issues under its keys. McpServerSession refuses to start
- * with a bad certificate, so a test of a server that serves one anyway signs it into the reply itself.
+ * with a bad certificate, so a test of a server that serves one anyway signs it into the reply itself. `windows`
+ * replaces NOT_AFTER as the server root's or keyring's.
  */
-function serverMaterial(certify: Certify = CERTIFY_ENTRY): { policy: ServerPolicy; served: ReplyCert } {
+function serverMaterial(
+  certify: Certify = CERTIFY_ENTRY,
+  windows: { rootNotAfter?: number; keyringNotAfter?: number } = {},
+): { policy: ServerPolicy; served: ReplyCert } {
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey, NOT_AFTER);
-  const ring = signKeyring({ "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey, NOT_AFTER);
+  const { signedRoot, bundles } = buildPolicy([["mcp-entry", "github-tools"]], 8, policy.privateKey, windows.rootNotAfter ?? NOT_AFTER);
+  const ring = signKeyring(
+    { "mcp-entry": entry.publicKey, "github-tools": tools.publicKey }, policy.publicKey, policy.privateKey, windows.keyringNotAfter ?? NOT_AFTER,
+  );
   return {
     policy: {
       policyPublicKey: policy.publicKey,
@@ -282,6 +288,16 @@ describe("classifySessionReply", () => {
     // and changed in transit, the reply's own signature fails
     const tampered = { ...(c.raw as SessionReply), serverKeyringNotAfter: NOT_AFTER - 1 };
     expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()).status).toBe("unsafe");
+  });
+  it("aServerRootOrKeyringPastItsNotAfterIsABadSignature", () => {
+    const T = Date.now() + 60_000;
+    for (const [what, windows] of [["root", { rootNotAfter: T }], ["keyring", { keyringNotAfter: T }]] as const) {
+      const c = connected({ policy: serverMaterial(CERTIFY_ENTRY, windows).policy });
+      expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", T).status, `${what} at notAfter`).toBe("attested");
+      expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", T + 1), `${what} one ms past`).toEqual({
+        status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true,
+      });
+    }
   });
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
     const expired = serverMaterial(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));

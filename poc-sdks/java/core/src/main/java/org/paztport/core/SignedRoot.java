@@ -139,7 +139,7 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
         if (rootId == null || root == null) {
             throw new IllegalArgumentException("a signed root needs a root id and a root");
         }
-        if (!inRange(notAfter)) {
+        if (!JsonIntegers.isNotAfter(notAfter)) {
             throw new IllegalArgumentException("notAfter must be an integer in [0, 2^53 - 1]");
         }
         ObjectNode o = JsonNodeFactory.instance.objectNode();
@@ -168,8 +168,8 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
         }
         Long notAfter = null;
         if (node.has("notAfter")) {
-            notAfter = JsonIntegers.safeInteger(node.get("notAfter"));
-            if (notAfter == null || !inRange(notAfter)) {
+            notAfter = JsonIntegers.notAfter(node.get("notAfter"));
+            if (notAfter == null) {
                 throw new IllegalArgumentException("signed root notAfter must be an integer in [0, 2^53 - 1]");
             }
         }
@@ -192,10 +192,6 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
     private static SignedRoot signText(String rootId, String rootB64, long notAfter, PrivateKey policyKey) {
         String sig = Base64Url.encode(Crypto.sign(policyKey, signingBytes(rootId, rootB64, notAfter)));
         return new SignedRoot(rootId, rootB64, sig, notAfter);
-    }
-
-    private static boolean inRange(long v) {
-        return v >= 0 && v <= MAX_NOT_AFTER;
     }
 
     private static String text(JsonNode node, String field) {

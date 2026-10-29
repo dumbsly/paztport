@@ -39,4 +39,23 @@ final class JsonIntegers {
             return null;
         }
     }
+
+    /**
+     * True when {@code v} is a valid {@code notAfter}: an integer in [0, 2^53 &minus; 1]. The one range check every
+     * window is held to, whether read from the wire, about to be signed or pinned in a verifier's config, so that no
+     * window one SDK accepts is one the other refuses.
+     */
+    static boolean isNotAfter(long v) {
+        return v >= 0 && v <= MAX_SAFE;
+    }
+
+    /**
+     * A {@code notAfter}'s value when {@code n} is an integer in [0, 2^53 &minus; 1], judged by value as
+     * {@link #safeInteger} judges it; else null, never throwing. A caller refuses null for a member that is present,
+     * rather than reading it as absent, which would turn a damaged window into the old form.
+     */
+    static Long notAfter(JsonNode n) {
+        Long v = safeInteger(n);
+        return v != null && isNotAfter(v) ? v : null;
+    }
 }

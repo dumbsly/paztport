@@ -85,19 +85,13 @@ public final class Sessions {
         }
         Long ringNotAfter = null;
         if (params.has("clientKeyringNotAfter")) {
-            ringNotAfter = notAfter(params.get("clientKeyringNotAfter"));
+            ringNotAfter = JsonIntegers.notAfter(params.get("clientKeyringNotAfter"));
             if (ringNotAfter == null) {
                 throw new IllegalArgumentException("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
             }
         }
         return new SessionRequest(root, text(params.get("clientPolicyKey"), "clientPolicyKey"), stringMap(ring), sig,
                 ringNotAfter, text(params.get("nonce"), "nonce"));
-    }
-
-    /** A {@code notAfter}'s value when it is an integer in [0, 2^53 &minus; 1], judged by value; else null. */
-    private static Long notAfter(JsonNode n) {
-        Long v = JsonIntegers.safeInteger(n);
-        return v != null && v >= 0 ? v : null;
     }
 
     private static String text(JsonNode n, String what) {
@@ -181,22 +175,34 @@ public final class Sessions {
 
     /**
      * {@code "attested"} only when both roots verify under their own side's policy key, the client's policy key is
-     * pinned and the client's keyring is signed by it; otherwise {@code "unsafe"}. With no pins every session is
-     * unsafe, and a legacy request (no keyring signature) is unsafe live. Never throws.
+     * pinned, the client's keyring is signed by it, and at {@code nowMs} the client's root and keyring and this
+     * side's own root and keyring are all in the new form and current; otherwise {@code "unsafe"}. With no pins every
+     * session is unsafe, and a legacy request (no keyring signature) is unsafe live. Never throws.
      *
      * <p>Each signature is checked in its object's own form: a root over its own {@code notAfter} if it has one,
      * the keyring over {@code clientKeyringNotAfter} if the request has one (see
-     * {@link SessionRequest#clientKeyringFile}). A window moved, added or dropped in transit therefore fails its
-     * signature. What the client's policy owner vouched for by signing is in {@link SignedRoot} and
-     * {@link KeyringFile}; whether the window has passed is not judged here.
+     * {@link SessionRequest#clientKeyringFile}). A window is trusted only because the signature over it verified: a
+     * client window moved, added or dropped in transit fails its signature, and the root's own signature is all that
+     * guards the root's window. What the client's policy owner vouched for by signing, and until when, is in
+     * {@link SignedRoot} and {@link KeyringFile}; an old-form root or keyring carries no window, so its owner never
+     * said how long it vouches for it, and it is never current.
+     *
+     * <p>{@code ownKeyring} is judged only by its window: its signature is the one this side checked against its pin
+     * when it loaded the keyring, and the caller must pass that keyring and no other. A side whose own root or keyring
+     * has expired therefore opens every new session unsafe and goes on serving unattested callers, rather than
+     * stopping; sessions it attested earlier are verified against the client's material, which has its own window.
      */
-    public static String status(SessionRequest req, SignedRoot ownRoot, PublicKey ownPolicyKey,
-            Set<String> pinnedClientKeys) {
+    public static String status(SessionRequest req, SignedRoot ownRoot, KeyringFile ownKeyring, PublicKey ownPolicyKey,
+            Set<String> pinnedClientKeys, long nowMs) {
         try {
             PublicKey clientKey = Crypto.decodePublicKey(Base64Url.decode(req.clientPolicyKey()));
-            boolean ok = req.clientRoot() != null && ownRoot != null && pinnedClientKeys.contains(req.clientPolicyKey())
+            KeyringFile clientKeyring = req.clientKeyringFile();
+            boolean ok = req.clientRoot() != null && ownRoot != null && ownKeyring != null
+                    && pinnedClientKeys.contains(req.clientPolicyKey())
                     && req.clientRoot().verify(clientKey) && ownRoot.verify(ownPolicyKey)
-                    && req.clientKeyringFile().verifies(req.clientPolicyKey());
+                    && clientKeyring.verifies(req.clientPolicyKey())
+                    && req.clientRoot().isCurrent(nowMs) && clientKeyring.isCurrent(nowMs)
+                    && ownRoot.isCurrent(nowMs) && ownKeyring.isCurrent(nowMs);
             return ok ? ATTESTED : UNSAFE;
         } catch (IllegalArgumentException e) {
             return UNSAFE;
@@ -238,10 +244,10 @@ public final class Sessions {
             cert.put("notAfter", ReplyCert.parse(cert).notAfter());
         }
         if (copy.has("serverKeyringNotAfter")) {
-            copy.put("serverKeyringNotAfter", notAfter(copy.get("serverKeyringNotAfter")));
+            copy.put("serverKeyringNotAfter", JsonIntegers.notAfter(copy.get("serverKeyringNotAfter")));
         }
         if (copy.get("serverRoot") instanceof ObjectNode root && root.has("notAfter")) {
-            root.put("notAfter", notAfter(root.get("notAfter")));
+            root.put("notAfter", JsonIntegers.notAfter(root.get("notAfter")));
         }
         return signingBytes(copy);
     }
@@ -266,16 +272,25 @@ public final class Sessions {
     }
 
     /**
-     * The client's check of a reply against the request it sent, the server policy key it pinned, the server's
+     * The client's live check of a reply against the request it sent, the server policy key it pinned, the server's
      * entry service from its own configuration (never from the reply) and the time {@code nowMs}, in the spec's
      * order: shape, pin, then signature, roots and session id, then status. Takes the raw JSON so that the shape
      * check is the first outcome, and so the signature is checked over the reply as received, any extra field
-     * included (with the certificate's {@code notAfter} read by value; see {@link #receivedSigningBytes}). Never
-     * throws.
+     * included (with the three numbers judged by value, the certificate's {@code notAfter},
+     * {@code serverKeyringNotAfter} and the root's {@code notAfter}, read as the integers they parse to; see
+     * {@link #receivedSigningBytes}). Never throws.
      *
      * <p>The form is decided by which fields are present, never by which key verifies: trying the policy key and
      * then the entry key would let a reply stripped of its certificate, or carrying a certificate it should not,
      * pass under whichever key an attacker holds.
+     *
+     * <p>The server's material is judged at {@code nowMs}, in either form and whatever the status: its root, and in
+     * the entry-key form its keyring, must be in the new form and current, or the reply is {@code BAD_SIGNATURE} and
+     * the client takes its replacement path. Each window is relied on only after the policy key's signature over it
+     * has verified (the root's under the pin, the keyring's in {@link #replySigner}): the entry key signs the reply,
+     * window included, so the reply's own signature cannot vouch for either. A degraded server, its own material
+     * expired, therefore ends up unsafe at the client too. There is no offline reading here: recorded handshakes are
+     * judged by the TypeScript SDK, which accepts the old forms there.
      */
     public static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
@@ -304,8 +319,11 @@ public final class Sessions {
             if (expected == null || !expected.equals(reply.get("sess").textValue())) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            if (!root.isNull() && !SignedRoot.parse(root).verify(pin)) {
-                return ReplyCheck.BAD_SIGNATURE;
+            if (!root.isNull()) {
+                SignedRoot serverRoot = SignedRoot.parse(root);
+                if (!serverRoot.verify(pin) || !serverRoot.isCurrent(nowMs)) {
+                    return ReplyCheck.BAD_SIGNATURE;
+                }
             }
             return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
         } catch (RuntimeException e) {
@@ -314,21 +332,23 @@ public final class Sessions {
     }
 
     /**
-     * The key the reply's {@code sig} must verify under, or null when no key may. The policy-key form (neither
-     * new field) names the pin. The entry-key form names the certificate's key, and only when both fields are
-     * present, the keyring and the certificate verify under the pin, the certificate is for {@code serverEntry} and
-     * names the key the keyring holds for it, and {@code nowMs} is no later than its {@code notAfter}: the keyring
-     * alone is the reply's own claim until the policy key's signature covers it, and the certificate is what says
-     * the key is still current. The keyring's signature is checked in its own form, over
-     * {@code serverKeyringNotAfter} when the reply has one, so a window moved or dropped in transit fails it.
-     * Assumes {@link #wellShaped}.
+     * The key the reply's {@code sig} must verify under, or null when no key may. The policy-key form (none of the
+     * keyring-signature fields) names the pin; a {@code serverKeyringNotAfter} there is a keyring window with no
+     * keyring signature beside it, which nothing vouches for, so no key, as for either form field without the other.
+     * The entry-key form names the certificate's key, and only when both fields are present, the keyring and the
+     * certificate verify under the pin, the certificate is for {@code serverEntry} and names the key the keyring
+     * holds for it, {@code nowMs} is no later than its {@code notAfter}, and the keyring is new form and current at
+     * {@code nowMs}: the keyring alone is the reply's own claim until the policy key's signature covers it, and the
+     * certificate is what says the key is still current. The keyring's signature is checked in its own form, over
+     * {@code serverKeyringNotAfter} when the reply has one, so a window moved or dropped in transit fails it before
+     * the window is judged. Assumes {@link #wellShaped}.
      */
     private static PublicKey replySigner(JsonNode reply, PublicKey pin, String pinText, String serverEntry,
             long nowMs) {
         boolean hasRingSig = reply.has("serverKeyringSig");
         boolean hasCert = reply.has("serverReplyCert");
         if (!hasRingSig && !hasCert) {
-            return pin;
+            return reply.has("serverKeyringNotAfter") ? null : pin;
         }
         if (!hasRingSig || !hasCert || serverEntry == null) {
             return null;
@@ -336,10 +356,11 @@ public final class Sessions {
         Map<String, String> services = stringMap(reply.get("serverKeyring"));
         KeyringFile ring = new KeyringFile(services, reply.get("serverPolicyKey").textValue(),
                 reply.get("serverKeyringSig").textValue(),
-                reply.has("serverKeyringNotAfter") ? notAfter(reply.get("serverKeyringNotAfter")) : null);
+                reply.has("serverKeyringNotAfter") ? JsonIntegers.notAfter(reply.get("serverKeyringNotAfter")) : null);
         ReplyCert cert = ReplyCert.parse(reply.get("serverReplyCert"));
         if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
-                || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()) {
+                || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()
+                || !ring.isCurrent(nowMs)) {
             return null;
         }
         return Crypto.decodePublicKey(Base64Url.decode(cert.key()));
@@ -363,7 +384,7 @@ public final class Sessions {
                 && (status.textValue().equals(ATTESTED) || status.textValue().equals(UNSAFE))
                 && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"))
                 && (!r.has("serverKeyringSig") || r.get("serverKeyringSig").isTextual())
-                && (!r.has("serverKeyringNotAfter") || notAfter(r.get("serverKeyringNotAfter")) != null)
+                && (!r.has("serverKeyringNotAfter") || JsonIntegers.notAfter(r.get("serverKeyringNotAfter")) != null)
                 && (!r.has("serverReplyCert") || parsesAsReplyCert(r.get("serverReplyCert")));
     }
 

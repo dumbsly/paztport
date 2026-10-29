@@ -15,7 +15,7 @@ import {
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
-  deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
 } from "@paztport/core";
 import type {
   InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, SignedKeyring, SignedRoot, StampV3,
@@ -47,6 +47,8 @@ const ABOUT =
   "An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, " +
   "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
+  "A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), " +
+  "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
 
 /** The deterministic Ed25519 key pair for a name, as base64url SPKI and PKCS#8 DER. */
@@ -287,6 +289,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     live(callCase("at policy notAfter", { policyNotAfter: NOW }), ok("pi", "pi-1")),
     live(callCase("policy expired", { policyNotAfter: NOW - 1 }), no("POLICY_EXPIRED")),
     live(callCase("policy expired beats bad signature, names no peer", { policyNotAfter: NOW - 1, chain: forgedCall, peer: { svc: "search", inst: "10.0.0.9" } }), no("POLICY_EXPIRED")),
+    live(callCase("policy expired beats a malformed chain", { policyNotAfter: NOW - 1, chain: [] }), no("POLICY_EXPIRED")),
+    live(callCase("policy notAfter out of range", { policyNotAfter: 2 ** 53 }), no("POLICY_EXPIRED")),
   ];
 
   /** An offline case; the recorded time defaults to the last stamp's, the prompt to the run's, and `seen` to none. */
@@ -503,6 +507,11 @@ export function buildVectorsV3(): Record<string, unknown> {
   const serverRing = signKeyring(
     resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" }), keys["server-policy"].pub, keys["server-policy"].priv, LIVE_NOT_AFTER,
   );
+  const serverRingServices = resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" });
+  const serverRootUntil = (notAfter: number) => signRoot(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv, notAfter);
+  const serverRingUntil = (notAfter: number) => signKeyring(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv, notAfter);
+  const oldServerRoot = signRootOldForm(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv);
+  const oldServerRing = signKeyringOldForm(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv);
   const certFor = (svc: string, key: KeyName, signer: KeyName = "server-policy") =>
     issueReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
   const entryCert = certFor("mcp-entry", "mcp-entry");
@@ -581,6 +590,65 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionReplyCase("serverKeyringNotAfter null", reply("mcp-entry", { serverKeyringNotAfter: null }), "MALFORMED_REPLY"),
     sessionReplyCase("server root notAfter moved", reply("mcp-entry", { serverRoot: { ...serverRoot, notAfter: LIVE_NOT_AFTER + 1 } }), "BAD_SIGNATURE"),
     sessionReplyCase("server root notAfter not an integer", reply("mcp-entry", { serverRoot: { ...serverRoot, notAfter: 1.5 } }), "MALFORMED_REPLY"),
+    // The client judges the server's root, in either form and either status, and in the entry-key form its keyring:
+    // each must be in the new form and current at `now`.
+    sessionReplyCase("server root at notAfter", reply("mcp-entry", { serverRoot: serverRootUntil(NOW) }), "ATTESTED"),
+    sessionReplyCase("server root expired", reply("mcp-entry", { serverRoot: serverRootUntil(NOW - 1) }), "BAD_SIGNATURE"),
+    sessionReplyCase("server root expired, policy-key form", reply("server-policy", { serverRoot: serverRootUntil(NOW - 1) }, OLD), "BAD_SIGNATURE"),
+    sessionReplyCase("server root expired, unsafe", reply("mcp-entry", { serverRoot: serverRootUntil(NOW - 1), status: "unsafe", disabled: [TOOL] }), "BAD_SIGNATURE"),
+    sessionReplyCase("server root old form", reply("mcp-entry", { serverRoot: oldServerRoot }), "BAD_SIGNATURE"),
+    sessionReplyCase("server root old form, policy-key form", reply("server-policy", { serverRoot: oldServerRoot }, OLD), "BAD_SIGNATURE"),
+    // Current by its moved window and re-signed by the entry key, so only the root's own signature refuses it.
+    sessionReplyCase(
+      "expired server root's notAfter moved past now, re-signed by the entry key",
+      reply("mcp-entry", { serverRoot: { ...serverRootUntil(NOW - 1), notAfter: LIVE_NOT_AFTER } }),
+      "BAD_SIGNATURE",
+    ),
+    sessionReplyCase("server keyring at notAfter", reply("mcp-entry", { serverKeyringSig: serverRingUntil(NOW).sig, serverKeyringNotAfter: NOW }), "ATTESTED"),
+    sessionReplyCase("server keyring expired", reply("mcp-entry", { serverKeyringSig: serverRingUntil(NOW - 1).sig, serverKeyringNotAfter: NOW - 1 }), "BAD_SIGNATURE"),
+    sessionReplyCase("server keyring old form", reply("mcp-entry", { serverKeyringSig: oldServerRing.sig }, ["serverKeyringNotAfter"]), "BAD_SIGNATURE"),
+    // A keyring window with no keyring signature: the policy-key form's keyring is signed only through the reply.
+    sessionReplyCase("serverKeyringNotAfter in the policy-key form", reply("server-policy", {}, ["serverKeyringSig", "serverReplyCert"]), "BAD_SIGNATURE"),
+  ];
+
+  // The server's status for a request, against its own root and keyring and the client keys it pinned, at `now`:
+  // attested only when every root and keyring on both sides is in the new form and current. The client's material
+  // is judged only once its signature verifies, so a moved window fails as a signature.
+  const clientRootUntil = (notAfter: number) => signRoot(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv, notAfter);
+  const withClientRing = (ring: SignedKeyring): SessionRequest => {
+    const { clientKeyringNotAfter: _window, ...rest } = request;
+    return { ...rest, clientKeyringSig: ring.sig, ...(ring.notAfter === undefined ? {} : { clientKeyringNotAfter: ring.notAfter }) };
+  };
+  const statusCase = (
+    name: string,
+    o: { request?: SessionRequest; serverRoot?: SignedRoot; serverKeyring?: SignedKeyring; pinned?: KeyName[]; now?: number },
+    expected: "attested" | "unsafe",
+  ) => {
+    const req = o.request ?? request;
+    const root = o.serverRoot ?? serverRoot;
+    const ring = o.serverKeyring ?? serverRing;
+    const pinned = o.pinned ?? ["client-policy"];
+    const now = o.now ?? NOW;
+    const got = sessionStatus(req, root, Object.hasOwn(ring, "notAfter") ? ring.notAfter : undefined, keys["server-policy"].pub, pinned.map((n) => keys[n].pub), now);
+    check(`session status ${name}`, got, expected);
+    return { name, request: req, serverRoot: root, serverKeyring: ring, serverPolicyKey: "server-policy", pinned, now, expected };
+  };
+  const sessionStatusCases = [
+    statusCase("attested", {}, "attested"),
+    statusCase("client key not pinned", { pinned: ["server-policy"] }, "unsafe"),
+    statusCase("client root at notAfter", { request: { ...request, clientRoot: clientRootUntil(NOW) } }, "attested"),
+    statusCase("client root expired", { request: { ...request, clientRoot: clientRootUntil(NOW - 1) } }, "unsafe"),
+    statusCase("client root old form", { request: { ...request, clientRoot: signRootOldForm(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv) } }, "unsafe"),
+    statusCase("expired client root's notAfter moved past now", { request: { ...request, clientRoot: { ...clientRootUntil(NOW - 1), notAfter: LIVE_NOT_AFTER } } }, "unsafe"),
+    statusCase("client keyring at notAfter", { request: withClientRing(newRing(NOW)) }, "attested"),
+    statusCase("client keyring expired", { request: withClientRing(newRing(NOW - 1)) }, "unsafe"),
+    statusCase("client keyring old form", { request: withClientRing(oldRing) }, "unsafe"),
+    statusCase("expired client keyring's clientKeyringNotAfter moved past now", { request: { ...withClientRing(newRing(NOW - 1)), clientKeyringNotAfter: LIVE_NOT_AFTER } }, "unsafe"),
+    statusCase("server root and keyring at notAfter", { serverRoot: serverRootUntil(NOW), serverKeyring: serverRingUntil(NOW) }, "attested"),
+    statusCase("server root expired", { serverRoot: serverRootUntil(NOW - 1) }, "unsafe"),
+    statusCase("server root old form", { serverRoot: oldServerRoot }, "unsafe"),
+    statusCase("server keyring expired", { serverKeyring: serverRingUntil(NOW - 1) }, "unsafe"),
+    statusCase("server keyring old form", { serverKeyring: oldServerRing }, "unsafe"),
   ];
 
   return {
@@ -597,6 +665,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     offline,
     replyCert,
     sessionReply,
+    sessionStatus: sessionStatusCases,
   };
 }
 

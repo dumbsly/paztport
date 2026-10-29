@@ -235,6 +235,24 @@ class VectorsV3Test {
         }
     }
 
+    @Test
+    void sessionStatus() {
+        JsonNode cases = vectors.get("sessionStatus");
+        assertTrue(cases != null && cases.size() > 0, "sessionStatus section");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            Set<String> pinned = new LinkedHashSet<>();
+            c.get("pinned").forEach(n -> pinned.add(vectors.get("keys").get(n.asText()).get("pub").asText()));
+            String serverKey = vectors.get("keys").get(c.get("serverPolicyKey").asText()).get("pub").asText();
+            KeyringFile serverKeyring = KeyringFile.parse(c.get("serverKeyring"));
+            // the server's own keyring is the one it signed, in its own form
+            assertTrue(serverKeyring.verifies(serverKey), name);
+            assertEquals(c.get("expected").asText(), Sessions.status(Sessions.parseRequest(c.get("request")),
+                    SignedRoot.parse(c.get("serverRoot")), serverKeyring,
+                    Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
+        }
+    }
+
     static Keyring keyring(JsonNode names) {
         Map<String, PublicKey> keys = new LinkedHashMap<>();
         names.fields().forEachRemaining(e -> keys.put(e.getKey(), Crypto.decodePublicKey(

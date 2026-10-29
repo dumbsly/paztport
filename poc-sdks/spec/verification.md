@@ -207,8 +207,9 @@ new request tree, so it carries neither the chain nor the influence a request br
 **At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
 session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root in the
-old form or past its `notAfter` builds no verifier, so the session is unsafe; and once the session's material
-expires, every call in it is `POLICY_EXPIRED`. The inputs are the same
+old form or past its `notAfter` at the handshake makes the session unsafe
+([sessions-and-influence.md](sessions-and-influence.md#status)), so no verifier is built on it; and once the
+session's material expires, every call in it is `POLICY_EXPIRED`. The inputs are the same
 as above, with `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated
 client, who MUST be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and
 `influence` are of the request and the entries received. The session is the one `X-Path-Session` names, and only

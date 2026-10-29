@@ -56,11 +56,14 @@ import org.slf4j.LoggerFactory;
  * be given a fresh certificate before the one it holds expires.
  *
  * <p>A session is attested only when {@link Sessions#status} says so: the client's root and keyring verify under a
- * policy key this side has pinned out of band. An attested session gets its own verifier, pinned to the client's
- * keyring and root from the handshake, with the session id as its {@code sess}, so a stamp made in one session never
- * verifies in another. Should that verifier not be buildable, the session is unsafe rather than the handshake
- * failing, because the client still has to be told. An unsafe session has no verifier, and its reply lists the
- * operations this side has switched off for it.
+ * policy key this side has pinned out of band, and they and this side's own root and keyring are in the new form and
+ * current. So a partner left running past its own material degrades to unsafe sessions, disabled operations refused
+ * and the rest served as for any unattested caller, rather than stopping. An attested session gets its own verifier,
+ * pinned to the client's keyring and root from the handshake, with the session id as its {@code sess}, so a stamp
+ * made in one session never verifies in another, and with their earlier window, so every call in it is refused
+ * {@code POLICY_EXPIRED} once either has passed. Should that verifier not be buildable, the session is unsafe
+ * rather than the handshake failing, because the client still has to be told. An unsafe session has no verifier,
+ * and its reply lists the operations this side has switched off for it.
  */
 final class PartnerSessions {
 
@@ -172,7 +175,10 @@ final class PartnerSessions {
             throw new IllegalArgumentException("request does not open a session");
         }
         VerifierV3 verifier = null;
-        if (Sessions.status(req, ownRoot, ownPolicyPublic, pinnedClientKeys).equals("attested")) {
+        // Judged now: client material that is old form or past its window, or this side's own once it has expired,
+        // opens an unsafe session.
+        if (Sessions.status(req, ownRoot, ownKeyring, ownPolicyPublic, pinnedClientKeys, clock.getAsLong())
+                .equals("attested")) {
             try {
                 // The client's keyring whole, its window included, so it verifies in the form it was signed in.
                 verifier = new VerifierV3(VerifierConfigV3.pinned(req.clientKeyringFile(), req.clientRoot(),

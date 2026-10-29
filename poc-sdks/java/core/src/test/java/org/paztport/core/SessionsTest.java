@@ -38,6 +38,8 @@ class SessionsTest {
             SignedRoot.sign(Crypto.sha256("s".getBytes()), "v1", NOT_AFTER, serverPolicy.getPrivate());
     private final KeyringFile clientKeyring = KeyringFile.sign(clientRing, clientKey,
             NOT_AFTER, clientPolicy.getPrivate());
+    private final KeyringFile serverKeyring = KeyringFile.sign(Map.of("pay", "server-key"), serverKey,
+            NOT_AFTER, serverPolicy.getPrivate());
 
     private static String key(KeyPair pair) {
         return Base64Url.encode(Crypto.encodePublicKey(pair.getPublic()));
@@ -45,6 +47,11 @@ class SessionsTest {
 
     private SessionRequest request(SignedRoot root) {
         return SessionRequest.of(root, clientKey, clientKeyring, Sessions.newNonce());
+    }
+
+    /** The server's status for {@code req} at {@code NOW}: its own root and keyring, the client's key pinned. */
+    private String status(SessionRequest req) {
+        return Sessions.status(req, serverRoot, serverKeyring, serverPolicy.getPublic(), Set.of(clientKey), NOW);
     }
 
     private SessionReply reply(SessionRequest req, SignedRoot root, String status) {
@@ -64,7 +71,7 @@ class SessionsTest {
     @Test
     void attestedRoundTrip() {
         SessionRequest req = request(clientRoot);
-        assertEquals("attested", Sessions.status(req, serverRoot, serverPolicy.getPublic(), Set.of(clientKey)));
+        assertEquals("attested", status(req));
         assertTrue(Sessions.opensSession(req));
 
         SessionReply reply = reply(req, serverRoot, "attested");
@@ -79,18 +86,20 @@ class SessionsTest {
     void unsafeWhen() {
         Set<String> pinned = Set.of(clientKey);
         PublicKey own = serverPolicy.getPublic();
-        assertEquals("unsafe", Sessions.status(request(null), serverRoot, own, pinned), "null client root");
-        assertEquals("unsafe", Sessions.status(request(clientRoot), serverRoot, own, Set.of(key(serverPolicy))), "unpinned");
-        assertEquals("unsafe", Sessions.status(request(clientRoot), serverRoot, own, Set.of()), "empty pins");
+        assertEquals("unsafe", status(request(null)), "null client root");
+        assertEquals("unsafe", Sessions.status(request(clientRoot), serverRoot, serverKeyring, own,
+                Set.of(key(serverPolicy)), NOW), "unpinned");
+        assertEquals("unsafe", Sessions.status(request(clientRoot), serverRoot, serverKeyring, own, Set.of(), NOW),
+                "empty pins");
         SessionRequest good = request(clientRoot);
         SessionRequest wrongSig = new SessionRequest(clientRoot, clientKey, clientRing,
                 Base64Url.encode(new byte[64]), NOT_AFTER, good.nonce());
-        assertEquals("unsafe", Sessions.status(wrongSig, serverRoot, own, pinned), "wrong keyring sig");
+        assertEquals("unsafe", status(wrongSig), "wrong keyring sig");
         SessionRequest legacy = new SessionRequest(clientRoot, clientKey, clientRing, null, null, good.nonce());
         assertTrue(legacy.legacy());
-        assertEquals("unsafe", Sessions.status(legacy, serverRoot, own, pinned), "legacy");
-        assertEquals("unsafe", Sessions.status(good, null, own, pinned), "no server root");
-        assertEquals("attested", Sessions.status(good, serverRoot, own, pinned));
+        assertEquals("unsafe", status(legacy), "legacy");
+        assertEquals("unsafe", Sessions.status(good, null, serverKeyring, own, pinned, NOW), "no server root");
+        assertEquals("attested", status(good));
     }
 
     @Test
@@ -216,7 +225,7 @@ class SessionsTest {
         SessionRequest parsed = Sessions.parseRequest(request(clientRoot).toJson());
 
         assertEquals(clientRoot, parsed.clientRoot());
-        assertEquals("attested", Sessions.status(parsed, serverRoot, serverPolicy.getPublic(), Set.of(clientKey)));
+        assertEquals("attested", status(parsed));
     }
 
     /**
@@ -245,21 +254,19 @@ class SessionsTest {
      */
     @Test
     void clientKeyringNotAfterIsCoveredByTheKeyringSignature() throws Exception {
-        Set<String> pinned = Set.of(clientKey);
-        PublicKey own = serverPolicy.getPublic();
         ObjectNode wire = request(clientRoot).toJson();
         assertEquals(NOT_AFTER, wire.get("clientKeyringNotAfter").longValue());
-        assertEquals("attested", Sessions.status(Sessions.parseRequest(wire), serverRoot, own, pinned));
+        assertEquals("attested", status(Sessions.parseRequest(wire)));
 
         ObjectNode moved = wire.deepCopy();
         moved.put("clientKeyringNotAfter", NOT_AFTER + 1);
-        assertEquals("unsafe", Sessions.status(Sessions.parseRequest(moved), serverRoot, own, pinned), "moved");
+        assertEquals("unsafe", status(Sessions.parseRequest(moved)), "moved");
         ObjectNode dropped = wire.deepCopy();
         dropped.remove("clientKeyringNotAfter");
-        assertEquals("unsafe", Sessions.status(Sessions.parseRequest(dropped), serverRoot, own, pinned), "dropped");
+        assertEquals("unsafe", status(Sessions.parseRequest(dropped)), "dropped");
         ObjectNode byValue = (ObjectNode) JSON.readTree(JSON.writeValueAsString(wire)
                 .replace("\"clientKeyringNotAfter\":" + NOT_AFTER, "\"clientKeyringNotAfter\":1.8302976e12"));
-        assertEquals("attested", Sessions.status(Sessions.parseRequest(byValue), serverRoot, own, pinned), "by value");
+        assertEquals("attested", status(Sessions.parseRequest(byValue)), "by value");
     }
 
     /**
@@ -285,28 +292,167 @@ class SessionsTest {
                         oldRing.services()));
     }
 
-    /** Old-form material still verifies, in either message: the form decides only which bytes are checked. */
+    /**
+     * Old-form material still verifies, in either message: the form decides only which bytes are checked. But a live
+     * handshake refuses it: an old-form client root or keyring makes the session unsafe, and an old-form server root
+     * makes the reply {@code BAD_SIGNATURE}, since the policy owner never said how long it vouches for either.
+     */
     @Test
-    void oldFormMaterialStillVerifies() {
+    void oldFormMaterialVerifiesButIsRefusedLive() {
         KeyringFile oldRing = KeyringFile.signOldForm(clientRing, clientKey, clientPolicy.getPrivate());
         SignedRoot oldRoot = SignedRoot.signOldForm(Crypto.sha256("c".getBytes()), "v1", clientPolicy.getPrivate());
-        SessionRequest req = Sessions.parseRequest(
-                SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson());
-        assertEquals("attested", Sessions.status(req, serverRoot, serverPolicy.getPublic(), Set.of(clientKey)));
+        assertTrue(oldRing.verifies(clientKey));
+        assertTrue(oldRoot.verify(clientPolicy.getPublic()));
+        assertEquals("unsafe", status(Sessions.parseRequest(
+                SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "both old form");
+        assertEquals("unsafe", status(Sessions.parseRequest(
+                SessionRequest.of(oldRoot, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "old root");
+        assertEquals("unsafe", status(Sessions.parseRequest(
+                SessionRequest.of(clientRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "old keyring");
+        SessionRequest req = request(clientRoot);
         SignedRoot oldServer = SignedRoot.signOldForm(Crypto.sha256("s".getBytes()), "v1", serverPolicy.getPrivate());
-        assertEquals(ReplyCheck.ATTESTED,
+        assertTrue(oldServer.verify(serverPolicy.getPublic()));
+        assertEquals(ReplyCheck.BAD_SIGNATURE,
                 Sessions.checkReply(wire(reply(req, oldServer, "attested")), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE,
+                Sessions.checkReply(wire(reply(req, oldServer, "unsafe")), req, serverKey, "pay", NOW));
+    }
+
+    /**
+     * The client's root and keyring are each current up to and including their {@code notAfter} and not a millisecond
+     * after; past either, the session is unsafe. Forged: an expired root with its {@code notAfter} moved past now
+     * reads as current, so only the root's own signature can refuse it, and does; an expired keyring with its
+     * {@code clientKeyringNotAfter} moved is refused by the keyring signature.
+     */
+    @Test
+    void anExpiredClientRootOrKeyringIsUnsafe() {
+        byte[] rootBytes = Crypto.sha256("c".getBytes());
+        SignedRoot untilNow = SignedRoot.sign(rootBytes, "v1", NOW, clientPolicy.getPrivate());
+        KeyringFile ringUntilNow = KeyringFile.sign(clientRing, clientKey, NOW, clientPolicy.getPrivate());
+        SessionRequest rootReq = SessionRequest.of(untilNow, clientKey, clientKeyring, Sessions.newNonce());
+        SessionRequest ringReq = SessionRequest.of(clientRoot, clientKey, ringUntilNow, Sessions.newNonce());
+        PublicKey own = serverPolicy.getPublic();
+        Set<String> pinned = Set.of(clientKey);
+        assertEquals("attested", status(rootReq), "root at notAfter");
+        assertEquals("unsafe", Sessions.status(rootReq, serverRoot, serverKeyring, own, pinned, NOW + 1), "root past");
+        assertEquals("attested", status(ringReq), "keyring at notAfter");
+        assertEquals("unsafe", Sessions.status(ringReq, serverRoot, serverKeyring, own, pinned, NOW + 1),
+                "keyring past");
+
+        SignedRoot expired = SignedRoot.sign(rootBytes, "v1", NOW - 1, clientPolicy.getPrivate());
+        SignedRoot moved = new SignedRoot(expired.rootId(), expired.root(), expired.sig(), NOT_AFTER);
+        assertTrue(moved.isCurrent(NOW));
+        assertFalse(moved.verify(clientPolicy.getPublic()));
+        assertEquals("unsafe", status(Sessions.parseRequest(
+                SessionRequest.of(moved, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "root moved");
+
+        KeyringFile expiredRing = KeyringFile.sign(clientRing, clientKey, NOW - 1, clientPolicy.getPrivate());
+        ObjectNode ringMoved = SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson();
+        ringMoved.put("clientKeyringNotAfter", NOT_AFTER);
+        assertEquals("unsafe", status(Sessions.parseRequest(ringMoved)), "keyring moved");
+    }
+
+    /**
+     * A server whose own root or keyring is old form or past its {@code notAfter} opens every session unsafe, however
+     * good the client's material: it degrades to serving unattested callers rather than stopping. A missing keyring
+     * is unsafe too.
+     */
+    @Test
+    void aServerWhoseOwnRootOrKeyringIsNotCurrentOpensEverySessionUnsafe() {
+        SessionRequest req = request(clientRoot);
+        PublicKey own = serverPolicy.getPublic();
+        Set<String> pinned = Set.of(clientKey);
+        byte[] rootBytes = Crypto.sha256("s".getBytes());
+        SignedRoot rootUntilNow = SignedRoot.sign(rootBytes, "v1", NOW, serverPolicy.getPrivate());
+        KeyringFile ringUntilNow = KeyringFile.sign(serverKeyring.services(), serverKey, NOW,
+                serverPolicy.getPrivate());
+        assertEquals("attested", Sessions.status(req, rootUntilNow, ringUntilNow, own, pinned, NOW));
+        assertEquals("unsafe", Sessions.status(req, rootUntilNow, serverKeyring, own, pinned, NOW + 1), "root past");
+        assertEquals("unsafe", Sessions.status(req, serverRoot, ringUntilNow, own, pinned, NOW + 1), "keyring past");
+        SignedRoot oldRoot = SignedRoot.signOldForm(rootBytes, "v1", serverPolicy.getPrivate());
+        KeyringFile oldRing = KeyringFile.signOldForm(serverKeyring.services(), serverKey, serverPolicy.getPrivate());
+        assertEquals("unsafe", Sessions.status(req, oldRoot, serverKeyring, own, pinned, NOW), "old root");
+        assertEquals("unsafe", Sessions.status(req, serverRoot, oldRing, own, pinned, NOW), "old keyring");
+        assertEquals("unsafe", Sessions.status(req, serverRoot, null, own, pinned, NOW), "no keyring");
+    }
+
+    /**
+     * The client judges the server's root in either reply form and either status, and in the entry-key form its
+     * keyring: each current up to and including its {@code notAfter}, {@code BAD_SIGNATURE} a millisecond after, so
+     * the client takes its replacement path. Forged: an expired root with its window moved past now, the reply signed
+     * again by the entry key so its own signature holds; only the root's signature refuses it. A
+     * {@code serverKeyringNotAfter} in a policy-key reply is a keyring window with no keyring signature, refused as
+     * either form field without the other is. An old-form keyring in the entry-key form is refused.
+     */
+    @Test
+    void theServersRootAndKeyringAreJudgedInTheReply() {
+        SessionRequest req = request(clientRoot);
+        byte[] rootBytes = Crypto.sha256("s".getBytes());
+        SignedRoot rootUntilNow = SignedRoot.sign(rootBytes, "v1", NOW, serverPolicy.getPrivate());
+        JsonNode policyForm = wire(reply(req, rootUntilNow, "attested"));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(policyForm, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(policyForm, req, serverKey, "pay", NOW + 1));
+        JsonNode unsafe = wire(reply(req, rootUntilNow, "unsafe"));
+        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(unsafe, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(unsafe, req, serverKey, "pay", NOW + 1));
+
+        KeyPair entry = Crypto.generateEd25519KeyPair();
+        long certNotAfter = NOW + 1000;
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(entryKeyReply(req, entry, certNotAfter, rootUntilNow,
+                NOT_AFTER), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(entryKeyReply(req, entry, certNotAfter,
+                rootUntilNow, NOT_AFTER), req, serverKey, "pay", NOW + 1), "root past, entry-key form");
+        JsonNode ringUntilNow = entryKeyReply(req, entry, certNotAfter, serverRoot, NOW);
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(ringUntilNow, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(ringUntilNow, req, serverKey, "pay", NOW + 1),
+                "keyring past");
+
+        SignedRoot expired = SignedRoot.sign(rootBytes, "v1", NOW - 1, serverPolicy.getPrivate());
+        SignedRoot extended = new SignedRoot(expired.rootId(), expired.root(), expired.sig(), NOT_AFTER);
+        assertTrue(extended.isCurrent(NOW));
+        assertFalse(extended.verify(serverPolicy.getPublic()));
+        JsonNode byEntry = entryKeyReply(req, entry, certNotAfter, extended, NOT_AFTER);
+        assertEquals(NOT_AFTER, byEntry.get("serverRoot").get("notAfter").longValue());
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW));
+
+        String pn = Sessions.newNonce();
+        String ps = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), pn, clientKey,
+                clientRing);
+        Map<String, String> ring = Map.of("pay", "server-key");
+        JsonNode withoutWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, null,
+                null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(withoutWindow, req, serverKey, "pay", NOW));
+        JsonNode withWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, NOT_AFTER,
+                null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+        assertTrue(withWindow.has("serverKeyringNotAfter"));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(withWindow, req, serverKey, "pay", NOW));
+
+        KeyringFile oldRing = KeyringFile.signOldForm(Map.of("pay", key(entry)), serverKey, serverPolicy.getPrivate());
+        String nonce = Sessions.newNonce();
+        String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
+                clientRing);
+        JsonNode oldForm = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, oldRing.services(),
+                oldRing.sig(), null, ReplyCert.issue(serverKey, "pay", key(entry), certNotAfter,
+                        serverPolicy.getPrivate()), nonce, sess, "attested", List.of(), null), entry.getPrivate()));
+        assertFalse(oldForm.has("serverKeyringNotAfter"));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(oldForm, req, serverKey, "pay", NOW));
     }
 
     /** An entry-key reply: new-form server root and keyring, the keyring's window beside it as on the request. */
     private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter) {
+        return entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER);
+    }
+
+    /** An entry-key reply carrying {@code root} and a keyring signed in the new form until {@code ringNotAfter}. */
+    private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter, SignedRoot root,
+            long ringNotAfter) {
         Map<String, String> ring = Map.of("pay", key(entry));
-        KeyringFile signedRing = KeyringFile.sign(ring, serverKey, NOT_AFTER, serverPolicy.getPrivate());
+        KeyringFile signedRing = KeyringFile.sign(ring, serverKey, ringNotAfter, serverPolicy.getPrivate());
         ReplyCert cert = ReplyCert.issue(serverKey, "pay", key(entry), certNotAfter, serverPolicy.getPrivate());
         String nonce = Sessions.newNonce();
-        String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
+        String sess = Sessions.deriveSessionId(clientRoot.sig(), root.sig(), req.nonce(), nonce, clientKey,
                 clientRing);
-        return wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(), NOT_AFTER, cert,
+        return wire(Sessions.signReply(new SessionReply(root, serverKey, ring, signedRing.sig(), ringNotAfter, cert,
                 nonce, sess, "attested", List.of(), null), entry.getPrivate()));
     }
 

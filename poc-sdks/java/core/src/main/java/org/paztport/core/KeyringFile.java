@@ -66,7 +66,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
      * services. Throws {@link IllegalArgumentException} for a {@code notAfter} out of range, which nothing signs.
      */
     public static byte[] signingBytes(String policy, Map<String, String> services, long notAfter) {
-        if (!inRange(notAfter)) {
+        if (!JsonIntegers.isNotAfter(notAfter)) {
             throw new IllegalArgumentException("notAfter must be an integer in [0, 2^53 - 1]");
         }
         ObjectNode o = body(policy, services);
@@ -168,8 +168,8 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         }
         Long notAfter = null;
         if (node.has("notAfter")) {
-            notAfter = JsonIntegers.safeInteger(node.get("notAfter"));
-            if (notAfter == null || !inRange(notAfter)) {
+            notAfter = JsonIntegers.notAfter(node.get("notAfter"));
+            if (notAfter == null) {
                 throw new IllegalArgumentException("keyring notAfter must be an integer in [0, 2^53 - 1]");
             }
         }
@@ -204,10 +204,6 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         System.arraycopy(prefix, 0, out, 0, prefix.length);
         System.arraycopy(body, 0, out, prefix.length, body.length);
         return out;
-    }
-
-    private static boolean inRange(long v) {
-        return v >= 0 && v <= MAX_NOT_AFTER;
     }
 
     private static String text(JsonNode node, String field) {

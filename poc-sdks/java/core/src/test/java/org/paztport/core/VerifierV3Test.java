@@ -322,4 +322,23 @@ class VerifierV3Test {
         clock[0] = NOW;
         assertEquals(ReasonCode.OK, v.verify(boundaryInput("k1", null)).reason(), "the refused call's key is unspent");
     }
+
+    /**
+     * A config built directly, as tests and vectors do, with a window outside [0, 2^53 &minus; 1]: no signed object
+     * carries one, so check 0 refuses every request rather than reading 2^53 as a window that never closes.
+     */
+    @Test
+    void aWindowOutOfRangeIsPolicyExpired() {
+        for (long window : new long[] {JsonIntegers.MAX_SAFE + 1, Long.MAX_VALUE, -1, Long.MIN_VALUE}) {
+            Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
+            VerifierV3 v = new VerifierV3(new VerifierConfigV3(ring, TREE.root(), "vtest", window, Set.of("session"),
+                    "s", new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""), v.verify(boundaryInput("k1", null)),
+                    String.valueOf(window));
+        }
+        Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
+        VerifierV3 largest = new VerifierV3(new VerifierConfigV3(ring, TREE.root(), "vtest", JsonIntegers.MAX_SAFE,
+                Set.of("session"), "s", new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+        assertEquals(ReasonCode.OK, largest.verify(boundaryInput("k1", null)).reason());
+    }
 }

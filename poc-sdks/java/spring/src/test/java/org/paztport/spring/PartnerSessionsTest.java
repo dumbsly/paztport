@@ -28,12 +28,14 @@ import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
+import org.paztport.core.ReasonCode;
 import org.paztport.core.ReplyCert;
 import org.paztport.core.ReplyCheck;
 import org.paztport.core.SessionReply;
 import org.paztport.core.SessionRequest;
 import org.paztport.core.Sessions;
 import org.paztport.core.SignedRoot;
+import org.paztport.core.VerifyResult;
 
 /**
  * The partner's session registry on its own: which handshakes it attests, that a reply is signed by its entry key,
@@ -61,14 +63,25 @@ class PartnerSessionsTest {
      */
     private record Org(KeyPair policy, KeyringFile keyring, KeyPair key, ReplyCert cert, SignedRoot root) {
         static Org of(String service, KeyPair policy) {
+            return of(service, policy, NOT_AFTER, NOT_AFTER);
+        }
+
+        /** The same, its root signed until {@code rootNotAfter} and its keyring until {@code ringNotAfter}. */
+        static Org of(String service, KeyPair policy, long rootNotAfter, long ringNotAfter) {
             KeyPair key = Crypto.generateEd25519KeyPair();
             return new Org(policy,
-                    KeyringFile.sign(Map.of(service, pub(key)), pub(policy), NOT_AFTER, policy.getPrivate()),
+                    KeyringFile.sign(Map.of(service, pub(key)), pub(policy), ringNotAfter, policy.getPrivate()),
                     key,
                     ReplyCert.issue(pub(policy), service, pub(key), System.currentTimeMillis() + 7 * 86_400_000L,
                             policy.getPrivate()),
                     PolicyBuilder.build(List.of(List.of(service, "x")), 4,
-                            NOT_AFTER, policy.getPrivate()).signedRoot());
+                            rootNotAfter, policy.getPrivate()).signedRoot());
+        }
+
+        /** The same organisation with its root and keyring signed again in the old form, with no window. */
+        Org oldForm() {
+            return new Org(policy, KeyringFile.signOldForm(keyring.services(), pin(), policy.getPrivate()), key, cert,
+                    SignedRoot.signOldForm(root.rootBytes(), root.rootId(), policy.getPrivate()));
         }
 
         String pin() {
@@ -142,6 +155,76 @@ class PartnerSessionsTest {
             assertThrows(IllegalArgumentException.class, () -> new PartnerSessions(psp.root(), psp.keyring(),
                     psp.pin(), "psp", psp.key().getPrivate(), cert, Set.of(shop.pin()), Set.of("payment"), DISABLED,
                     new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS));
+        }
+    }
+
+    /**
+     * As with an unpinned key: client material in the old form, or past its window at the handshake, opens an unsafe
+     * session with no verifier, so no call is ever checked against material its owner no longer vouches for.
+     */
+    @Test
+    void oldFormOrExpiredClientMaterialIsUnsafe() {
+        Org old = shop.oldForm();
+        Org expiredRoot = Org.of("payment", shop.policy(), now.get() - 1, NOT_AFTER);
+        Org expiredRing = Org.of("payment", shop.policy(), NOT_AFTER, now.get() - 1);
+        for (Org client : List.of(old, expiredRoot, expiredRing)) {
+            SessionRequest req = request(client, client.root());
+            SessionReply reply = partner.open(req, SHOP_CA, "orders");
+            assertEquals("unsafe", reply.status());
+            assertEquals(DISABLED, reply.disabled());
+            assertNull(partner.find(SHOP_CA, "orders", reply.sess()).verifier());
+        }
+    }
+
+    /**
+     * A partner whose own root or keyring expires while it runs degrades rather than stops: every new session is
+     * unsafe, and the client, judging the reply at that time, refuses it and takes its replacement path. A session
+     * attested before is still verified against the client's material, which is current.
+     */
+    @Test
+    void aPartnerWhoseOwnRootOrKeyringExpiredOpensEverySessionUnsafe() {
+        long expiry = now.get() + 1000;
+        for (Org own : List.of(Org.of("psp", psp.policy(), expiry, NOT_AFTER),
+                Org.of("psp", psp.policy(), NOT_AFTER, expiry))) {
+            now.set(expiry - 1000);
+            PartnerSessions degrading = new PartnerSessions(own.root(), own.keyring(), own.pin(), "psp",
+                    own.key().getPrivate(), own.cert(), Set.of(shop.pin()), Set.of("payment"), DISABLED,
+                    new InMemoryNonceCache(15_000), now::get, 5000, 5000, 16, IDLE_MS);
+            String earlier = open(degrading, SHOP_CA, "orders");
+            assertTrue(degrading.find(SHOP_CA, "orders", earlier).attested());
+
+            now.set(expiry + 1);
+            SessionRequest req = request(shop, shop.root());
+            SessionReply reply = degrading.open(req, SHOP_CA, "orders");
+            assertEquals("unsafe", reply.status());
+            assertEquals(DISABLED, reply.disabled());
+            assertEquals(ReplyCheck.BAD_SIGNATURE,
+                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", now.get()));
+            assertEquals(ReplyCheck.UNSAFE,
+                    Sessions.checkReply(reply.toJson(), req, own.pin(), "psp", expiry - 1000));
+            assertEquals(ReasonCode.CHAIN_MISSING,
+                    degrading.find(SHOP_CA, "orders", earlier).verifier().verify(null).reason());
+        }
+    }
+
+    /**
+     * An attested session's verifier carries the client's keyring and root windows: once either passes, every call
+     * in the session is POLICY_EXPIRED, naming no one, and the client opens a new session on its next handshake.
+     */
+    @Test
+    void callsArePolicyExpiredOnceTheClientsKeyringOrRootExpires() {
+        long expiry = now.get() + 1000;
+        for (Org client : List.of(Org.of("payment", shop.policy(), NOT_AFTER, expiry),
+                Org.of("payment", shop.policy(), expiry, NOT_AFTER))) {
+            now.set(expiry - 1000);
+            SessionReply reply = partner.open(request(client, client.root()), SHOP_CA, "orders");
+            assertEquals("attested", reply.status());
+            now.set(expiry);
+            PartnerSessions.Session session = partner.find(SHOP_CA, "orders", reply.sess());
+            assertEquals(ReasonCode.CHAIN_MISSING, session.verifier().verify(null).reason(), "at notAfter");
+            now.set(expiry + 1);
+            assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""),
+                    partner.find(SHOP_CA, "orders", reply.sess()).verifier().verify(null), "one ms past");
         }
     }
 

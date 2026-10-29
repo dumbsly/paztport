@@ -40,7 +40,10 @@ has one, the authenticated peer.
 - **Bindings, influence and labels.** `Bindings` (the prompt and response
   bindings, which refuse a lone surrogate), `Influence`, `InfluenceRule` (the one
   owner-aware rule) and `ContentLabel`.
-- **Sessions.** `Sessions`: the handshake as messages, with no transport.
+- **Sessions.** `Sessions`: the handshake as messages, with no transport. `status`
+  and `checkReply` judge both sides' roots and keyrings at the handshake: old form or
+  past `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a
+  partner whose own material has expired opens every session unsafe.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and

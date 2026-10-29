@@ -50,6 +50,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   A request without the signature is legacy offline and unsafe live. One whose signature is present but
   malformed (not a string) or wrong is unsafe live, and offline is a v3 request whose signature fails, not a
   legacy one.
+- **Handshakes judge the windows, live.** `sessionStatus` takes the server's own keyring window and `now`, and
+  opens a session unsafe when either side's root or keyring is in the old form or past its `notAfter`, so a server
+  whose own material has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check)
+  refuses the server's root, and in the entry-key form its keyring, when old form or expired, as `BAD_SIGNATURE`.
+  `isAttestedSession` checks a recorded handshake offline, where the old forms are accepted and no window is
+  judged.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 

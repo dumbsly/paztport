@@ -40,20 +40,27 @@ const DAY_MS = 86_400_000;
 /** When the server's root and keyring stop being valid: 2100-01-01. */
 const NOT_AFTER = 4_102_444_800_000;
 
-/** A consistent server policy for `hops`, in the new form, with the policy key that signed it so a test can forge parts. */
-function serverSetup(hops: readonly [string, string] = ["mcp-entry", "github-tools"]): { cfg: ServerPolicy; policyPrivateKey: string } {
+/**
+ * A consistent server policy for `hops`, in the new form, with the policy key that signed it so a test can forge
+ * parts; `windows` replaces NOT_AFTER as the root's or the keyring's.
+ */
+function serverSetup(
+  hops: readonly [string, string] = ["mcp-entry", "github-tools"],
+  windows: { rootNotAfter?: number; keyringNotAfter?: number } = {},
+): { cfg: ServerPolicy; policyPrivateKey: string } {
   const [entryName, toolsName] = hops;
   const policy = generateKeyPair();
   const entry = generateKeyPair();
   const tools = generateKeyPair();
-  const { signedRoot, bundles } = buildPolicy([[entryName, toolsName]], 8, policy.privateKey, NOT_AFTER);
-  const ring = signKeyring({ [entryName]: entry.publicKey, [toolsName]: tools.publicKey }, policy.publicKey, policy.privateKey, NOT_AFTER);
+  const { signedRoot, bundles } = buildPolicy([[entryName, toolsName]], 8, policy.privateKey, windows.rootNotAfter ?? NOT_AFTER);
+  const keyringNotAfter = windows.keyringNotAfter ?? NOT_AFTER;
+  const ring = signKeyring({ [entryName]: entry.publicKey, [toolsName]: tools.publicKey }, policy.publicKey, policy.privateKey, keyringNotAfter);
   const cfg: ServerPolicy = {
     policyPublicKey: policy.publicKey,
     signingKeys: { [entryName]: entry.privateKey, [toolsName]: tools.privateKey },
     keyring: ring.services,
     keyringSig: ring.sig,
-    keyringNotAfter: NOT_AFTER,
+    keyringNotAfter,
     replyCert: issueReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles[entryName]!.proofs[`${entryName}/${toolsName}`]!,
@@ -190,12 +197,53 @@ describe("session handshake", () => {
     // a request that opens no session leaves the current one in place
     expect(srv.session()).toBe(current);
   });
-  it("anOldFormClientIsStillAttested", () => {
+  it("anOldFormClientIsUnsafeAtTheHandshake", () => {
+    // as at a Java partner: material with no window opens no attested session, so no call is ever verified against it
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = makeClient({ oldForm: true }).request();
     expect(Object.hasOwn(req, "clientKeyringNotAfter")).toBe(false);
     expect(Object.hasOwn(req.clientRoot!, "notAfter")).toBe(false);
-    expect(srv.openSession(req).status).toBe("attested");
+    const reply = srv.openSession(req);
+    expect(reply.status).toBe("unsafe");
+    expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
+    expect(srv.session()?.status).toBe("unsafe");
+  });
+  it("anExpiredClientRootOrKeyringIsUnsafeAtTheHandshake", () => {
+    const T = Date.now() + 60_000;
+    for (const [what, opts] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
+      let now = Date.now();
+      const srv = new McpServerSession(serverConfig(), RULES, () => now);
+      now = T;
+      expect(srv.openSession(makeClient(opts).request()).status, `${what} at notAfter`).toBe("attested");
+      now = T + 1;
+      expect(srv.openSession(makeClient(opts).request()).status, `${what} one ms past`).toBe("unsafe");
+    }
+  });
+  it("aServerWhoseOwnRootOrKeyringExpiredDegradesToUnsafeSessions", () => {
+    const T = Date.now() + 60_000;
+    for (const [what, windows] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
+      let now = Date.now();
+      const { cfg } = serverSetup(["mcp-entry", "github-tools"], windows);
+      const srv = new McpServerSession(cfg, RULES, () => now);
+      const client = makeClient();
+      const first = srv.openSession(client.request());
+      expect(first.status, what).toBe("attested");
+      expect(client.acceptReply(first, cfg.policyPublicKey), what).toBe(true);
+      // a session opened before expiry is still verified against the client's material
+      now = T + 1;
+      expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now })).reason, `${what} earlier session`).toBe("OK");
+      // every new session is unsafe: reads run, writes are refused, as for any unattested caller
+      const req = client.request();
+      const reply = srv.openSession(req);
+      expect(reply.status, what).toBe("unsafe");
+      expect(reply.disabled, what).toEqual(RULES.disabledWhenUnsafe);
+      const decide = (tool: string, isWrite: boolean) =>
+        decideServerCall({ tool, isWrite, publicDestination: true, session: srv.session(), clientInfluence: [], rules: RULES });
+      expect(decide("list_issues", false), what).toBe("OK");
+      expect(decide("create_pull_request", true), what).toBe("UNSAFE_SESSION");
+      // and a client judging the reply at that time refuses it, so it takes its replacement path
+      expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", now), what).toBe(false);
+    }
   });
   it("callsArePolicyExpiredOnceTheClientsRootOrKeyringWindowHasPassed", () => {
     const T = 1_900_000_000_000;
@@ -213,15 +261,6 @@ describe("session handshake", () => {
       const r = srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now: T + 1 }));
       expect({ reason: r.reason, caller: r.caller, influence: r.influence }, `${what} one ms past`).toEqual({ reason: "POLICY_EXPIRED", caller: "", influence: [] });
     }
-  });
-  it("anOldFormClientsCallsFailClosed", () => {
-    const cfg = serverConfig();
-    const srv = new McpServerSession(cfg, RULES, Date.now);
-    const client = makeClient({ oldForm: true });
-    const reply = srv.openSession(client.request());
-    expect(reply.status).toBe("attested");
-    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
-    expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [])).reason).toBe("POLICY_EXPIRED");
   });
   it("unsafeWithoutClientRootDisablesWrites", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
@@ -278,14 +317,16 @@ describe("session handshake", () => {
     expect(verifySessionReply(stripped as SessionReply, req, cfg.policyPublicKey, "mcp-entry", Date.now())).toBe(false);
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
   });
-  it("anOldFormKeyringReplyCarriesNoWindow", () => {
+  it("anOldFormKeyringReplyCarriesNoWindowAndIsRefused", () => {
+    // a server on an old-form keyring opens every session unsafe, and a client refuses its reply live
     const { cfg, policyPrivateKey } = serverSetup();
     const { keyringNotAfter: _w, ...rest } = cfg;
     const old: ServerPolicy = { ...rest, keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig };
     const client = makeClient();
     const reply = new McpServerSession(old, RULES, Date.now).openSession(client.request());
     expect(Object.hasOwn(reply, "serverKeyringNotAfter")).toBe(false);
-    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
+    expect(reply.status).toBe("unsafe");
+    expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(false);
   });
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };
