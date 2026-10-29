@@ -16,7 +16,7 @@ import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.PaztportContext;
-import org.paztport.spring.PooledTlsClient;
+import org.paztport.spring.outbound.PooledTlsClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;

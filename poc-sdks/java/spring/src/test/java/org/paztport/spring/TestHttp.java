@@ -16,7 +16,7 @@ import org.springframework.web.client.RestClient;
  * the test's own server once did exactly that: that process took the connection and never replied, and with no
  * timeout the test waited for ever.
  */
-final class TestHttp {
+public final class TestHttp {
 
     /** Far beyond any call here, which take milliseconds, yet short enough that a stall fails rather than hangs. */
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
@@ -24,7 +24,7 @@ final class TestHttp {
     private TestHttp() {
     }
 
-    static HttpClient newClient() {
+    public static HttpClient newClient() {
         return HttpClient.newBuilder().connectTimeout(REQUEST_TIMEOUT).build();
     }
 
@@ -36,7 +36,7 @@ final class TestHttp {
     }
 
     /** A request to {@code uri} that times out rather than wait for ever. */
-    static HttpRequest.Builder request(URI uri) {
+    public static HttpRequest.Builder request(URI uri) {
         return HttpRequest.newBuilder(uri).timeout(REQUEST_TIMEOUT);
     }
 }

@@ -34,6 +34,7 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.spring.outbound.OutboundInterceptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;

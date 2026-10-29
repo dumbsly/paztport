@@ -49,6 +49,8 @@ import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.spring.outbound.PooledTlsClient;
+import org.paztport.spring.partner.BoundaryClient;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;

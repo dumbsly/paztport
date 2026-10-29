@@ -29,6 +29,8 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.spring.config.ModeHolder;
+import org.paztport.spring.config.VerificationMode;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;

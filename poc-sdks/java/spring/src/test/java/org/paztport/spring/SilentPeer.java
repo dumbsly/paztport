@@ -18,10 +18,10 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * a response's headers and the first bytes of a body it never finishes. It keeps each connection open until it is
  * closed, so a client waiting on it waits until its own timeout ends the call, or for ever.
  */
-final class SilentPeer implements AutoCloseable {
+public final class SilentPeer implements AutoCloseable {
 
     /** What the peer sends before it stops. */
-    enum Stall {
+    public enum Stall {
         /** Nothing: the request is read and never answered. */
         BEFORE_HEADERS,
         /** A 200's headers, promising a 100-byte body, and three bytes of it. */
@@ -36,7 +36,7 @@ final class SilentPeer implements AutoCloseable {
     private final Stall stall;
     private final List<Socket> accepted = new CopyOnWriteArrayList<>();
 
-    SilentPeer(Stall stall) throws IOException {
+    public SilentPeer(Stall stall) throws IOException {
         this.stall = stall;
         this.server = new ServerSocket(0, 50, InetAddress.getLoopbackAddress());
         Thread acceptor = new Thread(this::accept, "silent-peer");
@@ -45,12 +45,12 @@ final class SilentPeer implements AutoCloseable {
     }
 
     /** {@code http://127.0.0.1:<port>}. */
-    String url() {
+    public String url() {
         return "http://127.0.0.1:" + server.getLocalPort();
     }
 
     /** How many connections it has taken. */
-    int connections() {
+    public int connections() {
         return accepted.size();
     }
 

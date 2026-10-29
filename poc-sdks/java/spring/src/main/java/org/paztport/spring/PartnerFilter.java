@@ -18,6 +18,10 @@ import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
+import org.paztport.spring.internal.LogSafe;
+import org.paztport.spring.internal.PeerIdentity;
+import org.paztport.spring.internal.SessionStatus;
+import org.paztport.spring.partner.PartnerSessions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -37,8 +41,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *       before a restart, or a caller with no certificate. It is never taken as unsafe, or a caller could step down
  *       from a session it was refused in by naming a wrong one.</li>
  *   <li>In an unsafe session nothing is verified, so nothing from the request is believed: the handler starts with
- *       no influence and no verified chain, whatever headers came, and {@link PartnerGate} refuses the operations
- *       switched off for such sessions.</li>
+ *       no influence and no verified chain, whatever headers came, and
+ *       {@link org.paztport.spring.partner.PartnerGate} refuses the operations switched off for such sessions.</li>
  *   <li>In an attested session the chain is verified in the live order by that session's own verifier, with this
  *       service as receiver and the peer as last signer, and a failure is refused {@code 403} with its code. Only
  *       on {@code OK} does the handler get the verified influence, owners included, and the verified chain.</li>
