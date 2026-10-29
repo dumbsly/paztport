@@ -1,8 +1,9 @@
 # Java SDK
 
-A Maven build (`paztport-sdk-parent`, JDK 25 or newer) of three libraries and two
-one-shot tools. Every cryptographic primitive comes from the standard JDK; `keygen`
-uses Bouncy Castle only to build its X.509 certificates, which the JDK signs.
+A Maven build (`paztport-sdk-parent`, JDK 25 or newer; the Spring starter needs
+Spring Boot 4.1) of three libraries and two one-shot tools. Every cryptographic
+primitive comes from the standard JDK; `keygen` uses Bouncy Castle only to build
+its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and is the
 SDK that carries v3 over HTTP. It replays `spec/vectors/v3.json`, the Java-exported
@@ -68,7 +69,16 @@ tokens are refused), and writes `{"error":"<code>"}`. `HttpVerifyRequestsV1` is 
 
 ## paztport-spring
 
-Glue, configured through `paztport.*` properties.
+Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.1
+(Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
+have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
+
+The SDK's JSON is Jackson 2 (`com.fasterxml.jackson`), while Boot 4's web layer and
+`RestClient` write bodies with Jackson 3 (`tools.jackson`), which would write a
+Jackson 2 tree such as `Opening.toJson()` as a bean, not as the JSON it holds. So
+an SDK tree goes to Spring MVC or a `RestClient` as a `String` or `byte[]`
+labelled `application/json`, and is read from bytes with the SDK's own Jackson,
+as the starter's `PartnerSessionController` does.
 
 - **The inbound filter** caches the body, opens a `PaztportContext` scope for the
   request, and keeps the received chain and influence there for the outbound

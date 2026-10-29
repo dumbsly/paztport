@@ -656,9 +656,9 @@ don't include a handshake per hop per request. In steady load a connection is
 replaced, with a new handshake, mostly when the server it goes to retires it after
 its 100th request (Tomcat's default); the client also opens more as concurrency
 rises and closes those left idle. Earlier measurements were distorted by a
-connection leak in the inter-service client, now fixed: it opened a new connection for every call and
-left each one open for a minute, which under load filled the receiving server's
-connection limit and stalled the mesh.
+connection leak in the inter-service client, now fixed: it opened a new
+connection for every call and left each one open for a minute, which under load
+filled the receiving server's connection limit and stalled the mesh.
 
 | Operation | Cost |
 |---|---|

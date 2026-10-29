@@ -27,11 +27,11 @@ import org.springframework.web.client.RestClient;
  * it shares one connection pool, so calls to a service reuse open mutual-TLS connections instead of each paying a
  * handshake.
  *
- * <p>It exists to give every call to a service one shared connection pool and one whole-exchange bound. With no Apache, Jetty
- * or Reactor client on the classpath, Spring Boot 4 builds the JDK's {@link HttpClient} for an SSL bundle, but
- * afresh each time the bundle is applied to a {@code RestClient} builder: the {@code RestClient}s built from one
- * builder share its pool, and each further builder gets a pool of its own. One client is made here per bundle and
- * shared by every {@code RestClient} built over it. (Spring Boot 3.3's client for an SSL bundle was worse:
+ * <p>It exists to give every call to a service one shared connection pool and one whole-exchange bound. With no
+ * Apache, Jetty or Reactor client on the classpath, Spring Boot 4 builds the JDK's {@link HttpClient} for an SSL
+ * bundle, but afresh each time the bundle is applied to a {@code RestClient} builder: the {@code RestClient}s built
+ * from one builder share its pool, and each further builder gets a pool of its own. One client is made here per
+ * bundle and shared by every {@code RestClient} built over it. (Spring Boot 3.3's client for an SSL bundle was worse:
  * {@code HttpURLConnection}, given a new socket factory on every connection, while the JDK's keep-alive cache
  * reuses a connection only for the socket factory that opened it, so every call opened a fresh connection and left
  * it open at the server until its keep-alive timed out.)
@@ -51,8 +51,8 @@ import org.springframework.web.client.RestClient;
  * stall after the headers fails the caller's read of the body with an {@code IOException} ("closed"), not as a
  * timeout, and Spring Boot sets no read timeout unless one is configured, so without one the call waits for ever.
  * So the factory here is {@link WholeExchangeRequestFactory}, which reads each response whole within the read
- * timeout ({@link #send}) and fails every stall as a timeout. The egress's calls to the partner and the events are bounded by
- * {@link #send} too.
+ * timeout ({@link #send}) and fails every stall as a timeout. The egress's calls to the partner and the events are
+ * bounded by {@link #send} too.
  *
  * <p>The client stamps nothing. {@link #builder()} gives a builder with TLS only, for calls that must not be a
  * step on a request's path or that set their own headers; the starter puts the same request factory on the shared
@@ -178,8 +178,8 @@ public final class PooledTlsClient implements AutoCloseable {
      * Sends {@code request} on {@code http} and waits for the whole answer, its body included, for no longer than
      * the request's timeout, which it must have. Waiting here is what bounds the body on every JDK, since JDK 25
      * applies a request's timeout only to the wait for the headers (JDK 27 applies it to the body too, so there the
-     * JDK's own timeout may end the call first). Past it the exchange is cancelled, which closes its connection, and the call
-     * fails as an {@link HttpTimeoutException}.
+     * JDK's own timeout may end the call first). Past it the exchange is cancelled, which closes its connection, and
+     * the call fails as an {@link HttpTimeoutException}.
      *
      * @throws IOException when the call fails, has no whole answer within the timeout, or the thread is
      *     interrupted (whose interrupt is kept)

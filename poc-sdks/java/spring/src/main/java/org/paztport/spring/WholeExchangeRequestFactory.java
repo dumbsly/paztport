@@ -31,7 +31,7 @@ import org.springframework.http.client.ClientHttpResponse;
  * stops fails the caller's read of the body with an {@code IOException} ("closed"), not a timeout, and with no read
  * timeout configured holds the call for ever. Here every stall, before the headers or after them, fails as a
  * timeout, by the same {@link PooledTlsClient#send} that bounds the events and the partner calls (each at its own
- * timeout) on the same JDK client.
+ * timeout).
  *
  * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
  * either. Stamped calls lose nothing by it, since the stamping interceptor reads every response whole anyway, to bind
