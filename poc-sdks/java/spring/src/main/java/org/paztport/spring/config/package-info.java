@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * What a service signs with and trusts, and how strictly it checks: the stamper, route proofs and pinned verifier
- * built from the files {@code paztport.*} names, and the verification mode an operator can switch at runtime.
+ * The trust material a service signs and verifies with, and its verification mode: the stamper, route proofs and
+ * pinned verifier built from the files {@code paztport.*} names, and the mode an operator can switch at runtime. The
+ * files themselves are read by {@link org.paztport.spring.internal.ConfigLoader}.
  */
 package org.paztport.spring.config;

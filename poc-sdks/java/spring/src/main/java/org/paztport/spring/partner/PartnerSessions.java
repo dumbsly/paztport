@@ -75,7 +75,10 @@ public final class PartnerSessions {
     /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
 
-    /** A session a peer opened; {@code verifier} is null when it is unsafe. */
+    /**
+     * A session a peer opened; {@code verifier} is null when it is unsafe. Public for the starter's partner filter,
+     * which is in another package, not for applications.
+     */
     public record Session(String sess, boolean attested, VerifierV3 verifier) {
     }
 
@@ -253,7 +256,8 @@ public final class PartnerSessions {
      * The session {@code sess} when it is live and was opened by exactly this peer, the same issuer and name, else
      * null: another peer's, one under the same name from another issuer (told apart by its distinguished name), an
      * evicted, expired or unknown id, or a peer with no certificate, issuer or name. A session found is used, so its
-     * idle period starts again.
+     * idle period starts again. Public for the starter's partner filter, which is in another package, not for
+     * applications: a lookup keeps a session alive as a call in it would.
      */
     public Session find(String peerIssuer, String peerSvc, String sess) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty() || sess == null) {

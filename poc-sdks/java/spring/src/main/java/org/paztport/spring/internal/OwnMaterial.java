@@ -10,7 +10,6 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.spring.partner.PartnerSessions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,9 +21,10 @@ import org.slf4j.LoggerFactory;
  * <p>It refuses, rather than degrades, because a service that loads its own material already old-form or expired
  * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
  * to re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to
- * unsafe sessions ({@link PartnerSessions}), because stopping would cut off the callers it serves without
- * attestation too. The same refusal is what lets {@link org.paztport.core.session.Sessions#status} judge only the
- * windows of the partner's own keyring and root: this check has already made sure both verify under the policy pin.
+ * unsafe sessions ({@link org.paztport.spring.partner.PartnerSessions}), because stopping would cut off the callers
+ * it serves without attestation too. The same refusal is what lets
+ * {@link org.paztport.core.session.Sessions#status} judge only the windows of the partner's own keyring and root:
+ * this check has already made sure both verify under the policy pin.
  *
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is
  * restarted far more rarely than a week goes by and this is the last moment the operator is certain to be looking.
