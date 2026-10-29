@@ -314,6 +314,29 @@ class BoundaryGuardTest {
                 });
     }
 
+    // The egress's own keyring is the partner's to judge at every handshake, so one past its notAfter, or in the old
+    // form, fails the startup naming the property and the fix.
+    @Test
+    void ownKeyringPastItsWindowOrOldFormFailsStartup() throws IOException {
+        String policyPub = Base64Url.encode(Crypto.encodePublicKey(POLICY.getPublic()));
+        Map<String, String> services = Map.of(
+                "payment", Base64Url.encode(Crypto.encodePublicKey(PAYMENT.getPublic())));
+        Path expired = trust.resolve("expired-keyring.json");
+        JSON.writeValue(expired.toFile(),
+                KeyringFile.sign(services, policyPub, System.currentTimeMillis() - 1, POLICY.getPrivate()));
+        Path old = trust.resolve("old-keyring.json");
+        JSON.writeValue(old.toFile(), KeyringFile.signOldForm(services, policyPub, POLICY.getPrivate()));
+        for (Path ring : List.of(expired, old)) {
+            runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                    .withPropertyValues("paztport.keyring-path=" + ring).run(context -> {
+                        assertThat(context).hasFailed();
+                        assertThat(context.getStartupFailure()).rootCause()
+                                .hasMessageContaining("paztport.keyring-path")
+                                .hasMessageContaining("re-sign with the policy tool");
+                    });
+        }
+    }
+
     @Test
     void fullConfigStartsWithItsOwnTlsClient() {
         // No paztport.tls-bundle: there is no shared client, so the boundary's must be its own.

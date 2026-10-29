@@ -46,6 +46,7 @@ import org.paztport.core.MerkleProof;
 import org.paztport.core.Peer;
 import org.paztport.core.PolicyBuilder;
 import org.paztport.core.ReasonCode;
+import org.paztport.core.SignedRoot;
 import org.paztport.core.StampV3;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
@@ -614,6 +615,40 @@ class BoundaryClientTest {
             assertTrue(verified("rid-2", () -> shortIdle.post("/charge", CHARGE)).attested());
             assertEquals(3, partner.handshakes().size());
         }
+    }
+
+    /** The constructor with these as the egress's own root and keyring, judged at {@link #millis}. */
+    private void egressWith(SignedRoot root, KeyringFile ring) {
+        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
+            new BoundaryClient(
+                    new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                            System::currentTimeMillis),
+                    built.bundles().get("payment"), root, ring, policyPub, "psp", partner.url(),
+                    partner.policyKey(), blindingKey, null, tls, nanos::get, millis::get, IDLE_MS).close();
+        }
+    }
+
+    // A root or keyring past its notAfter would open only unsafe sessions, so the egress will not start with one.
+    @Test
+    void egressRefusesExpiredOwnRoot() {
+        SignedRoot expired = PolicyBuilder.build(List.of(List.of("gateway", "payment")), 4, millis.get() - 1,
+                policy.getPrivate()).signedRoot();
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> egressWith(expired, keyring));
+        assertTrue(e.getMessage().contains("root has expired"), e.getMessage());
+
+        KeyringFile lapsed = KeyringFile.sign(Map.of("payment", pub(payment)), policyPub, millis.get() - 1,
+                policy.getPrivate());
+        e = assertThrows(IllegalArgumentException.class, () -> egressWith(built.signedRoot(), lapsed));
+        assertTrue(e.getMessage().contains("keyring has expired"), e.getMessage());
+    }
+
+    @Test
+    void egressRefusesOldFormOwnMaterial() {
+        SignedRoot old = SignedRoot.signOldForm(new byte[32], "old-root", policy.getPrivate());
+        assertThrows(IllegalArgumentException.class, () -> egressWith(old, keyring));
+        KeyringFile oldRing = KeyringFile.signOldForm(Map.of("payment", pub(payment)), policyPub,
+                policy.getPrivate());
+        assertThrows(IllegalArgumentException.class, () -> egressWith(built.signedRoot(), oldRing));
     }
 
     @Test

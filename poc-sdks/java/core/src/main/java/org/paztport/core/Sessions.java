@@ -187,8 +187,9 @@ public final class Sessions {
      * {@link SignedRoot} and {@link KeyringFile}; an old-form root or keyring carries no window, so its owner never
      * said how long it vouches for it, and it is never current.
      *
-     * <p>{@code ownKeyring} is judged only by its window: its signature is the one this side checked against its pin
-     * when it loaded the keyring, and the caller must pass that keyring and no other. A side whose own root or keyring
+     * <p>{@code ownKeyring} is judged only by its window, never by its signature: the caller must already have
+     * verified it under {@code ownPolicyKey} when it loaded it, and must pass that keyring and no other. (The root is
+     * verified here.) A side whose own root or keyring
      * has expired therefore opens every new session unsafe and goes on serving unattested callers, rather than
      * stopping; sessions it attested earlier are verified against the client's material, which has its own window.
      */

@@ -223,6 +223,15 @@ public final class BoundaryClient implements AutoCloseable {
                 || !ownRoot.verify(Crypto.decodePublicKey(Base64Url.decode(ownPolicyKey)))) {
             throw new IllegalArgumentException("the root and keyring must both verify under the policy key");
         }
+        // The partner would judge them unsafe, and so would every reply, so a service holding them is misconfigured.
+        long now = millis.getAsLong();
+        if (!ownRoot.isNewForm() || !ownKeyring.isNewForm()) {
+            throw new IllegalArgumentException("the root and keyring must both be in the new form, with a notAfter");
+        }
+        if (!ownRoot.isCurrent(now) || !ownKeyring.isCurrent(now)) {
+            throw new IllegalArgumentException("the root and keyring must both be current: "
+                    + (ownRoot.isCurrent(now) ? "the keyring" : "the root") + " has expired");
+        }
     }
 
     /**

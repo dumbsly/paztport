@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.LongSupplier;
 import org.paztport.core.Base64Url;
@@ -68,6 +69,10 @@ import org.slf4j.LoggerFactory;
 final class PartnerSessions {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private static final Logger LOG = LoggerFactory.getLogger(PartnerSessions.class);
+
+    /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
+    private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
 
     /** A session a peer opened; {@code verifier} is null when it is unsafe. */
     record Session(String sess, boolean attested, VerifierV3 verifier) {
@@ -113,7 +118,8 @@ final class PartnerSessions {
     private final Map<PeerKey, LinkedHashMap<String, Entry>> byPeer = new HashMap<>();
 
     /**
-     * The caller checks first that the keyring and the certificate verify under {@code ownPolicyKey}, that
+     * The caller checks first that the keyring, the root and the certificate verify under {@code ownPolicyKey} (each
+     * handshake judges the keyring only by its window and relies on this, as {@link Sessions#status} says), that
      * {@code ownServiceKey} is the key the keyring holds for {@code ownService}, and that the certificate has not
      * expired; the auto-configuration does, naming the property at fault. This refuses only a certificate that is
      * not for the keyring's key for {@code ownService}, whose replies no client could accept.
@@ -188,12 +194,31 @@ final class PartnerSessions {
             }
         }
         boolean attested = verifier != null;
+        if (!attested) {
+            logOwnLapse();
+        }
         add(new PeerKey(peerIssuer, peerSvc), new Session(sess, attested, verifier));
         TRACE.info("PAZTPORT_TRACE session peer={} status={}", LogSafe.of(peerSvc), attested ? "attested" : "unsafe");
         // The entry-key form: the status above is this side's own decision, and the entry key signs it.
         return Sessions.signReply(new SessionReply(ownRoot, ownPolicyKey, ownKeyring.services(), ownKeyring.sig(),
                 ownKeyring.notAfter(), ownReplyCert, serverNonce, sess, attested ? "attested" : "unsafe",
                 attested ? List.of() : unsafeDisabled, null), ownServiceKey);
+    }
+
+    /**
+     * Says, once, that this side's own root or keyring has expired, which is why every session it opens is unsafe
+     * from now on: the operator would otherwise see only callers degraded and no cause. The line is logged by the
+     * first handshake to find it so, whatever else was wrong with that handshake, and is silent for the others.
+     */
+    private void logOwnLapse() {
+        long now = clock.getAsLong();
+        boolean rootLapsed = !ownRoot.isCurrent(now);
+        boolean keyringLapsed = !ownKeyring.isCurrent(now);
+        if ((rootLapsed || keyringLapsed) && ownLapseLogged.compareAndSet(false, true)) {
+            LOG.warn("this partner's own {} has expired, so every session it opens is unsafe until it is re-signed "
+                    + "with the policy tool and the service restarted",
+                    rootLapsed && keyringLapsed ? "root and keyring" : rootLapsed ? "root" : "keyring");
+        }
     }
 
     /**

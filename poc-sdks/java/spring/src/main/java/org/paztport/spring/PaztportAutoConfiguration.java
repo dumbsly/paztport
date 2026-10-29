@@ -7,6 +7,7 @@ import java.io.UncheckedIOException;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.UnknownHostException;
+import java.time.Clock;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivateKey;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.LongSupplier;
 import org.paztport.core.Base64Url;
 import org.paztport.core.Crypto;
 import org.paztport.core.InMemoryNonceCache;
@@ -24,10 +26,12 @@ import org.paztport.core.KeyFiles;
 import org.paztport.core.KeyringFile;
 import org.paztport.core.ProofBundle;
 import org.paztport.core.ReplyCert;
+import org.paztport.core.SignedRoot;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -180,12 +184,17 @@ public class PaztportAutoConfiguration {
             throw new IllegalStateException(
                     "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
+        SignedRoot ownRoot = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
+        KeyringFile ownKeyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
+        String ownPin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
+                ownPin, System.currentTimeMillis());
         return new BoundaryClient(
                 stamper.getObject(),
                 bundle.getObject(),
-                ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
-                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
-                ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
+                ownRoot,
+                ownKeyring,
+                ownPin,
                 b.getPartner(),
                 partnerUrl,
                 ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
@@ -199,16 +208,21 @@ public class PaztportAutoConfiguration {
      * The partner's session registry. Everything it needs is checked first, and the context fails naming what is
      * wrong: a partner that also verifies as a shop service does, no clients pinned, no origins allowed, or a session
      * cap or idle period that is not positive. Its replies are signed by its own entry service's key, never the
-     * policy key, so it also refuses to start, in this order, unless: its keyring verifies under its pin; the
+     * policy key, so it also refuses to start, in this order, unless: its keyring and root verify under its pin and
+     * are in the new form and current ({@link OwnMaterial}, which names the property and the fix); the
      * keyring holds {@code paztport.service-name}; that entry is the key at {@code paztport.key-path}; the reply
      * certificate verifies under the pin, names that service and that key, and has not expired by the wall clock.
      * Each would otherwise sign replies no client could accept. A certificate that expires while the service runs
      * is not caught here: replies then fail at the client, which falls back to an unsafe session, so the
-     * certificate must be reissued and the service restarted before it expires. No message carries key material.
+     * certificate must be reissued and the service restarted before it expires. Its own keyring and root are the
+     * other case: once either expires the partner keeps running and opens only unsafe sessions
+     * ({@link PartnerSessions}). The clock is the bean named {@code paztportClock} when an application defines one,
+     * as tests do to move time, and the system clock otherwise. No message carries key material.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
-    PartnerSessions paztportPartnerSessions(PaztportProperties props) {
+    PartnerSessions paztportPartnerSessions(PaztportProperties props,
+            @Qualifier("paztportClock") ObjectProvider<Clock> clock) {
         PaztportProperties.Partner p = props.getPartner();
         if (props.isVerify()) {
             throw new IllegalStateException("paztport.partner.enabled cannot be combined with paztport.verify=true");
@@ -242,12 +256,13 @@ public class PaztportAutoConfiguration {
         if (p.getSessionIdleMs() <= 0) {
             throw new IllegalStateException("paztport.partner.session-idle-ms must be positive");
         }
+        LongSupplier partnerClock = () -> clock.getIfAvailable(() -> Clock.systemUTC()).millis();
         String service = props.getServiceName();
         String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
-        if (!keyring.verifies(pin)) {
-            throw new IllegalStateException("paztport.keyring-path does not verify under paztport.policy-key-path");
-        }
+        SignedRoot ownRoot = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
+        OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
+                partnerClock.getAsLong());
         String entryKey = keyring.services().get(service);
         if (entryKey == null) {
             throw new IllegalStateException("paztport.keyring-path has no key for paztport.service-name");
@@ -276,14 +291,14 @@ public class PaztportAutoConfiguration {
         if (!cert.key().equals(entryKey)) {
             throw new IllegalStateException("paztport.partner.reply-cert-path is not for the key at paztport.key-path");
         }
-        if (System.currentTimeMillis() > cert.notAfter()) {
+        if (partnerClock.getAsLong() > cert.notAfter()) {
             throw new IllegalStateException("paztport.partner.reply-cert-path has expired");
         }
         Set<String> clientKeys = new LinkedHashSet<>();
         p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(ConfigLoader.loadPolicyPin(Path.of(path))));
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         return new PartnerSessions(
-                ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
+                ownRoot,
                 keyring,
                 pin,
                 service,
@@ -293,7 +308,7 @@ public class PaztportAutoConfiguration {
                 Set.copyOf(p.getClientOrigins()),
                 p.getUnsafeDisabled(),
                 new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),
-                System::currentTimeMillis,
+                partnerClock,
                 props.getMaxAgeMs(),
                 runMaxAgeMs,
                 p.getMaxSessionsPerPeer(),
@@ -348,10 +363,15 @@ public class PaztportAutoConfiguration {
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     VerifierV3 verifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
+        KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
+        SignedRoot root = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
+        String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
+                System.currentTimeMillis());
         VerifierConfigV3 cfg = VerifierConfigV3.pinned(
-                ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath())),
-                ConfigLoader.loadSignedRoot(Path.of(props.getRootPath())),
-                ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath())),
+                keyring,
+                root,
+                pin,
                 Set.copyOf(props.getOrigins()),
                 "",
                 new InMemoryNonceCache(nonceTtlMs(props.getMaxAgeMs())),

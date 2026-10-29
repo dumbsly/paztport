@@ -196,6 +196,17 @@ Glue, configured through `paztport.*` properties.
   | `paztport.partner.max-sessions-per-peer` | How many sessions one client certificate (issuer and common name) may hold; its least recently used is evicted when it opens one more. Default `16`. |
   | `paztport.partner.session-idle-ms` | How long a session no call has used is kept, in milliseconds. Default `900000` (15 minutes). |
 
+  **Lifetimes.** Every service that loads `paztport.keyring-path` and `paztport.root-path`
+  (the mesh verifier, the egress `BoundaryClient`, the partner) refuses to start if
+  either is in the old form or past its `notAfter`, with a message naming the property and
+  saying to re-sign with the policy tool (`PAZTPORT_RENEW=true` renews without rebuilding),
+  and logs one warning naming the file and its `notAfter` when 42 hours (a quarter of the
+  default week) or less remain. A partner whose own root or keyring expires *while
+  running* does not stop, since that would cut off callers it serves without attestation
+  too: it opens only unsafe sessions, as it would for any unattested caller, and logs the
+  reason once. Renew the files and restart it. A test can move the partner's time with a
+  `java.time.Clock` bean named `paztportClock`.
+
   The policy private key is not configured anywhere: a reply carries the policy
   key's signature over the keyring and the certificate, and is signed with the
   entry service's key. Startup fails, naming the property, unless the keyring

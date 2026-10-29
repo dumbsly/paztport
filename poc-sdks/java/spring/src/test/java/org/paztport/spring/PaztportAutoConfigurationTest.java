@@ -6,6 +6,10 @@ package org.paztport.spring;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -36,12 +40,14 @@ import org.paztport.core.KeyringFile;
 import org.paztport.core.PolicyBuilder;
 import org.paztport.core.ReasonCode;
 import org.paztport.core.ReplyCert;
+import org.paztport.core.SignedRoot;
 import org.paztport.core.StampV3;
 import org.paztport.core.StamperV3;
 import org.paztport.core.VerifierConfigV3;
 import org.paztport.core.VerifierV3;
 import org.paztport.core.VerifyInputV3;
 import org.paztport.http.PaztportHeaders;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.ssl.SslAutoConfiguration;
 import org.springframework.boot.autoconfigure.web.client.RestClientAutoConfiguration;
@@ -162,6 +168,102 @@ class PaztportAutoConfigurationTest {
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    /** Asserts that the verifier service fails to start naming {@code property} and the fix, and no key material. */
+    private void verifierFails(Path dir, String property, String... words) {
+        runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir)).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).rootCause().hasMessageContaining(property)
+                    .hasMessageContaining("re-sign with the policy tool");
+            for (String word : words) {
+                assertThat(context.getStartupFailure()).rootCause().hasMessageContaining(word);
+            }
+            assertThat(stackTrace(context.getStartupFailure())).doesNotContain(pub(policy))
+                    .doesNotContain(Base64Url.encode(Crypto.encodePrivateKey(policy.getPrivate())));
+        });
+    }
+
+    @Test
+    void verifierRefusesExpiredKeyring(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.sign(Map.of("gateway", pub(gateway)),
+                pub(policy), System.currentTimeMillis() - 1, policy.getPrivate()));
+        verifierFails(dir, "paztport.keyring-path", "expired");
+    }
+
+    @Test
+    void verifierRefusesExpiredRoot(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        JSON.writeValue(dir.resolve("root.json").toFile(), PolicyBuilder.build(List.of(List.of("gateway", "orders")),
+                4, System.currentTimeMillis() - 1, policy.getPrivate()).signedRoot());
+        verifierFails(dir, "paztport.root-path", "expired");
+    }
+
+    @Test
+    void verifierRefusesOldFormRoot(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        JSON.writeValue(dir.resolve("root.json").toFile(),
+                SignedRoot.signOldForm(new byte[32], "old-root", policy.getPrivate()));
+        verifierFails(dir, "paztport.root-path", "old form");
+    }
+
+    @Test
+    void verifierRefusesOldFormKeyring(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.signOldForm(Map.of("gateway", pub(gateway)), pub(policy), policy.getPrivate()));
+        verifierFails(dir, "paztport.keyring-path", "old form");
+    }
+
+    /** The warning's lines, with the file and the notAfter each names, while {@code run} runs. */
+    private List<String> warningsDuring(Runnable run) {
+        Logger log = (Logger) LoggerFactory.getLogger(OwnMaterial.class);
+        ListAppender<ILoggingEvent> lines = new ListAppender<>();
+        lines.start();
+        log.addAppender(lines);
+        log.setLevel(Level.WARN);
+        try {
+            run.run();
+        } finally {
+            log.detachAppender(lines);
+            log.setLevel(null);
+        }
+        return lines.list.stream().filter(e -> e.getLevel() == Level.WARN).map(ILoggingEvent::getFormattedMessage)
+                .toList();
+    }
+
+    @Test
+    void warnsNearExpiry(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        long notAfter = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), notAfter, policy.getPrivate()));
+
+        List<String> warnings = warningsDuring(() -> runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(VerifierV3.class)));
+
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("paztport.keyring-path").contains(dir.resolve("keyring.json").toString())
+                .contains("notAfter " + notAfter).contains("re-sign with the policy tool");
+    }
+
+    @Test
+    void noWarningWithAQuarterOfTheLifetimeLeftOrMore(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        long notAfter = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS + 60_000;
+        JSON.writeValue(dir.resolve("keyring.json").toFile(),
+                KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), notAfter, policy.getPrivate()));
+
+        assertThat(warningsDuring(() -> runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir))
+                .run(context -> assertThat(context).hasNotFailed()))).isEmpty();
+    }
+
+    @Test
+    void aNotAfterBeyondTheInstantRangeStillGivesAMessage() {
+        assertThat(OwnMaterial.describe(Long.MAX_VALUE)).startsWith("9223372036854775807");
+        assertThat(OwnMaterial.describe(KeyringFile.MAX_NOT_AFTER)).startsWith("9007199254740991");
     }
 
     /**
@@ -337,6 +439,20 @@ class PaztportAutoConfigurationTest {
     void partnerKeyMustMatchTheKeyring(@TempDir Path dir) throws Exception {
         writePartner(dir);
         partnerFails(dir, "paztport.key-path does not match", "paztport.key-path=" + dir.resolve("ledger.key"));
+    }
+
+    @Test
+    void partnerRefusesExpiredAtStartup(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        JSON.writeValue(dir.resolve("root.json").toFile(), PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
+                System.currentTimeMillis() - 1, policy.getPrivate()).signedRoot());
+        partnerFails(dir, "paztport.root-path has expired");
+        partnerFails(dir, "re-sign with the policy tool");
+
+        writePartner(dir);
+        JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.signOldForm(
+                Map.of("psp", pub(psp), "ledger", pub(ledger)), pub(policy), policy.getPrivate()));
+        partnerFails(dir, "paztport.keyring-path is in the old form");
     }
 
     @Test
