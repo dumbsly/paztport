@@ -158,6 +158,12 @@ describe("steps", () => {
     expect(plainReason("UNSAFE_SESSION")).toBe(PLAIN_REASON.UNSAFE_SESSION);
   });
 
+  it("an expired policy reads as a configuration failure to fix, not a block", () => {
+    expect(plainReason("POLICY_EXPIRED")).toBe("the signed policy had expired, so nothing could pass until it was renewed");
+    expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/expired/);
+    expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/not a sign of an attack/);
+  });
+
   it("a call still waiting for its answer is left out until the run is complete, then shown as having no recorded answer", () => {
     const logs = { transcript: [start("c1", "list_issues", { owner: "o", repo: "r" })], events: [{ type: "call", callId: "c1", tool: "list_issues" }], outcome: [], evidence: [] };
     expect(buildSteps(scenario, logs)).toEqual([]);

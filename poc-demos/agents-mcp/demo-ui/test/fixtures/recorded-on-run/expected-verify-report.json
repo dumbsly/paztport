@@ -1,0 +1,282 @@
+{
+  "file": "<fixture>/evidence.jsonl",
+  "ok": true,
+  "items": [
+    {
+      "line": 1,
+      "type": "session",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 2,
+      "type": "run",
+      "result": "OK"
+    },
+    {
+      "line": 3,
+      "type": "call",
+      "callId": "call_3448v896",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 4,
+      "type": "response",
+      "callId": "call_3448v896",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 5,
+      "type": "call",
+      "callId": "call_k0qf63xp",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 6,
+      "type": "response",
+      "callId": "call_k0qf63xp",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 7,
+      "type": "call",
+      "callId": "call_1l9w3a8b",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 8,
+      "type": "response",
+      "callId": "call_1l9w3a8b",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 9,
+      "type": "call",
+      "callId": "call_e756rjs6",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 10,
+      "type": "response",
+      "callId": "call_e756rjs6",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 11,
+      "type": "call",
+      "callId": "call_gs0szlqw",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 12,
+      "type": "response",
+      "callId": "call_gs0szlqw",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 13,
+      "type": "call",
+      "callId": "call_5ozg83me",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 14,
+      "type": "response",
+      "callId": "call_5ozg83me",
+      "result": "REFUSED"
+    },
+    {
+      "line": 15,
+      "type": "call",
+      "callId": "call_ufuzofkn",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 16,
+      "type": "response",
+      "callId": "call_ufuzofkn",
+      "result": "REFUSED"
+    },
+    {
+      "line": 17,
+      "type": "call",
+      "callId": "call_sht5c38f",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 18,
+      "type": "response",
+      "callId": "call_sht5c38f",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 19,
+      "type": "call",
+      "callId": "call_par8pv95",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 20,
+      "type": "response",
+      "callId": "call_par8pv95",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 21,
+      "type": "call",
+      "callId": "call_f2th6z97",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 22,
+      "type": "response",
+      "callId": "call_f2th6z97",
+      "result": "REFUSED"
+    },
+    {
+      "line": 23,
+      "type": "call",
+      "callId": "call_zsrtqozv",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 24,
+      "type": "response",
+      "callId": "call_zsrtqozv",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 25,
+      "type": "call",
+      "callId": "call_uhkk874i",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 26,
+      "type": "response",
+      "callId": "call_uhkk874i",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 27,
+      "type": "call",
+      "callId": "call_iv66tzja",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 28,
+      "type": "response",
+      "callId": "call_iv66tzja",
+      "result": "REFUSED"
+    },
+    {
+      "line": 29,
+      "type": "call",
+      "callId": "call_6tj6s69q",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 30,
+      "type": "response",
+      "callId": "call_6tj6s69q",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 31,
+      "type": "call",
+      "callId": "call_gdr9qjm7",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 32,
+      "type": "response",
+      "callId": "call_gdr9qjm7",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 33,
+      "type": "call",
+      "callId": "call_66t16p8c",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 34,
+      "type": "response",
+      "callId": "call_66t16p8c",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 35,
+      "type": "call",
+      "callId": "call_146jvxyx",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 36,
+      "type": "response",
+      "callId": "call_146jvxyx",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 37,
+      "type": "call",
+      "callId": "call_bgtkqgkq",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 38,
+      "type": "response",
+      "callId": "call_bgtkqgkq",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 39,
+      "type": "call",
+      "callId": "call_2muccrrs",
+      "result": "OK",
+      "legacy": true
+    },
+    {
+      "line": 40,
+      "type": "response",
+      "callId": "call_2muccrrs",
+      "result": "OK",
+      "legacy": true
+    }
+  ],
+  "pins": [
+    "byNLXUDCThSpBv67"
+  ]
+}

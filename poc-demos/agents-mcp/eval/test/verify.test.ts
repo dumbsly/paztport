@@ -801,6 +801,17 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
   });
 });
 
+describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
+  // A real attested run recorded before roots and keyrings carried a window, which the demo page replays: its report,
+  // item by item and legacy mark by legacy mark, is the one verify gave before lifetimes were judged.
+  const FIXTURE = join(import.meta.dirname, "../../demo-ui/test/fixtures/recorded-on-run");
+
+  it("recordedOnRunReportIsUnchanged", () => {
+    const report = (JSON.stringify(verifyEvidence(join(FIXTURE, "evidence.jsonl")), null, 2) + "\n").replaceAll(FIXTURE, "<fixture>");
+    expect(report).toBe(readFileSync(join(FIXTURE, "expected-verify-report.json"), "utf8"));
+  });
+});
+
 describe("verifyEvidence: phase-1 folders are unchanged", { timeout: 30_000 }, () => {
   // Made before local records existed (a real attested run, a tampered copy, a run-record-only copy and an
   // off run), with the reports and CLI output verify gave then. Phase-1 evidence must verify byte for byte as before.

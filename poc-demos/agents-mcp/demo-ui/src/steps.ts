@@ -49,6 +49,7 @@ export const PLAIN_REASON: Record<string, string> = {
   PATH_NOT_ALLOWED: "outside what this session may do",
   SCOPE_DENIED: "outside what this session may do",
   UNCHECKABLE: "couldn't be checked",
+  POLICY_EXPIRED: "the signed policy had expired, so nothing could pass until it was renewed",
 };
 
 export const PLAIN_RULE: Record<string, string> = {
@@ -58,6 +59,8 @@ export const PLAIN_RULE: Record<string, string> = {
   PATH_NOT_ALLOWED: "A local action is refused when it touches a folder or program that the session's rules do not allow for that kind of action.",
   SCOPE_DENIED: "A local action is refused when it touches a folder or program that the session's rules do not allow for that kind of action.",
   UNCHECKABLE: "A command is refused when Paztport can't tell what it would do. The check is conservative: simple commands with plain paths are the ones it can read.",
+  POLICY_EXPIRED:
+    "Every call is refused once the signed policy it is checked against has expired. That is a configuration failure, not a sign of an attack: the policy has to be renewed before anything can pass.",
 };
 /** The influence rule as it reads for a local write. */
 const LOCAL_INFLUENCE_RULE =
