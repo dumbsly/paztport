@@ -64,6 +64,13 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.2</version>
                 </plugin>
+                <!-- The version Maven binds by default, pinned because core, http and spring configure it
+                     to name their module in the manifest. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-jar-plugin</artifactId>
+                    <version>3.5.1</version>
+                </plugin>
             </plugins>
         </pluginManagement>
 
