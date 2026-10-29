@@ -171,7 +171,13 @@ describe("loadServerConfig", () => {
     const dir = writeDir({ ...rest, signedRoot: oldRoot });
     expect(() => loadServerConfig(dir)).toThrow(`server policy refused: the root is in the old form (no notAfter); re-sign it with the policy tool (loaded from ${dir}): ${REGENERATE}`);
   });
-  it("loadServerConfigRefusesAnExpiredRootAndKeyringWithTheFix", () => {
+  it("loadServerConfigRefusesAnExpiredRootWithTheFix", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const root = signRoot(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, policyPrivateKey, 5_000);
+    const dir = writeDir({ ...cfg, signedRoot: root });
+    expect(() => loadServerConfig(dir, 5_001)).toThrow(`server policy refused: the root expired at 5000 (1970-01-01T00:00:05.000Z) (loaded from ${dir}): ${REGENERATE}`);
+  });
+  it("loadServerConfigRefusesAnExpiredKeyringWithTheFix", () => {
     const dir = writeDir(serverConfig());
     expect(() => loadServerConfig(dir, NOT_AFTER + 1)).toThrow(`server policy refused: the keyring expired at ${NOT_AFTER} (2100-01-01T00:00:00.000Z) (loaded from ${dir}): ${REGENERATE}`);
   });

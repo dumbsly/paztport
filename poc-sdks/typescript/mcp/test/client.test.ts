@@ -50,8 +50,8 @@ const NOT_AFTER = 4_102_444_800_000;
 
 type Certify = (p: { policy: { publicKey: string; privateKey: string }; keys: Record<string, string> }) => ReplyCert;
 
-/** mcp-entry's certificate, valid for a day. */
-const CERTIFY_ENTRY: Certify = ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey);
+/** mcp-entry's certificate, valid for 30 days. */
+const CERTIFY_ENTRY: Certify = ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + 30 * DAY_MS, policy.privateKey);
 
 /**
  * A consistent server policy, and the certificate `certify` issues under its keys. McpServerSession refuses to start
@@ -116,7 +116,7 @@ function clientMaterial() {
  */
 function connected(opts: { withRoot?: boolean; policy?: ServerPolicy; served?: ReplyCert } = {}) {
   const policy = opts.policy ?? serverPolicy();
-  const server = new McpServerSession(policy, RULES, Date.now);
+  const server = new McpServerSession(policy, RULES, Date.now, () => {});
   const client = clientMaterial();
   const req = sessionRequest({ ...client, signedRoot: opts.withRoot === false ? null : client.signedRoot });
   let reply = server.openSession(req);

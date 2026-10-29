@@ -62,7 +62,7 @@ function serverSetup(
     keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter,
-    replyCert: issueReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + DAY_MS, policy.privateKey),
+    replyCert: issueReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles[entryName]!.proofs[`${entryName}/${toolsName}`]!,
     inst: "mock-github-1",
@@ -177,12 +177,19 @@ describe("checkServerPolicy", () => {
     const { "github-tools": _t, ...noKey } = cfg.signingKeys;
     expect(() => checkServerPolicy({ ...cfg, signingKeys: noKey }, Date.now())).toThrow("signingKeys[github-tools]");
   });
+  it("aKeyringSignedWithoutTheToolsHopIsRefused", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const { "github-tools": _gone, ...services } = cfg.keyring;
+    const ring = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
+    expect(() => checkServerPolicy({ ...cfg, keyring: ring.services, keyringSig: ring.sig }, Date.now())).toThrow("the keyring has no key for the tools hop github-tools");
+  });
   it("aToolsHopNamedOnlyByInheritanceHasNoKey", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const { "github-tools": inheritedKey, ...services } = cfg.keyring;
     const ring = signKeyring(services, cfg.policyPublicKey, policyPrivateKey, NOT_AFTER);
+    // canonicalize refuses a prototype-bearing keyring, so the signature check fails before the own-member check can run
     const keyring = Object.assign(Object.create({ "github-tools": inheritedKey }), services) as Record<string, string>;
-    expect(() => checkServerPolicy({ ...cfg, keyring, keyringSig: ring.sig }, Date.now())).toThrow(/keyring/);
+    expect(() => checkServerPolicy({ ...cfg, keyring, keyringSig: ring.sig }, Date.now())).toThrow("the keyring is not signed by policyPublicKey");
   });
   it("aNotAfterBeyondDateRangeNeverMakesAMessageThrow", () => {
     const big = Number.MAX_SAFE_INTEGER;
@@ -200,10 +207,9 @@ describe("checkServerPolicy", () => {
     const near = now + 41 * 3_600_000;
     const { cfg, policyPrivateKey } = serverSetup(undefined, { keyringNotAfter: near, rootNotAfter: near });
     const warned: string[] = [];
+    // the default certificate is long-lived, so only the keyring and root warn
     new McpServerSession(cfg, RULES, () => now, (m) => warned.push(m));
-    // the certificate, valid for a day, is near its end too
-    expect(warned).toHaveLength(3);
-    expect(warned[2]).toContain("replyCert");
+    expect(warned).toHaveLength(2);
     expect(warned[0]).toContain("keyring");
     expect(warned[0]).toContain(`notAfter ${near} (${new Date(near).toISOString()})`);
     expect(warned[1]).toContain("root");
@@ -218,7 +224,7 @@ describe("checkServerPolicy", () => {
   it("judgesExpiryAtTheSessionsClock", () => {
     const cfg = serverConfig();
     const { notAfter } = cfg.replyCert;
-    expect(() => new McpServerSession(cfg, RULES, () => notAfter)).not.toThrow();
+    expect(() => new McpServerSession(cfg, RULES, () => notAfter, () => {})).not.toThrow();
     expect(() => new McpServerSession(cfg, RULES, () => notAfter + 1)).toThrow("replyCert expired at");
   });
 });
@@ -297,7 +303,7 @@ describe("session handshake", () => {
     for (const [what, windows] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
       let now = Date.now();
       const { cfg } = serverSetup(["mcp-entry", "github-tools"], windows);
-      const srv = new McpServerSession(cfg, RULES, () => now);
+      const srv = new McpServerSession(cfg, RULES, () => now, () => {});
       const client = makeClient();
       const first = srv.openSession(client.request());
       expect(first.status, what).toBe("attested");
@@ -323,7 +329,7 @@ describe("session handshake", () => {
     for (const [what, opts] of [["keyring", { keyringNotAfter: T }], ["root", { rootNotAfter: T }]] as const) {
       let now = Date.now();
       const cfg = serverConfig();
-      const srv = new McpServerSession(cfg, RULES, () => now);
+      const srv = new McpServerSession(cfg, RULES, () => now, () => {});
       const client = makeClient(opts);
       const reply = srv.openSession(client.request());
       expect(reply.status, what).toBe("attested");
