@@ -5,10 +5,10 @@ package org.paztport.spring;
 
 import java.util.ArrayList;
 import java.util.List;
-import org.paztport.core.ContentLabel;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
-import org.paztport.core.StampV3;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.StampV3;
 
 /**
  * Request-scoped carrier of what one request has seen. The inbound filter stores the chain a service received and

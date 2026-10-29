@@ -6,7 +6,7 @@ package org.paztport.orders;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.paztport.core.InfluenceClass;
+import org.paztport.core.influence.InfluenceClass;
 import org.paztport.spring.PaztportContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;

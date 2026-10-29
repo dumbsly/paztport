@@ -20,22 +20,22 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.Keyring;
-import org.paztport.core.MerkleHash;
-import org.paztport.core.MerkleLeaf;
-import org.paztport.core.MerkleProof;
-import org.paztport.core.MerkleTree;
-import org.paztport.core.PathChainV1;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.SignedRoot;
-import org.paztport.core.StampV1;
-import org.paztport.core.StampSignerV1;
-import org.paztport.core.VerifierV1;
-import org.paztport.core.VerifierConfigV1;
-import org.paztport.core.VerifyResult;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.MerkleHash;
+import org.paztport.core.policy.MerkleLeaf;
+import org.paztport.core.policy.MerkleProof;
+import org.paztport.core.policy.MerkleTree;
+import org.paztport.core.stamp.PathChainV1;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.StampV1;
+import org.paztport.core.stamp.StampSignerV1;
+import org.paztport.core.verify.VerifierV1;
+import org.paztport.core.verify.VerifierConfigV1;
+import org.paztport.core.verify.VerifyResult;
 
 /**
  * Made the committed v1 file, {@code spec/vectors/v1.json}, and is kept only as the record of how. It is opt-in

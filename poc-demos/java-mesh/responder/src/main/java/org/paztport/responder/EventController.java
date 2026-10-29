@@ -4,7 +4,7 @@
 package org.paztport.responder;
 
 import java.util.Map;
-import org.paztport.core.EventVerifier;
+import org.paztport.core.event.EventVerifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;

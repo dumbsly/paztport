@@ -27,8 +27,8 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Crypto;
-import org.paztport.core.EventEnvelope;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.event.EventEnvelope;
 import org.slf4j.LoggerFactory;
 
 class ResponderEventPublisherTest {
@@ -79,7 +79,7 @@ class ResponderEventPublisherTest {
         EventEnvelope env = publisher.envelope(EVENT);
         byte[] expected = ("paztport-event\n" + env.payload()).getBytes(StandardCharsets.UTF_8);
         assertTrue(Crypto.verify(key.getPublic(), expected,
-                org.paztport.core.Base64Url.decode(env.sig())));
+                org.paztport.core.encoding.Base64Url.decode(env.sig())));
     }
 
     @Test

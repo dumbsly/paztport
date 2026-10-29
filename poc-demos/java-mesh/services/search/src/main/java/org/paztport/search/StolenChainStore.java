@@ -5,7 +5,7 @@ package org.paztport.search;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import org.paztport.core.StampV3;
+import org.paztport.core.stamp.StampV3;
 import org.springframework.stereotype.Component;
 
 /**

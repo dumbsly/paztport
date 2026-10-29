@@ -7,8 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.Map;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.spring.PaztportContext;
 import org.paztport.spring.PublicWrites;
 import org.springframework.http.ResponseEntity;

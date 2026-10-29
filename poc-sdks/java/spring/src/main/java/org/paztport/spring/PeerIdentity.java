@@ -12,7 +12,7 @@ import javax.naming.directory.Attribute;
 import javax.naming.ldap.LdapName;
 import javax.naming.ldap.Rdn;
 import javax.security.auth.x500.X500Principal;
-import org.paztport.core.Peer;
+import org.paztport.core.verify.Peer;
 
 /**
  * The sender the TLS layer authenticated, as the verifier's peer. Under mutual TLS the container has already checked

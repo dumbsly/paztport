@@ -13,11 +13,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.List;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.ContentLabel;
-import org.paztport.core.Crypto;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
-import org.paztport.core.StampV3;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.stamp.StampV3;
 
 class PaztportContextTest {
 

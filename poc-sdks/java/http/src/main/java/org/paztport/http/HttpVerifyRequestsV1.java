@@ -3,7 +3,7 @@
 
 package org.paztport.http;
 
-import org.paztport.core.VerifyRequestV1;
+import org.paztport.core.verify.VerifyRequestV1;
 
 /**
  * Turns an HTTP request into the transport-neutral {@link VerifyRequestV1} the

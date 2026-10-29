@@ -20,9 +20,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.DisabledOnOs;
 import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.KeyringFile;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.policy.KeyringFile;
 
 class KeygenMainTest {
 

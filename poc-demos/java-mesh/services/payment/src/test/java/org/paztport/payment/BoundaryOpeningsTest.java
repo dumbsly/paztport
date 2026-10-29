@@ -8,8 +8,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
 
 // The listener side of the openings: what each attested call to a partner stood for, kept per rid and partner.
 class BoundaryOpeningsTest {

@@ -4,7 +4,7 @@
 package org.paztport.spring;
 
 import java.util.List;
-import org.paztport.core.StampV3;
+import org.paztport.core.stamp.StampV3;
 
 /**
  * Test access to what only the partner filter may do: mark a chain as verified at this hop. The PSP's handlers

@@ -16,7 +16,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
-import org.paztport.core.EventEnvelope;
+import org.paztport.core.event.EventEnvelope;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

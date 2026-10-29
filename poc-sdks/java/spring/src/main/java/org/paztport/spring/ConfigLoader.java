@@ -8,11 +8,11 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import org.paztport.core.Base64Url;
-import org.paztport.core.BoundaryInfluence;
-import org.paztport.core.KeyringFile;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.SignedRoot;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.BoundaryInfluence;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.SignedRoot;
 
 /** Loads the keygen/policy-tool output files into the in-memory types core needs. */
 final class ConfigLoader {

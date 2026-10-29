@@ -6,10 +6,10 @@ package org.paztport.spring;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.KeyringFile;
-import org.paztport.core.SignedRoot;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.SignedRoot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
  * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
  * to re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to
  * unsafe sessions ({@link PartnerSessions}), because stopping would cut off the callers it serves without
- * attestation too. The same refusal is what lets {@link org.paztport.core.Sessions#status} judge only the windows of
+ * attestation too. The same refusal is what lets {@link org.paztport.core.session.Sessions#status} judge only the windows of
  * the partner's own keyring and root: this check has already made sure both verify under the policy pin.
  *
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is

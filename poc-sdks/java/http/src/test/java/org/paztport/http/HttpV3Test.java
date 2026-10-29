@@ -15,19 +15,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Base64Url;
-import org.paztport.core.ContentLabel;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
-import org.paztport.core.Keyring;
-import org.paztport.core.PolicyBuilder;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.StampV3;
-import org.paztport.core.StamperV3;
-import org.paztport.core.VerifierConfigV3;
-import org.paztport.core.VerifierV3;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.verify.VerifierConfigV3;
+import org.paztport.core.verify.VerifierV3;
 
 /** v3 over HTTP end to end: a real stamper feeds the encoders, and the real verifier reads what the decoders give. */
 class HttpV3Test {

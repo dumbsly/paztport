@@ -22,12 +22,12 @@ import java.util.TreeMap;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.KeyringFile;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.ReplyCert;
-import org.paztport.core.SignedRoot;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.session.ReplyCert;
+import org.paztport.core.policy.SignedRoot;
 
 class PolicyToolMainTest {
 

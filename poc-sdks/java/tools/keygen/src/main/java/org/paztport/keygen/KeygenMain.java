@@ -20,10 +20,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.paztport.core.Base64Url;
-import org.paztport.core.BoundaryInfluence;
-import org.paztport.core.Crypto;
-import org.paztport.core.KeyringFile;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.BoundaryInfluence;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.policy.KeyringFile;
 
 /**
  * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The

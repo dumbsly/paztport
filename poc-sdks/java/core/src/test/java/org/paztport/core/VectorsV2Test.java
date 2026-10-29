@@ -12,6 +12,12 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
+import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Bindings;
+import org.paztport.core.stamp.StampV2;
 
 /** Replays the committed v2 vectors in {@code spec/vectors/v2.json}, one test method per section. */
 class VectorsV2Test {

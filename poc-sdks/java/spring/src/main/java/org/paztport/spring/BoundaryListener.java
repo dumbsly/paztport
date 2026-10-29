@@ -4,7 +4,7 @@
 package org.paztport.spring;
 
 import java.util.List;
-import org.paztport.core.InfluenceEntry;
+import org.paztport.core.influence.InfluenceEntry;
 
 /**
  * Told what the egress is about to send a partner, so the shop can keep what the blinded entries stood for. The

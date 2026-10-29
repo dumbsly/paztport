@@ -22,6 +22,33 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.influence.InfluenceFact;
+import org.paztport.core.influence.InfluenceRule;
+import org.paztport.core.offline.OfflineConfig;
+import org.paztport.core.offline.OfflineInput;
+import org.paztport.core.offline.OfflineResult;
+import org.paztport.core.offline.OfflineVerifier;
+import org.paztport.core.offline.RecordedTimes;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.SessionRequest;
+import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.StampV3;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.Peer;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.verify.VerifierConfigV3;
+import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifyResult;
 
 /**
  * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads. One

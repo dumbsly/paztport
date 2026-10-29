@@ -21,17 +21,17 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.Keyring;
-import org.paztport.core.PathChainV1;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.SignedRoot;
-import org.paztport.core.StampV1;
-import org.paztport.core.VerifierV1;
-import org.paztport.core.VerifierConfigV1;
-import org.paztport.core.VerifyResult;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.stamp.PathChainV1;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.StampV1;
+import org.paztport.core.verify.VerifierV1;
+import org.paztport.core.verify.VerifierConfigV1;
+import org.paztport.core.verify.VerifyResult;
 
 /**
  * Replays the committed v1 vectors in {@code spec/vectors/v1.json}, the same file the TypeScript SDK reads, so

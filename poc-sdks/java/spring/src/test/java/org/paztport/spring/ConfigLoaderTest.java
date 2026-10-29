@@ -18,15 +18,15 @@ import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.KeyFiles;
-import org.paztport.core.Keyring;
-import org.paztport.core.KeyringFile;
-import org.paztport.core.MerkleLeaf;
-import org.paztport.core.MerkleTree;
-import org.paztport.core.ProofBundle;
-import org.paztport.core.SignedRoot;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.crypto.KeyFiles;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.MerkleLeaf;
+import org.paztport.core.policy.MerkleTree;
+import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.SignedRoot;
 
 class ConfigLoaderTest {
 

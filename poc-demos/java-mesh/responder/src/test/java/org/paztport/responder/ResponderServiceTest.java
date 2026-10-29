@@ -10,7 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.ResponderEvent;
+import org.paztport.core.event.ResponderEvent;
 
 class ResponderServiceTest {
 

@@ -9,7 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
-import org.paztport.core.ResponderEvent;
+import org.paztport.core.event.ResponderEvent;
 
 /**
  * The responder's brain, with no Docker in sight. Counts rejections per instance

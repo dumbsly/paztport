@@ -23,19 +23,19 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.Base64Url;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.KeyringFile;
-import org.paztport.core.PolicyBuilder;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.ReplyCert;
-import org.paztport.core.ReplyCheck;
-import org.paztport.core.SessionReply;
-import org.paztport.core.SessionRequest;
-import org.paztport.core.Sessions;
-import org.paztport.core.SignedRoot;
-import org.paztport.core.VerifyResult;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.SessionReply;
+import org.paztport.core.session.SessionRequest;
+import org.paztport.core.session.Sessions;
+import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.verify.VerifyResult;
 
 /**
  * The partner's session registry on its own: which handshakes it attests, that a reply is signed by its entry key,

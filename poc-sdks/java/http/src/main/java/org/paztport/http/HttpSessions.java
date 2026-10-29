@@ -9,8 +9,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.io.IOException;
-import org.paztport.core.SessionRequest;
-import org.paztport.core.Sessions;
+import org.paztport.core.session.SessionRequest;
+import org.paztport.core.session.Sessions;
 
 /**
  * The session handshake's names and body handling over HTTP, with no web framework. The request and reply are the

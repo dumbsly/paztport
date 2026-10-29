@@ -32,21 +32,21 @@ import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
-import org.paztport.core.Base64Url;
-import org.paztport.core.BoundaryInfluence;
-import org.paztport.core.ContentLabel;
-import org.paztport.core.Crypto;
-import org.paztport.core.InMemoryNonceCache;
-import org.paztport.core.Influence;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
-import org.paztport.core.Keyring;
-import org.paztport.core.MerkleProof;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.StampV3;
-import org.paztport.core.StamperV3;
-import org.paztport.core.VerifierConfigV3;
-import org.paztport.core.VerifierV3;
+import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.BoundaryInfluence;
+import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.influence.Influence;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.MerkleProof;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.verify.VerifierConfigV3;
+import org.paztport.core.verify.VerifierV3;
 
 /**
  * Builds {@code spec/vectors/http-v3.json} and replays it. Unlike the v1 exporter this is deterministic: the
@@ -289,7 +289,7 @@ class VectorsHttpV3Export {
     }
 
     private static String responseBinding(String resultHash, List<ContentLabel> labels) {
-        return org.paztport.core.Bindings.response(resultHash, RID, labels);
+        return org.paztport.core.stamp.Bindings.response(resultHash, RID, labels);
     }
 
     private static ObjectNode responseCase(String name, List<StampV3> sent, String header, int status, byte[] body,

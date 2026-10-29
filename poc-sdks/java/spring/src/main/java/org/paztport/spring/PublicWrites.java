@@ -5,11 +5,11 @@ package org.paztport.spring;
 
 import java.util.List;
 import java.util.TreeSet;
-import org.paztport.core.InfluenceClass;
-import org.paztport.core.InfluenceEntry;
-import org.paztport.core.InfluenceRule;
-import org.paztport.core.ReasonCode;
-import org.paztport.core.StampV3;
+import org.paztport.core.influence.InfluenceClass;
+import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.influence.InfluenceRule;
+import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.stamp.StampV3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
