@@ -1,6 +1,6 @@
 # Java SDK
 
-A Maven build (`paztport-sdk-parent`, JDK 21 or newer) of three libraries and two
+A Maven build (`paztport-sdk-parent`, JDK 25 or newer) of three libraries and two
 one-shot tools. Every cryptographic primitive comes from the standard JDK; `keygen`
 uses Bouncy Castle only to build its X.509 certificates, which the JDK signs.
 

@@ -810,8 +810,8 @@ class BoundaryClientTest {
      * the body: the call fails at the read timeout, as the {@code UncheckedIOException} a failed call always is, on
      * any JDK, and the session is kept as after any failed call, so the next call goes out in it with no handshake.
      * On JDK 27 the JDK's own request timeout also ends a stalled body, so there the body case passes even without
-     * the client's whole-exchange bound; on JDK 21, which applies a request's timeout only to the headers, it shows
-     * that bound, and it was run there.
+     * the client's whole-exchange bound; on JDK 25, which applies a request's timeout only to the headers, it shows
+     * that bound.
      */
     @Test
     void aCallThePartnerNeverFinishesFailsAtTheReadTimeoutAndKeepsTheSession() throws Exception {

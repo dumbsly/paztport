@@ -28,7 +28,7 @@ import org.springframework.http.client.ClientHttpResponse;
  * Spring's request factory over a JDK client, with each call bounded whole, by {@link PooledTlsClient#send}:
  * connecting, sending, the response's headers and its body, on every JDK. It exists because Spring's own
  * {@code JdkClientHttpRequestFactory} hands back the body as a stream, so its read timeout bounds only the wait for
- * the headers, and on JDK 21 a peer that sends its headers and then stops holds the call for ever.
+ * the headers, and on JDK 25 a peer that sends its headers and then stops holds the call for ever.
  *
  * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
  * either. Stamped calls lose nothing by it, since the stamping interceptor reads every response whole anyway, to bind

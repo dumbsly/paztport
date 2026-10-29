@@ -122,8 +122,8 @@ class ResponderEventPublisherTest {
      * A responder that takes the event and never finishes answering, before its headers or part way through the
      * body: publish gives up at the event timeout, on any JDK, logs it and returns, as for any other failure. On
      * JDK 27 the JDK's own request timeout also ends a stalled body, so there the body case passes even without the
-     * publisher's whole-exchange bound; on JDK 21, which applies a request's timeout only to the headers, it shows
-     * that bound, and it was run there.
+     * publisher's whole-exchange bound; on JDK 25, which applies a request's timeout only to the headers, it shows
+     * that bound.
      */
     @Test
     void aSilentResponderIsGivenUpAtTheEventTimeout() throws Exception {

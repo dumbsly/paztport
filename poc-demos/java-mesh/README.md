@@ -612,8 +612,8 @@ unit tests. Each of these was root-caused before it was fixed:
   first verified *every* path, including the admin and debug endpoints, and
   rejected them for lacking a chain. Attestation applies to the attested data path,
   not to the control plane.
-- **An SSL bundle changed the HTTP client.** Giving `RestClient` an SSL bundle
-  switched it to `HttpURLConnection`, which hands over an error response's body
+- **An SSL bundle changed the HTTP client.** On Spring Boot 3.3, giving `RestClient`
+  an SSL bundle switched it to `HttpURLConnection`, which hands over an error response's body
   only once the status has been read, and otherwise throws. Every refusal seen
   through a stamping client became an exception until the interceptor read the
   status first. Only the live mesh showed it: scenario 4 answered 500 instead of
@@ -635,7 +635,7 @@ unit tests. Each of these was root-caused before it was fixed:
 
 ## Measurements
 
-Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 21
+Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 25
 runtime) with k6 driving the legitimate path at 10 virtual users, via
 [measure.sh](measure.sh), mutual TLS on every hop. `payment` is switched between
 `off`, where Paztport is off on that hop, and `enforce`, with everything else
@@ -648,8 +648,8 @@ request failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
-| `payment` in `off` | 4.11 ms (4.10–4.15) | 6.59 ms (6.54–6.78) | 4.23 ms (4.23–4.29) | 9.98 ms (9.89–11.43) |
-| `payment` in `enforce` | 6.76 ms (6.71–6.82) | 9.76 ms (9.75–9.85) | 6.91 ms (6.87–6.97) | 21.56 ms (18.99–39.44) |
+| `payment` in `off` | 3.83 ms (3.80–3.87) | 6.15 ms (6.12–6.31) | 3.93 ms (3.91–3.97) | 14.80 ms (10.50–35.19) |
+| `payment` in `enforce` | 6.45 ms (6.41–6.49) | 9.30 ms (9.26–9.38) | 6.59 ms (6.55–6.63) | 15.15 ms (14.57–27.17) |
 
 The services call each other over pooled mutual-TLS connections, so these numbers
 don't include a handshake per hop per request. In steady load a connection is
@@ -670,9 +670,9 @@ connection limit and stalled the mesh.
 What the numbers say:
 
 - **`enforce` adds about 2.6 ms at the median at this load.** Every `enforce` run's
-  p50 was 2.6–2.7 ms above every `off` run's, so the gap is far larger than the
+  p50 was 2.5–2.7 ms above every `off` run's, so the gap is far larger than the
   run-to-run spread, but three runs per mode support "about 2.6 ms", not a finer
-  figure. The p99 gap is about 3 ms (3.0–3.3 ms between any two runs). The
+  figure. The p99 gap is about 3 ms (2.9–3.3 ms between any two runs). The
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
@@ -714,7 +714,7 @@ Caveats:
 
 ## Running it
 
-**Prerequisites:** JDK 21 or newer, Maven, Docker with Compose.
+**Prerequisites:** JDK 25 or newer, Maven, Docker with Compose.
 
 `./run java-mesh` from the repository root does the build and runs `demo.sh`.
 By hand, from this folder:

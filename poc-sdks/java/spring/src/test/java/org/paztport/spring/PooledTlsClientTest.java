@@ -212,8 +212,8 @@ class PooledTlsClientTest {
     /**
      * A peer that sends a response's headers and then stops part way through the body: the call still fails at the
      * read timeout, since the whole exchange is bounded, not only the wait for the headers. On JDK 27 the JDK's own
-     * request timeout would end this call too, so there this test passes even without the starter's bound; it is on
-     * JDK 21, which applies a request's timeout only to the headers, that it shows the bound, and it was run there.
+     * request timeout would end this call too, so there this test passes even without the starter's bound;
+     * it is on JDK 25, which applies a request's timeout only to the headers, that it shows the bound.
      */
     @Test
     @Timeout(10)

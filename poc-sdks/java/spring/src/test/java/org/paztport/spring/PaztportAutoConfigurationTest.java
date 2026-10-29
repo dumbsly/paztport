@@ -880,8 +880,8 @@ class PaztportAutoConfigurationTest {
     /**
      * A call on the shared builder, which stamps, to a peer that never finishes answering, before its headers or part
      * way through the body, fails at the read timeout, as a timeout. On JDK 27 the JDK's own request timeout would
-     * also end the stalled body, so there this passes even without the starter's whole-exchange bound; on JDK 21,
-     * which applies a request's timeout only to the headers, it shows that bound, and it was run there.
+     * also end the stalled body, so there this passes even without the starter's whole-exchange bound; on JDK 25,
+     * which applies a request's timeout only to the headers, it shows that bound.
      */
     @ParameterizedTest
     @EnumSource(SilentPeer.Stall.class)

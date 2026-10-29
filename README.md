@@ -512,7 +512,7 @@ These are design directions, not implementations.
 
 ## 7. Running it
 
-**Prerequisites:** JDK 21 or newer and Maven for the Java side, Docker with Compose
+**Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
 for the mesh demo, and Node 22.19 or newer with npm for the TypeScript side. macOS
 and Linux; on Windows use WSL.
 

@@ -37,7 +37,7 @@ need_java() {
   local version major
   version="$(mvn -v 2>/dev/null || true)"
   major="$(sed -n 's/^Java version: \([0-9]*\).*/\1/p' <<<"$version" | head -n1 || true)"
-  [ -n "$major" ] && [ "$major" -ge 21 ] || missing java 21 "https://adoptium.net or your package manager (mvn -v must report Java 21+)"
+  [ -n "$major" ] && [ "$major" -ge 25 ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report Java 25+)"
   # The same JDK runs the built jars, since the java on PATH may be a different one or none.
   maven_java="$(sed -n 's/.*, runtime: \(.*\)$/\1/p' <<<"$version" | head -n1 || true)/bin/java"
 }
@@ -94,7 +94,7 @@ cmd_agents_mcp() {
 cmd_test() {
   need_java
   need_node
-  [ -x "$maven_java" ] || missing java 21 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
+  [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
   bash poc-sdks/scripts/check-names.sh
   node poc-sdks/scripts/check-links.mjs
   (cd poc-sdks/java && mvn -q install)
