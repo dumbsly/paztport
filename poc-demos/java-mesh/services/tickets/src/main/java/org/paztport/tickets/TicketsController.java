@@ -32,7 +32,9 @@ import org.springframework.web.client.RestClient;
  * asked to write somewhere public can see the request was shaped by text nobody vouched for.
  *
  * <p>The answer names the request's {@code rid}, the one every hop's trace line carries, so the demo can follow
- * the ticket through the mesh and across the boundary.
+ * the ticket through the mesh and across the boundary. The assistant's actions are read into a tree of the SDK's
+ * own Jackson, so the answer is written with that Jackson too and handed to the web layer as a string: the web
+ * layer's Jackson is another major version, and would not write that tree as JSON.
  */
 @RestController
 public class TicketsController {
@@ -80,7 +82,8 @@ public class TicketsController {
                     answer.put("author", ticket.author());
                     answer.put("rid", rid());
                     answer.put("actions", actions(body));
-                    return ResponseEntity.ok(answer);
+                    return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON)
+                            .body(JSON.writeValueAsString(answer));
                 });
     }
 

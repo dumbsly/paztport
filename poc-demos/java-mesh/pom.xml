@@ -38,11 +38,10 @@
     </modules>
 
     <properties>
-        <maven.compiler.release>21</maven.compiler.release>
+        <maven.compiler.release>25</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring.boot.version>3.3.5</spring.boot.version>
-        <junit.version>5.11.4</junit.version>
+        <spring.boot.version>4.1.1</spring.boot.version>
         <!-- The SDK release the demo builds against; install it first with
              `mvn install` in poc-sdks/java. -->
         <paztport.sdk.version>0.1.0-SNAPSHOT</paztport.sdk.version>
@@ -57,16 +56,11 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
-            <dependency>
-                <groupId>org.junit</groupId>
-                <artifactId>junit-bom</artifactId>
-                <version>${junit.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
 
             <!-- docker-java 3.4.0 (responder only) pulls in old versions of these
-                 with published CVEs; pin current releases instead. -->
+                 with published CVEs (Guava 19.0, Commons Compress 1.21, Bouncy Castle
+                 1.76), and Spring Boot manages none of them, so later releases are
+                 pinned here. -->
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
@@ -98,10 +92,18 @@
     <build>
         <pluginManagement>
             <plugins>
+                <!-- Mockito attaches byte-buddy's agent at runtime: the quarantiner's tests mock the Docker
+                     client with it, and Spring's test support starts it to reset mocks before and after each
+                     Spring test, whether or not that test mocks anything. Allowing the agent up front keeps the
+                     JVM's warning about it, and Mockito's own, out of the test output; class sharing is off
+                     because the agent extends the boot class path. -->
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.2</version>
+                    <configuration>
+                        <argLine>-XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.springframework.boot</groupId>

@@ -3,7 +3,8 @@
 
 package org.paztport.psp;
 
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -30,6 +31,8 @@ import org.springframework.web.bind.annotation.RestController;
 @ConditionalOnProperty(name = "paztport.openings", havingValue = "true")
 public class OpeningCheckController {
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final ReceivedInfluence received;
 
     public OpeningCheckController(ReceivedInfluence received) {
@@ -39,13 +42,17 @@ public class OpeningCheckController {
     /**
      * {@code {"opens": true|false}}; {@code 404} when no call of {@code rid} was recorded, or it carried no entry
      * of the opening's class and owner; {@code 400} for a body that is not an opening.
+     *
+     * <p>The body arrives as bytes and is read with the SDK's own Jackson, since
+     * {@link BoundaryInfluence.Opening#parse} takes that Jackson's tree; the web layer's Jackson is another major
+     * version, and cannot read a body into it.
      */
     @PostMapping("/debug/check-opening")
-    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody JsonNode body) {
+    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
         BoundaryInfluence.Opening opening;
         try {
-            opening = BoundaryInfluence.Opening.parse(body);
-        } catch (IllegalArgumentException e) {
+            opening = BoundaryInfluence.Opening.parse(JSON.readTree(body));
+        } catch (IOException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("reason", "MALFORMED_OPENING"));
         }
         List<InfluenceEntry> entries = received.received(rid).orElse(null);

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,6 +31,7 @@ import org.paztport.spring.BoundaryClient;
 import org.paztport.spring.PooledTlsClient;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.boot.ssl.SslBundle;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -90,11 +92,15 @@ class OpeningControllerTest {
                 .findFirst().orElseThrow();
     }
 
+    /** The opening served for {@code query}, which must be JSON in exactly the SDK's own rendering of it. */
     private BoundaryInfluence.Opening fetch(String query) throws Exception {
         String body = mvc.perform(get("/debug/boundary-opening?" + query))
                 .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andReturn().getResponse().getContentAsString();
-        return BoundaryInfluence.Opening.parse(JSON.readTree(body));
+        BoundaryInfluence.Opening opening = BoundaryInfluence.Opening.parse(JSON.readTree(body));
+        assertEquals(opening.toJson().toString(), body);
+        return opening;
     }
 
     @Test

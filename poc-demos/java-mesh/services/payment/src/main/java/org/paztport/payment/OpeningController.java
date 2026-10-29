@@ -3,7 +3,6 @@
 
 package org.paztport.payment;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +14,7 @@ import org.paztport.spring.BoundaryClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -53,6 +53,10 @@ public class OpeningController {
      * The opening of the entry for ({@code cls}, {@code owner}) of request {@code rid}, as {@code Opening.toJson()};
      * no {@code owner}, or an empty one, names the group with no owner. {@code 404} when no call of that rid to the
      * partner is held, or none of its originals is in the group; {@code 400} for a class that does not exist.
+     *
+     * <p>The opening is written with the SDK's own Jackson and handed to the web layer as a string, so the body is
+     * exactly what {@code Opening.toJson()} says; the web layer's Jackson is another major version, and would not
+     * write that tree as JSON.
      */
     @GetMapping("/debug/boundary-opening")
     public ResponseEntity<?> opening(@RequestParam String rid, @RequestParam String cls,
@@ -73,8 +77,8 @@ public class OpeningController {
             // No original is in that group: the call sent no entry for it.
             return ResponseEntity.notFound().build();
         }
-        JsonNode body = (tamper ? tampered(opening) : opening).toJson();
-        return ResponseEntity.ok(body);
+        String body = (tamper ? tampered(opening) : opening).toJson().toString();
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 
     /** The same opening with its first original's {@code h} zeroed: the content it claims is not what was sent. */

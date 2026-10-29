@@ -19,6 +19,7 @@ import org.paztport.core.Crypto;
 import org.paztport.core.InfluenceClass;
 import org.paztport.core.InfluenceEntry;
 import org.springframework.http.MediaType;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.ResultActions;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -59,7 +60,7 @@ class OpeningCheckControllerTest {
     void aGenuineOpeningOpens() throws Exception {
         check(RID, aliceOpening(ORIGINALS).toJson())
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"opens\":true}", true));
+                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
     }
 
     @Test
@@ -69,7 +70,7 @@ class OpeningCheckControllerTest {
                         "alice"));
         check(RID, aliceOpening(tampered).toJson())
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"opens\":false}", true));
+                .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
     }
 
     @Test
@@ -84,5 +85,13 @@ class OpeningCheckControllerTest {
         ObjectNode shortSalt = aliceOpening(ORIGINALS).toJson().put("salt", "AAAA");
         check(RID, shortSalt).andExpect(status().isBadRequest());
         check(RID, List.of()).andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aBodyThatIsNotJsonIsABadRequest() throws Exception {
+        mvc.perform(post("/debug/check-opening").param("rid", RID)
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"cls\":"))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 }

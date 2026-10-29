@@ -12,7 +12,6 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.nio.charset.StandardCharsets;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
@@ -75,10 +74,10 @@ class TicketsControllerTest {
                 influence);
 
         assertEquals(200, response.getStatusCode().value());
-        Map<?, ?> body = (Map<?, ?>) response.getBody();
-        assertEquals("t-1", body.get("ticket"));
-        assertEquals("alice", body.get("author"));
-        assertEquals(inbound.get(0).rid(), body.get("rid"));
-        assertEquals("[{\"action\":\"email\",\"status\":200,\"result\":\"SENT\"}]", body.get("actions").toString());
+        assertEquals(MediaType.APPLICATION_JSON, response.getHeaders().getContentType());
+        // The ticket, its author and rid, and the assistant's actions as it wrote them, in that order.
+        assertEquals("{\"ticket\":\"t-1\",\"author\":\"alice\",\"rid\":\"" + inbound.get(0).rid()
+                + "\",\"actions\":[{\"action\":\"email\",\"status\":200,\"result\":\"SENT\"}]}",
+                response.getBody());
     }
 }
