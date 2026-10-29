@@ -4,7 +4,6 @@
 package org.paztport.core;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
@@ -75,11 +74,5 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
     /** The influence entry a receiver records for content carrying this label. */
     public InfluenceEntry toEntry(String src, String h) {
         return new InfluenceEntry(cls, src, h, cid, owner);
-    }
-
-    static ArrayNode toJson(List<ContentLabel> labels) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        labels.forEach(l -> a.add(l.toJson()));
-        return a;
     }
 }

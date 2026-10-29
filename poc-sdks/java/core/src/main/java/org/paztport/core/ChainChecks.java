@@ -54,7 +54,7 @@ final class ChainChecks {
 
         // 3. Origin.
         if (!allowedOrigins.contains(first.svc()) || (signers != null && !first.inst().equals(signers.inst()))) {
-            return ParsedChain.fail(ReasonCode.BAD_ORIGIN);
+            return fail(ReasonCode.BAD_ORIGIN);
         }
 
         // 4. Signatures and links.
@@ -64,10 +64,10 @@ final class ChainChecks {
             if (key == null || !signatureValid(key, s)
                     || (signers != null && (i >= signers.svcs().size() || !s.svc().equals(signers.svcs().get(i))
                             || !s.inst().equals(signers.inst())))) {
-                return ParsedChain.fail(ReasonCode.BAD_SIGNATURE);
+                return fail(ReasonCode.BAD_SIGNATURE);
             }
             if (!s.prev().equals(i == 0 ? "" : stamps.get(i - 1).sig())) {
-                return ParsedChain.fail(ReasonCode.BROKEN_LINK);
+                return fail(ReasonCode.BROKEN_LINK);
             }
         }
         // Then the receivers: each stamp names the next hop, and the last the chain's receiver.
@@ -75,7 +75,7 @@ final class ChainChecks {
             for (int i = 0; i < stamps.size(); i++) {
                 String want = i + 1 < stamps.size() ? stamps.get(i + 1).svc() : shape.receiver();
                 if (!stamps.get(i).rcvOrNull().equals(want)) {
-                    return ParsedChain.fail(ReasonCode.BINDING_MISMATCH);
+                    return fail(ReasonCode.BINDING_MISMATCH);
                 }
             }
         }
@@ -84,17 +84,22 @@ final class ChainChecks {
         String rid = shape.rid() != null ? shape.rid() : first.rid();
         for (RecordedStamp s : stamps) {
             if (!s.rid().equals(rid)) {
-                return ParsedChain.fail(ReasonCode.RID_MISMATCH);
+                return fail(ReasonCode.RID_MISMATCH);
             }
         }
 
         // 6. Session.
         for (RecordedStamp s : stamps) {
             if (!s.sess().equals(sess)) {
-                return ParsedChain.fail(ReasonCode.SESSION_UNKNOWN);
+                return fail(ReasonCode.SESSION_UNKNOWN);
             }
         }
         return parsed;
+    }
+
+    /** A refusal carrying no stamps: the same record {@code ParsedChain.fail} makes for {@link Chains}. */
+    private static ParsedChain fail(ReasonCode code) {
+        return new ParsedChain(List.of(), false, code);
     }
 
     private static boolean signatureValid(PublicKey key, RecordedStamp s) {
@@ -136,9 +141,9 @@ final class ChainChecks {
             hops.add(receiver);
         }
         if (!provesPath(proof, Routes.join(hops), root, rootId)) {
-            return VerifyResult.reject(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
+            return new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
         }
-        return VerifyResult.ok(last.svc(), last.inst());
+        return new VerifyResult(ReasonCode.OK, last.svc(), last.inst());
     }
 
     /** Whether the proof names this root and proves the route against it; any malformed proof is "not proven". */
