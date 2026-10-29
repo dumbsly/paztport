@@ -22,8 +22,8 @@ import org.slf4j.LoggerFactory;
  * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
  * to re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to
  * unsafe sessions ({@link PartnerSessions}), because stopping would cut off the callers it serves without
- * attestation too. The same refusal is what lets {@link org.paztport.core.session.Sessions#status} judge only the windows of
- * the partner's own keyring and root: this check has already made sure both verify under the policy pin.
+ * attestation too. The same refusal is what lets {@link org.paztport.core.session.Sessions#status} judge only the
+ * windows of the partner's own keyring and root: this check has already made sure both verify under the policy pin.
  *
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is
  * restarted far more rarely than a week goes by and this is the last moment the operator is certain to be looking.
