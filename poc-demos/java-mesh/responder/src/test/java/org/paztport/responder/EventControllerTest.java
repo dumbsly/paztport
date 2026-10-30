@@ -58,6 +58,22 @@ class EventControllerTest {
         assertEquals(List.of("s1"), quarantined);
     }
 
+    /**
+     * An event the payment key signed but with no {@code reason} once reached the decider as a null reason, and
+     * its deny-list lookup threw. The verifier now refuses it as malformed, so it is a 403 that decides nothing.
+     */
+    @Test
+    void aSignedEventWithNoReasonIsRefusedBeforeTheDecider() throws Exception {
+        String json = "{\"suspectSvc\":\"search\",\"suspectInst\":\"s1\",\"rid\":\"r\",\"audit\":false,\"ts\":"
+                + System.currentTimeMillis() + ",\"eventId\":\"e2\"}";
+        String body = EventEnvelope.sign("payment", json.getBytes(StandardCharsets.UTF_8), payment.getPrivate())
+                .toJson();
+        mvc.perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(body))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.error").value("event refused"));
+        assertEquals(List.of(), quarantined);
+    }
+
     @Test
     void aDisallowedSignerCannotWriteItsOwnLogLines() throws Exception {
         String forged = "{\"signer\":\"x\\nESCALATE svc=search inst=s1\",\"payload\":\"e30\",\"sig\":\"AAAA\"}";
