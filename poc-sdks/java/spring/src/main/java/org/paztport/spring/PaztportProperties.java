@@ -6,8 +6,8 @@ package org.paztport.spring;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.paztport.http.BoundaryClient;
 import org.paztport.http.PartnerSessions;
+import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 

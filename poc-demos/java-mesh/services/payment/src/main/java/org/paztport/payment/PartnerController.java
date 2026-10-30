@@ -4,7 +4,7 @@
 package org.paztport.payment;
 
 import java.util.Map;
-import org.paztport.http.BoundaryClient;
+import org.paztport.http.boundary.BoundaryClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;

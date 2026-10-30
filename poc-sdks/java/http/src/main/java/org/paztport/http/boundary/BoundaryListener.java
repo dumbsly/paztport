@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.http;
+package org.paztport.http.boundary;
 
 import java.util.List;
 import org.paztport.core.influence.InfluenceEntry;

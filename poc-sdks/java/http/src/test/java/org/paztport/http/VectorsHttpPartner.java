@@ -68,6 +68,8 @@ import org.paztport.http.VectorsHttpRules.Chains;
 import org.paztport.http.VectorsHttpRules.Fixtures;
 import org.paztport.http.VectorsHttpRules.Material;
 import org.paztport.http.VectorsHttpRules.Service;
+import org.paztport.http.boundary.BoundaryClient;
+import org.paztport.http.boundary.BoundaryHooks;
 import org.paztport.http.wire.HttpV3;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;

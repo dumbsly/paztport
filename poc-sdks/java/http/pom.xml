@@ -101,7 +101,7 @@
                             <includes>
                                 <include>org/paztport/http/SilentPeer*.class</include>
                                 <include>org/paztport/http/StubPartner*.class</include>
-                                <include>org/paztport/http/BoundaryAccess.class</include>
+                                <include>org/paztport/http/boundary/BoundaryAccess.class</include>
                                 <include>org/paztport/http/event/EventAccess.class</include>
                             </includes>
                         </configuration>

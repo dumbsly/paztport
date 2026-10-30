@@ -1,15 +1,15 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.http;
+package org.paztport.http.boundary;
 
 import java.time.Duration;
 import java.util.function.LongSupplier;
 
 /**
- * The egress's package-private hooks, for the tests that sit in this package but must not live in
- * {@code boundary}: the clocks and the handshake timeout a test moves by hand, and the two constants it measures
- * them against. The test jar leaves this out, so nothing outside this module's tests can reach the hooks.
+ * The egress's package-private hooks, for the root package's tests, which sit outside {@code boundary}: the clocks
+ * and the handshake timeout a test moves by hand, and the two constants it measures them against. The test jar leaves
+ * this out, so nothing outside this module's tests can reach the hooks.
  */
 public final class BoundaryHooks {
 
