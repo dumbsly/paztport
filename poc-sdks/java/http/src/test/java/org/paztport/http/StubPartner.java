@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.partner;
+package org.paztport.http;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -45,8 +45,6 @@ import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.http.HttpSessions;
-import org.paztport.http.SilentPeer;
 
 /**
  * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP or,
@@ -62,14 +60,14 @@ import org.paztport.http.SilentPeer;
  * reply carries the status the test chose, and is signed by the partner's key unless the test asked for one
  * handshake to be signed by another key, which the egress sees as {@code PIN_MISMATCH}.
  */
-final class StubPartner implements AutoCloseable {
+public final class StubPartner implements AutoCloseable {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
     private static final long NOT_AFTER = 4_102_444_800_000L;
 
     /** One request as received: the headers' names are lower-cased. */
-    record Received(String method, String path, Map<String, List<String>> headers, byte[] body) {
-        String header(String name) {
+    public record Received(String method, String path, Map<String, List<String>> headers, byte[] body) {
+        public String header(String name) {
             List<String> values = headers.get(name.toLowerCase());
             return values == null || values.isEmpty() ? null : values.get(0);
         }
@@ -112,7 +110,7 @@ final class StubPartner implements AutoCloseable {
      * @param tls over HTTPS, presenting the fixture certificate for {@code 127.0.0.1} under the fixture CA, which
      *     the egress's bundle trusts; it asks for no client certificate
      */
-    StubPartner(boolean tls) throws IOException {
+    public StubPartner(boolean tls) throws IOException {
         root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot();
         InetSocketAddress loopback = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
         if (tls) {
@@ -177,13 +175,13 @@ final class StubPartner implements AutoCloseable {
     }
 
     /** {@code http://127.0.0.1:<port>}, or {@code https://} over TLS. */
-    URI url() {
+    public URI url() {
         return URI.create((server instanceof HttpsServer ? "https" : "http") + "://127.0.0.1:"
                 + server.getAddress().getPort());
     }
 
     /** The pin the egress holds for this partner. */
-    String policyKey() {
+    public String policyKey() {
         return pub(policy);
     }
 
@@ -235,7 +233,7 @@ final class StubPartner implements AutoCloseable {
         this.handshakeDelayMs = ms;
     }
 
-    List<Received> received() {
+    public List<Received> received() {
         return List.copyOf(received);
     }
 
@@ -243,7 +241,7 @@ final class StubPartner implements AutoCloseable {
         return received.stream().filter(Received::isHandshake).toList();
     }
 
-    List<Received> calls() {
+    public List<Received> calls() {
         return received.stream().filter(r -> !r.isHandshake()).toList();
     }
 

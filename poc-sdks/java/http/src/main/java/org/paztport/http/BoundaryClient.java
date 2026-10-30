@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.partner;
+package org.paztport.http;
 
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -37,12 +37,6 @@ import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.http.BoundaryListener;
-import org.paztport.http.HttpSessions;
-import org.paztport.http.HttpV3;
-import org.paztport.http.PaztportHeaders;
-import org.paztport.http.RequestBinding;
-import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.WholeExchange;
 import org.slf4j.Logger;

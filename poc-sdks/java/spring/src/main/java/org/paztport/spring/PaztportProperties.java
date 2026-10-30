@@ -4,9 +4,9 @@
 package org.paztport.spring;
 
 import java.util.List;
+import org.paztport.http.BoundaryClient;
 import org.paztport.http.PartnerSessions;
 import org.paztport.spring.outbound.PooledTlsClient;
-import org.paztport.spring.partner.BoundaryClient;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Configuration for the path-attestation glue, bound from {@code paztport.*}. */

@@ -28,7 +28,7 @@ import org.paztport.http.PublicWrites;
 import org.paztport.http.ReceiverAccess;
 import org.paztport.http.RequestBinding;
 import org.paztport.http.RequestContext;
-import org.paztport.spring.partner.TraceAccess;
+import org.paztport.http.TraceAccess;
 import org.slf4j.LoggerFactory;
 
 /**

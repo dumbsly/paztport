@@ -27,7 +27,7 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StamperV3;
-import org.paztport.spring.partner.BoundaryClient;
+import org.paztport.http.BoundaryClient;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;

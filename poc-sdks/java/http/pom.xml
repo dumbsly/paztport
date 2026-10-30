@@ -36,6 +36,12 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- The egress's tests, moved from the starter, assert with it. -->
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- Core's vector loader and public-API walk. -->
         <dependency>
             <groupId>org.paztport</groupId>
@@ -78,7 +84,10 @@
                         <configuration>
                             <includes>
                                 <include>org/paztport/http/SilentPeer*.class</include>
+                                <include>org/paztport/http/StubPartner*.class</include>
+                                <include>org/paztport/http/BoundaryAccess.class</include>
                                 <include>org/paztport/http/ReceiverAccess.class</include>
+                                <include>org/paztport/http/TraceAccess.class</include>
                                 <include>org/paztport/http/event/EventAccess.class</include>
                             </includes>
                         </configuration>

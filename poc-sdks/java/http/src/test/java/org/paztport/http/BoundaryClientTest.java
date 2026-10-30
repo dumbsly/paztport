@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.partner;
+package org.paztport.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -57,13 +57,6 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
-import org.paztport.http.BoundaryListener;
-import org.paztport.http.ContextAccess;
-import org.paztport.http.HttpV3;
-import org.paztport.http.PaztportHeaders;
-import org.paztport.http.RequestBinding;
-import org.paztport.http.RequestContext;
-import org.paztport.http.SilentPeer;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -141,7 +134,7 @@ class BoundaryClientTest {
         traceLog.setAdditive(true);
         client.close();
         partner.close();
-        ContextAccess.reset();
+        RequestContext.reset();
     }
 
     private void listen(String rid, String partnerEntry, List<InfluenceEntry> originals, List<InfluenceEntry> sent) {
@@ -195,7 +188,7 @@ class BoundaryClientTest {
     /** Runs {@code call} in a fresh scope holding a verified gateway chain and the two influence entries. */
     private <T> T verified(String rid, Callable<T> call) throws Exception {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            ContextAccess.markVerified(gatewayChain(rid));
+            RequestContext.markVerified(gatewayChain(rid));
             RequestContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
             return call.call();
         }
@@ -271,7 +264,7 @@ class BoundaryClientTest {
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", null));
 
         try (RequestContext.Scope scope = RequestContext.open()) {
-            ContextAccess.markVerified(gatewayChain("rid-1"));
+            RequestContext.markVerified(gatewayChain("rid-1"));
             RequestContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             assertEquals(200, charge().status());
         }
@@ -779,7 +772,7 @@ class BoundaryClientTest {
     @Test
     void emptyVerifiedChainSendsNothing() throws Exception {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            ContextAccess.markVerified(List.of());
+            RequestContext.markVerified(List.of());
             assertThrows(IllegalStateException.class, this::charge);
         }
         assertEquals(List.of(), partner.received());

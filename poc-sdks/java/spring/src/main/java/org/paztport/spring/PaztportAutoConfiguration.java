@@ -5,6 +5,7 @@ package org.paztport.spring;
 
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.BoundaryClient;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PublicWrites;
@@ -13,7 +14,6 @@ import org.paztport.http.event.EventPublisher;
 import org.paztport.spring.event.EventConfiguration;
 import org.paztport.spring.outbound.OutboundConfiguration;
 import org.paztport.spring.outbound.PooledTlsClient;
-import org.paztport.spring.partner.BoundaryClient;
 import org.paztport.spring.partner.PartnerConfiguration;
 import org.paztport.spring.trust.TrustConfiguration;
 import org.springframework.beans.factory.ObjectProvider;

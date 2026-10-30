@@ -10,7 +10,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.spring.partner.BoundaryClient;
+import org.paztport.http.BoundaryClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

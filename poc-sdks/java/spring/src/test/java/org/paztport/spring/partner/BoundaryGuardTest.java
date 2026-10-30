@@ -35,11 +35,14 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StamperV3;
+import org.paztport.http.BoundaryAccess;
+import org.paztport.http.BoundaryClient;
 import org.paztport.http.BoundaryListener;
 import org.paztport.http.HttpV3;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.StubPartner;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.TestHttp;
@@ -351,7 +354,8 @@ class BoundaryGuardTest {
             assertThat(context).hasNotFailed();
             assertThat(context).hasSingleBean(BoundaryClient.class);
             assertThat(context).doesNotHaveBean(PooledTlsClient.class);
-            assertThat(context.getBean(BoundaryClient.class).readTimeout()).isEqualTo(Duration.ofSeconds(30));
+            assertThat(BoundaryAccess.readTimeout(context.getBean(BoundaryClient.class)))
+                    .isEqualTo(Duration.ofSeconds(30));
         });
     }
 
@@ -359,7 +363,7 @@ class BoundaryGuardTest {
     void theCallsTakeTheReadTimeout() {
         runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
                 .withPropertyValues("paztport.read-timeout-ms=1234")
-                .run(context -> assertThat(context.getBean(BoundaryClient.class).readTimeout())
+                .run(context -> assertThat(BoundaryAccess.readTimeout(context.getBean(BoundaryClient.class)))
                         .isEqualTo(Duration.ofMillis(1234)));
     }
 
