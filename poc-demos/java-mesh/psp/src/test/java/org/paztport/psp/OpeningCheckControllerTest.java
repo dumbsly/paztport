@@ -3,6 +3,7 @@
 
 package org.paztport.psp;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -124,6 +125,31 @@ class OpeningCheckControllerTest {
                         .content(("\uFEFF" + json).getBytes(StandardCharsets.UTF_8)))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+    }
+
+    /**
+     * A number too large for a double, where an opening or one of its originals holds a string, is a bad request,
+     * as it always was: the value reaches the SDK as the number it was sent as, never as the string
+     * {@code "Infinity"} a tree written back would make of it.
+     */
+    @Test
+    void aNumberTooLargeForADoubleIsNotAString() throws Exception {
+        String json = aliceOpening(ORIGINALS).toJson();
+        List<String> bad = List.of(
+                json.replaceFirst("\"owner\":\"alice\"", "\"owner\":1e400"),
+                json.replace("\"src\":\"http:orders\"", "\"src\":1e400"),
+                json.replace("\"h\":\"b3JkZXI\"", "\"h\":-1e400"),
+                json.replace("\"cid\":\"cid-2\"", "\"cid\":1e9999999999"));
+        for (String body : bad) {
+            assertNotEquals(json, body);
+            check(RID, body).andExpect(status().isBadRequest())
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+        }
+        mvc.perform(post("/debug/check-opening").param("rid", RID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(bad.get(1).getBytes(StandardCharsets.UTF_16BE)))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     @Test

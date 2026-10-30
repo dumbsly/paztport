@@ -3,8 +3,12 @@
 
 package org.paztport.psp;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.io.StringWriter;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -45,16 +49,16 @@ public class OpeningCheckController {
      * of the opening's class and owner; {@code 400} for a body that is not an opening.
      *
      * <p>The body arrives as bytes and is read as this endpoint always has: leniently, in whichever Unicode
-     * encoding its first bytes show, and up to the end of the first JSON value. The value read is handed to
-     * {@link BoundaryInfluence.Opening#parse} as text; every field an opening is judged by is a string, and unknown
-     * fields are dropped, so writing the value out again changes nothing it is judged on. Bytes that are not
-     * well-formed are a bad request. Only JSON is taken: any other content type is answered {@code 415}.
+     * encoding its first bytes show, and up to the end of the first JSON value, whatever follows it. Bytes that are
+     * not well-formed are a bad request. That first value is handed to {@link BoundaryInfluence.Opening#parse} as
+     * text, token by token as it was sent, see {@link #firstValue}. Only JSON is taken: any other content type is
+     * answered {@code 415}.
      */
     @PostMapping(path = "/debug/check-opening", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
         BoundaryInfluence.Opening opening;
         try {
-            opening = BoundaryInfluence.Opening.parse(JSON.writeValueAsString(JSON.readTree(body)));
+            opening = BoundaryInfluence.Opening.parse(firstValue(body));
         } catch (IOException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("reason", "MALFORMED_OPENING"));
         }
@@ -70,5 +74,34 @@ public class OpeningCheckController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(Map.of("opens", BoundaryInfluence.opens(sent, opening)));
+    }
+
+    /**
+     * The body's first JSON value as text. The body is first read whole as a tree, which is this endpoint's own
+     * reading: the encoding detected, a byte order mark skipped, anything after the first value ignored, and a body
+     * that is not well-formed refused with an {@link IOException}. The value's tokens are then copied out one by one,
+     * each number as the text it was sent in, never through a double: a tree written back would turn a number too
+     * large for a double, such as {@code 1e400}, into the string {@code "Infinity"}, which the opening's string
+     * fields would then accept.
+     */
+    private static String firstValue(byte[] body) throws IOException {
+        JSON.readTree(body);
+        StringWriter out = new StringWriter();
+        try (JsonParser p = JSON.createParser(body); JsonGenerator g = JSON.createGenerator(out)) {
+            JsonToken t = p.nextToken();
+            if (t == null) {
+                throw new IOException("no JSON value");
+            }
+            int depth = 0;
+            do {
+                if (t == JsonToken.VALUE_NUMBER_INT || t == JsonToken.VALUE_NUMBER_FLOAT) {
+                    g.writeNumber(p.getText());
+                } else {
+                    g.copyCurrentEvent(p);
+                }
+                depth += t.isStructStart() ? 1 : t.isStructEnd() ? -1 : 0;
+            } while (depth > 0 && (t = p.nextToken()) != null);
+        }
+        return out.toString();
     }
 }
