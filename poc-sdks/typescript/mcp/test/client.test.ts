@@ -493,6 +493,12 @@ describe("readToolResult", () => {
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
+  it("offlineOnlyReasonIsNotAServerVerdict", () => {
+    for (const reason of ["TIME_MISMATCH", "PROMPT_MISMATCH", "OUTSIDE_SESSION", "PROOF_MISMATCH", "RULES_MISMATCH", "VERDICT_MISMATCH"]) {
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": { reason } } }, { session: "unsafe" });
+      expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
+    }
+  });
   it("auditVerdictIsReadAsAnOrdinaryResult", () => {
     const raw = { ...RESULT, _meta: { "paztport/verdict": { reason: "INFLUENCE_DENIED", audit: true } } };
     expect(readToolResult(raw, { session: "unsafe" })).toEqual({
