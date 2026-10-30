@@ -1,7 +1,7 @@
 # Wire format
 
 This file defines the bytes: encodings, keys, stamps, chains, bindings, the Merkle tree, the signed root,
-the signed keyring, the reply certificate and the proof bundles. [verification.md](verification.md) says how a
+the signed keyring, the reply certificate, events and the proof bundles. [verification.md](verification.md) says how a
 receiver checks them, and [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and
 influence.
 
@@ -11,7 +11,7 @@ Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamp
 [Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
 [The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [The signed root](#the-signed-root) ·
 [The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
-[Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
+[Events](#events) · [Proof bundles, and who holds what](#proof-bundles-and-who-holds-what)
 
 ## Encodings
 
@@ -488,6 +488,93 @@ print only the file, the service and `notAfter`.
 `server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
 and one that names `client-policy`, all of which fail, one with an extra field, which is ignored, and one with
 the largest `notAfter`.
+
+## Events
+
+A verifying service MAY report each request it refuses to a responder, which may act on it, for example by
+isolating the named instance ([verification.md](verification.md#guidance-for-a-responder)). Anyone who can reach
+the responder can send it a body, so an event counts only when a service the responder allows has signed it.
+[verification.md](verification.md#receiving-an-event) says how the responder checks one.
+
+### The envelope
+
+```json
+{ "signer": "<service>", "payload": "<b64url>", "sig": "<b64url>" }
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `signer` | string | The service that signed the event. The responder looks its key up by this name. |
+| `payload` | string | `b64url(utf8(event))`: [the event](#the-event), as the JSON text the signer wrote. |
+| `sig` | string | `b64url` of the Ed25519 signature, by `signer`'s key, over the signed bytes. |
+
+The signed bytes are:
+
+```
+utf8( "paztport-event\n" ‖ payload )
+```
+
+with `payload` the base64url text exactly as sent. The signature covers that text, not a JSON form of the event,
+so the responder verifies the bytes it was given and never canonicalises JSON. The event's JSON therefore need not
+be JCS: a signer SHOULD write the fields in the order shown below, with no whitespace, and a responder MUST read
+the event from the payload it verified, never from a form written again. `signer` is not signed, but a name other
+than the signer's own looks up another key, and the signature fails. The body is exactly one JSON object, with
+nothing after it, and has exactly these three members, each a string. The prefix keeps an event signature from being read as a stamp, or as anything else the
+same key signs ([Encodings](#encodings)).
+
+`events.json` pins the signed bytes and signatures in `envelope`: an attributed refusal, an audit event that
+names no one, and one with non-ASCII text.
+
+### The event
+
+```json
+{ "reason": "...", "suspectSvc": "...", "suspectInst": "...", "rid": "...", "audit": false, "ts": 0, "eventId": "..." }
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `reason` | string | The [reason code](verification.md#reason-codes) the signer's verifier gave the request. |
+| `suspectSvc`, `suspectInst` | string | The suspect that result names ([attribution](verification.md#receivers-the-peer-and-attribution)), or `""` for none. |
+| `rid` | string | The `rid` of the refused chain's origin stamp, as received, or `""` when no chain parsed. It is the sender's text, not verified, so it is for matching the event with the signer's own logs only. |
+| `audit` | boolean | `true` when the signer runs in audit mode, so it reported the failure but did not refuse the request. |
+| `ts` | integer | When the event was signed, in ms since the Unix epoch. |
+| `eventId` | string | This event's id. It MUST NOT be `""`; any other string is an id, one of only spaces included. A signer MUST NOT reuse one. It SHOULD be a random UUID (RFC 9562, version 4): one responder remembers the ids of every signer together, so a guessable id would let one signer spend another's. |
+
+The payload is the UTF-8 encoding of exactly one JSON object, with no byte order mark and nothing after it. The
+object has exactly these seven members, and each is of the type shown, so no member is `null`: nothing is
+converted from another type or filled in when absent, so that every implementation reads the same event from the
+same bytes. `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1, checked by value
+as a stamp's `ts` is ([Stamp field rules](#stamp-field-rules)): `1767225600000.0` is the integer 1767225600000,
+and `1767225600000.5` is not an integer.
+
+The Java SDK sends one event for each request whose live verification does not give `OK`, in `audit` mode and in
+`enforce` mode, with the result's reason and suspect.
+
+**Attributable events.** An event is attributable, and only an attributable event may lead a responder to act
+against its suspect, when all of these hold:
+
+- `audit` is `false`. An audit-mode verifier is measuring its rules, not refusing.
+- `suspectSvc` and `suspectInst` are both non-empty. A result that names no one does so by design: the name would
+  be unsigned, or the genuine stamp would belong to another request, so acting on it would let a forged chain
+  point at anyone.
+- `reason` is one of the codes that report what the sender did: `CHAIN_MISSING`, `BAD_ORIGIN`, `BAD_SIGNATURE`,
+  `BROKEN_LINK`, `EXPIRED`, `RID_MISMATCH`, `BINDING_MISMATCH`, `REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`,
+  `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH` and `PEER_MISMATCH`.
+
+No other reason is attributable. `POLICY_EXPIRED` is the verifier's own policy running out, which every honest
+caller meets. `INFLUENCE_DENIED` and `UNSAFE_SESSION` refuse a sound chain because of what shaped it: an honest
+component misled by poisoned input gets them. The client-local and offline-only codes are never a live verdict
+on a request, and `OK` refuses nothing.
+
+### Carrying an event
+
+Over HTTP a service sends an event as a `POST` to its responder's `/events` path, with the envelope as a UTF-8 JSON
+body and `Content-Type: application/json`. An event MUST NOT change the verdict it reports: a responder that is
+down, slow or refuses the event leaves the refusal as it was. A sender SHOULD bound how long it waits for the
+responder, since it may hold the refusal until then; the Java SDK sends each event before answering the refusal,
+and gives up after `paztport.event-timeout-ms` ([Java SDK README](../java/README.md#paztport-spring)). The
+responder answers `200` when it accepts an event and `403` when it refuses one, with the same body for every
+refusal, so the answer tells a sender nothing about the allowed signers, the keyring or the window.
 
 ## Proof bundles, and who holds what
 
