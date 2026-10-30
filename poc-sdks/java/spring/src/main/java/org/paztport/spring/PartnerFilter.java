@@ -19,6 +19,7 @@ import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.internal.LogSafe;
+import org.paztport.spring.internal.PeerCert;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.SessionStatus;
 import org.paztport.spring.partner.PartnerSessions;
@@ -88,7 +89,8 @@ public final class PartnerFilter extends OncePerRequestFilter {
 
         String sessionHeader = request.getHeader(PaztportHeaders.SESSION);
         String chainHeader = request.getHeader(PaztportHeaders.CHAIN);
-        Peer peer = PeerIdentity.from(request);
+        PeerCert cert = PeerIdentity.cert(request);
+        Peer peer = cert == null ? null : cert.peer();
         // Only for the trace line: nothing is taken from a chain until it has verified.
         List<StampV3> received = InboundFilter.parseChain(chainHeader);
         String rid = received != null ? received.get(0).rid() : "";
@@ -99,7 +101,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
             request.setAttribute(SESSION_STATUS, SessionStatus.UNSAFE);
             PartnerSessions.Session session = null;
             if (sessionHeader != null) {
-                session = sessions.find(PeerIdentity.issuer(request), peer == null ? null : peer.svc(),
+                session = sessions.find(cert == null ? null : cert.issuer(), peer == null ? null : peer.svc(),
                         sessionHeader);
                 if (session == null) {
                     VerifyResult unknown = new VerifyResult(ReasonCode.SESSION_UNKNOWN,

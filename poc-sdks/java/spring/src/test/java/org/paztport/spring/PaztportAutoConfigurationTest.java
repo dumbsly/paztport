@@ -67,7 +67,7 @@ import org.paztport.http.event.EventPublisher;
 import org.paztport.http.event.LoggingEventPublisher;
 import org.paztport.http.event.ResponderEventPublisher;
 import org.paztport.spring.internal.OwnMaterial;
-import org.paztport.spring.internal.PeerIdentity;
+import org.paztport.spring.internal.PeerCert;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.PartnerSessions;
 import org.slf4j.LoggerFactory;
@@ -637,7 +637,7 @@ class PaztportAutoConfigurationTest {
         server.createContext("/", exchange -> {
             String peer;
             try {
-                peer = PeerIdentity.service(
+                peer = PeerCert.service(
                         (X509Certificate) ((HttpsExchange) exchange).getSSLSession().getPeerCertificates()[0]);
             } catch (SSLPeerUnverifiedException e) {
                 peer = null;

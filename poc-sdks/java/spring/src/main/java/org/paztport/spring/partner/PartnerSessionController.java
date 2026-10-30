@@ -11,6 +11,7 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.verify.Peer;
 import org.paztport.http.HttpSessions;
+import org.paztport.spring.internal.PeerCert;
 import org.paztport.spring.internal.PeerIdentity;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -39,8 +40,9 @@ class PartnerSessionController {
 
     @PostMapping(HttpSessions.PATH)
     ResponseEntity<?> open(HttpServletRequest request) throws IOException {
-        Peer peer = PeerIdentity.from(request);
-        String issuer = PeerIdentity.issuer(request);
+        PeerCert cert = PeerIdentity.cert(request);
+        Peer peer = cert == null ? null : cert.peer();
+        String issuer = cert == null ? null : cert.issuer();
         if (peer == null || peer.svc().isEmpty() || issuer == null || issuer.isEmpty()) {
             return error(HttpSessions.NO_SESSION);
         }
