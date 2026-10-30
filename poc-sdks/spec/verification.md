@@ -1,15 +1,16 @@
 # Verification
 
 How a receiver checks a chain: the live order, freshness and replay, the receiver and peer checks, who a result
-names, the MCP and HTTP checks around the live order, the offline order for recorded chains, and the reason
-codes; then how a responder checks the events it is sent. The bytes are in [wire.md](wire.md).
+names, the MCP and HTTP checks around the live order, the two modes and what a refusal carries, the offline order
+for recorded chains, and the reason codes; then how a responder checks the events it is sent. The bytes are in
+[wire.md](wire.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
 Contents: [Inputs](#inputs) · [The live order](#the-live-order) · [Freshness and replay](#freshness-and-replay) ·
 [Receivers, the peer and attribution](#receivers-the-peer-and-attribution) ·
 [The MCP server and client](#the-mcp-server-and-client) · [HTTP requests and responses](#http-requests-and-responses) ·
-[Offline verification](#offline-verification) ·
+[Modes and refusals](#modes-and-refusals) · [Offline verification](#offline-verification) ·
 [The legacy rule](#the-legacy-rule) · [v1](#v1) · [Reason codes](#reason-codes) ·
 [Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
 
@@ -114,12 +115,24 @@ request. For a call that name is also the end of the route. For a response, `rec
 own hops, and the client is not on it. Over HTTP it is the request's own route, the caller included, because
 the response stamp extends the chain the caller sent.
 
+**Naming the receiver.** The caller MUST stamp the receiver's policy name as the last stamp's `rcv`: the name the
+receiver supplies as `receiver`, under which the policy owner's keyring and routes know it. A stamp that names the
+destination any other way, by an address, an alias or a port, fails check 4 at an honest receiver
+(`BINDING_MISMATCH`). How a caller maps a destination to that name is its deployment's configuration, never
+something the request or the destination says. Over HTTP the same name is the caller's `<target>`: in the response's
+nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
+adds to its influence. The Java SDK takes the name from the URL's host ([Java SDK
+README](../java/README.md#paztport-spring)), and an egress names its partner's entry service by configuration
+([sessions-and-influence.md](sessions-and-influence.md#between-organisations)).
+
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per
 service, not per instance, and `peer.inst` is the transport's address for the sender, not a signed value. With
 no peer, check 12 is skipped.
 
-**Attribution.** Every result carries `suspectSvc` and `suspectInst`, the party a responder may act against:
+**Attribution.** Every result carries `suspectSvc` and `suspectInst`, the party a responder may act against. It
+goes to the verifier's own logs and to its [events](wire.md#events), never to the caller in a refusal
+([Modes and refusals](#modes-and-refusals)):
 
 - **`POLICY_EXPIRED` names no one**, peer or not: expiry is the verifier's own material running out, not
   anything the sender did.
@@ -200,9 +213,10 @@ verifies as below with these inputs.
 `nonceKey = <rid>|<last svc>|req`. A header that is present but does not decode is left to the check that reads
 it: an unreadable chain is `CHAIN_MISSING`, unreadable influence is `INFLUENCE_MISMATCH`, and an unreadable proof
 is no proof, so `PATH_NOT_ALLOWED`. A receiver MUST NOT drop influence it can't read, even when it does not
-verify: dropping it could hide `private` content from the rule. The Java SDK answers it
-`400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first. An origin starts a
-new request tree, so it carries neither the chain nor the influence a request brings, and has nothing to drop.
+verify: dropping it could hide `private` content from the rule. It is answered
+`400 {"reason":"INFLUENCE_MISMATCH"}` wherever verification has not refused the request first, in audit mode too
+([Modes and refusals](#modes-and-refusals)). An origin starts a new request tree, so it carries neither the chain
+nor the influence a request brings, and has nothing to drop.
 
 **At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
 the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
@@ -222,16 +236,38 @@ passes it as `peer`: `peer.svc` is the certificate subject's common name when it
 otherwise, so a certificate with none or several fails check 12 (`PEER_MISMATCH`) rather than picking one;
 `peer.inst` is the TCP address the connection came from. With no client certificate there is no peer.
 
-**Who attests.** A service attests a response only when the request's chain passed the live order, 0 to 12, at
-that service, as for a request at the receiver above: its own pinned material, `receiver` = its own name, the
-request's proof and influence, and the peer when there is one. This holds whether or not the service refuses
-requests that fail: one that does not enforce MUST still run the live order before it attests, and a failure there
-only withholds the attestation. A response stamp is shaped like a request stamp, so attesting a chain nobody
-checked would let anyone mint stamps under the service's key: on a forged one-stamp chain with an empty `sig`,
-the response is a valid origin stamp from the answering service. So a service with nothing to verify with never
-attests, and an origin, which starts each request tree afresh, never attests. Nor is a refusal attested, or a
-request that failed in audit mode. A service runs the live order at most once per request, since it spends the
-request's nonce key.
+So, for the peer check, a service's client certificate:
+
+- MUST be issued by a CA the receiver's TLS layer trusts to name that organisation's services, since the
+  receiver takes the name it carries as authenticated;
+- MUST carry the service's name, exactly as the keyring names it, as the subject's only common name (OID
+  2.5.4.3). Common names are counted across every RDN of the subject, a multi-valued RDN's included, and a value
+  that is not a DirectoryString (RFC 5280) names no service, so either gives `peer.svc = ""`. Nothing else in the
+  certificate is read for it, not a subjectAltName nor the organisation.
+
+A certificate is issued per service, not per instance, which is why `peer.inst` comes from the connection and not
+from the certificate.
+
+A partner also binds each session to the peer that opened it: the certificate issuer's distinguished name and the
+service the certificate names ([sessions-and-influence.md](sessions-and-influence.md#over-http)). The issuer is
+compared as text, in RFC 2253 form, so issuers are told apart by name, not by the CA's key. Only the partner that
+recorded it compares it, so two implementations need not write it byte for byte alike, but one partner MUST write
+it the same way every time. A certificate whose issuer name is empty, or that names no single service, opens no
+session and matches none.
+
+The caller authenticates the receiver the usual way: it checks the server's certificate against the host it
+connects to (TLS hostname verification, RFC 9110 §4.3.4). That is why a response is checked with no peer (below).
+
+**Who attests.** In either [mode](#modes-and-refusals), a service attests a response only when the request's chain
+passed the live order, 0 to 12, at that service, as for a request at the receiver above: its own pinned material,
+`receiver` = its own name, the request's proof and influence, and the peer when there is one. This holds whether or
+not the service refuses requests that fail: one that does not enforce MUST still run the live order before it
+attests, and a failure there only withholds the attestation. A response stamp is shaped like a request stamp, so
+attesting a chain nobody checked would let anyone mint stamps under the service's key: on a forged one-stamp chain
+with an empty `sig`, the response is a valid origin stamp from the answering service. So a service with nothing to
+verify with never attests, and an origin, which starts each request tree afresh, never attests. Nor is a refusal
+attested, or a request that failed in audit mode. A service runs the live order at most once per request, since it
+spends the request's nonce key.
 
 **A response, at the caller.** The caller checks `X-Path-Response` with `stamps` = the chain it sent then the
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
@@ -249,6 +285,52 @@ No peer is passed, because TLS hostname verification already authenticated the s
 receiver check ties the stamp to it. The labels count as influence only when the whole response verifies: each
 becomes an entry with `src = "http:<target>"` and `h = resultHash`. Any other response, whether unattested,
 failing or a refusal, counts as one `local-untrusted` entry with the same `src` and `h`, and is never dropped.
+
+## Modes and refusals
+
+A service that verifies requests does so in one of two modes. Nothing else is a mode.
+
+| Mode | On a result other than `OK` |
+|---|---|
+| `enforce` | The service refuses the request with the result's code. |
+| `audit` | The service runs every check, refuses nothing and reports the result: the request is served as if it had passed. |
+
+A service that cannot tell which mode it is in MUST enforce, so that a mistake in its configuration fails closed.
+
+**Reporting the result.** In either mode a service MAY send its responder an [event](wire.md#events) for each
+result other than `OK`, with `audit: true` in audit mode. An audit event is never
+[attributable](wire.md#the-event), so a responder learns from it but does not act on it. Over MCP, an audit-mode
+server also puts `"audit": true` in the call's `paztport/verdict` ([wire.md](wire.md#mcp-v3)), and a client does not
+read that as a refusal ([the verdict rule](#the-mcp-server-and-client)).
+
+**The one exception.** In audit mode, a request whose influence does not parse is still refused, with
+`400 {"reason":"INFLUENCE_MISMATCH"}`, and is not served. A receiver MUST NOT drop influence it can't read
+([HTTP requests](#http-requests-and-responses)), in any mode, and serving the request without that influence would
+hide `private` content from [the owner-aware rule](sessions-and-influence.md#the-owner-aware-rule). In enforce mode
+verification has refused such a request already: check 9 fails, if nothing before it does.
+
+**Attestation.** Neither mode changes who attests ([Who attests](#http-requests-and-responses); over MCP,
+[the server decision](sessions-and-influence.md#the-server-decision)). A response is attested only when the
+request passed the live order at that service. So in audit mode a request that failed is served, but its response
+is not attested, and its caller counts it `local-untrusted`. A service that attests but does not verify requests
+under a mode still runs the live order, once per request, before it attests; a failure there only withholds the
+attestation.
+
+**Outside the modes.** How a deployment turns Paztport off on a hop is not part of the protocol. A hop that is off
+verifies, attests and reports nothing. Its callers count its responses `local-untrusted`, as any unattested
+response, so turning a hop off can only add caution downstream, never vouch for anything. It cannot be an egress
+([sessions-and-influence.md](sessions-and-influence.md#between-organisations)).
+
+**What a refusal carries.** A refusal is for the caller, so it can decide what to do next. Attribution is for the
+operator and the responder, and travels only in the service's own logs and in signed events. So a refusal MUST
+carry `reason`, the code, and MUST NOT carry attribution (`suspectSvc`, `suspectInst`) or any other member. The
+suspect is usually the caller itself, and telling it would tip it off before the responder acts. A refusal has no
+`rid` either, since the caller already holds it. This holds in a mesh and at the boundary alike.
+
+| Transport | A refusal |
+|---|---|
+| HTTP | Status `403`, or `400` for influence that does not parse, with `Content-Type: application/json` and the body `{"reason":"<code>"}`: one JSON object whose only member is `reason`, a string. The Java SDK writes it with no whitespace. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| MCP | A result with `isError: true` and `_meta["paztport/verdict"] = { "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
 

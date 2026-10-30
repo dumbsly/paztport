@@ -267,6 +267,9 @@ A request carries Paztport in three headers, each the base64url of UTF-8 JSON, a
 | `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
 | `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
+A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
+suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
+
 A response carries the answering service's attestation in one header, also the base64url of UTF-8 JSON:
 
 | Header | Value |

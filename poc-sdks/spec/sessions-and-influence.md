@@ -1,7 +1,8 @@
 # Sessions and influence
 
 How two sides open a session and decide how far to trust each other, how influence is recorded and committed,
-the one rule that decides a public write, and how a chain crosses from one organisation to another. The bytes of
+the one rule that decides a public write and the one that guards a trusted record, and how a chain crosses from
+one organisation to another. The bytes of
 stamps, roots and keyrings are in [wire.md](wire.md), and the checks in [verification.md](verification.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
@@ -10,7 +11,8 @@ Contents: [The handshake](#the-handshake) · [Over HTTP](#over-http) · [The ses
 [Unsafe sessions](#unsafe-sessions) · [The server decision](#the-server-decision) ·
 [Recorded handshakes](#recorded-handshakes) · [Influence](#influence) · [Entries](#entries) ·
 [Normalisation and commitment](#normalisation-and-commitment) · [Content labels](#content-labels) ·
-[The owner-aware rule](#the-owner-aware-rule) · [Between organisations](#between-organisations)
+[The owner-aware rule](#the-owner-aware-rule) · [Trusted records](#trusted-records) ·
+[Between organisations](#between-organisations)
 
 ## The handshake
 
@@ -436,6 +438,35 @@ The client's local gate applies the same rule to its own tools' writes into a fo
 `public`, over the session's classes plus `private` when the call itself reads a private-labelled folder
 (`INFLUENCE_DENIED`).
 
+### Trusted records
+
+Some writes go not to a destination but into the service's own trusted records: records later decisions take as
+fact, such as who holds a card, which the owner-aware rule then reads as a destination's owner. The owner-aware
+rule cannot judge such a write. It asks whose private data a write carries, and a record written because
+untrusted text asked for it carries none: a hijacked model's charge would register its card to whoever it named,
+and a later refund to that card would pass the rule. So a service MUST write a trusted record from a request only
+when both of these hold:
+
+- **The request's chain passed [the live order](verification.md#the-live-order) at this hop**, so the influence
+  is the one its caller committed to. An origin, a service with no verifier, a hop on which Paztport is off, a chain
+  that failed in audit mode, a call in an unsafe partner session and work outside any request never qualify. This
+  is the same condition the [egress](#between-organisations) signs under.
+- **The influence holds no untrusted content:** no `third-party` and no `local-untrusted` entry. That is the
+  influence the request holds when the record is written: what came with it, and everything the service has read
+  since, such as the responses to its own calls.
+
+`private` and `public` entries, and owners, do not count either way: they say whose data the request read, not who
+steered it. A request that fails the rule MAY still be served, but the record MUST NOT be written from it.
+
+| Chain passed the live order at this hop | Influence holds `third-party` or `local-untrusted` | The record |
+|---|---|---|
+| no | either | not written |
+| yes | yes | not written |
+| yes | no (no entries, or only `private` and `public` ones, with any owners) | may be written |
+
+No vector pins this rule yet. The Java SDK applies it as `PublicWrites.shapedOnlyByTrusted()`, and the mesh demo's
+payment provider registers a card from a charge only when it holds.
+
 ## Between organisations
 
 When a request crosses from one organisation to another, the receiving organisation (the partner) MUST NOT see
@@ -449,8 +480,8 @@ MUST:
 1. Verify the internal chain it received, as a receiver, in [the live order](verification.md#the-live-order),
    and refuse the request if it fails. A request that did not pass the live order at this hop, or that has no
    request scope to be in, MUST NOT cause anything to be signed or sent, the handshake included. So a service
-   with no verifier, one that is off, a chain that failed in audit mode, and an origin cannot be the egress for
-   that request.
+   with no verifier, one on which Paztport is off ([outside the modes](verification.md#modes-and-refusals)), a
+   chain that failed in audit mode, and an origin cannot be the egress for that request.
 2. Start a new chain at the boundary with exactly one stamp, the **boundary stamp**, signed with the egress
    service's own key, a key in the sender's signed keyring:
    - `svc`: the egress service;
