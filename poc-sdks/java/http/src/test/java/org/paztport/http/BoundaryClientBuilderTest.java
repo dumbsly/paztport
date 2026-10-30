@@ -10,6 +10,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.security.KeyPair;
 import java.time.Duration;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
@@ -19,6 +20,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.StamperV3;
 
 /**
@@ -31,6 +33,8 @@ class BoundaryClientBuilderTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
     private static final long NOT_AFTER = 4_102_444_800_000L;
+    /** A validity window long past: 1970, one second in. */
+    private static final long EXPIRED = 1_000L;
 
     private final KeyPair payment = Crypto.generateEd25519KeyPair();
     private final KeyPair policy = Crypto.generateEd25519KeyPair();
@@ -102,12 +106,33 @@ class BoundaryClientBuilderTest {
         assertEquals(BoundaryClient.Fault.KEY_LENGTH, fault(sound().blindingKey(null)));
         assertEquals(BoundaryClient.Fault.READ_TIMEOUT, fault(sound().readTimeout(Duration.ZERO)));
         assertEquals(BoundaryClient.Fault.UNNAMED_PARTNER, fault(sound().partner("")));
+        for (String svc : Arrays.asList("", null)) {
+            assertEquals(BoundaryClient.Fault.UNNAMED_EGRESS, fault(sound().stamper(new StamperV3(svc, "payment-1",
+                    payment.getPrivate(), false, () -> "unused", System::currentTimeMillis))), svc);
+        }
         assertEquals(BoundaryClient.Fault.IDLE_PERIOD, fault(sound().sessionIdleMs(0)));
         assertEquals(BoundaryClient.Fault.OWN_UNVERIFIED,
                 fault(sound().ownPolicyKey(pub(Crypto.generateEd25519KeyPair()))));
         // The URL comes first: a plain one is refused as such whatever else is wrong.
         assertEquals(BoundaryClient.Fault.NOT_HTTPS,
                 fault(sound().partnerUrl(URI.create("http://psp")).sessionIdleMs(0).blindingKey(null)));
+    }
+
+    // The partner would judge a root or keyring in the old form, or expired, unsafe, so none is taken that could
+    // only ever open unsafe sessions.
+    @Test
+    void ownMaterialInTheOldFormOrExpiredIsRefused() {
+        SignedRoot root = built.signedRoot();
+        Map<String, String> services = Map.of("payment", pub(payment));
+
+        assertEquals(BoundaryClient.Fault.OWN_OLD_FORM, fault(sound().ownRoot(
+                SignedRoot.signOldForm(root.rootBytes(), root.rootId(), policy.getPrivate()))));
+        assertEquals(BoundaryClient.Fault.OWN_OLD_FORM, fault(sound().ownKeyring(
+                KeyringFile.signOldForm(services, pub(policy), policy.getPrivate()))));
+        assertEquals(BoundaryClient.Fault.OWN_EXPIRED, fault(sound().ownRoot(
+                SignedRoot.sign(root.rootBytes(), root.rootId(), EXPIRED, policy.getPrivate()))));
+        assertEquals(BoundaryClient.Fault.OWN_EXPIRED, fault(sound().ownKeyring(
+                KeyringFile.sign(services, pub(policy), EXPIRED, policy.getPrivate()))));
     }
 
     @Test
