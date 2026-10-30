@@ -24,9 +24,10 @@ import org.paztport.core.event.ResponderEvent;
  * <p>The protocol spec's rule for which events may lead to action is narrower than this one, and fails closed:
  * {@code audit} false, both suspect fields non-empty, and a reason from its list of thirteen codes
  * ({@code poc-sdks/spec/wire.md}, "The event"). This class keeps the demo's deny-list until the decision moves
- * into the SDK's core, which will follow the spec. Every event the Java SDK sends meets both rules alike, since its
- * verifier never sends the other reasons; the one difference it can send, a peer certificate with no single
- * common name, names an empty service, and the instance check before quarantine refuses that.
+ * into the SDK's core, which will follow the spec. The Java SDK's verifier never sends the other reasons, so the
+ * two rules judge its events alike but for one: a peer certificate with no single common name names an empty
+ * service. This class counts that event, but {@code DockerQuarantiner.runsService} refuses a blank service, so no
+ * container is quarantined for it.
  *
  * <p>Not thread-safe on its own; the event endpoint serialises calls.
  */
