@@ -99,7 +99,10 @@ public class PaztportProperties {
     /**
      * The Spring Boot SSL bundle ({@code spring.ssl.bundle.*}) this service presents on its outbound calls and on
      * its events to the responder; unset, they go without a client certificate. Under mutual TLS every receiver
-     * requires one, and takes the service it names as the sender.
+     * requires one, and takes the service it names as the sender. {@code false} is the same as unset, as Boot reads
+     * a property condition, so a test or profile can switch off a bundle an inherited configuration names: there is
+     * then no {@code PooledTlsClient}, and the service's calls and its events both go without the starter's TLS
+     * client. The egress's {@code paztport.boundary.tls-bundle} is its own and unaffected.
      */
     private String tlsBundle;
 

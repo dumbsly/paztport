@@ -275,8 +275,11 @@ hands a session request's body to `HttpSessions.serve`.
   pools its connections, checks the server's name against its certificate and
   honours the bundle's protocols and ciphers; its `builder()` gives a client with
   TLS and no stamping, for calls that set their own headers. Its timeouts are
-  under **Timeouts**, below. On a request that came with a client certificate,
-  `PeerCert` makes the verifier's peer from the leaf: the subject's common name when
+  under **Timeouts**, below. `paztport.tls-bundle=false` is the same as leaving it
+  unset, as for any Spring condition: there is no `PooledTlsClient`, so the calls and
+  the events both go without one, which suits tests that mount no certificates.
+  On a request that came with a client certificate, `PeerCert` makes the
+  verifier's peer from the leaf: the subject's common name when
   there is exactly one and it is a UTF8String or a PrintableString, else `""`, at the
   TCP address the connection came from. It reads the name, by the
   [spec's rule](../spec/verification.md#http-requests-and-responses), from the

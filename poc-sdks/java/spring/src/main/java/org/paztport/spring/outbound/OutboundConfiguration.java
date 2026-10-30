@@ -41,6 +41,8 @@ public class OutboundConfiguration {
      * The one client per application that presents {@code paztport.tls-bundle}, shared so that its connections
      * pool. The bundle is looked up when the context starts, so a name that does not exist, or an application
      * without SSL bundles, fails at startup rather than on the first call. The context closes it on shutdown.
+     * {@code paztport.tls-bundle=false} leaves it out, as the condition reads {@code false} as unset, and with it
+     * the customizer below and the events' TLS.
      */
     @Bean
     @ConditionalOnProperty("paztport.tls-bundle")
