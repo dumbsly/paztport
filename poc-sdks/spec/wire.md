@@ -182,8 +182,8 @@ A chain is an array of stamps, **origin first**.
 | HTTP hops (mesh) | `gateway`, `orders` | `orders`, then `payment`: each hop names the next service, and the last names the receiving service. |
 | HTTP response | `gateway`, `orders`, then `payment`'s response stamp | The request's, then `orders`: the response stamp names the caller, the request's last `svc`. |
 | Run origin (agents) | `session` | `pi`: the client hop the run's origin hands to. The origin is minted once per run and server session, and reused for every call in it. |
-| MCP tool call | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
-| MCP response | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
+| MCP tool call ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
+| MCP response ([MCP profile](README.md#the-mcp-profile)) | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` (with `sess = ""`) | `pi`, then `local:<tool>`. |
 | Boundary stamp | the egress service | The partner's entry service ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). |
 
@@ -220,9 +220,9 @@ Rules:
   See [Conformance](README.md#conformance).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
   `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
-- In a response chain the first stamp, by the server's entry service, binds the call it took (the `tools/call`
+- In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it took (the `tools/call`
   binding), and the last binds the response.
-- The local tool `decision` is the gate's signed decision on the call:
+- The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
   `{ "callId": ..., "resolved": { "paths": [{ "need", "at" }], "programs": [{ "name", "via" }], "parse": "ok" | "error", "readOnly": bool }, "verdict": ..., "routeAllowed": bool, "rulesHash": string | null }`.
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
   are all covered by the stamp.
@@ -234,6 +234,8 @@ binding with and without a query in `requestBinding`, and the HTTP result hash i
 ## Carrying a chain
 
 ### MCP (v3)
+
+This section belongs to [the MCP profile](README.md#the-mcp-profile).
 
 A tool call carries Paztport in the `tools/call` request's `params._meta`:
 
@@ -358,14 +360,15 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 - A route has at least two nodes, because its proof is held by its caller (the node before the last).
 - A route node MUST be non-empty, MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, `|` or a lone
   surrogate. Node names become route segments and file names (`proofs-<svc>.json`).
-- A call's route ends at its receiver: `gateway/orders/payment`, or `session/pi/mcp:github.create_pull_request`.
-- An MCP response's route is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client,
+- A call's route ends at its receiver: `gateway/orders/payment`, or (the MCP profile) `session/pi/mcp:github.create_pull_request`.
+- An MCP response's route (the MCP profile) is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client,
   is not on it: the server's policy can't list every client.
 - An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.
   Its receiver, the caller, is already on it.
-- A local step's route is `session/pi/local:<tool>`. Local steps belong to [the MCP profile](README.md#the-mcp-profile).
-- A client's local folder rules (the MCP profile again) are pinned as one more route, `session/pi/rules:<rulesHash>`, where
-  `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is the parsed rule set
+- A local step's route is `session/pi/local:<tool>`. Local steps belong to
+  [the MCP profile](README.md#the-mcp-profile).
+- A client's local folder rules (the MCP profile again) are pinned as one more route,
+  `session/pi/rules:<rulesHash>`, where `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is the parsed rule set
   `{ "v": 1, "folders": [...], "programs": [...] }` (its format is in the
   [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A client MUST NOT
   apply rules that the signed root does not cover.

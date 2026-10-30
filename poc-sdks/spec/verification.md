@@ -93,8 +93,8 @@ can't spend each other's keys:
 
 | Chain | `nonceKey` |
 |---|---|
-| MCP tool call (server side) | `<rid>\|<callId>\|req` |
-| MCP response (client side) | `<rid>\|<callId>\|resp` |
+| MCP tool call, server side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|req` |
+| MCP response, client side ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|resp` |
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|local` |
 | HTTP request (receiver side) | `<rid>\|<last svc>\|req` |
 | HTTP response (caller side) | `<rid>\|<target>\|resp` |
@@ -149,6 +149,8 @@ goes to the verifier's own logs and to its [events](wire.md#events), never to th
   instance.
 
 ## The MCP server and client
+
+This section belongs to [the MCP profile](README.md#the-mcp-profile).
 
 The MCP transport wraps the live order with checks of its own, before the chain is verified. The TypeScript
 MCP wrappers (`verifyCall`, `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has
@@ -373,7 +375,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 | Transport | A refusal |
 |---|---|
 | HTTP | Status `403`; or `400` for influence that does not parse where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as UTF-8, as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
-| MCP | A result with `isError: true` and `_meta["paztport/verdict"] = { "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
+| MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"] = { "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
 
@@ -384,7 +386,7 @@ The offline verifier runs the live checks in the live order, with these differen
 |---|---|
 | 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a new-form root or keyring counts only for a record no later than its `notAfter`, and an old-form one sets no limit. |
 | 1 | The stamps parse all v3, or all v2 as legacy. A mix is `CHAIN_MISSING`. |
-| 3, 4 | With `signers`, for a chain that never leaves one process (a local step): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
+| 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 4 | The receiver checks run for a v3 chain only. |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it, and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). With age limits, the last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`). Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
@@ -396,20 +398,21 @@ Each kind of record is checked this way:
 - **A recorded call**: the server-side call check above, with the offline chain verifier, the age limits and the
   time the calling hop recorded stamping it. A chain that verifies but names a different call id from the
   record's is `RID_MISMATCH`. The call counts in its session only up to the session's limits, judged at the last
-  stamp's `ts` (see the handshake below). A call whose session does not cover that time is `OUTSIDE_SESSION`: its
-  session was opened for it but has expired by then, or was never opened for it.
+  stamp's `ts` (see the handshake below). A call that otherwise verifies, in a session whose recorded handshake is
+  attested, but whose last stamp's `ts` is past one of the session's limits
+  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), is `OUTSIDE_SESSION`.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
   Check 0 runs at that time, with the `policyNotAfter` the client used: the earliest `notAfter` of the server's
   root and, in the entry-key form, its keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when
   neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
-- **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers` (the origin service then the client hop,
-  both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
+- **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
+  (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
   <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
   later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route verdict and proof
-  the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the rules the step was signed
-  under MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those
+  the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step
+  signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those
   signed rules (`VERDICT_MISMATCH`).
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
@@ -476,18 +479,18 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
-| `POLICY_EXPIRED` | live, offline | The verifier's own pinned keyring or root has expired: `now` is past `policyNotAfter`, or there is none. Offline, the time judged is the record's own. Names no one. |
+| `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`, or there is none. Offline: the record's own time is past the `notAfter` of a new-form root or keyring it relies on (an old-form one sets no limit). Names no one. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
-| `OUTSIDE_SESSION` | offline only | A recorded call whose session does not cover it at its last stamp's `ts`. |
+| `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |
 | `PROOF_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose recorded route verdict or proof disagrees with what its chain proves. |
-| `RULES_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) signed under rules other than the client's. |
+| `RULES_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose signed `rulesHash` is not the client's. |
 | `VERDICT_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose decision, re-derived from the signed rules, differs from the one it signed. |
 | `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name for `PATH_NOT_ALLOWED` against the client's policy. |
 | `INFLUENCE_DENIED` | server decision, client local | The influence rule refused a public write. |
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
-| `SCOPE_DENIED` | client local | The local gate: a path or program outside the signed rules. |
-| `UNCHECKABLE` | client local | The local gate could not tell what the call would touch. |
+| `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |
+| `UNCHECKABLE` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate could not tell what the call would touch. |
 
 "Live" codes come from a live verifier, and "server decision" codes from a server's decision on a call; both
 are valid verdicts for a server to send. "Offline only" codes are never sent live, and a client MUST NOT accept
