@@ -59,7 +59,11 @@ has one, the authenticated peer.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and
-  `EventVerifier` for events sent to a responder.
+  `EventVerifier` for events sent to a responder, with `AttestationEvent`, the verdict
+  before it is signed. A service's own files are read by `KeyringFile.load`,
+  `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin` and
+  `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say what it
+  may start with and when to warn that it is ending.
 - **v1**, kept for `v1.json` only: `StampV1`, `PathChainV1`, `VerifierV1` and the
   rest carry a `V1` suffix.
 
@@ -80,6 +84,11 @@ writes `{"error":"<code>"}`; core reads the bodies, a request with
 `SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],
 ...)`, as strictly as `HttpV3` reads a header (trailing tokens are refused).
 `HttpVerifyRequestsV1` is the v1 equivalent, kept for `v1.json`.
+
+It also holds what any server needs beside the protocol: `VerificationMode` (`OFF`,
+`AUDIT`, `ENFORCE`) and the `ModeHolder` that switches it at runtime, the
+`ReceivedRequestListener` hook, and the event publishers in `org.paztport.http.event`,
+which log an event or send it, signed, to the responder. They log through slf4j.
 
 ## paztport-spring
 
