@@ -3,7 +3,7 @@
 
 package org.paztport.payment;
 
-import org.paztport.spring.ReceivedRequestListener;
+import org.paztport.http.ReceivedRequestListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

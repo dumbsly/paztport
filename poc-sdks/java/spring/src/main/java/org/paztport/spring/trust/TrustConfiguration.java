@@ -16,6 +16,8 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.ModeHolder;
+import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.ConfigLoader;

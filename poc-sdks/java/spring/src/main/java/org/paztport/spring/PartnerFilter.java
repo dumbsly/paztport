@@ -18,7 +18,7 @@ import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
-import org.paztport.spring.internal.LogSafe;
+import org.paztport.http.internal.LogSafe;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.SessionStatus;
 import org.paztport.spring.partner.PartnerSessions;

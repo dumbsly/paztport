@@ -15,7 +15,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Set;
 import java.util.TreeSet;
-import org.paztport.spring.internal.WholeExchange;
+import org.paztport.http.internal.WholeExchange;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;

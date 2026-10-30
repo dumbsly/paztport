@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 /**
  * Optional hook offered every request the inbound filter receives, with the raw

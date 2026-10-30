@@ -6,6 +6,8 @@ package org.paztport.spring.trust;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.Map;
+import org.paztport.http.ModeHolder;
+import org.paztport.http.VerificationMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.event;
+package org.paztport.http.event;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -29,8 +29,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.event.EventEnvelope;
-import org.paztport.spring.SilentPeer;
-import org.paztport.spring.TestHttp;
+import org.paztport.http.SilentPeer;
 import org.slf4j.LoggerFactory;
 
 class ResponderEventPublisherTest {
@@ -39,8 +38,8 @@ class ResponderEventPublisherTest {
     private static final AttestationEvent EVENT =
             new AttestationEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", false);
 
-    /** One JDK client for every test, closed after the class; {@link TestHttp} bounds its waits. */
-    private static final HttpClient HTTP = TestHttp.newClient();
+    /** One JDK client for every test; its connect wait is bounded so that a call nobody answers fails the test. */
+    private static final HttpClient HTTP = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(30)).build();
 
     private final KeyPair key = Crypto.generateEd25519KeyPair();
     private final ResponderEventPublisher publisher = publisherTo("http://127.0.0.1:1", Duration.ofSeconds(2));

@@ -8,7 +8,7 @@ import java.time.Duration;
 import java.util.Objects;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
-import org.paztport.spring.internal.WholeExchange;
+import org.paztport.http.internal.WholeExchange;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslOptions;
 import org.springframework.http.client.ClientHttpRequestFactory;

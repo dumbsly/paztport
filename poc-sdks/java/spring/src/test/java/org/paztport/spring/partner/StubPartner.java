@@ -33,7 +33,7 @@ import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.http.HttpSessions;
-import org.paztport.spring.SilentPeer;
+import org.paztport.http.SilentPeer;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreBundle;
 import org.springframework.boot.ssl.pem.PemSslStoreDetails;

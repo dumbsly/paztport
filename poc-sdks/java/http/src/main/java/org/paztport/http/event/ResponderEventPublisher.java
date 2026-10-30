@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.event;
+package org.paztport.http.event;
 
 import java.io.IOException;
 import java.net.URI;
@@ -17,7 +17,7 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.paztport.core.event.EventEnvelope;
 import org.paztport.core.event.ResponderEvent;
-import org.paztport.spring.internal.WholeExchange;
+import org.paztport.http.internal.WholeExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

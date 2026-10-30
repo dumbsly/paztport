@@ -24,6 +24,12 @@
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>
+        <dependency>
+            <!-- The facade only: the event publishers and the trace lines log through it, and the
+                 application chooses what backs it. -->
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>org.junit.jupiter</groupId>
@@ -36,6 +42,12 @@
             <artifactId>paztport-core</artifactId>
             <version>${project.version}</version>
             <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Captures the publishers' log lines. -->
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -54,6 +66,15 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+                <!-- The test jar shares the silent peer with the starter's tests, which stall the egress and
+                     the events the same way. -->
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

@@ -45,6 +45,14 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The silent peer the HTTP module's tests also use. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>paztport-http</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

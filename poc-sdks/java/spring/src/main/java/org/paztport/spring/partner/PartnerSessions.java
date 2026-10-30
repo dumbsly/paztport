@@ -25,7 +25,7 @@ import org.paztport.core.session.Sessions;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
-import org.paztport.spring.internal.LogSafe;
+import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

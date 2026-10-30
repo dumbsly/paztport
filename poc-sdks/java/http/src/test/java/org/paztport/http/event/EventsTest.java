@@ -1,14 +1,14 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.event;
+package org.paztport.http.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
-import org.paztport.spring.internal.LogSafe;
+import org.paztport.http.internal.LogSafe;
 
 class EventsTest {
 

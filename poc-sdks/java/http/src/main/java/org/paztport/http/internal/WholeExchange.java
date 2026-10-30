@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.internal;
+package org.paztport.http.internal;
 
 import java.io.IOException;
 import java.net.http.HttpClient;
@@ -15,9 +15,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 /**
- * The one bound on a JDK client's exchange that every call the starter makes shares: the pooled client's request
- * factory ({@link org.paztport.spring.outbound.WholeExchangeRequestFactory}), the egress's calls to the partner and
- * the events. It holds no state and is not for an application to use.
+ * The one bound on a JDK client's exchange that every call the SDK makes shares: the Spring starter's pooled client
+ * ({@code WholeExchangeRequestFactory}), the egress's calls to the partner and the events. It holds no state and is
+ * not for an application to use.
  */
 public final class WholeExchange {
 

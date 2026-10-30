@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.trust;
+package org.paztport.http;
 
 /**
  * How a verifying service treats a request. {@link #AUDIT} and {@link #ENFORCE} are the protocol's two modes;

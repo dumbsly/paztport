@@ -1,9 +1,9 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.event;
+package org.paztport.http.event;
 
-import org.paztport.spring.internal.LogSafe;
+import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
