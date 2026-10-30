@@ -244,21 +244,46 @@ So, for the peer check, a service's client certificate:
   2.5.4.3), and that value MUST be a UTF8String or a PrintableString. Nothing else in the certificate is read for
   it, not a subjectAltName nor the organisation.
 
-The receiver reads `peer.svc` from the subject's DER encoding, RFC 5280's `Name`, never from a string rendering
-of it, so every implementation reads the same name from the same certificate:
+The receiver reads `peer.svc` from the subject exactly as the certificate encodes it: the subject's DER bytes
+within the certificate's `TBSCertificate`, which are the bytes the CA's signature covers. It MUST NOT read it from a
+string rendering of the subject, nor from a subject its X.509 library has parsed and encoded again, since a
+re-encoding can make a subject the steps below refuse look well formed. Implementations that follow these steps
+read the same name from the same certificate:
 
-1. The values of type 2.5.4.3 are counted across every RDN, each value of a multi-valued RDN on its own, so
-   `CN=a+CN=a` and `CN=a,CN=a` are two. A value of any type counts. Unless there is exactly one, `peer.svc` is
-   `""`.
-2. That one value MUST be a UTF8String or a PrintableString, well formed for its type: a UTF8String is UTF-8
-   (RFC 3629), and a PrintableString holds only X.680's printable characters (letters, digits, space and
-   `'()+,-./:=?`). These are the two encodings of a DirectoryString RFC 5280 requires conforming CAs to use
-   (§4.1.2.4, which §4.1.2.6 applies to the subject), so a receiver needs no decoding of its own for the others,
-   which survive only for older names. Any other type, TeletexString, UniversalString, BMPString, IA5String
-   and GeneralString among them, or a value not well formed for its type, gives `peer.svc = ""`.
-3. A subject that is not a well-formed DER `Name` gives `peer.svc = ""`: it is one `SEQUENCE` with nothing after
-   it, each RDN in it a non-empty `SET`, and each attribute a `SEQUENCE` of exactly an `OBJECT IDENTIFIER` and one
-   value, every length definite and in its shortest form (X.690's distinguished encoding).
+1. **Finding the subject.** The `TBSCertificate`'s encoding is one `SEQUENCE` (identifier octet `0x30`) with
+   nothing after it. Within it the receiver passes over, in order: the version, present exactly when the first
+   identifier octet is `0xA0` (`[0] EXPLICIT`); the serial number, `0x02`; the signature algorithm, `0x30`; the
+   issuer, `0x30`; and the validity, `0x30`. The next element is the subject, `0x30`. Each element passed over is
+   checked by its header alone: its identifier octet MUST be exactly the one given, and its length MUST be
+   definite, in its shortest form, and within the `TBSCertificate`. What those fields hold, and whatever follows
+   the subject, is not read. A `TBSCertificate` that cannot be walked this far gives `peer.svc = ""`.
+2. **The subject's shape.** The subject MUST be a well-formed DER `Name`, or `peer.svc` is `""`. Its contents are
+   only RDNs, each a non-empty `SET` (`0x31`); an RDN's contents are only attributes, each a `SEQUENCE` (`0x30`);
+   and an attribute's contents are exactly an `OBJECT IDENTIFIER` (`0x06`) and one value element, of any
+   identifier. Every one of these headers, the subject's own included, MUST have a definite length in its shortest
+   form (X.690's distinguished encoding) that stays within its parent. A value's identifier may be in the
+   high-tag-number form, whose tag-number octets run up to and including the first with its top bit clear. These
+   headers are the only ones checked: nothing inside a value is walked, so what another attribute's value holds,
+   however it is encoded, is never looked at.
+3. **Counting.** An attribute is a common name exactly when its `OBJECT IDENTIFIER`'s contents octets are
+   `55 04 03` (2.5.4.3). Those contents are not otherwise checked: any other contents, malformed ones and other
+   spellings of 2.5.4.3 included, make some other attribute. The common names are counted across every RDN, each
+   value of a multi-valued RDN on its own, so `CN=a+CN=a` and `CN=a,CN=a` are two. A value of any type counts.
+   Unless there is exactly one, `peer.svc` is `""`.
+4. **The value.** That one value's identifier octet MUST be exactly `0x0C` (UTF8String) or `0x13`
+   (PrintableString), and its contents well formed for that type: a UTF8String's are UTF-8 (RFC 3629), and a
+   PrintableString's are only X.680's printable characters (letters, digits, space and `'()+,-./:=?`). Any other
+   identifier gives `peer.svc = ""`, a constructed form such as `0x2C` and a high-tag-number form included, as do
+   TeletexString, UniversalString, BMPString, IA5String and GeneralString. So does a value not well formed for its
+   type. UTF8String and PrintableString are the two encodings of a DirectoryString that RFC 5280 requires
+   conforming CAs to use (§4.1.2.6 for the subject, as §4.1.2.4 for the issuer), so a receiver needs no decoding
+   of its own for the others, which survive only for older names. The receiver deliberately declines
+   §4.1.2.6(c)'s SHOULD, that certificate users be prepared to receive TeletexString, BMPString and
+   UniversalString: here those name no service.
+
+A TLS stack may itself refuse, at the handshake, a certificate these steps would refuse. An implementation whose
+stack does so also fails closed, consistently with this rule: no request then comes with a client certificate the
+TLS layer verified.
 
 `peer.svc` is the value's text as it is, compared with the last signer's `svc` exactly, with no case folding or
 other normalisation.
