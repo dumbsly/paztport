@@ -52,10 +52,12 @@ public class PartnerConfiguration {
     /**
      * The egress's client to the partner. Everything it needs is checked first, and the context fails naming
      * whatever is missing, rather than an egress starting that cannot sign, prove its route or open a session. A
-     * partner URL that is not {@code https} fails it too (the client itself accepts one, for tests' stubs), as does
-     * an idle period that is not positive, or a boundary key that is not 32 bytes. It builds its own TLS client from
+     * partner URL that is not {@code https} fails it too, as does an idle period that is not positive (the client's
+     * builder refuses both, {@link BoundaryClient.Builder#build}, and they are worded here in terms of the
+     * property), or a boundary key that is not 32 bytes. It builds its own TLS client from
      * {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's CA is trusted only on calls to
-     * the partner. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends. With
+     * the partner, and hands the egress a deferred view of it, so the bundle is read on the first call, not at
+     * startup. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends. With
      * several, the one marked {@code @Primary} is told and the others are not; with several and none primary, the
      * context fails rather than pick one. The context closes the client on shutdown.
      */
@@ -86,14 +88,7 @@ public class PartnerConfiguration {
             throw new IllegalStateException("paztport.boundary.url is set but these are not: "
                     + String.join(", ", missing));
         }
-        // The calls carry the boundary stamp and the influence's owners, which must not cross in the clear.
         URI partnerUrl = URI.create(b.getUrl());
-        if (!"https".equalsIgnoreCase(partnerUrl.getScheme())) {
-            throw new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
-        }
-        if (b.getSessionIdleMs() <= 0) {
-            throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
-        }
         Duration readTimeout = Durations.readTimeout(props);
         byte[] blindingKey = BoundaryInfluence.loadKey(Path.of(b.getBlindingKeyPath()),
                 "paztport.boundary.blinding-key-path");
@@ -108,7 +103,7 @@ public class PartnerConfiguration {
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
         // The JDK client is deferred, so the bundle is read on the first call, as the pooled client's always was.
-        return BoundaryClient.builder()
+        BoundaryClient.Builder client = BoundaryClient.builder()
                 .stamper(stamper.getObject())
                 .bundle(bundle.getObject())
                 .ownRoot(ownRoot)
@@ -121,8 +116,19 @@ public class PartnerConfiguration {
                 .listener(listener.getIfAvailable())
                 .http(PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout).deferredHttpClient())
                 .readTimeout(readTimeout)
-                .sessionIdleMs(b.getSessionIdleMs())
-                .build();
+                .sessionIdleMs(b.getSessionIdleMs());
+        try {
+            return client.build();
+        } catch (BoundaryClient.InvalidSetting e) {
+            // Worded in terms of the property where one property holds it; the rest are refused above, by the
+            // property's own reader, or are the client's own words, as they always were.
+            throw switch (e.fault()) {
+                case NOT_HTTPS ->
+                        new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
+                case IDLE_PERIOD -> new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
+                default -> e;
+            };
+        }
     }
 
     /**

@@ -47,8 +47,8 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
 /**
- * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP or,
- * where the auto-configured egress needs it, over HTTPS with a certificate from the fixture CA, that answers the
+ * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over HTTPS with a
+ * certificate from the fixture CA, as the egress requires (or over plain HTTP, which it refuses), that answers the
  * session handshake with a signed reply and answers every other path with a status and body the test sets. It
  * records every request it receives, so a test can prove that nothing at all was sent.
  *
@@ -108,7 +108,7 @@ public final class StubPartner implements AutoCloseable {
 
     /**
      * @param tls over HTTPS, presenting the fixture certificate for {@code 127.0.0.1} under the fixture CA, which
-     *     the egress's bundle trusts; it asks for no client certificate
+     *     the egress's client trusts ({@link #fixtureContext}); it asks for no client certificate
      */
     public StubPartner(boolean tls) throws IOException {
         root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot();

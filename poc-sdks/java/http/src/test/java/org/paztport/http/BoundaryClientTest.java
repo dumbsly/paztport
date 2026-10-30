@@ -119,7 +119,7 @@ class BoundaryClientTest {
 
     @BeforeEach
     void start() throws Exception {
-        partner = new StubPartner();
+        partner = new StubPartner(true);
         client = egress(partner, tls()).build();
         traces.start();
         traceLog.addAppender(traces);
@@ -806,7 +806,7 @@ class BoundaryClientTest {
     @Test
     void aCallThePartnerNeverFinishesFailsAtTheReadTimeoutAndKeepsTheSession() throws Exception {
         for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
-            try (StubPartner stalling = new StubPartner();
+            try (StubPartner stalling = new StubPartner(true);
                     BoundaryClient bounded = egress(stalling, tls()).listener(null)
                             .readTimeout(Duration.ofMillis(300)).build()) {
                 stalling.stallNextCall(stall);

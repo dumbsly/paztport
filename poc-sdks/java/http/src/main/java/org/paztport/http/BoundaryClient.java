@@ -171,60 +171,23 @@ public final class BoundaryClient implements AutoCloseable {
     private final LongSupplier millis;
     private final long sessionIdleNanos;
 
+    /** A client with the settings {@link Builder#build} has checked. */
     private BoundaryClient(Builder b) {
-        this.stamper = Objects.requireNonNull(b.stamper, "stamper");
-        this.bundle = Objects.requireNonNull(b.bundle, "bundle");
-        this.ownRoot = Objects.requireNonNull(b.ownRoot, "ownRoot");
-        this.ownKeyring = Objects.requireNonNull(b.ownKeyring, "ownKeyring");
-        this.ownPolicyKey = Objects.requireNonNull(b.ownPolicyKey, "ownPolicyKey");
-        this.partner = Objects.requireNonNull(b.partner, "partner");
-        this.partnerUrl = Objects.requireNonNull(b.partnerUrl, "partnerUrl");
-        this.pinnedPartnerKey = Objects.requireNonNull(b.pinnedPartnerKey, "pinnedPartnerKey");
-        // Refused rather than stretched or cut: every salt is keyed by it.
-        if (b.blindingKey == null || b.blindingKey.length != BoundaryInfluence.KEY_LENGTH) {
-            throw new IllegalArgumentException("the boundary key must be " + BoundaryInfluence.KEY_LENGTH
-                    + " bytes");
-        }
+        this.stamper = b.stamper;
+        this.bundle = b.bundle;
+        this.ownRoot = b.ownRoot;
+        this.ownKeyring = b.ownKeyring;
+        this.ownPolicyKey = b.ownPolicyKey;
+        this.partner = b.partner;
+        this.partnerUrl = b.partnerUrl;
+        this.pinnedPartnerKey = b.pinnedPartnerKey;
         this.blindingKey = b.blindingKey.clone();
         this.listener = b.listener;
-        this.http = Objects.requireNonNull(b.http, "http");
-        this.readTimeout = Objects.requireNonNull(b.readTimeout, "readTimeout");
-        if (readTimeout.isNegative() || readTimeout.isZero()) {
-            throw new IllegalArgumentException("the read timeout must be positive: " + readTimeout);
-        }
-        this.nanos = Objects.requireNonNull(b.nanos, "nanos");
-        this.millis = Objects.requireNonNull(b.millis, "millis");
-        if (partner.isEmpty()) {
-            throw new IllegalArgumentException("the partner's entry service must be named");
-        }
-        if (stamper.svc() == null || stamper.svc().isEmpty()) {
-            throw new IllegalArgumentException("the egress service must be named");
-        }
-        if (b.sessionIdleMs <= 0) {
-            throw new IllegalArgumentException("the session idle period must be positive");
-        }
+        this.http = b.http;
+        this.readTimeout = b.readTimeout;
+        this.nanos = b.nanos;
+        this.millis = b.millis;
         this.sessionIdleNanos = TimeUnit.MILLISECONDS.toNanos(b.sessionIdleMs);
-        if (partnerUrl.getScheme() == null || partnerUrl.getRawAuthority() == null
-                || !(partnerUrl.getRawPath() == null || partnerUrl.getRawPath().isEmpty()
-                        || partnerUrl.getRawPath().equals("/"))
-                || partnerUrl.getRawQuery() != null || partnerUrl.getRawFragment() != null) {
-            throw new IllegalArgumentException("the partner URL must be a scheme and an authority only: "
-                    + partnerUrl);
-        }
-        // A root or keyring the partner cannot verify could never open an attested session, so it fails here.
-        if (!ownKeyring.verifies(ownPolicyKey)
-                || !ownRoot.verify(Crypto.decodePublicKey(Base64Url.decode(ownPolicyKey)))) {
-            throw new IllegalArgumentException("the root and keyring must both verify under the policy key");
-        }
-        // The partner would judge them unsafe, and so would every reply, so a service holding them is misconfigured.
-        long now = millis.getAsLong();
-        if (!ownRoot.isNewForm() || !ownKeyring.isNewForm()) {
-            throw new IllegalArgumentException("the root and keyring must both be in the new form, with a notAfter");
-        }
-        if (!ownRoot.isCurrent(now) || !ownKeyring.isCurrent(now)) {
-            throw new IllegalArgumentException("the root and keyring must both be current: "
-                    + (ownRoot.isCurrent(now) ? "the keyring" : "the root") + " has expired");
-        }
     }
 
     /** A client to build; see {@link Builder}. */
@@ -516,6 +479,46 @@ public final class BoundaryClient implements AutoCloseable {
         http.shutdown();
     }
 
+    /** Why {@link Builder#build} refused a setting, for a caller that words the refusal in its own terms. */
+    public enum Fault {
+        /** The partner URL is not {@code https}. */
+        NOT_HTTPS,
+        /** The boundary key is not {@value BoundaryInfluence#KEY_LENGTH} bytes. */
+        KEY_LENGTH,
+        /** The read timeout is not positive. */
+        READ_TIMEOUT,
+        /** The partner's entry service is empty. */
+        UNNAMED_PARTNER,
+        /** The stamper names no service. */
+        UNNAMED_EGRESS,
+        /** The session idle period is not positive. */
+        IDLE_PERIOD,
+        /** The partner URL has a path, a query or a fragment, or no authority. */
+        NOT_AN_ORIGIN,
+        /** This side's root or keyring does not verify under its policy key. */
+        OWN_UNVERIFIED,
+        /** This side's root or keyring is in the old form, with no {@code notAfter}. */
+        OWN_OLD_FORM,
+        /** This side's root or keyring has passed its {@code notAfter}. */
+        OWN_EXPIRED
+    }
+
+    /** A setting {@link Builder#build} refused: its message says which, and {@link #fault} says why. */
+    public static final class InvalidSetting extends IllegalArgumentException {
+
+        private final Fault fault;
+
+        InvalidSetting(Fault fault, String message) {
+            super(message);
+            this.fault = fault;
+        }
+
+        /** Why the setting was refused. */
+        public Fault fault() {
+            return fault;
+        }
+    }
+
     /**
      * Builds an egress client once its settings are checked. Everything is required but the listener (none unless
      * set), the read timeout ({@link #DEFAULT_READ_TIMEOUT} unless set) and the clocks (the system's).
@@ -644,15 +647,74 @@ public final class BoundaryClient implements AutoCloseable {
         }
 
         /**
-         * The client, once its settings are checked: the partner and this service are named, the boundary key is
-         * {@value BoundaryInfluence#KEY_LENGTH} bytes, the read timeout and the idle period are positive, the
-         * partner URL is a scheme and an authority only, and this side's root and keyring verify under its policy
-         * key and are in the new form and current by the time of day.
+         * The client, once its settings are checked, in this order: the partner URL is {@code https}, since the
+         * calls carry the boundary stamp and the influence's owners; the boundary key is
+         * {@value BoundaryInfluence#KEY_LENGTH} bytes; the read timeout is positive; the partner and this service
+         * are named; the idle period is positive; the partner URL is a scheme and an authority only; and this
+         * side's root and keyring verify under its policy key and are in the new form and current by the time of
+         * day. Each refusal is an {@link InvalidSetting} naming its {@link Fault}.
          *
          * @throws NullPointerException if a required setting is missing
-         * @throws IllegalArgumentException if a setting is refused
+         * @throws InvalidSetting if a setting is refused
          */
         public BoundaryClient build() {
+            Objects.requireNonNull(stamper, "stamper");
+            Objects.requireNonNull(bundle, "bundle");
+            Objects.requireNonNull(ownRoot, "ownRoot");
+            Objects.requireNonNull(ownKeyring, "ownKeyring");
+            Objects.requireNonNull(ownPolicyKey, "ownPolicyKey");
+            Objects.requireNonNull(partner, "partner");
+            Objects.requireNonNull(partnerUrl, "partnerUrl");
+            Objects.requireNonNull(pinnedPartnerKey, "pinnedPartnerKey");
+            // The calls carry the boundary stamp and the influence's owners, which must not cross in the clear.
+            if (!"https".equalsIgnoreCase(partnerUrl.getScheme())) {
+                throw new InvalidSetting(Fault.NOT_HTTPS, "the partner URL must be an https URL: " + partnerUrl);
+            }
+            // Refused rather than stretched or cut: every salt is keyed by it.
+            if (blindingKey == null || blindingKey.length != BoundaryInfluence.KEY_LENGTH) {
+                throw new InvalidSetting(Fault.KEY_LENGTH, "the boundary key must be " + BoundaryInfluence.KEY_LENGTH
+                        + " bytes");
+            }
+            Objects.requireNonNull(http, "http");
+            Objects.requireNonNull(readTimeout, "readTimeout");
+            if (readTimeout.isNegative() || readTimeout.isZero()) {
+                throw new InvalidSetting(Fault.READ_TIMEOUT, "the read timeout must be positive: " + readTimeout);
+            }
+            Objects.requireNonNull(nanos, "nanos");
+            Objects.requireNonNull(millis, "millis");
+            if (partner.isEmpty()) {
+                throw new InvalidSetting(Fault.UNNAMED_PARTNER, "the partner's entry service must be named");
+            }
+            if (stamper.svc() == null || stamper.svc().isEmpty()) {
+                throw new InvalidSetting(Fault.UNNAMED_EGRESS, "the egress service must be named");
+            }
+            if (sessionIdleMs <= 0) {
+                throw new InvalidSetting(Fault.IDLE_PERIOD, "the session idle period must be positive");
+            }
+            if (partnerUrl.getRawAuthority() == null
+                    || !(partnerUrl.getRawPath() == null || partnerUrl.getRawPath().isEmpty()
+                            || partnerUrl.getRawPath().equals("/"))
+                    || partnerUrl.getRawQuery() != null || partnerUrl.getRawFragment() != null) {
+                throw new InvalidSetting(Fault.NOT_AN_ORIGIN, "the partner URL must be a scheme and an authority only: "
+                        + partnerUrl);
+            }
+            // A root or keyring the partner cannot verify could never open an attested session, so it fails here.
+            if (!ownKeyring.verifies(ownPolicyKey)
+                    || !ownRoot.verify(Crypto.decodePublicKey(Base64Url.decode(ownPolicyKey)))) {
+                throw new InvalidSetting(Fault.OWN_UNVERIFIED,
+                        "the root and keyring must both verify under the policy key");
+            }
+            // The partner would judge them unsafe, and so would every reply, so a service holding them is
+            // misconfigured.
+            long now = millis.getAsLong();
+            if (!ownRoot.isNewForm() || !ownKeyring.isNewForm()) {
+                throw new InvalidSetting(Fault.OWN_OLD_FORM,
+                        "the root and keyring must both be in the new form, with a notAfter");
+            }
+            if (!ownRoot.isCurrent(now) || !ownKeyring.isCurrent(now)) {
+                throw new InvalidSetting(Fault.OWN_EXPIRED, "the root and keyring must both be current: "
+                        + (ownRoot.isCurrent(now) ? "the keyring" : "the root") + " has expired");
+            }
             return new BoundaryClient(this);
         }
     }
