@@ -104,7 +104,9 @@ adapters over these, and another framework would adapt the same functions.
 raw target and answers the headers to set, and `HttpCaller.check(sent, status,
 xPathResponse, body)` checks its response against the chain that was sent and
 answers what it adds to the request's influence: its labels, each with `src`
-`http:<target>`, when it verifies, and otherwise one `local-untrusted` entry. It
+`http:<target>`, when it verifies, and otherwise one `local-untrusted` entry.
+`check` also logs the response's `PAZTPORT_TRACE response` line, so a mirror in
+another language logs the same line wherever it checks a response. It
 names the receiver by its policy name: the URI's host, unless its builder's
 `receivers(Map)` maps that host to another name. `stampFromContext(method, uri,
 body)` and `recordToContext(...)` are the same two in the blocking binding below,
@@ -233,12 +235,23 @@ hands a session request's body to `HttpSessions.serve`.
   receiver for a host that is not its policy name:
   `paztport.receiver-names.orders-internal=orders` stamps a call to
   `https://orders-internal/x` for `orders`, and that call's response must then be
-  attested by `orders` and is recorded as `http:orders`. Hosts match ignoring
-  case, a dotted host is written as it stands
-  (`paztport.receiver-names.pay.svc.cluster.local=payment`), and a host not
-  listed is still its own name, so with nothing set nothing changes. The mapping
-  is configuration: nothing a request or a destination says changes it. Outside
-  the starter it is `HttpCaller.builder(...).receivers(Map)`.
+  attested by `orders` and is recorded as `http:orders`. A dotted host is
+  written as it stands (`paztport.receiver-names.pay.svc.cluster.local=payment`),
+  and a host not listed is still its own name, so with nothing set nothing
+  changes. The mapping is configuration: nothing a request or a destination says
+  changes it. Outside the starter it is `HttpCaller.builder(...).receivers(Map)`.
+  A host is matched as `URI.getHost()` gives it, ignoring case and nothing else,
+  and Spring Boot reads a map key in brackets as written inside them:
+  - An IPv6 host keeps its brackets, so its key is written in two pairs:
+    `paztport.receiver-names.[[::1]]=orders`, or `"[[::1]]"` in YAML or JSON.
+  - A trailing dot is not normalised: `orders.` and `orders` are different hosts,
+    so list each spelling callers use. Boot drops a key's trailing dot unless the
+    key is in brackets: `paztport.receiver-names.[orders.]=orders`.
+  - In an environment variable's name Boot reads `_` as a dot and lowercases the
+    key, so `PAZTPORT_RECEIVERNAMES_PAY_SVC_CLUSTER_LOCAL=payment` maps a dotted
+    host. A shell cannot name a variable with a hyphen, a bracket or a colon,
+    though, so a key with one, `orders-internal` for instance, goes in
+    `SPRING_APPLICATION_JSON` or a config file.
 - **Response checks.** Wherever there is a keyring, a root and the policy pin, the
   interceptor checks the response's attestation: verified labels become influence
   entries, and any other response becomes one `local-untrusted` entry (`src`

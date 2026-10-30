@@ -280,6 +280,17 @@ class HttpCallerTest {
                 traceLines());
     }
 
+    // Nothing but case is normalised: the README's keys for these hosts rest on it.
+    @Test
+    void aHostIsMatchedAsTheUriGivesIt() {
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper())
+                .receivers(Map.of("[::1]", "orders", "::2", "payment", "search", "search")).build();
+
+        assertEquals("orders", caller.receiver(URI.create("http://[::1]:8080/x")), "an IPv6 host keeps its brackets");
+        assertEquals("[::2]", caller.receiver(URI.create("http://[::2]:8080/x")), "so a key without them misses");
+        assertEquals("search.", caller.receiver(URI.create("http://search.:8080/x")), "a trailing dot is kept");
+    }
+
     @Test
     void aBlankOrTwiceListedMappingIsRefused() {
         HttpCaller.Builder builder = HttpCaller.builder("gateway", gatewayStamper());
@@ -319,6 +330,17 @@ class HttpCallerTest {
         assertEquals(List.of(), RequestContext.influence(), "closing the scope drops what it recorded");
         assertEquals(List.of("PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓"
                 + " labels=private,third-party"), traceLines());
+    }
+
+    @Test
+    void aVerifiedResponseWithNoLabelsAddsNothing() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, List.of());
+
+        HttpCaller.Received received = caller.check(sent, 200, attestation(sent, "hello", List.of()), utf8("hello"));
+
+        assertEquals(ReasonCode.OK, received.check().result().reason());
+        assertEquals(List.of(), received.influence(), "it vouched for its content and named no class for it");
     }
 
     @Test

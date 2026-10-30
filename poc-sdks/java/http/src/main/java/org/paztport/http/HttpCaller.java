@@ -111,8 +111,10 @@ public final class HttpCaller {
 
         /**
          * The receivers' policy names, by the host a call is sent to, where that host is not the name: an address, a
-         * load balancer's name, or a name inside another network. The host is matched ignoring case, as DNS does; a
-         * host not listed is its own name. This replaces any mapping given before.
+         * load balancer's name, or a name inside another network. The host is matched as {@link URI#getHost} gives
+         * it, ignoring case, as DNS does, and nothing else: an IPv6 host keeps its brackets, and a trailing dot is
+         * kept, so {@code orders.} is not {@code orders}. A host not listed is its own name. This replaces any
+         * mapping given before.
          *
          * <p>A table, not a function: the name is the deployment's configuration, which a table holds and shows, and
          * the same table is what the starter binds, and what another language's caller is given.
@@ -189,7 +191,8 @@ public final class HttpCaller {
 
     /**
      * What a response contributes: the check of its attestation, null where this caller has no verifier and nothing
-     * was checked, and the influence entries it adds, never empty.
+     * was checked, and the influence entries it adds. A response that verifies adds one entry per label, so none
+     * where it verified with no labels; any other adds exactly one {@code local-untrusted} entry.
      */
     public record Received(HttpV3.ResponseCheck check, List<InfluenceEntry> influence) {
 
@@ -246,8 +249,9 @@ public final class HttpCaller {
     }
 
     /**
-     * Checks a response to {@code sent} against the chain that was sent, logs the result, and answers what it
-     * contributes. This touches no thread-local.
+     * Checks a response to {@code sent} against the chain that was sent and answers what it contributes. It logs
+     * the response's {@code PAZTPORT_TRACE response} line, as every check does, whatever its caller does with the
+     * answer; a binding of it, or a mirror in another language, logs the same line. This touches no thread-local.
      *
      * @param sent the call, as either stamp stamped it
      * @param status the response status

@@ -90,7 +90,9 @@ public class PaztportProperties {
     /**
      * The policy names of the services this one calls, by the host it calls them at, where that host is not the
      * name: {@code paztport.receiver-names.orders-internal=orders} stamps a call to {@code https://orders-internal/x}
-     * for {@code orders}. A host not listed is its own name, and hosts match ignoring case.
+     * for {@code orders}. A host not listed is its own name, and hosts match ignoring case, as
+     * {@code URI.getHost()} gives them: an IPv6 host keeps its brackets, so its key is {@code [[::1]]}, since Boot
+     * reads a bracketed key as written inside the brackets, and a trailing dot is kept.
      */
     private Map<String, String> receiverNames = new LinkedHashMap<>();
 
