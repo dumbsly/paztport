@@ -99,6 +99,17 @@ refuses own material no client could accept, naming each `Fault`.
 unsafe session may not do. The starter's filters, gate and handshake endpoint are
 adapters over these, and another framework would adapt the same functions.
 
+`BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
+service's stamper, proofs, root, keyring and policy key, the partner's entry
+service, `https` URL and pinned policy key, the boundary key, a listener, the JDK
+`HttpClient` that presents this service's certificate to the partner (the client
+owns it and shuts it down when closed) and a read timeout (30 s unless set), and
+its `build()` refuses a setting no partner could use, naming each `Fault`. Its
+`post(path, json)` reads the verified chain from `RequestContext`, below. The
+starter's egress bean builds one from `paztport.boundary.*`; it logs as
+`org.paztport.http.BoundaryClient`, which used to be
+`org.paztport.spring.partner.BoundaryClient`.
+
 `RequestContext` is the blocking Java binding of the receivers: a thread-local
 scope, for servlet and other thread-per-request code, that the handler, the caller
 and `PublicWrites` read. An adapter runs each request's receiver through
@@ -275,7 +286,7 @@ hands a session request's body to `HttpSessions.serve`.
   another organisation, with a `BoundaryClient` whose `post(path, json)` is the one
   way out. It needs `paztport.boundary.partner` (the partner's entry service),
   `paztport.boundary.url` (`https`, a scheme and an authority, no path; any other
-  scheme fails the startup, though the `BoundaryClient` constructor accepts one, for tests),
+  scheme fails the startup, as `BoundaryClient.builder()` refuses one),
   `paztport.boundary.tls-bundle` (its own SSL bundle, apart from `paztport.tls-bundle`,
   so the partner's CA is trusted only for the partner),
   `paztport.boundary.partner-policy-key-path` (the partner's pinned policy key) and

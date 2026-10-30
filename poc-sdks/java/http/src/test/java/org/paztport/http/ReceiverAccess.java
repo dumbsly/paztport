@@ -10,8 +10,8 @@ import org.paztport.core.verify.VerifyResult;
 
 /**
  * Test access to the receiver's trace line, which {@link HttpReceiver} keeps package-private. The starter's tests pin
- * the request line beside the egress's boundary line, which is still the starter's, so this lives in the receiver's
- * package for that reason only.
+ * the request line beside the egress's boundary line ({@link TraceAccess}) and the decision line, so this lives in
+ * the receiver's package for that reason only.
  */
 public final class ReceiverAccess {
 

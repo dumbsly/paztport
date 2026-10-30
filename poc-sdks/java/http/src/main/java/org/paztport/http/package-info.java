@@ -10,6 +10,8 @@
  * authenticated ({@code PeerCert}); {@code Accepted.attest} attests a complete answer; {@code HttpSessions.serve}
  * answers a session handshake from the partner's registry ({@code PartnerSessions}); {@code UnsafeOperations} says
  * what an unsafe session may not do. None of them keeps per-request state, so another language mirrors these.
+ * {@code BoundaryClient} is the egress to a partner, over a JDK {@code HttpClient}: it sends nothing unless the
+ * binding below holds a chain that verified here, which it only reads.
  *
  * <p>The blocking Java binding carries their results for one request on its thread: {@code RequestContext}, whose
  * {@code accept} a framework's adapter runs each request's receiver through, and which the handler, the caller and
