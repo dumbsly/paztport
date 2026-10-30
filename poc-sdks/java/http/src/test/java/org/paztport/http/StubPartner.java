@@ -4,7 +4,6 @@
 package org.paztport.http;
 
 import com.sun.net.httpserver.HttpExchange;
-import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.ByteArrayInputStream;
@@ -48,9 +47,9 @@ import org.paztport.core.session.Sessions;
 
 /**
  * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over HTTPS with a
- * certificate from the fixture CA, as the egress requires (or over plain HTTP, which it refuses), that answers the
- * session handshake with a signed reply and answers every other path with a status and body the test sets. It
- * records every request it receives, so a test can prove that nothing at all was sent.
+ * certificate from the fixture CA, as the egress requires, that answers the session handshake with a signed reply
+ * and answers every other path with a status and body the test sets. It records every request it receives, so a
+ * test can prove that nothing at all was sent.
  *
  * <p>Its entry service is {@code psp}. By default a reply is in the entry-key form: signed by {@code psp}'s key,
  * carrying the policy key's signature over the keyring and a reply certificate for that key, whose expiry a test
@@ -86,7 +85,7 @@ public final class StubPartner implements AutoCloseable {
     private final KeyringFile keyring = KeyringFile.sign(Map.of("psp", pub(entry)), pub(policy),
             NOT_AFTER, policy.getPrivate());
     private final SignedRoot root;
-    private final HttpServer server;
+    private final HttpsServer server;
     private final ExecutorService executor = Executors.newCachedThreadPool();
     private final List<Received> received = new CopyOnWriteArrayList<>();
     private final List<String> issued = new CopyOnWriteArrayList<>();
@@ -103,25 +102,14 @@ public final class StubPartner implements AutoCloseable {
     private volatile long replyCertNotAfter = System.currentTimeMillis() + 7 * 86_400_000L;
     private final List<SessionReply> replies = new CopyOnWriteArrayList<>();
 
-    /** Over plain HTTP. */
-    StubPartner() throws IOException {
-        this(false);
-    }
-
     /**
-     * @param tls over HTTPS, presenting the fixture certificate for {@code 127.0.0.1} under the fixture CA, which
-     *     the egress's client trusts ({@link #fixtureContext}); it asks for no client certificate
+     * Over HTTPS, presenting the fixture certificate for {@code 127.0.0.1} under the fixture CA, which the egress's
+     * client trusts ({@link #fixtureContext}); it asks for no client certificate.
      */
-    public StubPartner(boolean tls) throws IOException {
+    public StubPartner() throws IOException {
         root = PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, policy.getPrivate()).signedRoot();
-        InetSocketAddress loopback = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
-        if (tls) {
-            HttpsServer https = HttpsServer.create(loopback, 0);
-            https.setHttpsConfigurator(new HttpsConfigurator(fixtureContext("payment")));
-            server = https;
-        } else {
-            server = HttpServer.create(loopback, 0);
-        }
+        server = HttpsServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
+        server.setHttpsConfigurator(new HttpsConfigurator(fixtureContext("payment")));
         server.setExecutor(executor);
         server.createContext("/", this::handle);
         server.start();
@@ -176,10 +164,9 @@ public final class StubPartner implements AutoCloseable {
         }
     }
 
-    /** {@code http://127.0.0.1:<port>}, or {@code https://} over TLS. */
+    /** {@code https://127.0.0.1:<port>}. */
     public URI url() {
-        return URI.create((server instanceof HttpsServer ? "https" : "http") + "://127.0.0.1:"
-                + server.getAddress().getPort());
+        return URI.create("https://127.0.0.1:" + server.getAddress().getPort());
     }
 
     /** The pin the egress holds for this partner. */

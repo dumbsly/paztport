@@ -98,7 +98,7 @@ class BoundaryGuardTest {
     @DynamicPropertySource
     static void trustFiles(DynamicPropertyRegistry registry) throws IOException {
         trust = Files.createTempDirectory("paztport-boundary");
-        partner = new StubPartner(true);
+        partner = new StubPartner();
         writeTrust(trust, partner);
 
         registry.add("paztport.service-name", () -> "payment");

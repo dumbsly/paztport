@@ -119,7 +119,7 @@ class BoundaryClientTest {
 
     @BeforeEach
     void start() throws Exception {
-        partner = new StubPartner(true);
+        partner = new StubPartner();
         client = egress(partner, tls()).build();
         traces.start();
         traceLog.addAppender(traces);
@@ -806,7 +806,7 @@ class BoundaryClientTest {
     @Test
     void aCallThePartnerNeverFinishesFailsAtTheReadTimeoutAndKeepsTheSession() throws Exception {
         for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
-            try (StubPartner stalling = new StubPartner(true);
+            try (StubPartner stalling = new StubPartner();
                     BoundaryClient bounded = egress(stalling, tls()).listener(null)
                             .readTimeout(Duration.ofMillis(300)).build()) {
                 stalling.stallNextCall(stall);
@@ -838,7 +838,7 @@ class BoundaryClientTest {
     @Test
     void aHandshakeThePartnerNeverFinishesIsReplacedAtItsTimeout() throws Exception {
         for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
-            try (StubPartner stalling = new StubPartner(true);
+            try (StubPartner stalling = new StubPartner();
                     BoundaryClient bounded = egress(stalling, tls()).listener(null)
                             .handshakeTimeout(Duration.ofMillis(300)).build()) {
                 stalling.stallNextHandshake(stall);
@@ -865,7 +865,7 @@ class BoundaryClientTest {
     }
 
     @Test
-    void theCallsGetTheReadTimeoutOfTheirTlsClient() {
+    void anEgressBuiltWithNoReadTimeoutHasTheDefault() {
         assertEquals(BoundaryClient.DEFAULT_READ_TIMEOUT, client.readTimeout());
     }
 }
