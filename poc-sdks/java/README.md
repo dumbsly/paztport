@@ -126,7 +126,7 @@ owns it and shuts it down when closed) and a read timeout (30 s unless set), and
 its `build()` refuses a setting no partner could use, naming each `Fault`. Its
 `post(path, json)` reads the verified chain from `RequestContext`, below. The
 starter's egress bean builds one from `paztport.boundary.*`; it logs as
-`org.paztport.http.BoundaryClient`, which used to be
+`org.paztport.http.boundary.BoundaryClient`, which used to be
 `org.paztport.spring.partner.BoundaryClient`.
 
 `RequestContext` is the blocking Java binding of the receivers: a thread-local
