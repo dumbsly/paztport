@@ -5,6 +5,7 @@ package org.paztport.spring.partner;
 
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.time.Duration;
@@ -56,10 +57,11 @@ public class PartnerConfiguration {
      * builder refuses both, {@link BoundaryClient.Builder#build}, and they are worded here in terms of the
      * property), or a boundary key that is not 32 bytes. It builds its own TLS client from
      * {@code paztport.boundary.tls-bundle}, never the shared one, so the partner's CA is trusted only on calls to
-     * the partner, and hands the egress a deferred view of it, so the bundle is read on the first call, not at
-     * startup. A {@link BoundaryListener} bean, if there is one, is told what each attested call sends. With
-     * several, the one marked {@code @Primary} is told and the others are not; with several and none primary, the
-     * context fails rather than pick one. The context closes the client on shutdown.
+     * the partner; the bundle is read here, so a certificate that is missing or unreadable fails the context at
+     * startup. The egress owns that client, and is the only holder of it. A {@link BoundaryListener} bean, if there
+     * is one, is told what each attested call sends. With several, the one marked {@code @Primary} is told and the
+     * others are not; with several and none primary, the context fails rather than pick one. The context closes the
+     * client on shutdown.
      */
     @Bean
     @ConditionalOnProperty("paztport.boundary.url")
@@ -102,7 +104,7 @@ public class PartnerConfiguration {
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
-        // The JDK client is deferred, so the bundle is read on the first call, as the pooled client's always was.
+        HttpClient http = PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout).httpClient();
         BoundaryClient.Builder client = BoundaryClient.builder()
                 .stamper(stamper.getObject())
                 .bundle(bundle.getObject())
@@ -114,12 +116,13 @@ public class PartnerConfiguration {
                 .pinnedPartnerKey(KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())))
                 .blindingKey(blindingKey)
                 .listener(listener.getIfAvailable())
-                .http(PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout).deferredHttpClient())
+                .http(http)
                 .readTimeout(readTimeout)
                 .sessionIdleMs(b.getSessionIdleMs());
         try {
             return client.build();
         } catch (BoundaryClient.InvalidSetting e) {
+            http.shutdownNow();
             // Worded in terms of the property where one property holds it; the rest are refused above, by the
             // property's own reader, or are the client's own words, as they always were.
             throw switch (e.fault()) {

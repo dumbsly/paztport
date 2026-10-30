@@ -256,23 +256,29 @@ class PooledTlsClientTest {
         assertThat(head.getBody()).isNull();
     }
 
-    // The egress is handed its client at startup, so the view of it reads the bundle only when a call goes out,
-    // and shutting the view down closes the pooled client without reading it either.
+    // A service whose certificate files are missing must fail where it starts, never becoming ready.
     @Test
-    void theDeferredClientIsMadeOnlyForACallAndClosesThePooledOne() throws Exception {
-        PooledTlsClient unread = PooledTlsClient.of(SslBundle.of(null));
-        unread.deferredHttpClient().shutdown();
-        assertThatThrownBy(unread::httpClient).isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+    void aBundleThatCannotBeReadFailsAtOnce() {
+        SslBundle absent = SslBundle.of(new PemSslStoreBundle(
+                PemSslStoreDetails.forCertificate("file:/nowhere/absent.crt").withPrivateKey("file:/nowhere/absent.key"),
+                PemSslStoreDetails.forCertificate("classpath:tls/ca.crt")));
 
+        assertThatThrownBy(() -> PooledTlsClient.of(absent)).hasStackTraceContaining("absent.crt");
+        assertThatThrownBy(() -> PooledTlsClient.of(absent, Duration.ofSeconds(1)))
+                .hasStackTraceContaining("absent.crt");
+    }
+
+    @Test
+    void afterCloseACallFailsOnTheFactoryAndOnTheClient() throws Exception {
         String url = serve();
-        PooledTlsClient read = pooled(SslBundle.of(stores("orders")));
-        HttpClient deferred = read.deferredHttpClient();
-        HttpResponse<String> ok = deferred.send(HttpRequest.newBuilder(URI.create(url + "/ok"))
-                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
-        assertThat(ok.statusCode()).isEqualTo(200);
-        assertThat(deferred.version()).isEqualTo(HttpClient.Version.HTTP_1_1);
-        deferred.shutdown();
-        assertThat(read.httpClient().awaitTermination(PROMPTLY)).isTrue();
+        PooledTlsClient client = pooled(SslBundle.of(stores("orders")));
+        client.close();
+
+        assertThat(client.httpClient().isTerminated() || client.httpClient().awaitTermination(PROMPTLY)).isTrue();
+        assertThatThrownBy(() -> client.httpClient().send(HttpRequest.newBuilder(URI.create(url + "/ok")).build(),
+                HttpResponse.BodyHandlers.ofString())).isInstanceOf(IOException.class);
+        assertThatThrownBy(() -> client.builder().build().get().uri(url + "/ok").retrieve().toBodilessEntity())
+                .isInstanceOf(RestClientException.class);
     }
 
     @Test

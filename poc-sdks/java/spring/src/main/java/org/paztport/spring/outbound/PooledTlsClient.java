@@ -3,19 +3,9 @@
 
 package org.paztport.spring.outbound;
 
-import java.io.IOException;
-import java.net.Authenticator;
-import java.net.CookieHandler;
-import java.net.ProxySelector;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.Objects;
-import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import org.paztport.http.internal.WholeExchange;
@@ -72,27 +62,28 @@ public final class PooledTlsClient implements AutoCloseable {
      */
     public static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
 
-    /** The JDK client and Spring's factory over it, made together on the first call. */
-    private record Pool(HttpClient http, ClientHttpRequestFactory factory) {
-    }
-
-    private final SslBundle bundle;
+    private final HttpClient http;
     private final Duration readTimeout;
-    private final ClientHttpRequestFactory requestFactory =
-            (uri, method) -> pool().factory().createRequest(uri, method);
-    private volatile Pool pool;
-    private boolean closed;
+    private final ClientHttpRequestFactory requestFactory;
 
     private PooledTlsClient(SslBundle bundle, Duration readTimeout) {
-        this.bundle = bundle;
+        SSLContext context = bundle.createSslContext();
+        this.http = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(CONNECT_TIMEOUT)
+                .sslContext(context)
+                .sslParameters(parameters(context, bundle.getOptions()))
+                .build();
         this.readTimeout = readTimeout;
+        this.requestFactory = new WholeExchangeRequestFactory(http, readTimeout);
     }
 
     /**
-     * A client presenting {@code bundle}, with the default read timeout, {@link #DEFAULT_READ_TIMEOUT}. Its key
-     * material is read on the first call, not here, as Spring's own SSL clients do, so an application can start,
-     * and be tested, where its certificate files are not mounted; a bundle that cannot be read fails every call,
-     * clearly, until it can.
+     * A client presenting {@code bundle}, with the default read timeout, {@link #DEFAULT_READ_TIMEOUT}. The
+     * bundle's key material is read here, so a service whose certificate files are missing or unreadable fails
+     * where it starts, never becoming ready, instead of on the first call that needs them.
+     *
+     * @throws IllegalStateException when the bundle cannot be read
      */
     public static PooledTlsClient of(SslBundle bundle) {
         return of(bundle, DEFAULT_READ_TIMEOUT);
@@ -102,6 +93,7 @@ public final class PooledTlsClient implements AutoCloseable {
      * As {@link #of(SslBundle)}, with {@code readTimeout} as the read timeout.
      *
      * @throws IllegalArgumentException when {@code readTimeout} is not positive
+     * @throws IllegalStateException when the bundle cannot be read
      */
     public static PooledTlsClient of(SslBundle bundle, Duration readTimeout) {
         Objects.requireNonNull(readTimeout, "readTimeout");
@@ -109,30 +101,6 @@ public final class PooledTlsClient implements AutoCloseable {
             throw new IllegalArgumentException("the read timeout must be positive: " + readTimeout);
         }
         return new PooledTlsClient(bundle, readTimeout);
-    }
-
-    private Pool pool() {
-        Pool p = pool;
-        if (p == null) {
-            synchronized (this) {
-                if (closed) {
-                    throw new IllegalStateException("the TLS client is closed");
-                }
-                p = pool;
-                if (p == null) {
-                    SSLContext context = bundle.createSslContext();
-                    HttpClient http = HttpClient.newBuilder()
-                            .version(HttpClient.Version.HTTP_1_1)
-                            .connectTimeout(CONNECT_TIMEOUT)
-                            .sslContext(context)
-                            .sslParameters(parameters(context, bundle.getOptions()))
-                            .build();
-                    p = new Pool(http, new WholeExchangeRequestFactory(http, readTimeout));
-                    pool = p;
-                }
-            }
-        }
-        return p;
     }
 
     /**
@@ -174,23 +142,13 @@ public final class PooledTlsClient implements AutoCloseable {
     }
 
     /**
-     * The bare JDK client under the shared pool, made on first use: it presents the bundle and stamps nothing. A
+     * The bare JDK client under the shared pool: it presents the bundle and stamps nothing. A
      * call sent on it directly is bounded only by the connect timeout and the request's own timeout, which on JDK 25
      * covers only the wait for the headers; calls through {@link #requestFactory()}, and the starter's
      * own calls, are bounded whole.
      */
     public HttpClient httpClient() {
-        return pool().http();
-    }
-
-    /**
-     * The same JDK client as {@link #httpClient()}, behind a view that makes it only when something first asks
-     * for it, so that code handed a client at startup still has the bundle read on its first call, not at
-     * startup. Shutting the view down closes this client, which makes nothing; it is how the egress, which owns
-     * the client it is built with, closes its own.
-     */
-    public HttpClient deferredHttpClient() {
-        return new Deferred();
+        return http;
     }
 
     /**
@@ -198,116 +156,7 @@ public final class PooledTlsClient implements AutoCloseable {
      * wait for them, so a call with no answer cannot hold up the application's shutdown.
      */
     @Override
-    public synchronized void close() {
-        closed = true;
-        if (pool != null) {
-            pool.http().shutdown();
-        }
-    }
-
-    /**
-     * {@link #httpClient()}, asked for on each use rather than once: every call and setting goes to it, which
-     * makes it the first time; shutting down is this client's {@link #close()}, and so makes nothing.
-     */
-    private final class Deferred extends HttpClient {
-
-        @Override
-        public Optional<CookieHandler> cookieHandler() {
-            return httpClient().cookieHandler();
-        }
-
-        @Override
-        public Optional<Duration> connectTimeout() {
-            return httpClient().connectTimeout();
-        }
-
-        @Override
-        public Redirect followRedirects() {
-            return httpClient().followRedirects();
-        }
-
-        @Override
-        public Optional<ProxySelector> proxy() {
-            return httpClient().proxy();
-        }
-
-        @Override
-        public SSLContext sslContext() {
-            return httpClient().sslContext();
-        }
-
-        @Override
-        public SSLParameters sslParameters() {
-            return httpClient().sslParameters();
-        }
-
-        @Override
-        public Optional<Authenticator> authenticator() {
-            return httpClient().authenticator();
-        }
-
-        @Override
-        public Version version() {
-            return httpClient().version();
-        }
-
-        @Override
-        public Optional<Executor> executor() {
-            return httpClient().executor();
-        }
-
-        @Override
-        public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler)
-                throws IOException, InterruptedException {
-            return httpClient().send(request, handler);
-        }
-
-        @Override
-        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
-                HttpResponse.BodyHandler<T> handler) {
-            return httpClient().sendAsync(request, handler);
-        }
-
-        @Override
-        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
-                HttpResponse.BodyHandler<T> handler, HttpResponse.PushPromiseHandler<T> push) {
-            return httpClient().sendAsync(request, handler, push);
-        }
-
-        @Override
-        public WebSocket.Builder newWebSocketBuilder() {
-            return httpClient().newWebSocketBuilder();
-        }
-
-        @Override
-        public void shutdown() {
-            PooledTlsClient.this.close();
-        }
-
-        @Override
-        public void shutdownNow() {
-            PooledTlsClient.this.close();
-            Pool p = pool;
-            if (p != null) {
-                p.http().shutdownNow();
-            }
-        }
-
-        @Override
-        public boolean awaitTermination(Duration duration) throws InterruptedException {
-            Pool p = pool;
-            return p == null ? closed() : p.http().awaitTermination(duration);
-        }
-
-        @Override
-        public boolean isTerminated() {
-            Pool p = pool;
-            return p == null ? closed() : p.http().isTerminated();
-        }
-    }
-
-    /** Whether {@link #close()} has run. */
-    private synchronized boolean closed() {
-        return closed;
+    public void close() {
+        http.shutdown();
     }
 }
