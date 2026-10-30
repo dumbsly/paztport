@@ -20,7 +20,6 @@ import org.paztport.http.ModeHolder;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
-import org.paztport.spring.internal.ConfigLoader;
 import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.OwnMaterial;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -50,16 +49,16 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.proofs-path")
     ProofBundle proofBundle(PaztportProperties props) {
-        return ConfigLoader.loadProofBundle(Path.of(props.getProofsPath()));
+        return ProofBundle.load(Path.of(props.getProofsPath()));
     }
 
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     VerifierV3 verifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
-        KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
-        SignedRoot root = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
-        String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        KeyringFile keyring = KeyringFile.load(Path.of(props.getKeyringPath()));
+        SignedRoot root = SignedRoot.load(Path.of(props.getRootPath()));
+        String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
                 System.currentTimeMillis());
         VerifierConfigV3 cfg = VerifierConfigV3.pinned(
@@ -68,7 +67,7 @@ public class TrustConfiguration {
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",
-                new InMemoryNonceCache(Durations.nonceTtlMs(props.getMaxAgeMs())),
+                new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs);

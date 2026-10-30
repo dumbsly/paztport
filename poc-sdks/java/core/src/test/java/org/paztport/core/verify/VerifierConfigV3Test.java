@@ -87,4 +87,11 @@ class VerifierConfigV3Test {
         KeyringFile forged = KeyringFile.sign(SERVICES, PIN, NOW - 1, Crypto.generateEd25519KeyPair().getPrivate());
         refused(forged, root(NOW + 1000), "keyring", "does not verify");
     }
+
+    @Test
+    void aNonceCacheRemembersForAtLeastTwiceTheCallWindow() {
+        assertEquals(VerifierConfigV3.NONCE_TTL_MS, VerifierConfigV3.nonceTtlFor(VerifierConfigV3.CALL_MAX_AGE_MS));
+        assertEquals(VerifierConfigV3.NONCE_TTL_MS, VerifierConfigV3.nonceTtlFor(0));
+        assertEquals(60_000, VerifierConfigV3.nonceTtlFor(30_000));
+    }
 }

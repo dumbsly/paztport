@@ -49,6 +49,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.Chains;
@@ -65,7 +66,6 @@ import org.paztport.http.event.EventAccess;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.event.LoggingEventPublisher;
 import org.paztport.http.event.ResponderEventPublisher;
-import org.paztport.spring.internal.ConfigLoader;
 import org.paztport.spring.internal.OwnMaterial;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -319,7 +319,7 @@ class PaztportAutoConfigurationTest {
                         StamperV3.Stamped sent = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true,
                                 () -> "rid-" + maxAge, System::currentTimeMillis)
                                 .next(null, "orders", "b", List.of(),
-                                        ConfigLoader.loadProofBundle(dir.resolve("proofs-gateway.json")));
+                                        ProofBundle.load(dir.resolve("proofs-gateway.json")));
                         VerifyInputV3 input = new VerifyInputV3(Chains.toJson(sent.chain()), "b", "[]",
                                 sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);

@@ -4,7 +4,6 @@
 package org.paztport.spring.internal;
 
 import java.time.Duration;
-import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.spring.PaztportProperties;
 
 /**
@@ -26,10 +25,5 @@ public final class Durations {
             throw new IllegalStateException(property + " must be positive");
         }
         return Duration.ofMillis(ms);
-    }
-
-    /** The verifier refuses a cache that forgets sooner than twice the call window, so this never goes below it. */
-    public static long nonceTtlMs(long maxAgeMs) {
-        return Math.max(VerifierConfigV3.NONCE_TTL_MS, 2 * maxAgeMs);
     }
 }

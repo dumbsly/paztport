@@ -6,7 +6,11 @@ package org.paztport.core.influence;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -55,6 +59,33 @@ public final class BoundaryInfluence {
     private static final byte[] ENTRY_DOMAIN = "paztport-boundary-entry\n".getBytes(StandardCharsets.UTF_8);
 
     private BoundaryInfluence() {
+    }
+
+    /**
+     * The boundary key: the trimmed text of the file, base64url of exactly {@link #KEY_LENGTH} bytes. Anything else
+     * fails here, at startup, naming {@code name} (how the caller calls the setting that points at the file) but
+     * never the file's content.
+     *
+     * @throws IllegalStateException when the text is not base64url of {@link #KEY_LENGTH} bytes
+     * @throws UncheckedIOException when the file cannot be read
+     */
+    public static byte[] loadKey(Path file, String name) {
+        String text;
+        try {
+            text = Files.readString(file).trim();
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read " + file, e);
+        }
+        byte[] key;
+        try {
+            key = Base64Url.decode(text);
+        } catch (IllegalArgumentException e) {
+            key = null;
+        }
+        if (key == null || key.length != KEY_LENGTH) {
+            throw new IllegalStateException(name + " must hold " + KEY_LENGTH + " bytes as base64url: " + file);
+        }
+        return key;
     }
 
     /**

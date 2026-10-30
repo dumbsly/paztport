@@ -11,6 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
@@ -18,6 +20,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 
@@ -311,5 +314,23 @@ class BoundaryInfluenceTest {
                 assertTrue(seen.add(Base64Url.encode(s)), "a salt per (cls, owner)");
             }
         }
+    }
+
+    @Test
+    void loadsAKeyOfExactlyThirtyTwoBytesFromItsTrimmedText(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("boundary.key");
+        Files.writeString(file, "  " + Base64Url.encode(KEY) + "\n");
+        assertTrue(Arrays.equals(KEY, BoundaryInfluence.loadKey(file, "the boundary key")));
+    }
+
+    @Test
+    void refusesAKeyOfAnyOtherLengthNamingTheSettingButNotTheContent(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("boundary.key");
+        Files.writeString(file, Base64Url.encode(new byte[31]));
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> BoundaryInfluence.loadKey(file, "paztport.partner.blinding-key-path"));
+        assertEquals("paztport.partner.blinding-key-path must hold 32 bytes as base64url: " + file, e.getMessage());
+        Files.writeString(file, "not base64url!");
+        assertThrows(IllegalStateException.class, () -> BoundaryInfluence.loadKey(file, "key"));
     }
 }

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.internal;
+package org.paztport.core.policy;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -21,14 +21,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.policy.Keyring;
-import org.paztport.core.policy.KeyringFile;
-import org.paztport.core.policy.MerkleLeaf;
-import org.paztport.core.policy.MerkleTree;
-import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.policy.SignedRoot;
 
-class ConfigLoaderTest {
+class ConfigFilesTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
     private static final long NOT_AFTER = 4_102_444_800_000L;
@@ -59,10 +53,10 @@ class ConfigLoaderTest {
 
         // Load them back.
         var priv = KeyFiles.loadPrivateKey(dir.resolve("gateway.key"));
-        var loadedKeyring = ConfigLoader.loadKeyringFile(dir.resolve("keyring.json"));
-        var pin = ConfigLoader.loadPolicyPin(dir.resolve("policy.pub"));
-        var loadedRoot = ConfigLoader.loadSignedRoot(dir.resolve("root.json"));
-        var loadedBundle = ConfigLoader.loadProofBundle(dir.resolve("proofs-gateway.json"));
+        var loadedKeyring = KeyringFile.load(dir.resolve("keyring.json"));
+        var pin = KeyFiles.loadPolicyPin(dir.resolve("policy.pub"));
+        var loadedRoot = SignedRoot.load(dir.resolve("root.json"));
+        var loadedBundle = ProofBundle.load(dir.resolve("proofs-gateway.json"));
 
         byte[] msg = "x".getBytes(StandardCharsets.UTF_8);
         assertEquals(policyPub, pin, "the pin is the file's text, trimmed");
@@ -90,7 +84,7 @@ class ConfigLoaderTest {
         ringJson.put("notAfter", 1.5);
         JSON.writeValue(dir.resolve("keyring.json").toFile(), ringJson);
 
-        assertThrows(IllegalArgumentException.class, () -> ConfigLoader.loadSignedRoot(dir.resolve("root.json")));
-        assertThrows(IllegalArgumentException.class, () -> ConfigLoader.loadKeyringFile(dir.resolve("keyring.json")));
+        assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(dir.resolve("root.json")));
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(dir.resolve("keyring.json")));
     }
 }

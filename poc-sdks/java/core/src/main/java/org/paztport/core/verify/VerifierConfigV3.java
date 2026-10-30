@@ -45,6 +45,15 @@ public record VerifierConfigV3(
     /** Nonce caches must remember keys for at least twice the call freshness window. */
     public static final long NONCE_TTL_MS = 15_000;
 
+    /**
+     * How long a nonce cache must remember for a call window of {@code callMaxAgeMs}: {@link #NONCE_TTL_MS}, or
+     * twice the window if that is longer. The verifier refuses a cache that forgets sooner, so a service that
+     * widens its window sizes its cache with this.
+     */
+    public static long nonceTtlFor(long callMaxAgeMs) {
+        return Math.max(NONCE_TTL_MS, 2 * callMaxAgeMs);
+    }
+
     public VerifierConfigV3 {
         Objects.requireNonNull(keyring, "keyring");
         Objects.requireNonNull(root, "root");

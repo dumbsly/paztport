@@ -19,15 +19,16 @@ import java.util.function.LongSupplier;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
-import org.paztport.spring.internal.ConfigLoader;
 import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.OwnMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -94,16 +95,16 @@ public class PartnerConfiguration {
             throw new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
         }
         Duration readTimeout = Durations.readTimeout(props);
-        byte[] blindingKey = ConfigLoader.loadBoundaryKey(Path.of(b.getBlindingKeyPath()),
+        byte[] blindingKey = BoundaryInfluence.loadKey(Path.of(b.getBlindingKeyPath()),
                 "paztport.boundary.blinding-key-path");
         SslBundles bundles = ssl.getIfAvailable();
         if (bundles == null) {
             throw new IllegalStateException(
                     "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        SignedRoot ownRoot = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
-        KeyringFile ownKeyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
-        String ownPin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        SignedRoot ownRoot = SignedRoot.load(Path.of(props.getRootPath()));
+        KeyringFile ownKeyring = KeyringFile.load(Path.of(props.getKeyringPath()));
+        String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
         return new BoundaryClient(
@@ -114,7 +115,7 @@ public class PartnerConfiguration {
                 ownPin,
                 b.getPartner(),
                 partnerUrl,
-                ConfigLoader.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
+                KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
                 blindingKey,
                 listener.getIfAvailable(),
                 PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout),
@@ -187,9 +188,9 @@ public class PartnerConfiguration {
             throw new IllegalStateException("paztport.partner.session-idle-ms must be positive");
         }
         String service = props.getServiceName();
-        String pin = ConfigLoader.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        KeyringFile keyring = ConfigLoader.loadKeyringFile(Path.of(props.getKeyringPath()));
-        SignedRoot ownRoot = ConfigLoader.loadSignedRoot(Path.of(props.getRootPath()));
+        String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
+        KeyringFile keyring = KeyringFile.load(Path.of(props.getKeyringPath()));
+        SignedRoot ownRoot = SignedRoot.load(Path.of(props.getRootPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
                 clock.getAsLong());
         String entryKey = keyring.services().get(service);
@@ -224,7 +225,7 @@ public class PartnerConfiguration {
             throw new IllegalStateException("paztport.partner.reply-cert-path has expired");
         }
         Set<String> clientKeys = new LinkedHashSet<>();
-        p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(ConfigLoader.loadPolicyPin(Path.of(path))));
+        p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(KeyFiles.loadPolicyPin(Path.of(path))));
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         return new PartnerSessions(
                 ownRoot,
@@ -236,7 +237,7 @@ public class PartnerConfiguration {
                 clientKeys,
                 Set.copyOf(p.getClientOrigins()),
                 p.getUnsafeDisabled(),
-                new InMemoryNonceCache(Durations.nonceTtlMs(props.getMaxAgeMs())),
+                new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())),
                 clock,
                 props.getMaxAgeMs(),
                 runMaxAgeMs,
