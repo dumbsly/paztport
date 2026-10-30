@@ -714,6 +714,16 @@
       "event" : null
     }
   }, {
+    "name" : "ts with a fraction that rounds to 2^53 - 1",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjkwMDcxOTkyNTQ3NDA5OTEuNCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"_9pg3QxzvAangmVaespDLJ6PFpsGe0ces7Ordsq_bw8hmTh942RiCZefLUNwME_l7Bw2PSCpJRqtX8oKi5krBg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
     "name" : "null ts",
     "earlier" : [ ],
     "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOm51bGwsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"SxDqIyXAqSDulBXrzx6baR8adkkvHIc57Im_FnBh0FcjQ-iUH2oWnpbPUR_YPqSAobryF3QZhq5dpoJeWt_SCg\"}",

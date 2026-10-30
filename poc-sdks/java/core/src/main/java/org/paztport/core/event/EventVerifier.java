@@ -162,7 +162,7 @@ public final class EventVerifier {
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes))
                     .toString();
-            node = Json.tree(text);
+            node = Json.exactTree(text);
         } catch (CharacterCodingException | IllegalArgumentException e) {
             return null;
         }

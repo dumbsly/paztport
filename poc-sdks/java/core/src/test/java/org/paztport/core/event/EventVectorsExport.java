@@ -273,6 +273,7 @@ class EventVectorsExport {
                 {"ts of -(2^63)", "-9223372036854775808"},
                 {"ts of 2^53 - 1, in range", "9007199254740991"},
                 {"ts of -(2^53 - 1), in range", "-9007199254740991"},
+                {"ts with a fraction that rounds to 2^53 - 1", "9007199254740991.4"},
                 {"null ts", "null"}}) {
             verify.add(verifyCase(ts[0], responder, List.of(), signed("payment", pay,
                     base.replace("\"ts\":" + NOW, "\"ts\":" + ts[1])), NOW, 1));

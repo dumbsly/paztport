@@ -117,6 +117,21 @@ class EventVerifierTest {
     }
 
     @Test
+    void aTimestampIsJudgedByItsWrittenValue() throws Exception {
+        // As a double this is 9007199254740991, so only the written text shows it is not an integer.
+        for (String ts : new String[] {"9007199254740991.4", NOW + ".00000000000000000001", "1e-999999999"}) {
+            String json = eventJson(0, "a").replace("\"ts\":0", "\"ts\":" + ts);
+            assertEquals(EventVerifier.Refusal.MALFORMED_EVENT,
+                    auth.accept(envelope("payment", payment, json)).refusal(), ts);
+        }
+        // An exponent too large to build an integer from is refused, not built.
+        assertEquals(EventVerifier.Refusal.MALFORMED_EVENT, auth.accept(envelope("payment", payment,
+                eventJson(0, "b").replace("\"ts\":0", "\"ts\":1e999999999"))).refusal());
+        assertTrue(accept(envelope("payment", payment,
+                eventJson(0, "c").replace("\"ts\":0", "\"ts\":1E6"))).isPresent());
+    }
+
+    @Test
     void aTimestampWhoseDifferenceWrapsIsOutsideTheWindow() throws Exception {
         // ts is read only within +-(2^53 - 1), but the clock is any long, so either one-sided difference wraps
         long max = (1L << 53) - 1;

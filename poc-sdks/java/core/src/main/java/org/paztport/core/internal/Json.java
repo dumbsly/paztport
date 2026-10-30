@@ -30,6 +30,14 @@ public final class Json {
     private static final ObjectMapper TREES = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
+    /**
+     * Like {@link #TREES} but a number with a fraction or exponent keeps its written value, where the default reads it
+     * as a double: {@code 9007199254740991.4} is then no longer rounded to the integer 9007199254740991.
+     */
+    private static final ObjectMapper EXACT_TREES = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+            .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS);
+
     private Json() {
     }
 
@@ -73,6 +81,21 @@ public final class Json {
         }
         try {
             return present(TREES.readTree(json));
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException("malformed JSON", e);
+        }
+    }
+
+    /**
+     * Exactly one JSON value read from {@code json} as {@link #tree(String)} reads it, except that a non-integer
+     * number is exact, for a caller that judges a number by its written value; null, empty or anything else throws.
+     */
+    public static JsonNode exactTree(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("no JSON");
+        }
+        try {
+            return present(EXACT_TREES.readTree(json));
         } catch (JacksonException e) {
             throw new IllegalArgumentException("malformed JSON", e);
         }
