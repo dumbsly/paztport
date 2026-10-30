@@ -53,11 +53,10 @@ class QuarantineDeciderTest {
     void policyRefusalsNeverCount() {
         // The chain was sound; payment's policy declined what shaped it. That is not misbehaviour.
         QuarantineDecider d = decider();
-        for (int i = 0; i < 3; i++) {
-            assertEquals(QuarantineDecision.NONE, d.observe(event("INFLUENCE_DENIED", "search", "s1")));
-        }
-        for (int i = 0; i < 3; i++) {
-            assertEquals(QuarantineDecision.NONE, d.observe(event("UNSAFE_SESSION", "search", "s1")));
+        for (String reason : new String[] {"INFLUENCE_DENIED", "UNSAFE_SESSION"}) {
+            for (int i = 0; i < 3; i++) {
+                assertEquals(QuarantineDecision.NONE, d.observe(event(reason, "search", "s1")), reason);
+            }
         }
     }
 
@@ -71,10 +70,41 @@ class QuarantineDeciderTest {
     }
 
     @Test
+    void aReasonOutsideTheAllowListNeverCounts() {
+        // Fail closed: a code the rule does not list is not evidence, however it got here.
+        QuarantineDecider d = decider();
+        for (String reason : new String[] {"OK", "SCOPE_DENIED", "UNCHECKABLE", "NOT_A_CODE", ""}) {
+            for (int i = 0; i < 3; i++) {
+                assertEquals(QuarantineDecision.NONE, d.observe(event(reason, "search", "s1")), reason);
+            }
+        }
+    }
+
+    @Test
+    void everyAttributableReasonCounts() {
+        for (String reason : new String[] {"CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",
+                "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
+                "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH"}) {
+            QuarantineDecider d = decider();
+            d.observe(event(reason, "search", "s1"));
+            d.observe(event(reason, "search", "s1"));
+            assertEquals(QuarantineDecision.QUARANTINE, d.observe(event(reason, "search", "s1")), reason);
+        }
+    }
+
+    @Test
     void blankInstanceIsNeverActioned() {
         QuarantineDecider d = decider();
         for (int i = 0; i < 5; i++) {
             assertEquals(QuarantineDecision.NONE, d.observe(event("search", "")));
+        }
+    }
+
+    @Test
+    void anEventNamingNoServiceIsNeverActioned() {
+        QuarantineDecider d = decider();
+        for (int i = 0; i < 5; i++) {
+            assertEquals(QuarantineDecision.NONE, d.observe(event("", "s1")));
         }
     }
 
