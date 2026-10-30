@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JcsWriter;
@@ -262,13 +263,7 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(String reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        JsonNode tree;
-        try {
-            tree = Json.tree(reply);
-        } catch (IllegalArgumentException e) {
-            return ReplyCheck.MALFORMED_REPLY;
-        }
-        return checkReply(tree, req, pinnedServerPolicyKey, serverEntry, nowMs);
+        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
     }
 
     /**
@@ -277,13 +272,16 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(byte[] reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        JsonNode tree;
+        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
+    }
+
+    /** The reply as a tree, or null when it is not one JSON value, which the shape check then refuses. */
+    private static JsonNode readOrNull(Supplier<JsonNode> reader) {
         try {
-            tree = Json.tree(reply);
+            return reader.get();
         } catch (IllegalArgumentException e) {
-            return ReplyCheck.MALFORMED_REPLY;
+            return null;
         }
-        return checkReply(tree, req, pinnedServerPolicyKey, serverEntry, nowMs);
     }
 
     private static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey,

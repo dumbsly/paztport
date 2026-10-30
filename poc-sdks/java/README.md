@@ -45,14 +45,17 @@ has one, the authenticated peer.
   and `checkReply` judge both sides' roots and keyrings at the handshake: old form or
   past `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a
   partner whose own material has expired opens every session unsafe.
-- **JSON in and out.** No public signature names a JSON library. Wire objects
-  enter as JSON text or as the SDK's own value types, and leave as JSON text: each
-  value type has `toJson()`, and a reader such as `KeyringFile.parse(String)` that
-  throws `IllegalArgumentException` for anything malformed, text that is not one
-  JSON value included. A session request or reply may also be handed over as the
-  body's bytes. The verifiers take the stamps, influence and proof as the JSON text
-  received and read it themselves, so text that is not JSON is a typed rejection at
-  the check that reads it. `Jcs` canonicalises JSON text.
+- **JSON in and out.** No public signature names a JSON library. Each value type
+  writes its wire form with `toJson()` and reads it with a static `parse(String)` on
+  the type, such as `KeyringFile.parse` or `SessionRequest.parse`, which throws
+  `IllegalArgumentException` for anything malformed, text that is not one JSON value
+  included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
+  list is read and written by the class that owns it (`Influence.parse`,
+  `ContentLabel.parseAll`, `Chains.parse`). A session reply is judged as received, so
+  it has no reader: `Sessions.checkReply` takes its text or bytes. The verifiers take
+  the stamps, influence and proof as the JSON text received and read it themselves,
+  so text that is not JSON is a typed rejection at the check that reads it. `Jcs`
+  canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and
@@ -64,16 +67,19 @@ has one, the authenticated peer.
 
 v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
 `X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
-`X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call is in. `RequestBinding` computes `bind` over the method, the raw path
-plus `?` and the raw query when there is one, and the body. `HttpV3` encodes the
-headers and decodes them to the JSON text they carry, builds a request's verify input (nonce key
-`<rid>|<last svc>|req`), computes a response's result hash over its status and
-body, and checks a response's attestation against the chain the caller sent
-(nonce key `<rid>|<target>|resp`). A service therefore calls a given receiver at
-most once per request tree. `HttpSessions` fixes the handshake's names (`PATH`, `/paztport/session`, and
-the error codes `INVALID_PARAMS` and `NO_SESSION`), reads a request body as strictly as `HttpV3` does (trailing
-tokens are refused), and writes `{"error":"<code>"}`. `HttpVerifyRequestsV1` is the v1 equivalent, kept for
-`v1.json`.
+`X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call
+is in. `RequestBinding` computes `bind` over the method, the raw path plus `?` and
+the raw query when there is one, and the body. `HttpV3` encodes the headers and
+decodes them to the JSON text they carry, builds a request's verify input (nonce
+key `<rid>|<last svc>|req`), computes a response's result hash over its status and
+body, and checks a response's attestation against the chain the caller sent (nonce
+key `<rid>|<target>|resp`). A service therefore calls a given receiver at most
+once per request tree. `HttpSessions` fixes the handshake's names (`PATH`,
+`/paztport/session`, and the error codes `INVALID_PARAMS` and `NO_SESSION`) and
+writes `{"error":"<code>"}`; core reads the bodies, a request with
+`SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],
+...)`, as strictly as `HttpV3` reads a header (trailing tokens are refused).
+`HttpVerifyRequestsV1` is the v1 equivalent, kept for `v1.json`.
 
 ## paztport-spring
 
@@ -87,7 +93,7 @@ application uses: Boot 4's web layer and `RestClient` use Jackson 3
 such as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
 labelled `application/json`, so it is written exactly as it stands; a body goes to
 the SDK as the bytes or text it arrived in, as the starter's
-`PartnerSessionController` hands a session request to `HttpSessions.parseRequest`.
+`PartnerSessionController` hands a session request to `SessionRequest.parse`.
 
 - **The inbound filter** caches the body, opens a `PaztportContext` scope for the
   request, and keeps the received chain and influence there for the outbound

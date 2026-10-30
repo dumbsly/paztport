@@ -10,11 +10,12 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
 /**
- * The session handshake's names and body handling over HTTP, with no web framework. The request and reply are the
- * JSON forms {@link Sessions} already defines; this only fixes where they travel and how a bad body is read.
- *
- * <p>Parsing is as strict as {@link HttpV3}'s: bytes that are not exactly one JSON value, trailing tokens
- * included, are refused, so a body cannot carry a second value that another parser would read differently.
+ * The session handshake's names over HTTP, with no web framework: where the request and reply travel, and the
+ * body of a refusal. The request and reply are the JSON forms {@link Sessions} defines. A server reads a request
+ * body with {@link SessionRequest#parse(byte[])} and a client checks a reply body with
+ * {@link Sessions#checkReply(byte[], SessionRequest, String, String, long)}; both refuse bytes that are not exactly
+ * one JSON value, trailing tokens included, so a body cannot carry a second value that another parser would read
+ * differently.
  */
 public final class HttpSessions {
 
@@ -28,11 +29,6 @@ public final class HttpSessions {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private HttpSessions() {
-    }
-
-    /** Reads a request body, throwing {@link IllegalArgumentException} for anything a server must answer 400. */
-    public static SessionRequest parseRequest(byte[] body) {
-        return SessionRequest.parse(body);
     }
 
     /** The body of a refusal: {@code {"error":"<code>"}}. */

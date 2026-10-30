@@ -50,7 +50,7 @@ class PartnerSessionController {
             if (body.length > MAX_BODY_BYTES) {
                 return error(HttpSessions.INVALID_PARAMS);
             }
-            req = HttpSessions.parseRequest(body);
+            req = SessionRequest.parse(body);
         } catch (IllegalArgumentException e) {
             return error(HttpSessions.INVALID_PARAMS);
         }

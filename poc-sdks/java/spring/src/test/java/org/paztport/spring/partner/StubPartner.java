@@ -212,7 +212,7 @@ final class StubPartner implements AutoCloseable {
                         Thread.currentThread().interrupt();
                     }
                 }
-                SessionRequest req = HttpSessions.parseRequest(body);
+                SessionRequest req = SessionRequest.parse(body);
                 Integer failure;
                 synchronized (this) {
                     failure = req.clientRoot() == null ? null : handshakeFailures.poll();
