@@ -24,7 +24,7 @@ import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -61,8 +61,8 @@ class TicketsControllerTest {
         TicketsController controller = new TicketsController(builder.build(), "http://assistant");
 
         ResponseEntity<?> response;
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.setInboundChain(inbound);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(inbound);
             response = controller.ticket(new TicketsController.Ticket("alice", TEXT));
         }
         server.verify();

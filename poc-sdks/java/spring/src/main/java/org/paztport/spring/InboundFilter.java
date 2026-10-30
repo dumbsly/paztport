@@ -24,6 +24,7 @@ import org.paztport.http.InboundRequest;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.ReceivedRequestListener;
+import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.spring.internal.PeerIdentity;
@@ -36,12 +37,12 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * body, reads the current {@link VerificationMode} once per request on a service that verifies requests
  * ({@code paztport.verify=true}), hands the receiver the request and the peer the TLS handshake authenticated
  * ({@link PeerIdentity}), and then either writes the receiver's refusal or serves the request inside a
- * {@link PaztportContext.Scope} holding what the receiver decided ({@link PaztportContext#enter(Accepted)}), so what
+ * {@link RequestContext.Scope} holding what the receiver decided ({@link RequestContext#enter(Accepted)}), so what
  * its handler and its calls learn is carried for the request and dropped when it ends. Async work after the handler
  * returns runs outside it.
  *
  * <p>When the receiver says the answer is attested, this filter holds the body until the handler returns, since the
- * stamp covers all of it, and hands the status, the body and the handler's labels ({@link PaztportContext#label}) to
+ * stamp covers all of it, and hands the status, the body and the handler's labels ({@link RequestContext#label}) to
  * {@link Accepted#attest}, setting what comes back as {@code X-Path-Response}. Deciding when the answer is complete
  * is the servlet's part, and this filter's: a handler that throws sends no attestation, and a body the container
  * writes afterwards (an error page after {@code sendError}) is not the one attested; either way the caller cannot
@@ -143,7 +144,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             refuse(response, accepted.refusal());
             return;
         }
-        try (PaztportContext.Scope scope = PaztportContext.enter(accepted)) {
+        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
                 return;
@@ -159,7 +160,7 @@ public final class InboundFilter extends OncePerRequestFilter {
             // Committed means the container has sent something the handler did not finish with: leave it alone.
             if (!cached.isCommitted()) {
                 String attestation = accepted.attest(cached.getStatus(), cached.getContentAsByteArray(),
-                        PaztportContext.labels());
+                        RequestContext.labels());
                 if (attestation != null) {
                     cached.setHeader(PaztportHeaders.RESPONSE, attestation);
                 }

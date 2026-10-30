@@ -26,10 +26,12 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpV3;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
@@ -56,7 +58,7 @@ class VerifiedChainTest {
 
     @AfterEach
     void cleanup() {
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     /** Captures, inside the handler, what the context says was verified. */
@@ -66,8 +68,8 @@ class VerifiedChainTest {
 
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse res) {
-            verified = PaztportContext.verifiedChain();
-            inbound = PaztportContext.inboundChain();
+            verified = RequestContext.verifiedChain();
+            inbound = RequestContext.inboundChain();
         }
     }
 
@@ -169,6 +171,6 @@ class VerifiedChainTest {
     @Test
     void scopeEndsClean() throws Exception {
         run(filter(VerificationMode.ENFORCE, false), request(orders));
-        assertNull(PaztportContext.verifiedChain());
+        assertNull(RequestContext.verifiedChain());
     }
 }

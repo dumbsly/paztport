@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -23,7 +23,6 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.http.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 class PublicWritesTest {
@@ -56,12 +55,12 @@ class PublicWritesTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.reset();
+        RequestContext.reset();
     }
 
     private ReasonCode decideWith(String owner, InfluenceEntry... entries) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.addInfluence(entries);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.addInfluence(entries);
             return writes.decide(owner);
         }
     }
@@ -116,9 +115,9 @@ class PublicWritesTest {
 
     /** Asks the trusted-record question in a scope whose chain verified, holding {@code entries}. */
     private boolean trustedWith(InfluenceEntry... entries) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.markVerified(chain("rid-1"));
-            PaztportContext.addInfluence(entries);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.markVerified(chain("rid-1"));
+            RequestContext.addInfluence(entries);
             return writes.shapedOnlyByTrusted();
         }
     }
@@ -131,8 +130,8 @@ class PublicWritesTest {
     // A chain that arrived but did not verify here vouches for nothing, so no influence at all is not enough.
     @Test
     void trustedRecordNeedsAVerifiedChain() {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.setInboundChain(chain("rid-1"));
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(chain("rid-1"));
             assertFalse(writes.shapedOnlyByTrusted());
         }
     }

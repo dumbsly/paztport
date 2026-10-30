@@ -9,10 +9,10 @@ import java.nio.charset.StandardCharsets;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpAnswer;
 import org.paztport.http.PartnerSessions;
+import org.paztport.http.RequestContext;
 import org.paztport.http.UnsafeOperations;
+import org.paztport.http.internal.DecisionLine;
 import org.paztport.spring.PartnerFilter;
-import org.paztport.spring.PaztportContext;
-import org.paztport.spring.internal.DecisionLine;
 import org.paztport.spring.internal.SessionStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +59,7 @@ final class PartnerGate implements HandlerInterceptor {
         }
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
-                    PaztportContext.influence()));
+                    RequestContext.influence()));
         }
         HttpAnswer refusal = UnsafeOperations.refusal();
         response.setStatus(refusal.status());

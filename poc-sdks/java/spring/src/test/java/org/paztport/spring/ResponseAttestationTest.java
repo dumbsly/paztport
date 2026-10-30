@@ -43,6 +43,7 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PaztportHeaders;
+import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.slf4j.LoggerFactory;
@@ -128,7 +129,7 @@ class ResponseAttestationTest {
     static class Handlers {
         @GetMapping("/labelled")
         String labelled() {
-            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+            RequestContext.label(InfluenceClass.PRIVATE, "alice");
             return "alice's order history";
         }
 
@@ -221,10 +222,10 @@ class ResponseAttestationTest {
      * and answers the status, the body and what the call recorded, whatever they are.
      */
     private Answer call(RestClient client, String path) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             return client.get().uri(uri(path)).exchange((request, response) -> new Answer(
                     response.getStatusCode().value(), response.getBody().readAllBytes(),
-                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), PaztportContext.influence()), false);
+                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), RequestContext.influence()), false);
         }
     }
 

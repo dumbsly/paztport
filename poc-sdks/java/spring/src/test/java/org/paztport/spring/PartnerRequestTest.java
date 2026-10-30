@@ -45,10 +45,12 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
+import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.BoundaryClient;
 import org.slf4j.LoggerFactory;
@@ -178,8 +180,8 @@ class PartnerRequestTest {
 
         private static String seen(HttpServletRequest request) throws IOException {
             ObjectNode seen = JSON.createObjectNode();
-            seen.set("influence", JSON.readTree(Influence.toJson(PaztportContext.influence())));
-            seen.put("verified", PaztportContext.verifiedChain() != null);
+            seen.set("influence", JSON.readTree(Influence.toJson(RequestContext.influence())));
+            seen.put("verified", RequestContext.verifiedChain() != null);
             seen.put("session", (String) request.getAttribute(PartnerFilter.SESSION_STATUS));
             return JSON.writeValueAsString(seen);
         }
@@ -204,7 +206,7 @@ class PartnerRequestTest {
         trace.detachAppender(logs);
         trace.setLevel(null);
         trace.setAdditive(true);
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     private static final List<PooledTlsClient> POOLED = new CopyOnWriteArrayList<>();
@@ -435,9 +437,9 @@ class PartnerRequestTest {
                 SHOP_BUILT.signedRoot(), SHOP_RING, SHOP_PIN, PARTNER, URI.create("https://localhost:" + port),
                 PSP_PIN, blindingKey, null, tls, 600_000)) {
             for (String rid : List.of("rid-t1", "rid-t2")) {
-                try (PaztportContext.Scope scope = PaztportContext.open()) {
-                    PaztportContext.markVerified(internal(rid));
-                    PaztportContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
+                try (RequestContext.Scope scope = RequestContext.open()) {
+                    ContextAccess.markVerified(internal(rid));
+                    RequestContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
 
                     BoundaryClient.Response response = boundary.post("/refund", REFUND);
 

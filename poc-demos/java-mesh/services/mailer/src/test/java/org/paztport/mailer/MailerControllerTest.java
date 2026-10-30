@@ -9,8 +9,8 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.spring.PaztportContext;
-import org.paztport.spring.PublicWrites;
+import org.paztport.http.PublicWrites;
+import org.paztport.http.RequestContext;
 import org.springframework.http.ResponseEntity;
 
 // The influence a hijacked assistant's email carries: a ticket's untrusted text beside alice's order.
@@ -21,8 +21,8 @@ class MailerControllerTest {
             new PublicWrites("mailer"));
 
     private ResponseEntity<Map<String, String>> sendAfterTicket(String to) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.addInfluence(
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.addInfluence(
                     new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "aGFzaA", null, null),
                     new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice"));
             return controller.send(new MailerController.Mail(to, "Order history", "order 123"));

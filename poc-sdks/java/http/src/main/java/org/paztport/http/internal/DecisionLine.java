@@ -1,16 +1,16 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.internal;
+package org.paztport.http.internal;
 
 import java.util.List;
 import java.util.TreeSet;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.http.PublicWrites;
+import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
-import org.paztport.spring.PaztportContext;
-import org.paztport.spring.PublicWrites;
 
 /**
  * The {@code PAZTPORT_TRACE decision} line, which the public-write rule and the partner's unsafe-session gate both
@@ -29,8 +29,8 @@ public final class DecisionLine {
      * the classes.
      */
     public static String of(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
-        List<StampV3> chain = PaztportContext.verifiedChain() != null
-                ? PaztportContext.verifiedChain() : PaztportContext.inboundChain();
+        List<StampV3> chain = RequestContext.verifiedChain() != null
+                ? RequestContext.verifiedChain() : RequestContext.inboundChain();
         String rid = chain == null || chain.isEmpty() || chain.get(0).rid().isEmpty()
                 ? "-" : LogSafe.of(chain.get(0).rid());
         TreeSet<String> classes = new TreeSet<>();

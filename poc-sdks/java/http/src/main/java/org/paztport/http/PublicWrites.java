@@ -1,13 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import java.util.List;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.spring.internal.DecisionLine;
+import org.paztport.http.internal.DecisionLine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
  * destination owner's, and {@link ReasonCode#OK} otherwise.
  *
  * <p>The destination owner must come from the service's own records, never from request content, or the request
- * could name its own destination owner and pass. Outside a {@link PaztportContext.Scope} there is no influence to
+ * could name its own destination owner and pass. Outside a {@link RequestContext.Scope} there is no influence to
  * judge, so the write is refused rather than assumed clean.
  *
  * <p>It answers a second question too, {@link #shapedOnlyByTrusted}, for writes into the service's own trusted
@@ -48,8 +48,8 @@ public final class PublicWrites {
      * @param destinationOwner the owner of the destination from trusted records, or null/empty when unknown
      */
     public ReasonCode decide(String destinationOwner) {
-        List<InfluenceEntry> influence = PaztportContext.influence();
-        boolean refused = !PaztportContext.isOpen()
+        List<InfluenceEntry> influence = RequestContext.influence();
+        boolean refused = !RequestContext.isOpen()
                 || InfluenceRule.publicWriteRefused(
                         influence.stream().map(InfluenceEntry::fact).toList(), destinationOwner);
         ReasonCode reason = refused ? ReasonCode.INFLUENCE_DENIED : ReasonCode.OK;
@@ -70,8 +70,8 @@ public final class PublicWrites {
      * {@code rule=trusted-record}.
      */
     public boolean shapedOnlyByTrusted() {
-        List<InfluenceEntry> influence = PaztportContext.influence();
-        boolean trusted = PaztportContext.isOpen() && PaztportContext.verifiedChain() != null
+        List<InfluenceEntry> influence = RequestContext.influence();
+        boolean trusted = RequestContext.isOpen() && RequestContext.verifiedChain() != null
                 && InfluenceRule.shapedOnlyByTrusted(influence.stream().map(InfluenceEntry::fact).toList());
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "trusted-record",

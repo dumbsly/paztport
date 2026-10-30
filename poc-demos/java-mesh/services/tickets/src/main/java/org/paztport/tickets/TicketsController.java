@@ -16,7 +16,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -59,7 +59,7 @@ public class TicketsController {
         String id = "t-" + sequence.incrementAndGet();
         String text = ticket.text() == null ? "" : ticket.text();
         String hash = Base64Url.encode(Crypto.sha256(text.getBytes(StandardCharsets.UTF_8)));
-        PaztportContext.addInfluence(new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:" + id, hash, null, null));
+        RequestContext.addInfluence(new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:" + id, hash, null, null));
 
         Map<String, String> assist = new LinkedHashMap<>();
         assist.put("ticket", id);
@@ -89,7 +89,7 @@ public class TicketsController {
 
     /** The request's rid, from the chain the gateway started; null only outside a verified request. */
     private static String rid() {
-        List<StampV3> chain = PaztportContext.inboundChain();
+        List<StampV3> chain = RequestContext.inboundChain();
         return chain == null || chain.isEmpty() ? null : chain.get(0).rid();
     }
 

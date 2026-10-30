@@ -7,7 +7,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.paztport.core.influence.InfluenceClass;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -50,7 +50,7 @@ public class OrdersController {
         if (order == null) {
             return ResponseEntity.status(404).body(Map.of("reason", "NO_ORDER"));
         }
-        PaztportContext.label(InfluenceClass.PRIVATE, order.customer());
+        RequestContext.label(InfluenceClass.PRIVATE, order.customer());
         return ResponseEntity.ok(order);
     }
 
@@ -59,7 +59,7 @@ public class OrdersController {
     public Map<String, List<OrderBook.Order>> byEmail(@RequestParam String email) {
         List<OrderBook.Order> found = book.byEmail(email);
         found.stream().map(OrderBook.Order::customer).distinct()
-                .forEach(customer -> PaztportContext.label(InfluenceClass.PRIVATE, customer));
+                .forEach(customer -> RequestContext.label(InfluenceClass.PRIVATE, customer));
         return Map.of("orders", found);
     }
 

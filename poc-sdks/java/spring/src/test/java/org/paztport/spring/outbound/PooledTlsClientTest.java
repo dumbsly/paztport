@@ -31,8 +31,8 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StamperV3;
+import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
-import org.paztport.spring.PaztportContext;
 import org.springframework.boot.ssl.SslBundle;
 import org.springframework.boot.ssl.SslBundleKey;
 import org.springframework.boot.ssl.SslOptions;
@@ -179,11 +179,11 @@ class PooledTlsClientTest {
                 .build();
         List<String> paths = List.of("/refuse", "/ok", "/fail", "/none", "/empty", "/ok");
 
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             for (String path : paths) {
                 assertThat(call(client, url + path)).as(path).isEqualTo(ANSWERS.get(path));
             }
-            assertThat(PaztportContext.influence()).hasSize(paths.size())
+            assertThat(RequestContext.influence()).hasSize(paths.size())
                     .extracting(InfluenceEntry::cls).containsOnly(InfluenceClass.LOCAL_UNTRUSTED);
         }
         assertThat(ports).hasSize(paths.size());

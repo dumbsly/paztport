@@ -23,8 +23,11 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
+import org.paztport.http.ContextAccess;
+import org.paztport.http.PublicWrites;
 import org.paztport.http.ReceiverAccess;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.partner.TraceAccess;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +60,7 @@ class TraceLineTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     @Test
@@ -78,9 +81,9 @@ class TraceLineTest {
 
     @Test
     void decisionLine() {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.markVerified(chain("rid-7"));
-            PaztportContext.addInfluence(MINE, WEB);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            ContextAccess.markVerified(chain("rid-7"));
+            RequestContext.addInfluence(MINE, WEB);
             new PublicWrites("mailer").decide("mallory");
         }
         List<String> lines = traces.list.stream().map(ILoggingEvent::getFormattedMessage).toList();

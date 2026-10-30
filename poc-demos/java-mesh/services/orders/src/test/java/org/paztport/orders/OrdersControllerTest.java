@@ -14,7 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -60,9 +60,9 @@ class OrdersControllerTest {
     @Test
     void anOrderIsLabelledPrivateToItsCustomer() {
         List<ContentLabel> labels;
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             assertEquals(200, controller.byId("123").getStatusCode().value());
-            labels = PaztportContext.labels();
+            labels = RequestContext.labels();
         }
 
         assertEquals(1, labels.size());

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -9,8 +9,6 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
-import org.paztport.http.Accepted;
-import org.paztport.http.PartnerAccepted;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +27,9 @@ import org.slf4j.LoggerFactory;
  * the two filters enters one per request; outside any scope the outbound interceptor neither reads the context nor
  * records responses into it, so calls made there stamp with no influence and leave nothing behind.
  */
-public final class PaztportContext {
+public final class RequestContext {
 
-    private static final Logger LOG = LoggerFactory.getLogger(PaztportContext.class);
+    private static final Logger LOG = LoggerFactory.getLogger(RequestContext.class);
 
     private static final ThreadLocal<List<StampV3>> INBOUND = new ThreadLocal<>();
     private static final ThreadLocal<List<StampV3>> VERIFIED = new ThreadLocal<>();
@@ -39,7 +37,7 @@ public final class PaztportContext {
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
 
-    private PaztportContext() {
+    private RequestContext() {
     }
 
     public static void setInboundChain(List<StampV3> chain) {

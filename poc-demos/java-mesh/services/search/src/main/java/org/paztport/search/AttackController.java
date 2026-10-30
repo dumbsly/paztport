@@ -15,7 +15,7 @@ import org.paztport.core.stamp.StampV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -89,12 +89,12 @@ public class AttackController {
         }
         // Let the normal interceptor append search's own stamp to the stolen chain. The rest of the context
         // belongs to the filter serving this request, so only the chain is swapped, and it is put back after.
-        List<StampV3> previous = PaztportContext.inboundChain();
-        PaztportContext.setInboundChain(stolen);
+        List<StampV3> previous = RequestContext.inboundChain();
+        RequestContext.setInboundChain(stolen);
         try {
             return callPayment(stampedClient, null, null, null, BODY);
         } finally {
-            PaztportContext.setInboundChain(previous);
+            RequestContext.setInboundChain(previous);
         }
     }
 

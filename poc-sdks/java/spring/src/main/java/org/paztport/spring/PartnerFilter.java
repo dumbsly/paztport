@@ -12,6 +12,7 @@ import org.paztport.http.HttpSessions;
 import org.paztport.http.PartnerAccepted;
 import org.paztport.http.PartnerReceiver;
 import org.paztport.http.PartnerSessions;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.SessionStatus;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -23,7 +24,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
  *
  * <p>This filter caches the body, hands the receiver the call and the client certificate the TLS layer
  * authenticated ({@link PeerIdentity}), and then either writes the receiver's refusal or serves the call inside a
- * {@link PaztportContext.Scope} holding what the receiver decided ({@link PaztportContext#enter(PartnerAccepted)}):
+ * {@link RequestContext.Scope} holding what the receiver decided ({@link RequestContext#enter(PartnerAccepted)}):
  * in an unsafe session, no influence and no verified chain, whatever headers came; in an attested one, the verified
  * influence, owners included, and the verified chain. {@link org.paztport.spring.partner.PartnerGate} then refuses
  * the operations switched off for unsafe sessions.
@@ -67,7 +68,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
             InboundFilter.refuse(response, accepted.refusal());
             return;
         }
-        try (PaztportContext.Scope scope = PaztportContext.enter(accepted)) {
+        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
             if (accepted.attested()) {
                 request.setAttribute(SESSION_STATUS, SessionStatus.ATTESTED);
             }

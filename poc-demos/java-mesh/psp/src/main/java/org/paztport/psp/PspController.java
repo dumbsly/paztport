@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.Optional;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.spring.PaztportContext;
-import org.paztport.spring.PublicWrites;
+import org.paztport.http.PublicWrites;
+import org.paztport.http.RequestContext;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -61,9 +61,9 @@ public class PspController {
      * then is the influence the one the shop's boundary stamp committed to, and the rid the chain's.
      */
     private void recordReceived() {
-        List<StampV3> verified = PaztportContext.verifiedChain();
+        List<StampV3> verified = RequestContext.verifiedChain();
         if (received != null && verified != null && !verified.isEmpty()) {
-            received.record(verified.get(0).rid(), PaztportContext.influence());
+            received.record(verified.get(0).rid(), RequestContext.influence());
         }
     }
 

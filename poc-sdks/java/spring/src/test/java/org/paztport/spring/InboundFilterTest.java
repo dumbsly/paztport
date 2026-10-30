@@ -45,11 +45,13 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpV3;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.ReceivedRequestListener;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.slf4j.LoggerFactory;
@@ -102,7 +104,7 @@ class InboundFilterTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        PaztportContext.reset();
+        ContextAccess.reset();
     }
 
     private VerifierV3 paymentVerifier() {
@@ -176,9 +178,9 @@ class InboundFilterTest {
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse res) {
             reached = true;
-            scoped = PaztportContext.isOpen();
-            chain = PaztportContext.inboundChain();
-            influence = PaztportContext.influence();
+            scoped = RequestContext.isOpen();
+            chain = RequestContext.inboundChain();
+            influence = RequestContext.influence();
         }
     }
 
@@ -186,7 +188,7 @@ class InboundFilterTest {
     private static final class Answering extends HttpServlet {
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse res) throws IOException {
-            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+            RequestContext.label(InfluenceClass.PRIVATE, "alice");
             res.setStatus(201);
             res.getOutputStream().write("paid".getBytes(StandardCharsets.UTF_8));
         }
@@ -348,8 +350,8 @@ class InboundFilterTest {
                 paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), new MockHttpServletResponse(),
                 new MockFilterChain());
 
-        assertNull(PaztportContext.inboundChain());
-        assertTrue(PaztportContext.influence().isEmpty());
+        assertNull(RequestContext.inboundChain());
+        assertTrue(RequestContext.influence().isEmpty());
     }
 
     /** Two endpoints: one dirties the context, the other reports what it found. */
@@ -361,16 +363,16 @@ class InboundFilterTest {
 
         @PostMapping("/dirty")
         String dirty() {
-            PaztportContext.addInfluence(WEB);
-            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+            RequestContext.addInfluence(WEB);
+            RequestContext.label(InfluenceClass.PRIVATE, "alice");
             return "ok";
         }
 
         @PostMapping("/look")
         String look() {
-            chain = PaztportContext.inboundChain();
-            influence = PaztportContext.influence();
-            labels = PaztportContext.labels();
+            chain = RequestContext.inboundChain();
+            influence = RequestContext.influence();
+            labels = RequestContext.labels();
             return "ok";
         }
     }
@@ -472,21 +474,21 @@ class InboundFilterTest {
                 new MockHttpServletResponse(), new MockFilterChain(seen));
 
         assertTrue(seen.scoped, "what the handler's calls learn is recorded");
-        assertTrue(!PaztportContext.isOpen(), "and dropped when the request ends");
+        assertTrue(!RequestContext.isOpen(), "and dropped when the request ends");
     }
 
     @Test
     void aScopeLeakedOnThisThreadIsEndedWithAWarningAndRequestsAreStillServed() throws Exception {
         ListAppender<ILoggingEvent> warnings = new ListAppender<>();
-        Logger filterLog = (Logger) LoggerFactory.getLogger(PaztportContext.class);
+        Logger filterLog = (Logger) LoggerFactory.getLogger(RequestContext.class);
         warnings.start();
         filterLog.addAppender(warnings);
         filterLog.setLevel(Level.WARN);
         filterLog.setAdditive(false);
         try {
             // Code outside the filter opened a scope on this pooled thread, recorded something, and never closed it.
-            PaztportContext.open();
-            PaztportContext.addInfluence(WEB);
+            RequestContext.open();
+            RequestContext.addInfluence(WEB);
 
             Seen first = new Seen();
             MockHttpServletResponse firstResponse = new MockHttpServletResponse();
@@ -496,7 +498,7 @@ class InboundFilterTest {
             assertEquals(200, firstResponse.getStatus());
             assertTrue(first.reached && first.scoped);
             assertEquals(List.of(), first.influence, "nothing the leaked scope held reaches the request");
-            assertTrue(!PaztportContext.isOpen());
+            assertTrue(!RequestContext.isOpen());
             assertEquals(1, warnings.list.size());
             String warning = warnings.list.get(0).getFormattedMessage();
             assertTrue(warning.startsWith("a paztport context scope was leaked on thread "), warning);

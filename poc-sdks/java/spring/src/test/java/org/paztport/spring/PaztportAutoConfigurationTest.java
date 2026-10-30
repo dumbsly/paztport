@@ -63,6 +63,7 @@ import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.PeerCert;
+import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
 import org.paztport.http.event.EventAccess;
 import org.paztport.http.event.EventPublisher;
@@ -585,8 +586,8 @@ class PaztportAutoConfigurationTest {
 
     /** Publishes while a request's scope holds an inbound chain, as the filter does when it refuses one. */
     private static void publishInsideARequest(EventPublisher publisher) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.setInboundChain(List.of(StampV3.sign("gateway", "gw-1", "rid-1", 1L, "", "payment",
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(List.of(StampV3.sign("gateway", "gw-1", "rid-1", 1L, "", "payment",
                     "b", "", "", Crypto.generateEd25519KeyPair().getPrivate())));
             publisher.publish(EVENT);
         }

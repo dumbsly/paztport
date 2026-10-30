@@ -18,8 +18,8 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
-import org.paztport.spring.PaztportContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
@@ -32,7 +32,7 @@ import org.springframework.http.client.ClientHttpResponse;
 /**
  * Stamps every outbound RestClient request, and checks every response. The receiver is taken from the request URI
  * host (Docker Compose service names equal hostnames), and the inbound chain and the influence so far come from
- * {@link PaztportContext}, so the stamp names where the call goes and commits to what shaped it.
+ * {@link RequestContext}, so the stamp names where the call goes and commits to what shaped it.
  *
  * <p>The binding covers the raw path and the raw query, exactly as they go on the wire, so the receiver can bind
  * the same bytes its container hands it without decoding anything.
@@ -43,7 +43,7 @@ import org.springframework.http.client.ClientHttpResponse;
  * no verifier is configured — contributes one {@code local-untrusted} entry, so content nobody vouched for still
  * counts against later calls. Every response checked logs one {@code PAZTPORT_TRACE response} line.
  *
- * <p>All of this happens only inside a {@link PaztportContext.Scope}, which the inbound filter opens per request.
+ * <p>All of this happens only inside a {@link RequestContext.Scope}, which the inbound filter opens per request.
  * Outside one (a scheduled job, a startup runner, a control-plane handler) a call is still stamped, with no
  * inbound chain and no influence, and its response is still checked and traced, but nothing is recorded: there
  * is no unit of work to carry it, and a pooled thread would otherwise hand it to whatever ran next.
@@ -72,10 +72,10 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
-        boolean scoped = PaztportContext.isOpen();
-        List<InfluenceEntry> influence = scoped ? PaztportContext.influence() : List.of();
+        boolean scoped = RequestContext.isOpen();
+        List<InfluenceEntry> influence = scoped ? RequestContext.influence() : List.of();
 
-        StamperV3.Stamped stamped = stamper.next(scoped ? PaztportContext.inboundChain() : null, uri.getHost(),
+        StamperV3.Stamped stamped = stamper.next(scoped ? RequestContext.inboundChain() : null, uri.getHost(),
                 RequestBinding.compute(request.getMethod().name(), target, body), influence, bundle);
 
         request.getHeaders().set(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
@@ -128,10 +128,10 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
         // Unscoped, there is nothing to carry it to: recording would leak it into whatever this thread runs next.
         if (scoped) {
             if (check != null && check.result().ok()) {
-                PaztportContext.addInfluence(check.labels().stream().map(l -> l.toEntry(src, hash))
+                RequestContext.addInfluence(check.labels().stream().map(l -> l.toEntry(src, hash))
                         .toArray(InfluenceEntry[]::new));
             } else {
-                PaztportContext.addInfluence(
+                RequestContext.addInfluence(
                         new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, src, hash, null, null));
             }
         }

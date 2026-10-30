@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import java.util.List;
 import org.paztport.core.stamp.StampV3;
@@ -18,6 +18,6 @@ public final class VerifiedChains {
 
     /** As the partner filter does after the call verified; only inside an open scope. */
     public static void mark(List<StampV3> chain) {
-        PaztportContext.markVerified(chain);
+        RequestContext.markVerified(chain);
     }
 }

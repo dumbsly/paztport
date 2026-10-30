@@ -41,6 +41,7 @@ import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
+import org.paztport.http.RequestContext;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -101,16 +102,16 @@ class AttestationRuleTest {
 
         @GetMapping("/labelled")
         String labelled() {
-            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+            RequestContext.label(InfluenceClass.PRIVATE, "alice");
             return "alice's order history";
         }
 
         /** What the handler was given: the inbound chain's length (-1 for none) and the influence classes. */
         @GetMapping("/seen")
         Map<String, Object> seen() {
-            List<StampV3> chain = PaztportContext.inboundChain();
+            List<StampV3> chain = RequestContext.inboundChain();
             return Map.of("chain", chain == null ? -1 : chain.size(),
-                    "influence", PaztportContext.influence().stream().map(e -> e.cls().wire()).toList());
+                    "influence", RequestContext.influence().stream().map(e -> e.cls().wire()).toList());
         }
 
         /** Calls {@code path} on the app at {@code port} and reports what the call recorded as influence. */
@@ -120,7 +121,7 @@ class AttestationRuleTest {
                 Map<String, Object> out = new HashMap<>();
                 out.put("status", response.getStatusCode().value());
                 out.put("attested", response.getHeaders().getFirst(PaztportHeaders.RESPONSE) != null);
-                out.put("recorded", PaztportContext.influence().stream().map(e -> e.cls().wire()).toList());
+                out.put("recorded", RequestContext.influence().stream().map(e -> e.cls().wire()).toList());
                 return out;
             }, false);
         }
@@ -203,12 +204,12 @@ class AttestationRuleTest {
     }
 
     private static Answer get(RestClient client, int port, String path) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             return client.get().uri(URI.create("http://localhost:" + port + path)).exchange((request, response) ->
                     new Answer(response.getStatusCode().value(),
                             new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8),
                             response.getHeaders().getFirst(PaztportHeaders.RESPONSE),
-                            PaztportContext.influence()), false);
+                            RequestContext.influence()), false);
         }
     }
 
@@ -271,9 +272,9 @@ class AttestationRuleTest {
     void anOriginStartsFromNoChainAndNoInfluence() throws Exception {
         for (int port : new int[] {origin, enforcingOrigin}) {
             Answer answer;
-            try (PaztportContext.Scope scope = PaztportContext.open()) {
+            try (RequestContext.Scope scope = RequestContext.open()) {
                 // Influence the caller has read, so it is sent and committed to.
-                PaztportContext.addInfluence(WEB);
+                RequestContext.addInfluence(WEB);
                 answer = caller().get().uri(URI.create("http://localhost:" + port + "/seen"))
                         .exchange((request, response) -> new Answer(response.getStatusCode().value(),
                                 new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8), null,
@@ -284,8 +285,8 @@ class AttestationRuleTest {
             assertEquals(Map.of("chain", -1, "influence", List.of()), JSON.readValue(answer.body(), Map.class));
         }
         // A hop, by contrast, carries both.
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.addInfluence(WEB);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.addInfluence(WEB);
             String body = caller().get().uri(URI.create("http://localhost:" + hop + "/seen")).retrieve()
                     .body(String.class);
             assertEquals(Map.of("chain", 1, "influence", List.of("third-party")), JSON.readValue(body, Map.class));

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -36,18 +36,10 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
-import org.paztport.http.Accepted;
-import org.paztport.http.HttpReceiver;
-import org.paztport.http.HttpV3;
-import org.paztport.http.InboundRequest;
-import org.paztport.http.PartnerAccepted;
-import org.paztport.http.PaztportHeaders;
-import org.paztport.http.RequestBinding;
-import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.slf4j.LoggerFactory;
 
-class PaztportContextTest {
+class RequestContextTest {
 
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
@@ -57,32 +49,32 @@ class PaztportContextTest {
 
     @AfterEach
     void cleanup() {
-        PaztportContext.reset();
+        RequestContext.reset();
     }
 
     @Test
     void storesAndClearsTheInboundChainForThisThread() {
-        PaztportContext.setInboundChain(chain);
-        assertSame(chain, PaztportContext.inboundChain());
+        RequestContext.setInboundChain(chain);
+        assertSame(chain, RequestContext.inboundChain());
 
-        PaztportContext.clear();
-        assertNull(PaztportContext.inboundChain());
+        RequestContext.clear();
+        assertNull(RequestContext.inboundChain());
     }
 
     @Test
     void influenceAccumulatesInOrder() {
-        assertTrue(PaztportContext.influence().isEmpty());
-        PaztportContext.addInfluence(WEB);
-        PaztportContext.addInfluence(MINE, WEB);
-        assertEquals(List.of(WEB, MINE, WEB), PaztportContext.influence());
-        assertThrows(UnsupportedOperationException.class, () -> PaztportContext.influence().clear());
+        assertTrue(RequestContext.influence().isEmpty());
+        RequestContext.addInfluence(WEB);
+        RequestContext.addInfluence(MINE, WEB);
+        assertEquals(List.of(WEB, MINE, WEB), RequestContext.influence());
+        assertThrows(UnsupportedOperationException.class, () -> RequestContext.influence().clear());
     }
 
     @Test
     void labelMintsAFreshContentIdEachTime() {
-        PaztportContext.label(InfluenceClass.PRIVATE, "alice");
-        PaztportContext.label(InfluenceClass.PUBLIC, null);
-        List<ContentLabel> labels = PaztportContext.labels();
+        RequestContext.label(InfluenceClass.PRIVATE, "alice");
+        RequestContext.label(InfluenceClass.PUBLIC, null);
+        List<ContentLabel> labels = RequestContext.labels();
         assertEquals(2, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
@@ -92,26 +84,26 @@ class PaztportContextTest {
 
     @Test
     void clearResetsEverything() {
-        PaztportContext.setInboundChain(chain);
-        PaztportContext.addInfluence(WEB);
-        PaztportContext.label(InfluenceClass.PUBLIC, null);
+        RequestContext.setInboundChain(chain);
+        RequestContext.addInfluence(WEB);
+        RequestContext.label(InfluenceClass.PUBLIC, null);
 
-        PaztportContext.clear();
+        RequestContext.clear();
 
-        assertNull(PaztportContext.inboundChain());
-        assertTrue(PaztportContext.influence().isEmpty());
-        assertTrue(PaztportContext.labels().isEmpty());
+        assertNull(RequestContext.inboundChain());
+        assertTrue(RequestContext.influence().isEmpty());
+        assertTrue(RequestContext.labels().isEmpty());
     }
 
     @Test
     void isIsolatedPerThread() throws Exception {
-        PaztportContext.setInboundChain(chain);
-        PaztportContext.addInfluence(WEB);
+        RequestContext.setInboundChain(chain);
+        RequestContext.addInfluence(WEB);
         Object[] seenByOther = new Object[2];
 
         Thread other = new Thread(() -> {
-            seenByOther[0] = PaztportContext.inboundChain();
-            seenByOther[1] = PaztportContext.influence();
+            seenByOther[0] = RequestContext.inboundChain();
+            seenByOther[1] = RequestContext.influence();
         });
         other.start();
         other.join();
@@ -122,69 +114,69 @@ class PaztportContextTest {
 
     @Test
     void aScopeStartsCleanAndClosingItClearsEverything() {
-        PaztportContext.addInfluence(WEB); // left behind by unscoped code on this thread
-        assertFalse(PaztportContext.isOpen());
+        RequestContext.addInfluence(WEB); // left behind by unscoped code on this thread
+        assertFalse(RequestContext.isOpen());
 
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            assertTrue(PaztportContext.isOpen());
-            assertEquals(List.of(), PaztportContext.influence(), "a scope never inherits what came before it");
-            PaztportContext.setInboundChain(chain);
-            PaztportContext.addInfluence(MINE);
-            PaztportContext.label(InfluenceClass.PRIVATE, "alice");
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            assertTrue(RequestContext.isOpen());
+            assertEquals(List.of(), RequestContext.influence(), "a scope never inherits what came before it");
+            RequestContext.setInboundChain(chain);
+            RequestContext.addInfluence(MINE);
+            RequestContext.label(InfluenceClass.PRIVATE, "alice");
         }
 
-        assertFalse(PaztportContext.isOpen());
-        assertNull(PaztportContext.inboundChain());
-        assertTrue(PaztportContext.influence().isEmpty());
-        assertTrue(PaztportContext.labels().isEmpty());
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.inboundChain());
+        assertTrue(RequestContext.influence().isEmpty());
+        assertTrue(RequestContext.labels().isEmpty());
     }
 
     @Test
     void scopesDoNotNest() {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            assertThrows(IllegalStateException.class, PaztportContext::open);
-            assertTrue(PaztportContext.isOpen(), "the refused open leaves the outer scope as it was");
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            assertThrows(IllegalStateException.class, RequestContext::open);
+            assertTrue(RequestContext.isOpen(), "the refused open leaves the outer scope as it was");
         }
-        assertFalse(PaztportContext.isOpen());
+        assertFalse(RequestContext.isOpen());
     }
 
     @Test
     void clearEmptiesAnOpenScopeButLeavesItOpen() {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.addInfluence(WEB);
-            PaztportContext.clear();
-            assertTrue(PaztportContext.influence().isEmpty());
-            assertTrue(PaztportContext.isOpen());
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.addInfluence(WEB);
+            RequestContext.clear();
+            assertTrue(RequestContext.influence().isEmpty());
+            assertTrue(RequestContext.isOpen());
         }
     }
 
     @Test
     void closingAStaleOrDuplicateScopeLeavesTheCurrentOneOpen() {
-        PaztportContext.Scope stale = PaztportContext.open();
+        RequestContext.Scope stale = RequestContext.open();
         stale.close();
 
-        try (PaztportContext.Scope current = PaztportContext.open()) {
-            PaztportContext.addInfluence(WEB);
+        try (RequestContext.Scope current = RequestContext.open()) {
+            RequestContext.addInfluence(WEB);
             stale.close();
             stale.close();
-            assertTrue(PaztportContext.isOpen(), "a scope that has ended cannot end another");
-            assertEquals(List.of(WEB), PaztportContext.influence());
+            assertTrue(RequestContext.isOpen(), "a scope that has ended cannot end another");
+            assertEquals(List.of(WEB), RequestContext.influence());
         }
-        assertFalse(PaztportContext.isOpen());
+        assertFalse(RequestContext.isOpen());
     }
 
     @Test
     void resetEndsALeakedScopeSoANewOneCanOpen() {
-        PaztportContext.Scope leaked = PaztportContext.open(); // never closed by the code that opened it
-        PaztportContext.addInfluence(WEB);
+        RequestContext.Scope leaked = RequestContext.open(); // never closed by the code that opened it
+        RequestContext.addInfluence(WEB);
 
-        PaztportContext.reset();
+        RequestContext.reset();
 
-        assertFalse(PaztportContext.isOpen());
-        assertTrue(PaztportContext.influence().isEmpty());
-        try (PaztportContext.Scope current = PaztportContext.open()) {
+        assertFalse(RequestContext.isOpen());
+        assertTrue(RequestContext.influence().isEmpty());
+        try (RequestContext.Scope current = RequestContext.open()) {
             leaked.close();
-            assertTrue(PaztportContext.isOpen(), "the leaked scope, closed late, does not end the new one");
+            assertTrue(RequestContext.isOpen(), "the leaked scope, closed late, does not end the new one");
         }
     }
 
@@ -223,14 +215,14 @@ class PaztportContextTest {
     void enteringARequestHoldsWhatItsReceiverDecidedUntilTheScopeCloses() {
         Accepted accepted = verified(request(List.of(MINE)));
 
-        try (PaztportContext.Scope scope = PaztportContext.enter(accepted)) {
-            assertTrue(PaztportContext.isOpen());
-            assertEquals(accepted.inbound(), PaztportContext.inboundChain());
-            assertEquals(accepted.inbound(), PaztportContext.verifiedChain(), "it passed the live order here");
-            assertEquals(List.of(MINE), PaztportContext.influence());
+        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
+            assertTrue(RequestContext.isOpen());
+            assertEquals(accepted.inbound(), RequestContext.inboundChain());
+            assertEquals(accepted.inbound(), RequestContext.verifiedChain(), "it passed the live order here");
+            assertEquals(List.of(MINE), RequestContext.influence());
         }
-        assertFalse(PaztportContext.isOpen());
-        assertNull(PaztportContext.verifiedChain());
+        assertFalse(RequestContext.isOpen());
+        assertNull(RequestContext.verifiedChain());
     }
 
     @Test
@@ -238,10 +230,10 @@ class PaztportContextTest {
         Accepted carried = HttpReceiver.builder("orders").build().accept(request(List.of(WEB)), null,
                 VerificationMode.OFF);
 
-        try (PaztportContext.Scope scope = PaztportContext.enter(carried)) {
-            assertEquals(1, PaztportContext.inboundChain().size(), "carried for the handler's calls");
-            assertNull(PaztportContext.verifiedChain(), "but nothing checked it");
-            assertEquals(List.of(WEB), PaztportContext.influence());
+        try (RequestContext.Scope scope = RequestContext.enter(carried)) {
+            assertEquals(1, RequestContext.inboundChain().size(), "carried for the handler's calls");
+            assertNull(RequestContext.verifiedChain(), "but nothing checked it");
+            assertEquals(List.of(WEB), RequestContext.influence());
         }
     }
 
@@ -249,26 +241,26 @@ class PaztportContextTest {
     void aRefusalIsAnsweredNotEntered() {
         Accepted refused = verified(new InboundRequest("POST", "/x", Map.of(), BODY));
 
-        assertThrows(IllegalArgumentException.class, () -> PaztportContext.enter(refused));
-        assertFalse(PaztportContext.isOpen(), "no scope is opened for it");
+        assertThrows(IllegalArgumentException.class, () -> RequestContext.enter(refused));
+        assertFalse(RequestContext.isOpen(), "no scope is opened for it");
     }
 
     @Test
     void enteringEndsAScopeLeakedOnThisThreadWithAWarning() {
         ListAppender<ILoggingEvent> warnings = new ListAppender<>();
-        Logger log = (Logger) LoggerFactory.getLogger(PaztportContext.class);
+        Logger log = (Logger) LoggerFactory.getLogger(RequestContext.class);
         warnings.start();
         log.addAppender(warnings);
         log.setLevel(Level.WARN);
         log.setAdditive(false);
         try {
-            PaztportContext.Scope leaked = PaztportContext.open(); // never closed by the code that opened it
-            PaztportContext.addInfluence(WEB);
+            RequestContext.Scope leaked = RequestContext.open(); // never closed by the code that opened it
+            RequestContext.addInfluence(WEB);
 
-            try (PaztportContext.Scope scope = PaztportContext.enter(verified(request(List.of())))) {
-                assertEquals(List.of(), PaztportContext.influence(), "nothing the leaked scope held is carried");
+            try (RequestContext.Scope scope = RequestContext.enter(verified(request(List.of())))) {
+                assertEquals(List.of(), RequestContext.influence(), "nothing the leaked scope held is carried");
                 leaked.close();
-                assertTrue(PaztportContext.isOpen(), "and closing it late does not end the request's own");
+                assertTrue(RequestContext.isOpen(), "and closing it late does not end the request's own");
             }
             assertEquals(1, warnings.list.size());
             assertTrue(warnings.list.get(0).getFormattedMessage()
@@ -301,14 +293,14 @@ class PaztportContextTest {
     }
 
     /**
-     * Only {@link PaztportContext#enter}, from a receiver's result, may mark a chain verified, since the boundary
+     * Only {@link RequestContext#enter}, from a receiver's result, may mark a chain verified, since the boundary
      * signer and the public-writes rule trust the chain marked, and only it may end a scope that other code opened;
      * neither may widen.
      */
     @Test
     void markVerifiedAndResetAreNotPublic() throws Exception {
-        for (Method m : List.of(PaztportContext.class.getDeclaredMethod("markVerified", List.class),
-                PaztportContext.class.getDeclaredMethod("reset"))) {
+        for (Method m : List.of(RequestContext.class.getDeclaredMethod("markVerified", List.class),
+                RequestContext.class.getDeclaredMethod("reset"))) {
             assertFalse(Modifier.isPublic(m.getModifiers()), m.getName() + " must not be public");
             assertFalse(Modifier.isProtected(m.getModifiers()), m.getName() + " must not be protected");
         }

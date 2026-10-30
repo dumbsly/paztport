@@ -5,7 +5,7 @@ package org.paztport.mailer;
 
 import java.util.Map;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.spring.PublicWrites;
+import org.paztport.http.PublicWrites;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;

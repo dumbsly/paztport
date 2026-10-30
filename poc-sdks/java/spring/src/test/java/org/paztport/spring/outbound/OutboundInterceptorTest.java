@@ -47,7 +47,7 @@ import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
-import org.paztport.spring.PaztportContext;
+import org.paztport.http.RequestContext;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -162,9 +162,9 @@ class OutboundInterceptorTest {
 
     /** Calls orders inside a context scope, checks the body, and answers what the call recorded. */
     private static List<InfluenceEntry> fetchRecorded(RestClient client, String expectedBody) {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             assertEquals(expectedBody, fetchOrders(client), "the caller still reads the whole body");
-            return PaztportContext.influence();
+            return RequestContext.influence();
         }
     }
 
@@ -191,9 +191,9 @@ class OutboundInterceptorTest {
     void appendsToTheInboundChainCommittingTheContextInfluence() {
         StamperV3.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
                 policy.bundles().get("gateway"));
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
-            PaztportContext.setInboundChain(received.chain());
-            PaztportContext.addInfluence(MINE, WEB);
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            RequestContext.setInboundChain(received.chain());
+            RequestContext.addInfluence(MINE, WEB);
 
             client(new OutboundInterceptor(ordersStamper(), policy.bundles().get("orders"), null, "orders"),
                     "http://payment:8080/pay")
@@ -264,7 +264,7 @@ class OutboundInterceptorTest {
 
         String hash = HttpV3.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
         assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)), recorded);
-        assertEquals(List.of(), PaztportContext.influence(), "closing the scope drops what it recorded");
+        assertEquals(List.of(), RequestContext.influence(), "closing the scope drops what it recorded");
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=private,third-party"),
                 traceLines());
@@ -330,12 +330,12 @@ class OutboundInterceptorTest {
                 "http://orders:8080/orders",
                 attested("hello", "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))), 2);
         try {
-            PaztportContext.addInfluence(MINE); // written by unscoped code; must not be committed either
+            RequestContext.addInfluence(MINE); // written by unscoped code; must not be committed either
 
             assertEquals("hello", fetchOrders(client));
             assertEquals("hello", fetchOrders(client));
 
-            assertEquals(List.of(MINE), PaztportContext.influence(), "neither response was recorded");
+            assertEquals(List.of(MINE), RequestContext.influence(), "neither response was recorded");
             for (HttpHeaders headers : sent) {
                 assertNull(headers.getFirst(PaztportHeaders.INFLUENCE));
                 assertEquals("", chainOf(headers).get(0).infl());
@@ -344,7 +344,7 @@ class OutboundInterceptorTest {
             assertTrue(traceLines().stream().allMatch(l -> l.contains(" reason=OK ") && l.contains("labels=private")),
                     "both verified and carried alice's label, so there was something to leak: " + traceLines());
         } finally {
-            PaztportContext.clear();
+            RequestContext.clear();
         }
     }
 

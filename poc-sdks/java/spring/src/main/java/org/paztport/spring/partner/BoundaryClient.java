@@ -41,9 +41,9 @@ import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.WholeExchange;
-import org.paztport.spring.PaztportContext;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,7 +54,7 @@ import org.slf4j.LoggerFactory;
  * service's key over the request it sends, in a session opened with the partner.
  *
  * <p>The boundary stamp vouches for the request that led to it, so it is signed only over a chain that passed the
- * full live order at this hop: {@link PaztportContext#verifiedChain()}, which only the inbound filter sets, and only
+ * full live order at this hop: {@link RequestContext#verifiedChain()}, which only the inbound filter sets, and only
  * from the result that decides attestation. With no request scope, or with no verified chain (an origin, a hop
  * that is off, a chain that failed in audit, a hop with no verifier), {@link #post} throws before anything is sent,
  * the handshake included, so a request this service never accepted cannot even make it open a session.
@@ -269,11 +269,11 @@ public final class BoundaryClient implements AutoCloseable {
      */
     public Response post(String path, byte[] json) {
         // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
-        List<StampV3> verified = PaztportContext.isOpen() ? PaztportContext.verifiedChain() : null;
+        List<StampV3> verified = RequestContext.isOpen() ? RequestContext.verifiedChain() : null;
         if (verified == null || verified.isEmpty()) {
             throw new IllegalStateException(NO_VERIFIED_CHAIN);
         }
-        List<InfluenceEntry> influence = PaztportContext.influence();
+        List<InfluenceEntry> influence = RequestContext.influence();
         Objects.requireNonNull(json, "json");
         URI target = target(path);
         String bind = RequestBinding.compute("POST", path, json);
@@ -313,10 +313,10 @@ public final class BoundaryClient implements AutoCloseable {
         int status = response.statusCode();
         byte[] body = response.body() == null ? new byte[0] : response.body();
         // The partner does not attest its answers, so what it says counts as untrusted content.
-        PaztportContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:" + partner,
+        RequestContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:" + partner,
                 HttpV3.resultHash(status, body), null, null));
         // And so does whatever this request answers, since a handler may relay it; the guard ensured a scope.
-        PaztportContext.label(InfluenceClass.LOCAL_UNTRUSTED, null);
+        RequestContext.label(InfluenceClass.LOCAL_UNTRUSTED, null);
         String reason = status == 403 ? reason(body) : null;
         if (ReasonCode.SESSION_UNKNOWN.name().equals(reason) || ReasonCode.POLICY_EXPIRED.name().equals(reason)) {
             // Only the session this call used: one a concurrent call has opened since is left alone.

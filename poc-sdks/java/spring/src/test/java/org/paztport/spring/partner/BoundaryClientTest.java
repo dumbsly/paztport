@@ -57,12 +57,12 @@ import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.http.BoundaryListener;
+import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
+import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
-import org.paztport.spring.ContextAccess;
-import org.paztport.spring.PaztportContext;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ssl.SslBundle;
@@ -174,9 +174,9 @@ class BoundaryClientTest {
 
     /** Runs {@code call} in a fresh scope holding a verified gateway chain and the two influence entries. */
     private <T> T verified(String rid, Callable<T> call) throws Exception {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             ContextAccess.markVerified(gatewayChain(rid));
-            PaztportContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
+            RequestContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
             return call.call();
         }
     }
@@ -250,9 +250,9 @@ class BoundaryClientTest {
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order-2", "cid-3", "alice"),
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "h-order", "cid-2", null));
 
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             ContextAccess.markVerified(gatewayChain("rid-1"));
-            PaztportContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
+            RequestContext.addInfluence(influence.toArray(InfluenceEntry[]::new));
             assertEquals(200, charge().status());
         }
 
@@ -350,7 +350,7 @@ class BoundaryClientTest {
         List<InfluenceEntry> after = verified("rid-1", () -> {
             IllegalStateException thrown = assertThrows(IllegalStateException.class, this::charge);
             assertEquals("store unavailable", thrown.getMessage());
-            return PaztportContext.influence();
+            return RequestContext.influence();
         });
 
         assertEquals(1, heard.size());
@@ -574,7 +574,7 @@ class BoundaryClientTest {
     void replyIsLocalUntrusted() throws Exception {
         List<InfluenceEntry> after = verified("rid-1", () -> {
             BoundaryClient.Response r = charge();
-            List<InfluenceEntry> all = PaztportContext.influence();
+            List<InfluenceEntry> all = RequestContext.influence();
             assertEquals(HttpV3.resultHash(r.status(), r.body()), all.get(all.size() - 1).h());
             return all;
         });
@@ -593,7 +593,7 @@ class BoundaryClientTest {
     void replyLabelsTheRelayUntrusted() throws Exception {
         List<ContentLabel> labels = verified("rid-1", () -> {
             charge();
-            return PaztportContext.labels();
+            return RequestContext.labels();
         });
 
         assertEquals(1, labels.size());
@@ -773,10 +773,10 @@ class BoundaryClientTest {
         IllegalStateException outside = assertThrows(IllegalStateException.class, this::charge);
         assertEquals("no verified chain: nothing is signed at the boundary", outside.getMessage());
 
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             // The chain arrived but did not verify here: it is inbound, never marked.
-            PaztportContext.setInboundChain(gatewayChain("rid-1"));
-            PaztportContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
+            RequestContext.setInboundChain(gatewayChain("rid-1"));
+            RequestContext.addInfluence(INFLUENCE.toArray(InfluenceEntry[]::new));
             IllegalStateException unverified = assertThrows(IllegalStateException.class, this::charge);
             assertEquals("no verified chain: nothing is signed at the boundary", unverified.getMessage());
         }
@@ -787,7 +787,7 @@ class BoundaryClientTest {
 
     @Test
     void emptyVerifiedChainSendsNothing() throws Exception {
-        try (PaztportContext.Scope scope = PaztportContext.open()) {
+        try (RequestContext.Scope scope = RequestContext.open()) {
             ContextAccess.markVerified(List.of());
             assertThrows(IllegalStateException.class, this::charge);
         }
