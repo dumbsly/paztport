@@ -89,9 +89,9 @@
                     </archive>
                 </configuration>
                 <!-- The test jar shares with the starter's tests only what they use: the silent peer, which
-                     stalls the egress and the events the same way, and the bridges to the event timeout and the
-                     request trace line. Nothing in it can mark a chain verified; the starter keeps that bridge in
-                     its own test sources. -->
+                     stalls the egress and the events the same way, the stub partner, and the bridges to the
+                     egress's read timeout and the events' timeout. Nothing in it can mark a chain verified; the
+                     starter keeps that bridge in its own test sources. -->
                 <executions>
                     <execution>
                         <goals>
@@ -102,8 +102,6 @@
                                 <include>org/paztport/http/SilentPeer*.class</include>
                                 <include>org/paztport/http/StubPartner*.class</include>
                                 <include>org/paztport/http/BoundaryAccess.class</include>
-                                <include>org/paztport/http/ReceiverAccess.class</include>
-                                <include>org/paztport/http/TraceAccess.class</include>
                                 <include>org/paztport/http/event/EventAccess.class</include>
                             </includes>
                         </configuration>
