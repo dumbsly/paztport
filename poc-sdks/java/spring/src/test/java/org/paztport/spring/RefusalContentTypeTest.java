@@ -58,8 +58,8 @@ import org.springframework.web.filter.CharacterEncodingFilter;
  * application/json} and nothing after it, because the container adds a character encoding of its own to anything
  * written through a writer, and RFC 8259 defines no such parameter. The partner's refusals are checked the same way
  * in {@code PartnerRequestTest}. The app is {@code localhost}, as in {@code ResponseAttestationTest}, whose set-up
- * this follows. The application also forces a response encoding, as {@code server.servlet.encoding.force-response}
- * does where it applies, which a refusal must still not carry.
+ * this follows. The application also registers a forcing {@code CharacterEncodingFilter}, as an application may,
+ * which runs before Paztport's filters and which a refusal must still not carry.
  */
 @SpringBootTest(classes = RefusalContentTypeTest.App.class,
         webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
@@ -116,7 +116,7 @@ class RefusalContentTypeTest {
     @Import(Handlers.class)
     static class App {
 
-        /** Sets UTF-8 on every response before anything else runs, the way Spring's own encoding filter does. */
+        /** Sets UTF-8 on every response ahead of Paztport's filters, as a forcing encoding filter does. */
         @Bean
         FilterRegistrationBean<CharacterEncodingFilter> forcedEncoding() {
             FilterRegistrationBean<CharacterEncodingFilter> bean =

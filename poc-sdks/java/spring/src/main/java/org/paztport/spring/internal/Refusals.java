@@ -20,9 +20,10 @@ public final class Refusals {
      * Sends {@code refusal} as {@code Content-Type: application/json} with no parameters. The body goes out as the
      * raw UTF-8 bytes the receiver made, through the output stream: a writer would have the container choose a
      * character encoding and add it to the header, and RFC 8259 defines no such parameter, since JSON exchanged
-     * between systems is UTF-8 already. An application may have asked for one anyway, with
-     * {@code server.servlet.encoding.force-response}, which sets the encoding before any filter runs and which the
-     * container would then append to the type; so any encoding already set is cleared first.
+     * between systems is UTF-8 already. An application may have asked for one anyway, with a
+     * forcing {@code CharacterEncodingFilter}, as an application may register, which sets the encoding before
+     * Paztport's filters run and which the container would then append to the type; so any encoding already set is
+     * cleared first.
      */
     public static void write(HttpServletResponse response, HttpAnswer refusal) throws IOException {
         response.setStatus(refusal.status());
