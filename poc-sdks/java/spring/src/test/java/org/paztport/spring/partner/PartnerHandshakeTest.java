@@ -5,9 +5,6 @@ package org.paztport.spring.partner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -47,7 +44,6 @@ import org.paztport.spring.PartnerFilter;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
@@ -83,8 +79,6 @@ class PartnerHandshakeTest {
     private static final long NOT_AFTER = 4_102_444_800_000L;
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    /** The fixture CA's name, as the issuer of every fixture certificate but {@code foreign-orders}. */
-    private static final String SHOP_CA = "CN=shop CA";
     private static final KeyPair SHOP_KEY = Crypto.generateEd25519KeyPair();
     private static final KeyPair SHOP_POLICY = Crypto.generateEd25519KeyPair();
     private static final KeyPair PSP_KEY = Crypto.generateEd25519KeyPair();
@@ -156,9 +150,6 @@ class PartnerHandshakeTest {
     @LocalServerPort
     private int port;
 
-    @Autowired
-    private PartnerSessions sessions;
-
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger trace = (Logger) LoggerFactory.getLogger("PAZTPORT_TRACE");
 
@@ -223,7 +214,7 @@ class PartnerHandshakeTest {
         assertEquals(reply.toString(), answer.body(), "the reply exactly as the SDK writes it");
         assertEquals(ReplyCheck.ATTESTED,
                 Sessions.checkReply(answer.body(), req, PSP_PIN, "psp", System.currentTimeMillis()));
-        assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
+        assertOpen("orders", reply.get("sess").asText());
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
     }
@@ -246,7 +237,7 @@ class PartnerHandshakeTest {
         assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
         assertEquals("attested", reply.get("status").asText());
         assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", System.currentTimeMillis()));
-        assertTrue(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()).attested());
+        assertOpen("orders", reply.get("sess").asText());
     }
 
     // Forged: the reply checked for another entry, after its certificate's notAfter, and passed off as the
@@ -273,8 +264,8 @@ class PartnerHandshakeTest {
         String sess = JSON.readTree(post(client("orders"), json(request(Sessions.newNonce()))).body())
                 .get("sess").asText();
 
-        assertNotNull(sessions.find(SHOP_CA, "orders", sess));
-        assertNull(sessions.find(SHOP_CA, "gateway", sess));
+        assertOpen("orders", sess);
+        assertUnknown("gateway", sess);
     }
 
     // Forged: a session the shop's orders opened, named by a certificate with the same name from another CA the
@@ -292,8 +283,21 @@ class PartnerHandshakeTest {
         // The same id from the certificate that opened it is found, and fails later, on its missing chain.
         assertEquals(403, own.status());
         assertEquals("CHAIN_MISSING", JSON.readTree(own.body()).get("reason").asText());
-        assertNotNull(sessions.find(SHOP_CA, "orders", sess));
-        assertNull(sessions.find("CN=foreign CA", "orders", sess));
+    }
+
+    /** A session found and attested verifies the chain, so an id with none is refused for it, not as unknown. */
+    private void assertOpen(String peer, String sess) throws Exception {
+        Answer answer = call(client(peer), sess);
+
+        assertEquals(403, answer.status());
+        assertEquals("CHAIN_MISSING", JSON.readTree(answer.body()).get("reason").asText());
+    }
+
+    private void assertUnknown(String peer, String sess) throws Exception {
+        Answer answer = call(client(peer), sess);
+
+        assertEquals(403, answer.status());
+        assertEquals("SESSION_UNKNOWN", JSON.readTree(answer.body()).get("reason").asText());
     }
 
     private Answer call(RestClient client, String sess) {
@@ -315,19 +319,9 @@ class PartnerHandshakeTest {
             opened.add(JSON.readTree(post(gateway, json(request(Sessions.newNonce()))).body()).get("sess").asText());
         }
 
-        Answer evicted = gateway.post()
-                .uri("https://localhost:" + port + "/anything")
-                .header(PaztportHeaders.SESSION, opened.get(0))
-                .contentType(MediaType.APPLICATION_JSON)
-                .body("{}")
-                .exchange((request, response) -> new Answer(response.getStatusCode().value(),
-                        new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
-
-        assertEquals(403, evicted.status());
-        assertEquals("SESSION_UNKNOWN", JSON.readTree(evicted.body()).get("reason").asText());
-        assertNull(sessions.find(SHOP_CA, "gateway", opened.get(0)));
-        assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(1)));
-        assertNotNull(sessions.find(SHOP_CA, "gateway", opened.get(2)));
+        assertUnknown("gateway", opened.get(0));
+        assertOpen("gateway", opened.get(1));
+        assertOpen("gateway", opened.get(2));
     }
 
     /** The reply and a refusal alike go out as the SDK wrote them, labelled JSON and nothing more. */
