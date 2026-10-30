@@ -536,8 +536,8 @@ class InboundFilterTest {
         }
     }
 
-    // A refusal is for the caller, who is usually the suspect: the body is the reason alone, and the suspect, with
-    // whatever inst it signed, goes to the event and the trace line.
+    // A refusal is for the caller, who is usually the suspect: the body is the reason alone. The suspect, with
+    // whatever inst it signed, goes to the event; the trace line, with no peer here, names no suspect.
     @Test
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() throws Exception {
         String inst = "ord\"1\\";
@@ -560,7 +560,8 @@ class InboundFilterTest {
         assertEquals("orders", events.all.get(0).suspectSvc());
         assertEquals(inst, events.all.get(0).suspectInst());
         assertEquals(1, traceLines().size());
-        assertTrue(traceLines().get(0).contains(" reason=PATH_NOT_ALLOWED receiver=payment ✗ "), traceLines().get(0));
+        assertTrue(traceLines().get(0).contains(" reason=PATH_NOT_ALLOWED receiver=payment ✗ peer=none "),
+                traceLines().get(0));
     }
 
     @Test

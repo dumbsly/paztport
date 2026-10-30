@@ -115,8 +115,12 @@ the SDK as the bytes or text it arrived in, as the starter's
   value the starter cannot read is `enforce`.
 - **Refusals.** Every refusal, in the mesh and at a partner, is
   `{"reason":"<code>"}` and nothing else, with `403` (or `400` for unreadable
-  influence). Who is suspected goes to the `PAZTPORT_TRACE request` line and the
-  event, never to the caller, who is usually the suspect.
+  influence). The caller, who is usually the suspect, is never told who is
+  suspected. The event carries the attribution, `suspectSvc` and `suspectInst`.
+  The `PAZTPORT_TRACE request` line names only the authenticated peer's service
+  (`peer=<svc> (mTLS)`, or `peer=none`), not its address and not a suspect without
+  a peer. A partner sends no events, so for its refusals that trace line is all
+  that is kept: the peer's service, and no instance.
 - **Unverified paths.** Neither the inbound filter nor the partner filter runs on
   the control plane: a request whose raw request URI is `/admin`, `/debug` or
   `/actuator`, or starts with one of them followed by `/`. The match is by whole

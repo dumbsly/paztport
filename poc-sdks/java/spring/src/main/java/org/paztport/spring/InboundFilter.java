@@ -85,9 +85,10 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * completes, without {@code X-Path-Response}, and its caller counts it as untrusted.
  *
  * <p>Under mutual TLS the request is verified against the sender the handshake authenticated ({@link PeerIdentity}):
- * the chain's last signer must be the service its certificate names, and every result, so every event and every
- * trace line, names that service at the address it connected from. A refusal names no one: its body is
- * {@code {"reason":"<code>"}} alone ({@link #reject}). Without a client certificate there is no peer.
+ * the chain's last signer must be the service its certificate names, and every result names that service at the
+ * address it connected from. The event carries both; the trace line shows only the peer's service. A refusal names
+ * no one: its body is {@code {"reason":"<code>"}} alone ({@link #reject}). Without a client certificate there is no
+ * peer.
  *
  * <p>Each request is served inside a {@link PaztportContext.Scope}, so what its handler and its calls learn is
  * carried for the request and dropped when it ends. Async work after the handler returns runs outside it. A scope
@@ -369,9 +370,10 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /**
      * {@code 403 {"reason":"<code>"}} and nothing more. A refusal tells the caller what to do next; who is suspected
-     * is for the operator and the responder, so it goes to the trace line and the event only. The suspect is
-     * usually the caller itself, and naming it in the answer would tip it off before the responder acts. The code
-     * is a {@link ReasonCode} name, so the body needs no escaping.
+     * is for the operator and the responder, so it is carried by the event only, where there is one (the trace line
+     * names just the authenticated peer's service, and a partner sends no events). The suspect is usually the caller
+     * itself, and naming it in the answer would tip it off before the responder acts. The code is a
+     * {@link ReasonCode} name, so the body needs no escaping.
      */
     static void reject(HttpServletResponse response, ReasonCode reason) throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);

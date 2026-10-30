@@ -422,10 +422,10 @@ Notes on the ordering:
 - **Every result names the peer.** The TLS layer authenticated the sender, so each
   result, `OK` included, names the service its certificate names
   (`suspectSvc`) at the address it connected from (`suspectInst`), whatever the
-  chain says. That goes to the event and the trace line, never to the caller. A
-  certificate is issued per service, not per container, so the responder still
-  checks that the container at that address runs that service (see
-  [Response](#response-quarantine-not-deletion)).
+  chain says. The event carries both, and the trace line the service alone; the
+  caller is never told. A certificate is issued per service, not per container, so
+  the responder still checks that the container at that address runs that service
+  (see [Response](#response-quarantine-not-deletion)).
 - One trace line per verification shows the verdict, for example after scenario 1:
   `PAZTPORT_TRACE request rid=… reason=OK receiver=payment ✓ peer=orders (mTLS) classes=-`.
 
