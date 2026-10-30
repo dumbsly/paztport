@@ -29,14 +29,42 @@ import org.paztport.core.verify.Peer;
  * transport may trust more than one CA, and each could issue a certificate with the same name, so the name alone
  * does not tell their holders apart.
  *
- * @param peer the service the certificate names and the address the connection came from
- * @param issuer the certificate's issuer, RFC 2253
+ * <p>One is made only from a certificate ({@link #of}), so the service it names is always the one the spec's rule
+ * reads from that certificate, never a name some code chose.
  */
-public record PeerCert(Peer peer, String issuer) {
+public final class PeerCert {
 
-    public PeerCert {
-        Objects.requireNonNull(peer, "peer");
-        Objects.requireNonNull(issuer, "issuer");
+    private final Peer peer;
+    private final String issuer;
+
+    PeerCert(Peer peer, String issuer) {
+        this.peer = Objects.requireNonNull(peer, "peer");
+        this.issuer = Objects.requireNonNull(issuer, "issuer");
+    }
+
+    /** The service the certificate names and the address the connection came from. */
+    public Peer peer() {
+        return peer;
+    }
+
+    /** The certificate's issuer, RFC 2253. */
+    public String issuer() {
+        return issuer;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof PeerCert other && peer.equals(other.peer) && issuer.equals(other.issuer);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(peer, issuer);
+    }
+
+    @Override
+    public String toString() {
+        return "PeerCert[peer=" + peer + ", issuer=" + issuer + "]";
     }
 
     /**

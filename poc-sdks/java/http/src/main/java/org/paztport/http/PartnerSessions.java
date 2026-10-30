@@ -181,9 +181,9 @@ public final class PartnerSessions {
      * a missing one), or when the id is already in use, which would take a repeated server nonce.
      *
      * <p>The peer is the one the transport authenticated, never one the request names, so that no client can open
-     * a session as another.
+     * a session as another; {@link HttpSessions#serve} takes it from the client certificate.
      */
-    public SessionReply open(SessionRequest req, String peerIssuer, String peerSvc) {
+    SessionReply open(SessionRequest req, String peerIssuer, String peerSvc) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty()) {
             throw new IllegalArgumentException("a session is opened only for a peer with an issuer and a name");
         }

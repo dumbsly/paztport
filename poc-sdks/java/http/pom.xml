@@ -12,7 +12,7 @@
 
     <artifactId>paztport-http</artifactId>
     <name>Paztport HTTP</name>
-    <description>v3 over HTTP with no web framework: the header codecs, the receivers, the partner's session registry, and the blocking request context.</description>
+    <description>v3 over HTTP, no web framework: codecs, receivers, session registry, request context.</description>
 
     <dependencies>
         <dependency>
@@ -66,13 +66,22 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
-                <!-- The test jar shares the silent peer with the starter's tests, which stall the egress and
-                     the events the same way. -->
+                <!-- The test jar shares with the starter's tests only what they use: the silent peer, which
+                     stalls the egress and the events the same way, and the bridges to the event timeout and the
+                     request trace line. Nothing in it can mark a chain verified; the starter keeps that bridge in
+                     its own test sources. -->
                 <executions>
                     <execution>
                         <goals>
                             <goal>test-jar</goal>
                         </goals>
+                        <configuration>
+                            <includes>
+                                <include>org/paztport/http/SilentPeer*.class</include>
+                                <include>org/paztport/http/ReceiverAccess.class</include>
+                                <include>org/paztport/http/event/EventAccess.class</include>
+                            </includes>
+                        </configuration>
                     </execution>
                 </executions>
             </plugin>
