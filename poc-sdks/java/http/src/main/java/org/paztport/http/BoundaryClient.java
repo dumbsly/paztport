@@ -170,6 +170,7 @@ public final class BoundaryClient implements AutoCloseable {
     private final LongSupplier nanos;
     private final LongSupplier millis;
     private final long sessionIdleNanos;
+    private final Duration handshakeTimeout;
 
     /** A client with the settings {@link Builder#build} has checked. */
     private BoundaryClient(Builder b) {
@@ -188,6 +189,7 @@ public final class BoundaryClient implements AutoCloseable {
         this.nanos = b.nanos;
         this.millis = b.millis;
         this.sessionIdleNanos = TimeUnit.MILLISECONDS.toNanos(b.sessionIdleMs);
+        this.handshakeTimeout = b.handshakeTimeout;
     }
 
     /** A client to build; see {@link Builder}. */
@@ -393,7 +395,7 @@ public final class BoundaryClient implements AutoCloseable {
         HttpResponse<byte[]> response = send(HttpRequest.newBuilder(
                         URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + HttpSessions.PATH))
                 .header("Content-Type", "application/json")
-                .timeout(HANDSHAKE_TIMEOUT)
+                .timeout(handshakeTimeout)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                 .build());
         if (response.statusCode() != 200) {
@@ -540,6 +542,7 @@ public final class BoundaryClient implements AutoCloseable {
         private long sessionIdleMs;
         private LongSupplier nanos = System::nanoTime;
         private LongSupplier millis = System::currentTimeMillis;
+        private Duration handshakeTimeout = HANDSHAKE_TIMEOUT;
 
         private Builder() {
         }
@@ -647,6 +650,15 @@ public final class BoundaryClient implements AutoCloseable {
         }
 
         /**
+         * Each handshake's bound on the whole exchange, {@link #HANDSHAKE_TIMEOUT} unless set; tests shorten it, so
+         * that a handshake with no answer is replaced without waiting the full period.
+         */
+        Builder handshakeTimeout(Duration timeout) {
+            this.handshakeTimeout = timeout;
+            return this;
+        }
+
+        /**
          * The client, once its settings are checked, in this order: the partner URL is {@code https}, since the
          * calls carry the boundary stamp and the influence's owners; the boundary key is
          * {@value BoundaryInfluence#KEY_LENGTH} bytes; the read timeout is positive; the partner and this service
@@ -682,6 +694,7 @@ public final class BoundaryClient implements AutoCloseable {
             }
             Objects.requireNonNull(nanos, "nanos");
             Objects.requireNonNull(millis, "millis");
+            Objects.requireNonNull(handshakeTimeout, "handshakeTimeout");
             if (partner.isEmpty()) {
                 throw new InvalidSetting(Fault.UNNAMED_PARTNER, "the partner's entry service must be named");
             }

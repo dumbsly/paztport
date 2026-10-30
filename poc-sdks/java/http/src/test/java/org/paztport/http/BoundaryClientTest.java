@@ -830,6 +830,40 @@ class BoundaryClientTest {
         }
     }
 
+    /**
+     * A handshake the partner takes and never finishes answering, before its headers or part way through the body,
+     * counts as no answer once the handshake's timeout has passed: the replacement with no root follows, and its
+     * session is unsafe even when its reply says attested, so the call carries the session id and nothing else.
+     */
+    @Test
+    void aHandshakeThePartnerNeverFinishesIsReplacedAtItsTimeout() throws Exception {
+        for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
+            try (StubPartner stalling = new StubPartner(true);
+                    BoundaryClient bounded = egress(stalling, tls()).listener(null)
+                            .handshakeTimeout(Duration.ofMillis(300)).build()) {
+                stalling.stallNextHandshake(stall);
+                stalling.replacementStatus("attested");
+
+                long start = System.nanoTime();
+                BoundaryClient.Response response = verified("rid-1", () -> bounded.post("/charge", CHARGE));
+                Duration took = Duration.ofNanos(System.nanoTime() - start);
+
+                assertEquals(200, response.status(), stall.name());
+                assertFalse(response.attested(), stall + ": the replacement's session is unsafe");
+                assertTrue(took.compareTo(Duration.ofMillis(250)) >= 0 && took.compareTo(Duration.ofSeconds(3)) < 0,
+                        stall + " took " + took);
+                List<StubPartner.Received> handshakes = stalling.handshakes();
+                assertEquals(2, handshakes.size(), stall.name());
+                assertTrue(JSON.readTree(handshakes.get(1).body()).get("clientRoot").isNull(),
+                        stall + ": the replacement asks with no root");
+                StubPartner.Received call = stalling.calls().get(0);
+                assertEquals(stalling.issued().get(0), call.header(PaztportHeaders.SESSION));
+                assertNull(call.header(PaztportHeaders.CHAIN), stall + ": no stamp in an unsafe session");
+                assertNull(call.header(PaztportHeaders.INFLUENCE), stall + ": no influence in an unsafe session");
+            }
+        }
+    }
+
     @Test
     void theCallsGetTheReadTimeoutOfTheirTlsClient() {
         assertEquals(BoundaryClient.DEFAULT_READ_TIMEOUT, client.readTimeout());

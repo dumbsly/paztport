@@ -94,8 +94,10 @@ public final class StubPartner implements AutoCloseable {
     private final Deque<Answer> nextAnswers = new ArrayDeque<>();
     private final Deque<Integer> handshakeFailures = new ArrayDeque<>();
     private final Deque<SilentPeer.Stall> nextStalls = new ArrayDeque<>();
+    private final Deque<SilentPeer.Stall> handshakeStalls = new ArrayDeque<>();
     private final CountDownLatch closed = new CountDownLatch(1);
     private volatile String status = "attested";
+    private volatile String replacementStatus = "unsafe";
     private volatile long handshakeDelayMs;
     private volatile boolean policyKeyForm;
     private volatile long replyCertNotAfter = System.currentTimeMillis() + 7 * 86_400_000L;
@@ -223,6 +225,19 @@ public final class StubPartner implements AutoCloseable {
         nextStalls.add(stall);
     }
 
+    /**
+     * The status a request with no client root gets, {@code unsafe} unless set: a test sets {@code attested} to show
+     * that the egress takes the replacement's session as unsafe whatever its reply says.
+     */
+    void replacementStatus(String status) {
+        this.replacementStatus = status;
+    }
+
+    /** The next handshake with a client root is never finished, as {@link #stallNextCall} leaves a call. */
+    synchronized void stallNextHandshake(SilentPeer.Stall stall) {
+        handshakeStalls.add(stall);
+    }
+
     /** The next handshake with a client root is answered with this status and no body, as a failing partner's. */
     synchronized void failNextHandshake(int status) {
         handshakeFailures.add(status);
@@ -268,8 +283,14 @@ public final class StubPartner implements AutoCloseable {
                 }
                 SessionRequest req = SessionRequest.parse(body);
                 Integer failure;
+                SilentPeer.Stall handshakeStall;
                 synchronized (this) {
                     failure = req.clientRoot() == null ? null : handshakeFailures.poll();
+                    handshakeStall = req.clientRoot() == null ? null : handshakeStalls.poll();
+                }
+                if (handshakeStall != null) {
+                    stall(exchange, handshakeStall);
+                    return;
                 }
                 if (failure != null) {
                     send(exchange, failure, "");
@@ -307,7 +328,7 @@ public final class StubPartner implements AutoCloseable {
         String sess = Sessions.deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
                 serverRoot.sig(), req.nonce(), nonce, req.clientPolicyKey(), req.clientKeyring());
         issued.add(sess);
-        String replyStatus = req.clientRoot() == null ? "unsafe" : status;
+        String replyStatus = req.clientRoot() == null ? replacementStatus : status;
         List<String> disabled = replyStatus.equals("unsafe") ? List.of("POST /refund") : List.of();
         SessionReply reply;
         if (signer != policy || policyKeyForm) {
