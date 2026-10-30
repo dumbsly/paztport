@@ -22,6 +22,7 @@ import com.sun.net.httpserver.HttpsServer;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
 import java.net.http.HttpTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -361,6 +362,25 @@ class PaztportAutoConfigurationTest {
                         "paztport.event-key-path=" + dir.resolve("gateway.key"))
                 .run(context -> assertThat(context.getBean(EventPublisher.class))
                         .isInstanceOf(ResponderEventPublisher.class));
+    }
+
+    // "false" is Spring's way to switch a conditional bean off, so it means no TLS client here, and the events go
+    // out on a plain client of the starter's own, exactly as when the property is not set.
+    @Test
+    void aTlsBundleOfFalseIsOffForTheEventsToo(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        withClients.withPropertyValues(stampingVerifier(dir, "http://responder:8080"))
+                .withPropertyValues("paztport.tls-bundle=false")
+                .run(context -> {
+                    assertThat(context).hasNotFailed().doesNotHaveBean(PooledTlsClient.class);
+                    assertThat(eventClient(context).connectTimeout()).contains(Duration.ofSeconds(2));
+                });
+        withClients.withPropertyValues(stampingVerifier(dir, "http://responder:8080"))
+                .run(context -> assertThat(eventClient(context).connectTimeout()).contains(Duration.ofSeconds(2)));
+    }
+
+    private static HttpClient eventClient(ConfigurableApplicationContext context) {
+        return EventAccess.http((ResponderEventPublisher) context.getBean(EventPublisher.class));
     }
 
     @Test

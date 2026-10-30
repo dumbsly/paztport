@@ -13,7 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
-// The TLS client is off: it reads its certificates at startup, and none are mounted here.
+// The TLS client is off (paztport.tls-bundle=false): these MOCK-environment tests exercise no TLS, and none is mounted.
 @SpringBootTest(properties = "paztport.tls-bundle=false")
 @AutoConfigureMockMvc
 class SearchControllerTest {

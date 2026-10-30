@@ -17,7 +17,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 // The SDK filter hands each received request to the demo's listener, and the
 // debug endpoint (skipped by the filter) serves the last one back for replay.
-// The TLS client is off too: it reads its certificates at startup, and none are mounted here.
+// The TLS client is off (paztport.tls-bundle=false): these MOCK-environment tests exercise no TLS, and none is mounted.
 @SpringBootTest(properties = {"paztport.verify=false", "paztport.capture=true", "paztport.tls-bundle=false"})
 @AutoConfigureMockMvc
 class CaptureWiringTest {

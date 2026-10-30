@@ -3,6 +3,7 @@
 
 package org.paztport.http.event;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 /**
@@ -18,5 +19,10 @@ public final class EventAccess {
     /** The publisher's event timeout, as {@code paztport.event-timeout-ms} set it. */
     public static Duration timeout(ResponderEventPublisher publisher) {
         return publisher.timeout();
+    }
+
+    /** The JDK client the publisher sends its events on. */
+    public static HttpClient http(ResponderEventPublisher publisher) {
+        return publisher.http();
     }
 }

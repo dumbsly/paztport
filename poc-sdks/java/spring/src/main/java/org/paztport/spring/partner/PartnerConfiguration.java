@@ -104,34 +104,45 @@ public class PartnerConfiguration {
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
+        StamperV3 stamping = stamper.getObject();
+        ProofBundle proofs = bundle.getObject();
+        String partnerPin = KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath()));
+        BoundaryListener told = listener.getIfAvailable();
+        // Last, after every lookup that can throw, so that nothing before it leaves the client open.
         HttpClient http = PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout).httpClient();
-        BoundaryClient.Builder client = BoundaryClient.builder()
-                .stamper(stamper.getObject())
-                .bundle(bundle.getObject())
-                .ownRoot(ownRoot)
-                .ownKeyring(ownKeyring)
-                .ownPolicyKey(ownPin)
-                .partner(b.getPartner())
-                .partnerUrl(partnerUrl)
-                .pinnedPartnerKey(KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())))
-                .blindingKey(blindingKey)
-                .listener(listener.getIfAvailable())
-                .http(http)
-                .readTimeout(readTimeout)
-                .sessionIdleMs(b.getSessionIdleMs());
         try {
-            return client.build();
-        } catch (BoundaryClient.InvalidSetting e) {
+            return BoundaryClient.builder()
+                    .stamper(stamping)
+                    .bundle(proofs)
+                    .ownRoot(ownRoot)
+                    .ownKeyring(ownKeyring)
+                    .ownPolicyKey(ownPin)
+                    .partner(b.getPartner())
+                    .partnerUrl(partnerUrl)
+                    .pinnedPartnerKey(partnerPin)
+                    .blindingKey(blindingKey)
+                    .listener(told)
+                    .http(http)
+                    .readTimeout(readTimeout)
+                    .sessionIdleMs(b.getSessionIdleMs())
+                    .build();
+        } catch (RuntimeException e) {
             http.shutdownNow();
-            // Worded in terms of the property where one property holds it; the rest are refused above, by the
-            // property's own reader, or are the client's own words, as they always were.
-            throw switch (e.fault()) {
-                case NOT_HTTPS ->
-                        new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
-                case IDLE_PERIOD -> new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
-                default -> e;
-            };
+            throw e instanceof BoundaryClient.InvalidSetting invalid ? inTermsOfTheProperty(invalid, b) : e;
         }
+    }
+
+    /**
+     * Worded in terms of the property where one property holds it; the rest are refused above, by the property's
+     * own reader, or are the client's own words, as they always were.
+     */
+    private static RuntimeException inTermsOfTheProperty(BoundaryClient.InvalidSetting e,
+            PaztportProperties.Boundary b) {
+        return switch (e.fault()) {
+            case NOT_HTTPS -> new IllegalStateException("paztport.boundary.url must be an https URL: " + b.getUrl());
+            case IDLE_PERIOD -> new IllegalStateException("paztport.boundary.session-idle-ms must be positive");
+            default -> e;
+        };
     }
 
     /**

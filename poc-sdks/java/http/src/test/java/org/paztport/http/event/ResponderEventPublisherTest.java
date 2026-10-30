@@ -46,7 +46,7 @@ class ResponderEventPublisherTest {
     private final ResponderEventPublisher publisher = publisherTo("http://127.0.0.1:1", Duration.ofSeconds(2));
 
     private ResponderEventPublisher publisherTo(String url, Duration timeout) {
-        return new ResponderEventPublisher(() -> HTTP, timeout, url, "payment", key.getPrivate(), () -> 1234L);
+        return new ResponderEventPublisher(HTTP, timeout, url, "payment", key.getPrivate(), () -> 1234L);
     }
 
     @AfterAll

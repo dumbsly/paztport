@@ -6,7 +6,6 @@ package org.paztport.spring.event;
 import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.Duration;
-import java.util.function.Supplier;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.event.LoggingEventPublisher;
@@ -43,18 +42,13 @@ public class EventConfiguration {
             }
             Duration timeout = Durations.positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
             // The bare JDK client, never the shared builder's stamping interceptor: the pooled one over the TLS
-            // bundle, read at startup, else a plain one of the starter's own.
-            Supplier<HttpClient> http;
-            if (props.getTlsBundle() != null) {
-                PooledTlsClient pooled = tls.getObject();
-                http = pooled::httpClient;
-            } else {
-                HttpClient plain = HttpClient.newBuilder()
-                        .version(HttpClient.Version.HTTP_1_1)
-                        .connectTimeout(timeout)
-                        .build();
-                http = () -> plain;
-            }
+            // bundle when there is a TLS client (the bean, not the property, says so, so that
+            // paztport.tls-bundle=false is off here as everywhere), else a plain one of the starter's own.
+            PooledTlsClient pooled = tls.getIfAvailable();
+            HttpClient http = pooled != null ? pooled.httpClient() : HttpClient.newBuilder()
+                    .version(HttpClient.Version.HTTP_1_1)
+                    .connectTimeout(timeout)
+                    .build();
             return new ResponderEventPublisher(
                     http,
                     timeout,

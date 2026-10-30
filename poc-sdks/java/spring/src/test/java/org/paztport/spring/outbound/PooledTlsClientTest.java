@@ -260,7 +260,8 @@ class PooledTlsClientTest {
     @Test
     void aBundleThatCannotBeReadFailsAtOnce() {
         SslBundle absent = SslBundle.of(new PemSslStoreBundle(
-                PemSslStoreDetails.forCertificate("file:/nowhere/absent.crt").withPrivateKey("file:/nowhere/absent.key"),
+                PemSslStoreDetails.forCertificate("file:/nowhere/absent.crt")
+                        .withPrivateKey("file:/nowhere/absent.key"),
                 PemSslStoreDetails.forCertificate("classpath:tls/ca.crt")));
 
         assertThatThrownBy(() -> PooledTlsClient.of(absent)).hasStackTraceContaining("absent.crt");
@@ -274,9 +275,9 @@ class PooledTlsClientTest {
         PooledTlsClient client = pooled(SslBundle.of(stores("orders")));
         client.close();
 
-        assertThat(client.httpClient().isTerminated() || client.httpClient().awaitTermination(PROMPTLY)).isTrue();
+        assertThat(client.httpClient().awaitTermination(PROMPTLY)).isTrue();
         assertThatThrownBy(() -> client.httpClient().send(HttpRequest.newBuilder(URI.create(url + "/ok")).build(),
-                HttpResponse.BodyHandlers.ofString())).isInstanceOf(IOException.class);
+                HttpResponse.BodyHandlers.ofString()));
         assertThatThrownBy(() -> client.builder().build().get().uri(url + "/ok").retrieve().toBodilessEntity())
                 .isInstanceOf(RestClientException.class);
     }

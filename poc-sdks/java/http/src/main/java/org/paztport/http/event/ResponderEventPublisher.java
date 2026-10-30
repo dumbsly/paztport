@@ -14,7 +14,6 @@ import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.function.LongSupplier;
-import java.util.function.Supplier;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.event.EventEnvelope;
 import org.paztport.core.event.ResponderEvent;
@@ -40,16 +39,15 @@ import org.slf4j.LoggerFactory;
  * request threads busy, each for up to that long, while the responder is slow.
  *
  * <p>The JDK client is given, not built here, so that it can carry this service's
- * TLS certificate, and as a supplier, so that a TLS client still reads its key
- * material on the first event rather than at startup. Being the bare JDK client,
- * it never stamps: an event reports on a request's path, it is not a step on it.
+ * TLS certificate. Being the bare JDK client, it never stamps: an event reports on a
+ * request's path, it is not a step on it.
  */
 public final class ResponderEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(ResponderEventPublisher.class);
 
     private final EventPublisher logging = new LoggingEventPublisher();
-    private final Supplier<HttpClient> http;
+    private final HttpClient http;
     private final Duration timeout;
     private final String responderUrl;
     private final String signer;
@@ -57,7 +55,7 @@ public final class ResponderEventPublisher implements EventPublisher {
     private final LongSupplier clock;
 
     /**
-     * @param http the JDK client each event is sent on, asked for at each event
+     * @param http the JDK client each event is sent on
      * @param timeout how long one event may take, from connecting to the end of the answer; positive
      * @param responderUrl the responder's base URL; events go to {@code /events} under it
      * @param signer this service's name, which the responder looks its key up by
@@ -65,7 +63,7 @@ public final class ResponderEventPublisher implements EventPublisher {
      * @param clock the time each event carries, in milliseconds since the epoch
      * @throws IllegalArgumentException when {@code timeout} is not positive
      */
-    public ResponderEventPublisher(Supplier<HttpClient> http, Duration timeout, String responderUrl, String signer,
+    public ResponderEventPublisher(HttpClient http, Duration timeout, String responderUrl, String signer,
             PrivateKey key, LongSupplier clock) {
         this.http = Objects.requireNonNull(http, "http");
         this.timeout = Objects.requireNonNull(timeout, "timeout");
@@ -87,7 +85,7 @@ public final class ResponderEventPublisher implements EventPublisher {
                     .timeout(timeout)
                     .POST(HttpRequest.BodyPublishers.ofString(envelope(event).toJson(), StandardCharsets.UTF_8))
                     .build();
-            int status = WholeExchange.send(http.get(), request, HttpResponse.BodyHandlers.discarding())
+            int status = WholeExchange.send(http, request, HttpResponse.BodyHandlers.discarding())
                     .statusCode();
             if (status >= 400) {
                 log.warn("the responder at {} refused the event: {}", responderUrl, status);
@@ -100,6 +98,11 @@ public final class ResponderEventPublisher implements EventPublisher {
     /** How long one event may take. */
     Duration timeout() {
         return timeout;
+    }
+
+    /** The JDK client each event is sent on. */
+    HttpClient http() {
+        return http;
     }
 
     /** The verdict as the responder reads it, with the time it is sent and a fresh random id, signed. */
