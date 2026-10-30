@@ -4,7 +4,6 @@
 package org.paztport.spring;
 
 import java.util.List;
-import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.influence.InfluenceRule;
 import org.paztport.core.verify.ReasonCode;
@@ -73,8 +72,7 @@ public final class PublicWrites {
     public boolean shapedOnlyByTrusted() {
         List<InfluenceEntry> influence = PaztportContext.influence();
         boolean trusted = PaztportContext.isOpen() && PaztportContext.verifiedChain() != null
-                && influence.stream().noneMatch(e -> e.cls() == InfluenceClass.THIRD_PARTY
-                        || e.cls() == InfluenceClass.LOCAL_UNTRUSTED);
+                && InfluenceRule.shapedOnlyByTrusted(influence.stream().map(InfluenceEntry::fact).toList());
         if (TRACE.isInfoEnabled()) {
             TRACE.info(DecisionLine.of(receiver, "trusted-record",
                     trusted ? ReasonCode.OK : ReasonCode.INFLUENCE_DENIED, influence));

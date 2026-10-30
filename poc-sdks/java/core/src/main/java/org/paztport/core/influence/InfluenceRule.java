@@ -28,4 +28,16 @@ public final class InfluenceRule {
                 && (f.owner() == null || f.owner().isEmpty() || destinationUnknown
                         || !f.owner().equals(destinationOwner)));
     }
+
+    /**
+     * Whether nothing untrusted shaped a request: no third-party and no local-untrusted entry. A service asks it
+     * before it writes a record that later decisions take as fact, which {@link #publicWriteRefused} cannot judge,
+     * since it weighs whose private data a write carries and a record written at the behest of untrusted text
+     * carries none. The caller must also know the influence is the one the caller vouched for, a chain that
+     * verified at this hop; this judges the entries and nothing else.
+     */
+    public static boolean shapedOnlyByTrusted(Collection<InfluenceFact> influence) {
+        return influence.stream()
+                .noneMatch(f -> f.cls() == InfluenceClass.THIRD_PARTY || f.cls() == InfluenceClass.LOCAL_UNTRUSTED);
+    }
 }
