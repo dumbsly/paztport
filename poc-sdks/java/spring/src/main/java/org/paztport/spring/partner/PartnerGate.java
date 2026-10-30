@@ -5,7 +5,6 @@ package org.paztport.spring.partner;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import java.nio.charset.StandardCharsets;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpAnswer;
 import org.paztport.http.PartnerSessions;
@@ -13,6 +12,7 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.UnsafeOperations;
 import org.paztport.http.internal.DecisionLine;
 import org.paztport.spring.PartnerFilter;
+import org.paztport.spring.internal.Refusals;
 import org.paztport.spring.internal.SessionStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -62,9 +62,7 @@ final class PartnerGate implements HandlerInterceptor {
                     RequestContext.influence()));
         }
         HttpAnswer refusal = UnsafeOperations.refusal();
-        response.setStatus(refusal.status());
-        response.setContentType("application/json");
-        response.getWriter().write(new String(refusal.json(), StandardCharsets.UTF_8));
+        Refusals.write(response, refusal);
         return false;
     }
 }

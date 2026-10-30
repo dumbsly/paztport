@@ -10,7 +10,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -29,6 +28,7 @@ import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.spring.internal.PeerIdentity;
+import org.paztport.spring.internal.Refusals;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
@@ -146,7 +146,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                 PeerIdentity.from(request), mode)) {
             Accepted accepted = entered.result();
             if (accepted.refusal() != null) {
-                refuse(response, accepted.refusal());
+                Refusals.write(response, accepted.refusal());
                 return;
             }
             if (!accepted.attests()) {
@@ -209,18 +209,5 @@ public final class InboundFilter extends OncePerRequestFilter {
     static String target(HttpServletRequest request) {
         String query = request.getQueryString();
         return query == null || query.isEmpty() ? request.getRequestURI() : request.getRequestURI() + "?" + query;
-    }
-
-    /**
-     * Writes a receiver's refusal as JSON, before any handler runs. A 403 names its charset and a 400 does not, as
-     * each always has; both bodies are ASCII, so either reads the same.
-     */
-    static void refuse(HttpServletResponse response, HttpAnswer refusal) throws IOException {
-        response.setStatus(refusal.status());
-        response.setContentType("application/json");
-        if (refusal.status() == HttpServletResponse.SC_FORBIDDEN) {
-            response.setCharacterEncoding("UTF-8");
-        }
-        response.getWriter().write(new String(refusal.json(), StandardCharsets.UTF_8));
     }
 }

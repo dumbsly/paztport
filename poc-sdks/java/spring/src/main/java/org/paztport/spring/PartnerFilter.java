@@ -16,6 +16,7 @@ import org.paztport.http.PartnerSessions;
 import org.paztport.http.PeerCert;
 import org.paztport.http.RequestContext;
 import org.paztport.spring.internal.PeerIdentity;
+import org.paztport.spring.internal.Refusals;
 import org.paztport.spring.internal.SessionStatus;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -70,7 +71,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
                 InboundFilter.inbound(request, body), PeerIdentity.cert(request))) {
             PartnerAccepted accepted = entered.result();
             if (accepted.refusal() != null) {
-                InboundFilter.refuse(response, accepted.refusal());
+                Refusals.write(response, accepted.refusal());
                 return;
             }
             if (accepted.attested()) {

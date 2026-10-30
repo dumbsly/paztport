@@ -427,7 +427,7 @@ class InboundFilterTest {
 
         assertEquals(403, response.getStatus());
         assertEquals("{\"reason\":\"PATH_NOT_ALLOWED\"}", response.getContentAsString());
-        assertEquals("application/json;charset=UTF-8", response.getContentType());
+        assertEquals("application/json", response.getContentType());
         assertEquals(1, events.all.size());
         assertEquals("orders", events.all.get(0).suspectSvc());
         assertEquals(inst, events.all.get(0).suspectInst());

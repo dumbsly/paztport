@@ -225,7 +225,8 @@ class PartnerRequestTest {
         return pooled.builder().build();
     }
 
-    private record Answer(int status, String body) {
+    /** {@code types} is every {@code Content-Type} header the answer carried, as sent. */
+    private record Answer(int status, String body, List<String> types) {
 
         JsonNode json() throws IOException {
             return JSON.readTree(body);
@@ -288,7 +289,8 @@ class PartnerRequestTest {
             spec = spec.contentType(MediaType.APPLICATION_JSON).body(body);
         }
         return spec.exchange((request, response) -> new Answer(response.getStatusCode().value(),
-                new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
+                new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8),
+                response.getHeaders().getOrEmpty("Content-Type")));
     }
 
     private Answer post(RestClient client, String path, Map<String, String> headers, byte[] body) {
@@ -339,6 +341,29 @@ class PartnerRequestTest {
 
         assertEquals(403, mesh.status());
         assertEquals("SESSION_UNKNOWN", mesh.reason());
+    }
+
+    // The container must not add a character encoding of its own: RFC 8259 defines no such parameter.
+    @Test
+    void aPartnerRefusalIsPlainApplicationJson() throws Exception {
+        RestClient orders = client("orders");
+
+        Answer unknown = post(orders, "/refund", boundary("made-up-id", "rid-c1", "/refund", REFUND), REFUND);
+
+        assertEquals(403, unknown.status());
+        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", unknown.body());
+        assertEquals(List.of("application/json"), unknown.types());
+    }
+
+    @Test
+    void anUnsafeSessionRefusalIsPlainApplicationJson() throws Exception {
+        RestClient orders = client("orders");
+
+        Answer refund = post(orders, "/refund", headers(null, internal("rid-c2"), null), REFUND);
+
+        assertEquals(403, refund.status());
+        assertEquals("{\"reason\":\"UNSAFE_SESSION\"}", refund.body());
+        assertEquals(List.of("application/json"), refund.types());
     }
 
     @Test
