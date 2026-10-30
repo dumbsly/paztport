@@ -433,9 +433,11 @@ class PartnerRequestTest {
     void roundTrip() throws Exception {
         PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("orders"));
         byte[] blindingKey = new java.security.SecureRandom().generateSeed(BoundaryInfluence.KEY_LENGTH);
-        try (BoundaryClient boundary = new BoundaryClient(orders(), SHOP_BUILT.bundles().get("orders"),
-                SHOP_BUILT.signedRoot(), SHOP_RING, SHOP_PIN, PARTNER, URI.create("https://localhost:" + port),
-                PSP_PIN, blindingKey, null, tls, 600_000)) {
+        try (BoundaryClient boundary = BoundaryClient.builder().stamper(orders())
+                .bundle(SHOP_BUILT.bundles().get("orders")).ownRoot(SHOP_BUILT.signedRoot()).ownKeyring(SHOP_RING)
+                .ownPolicyKey(SHOP_PIN).partner(PARTNER).partnerUrl(URI.create("https://localhost:" + port))
+                .pinnedPartnerKey(PSP_PIN).blindingKey(blindingKey).listener(null)
+                .http(tls.httpClient()).readTimeout(tls.readTimeout()).sessionIdleMs(600_000).build()) {
             for (String rid : List.of("rid-t1", "rid-t2")) {
                 try (RequestContext.Scope scope = RequestContext.open()) {
                     ContextAccess.markVerified(internal(rid));

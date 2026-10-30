@@ -9,6 +9,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
@@ -44,7 +45,6 @@ import org.paztport.http.RequestBinding;
 import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.WholeExchange;
-import org.paztport.spring.outbound.PooledTlsClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -72,8 +72,8 @@ import org.slf4j.LoggerFactory;
  * the full handshake is the partner's answer (it has not pinned this organisation), so that session is kept.
  *
  * <p>A handshake holds every first caller, so it has its own timeout, {@link #HANDSHAKE_TIMEOUT}; each call has
- * the read timeout of the TLS client this is given ({@code paztport.read-timeout-ms}, 30 s unless set), so that a
- * partner that takes a call and never answers cannot hold the calling thread for ever. Each bounds the whole
+ * the read timeout this is built with ({@link #DEFAULT_READ_TIMEOUT} unless set), so that a partner that takes a
+ * call and never answers cannot hold the calling thread for ever. Each bounds the whole
  * exchange, the body included, on every JDK ({@link WholeExchange#send}), since the partner is another
  * organisation: one that sends its headers and then stops is cut off too. A handshake past its timeout counts as no
  * answer (above). A call past its timeout is cancelled and {@link #post} throws, as for any call that fails; the
@@ -113,7 +113,8 @@ import org.slf4j.LoggerFactory;
  * restarted. Its own lapse is logged once, the first time a handshake or such a refusal finds it.
  *
  * <p>Each handshake logs one {@code PAZTPORT_TRACE session} line and each call one {@code PAZTPORT_TRACE boundary}
- * line. It owns its TLS client, built from the partner's bundle, and closes it with itself.
+ * line. It owns the JDK client it is built with, which presents this service's certificate to the partner and
+ * trusts the partner's CA, and shuts it down when it is closed.
  */
 public final class BoundaryClient implements AutoCloseable {
 
@@ -128,6 +129,12 @@ public final class BoundaryClient implements AutoCloseable {
      * unsafe for long, long enough that a partner that stays down is not asked for two handshakes on every call.
      */
     static final Duration FALLBACK_PERIOD = Duration.ofSeconds(30);
+
+    /**
+     * Each call's read timeout unless one is given: far beyond any answer a working partner gives, so it ends only
+     * calls that would otherwise wait for ever.
+     */
+    public static final Duration DEFAULT_READ_TIMEOUT = Duration.ofSeconds(30);
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final Logger LOG = LoggerFactory.getLogger(BoundaryClient.class);
@@ -161,7 +168,8 @@ public final class BoundaryClient implements AutoCloseable {
     private final String pinnedPartnerKey;
     private final byte[] blindingKey;
     private final BoundaryListener listener;
-    private final PooledTlsClient tls;
+    private final HttpClient http;
+    private final Duration readTimeout;
     private final AtomicReference<Session> session = new AtomicReference<>();
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
     private final Object handshake = new Object();
@@ -169,67 +177,39 @@ public final class BoundaryClient implements AutoCloseable {
     private final LongSupplier millis;
     private final long sessionIdleNanos;
 
-    /**
-     * @param stamper this service's stamper; the boundary stamp is signed with its key
-     * @param bundle this service's proofs, which must hold {@code <this service>/<partner>}
-     * @param ownRoot this organisation's signed root, sent in the handshake
-     * @param ownKeyring this organisation's signed keyring, sent in the handshake
-     * @param ownPolicyKey this organisation's policy public key, under which the root and keyring verify
-     * @param partner the partner's entry service, the boundary stamp's receiver
-     * @param partnerUrl the partner's base URL: a scheme and an authority, with no path
-     * @param pinnedPartnerKey the partner's policy public key, pinned at onboarding
-     * @param blindingKey this egress service's boundary key, exactly {@value BoundaryInfluence#KEY_LENGTH} bytes,
-     *     which never leaves this organisation and is shared with no other service (its replicas excepted);
-     *     copied
-     * @param listener told the originals and the list sent before each attested call, or null for none
-     * @param tls the client that presents this service's certificate to the partner, whose read timeout each call
-     *     has; closed with this one
-     * @param sessionIdleMs how long a session no call has used is kept, in milliseconds; positive, and below the
-     *     partner's own idle period
-     */
-    public BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
-            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
-            BoundaryListener listener, PooledTlsClient tls, long sessionIdleMs) {
-        this(stamper, bundle, ownRoot, ownKeyring, ownPolicyKey, partner, partnerUrl, pinnedPartnerKey, blindingKey,
-                listener, tls, System::nanoTime, System::currentTimeMillis, sessionIdleMs);
-    }
-
-    /**
-     * As above, with the clocks: {@code nanos}, monotonic, ages sessions; {@code millis}, the time of day in
-     * milliseconds since the epoch, is what a reply certificate's {@code notAfter} is compared with. Tests set both.
-     */
-    BoundaryClient(StamperV3 stamper, ProofBundle bundle, SignedRoot ownRoot, KeyringFile ownKeyring,
-            String ownPolicyKey, String partner, URI partnerUrl, String pinnedPartnerKey, byte[] blindingKey,
-            BoundaryListener listener, PooledTlsClient tls, LongSupplier nanos, LongSupplier millis,
-            long sessionIdleMs) {
-        this.stamper = Objects.requireNonNull(stamper, "stamper");
-        this.bundle = Objects.requireNonNull(bundle, "bundle");
-        this.ownRoot = Objects.requireNonNull(ownRoot, "ownRoot");
-        this.ownKeyring = Objects.requireNonNull(ownKeyring, "ownKeyring");
-        this.ownPolicyKey = Objects.requireNonNull(ownPolicyKey, "ownPolicyKey");
-        this.partner = Objects.requireNonNull(partner, "partner");
-        this.partnerUrl = Objects.requireNonNull(partnerUrl, "partnerUrl");
-        this.pinnedPartnerKey = Objects.requireNonNull(pinnedPartnerKey, "pinnedPartnerKey");
+    private BoundaryClient(Builder b) {
+        this.stamper = Objects.requireNonNull(b.stamper, "stamper");
+        this.bundle = Objects.requireNonNull(b.bundle, "bundle");
+        this.ownRoot = Objects.requireNonNull(b.ownRoot, "ownRoot");
+        this.ownKeyring = Objects.requireNonNull(b.ownKeyring, "ownKeyring");
+        this.ownPolicyKey = Objects.requireNonNull(b.ownPolicyKey, "ownPolicyKey");
+        this.partner = Objects.requireNonNull(b.partner, "partner");
+        this.partnerUrl = Objects.requireNonNull(b.partnerUrl, "partnerUrl");
+        this.pinnedPartnerKey = Objects.requireNonNull(b.pinnedPartnerKey, "pinnedPartnerKey");
         // Refused rather than stretched or cut: every salt is keyed by it.
-        if (blindingKey == null || blindingKey.length != BoundaryInfluence.KEY_LENGTH) {
+        if (b.blindingKey == null || b.blindingKey.length != BoundaryInfluence.KEY_LENGTH) {
             throw new IllegalArgumentException("the boundary key must be " + BoundaryInfluence.KEY_LENGTH
                     + " bytes");
         }
-        this.blindingKey = blindingKey.clone();
-        this.listener = listener;
-        this.tls = Objects.requireNonNull(tls, "tls");
-        this.nanos = Objects.requireNonNull(nanos, "nanos");
-        this.millis = Objects.requireNonNull(millis, "millis");
+        this.blindingKey = b.blindingKey.clone();
+        this.listener = b.listener;
+        this.http = Objects.requireNonNull(b.http, "http");
+        this.readTimeout = Objects.requireNonNull(b.readTimeout, "readTimeout");
+        if (readTimeout.isNegative() || readTimeout.isZero()) {
+            throw new IllegalArgumentException("the read timeout must be positive: " + readTimeout);
+        }
+        this.nanos = Objects.requireNonNull(b.nanos, "nanos");
+        this.millis = Objects.requireNonNull(b.millis, "millis");
         if (partner.isEmpty()) {
             throw new IllegalArgumentException("the partner's entry service must be named");
         }
         if (stamper.svc() == null || stamper.svc().isEmpty()) {
             throw new IllegalArgumentException("the egress service must be named");
         }
-        if (sessionIdleMs <= 0) {
+        if (b.sessionIdleMs <= 0) {
             throw new IllegalArgumentException("the session idle period must be positive");
         }
-        this.sessionIdleNanos = TimeUnit.MILLISECONDS.toNanos(sessionIdleMs);
+        this.sessionIdleNanos = TimeUnit.MILLISECONDS.toNanos(b.sessionIdleMs);
         if (partnerUrl.getScheme() == null || partnerUrl.getRawAuthority() == null
                 || !(partnerUrl.getRawPath() == null || partnerUrl.getRawPath().isEmpty()
                         || partnerUrl.getRawPath().equals("/"))
@@ -251,6 +231,11 @@ public final class BoundaryClient implements AutoCloseable {
             throw new IllegalArgumentException("the root and keyring must both be current: "
                     + (ownRoot.isCurrent(now) ? "the keyring" : "the root") + " has expired");
         }
+    }
+
+    /** A client to build; see {@link Builder}. */
+    public static Builder builder() {
+        return new Builder();
     }
 
     /**
@@ -282,7 +267,7 @@ public final class BoundaryClient implements AutoCloseable {
         HttpRequest.Builder request = HttpRequest.newBuilder(target)
                 .header("Content-Type", "application/json")
                 .header(PaztportHeaders.SESSION, current.sess())
-                .timeout(tls.readTimeout())
+                .timeout(readTimeout)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(json));
         List<InfluenceEntry> sent = List.of();
         String rid = verified.get(0).rid();
@@ -471,7 +456,7 @@ public final class BoundaryClient implements AutoCloseable {
 
     /** Sends {@code request}, which has its timeout, and reads its whole answer within it. */
     private HttpResponse<byte[]> send(HttpRequest request) throws IOException {
-        return WholeExchange.send(tls.httpClient(), request, HttpResponse.BodyHandlers.ofByteArray());
+        return WholeExchange.send(http, request, HttpResponse.BodyHandlers.ofByteArray());
     }
 
     /** The {@code reason} of a JSON refusal body, or null when there is none. */
@@ -523,14 +508,158 @@ public final class BoundaryClient implements AutoCloseable {
                 status, classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 
-    /** The read timeout each call has: its TLS client's. */
+    /** The read timeout each call has. */
     Duration readTimeout() {
-        return tls.readTimeout();
+        return readTimeout;
     }
 
-    /** Closes the TLS client; calls after this fail. */
+    /**
+     * Shuts the JDK client down, without waiting for the calls in flight, so a call with no answer cannot hold up
+     * the application's shutdown; calls after this fail.
+     */
     @Override
     public void close() {
-        tls.close();
+        http.shutdown();
+    }
+
+    /**
+     * Builds an egress client once its settings are checked. Everything is required but the listener (none unless
+     * set), the read timeout ({@link #DEFAULT_READ_TIMEOUT} unless set) and the clocks (the system's).
+     */
+    public static final class Builder {
+
+        private StamperV3 stamper;
+        private ProofBundle bundle;
+        private SignedRoot ownRoot;
+        private KeyringFile ownKeyring;
+        private String ownPolicyKey;
+        private String partner;
+        private URI partnerUrl;
+        private String pinnedPartnerKey;
+        private byte[] blindingKey;
+        private BoundaryListener listener;
+        private HttpClient http;
+        private Duration readTimeout = DEFAULT_READ_TIMEOUT;
+        private long sessionIdleMs;
+        private LongSupplier nanos = System::nanoTime;
+        private LongSupplier millis = System::currentTimeMillis;
+
+        private Builder() {
+        }
+
+        /** This service's stamper; the boundary stamp is signed with its key. */
+        public Builder stamper(StamperV3 stamper) {
+            this.stamper = stamper;
+            return this;
+        }
+
+        /** This service's proofs, which must hold {@code <this service>/<partner>}. */
+        public Builder bundle(ProofBundle bundle) {
+            this.bundle = bundle;
+            return this;
+        }
+
+        /** This organisation's signed root, sent in the handshake. */
+        public Builder ownRoot(SignedRoot root) {
+            this.ownRoot = root;
+            return this;
+        }
+
+        /** This organisation's signed keyring, sent in the handshake. */
+        public Builder ownKeyring(KeyringFile keyring) {
+            this.ownKeyring = keyring;
+            return this;
+        }
+
+        /** This organisation's policy public key, base64url, under which the root and keyring verify. */
+        public Builder ownPolicyKey(String pin) {
+            this.ownPolicyKey = pin;
+            return this;
+        }
+
+        /** The partner's entry service, the boundary stamp's receiver. */
+        public Builder partner(String entry) {
+            this.partner = entry;
+            return this;
+        }
+
+        /** The partner's base URL: a scheme and an authority, with no path. */
+        public Builder partnerUrl(URI url) {
+            this.partnerUrl = url;
+            return this;
+        }
+
+        /** The partner's policy public key, base64url, pinned at onboarding. */
+        public Builder pinnedPartnerKey(String pin) {
+            this.pinnedPartnerKey = pin;
+            return this;
+        }
+
+        /**
+         * This egress service's boundary key, exactly {@value BoundaryInfluence#KEY_LENGTH} bytes, which never
+         * leaves this organisation and is shared with no other service (its replicas excepted); copied when built.
+         */
+        public Builder blindingKey(byte[] key) {
+            this.blindingKey = key;
+            return this;
+        }
+
+        /** Told the originals and the list sent before each attested call; null for none. */
+        public Builder listener(BoundaryListener listener) {
+            this.listener = listener;
+            return this;
+        }
+
+        /**
+         * The JDK client every handshake and call goes out on: it presents this service's certificate to the
+         * partner and trusts the partner's CA. The built client owns it from then on and shuts it down when closed.
+         */
+        public Builder http(HttpClient client) {
+            this.http = client;
+            return this;
+        }
+
+        /** Each call's bound on the whole exchange, the response's body included; positive. */
+        public Builder readTimeout(Duration timeout) {
+            this.readTimeout = timeout;
+            return this;
+        }
+
+        /**
+         * How long a session no call has used is kept, in milliseconds; positive, and below the partner's own idle
+         * period.
+         */
+        public Builder sessionIdleMs(long ms) {
+            this.sessionIdleMs = ms;
+            return this;
+        }
+
+        /** The monotonic clock, in nanoseconds, that ages sessions; tests move it. */
+        Builder nanos(LongSupplier nanos) {
+            this.nanos = nanos;
+            return this;
+        }
+
+        /**
+         * The time of day, in milliseconds since the epoch, that this side's own root and keyring and the reply
+         * certificates are judged by; tests move it.
+         */
+        Builder millis(LongSupplier millis) {
+            this.millis = millis;
+            return this;
+        }
+
+        /**
+         * The client, once its settings are checked: the partner and this service are named, the boundary key is
+         * {@value BoundaryInfluence#KEY_LENGTH} bytes, the read timeout and the idle period are positive, the
+         * partner URL is a scheme and an authority only, and this side's root and keyring verify under its policy
+         * key and are in the new form and current by the time of day.
+         *
+         * @throws NullPointerException if a required setting is missing
+         * @throws IllegalArgumentException if a setting is refused
+         */
+        public BoundaryClient build() {
+            return new BoundaryClient(this);
+        }
     }
 }

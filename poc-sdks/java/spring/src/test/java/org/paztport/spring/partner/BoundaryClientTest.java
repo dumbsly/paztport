@@ -18,6 +18,7 @@ import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.UncheckedIOException;
+import java.net.http.HttpClient;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
@@ -63,11 +64,7 @@ import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
-import org.paztport.spring.outbound.PooledTlsClient;
 import org.slf4j.LoggerFactory;
-import org.springframework.boot.ssl.SslBundle;
-import org.springframework.boot.ssl.pem.PemSslStoreBundle;
-import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 
 /**
  * The egress on its own, against a stub partner: one handshake per session, one boundary stamp per attested call
@@ -130,12 +127,7 @@ class BoundaryClientTest {
     @BeforeEach
     void start() throws Exception {
         partner = new StubPartner();
-        client = new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
-                nanos::get, millis::get, IDLE_MS);
+        client = egress(partner, tls()).build();
         traces.start();
         traceLog.addAppender(traces);
         traceLog.setLevel(Level.INFO);
@@ -157,11 +149,39 @@ class BoundaryClientTest {
         onSent.sent(rid, partnerEntry, originals, sent);
     }
 
-    private static SslBundle fixtureBundle(String name) {
-        return SslBundle.of(new PemSslStoreBundle(
-                PemSslStoreDetails.forCertificate("classpath:tls/" + name + ".crt")
-                        .withPrivateKey("classpath:tls/" + name + ".key"),
-                PemSslStoreDetails.forCertificate("classpath:tls/ca.crt")));
+    /**
+     * An egress like {@link #client}, against {@code to} and on {@code http}, which the built client owns, for a
+     * test to change before building it: payment's material, the listener, both clocks and {@link #IDLE_MS}.
+     */
+    private BoundaryClient.Builder egress(StubPartner to, HttpClient http) {
+        return BoundaryClient.builder()
+                .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis))
+                .bundle(built.bundles().get("payment"))
+                .ownRoot(built.signedRoot())
+                .ownKeyring(keyring)
+                .ownPolicyKey(policyPub)
+                .partner("psp")
+                .partnerUrl(to.url())
+                .pinnedPartnerKey(to.policyKey())
+                .blindingKey(blindingKey)
+                .listener(this::listen)
+                .http(http)
+                .nanos(nanos::get)
+                .millis(millis::get)
+                .sessionIdleMs(IDLE_MS);
+    }
+
+    /**
+     * The JDK client the egress calls out on, as the starter's pooled one is made: HTTP/1.1, presenting the
+     * fixture's {@code payment} certificate and trusting only the fixture CA, which the stub's certificate is under.
+     */
+    private static HttpClient tls() {
+        return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(5))
+                .sslContext(StubPartner.fixtureContext("payment"))
+                .build();
     }
 
     /** A one-stamp chain from the gateway to payment, as payment's filter would have verified it. */
@@ -365,12 +385,7 @@ class BoundaryClientTest {
         verified("rid-1", this::charge);
 
         // And the replacement after a reply this side cannot use: unsafe too.
-        try (BoundaryClient other = new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
-                nanos::get, millis::get, IDLE_MS)) {
+        try (BoundaryClient other = egress(partner, tls()).build()) {
             partner.status("attested");
             partner.signNextHandshakeWith(Crypto.generateEd25519KeyPair());
             assertFalse(verified("rid-2", () -> other.post("/charge", CHARGE)).attested());
@@ -442,12 +457,7 @@ class BoundaryClientTest {
 
     /** A second egress like {@link #client}, against the same partner, with no session yet. */
     private BoundaryClient anotherClient() {
-        return new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), blindingKey, this::listen, PooledTlsClient.of(fixtureBundle("payment")),
-                nanos::get, millis::get, IDLE_MS);
+        return egress(partner, tls()).build();
     }
 
     // A partner signs with its entry key under a certificate, or, as before certificates, with its policy key.
@@ -527,12 +537,8 @@ class BoundaryClientTest {
         warnings.start();
         clientLog.addAppender(warnings);
         clientLog.setLevel(Level.WARN);
-        try (BoundaryClient egress = new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                lapsing.bundles().get("payment"), lapsing.signedRoot(), lapsingRing, policyPub, "psp", partner.url(),
-                partner.policyKey(), blindingKey, null, PooledTlsClient.of(fixtureBundle("payment")), nanos::get,
-                millis::get, IDLE_MS)) {
+        try (BoundaryClient egress = egress(partner, tls()).bundle(lapsing.bundles().get("payment"))
+                .ownRoot(lapsing.signedRoot()).ownKeyring(lapsingRing).listener(null).build()) {
             assertTrue(verified("rid-1", () -> egress.post("/charge", CHARGE)).attested());
             assertThat(warnings.list).isEmpty();
 
@@ -660,12 +666,7 @@ class BoundaryClientTest {
     // A replacement's session goes idle like any other, before its own period is up.
     @Test
     void idleFallbackSessionIsReopened() throws Exception {
-        try (BoundaryClient shortIdle = new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                partner.policyKey(), blindingKey, null, PooledTlsClient.of(fixtureBundle("payment")), nanos::get,
-                millis::get, 1_000)) {
+        try (BoundaryClient shortIdle = egress(partner, tls()).listener(null).sessionIdleMs(1_000).build()) {
             partner.failNextHandshake(503);
             assertFalse(verified("rid-1", () -> shortIdle.post("/charge", CHARGE)).attested());
             assertEquals(2, partner.handshakes().size());
@@ -676,14 +677,10 @@ class BoundaryClientTest {
         }
     }
 
-    /** The constructor with these as the egress's own root and keyring, judged at {@link #millis}. */
+    /** The builder with these as the egress's own root and keyring, judged at {@link #millis}. */
     private void egressWith(SignedRoot root, KeyringFile ring) {
-        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
-            new BoundaryClient(
-                    new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                            System::currentTimeMillis),
-                    built.bundles().get("payment"), root, ring, policyPub, "psp", partner.url(),
-                    partner.policyKey(), blindingKey, null, tls, nanos::get, millis::get, IDLE_MS).close();
+        try (HttpClient tls = tls()) {
+            egress(partner, tls).ownRoot(root).ownKeyring(ring).listener(null).build().close();
         }
     }
 
@@ -712,12 +709,9 @@ class BoundaryClientTest {
 
     @Test
     void idlePeriodMustBePositive() {
-        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
-            assertThrows(IllegalArgumentException.class, () -> new BoundaryClient(
-                    new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                            System::currentTimeMillis),
-                    built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                    partner.policyKey(), blindingKey, null, tls, nanos::get, millis::get, 0));
+        try (HttpClient tls = tls()) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> egress(partner, tls).listener(null).sessionIdleMs(0).build());
         }
     }
 
@@ -725,13 +719,10 @@ class BoundaryClientTest {
     // refused rather than used.
     @Test
     void blindingKeyMustBe32Bytes() {
-        try (PooledTlsClient tls = PooledTlsClient.of(fixtureBundle("payment"))) {
+        try (HttpClient tls = tls()) {
             for (byte[] key : new byte[][] {null, new byte[31], new byte[33]}) {
-                assertThrows(RuntimeException.class, () -> new BoundaryClient(
-                        new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                                System::currentTimeMillis),
-                        built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp", partner.url(),
-                        partner.policyKey(), key, null, tls, nanos::get, millis::get, IDLE_MS));
+                assertThrows(RuntimeException.class,
+                        () -> egress(partner, tls).blindingKey(key).listener(null).build());
             }
         }
     }
@@ -823,13 +814,8 @@ class BoundaryClientTest {
     void aCallThePartnerNeverFinishesFailsAtTheReadTimeoutAndKeepsTheSession() throws Exception {
         for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
             try (StubPartner stalling = new StubPartner();
-                    BoundaryClient bounded = new BoundaryClient(
-                            new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                                    System::currentTimeMillis),
-                            built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp",
-                            stalling.url(), stalling.policyKey(), blindingKey, null,
-                            PooledTlsClient.of(fixtureBundle("payment"), Duration.ofMillis(300)), nanos::get,
-                            millis::get, IDLE_MS)) {
+                    BoundaryClient bounded = egress(stalling, tls()).listener(null)
+                            .readTimeout(Duration.ofMillis(300)).build()) {
                 stalling.stallNextCall(stall);
 
                 long start = System.nanoTime();
@@ -853,6 +839,6 @@ class BoundaryClientTest {
 
     @Test
     void theCallsGetTheReadTimeoutOfTheirTlsClient() {
-        assertEquals(PooledTlsClient.DEFAULT_READ_TIMEOUT, client.readTimeout());
+        assertEquals(BoundaryClient.DEFAULT_READ_TIMEOUT, client.readTimeout());
     }
 }

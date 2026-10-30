@@ -13,7 +13,10 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URI;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -251,6 +254,25 @@ class PooledTlsClientTest {
         assertThat(head.getStatusCode().value()).isEqualTo(200);
         assertThat(head.getHeaders().getFirst("x-answered")).isEqualTo("/ok");
         assertThat(head.getBody()).isNull();
+    }
+
+    // The egress is handed its client at startup, so the view of it reads the bundle only when a call goes out,
+    // and shutting the view down closes the pooled client without reading it either.
+    @Test
+    void theDeferredClientIsMadeOnlyForACallAndClosesThePooledOne() throws Exception {
+        PooledTlsClient unread = PooledTlsClient.of(SslBundle.of(null));
+        unread.deferredHttpClient().shutdown();
+        assertThatThrownBy(unread::httpClient).isInstanceOf(IllegalStateException.class).hasMessageContaining("closed");
+
+        String url = serve();
+        PooledTlsClient read = pooled(SslBundle.of(stores("orders")));
+        HttpClient deferred = read.deferredHttpClient();
+        HttpResponse<String> ok = deferred.send(HttpRequest.newBuilder(URI.create(url + "/ok"))
+                .POST(HttpRequest.BodyPublishers.ofString("{}")).build(), HttpResponse.BodyHandlers.ofString());
+        assertThat(ok.statusCode()).isEqualTo(200);
+        assertThat(deferred.version()).isEqualTo(HttpClient.Version.HTTP_1_1);
+        deferred.shutdown();
+        assertThat(read.httpClient().awaitTermination(PROMPTLY)).isTrue();
     }
 
     @Test

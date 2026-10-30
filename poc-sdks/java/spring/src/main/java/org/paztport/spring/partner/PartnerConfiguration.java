@@ -106,19 +106,22 @@ public class PartnerConfiguration {
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
-        return new BoundaryClient(
-                stamper.getObject(),
-                bundle.getObject(),
-                ownRoot,
-                ownKeyring,
-                ownPin,
-                b.getPartner(),
-                partnerUrl,
-                KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())),
-                blindingKey,
-                listener.getIfAvailable(),
-                PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout),
-                b.getSessionIdleMs());
+        // The JDK client is deferred, so the bundle is read on the first call, as the pooled client's always was.
+        return BoundaryClient.builder()
+                .stamper(stamper.getObject())
+                .bundle(bundle.getObject())
+                .ownRoot(ownRoot)
+                .ownKeyring(ownKeyring)
+                .ownPolicyKey(ownPin)
+                .partner(b.getPartner())
+                .partnerUrl(partnerUrl)
+                .pinnedPartnerKey(KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath())))
+                .blindingKey(blindingKey)
+                .listener(listener.getIfAvailable())
+                .http(PooledTlsClient.of(bundles.getBundle(b.getTlsBundle()), readTimeout).deferredHttpClient())
+                .readTimeout(readTimeout)
+                .sessionIdleMs(b.getSessionIdleMs())
+                .build();
     }
 
     /**

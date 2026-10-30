@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.net.URI;
+import java.net.http.HttpClient;
 import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
@@ -26,16 +27,14 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StamperV3;
-import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.BoundaryClient;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
-import org.springframework.boot.ssl.SslBundle;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-// A real egress client, which never calls out here: an opening needs only its boundary key and partner. Its
-// TLS material is read on the first call, so the bundle is never read.
+// A real egress client, which never calls out here: an opening needs only its boundary key and partner, so its
+// JDK client has no TLS material.
 class OpeningControllerTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
@@ -62,12 +61,21 @@ class OpeningControllerTest {
         KeyringFile keyring = KeyringFile.sign(
                 Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(payment.getPublic()))), policyPub, NOT_AFTER,
                 policy.getPrivate());
-        client = new BoundaryClient(
-                new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
-                        System::currentTimeMillis),
-                built.bundles().get("payment"), built.signedRoot(), keyring, policyPub, "psp",
-                URI.create("https://psp:8080"), policyPub, boundaryKey, openings,
-                PooledTlsClient.of(SslBundle.of(null)), 600_000);
+        client = BoundaryClient.builder()
+                .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                        System::currentTimeMillis))
+                .bundle(built.bundles().get("payment"))
+                .ownRoot(built.signedRoot())
+                .ownKeyring(keyring)
+                .ownPolicyKey(policyPub)
+                .partner("psp")
+                .partnerUrl(URI.create("https://psp:8080"))
+                .pinnedPartnerKey(policyPub)
+                .blindingKey(boundaryKey)
+                .listener(openings)
+                .http(HttpClient.newHttpClient())
+                .sessionIdleMs(600_000)
+                .build();
         StaticListableBeanFactory beans = new StaticListableBeanFactory(Map.of("client", client));
         mvc = MockMvcBuilders.standaloneSetup(
                 new OpeningController(openings, beans.getBeanProvider(BoundaryClient.class), "psp")).build();

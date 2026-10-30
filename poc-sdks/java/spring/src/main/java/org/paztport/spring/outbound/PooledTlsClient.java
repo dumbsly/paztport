@@ -3,9 +3,19 @@
 
 package org.paztport.spring.outbound;
 
+import java.io.IOException;
+import java.net.Authenticator;
+import java.net.CookieHandler;
+import java.net.ProxySelector;
 import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.WebSocket;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLParameters;
 import org.paztport.http.internal.WholeExchange;
@@ -174,6 +184,16 @@ public final class PooledTlsClient implements AutoCloseable {
     }
 
     /**
+     * The same JDK client as {@link #httpClient()}, behind a view that makes it only when something first asks
+     * for it, so that code handed a client at startup still has the bundle read on its first call, not at
+     * startup. Shutting the view down closes this client, which makes nothing; it is how the egress, which owns
+     * the client it is built with, closes its own.
+     */
+    public HttpClient deferredHttpClient() {
+        return new Deferred();
+    }
+
+    /**
      * Stops taking new calls and lets the pool's connections close once the calls in flight finish. It does not
      * wait for them, so a call with no answer cannot hold up the application's shutdown.
      */
@@ -183,5 +203,111 @@ public final class PooledTlsClient implements AutoCloseable {
         if (pool != null) {
             pool.http().shutdown();
         }
+    }
+
+    /**
+     * {@link #httpClient()}, asked for on each use rather than once: every call and setting goes to it, which
+     * makes it the first time; shutting down is this client's {@link #close()}, and so makes nothing.
+     */
+    private final class Deferred extends HttpClient {
+
+        @Override
+        public Optional<CookieHandler> cookieHandler() {
+            return httpClient().cookieHandler();
+        }
+
+        @Override
+        public Optional<Duration> connectTimeout() {
+            return httpClient().connectTimeout();
+        }
+
+        @Override
+        public Redirect followRedirects() {
+            return httpClient().followRedirects();
+        }
+
+        @Override
+        public Optional<ProxySelector> proxy() {
+            return httpClient().proxy();
+        }
+
+        @Override
+        public SSLContext sslContext() {
+            return httpClient().sslContext();
+        }
+
+        @Override
+        public SSLParameters sslParameters() {
+            return httpClient().sslParameters();
+        }
+
+        @Override
+        public Optional<Authenticator> authenticator() {
+            return httpClient().authenticator();
+        }
+
+        @Override
+        public Version version() {
+            return httpClient().version();
+        }
+
+        @Override
+        public Optional<Executor> executor() {
+            return httpClient().executor();
+        }
+
+        @Override
+        public <T> HttpResponse<T> send(HttpRequest request, HttpResponse.BodyHandler<T> handler)
+                throws IOException, InterruptedException {
+            return httpClient().send(request, handler);
+        }
+
+        @Override
+        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
+                HttpResponse.BodyHandler<T> handler) {
+            return httpClient().sendAsync(request, handler);
+        }
+
+        @Override
+        public <T> CompletableFuture<HttpResponse<T>> sendAsync(HttpRequest request,
+                HttpResponse.BodyHandler<T> handler, HttpResponse.PushPromiseHandler<T> push) {
+            return httpClient().sendAsync(request, handler, push);
+        }
+
+        @Override
+        public WebSocket.Builder newWebSocketBuilder() {
+            return httpClient().newWebSocketBuilder();
+        }
+
+        @Override
+        public void shutdown() {
+            PooledTlsClient.this.close();
+        }
+
+        @Override
+        public void shutdownNow() {
+            PooledTlsClient.this.close();
+            Pool p = pool;
+            if (p != null) {
+                p.http().shutdownNow();
+            }
+        }
+
+        @Override
+        public boolean awaitTermination(Duration duration) throws InterruptedException {
+            Pool p = pool;
+            return p == null ? closed() : p.http().awaitTermination(duration);
+        }
+
+        @Override
+        public boolean isTerminated() {
+            Pool p = pool;
+            return p == null ? closed() : p.http().isTerminated();
+        }
+    }
+
+    /** Whether {@link #close()} has run. */
+    private synchronized boolean closed() {
+        return closed;
     }
 }
