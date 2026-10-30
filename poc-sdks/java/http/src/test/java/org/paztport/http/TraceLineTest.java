@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring;
+package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -23,7 +23,6 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
-import org.paztport.http.ContextAccess;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.ReceiverAccess;
 import org.paztport.http.RequestBinding;
@@ -60,7 +59,7 @@ class TraceLineTest {
         traceLog.detachAppender(traces);
         traceLog.setLevel(null);
         traceLog.setAdditive(true);
-        ContextAccess.reset();
+        RequestContext.reset();
     }
 
     @Test
@@ -82,7 +81,7 @@ class TraceLineTest {
     @Test
     void decisionLine() {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            ContextAccess.markVerified(chain("rid-7"));
+            RequestContext.markVerified(chain("rid-7"));
             RequestContext.addInfluence(MINE, WEB);
             new PublicWrites("mailer").decide("mallory");
         }
