@@ -360,7 +360,8 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 - A route has at least two nodes, because its proof is held by its caller (the node before the last).
 - A route node MUST be non-empty, MUST NOT be `.` or `..`, and MUST NOT contain `/`, `\`, `|` or a lone
   surrogate. Node names become route segments and file names (`proofs-<svc>.json`).
-- A call's route ends at its receiver: `gateway/orders/payment`, or (the MCP profile) `session/pi/mcp:github.create_pull_request`.
+- A call's route ends at its receiver: `gateway/orders/payment`, or
+  (the MCP profile) `session/pi/mcp:github.create_pull_request`.
 - An MCP response's route (the MCP profile) is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client,
   is not on it: the server's policy can't list every client.
 - An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.

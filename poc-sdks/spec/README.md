@@ -61,7 +61,8 @@ What v3 changed, deliberately:
 | v3 over HTTP | yes | no |
 | Responder events | yes | not yet |
 
-A new implementation MUST pass `v3.json`, less the cases of [the MCP profile](#the-mcp-profile) if it does not implement it. It MUST pass `v2.json` if it reads records made before v3,
+A new implementation MUST pass `v3.json`, less its `recordedLocalStep` section if it does not implement [the MCP
+profile](#the-mcp-profile). It MUST pass `v2.json` if it reads records made before v3,
 `http-v3.json` if it speaks v3 over HTTP, `events.json` if it sends or receives responder events, and `v1.json`
 if it speaks the v1 HTTP format.
 
@@ -88,8 +89,9 @@ local-tool [bindings](wire.md#bindings), the MCP tool call and response chains, 
 own tool calls, signed by the client alone, with their route, nonce key and recorded check). An implementation
 that speaks the protocol over HTTP only need not implement the profile, and the HTTP rules never refer to it. An
 implementation that claims the profile MUST implement all of it, and MUST pass its cases: in `v2.json`,
-`bindMcpCall` and `bindResult`; in `v3.json`, the `verify` cases `mcp call ok` and `local step ok` and the
-`recordedLocalStep` section. An HTTP-only implementation passes the rest of those files. Three offline results belong to the profile alone
+`bindMcpCall` and `bindResult`; in `v3.json`, the `recordedLocalStep` section. These are the cases whose replay
+needs profile code. Every `verify` case is replayable by an HTTP-only implementation, since a route and a receiver
+are opaque strings there. Three offline results belong to the profile alone
 (`PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`, [verification.md](verification.md#reason-codes)). Each
 passage of the spec that belongs to it says so and links here.
 
