@@ -46,9 +46,9 @@ import org.paztport.core.policy.Keyring;
  * committed bytes and {@code EventVectorsTest} pins them. The writer is opt-in, and this class is not matched by
  * Surefire's default includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl core test
  * -Dtest=EventVectorsExport -Dpaztport.exportEventVectors=true
- * -Dvectors.out=<repo>/poc-sdks/spec/vectors/events.json -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build}
- * replays every case it records, read back from the text it is written as, so an export can never record a wrong
- * answer.
+ * -Dvectors.out=<repo>/poc-sdks/spec/vectors/events.json -Dsurefire.failIfNoSpecifiedTests=false)}. Each recorded
+ * answer is the verifier's own, and {@link #build} replays every case read back from the text it is written as, so
+ * the recorded answer always matches a replay of the written text.
  */
 class EventVectorsExport {
 
@@ -271,7 +271,9 @@ class EventVectorsExport {
                 {"ts of 2^53", "9007199254740992"},
                 {"ts of -(2^53)", "-9007199254740992"},
                 {"ts of -(2^63)", "-9223372036854775808"},
-                {"ts of 2^53 - 1, in range", "9007199254740991"}}) {
+                {"ts of 2^53 - 1, in range", "9007199254740991"},
+                {"ts of -(2^53 - 1), in range", "-9007199254740991"},
+                {"null ts", "null"}}) {
             verify.add(verifyCase(ts[0], responder, List.of(), signed("payment", pay,
                     base.replace("\"ts\":" + NOW, "\"ts\":" + ts[1])), NOW, 1));
         }
@@ -288,12 +290,60 @@ class EventVectorsExport {
         verify.add(verifyCase("payload with a byte order mark", responder, List.of(),
                 overPayload("payment", pay, Base64Url.encode(bom)), NOW, 1));
 
+        // JSON whitespace around a value is part of RFC 8259's grammar; a byte order mark is not.
+        verify.add(verifyCase("whitespace around the body", responder, List.of(), " \n\t" + good + "\r\n ", NOW, 1));
+        verify.add(verifyCase("whitespace around the payload", responder, List.of(),
+                signed("payment", pay, " \n" + base + "\n"), NOW, 1));
+        verify.add(verifyCase("body with a byte order mark", responder, List.of(), "\uFEFF" + good, NOW, 1));
+        // The signature is checked before the payload is read, and the event's members before its id.
+        verify.add(verifyCase("bad signature, payload not base64url", responder, List.of(),
+                new EventEnvelope("payment", "!!", a.sig()).toJson(), NOW, 1));
+        verify.add(verifyCase("bad signature, payload not JSON", responder, List.of(),
+                new EventEnvelope("payment", b64("not json"), a.sig()).toJson(), NOW, 1));
+        verify.add(verifyCase("no eventId and no reason", responder, List.of(), signed("payment", pay,
+                noId.replace("\"reason\":\"PATH_NOT_ALLOWED\",", "")), NOW, 1));
+        // RFC 3629 UTF-8: "-" written in two bytes, and U+D800 encoded as if it were a character.
+        verify.add(verifyCase("payload with an overlong form", responder, List.of(), overPayload("payment", pay,
+                Base64Url.encode(splice(base, "search-1", new byte[] {'s', 'e', 'a', 'r', 'c', 'h', (byte) 0xC0,
+                        (byte) 0xAD, '1'}))), NOW, 1));
+        verify.add(verifyCase("payload with an encoded surrogate", responder, List.of(), overPayload("payment", pay,
+                Base64Url.encode(splice(base, "search-1", new byte[] {'s', (byte) 0xED, (byte) 0xA0, (byte) 0x80}))),
+                NOW, 1));
+        // Each member's type, one at a time.
+        for (String[] t : new String[][] {
+                {"null suspectSvc", "\"suspectSvc\":\"search\"", "\"suspectSvc\":null"},
+                {"suspectSvc as a number", "\"suspectSvc\":\"search\"", "\"suspectSvc\":1"},
+                {"null suspectInst", "\"suspectInst\":\"search-1\"", "\"suspectInst\":null"},
+                {"suspectInst as a number", "\"suspectInst\":\"search-1\"", "\"suspectInst\":1"},
+                {"null rid", "\"rid\":\"rid-event-1\"", "\"rid\":null"},
+                {"rid as a number", "\"rid\":\"rid-event-1\"", "\"rid\":1"},
+                {"audit as a string", "\"audit\":false", "\"audit\":\"true\""},
+                {"no audit", "\"audit\":false,", ""}}) {
+            verify.add(verifyCase(t[0], responder, List.of(), signed("payment", pay, base.replace(t[1], t[2])),
+                    NOW, 1));
+        }
+        verify.add(verifyCase("payload as a number", responder, List.of(),
+                "{\"signer\":\"payment\",\"payload\":1," + sigOk + "}", NOW, 1));
+        verify.add(verifyCase("sig as a number", responder, List.of(),
+                "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\",\"sig\":1}", NOW, 1));
+
         // Replay what was just built, read back from the text it is written as.
         assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)));
         return out;
     }
 
     private record Earlier(String body, long now) {
+    }
+
+    /** {@code text}'s UTF-8 bytes with the first {@code target} replaced by raw {@code bytes}, valid or not. */
+    private static byte[] splice(String text, String target, byte[] bytes) {
+        byte[] before = text.substring(0, text.indexOf(target)).getBytes(StandardCharsets.UTF_8);
+        byte[] after = text.substring(text.indexOf(target) + target.length()).getBytes(StandardCharsets.UTF_8);
+        byte[] out = new byte[before.length + bytes.length + after.length];
+        System.arraycopy(before, 0, out, 0, before.length);
+        System.arraycopy(bytes, 0, out, before.length, bytes.length);
+        System.arraycopy(after, 0, out, before.length + bytes.length, after.length);
+        return out;
     }
 
     private static ObjectNode envelopeCase(String name, String signer, PrivateKey key, ResponderEvent event) {

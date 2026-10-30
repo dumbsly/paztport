@@ -704,6 +704,26 @@
       "event" : null
     }
   }, {
+    "name" : "ts of -(2^53 - 1), in range",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOi05MDA3MTk5MjU0NzQwOTkxLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"M7b_Goy6fkYifTIm7X-H0RinaOcPOe-xWIIcObZ3baMf9zn5uhSyDcIUg8ZooaMnWNC0Y5j51RhLv3u8BTitAw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "OUTSIDE_WINDOW",
+      "event" : null
+    }
+  }, {
+    "name" : "null ts",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOm51bGwsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"SxDqIyXAqSDulBXrzx6baR8adkkvHIc57Im_FnBh0FcjQ-iUH2oWnpbPUR_YPqSAobryF3QZhq5dpoJeWt_SCg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
     "name" : "payload not UTF-8",
     "earlier" : [ ],
     "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLf8iLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"-aENP4g7lm9GZgyLF5bNc3nNzw9VZITJ50tg0AxoaiGkOtyHrwYPBYF6NnHKB72X4B1j3v77_1fLl5VMQf9-CA\"}",
@@ -721,6 +741,202 @@
     "uses" : 1,
     "expected" : {
       "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "whitespace around the body",
+    "earlier" : [ ],
+    "body" : " \n\t{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}\r\n ",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "reason" : "PATH_NOT_ALLOWED",
+        "suspectSvc" : "search",
+        "suspectInst" : "search-1",
+        "rid" : "rid-event-1",
+        "audit" : false,
+        "ts" : 1767225600000,
+        "eventId" : "event-1"
+      }
+    }
+  }, {
+    "name" : "whitespace around the payload",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"IAp7InJlYXNvbiI6IlBBVEhfTk9UX0FMTE9XRUQiLCJzdXNwZWN0U3ZjIjoic2VhcmNoIiwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQo\",\"sig\":\"0GaqvADtC_zLsvOEBPfFMxBhcxq7NLXSknSniGrYEPIhM8k9ypqB3-OYWk09FV3HpECRy5j4pQRf2uoQttucDw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "reason" : "PATH_NOT_ALLOWED",
+        "suspectSvc" : "search",
+        "suspectInst" : "search-1",
+        "rid" : "rid-event-1",
+        "audit" : false,
+        "ts" : 1767225600000,
+        "eventId" : "event-1"
+      }
+    }
+  }, {
+    "name" : "body with a byte order mark",
+    "earlier" : [ ],
+    "body" : "﻿{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "bad signature, payload not base64url",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"!!\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "BAD_SIGNATURE",
+      "event" : null
+    }
+  }, {
+    "name" : "bad signature, payload not JSON",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"bm90IGpzb24\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "BAD_SIGNATURE",
+      "event" : null
+    }
+  }, {
+    "name" : "no eventId and no reason",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJzdXNwZWN0U3ZjIjoic2VhcmNoIiwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMH0\",\"sig\":\"cZMZ55czgFiZO-tn-E0KjAwLqJwB6IH_86swSv6v6ElSkOTAPFTjvmUDBQrIcIFrSF1X0s4NQRoGLmnYs3j0Dg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "payload with an overlong form",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNowK0xIiwicmlkIjoicmlkLWV2ZW50LTEiLCJhdWRpdCI6ZmFsc2UsInRzIjoxNzY3MjI1NjAwMDAwLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"aWXgUIfFJa55UGxEFq4_4k8jjoipCfGDLKoyRk_rbnRQw2_Jz_gAWO2lePcXuKRxUt3p8N4bPeuSAKqFwmifBg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "payload with an encoded surrogate",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic-2ggCIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"kllpEf_yPRPbbS2xT94qA_4kMOQPS5xsqjfQU7d1jFDxuK_rAT78wHoL4yn8REFCx5v9iiWq-2Ts0BlcOWcpAw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "null suspectSvc",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6bnVsbCwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"rZuANFefglhI3U-JRCn_crxSThDtc4xDBYZwXwnLN3MzmjpylT33NRyi-I97aZqhAGZL-2v7Y7x0bXYdUboKBA\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "suspectSvc as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6MSwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"56R_AtQn6uhHTWuwk7ZF9SAo0hdSNvHc3pN1lomQg0iaAURlP39M5iSNeWWg8uxoMIG03e7NHS1kmSaYNRi6Bg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "null suspectInst",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0IjpudWxsLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"p8tNR936QAEBQl8FmoZbUloDuXc2E2CymBX47vf5yaV7o3zZgjhkZFQrp7FF8wEw0ZmyvEX59dSW_OlFBjzhDg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "suspectInst as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0IjoxLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"KMIK4JJ0kJsvZFafSj8XqF_qtZm0rQTkfoZ9Mjl93QCHOwof05HaHtKG0FVChkGrsl8Ydu8G4shAxj2wqaFfBA\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "null rid",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOm51bGwsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"BBn8oX9B_aPfIWE_95YaiZ-WYfFw1V3tVlk2tntAWQ97uMMHJbAfZgPsgyUcv1ClFpeXqxejTsQdm7DRL29bAg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "rid as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOjEsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"AJiyjaiZYi1-h_3nNDaQTD3PHI66-m2z4wpKPV6-7GbcaOCvJvPeJ5UtCqG4RFJFcEfKP4dHmS7G7tvgPNeXBg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "audit as a string",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjoidHJ1ZSIsInRzIjoxNzY3MjI1NjAwMDAwLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"AE40NEBjLP9adAltyj6Vmf9nikid5gw3UttanU10tH1oPMNdnDlo6obQlrxD45SwiXe9q-RAC85u68_-NOX5Cg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "no audit",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsInRzIjoxNzY3MjI1NjAwMDAwLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"0MfWrdAvNEmGYG9dC9JRWuKJcHSsp4-8dDAZR052vSbr0jCbdgG4VLeF-Frw_4RQ6HKHzqzs02S23kfsv8dnAQ\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "payload as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":1,\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "sig as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":1}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
       "event" : null
     }
   } ]
