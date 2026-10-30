@@ -17,8 +17,9 @@
  *
  * <p>The blocking Java binding carries their results for one request on its thread: {@code RequestContext}, whose
  * {@code accept} a framework's adapter runs each request's receiver through, and which the handler, the caller's
- * blocking {@code stamp} and {@code record}, and {@code PublicWrites} read. It opens the request's scope before the
- * receiver runs, and sets its verified chain only from the result of the receiver it ran, so the receivers sit in
- * this package beside it. A reactive framework, or another language, would bind the same results its own way.
+ * blocking {@code stampFromContext} and {@code recordToContext}, and {@code PublicWrites} read. It opens the
+ * request's scope before the receiver runs, and sets its verified chain only from the result of the receiver it
+ * ran, so the receivers sit in this package beside it. A reactive framework, or another language, would bind the
+ * same results its own way.
  */
 package org.paztport.http;

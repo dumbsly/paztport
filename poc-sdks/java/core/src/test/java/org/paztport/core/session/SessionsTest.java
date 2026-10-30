@@ -226,7 +226,7 @@ class SessionsTest {
     }
 
     @Test
-    void parseRequestRejects() throws Exception {
+    void sessionRequestParseRefusesMalformedFieldsAndReadsAMissingKeyringSigAsLegacy() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> parse(JSON.readTree("[]")));
         ObjectNode ok = tree(request(clientRoot).toJson());
         for (String[] bad : new String[][] {{"clientRoot", "5"}, {"clientKeyring", "{\"a\":1}"}, {"nonce", "7"}}) {

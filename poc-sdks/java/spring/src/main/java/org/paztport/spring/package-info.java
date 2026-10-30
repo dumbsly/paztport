@@ -6,10 +6,11 @@
  * for a service and {@code PartnerFilter} for a partner, with {@code CachedBodyHttpServletRequest}, which lets them
  * hash a body and still pass it on. They adapt {@code paztport-http}'s receivers, which decide each request, and
  * run each one through {@code RequestContext.accept}, which carries the result for the request: the chain and the
- * influence that the handler, the outbound calls and {@code PublicWrites} then read. {@code ReceivedRequestListener}
- * is the hook that offers each request to an application before verification. The entry points are
- * {@code PaztportAutoConfiguration}, which defines the filters and the public-writes rule, and
- * {@code PaztportProperties}, the {@code paztport.*} settings it binds. The sub-packages hold the rest.
+ * influence that the handler, the outbound calls and {@code PublicWrites} then read. An application's
+ * {@code ReceivedRequestListener} bean, {@code paztport-http}'s hook that offers each request before verification,
+ * is passed to the service's receiver. The entry points are {@code PaztportAutoConfiguration}, which defines the
+ * filters and the public-writes rule, and {@code PaztportProperties}, the {@code paztport.*} settings it binds. The
+ * sub-packages hold the rest.
  *
  * <p>Nothing here can mark a chain verified: only {@code RequestContext.accept} does, from the receiver it runs.
  */
