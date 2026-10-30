@@ -256,8 +256,9 @@ of it, so every implementation reads the same name from the same certificate:
    is four octets per character and a BMPString two, big-endian, each a Unicode scalar value (so no surrogate).
    Any other type, IA5String and GeneralString among them, or a value not well formed for its type, gives
    `peer.svc = ""`.
-3. A subject that is not a well-formed DER `Name` (X.690's distinguished encoding: definite lengths in their
-   shortest form, nothing after the outer `SEQUENCE`, no empty RDN) gives `peer.svc = ""`.
+3. A subject that is not a well-formed DER `Name` gives `peer.svc = ""`: it is one `SEQUENCE` with nothing after
+   it, each RDN in it a non-empty `SET`, and each attribute a `SEQUENCE` of exactly an `OBJECT IDENTIFIER` and one
+   value, every length definite and in its shortest form (X.690's distinguished encoding).
 
 `peer.svc` is the value's text as it is, compared with the last signer's `svc` exactly, with no case folding or
 other normalisation.
