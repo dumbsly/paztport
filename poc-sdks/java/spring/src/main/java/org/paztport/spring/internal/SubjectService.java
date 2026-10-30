@@ -18,9 +18,11 @@ import java.util.Arrays;
  *   <li>The common names (attribute type 2.5.4.3) are counted across every RDN, and every value within a
  *       multi-valued RDN counts on its own, so {@code CN=a+CN=a} is two. Only a subject with exactly one names a
  *       service.</li>
- *   <li>That value must be a {@code DirectoryString}: UTF8String, PrintableString, TeletexString, UniversalString
- *       or BMPString, each well formed for its type. Any other type, IA5String and GeneralString among them, names
- *       no service.</li>
+ *   <li>That value must be a UTF8String or a PrintableString, well formed for its type: the two encodings of a
+ *       DirectoryString RFC 5280 requires conforming CAs to use (sections 4.1.2.4 and 4.1.2.6), so the others need
+ *       no decoding of their own.
+ *       Any other type, TeletexString, UniversalString, BMPString, IA5String and GeneralString among them, names no
+ *       service.</li>
  * </ul>
  *
  * Anything else, a subject that is not a well-formed DER {@code Name} included, names no service, which is
@@ -36,9 +38,6 @@ final class SubjectService {
     private static final int OBJECT_IDENTIFIER = 0x06;
     private static final int UTF8_STRING = 0x0C;
     private static final int PRINTABLE_STRING = 0x13;
-    private static final int TELETEX_STRING = 0x14;
-    private static final int UNIVERSAL_STRING = 0x1C;
-    private static final int BMP_STRING = 0x1E;
 
     /** An identifier in the high-tag-number form, which no type read here uses. */
     private static final int HIGH_TAG = -1;
@@ -67,7 +66,7 @@ final class SubjectService {
                     attribute.end();
                     if (type.contentsAre(COMMON_NAME)) {
                         commonNames++;
-                        service = directoryString(value);
+                        service = text(value);
                     }
                 }
             }
@@ -77,15 +76,15 @@ final class SubjectService {
         }
     }
 
-    /** The text of a DirectoryString, or null for any other type or for one that is not well formed for its type. */
-    private static String directoryString(Element value) {
+    /**
+     * The text of a UTF8String or PrintableString, or null for any other type, or for one that is not well formed for
+     * its type.
+     */
+    private static String text(Element value) {
         byte[] bytes = value.bytes();
         return switch (value.tag()) {
             case UTF8_STRING -> utf8(bytes);
             case PRINTABLE_STRING -> printable(bytes);
-            case TELETEX_STRING -> new String(bytes, StandardCharsets.ISO_8859_1);
-            case UNIVERSAL_STRING -> universal(bytes);
-            case BMP_STRING -> bmp(bytes);
             default -> null;
         };
     }
@@ -109,39 +108,6 @@ final class SubjectService {
             boolean allowed = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
                     || " '()+,-./:=?".indexOf(c) >= 0;
             if (!allowed) {
-                return null;
-            }
-            text.append(c);
-        }
-        return text.toString();
-    }
-
-    /** Four octets per character, big-endian, each a Unicode scalar value. */
-    private static String universal(byte[] bytes) {
-        if (bytes.length % 4 != 0) {
-            return null;
-        }
-        StringBuilder text = new StringBuilder(bytes.length / 4);
-        for (int i = 0; i < bytes.length; i += 4) {
-            long cp = (bytes[i] & 0xFFL) << 24 | (bytes[i + 1] & 0xFF) << 16 | (bytes[i + 2] & 0xFF) << 8
-                    | bytes[i + 3] & 0xFF;
-            if (cp > 0x10FFFF || cp >= 0xD800 && cp <= 0xDFFF) {
-                return null;
-            }
-            text.appendCodePoint((int) cp);
-        }
-        return text.toString();
-    }
-
-    /** Two octets per character, big-endian, each in the Basic Multilingual Plane, so never a surrogate. */
-    private static String bmp(byte[] bytes) {
-        if (bytes.length % 2 != 0) {
-            return null;
-        }
-        StringBuilder text = new StringBuilder(bytes.length / 2);
-        for (int i = 0; i < bytes.length; i += 2) {
-            char c = (char) ((bytes[i] & 0xFF) << 8 | bytes[i + 1] & 0xFF);
-            if (Character.isSurrogate(c)) {
                 return null;
             }
             text.append(c);

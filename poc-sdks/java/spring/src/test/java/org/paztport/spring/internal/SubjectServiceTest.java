@@ -71,16 +71,22 @@ class SubjectServiceTest {
         assertEquals("orders", SubjectService.of(name(rdn(attribute(CN, 0x13, ascii("orders"))))));
     }
 
+    // RFC 5280 (4.1.2.4, 4.1.2.6) has conforming CAs use only UTF8String and PrintableString, so the other
+    // DirectoryString choices name no service, however readable their text.
     @Test
-    void oneBmpStringCommonNameIsTheService() {
-        assertEquals("orders", SubjectService.of(name(rdn(attribute(CN, 0x1E,
+    void aBmpStringCommonNameNamesNoService() {
+        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1E,
                 "orders".getBytes(StandardCharsets.UTF_16BE))))));
     }
 
     @Test
-    void oneTeletexOrUniversalStringCommonNameIsTheService() {
-        assertEquals("orders", SubjectService.of(name(rdn(attribute(CN, 0x14, ascii("orders"))))));
-        assertEquals("ab", SubjectService.of(name(rdn(attribute(CN, 0x1C, new byte[] {0, 0, 0, 'a', 0, 0, 0, 'b'})))));
+    void aTeletexStringCommonNameNamesNoService() {
+        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x14, ascii("orders"))))));
+    }
+
+    @Test
+    void aUniversalStringCommonNameNamesNoService() {
+        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1C, new byte[] {0, 0, 0, 'a', 0, 0, 0, 'b'})))));
     }
 
     @Test
@@ -126,11 +132,8 @@ class SubjectServiceTest {
                 new byte[] {(byte) 0xED, (byte) 0xA0, (byte) 0x80})))), "an encoded surrogate");
         assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x13, ascii("orders@shop"))))),
                 "@ is not printable");
-        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1E, new byte[] {(byte) 0xD8, 0x00})))),
-                "a surrogate in a BMPString");
-        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1E, new byte[] {0, 'a', 0})))), "an odd length");
-        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x1C, new byte[] {0, 0x11, 0, 0})))),
-                "beyond U+10FFFF");
+        assertEquals("", SubjectService.of(name(rdn(attribute(CN, 0x13, new byte[] {'a', (byte) 0xE9})))),
+                "a byte past ASCII in a PrintableString");
     }
 
     @Test

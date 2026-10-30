@@ -14,10 +14,11 @@ import org.paztport.core.verify.Peer;
  * names a service the shop vouched for, and the chain's last signer must be that service.
  *
  * <p>The service is the subject's common name, but only when there is exactly one, counted value by value across
- * every RDN, and it is a DirectoryString: a certificate with none, with several, or with one of another type names
- * no service, so the peer's service is {@code ""} and the peer check fails closed rather than picking one. It is read
- * from the subject's encoding ({@link SubjectService}), not from a rendering of it. The instance is the TCP address
- * the request came from, which is what a responder acts against; it is not compared with the chain.
+ * every RDN, and it is a UTF8String or a PrintableString: a certificate with none, with several, or with one of
+ * another type names no service, so the peer's service is {@code ""} and the peer check fails closed rather than
+ * picking one. It is read from the subject's encoding ({@link SubjectService}), not from a rendering of it. The
+ * instance is the TCP address the request came from, which is what a responder acts against; it is not compared with
+ * the chain.
  */
 public final class PeerIdentity {
 
