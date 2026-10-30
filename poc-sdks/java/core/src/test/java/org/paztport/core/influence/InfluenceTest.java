@@ -38,7 +38,8 @@ class InfluenceTest {
         lone.put("cls", "public");
         lone.put("src", "\ud800");
         lone.put("h", "x");
-        assertThrows(IllegalArgumentException.class, () -> Influence.parse(JsonNodeFactory.instance.arrayNode().add(lone).toString()));
+        String withLone = JsonNodeFactory.instance.arrayNode().add(lone).toString();
+        assertThrows(IllegalArgumentException.class, () -> Influence.parse(withLone));
     }
 
     @Test

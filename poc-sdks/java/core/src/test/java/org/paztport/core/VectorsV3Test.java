@@ -72,7 +72,8 @@ class VectorsV3Test {
             String name = c.get("name").asText();
             List<InfluenceEntry> normalised = Influence.normalise(Influence.parse(Vectors.json(c.get("entries"))));
             assertEquals(c.get("normalized"), MAPPER.readTree(Influence.toJson(normalised)), name);
-            assertEquals(c.get("commitment").asText(), Influence.commit(Influence.parse(Vectors.json(c.get("entries")))), name);
+            assertEquals(c.get("commitment").asText(),
+                    Influence.commit(Influence.parse(Vectors.json(c.get("entries")))), name);
         }
     }
 
@@ -260,8 +261,9 @@ class VectorsV3Test {
         for (JsonNode c : cases) {
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
             SessionRequest req = SessionRequest.parse(Vectors.json(c.get("request")));
-            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(Vectors.json(c.get("reply")), req, pin,
-                    c.get("serverEntry").asText(), c.get("now").asLong()), c.get("name").asText());
+            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()),
+                    Sessions.checkReply(Vectors.json(c.get("reply")), req, pin, c.get("serverEntry").asText(),
+                            c.get("now").asLong()), c.get("name").asText());
         }
     }
 
@@ -277,7 +279,8 @@ class VectorsV3Test {
             KeyringFile serverKeyring = KeyringFile.parse(Vectors.json(c.get("serverKeyring")));
             // the server's own keyring is the one it signed, in its own form
             assertTrue(serverKeyring.verifies(serverKey), name);
-            assertEquals(c.get("expected").asText(), Sessions.status(SessionRequest.parse(Vectors.json(c.get("request"))),
+            assertEquals(c.get("expected").asText(), Sessions.status(
+                    SessionRequest.parse(Vectors.json(c.get("request"))),
                     SignedRoot.parse(Vectors.json(c.get("serverRoot"))), serverKeyring,
                     Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
         }

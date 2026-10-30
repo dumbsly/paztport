@@ -387,7 +387,8 @@ class SessionsTest {
                 SessionRequest.of(moved, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "root moved");
 
         KeyringFile expiredRing = KeyringFile.sign(clientRing, clientKey, NOW - 1, clientPolicy.getPrivate());
-        ObjectNode ringMoved = tree(SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson());
+        ObjectNode ringMoved = tree(
+                SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson());
         ringMoved.put("clientKeyringNotAfter", NOT_AFTER);
         assertEquals("unsafe", status(parse(ringMoved)), "keyring moved");
     }

@@ -220,7 +220,8 @@ class PartnerHandshakeTest {
         assertEquals(200, answer.status());
         JsonNode reply = JSON.readTree(answer.body());
         assertEquals(reply.toString(), answer.body(), "the reply exactly as the SDK writes it");
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertEquals(ReplyCheck.ATTESTED,
+                Sessions.checkReply(answer.body(), req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
@@ -237,12 +238,13 @@ class PartnerHandshakeTest {
         assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientRoot").get("notAfter").longValue());
 
-        JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
+        String body = post(client("orders"), json(req)).body();
+        JsonNode reply = JSON.readTree(body);
 
         assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
         assertEquals("attested", reply.get("status").asText());
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertTrue(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()).attested());
     }
 
@@ -251,14 +253,14 @@ class PartnerHandshakeTest {
     @Test
     void replySignedByServiceKey() throws Exception {
         SessionRequest req = request(Sessions.newNonce());
-        JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
+        String body = post(client("orders"), json(req)).body();
+        JsonNode reply = JSON.readTree(body);
         long now = System.currentTimeMillis();
 
         assertEquals(JSON.readTree(CERT.toJson()), reply.get("serverReplyCert"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", now));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(reply.toString(), req, PSP_PIN, "ledger", now));
-        assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", CERT.notAfter() + 1));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "ledger", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "psp", CERT.notAfter() + 1));
         ObjectNode stripped = reply.deepCopy();
         stripped.remove("serverKeyringSig");
         stripped.remove("serverReplyCert");

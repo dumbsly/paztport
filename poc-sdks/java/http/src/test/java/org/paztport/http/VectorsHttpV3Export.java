@@ -276,8 +276,8 @@ class VectorsHttpV3Export {
         byte[] key = Base64Url.decode(b.get("key").asText());
         String rid = b.get("rid").asText();
         String rcv = b.get("rcv").asText();
-        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(Vectors.json(b.get("input"))), key, rid, rcv,
-                b.get("egress").asText());
+        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(Vectors.json(b.get("input"))), key,
+                rid, rcv, b.get("egress").asText());
         assertEquals(b.get("reduced"), tree(Influence.toJson(reduced)), "boundary reduced");
         assertEquals(b.get("salts").size(), reduced.size(), "a salt per group");
         for (JsonNode s : b.get("salts")) {
