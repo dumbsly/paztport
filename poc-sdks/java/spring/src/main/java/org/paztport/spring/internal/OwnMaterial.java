@@ -4,11 +4,11 @@
 package org.paztport.spring.internal;
 
 import java.nio.file.Path;
-import java.time.Instant;
-import java.util.concurrent.TimeUnit;
-import org.paztport.core.crypto.Crypto;
-import org.paztport.core.encoding.Base64Url;
+import java.util.List;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OwnMaterial.Kind;
+import org.paztport.core.policy.OwnMaterial.Problem;
+import org.paztport.core.policy.OwnMaterial.Subject;
 import org.paztport.core.policy.SignedRoot;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,7 +16,8 @@ import org.slf4j.LoggerFactory;
 /**
  * The startup check every bean that loads {@code paztport.keyring-path} and {@code paztport.root-path} runs on them,
  * so that one place decides what a service may start with, and the message always names the property at fault and
- * the fix.
+ * the fix. The checks themselves are core's, {@link org.paztport.core.policy.OwnMaterial}; this words their findings
+ * in terms of the {@code paztport.*} properties.
  *
  * <p>It refuses, rather than degrades, because a service that loads its own material already old-form or expired
  * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
@@ -31,15 +32,15 @@ import org.slf4j.LoggerFactory;
  */
 public final class OwnMaterial {
 
-    /** The lifetime the policy tool gives what it signs unless told otherwise: seven days. */
-    static final long DEFAULT_LIFETIME_MS = TimeUnit.DAYS.toMillis(7);
-
     /** A warning is logged when no more than this remains: a quarter of the default lifetime, 42 hours. */
-    public static final long WARN_WITHIN_MS = DEFAULT_LIFETIME_MS / 4;
+    public static final long WARN_WITHIN_MS = org.paztport.core.policy.OwnMaterial.WARN_WITHIN_MS;
 
     private static final Logger LOG = LoggerFactory.getLogger(OwnMaterial.class);
 
     private static final String FIX = "re-sign with the policy tool (PAZTPORT_RENEW=true renews it without rebuilding)";
+
+    private static final String KEYRING = "paztport.keyring-path";
+    private static final String ROOT = "paztport.root-path";
 
     private OwnMaterial() {
     }
@@ -51,43 +52,50 @@ public final class OwnMaterial {
      */
     public static void require(KeyringFile keyring, Path keyringFile, SignedRoot root, Path rootFile, String policyPin,
             long nowMs) {
-        if (!keyring.verifies(policyPin)) {
-            throw new IllegalStateException("paztport.keyring-path does not verify under paztport.policy-key-path");
+        List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(keyring, root, policyPin, nowMs);
+        List<Subject> soon = org.paztport.core.policy.OwnMaterial.expiringSoon(keyring, root, nowMs);
+        // A file's warning is logged as its own window is checked, which comes after both signatures and before the
+        // other file's window, so a refusal over a later check still leaves the earlier file's warning behind it.
+        for (Subject subject : soon) {
+            if (problems.isEmpty() || rank(problems.get(0)) > windowRank(subject)) {
+                boolean isKeyring = subject == Subject.KEYRING;
+                Long notAfter = isKeyring ? keyring.notAfter() : root.notAfter();
+                LOG.warn("{} {} expires soon, its notAfter {}; {} before then", isKeyring ? KEYRING : ROOT,
+                        isKeyring ? keyringFile : rootFile, describe(notAfter), FIX);
+            }
         }
-        if (!rootVerifies(root, policyPin)) {
-            throw new IllegalStateException("paztport.root-path does not verify under paztport.policy-key-path");
-        }
-        window("paztport.keyring-path", keyringFile, keyring.notAfter(), nowMs);
-        window("paztport.root-path", rootFile, root.notAfter(), nowMs);
-    }
-
-    private static boolean rootVerifies(SignedRoot root, String policyPin) {
-        try {
-            return root.verify(Crypto.decodePublicKey(Base64Url.decode(policyPin)));
-        } catch (RuntimeException e) {
-            return false;
-        }
-    }
-
-    private static void window(String property, Path file, Long notAfter, long nowMs) {
-        if (notAfter == null) {
-            throw new IllegalStateException(property + " is in the old form, with no notAfter: " + FIX + ": " + file);
-        }
-        if (nowMs > notAfter) {
-            throw new IllegalStateException(property + " has expired, its notAfter " + describe(notAfter)
-                    + " being past now: " + FIX + ": " + file);
-        }
-        if (notAfter - nowMs <= WARN_WITHIN_MS) {
-            LOG.warn("{} {} expires soon, its notAfter {}; {} before then", property, file, describe(notAfter), FIX);
+        if (!problems.isEmpty()) {
+            throw new IllegalStateException(message(problems.get(0), keyringFile, rootFile));
         }
     }
 
     /** The integer, then its instant when there is one, so that no value however large makes the message throw. */
     public static String describe(long notAfter) {
-        try {
-            return notAfter + " (" + Instant.ofEpochMilli(notAfter) + ")";
-        } catch (RuntimeException e) {
-            return Long.toString(notAfter);
+        return org.paztport.core.policy.OwnMaterial.describe(notAfter);
+    }
+
+    private static String message(Problem problem, Path keyringFile, Path rootFile) {
+        boolean isKeyring = problem.subject() == Subject.KEYRING;
+        String property = isKeyring ? KEYRING : ROOT;
+        Path file = isKeyring ? keyringFile : rootFile;
+        return switch (problem.kind()) {
+            case DOES_NOT_VERIFY -> property + " does not verify under paztport.policy-key-path";
+            case OLD_FORM -> property + " is in the old form, with no notAfter: " + FIX + ": " + file;
+            case EXPIRED -> property + " has expired, its notAfter " + describe(problem.notAfter())
+                    + " being past now: " + FIX + ": " + file;
+        };
+    }
+
+    /** Where a problem falls in core's order: the keyring's signature, the root's, the keyring's window, the root's. */
+    private static int rank(Problem problem) {
+        boolean isKeyring = problem.subject() == Subject.KEYRING;
+        if (problem.kind() == Kind.DOES_NOT_VERIFY) {
+            return isKeyring ? 0 : 1;
         }
+        return isKeyring ? 2 : 3;
+    }
+
+    private static int windowRank(Subject subject) {
+        return subject == Subject.KEYRING ? 2 : 3;
     }
 }
