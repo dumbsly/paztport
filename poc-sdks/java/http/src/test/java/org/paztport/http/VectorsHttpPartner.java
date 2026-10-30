@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.paztport.http.VectorsHttpRules.NOW;
 import static org.paztport.http.VectorsHttpRules.OWNED;
 import static org.paztport.http.VectorsHttpRules.RID;
@@ -54,6 +55,7 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
@@ -98,6 +100,7 @@ final class VectorsHttpPartner {
         p.put("maxSessionsPerPeer", maxSessionsPerPeer);
         p.put("sessionIdleMs", sessionIdleMs);
         p.put("callMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
+        // The partner's own default: its builder holds a run to the call window unless told otherwise.
         p.put("runMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
         p.put("nonceTtlMs", VerifierConfigV3.NONCE_TTL_MS);
         p.put("start", NOW);
@@ -679,7 +682,7 @@ final class VectorsHttpPartner {
     static ArrayNode egress(Fixtures fx, Chains ch) {
         Material shop = fx.material("shop");
         byte[] ok = utf8("{\"ok\":true}");
-        ObjectNode verified = inbound(Service.ENFORCING, "enforce", ch.owned, OWNED, ch);
+        ObjectNode verified = inbound(Service.PAYMENT, "enforce", ch.owned, OWNED, ch);
         List<InfluenceEntry> afterOk = new ArrayList<>(OWNED);
         afterOk.add(fromPartner(200, ok));
         ArrayNode a = arr();
@@ -716,20 +719,25 @@ final class VectorsHttpPartner {
                         List.of(posted("answered", 403, true), posted("answered", 200, true)),
                         List.of(handshakeReceived(true), callReceived(0, OWNED, shop), handshakeReceived(true),
                                 callReceived(2, afterUnknown, shop)), afterBoth)));
+        a.add(egressCase("a replacement answered 404 too: the call fails, and nothing of it is sent", verified,
+                List.of("notFound"), "notFound", List.of(), 1).set("expected", egressExpected(
+                        List.of(posted("failed", null, null)),
+                        List.of(handshakeReceived(true), handshakeReceived(false)), OWNED)));
+        // The partner is scripted to answer nothing, so any handshake or call from these fails the replay.
         List<ObjectNode> nothing = List.of(posted("refused", null, null));
-        a.add(egressCase("a chain that failed in audit mode: nothing is sent", inbound(Service.ENFORCING, "audit",
-                ch.forged, List.of(), ch), List.of("attested"), "unsafe", List.of(), 1)
+        a.add(egressCase("a chain that failed in audit mode: nothing is sent", inbound(Service.PAYMENT, "audit",
+                ch.forged, List.of(), ch), List.of(), "unsafe", List.of(), 1)
                 .set("expected", egressExpected(nothing, List.of(), List.of())));
-        a.add(egressCase("a hop that is off: nothing is sent", inbound(Service.ENFORCING, "off", ch.owned, OWNED, ch),
-                List.of("attested"), "unsafe", List.of(), 1).set("expected", egressExpected(nothing, List.of(),
-                        OWNED)));
+        a.add(egressCase("a hop that is off: nothing is sent", inbound(Service.PAYMENT, "off", ch.clean, List.of(),
+                ch), List.of(), "unsafe", List.of(), 1).set("expected", egressExpected(nothing, List.of(),
+                        List.of())));
         a.add(egressCase("a service with no verifier: nothing is sent", inbound(Service.NO_VERIFIER, null, ch.owned,
-                OWNED, ch), List.of("attested"), "unsafe", List.of(), 1).set("expected", egressExpected(nothing,
-                        List.of(), OWNED)));
-        a.add(egressCase("an origin: nothing is sent", inbound(new Service("payment", "pay-1", true, true, true,
-                false), null, ch.owned, OWNED, ch), List.of("attested"), "unsafe", List.of(), 1)
+                OWNED, ch), List.of(), "unsafe", List.of(), 1).set("expected", egressExpected(nothing, List.of(),
+                        OWNED)));
+        a.add(egressCase("an origin: nothing is sent", inbound(new Service("payment", "pay-1", true, true), null,
+                ch.owned, OWNED, ch), List.of(), "unsafe", List.of(), 1)
                 .set("expected", egressExpected(nothing, List.of(), List.of())));
-        a.add(egressCase("outside any request: nothing is sent", null, List.of("attested"), "unsafe", List.of(), 1)
+        a.add(egressCase("outside any request: nothing is sent", null, List.of(), "unsafe", List.of(), 1)
                 .set("expected", egressExpected(nothing, List.of(), List.of())));
         return a;
     }
@@ -743,7 +751,7 @@ final class VectorsHttpPartner {
         String svc = cfg.get("svc").asText();
         ArrayNode posts = arr();
         ObjectNode e = obj();
-        try (ScriptedPartner partner = ScriptedPartner.start(fx, c.get("partnerScript"));
+        try (ScriptedPartner partner = ScriptedPartner.start(fx, c.get("partnerScript"), shop.keyring());
                 BoundaryClient egress = BoundaryClient.builder()
                         .stamper(new StamperV3(svc, cfg.get("inst").asText(), fx.privateKey(svc), false,
                                 () -> "unused", () -> now))
@@ -771,7 +779,7 @@ final class VectorsHttpPartner {
                 }
             }
             e.set("posts", posts);
-            e.set("received", partner.received());
+            e.set("received", partner.received(c.get("name").asText()));
             e.set("influence", entries(Influence.normalise(influence)));
         }
         return e;
@@ -795,7 +803,9 @@ final class VectorsHttpPartner {
      * in the entry-key form from the {@code psp} material; {@code notFound}, a 404; {@code wrongKey}, a reply in the
      * policy-key form signed by and naming {@code stranger-policy}); one with none is answered as
      * {@code replacement} says, signed genuinely; each call takes the next of {@code calls}. It records everything it
-     * receives, and the session id each reply issued.
+     * receives, and the session id each reply issued. A handshake or call the script has no answer for is answered
+     * 500 and fails the replay, as does a boundary stamp whose signature does not verify under the egress's keyring
+     * key for its {@code svc}, over the {@code sess} it carries.
      */
     static final class ScriptedPartner implements AutoCloseable {
 
@@ -805,6 +815,8 @@ final class VectorsHttpPartner {
 
         private final Fixtures fx;
         private final Material psp;
+        private final KeyringFile egressKeyring;
+        private final List<String> beyondScript = new ArrayList<>();
         private final Deque<String> handshakes = new ArrayDeque<>();
         private final String replacement;
         private final Deque<JsonNode> calls = new ArrayDeque<>();
@@ -812,17 +824,18 @@ final class VectorsHttpPartner {
         private final HttpsServer server;
         private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
-        static ScriptedPartner start(Fixtures fx, JsonNode script) {
+        static ScriptedPartner start(Fixtures fx, JsonNode script, KeyringFile egressKeyring) {
             try {
-                return new ScriptedPartner(fx, script);
+                return new ScriptedPartner(fx, script, egressKeyring);
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
         }
 
-        private ScriptedPartner(Fixtures fx, JsonNode script) throws IOException {
+        private ScriptedPartner(Fixtures fx, JsonNode script, KeyringFile egressKeyring) throws IOException {
             this.fx = fx;
             this.psp = fx.material("psp");
+            this.egressKeyring = egressKeyring;
             script.get("handshakes").forEach(h -> handshakes.add(h.asText()));
             this.replacement = script.get("replacement").asText();
             script.get("calls").forEach(calls::add);
@@ -846,13 +859,23 @@ final class VectorsHttpPartner {
                 if (!path.equals(HttpSessions.PATH)) {
                     received.add(new Received(exchange.getRequestMethod(), path, headers, body, null, null));
                     JsonNode a = calls.poll();
-                    send(exchange, a == null ? 200 : a.get("status").asInt(),
-                            a == null ? utf8("{\"ok\":true}") : unhex(a.get("body")));
+                    if (a == null) {
+                        beyondScript.add("a call to " + path);
+                        send(exchange, 500, new byte[0]);
+                        return;
+                    }
+                    send(exchange, a.get("status").asInt(), unhex(a.get("body")));
                     return;
                 }
                 SessionRequest req = SessionRequest.parse(body);
                 boolean root = req.clientRoot() != null;
                 String answer = root ? handshakes.poll() : replacement;
+                if (answer == null) {
+                    received.add(new Received("POST", path, headers, body, root, null));
+                    beyondScript.add("a handshake");
+                    send(exchange, 500, new byte[0]);
+                    return;
+                }
                 if ("notFound".equals(answer)) {
                     received.add(new Received("POST", path, headers, body, root, null));
                     send(exchange, 404, new byte[0]);
@@ -884,8 +907,13 @@ final class VectorsHttpPartner {
             }
         }
 
-        /** What it received, each call's session named by the position of the handshake whose reply issued it. */
-        synchronized ArrayNode received() {
+        /**
+         * What it received, each call's session named by the position of the handshake whose reply issued it; fails
+         * the case {@code name} when something came that the script had no answer for, or a boundary stamp's
+         * signature does not verify.
+         */
+        synchronized ArrayNode received(String name) {
+            assertEquals(List.of(), beyondScript, name + ": received beyond the partner's script");
             ArrayNode out = arr();
             for (Received r : received) {
                 if (r.clientRoot() != null) {
@@ -903,6 +931,8 @@ final class VectorsHttpPartner {
                     call.putNull("stampSession");
                 } else {
                     ArrayNode stamps = (ArrayNode) tree(HttpV3.decodeChain(chain));
+                    VectorsHttpRules.stamps(stamps).forEach(s -> assertTrue(signedBySvc(s),
+                            name + ": a boundary stamp's signature does not verify under " + s.svc() + "'s key"));
                     String made = stamps.get(0).get("sess").asText();
                     stamps.forEach(s -> ((ObjectNode) s).remove(List.of("sess", "sig")));
                     call.set("stamps", stamps);
@@ -917,6 +947,17 @@ final class VectorsHttpPartner {
                 out.add(o);
             }
             return out;
+        }
+
+        /** Whether {@code stamp}'s signature, over its own fields, verifies under its signer's key in the keyring. */
+        private boolean signedBySvc(StampV3 stamp) {
+            String key = egressKeyring.services().get(stamp.svc());
+            try {
+                return key != null && Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(key)),
+                        stamp.signingBytes(), Base64Url.decode(stamp.sig()));
+            } catch (IllegalArgumentException e) {
+                return false;
+            }
         }
 
         /** The position of the handshake whose reply issued {@code sess}, or null when none did. */

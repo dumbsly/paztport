@@ -63,7 +63,10 @@ import org.paztport.core.verify.VerifierV3;
  * {@link VectorsHttpPartner}'s.
  *
  * <p>Every expected answer here is written by hand from the spec, not taken from a run: {@link #assertAll} replays
- * each case and compares, so an export fails rather than record what the code happens to do.
+ * each case and compares, so an export fails rather than record what the code happens to do. The one exception is
+ * what an egress sends, whose blinded entries and stamp commitment are computed with {@code BoundaryInfluence.reduce}
+ * and {@code Influence.commit}: those primitives are pinned on their own, by {@code boundaryInfluence} here and by
+ * {@code influence} in {@code v3.json}.
  */
 final class VectorsHttpRules {
 
@@ -447,14 +450,15 @@ final class VectorsHttpRules {
 
     // --- Receiver cases ---
 
-    /** What the service receiving a case is. */
-    record Service(String svc, String inst, boolean origin, boolean verifier, boolean stamps, boolean verifyRequests) {
+    /**
+     * What the service receiving a case is. Every one holds its stamp key, and verifies requests exactly when the
+     * case gives it a mode.
+     */
+    record Service(String svc, String inst, boolean origin, boolean verifier) {
 
-        static final Service ENFORCING = new Service("payment", "pay-1", false, true, true, true);
-        /** Verifies only to decide attestation: it has no mode. */
-        static final Service ATTESTING = new Service("payment", "pay-1", false, true, true, false);
-        static final Service NO_VERIFIER = new Service("payment", "pay-1", false, false, true, false);
-        static final Service ORIGIN = new Service("gateway", "gw-1", true, true, true, false);
+        static final Service PAYMENT = new Service("payment", "pay-1", false, true);
+        static final Service NO_VERIFIER = new Service("payment", "pay-1", false, false);
+        static final Service ORIGIN = new Service("gateway", "gw-1", true, true);
 
         ObjectNode json() {
             ObjectNode s = obj();
@@ -462,8 +466,6 @@ final class VectorsHttpRules {
             s.put("inst", inst);
             s.put("origin", origin);
             s.put("verifier", verifier);
-            s.put("stamps", stamps);
-            s.put("verifyRequests", verifyRequests);
             return s;
         }
     }
@@ -548,40 +550,40 @@ final class VectorsHttpRules {
         String chain = HttpV3.encodeChain(ch.clean);
         String proof = ch.shop.proofHeader(MESH_ROUTE);
         ArrayNode a = arr();
-        a.add(expect(receiverCase("verified", Service.ENFORCING, "enforce", ch.request(ch.clean, List.of())),
+        a.add(expect(receiverCase("verified", Service.PAYMENT, "enforce", ch.request(ch.clean, List.of())),
                 served(true, List.of(), true, true)));
-        a.add(expect(receiverCase("verified, with the influence the stamp commits to", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("verified, with the influence the stamp commits to", Service.PAYMENT, "enforce",
                 ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
-        ObjectNode twice = receiverCase("the same request twice", Service.ENFORCING, "enforce",
+        ObjectNode twice = receiverCase("the same request twice", Service.PAYMENT, "enforce",
                 ch.request(ch.clean, List.of()));
         twice.put("uses", 2);
         a.add(expect(twice, refused(403, ReasonCode.REPLAY)));
-        ObjectNode spent = receiverCase("its nonce key <rid>|<last svc>|req already spent", Service.ENFORCING,
+        ObjectNode spent = receiverCase("its nonce key <rid>|<last svc>|req already spent", Service.PAYMENT,
                 "enforce", ch.request(ch.clean, List.of()));
         spent.set("spent", texts(RID + "|orders|req"));
         a.add(expect(spent, refused(403, ReasonCode.REPLAY)));
-        ObjectNode others = receiverCase("other directions' and hops' keys are not its own", Service.ENFORCING,
+        ObjectNode others = receiverCase("other directions' and hops' keys are not its own", Service.PAYMENT,
                 "enforce", ch.request(ch.clean, List.of()));
         others.set("spent", texts(RID + "|orders|resp", RID + "|payment|req", RID + "|gateway|req", RID + "|orders",
                 RID + "|orders|local"));
         a.add(expect(others, served(true, List.of(), true, true)));
-        a.add(expect(receiverCase("no chain header", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("no chain header", Service.PAYMENT, "enforce",
                 Chains.request(headers(null, proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
-        a.add(expect(receiverCase("a chain header that is not base64url", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("a chain header that is not base64url", Service.PAYMENT, "enforce",
                 Chains.request(headers("not*base64url", proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
-        a.add(expect(receiverCase("a chain header that is not JSON", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("a chain header that is not JSON", Service.PAYMENT, "enforce",
                 Chains.request(headers(b64("not json"), proof, null), PAY)), refused(403, ReasonCode.CHAIN_MISSING)));
-        a.add(expect(receiverCase("no proof header", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("no proof header", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, null, null), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
-        a.add(expect(receiverCase("a proof header that is not base64url is no proof", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("a proof header that is not base64url is no proof", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, "not*base64url", null), PAY)),
                 refused(403, ReasonCode.PATH_NOT_ALLOWED)));
-        a.add(expect(receiverCase("a proof header that is not JSON is no proof", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("a proof header that is not JSON is no proof", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, b64("{"), null), PAY)), refused(403, ReasonCode.PATH_NOT_ALLOWED)));
-        a.add(expect(receiverCase("an influence header that is not base64url", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("an influence header that is not base64url", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, proof, "not*base64url"), PAY)),
                 refused(403, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("no influence header where the stamp commits to some", Service.ENFORCING,
+        a.add(expect(receiverCase("no influence header where the stamp commits to some", Service.PAYMENT,
                 "enforce", Chains.request(headers(HttpV3.encodeChain(ch.owned), proof, null), PAY)),
                 refused(403, ReasonCode.INFLUENCE_MISMATCH)));
         return a;
@@ -594,21 +596,21 @@ final class VectorsHttpRules {
         String proof = ch.shop.proofHeader(MESH_ROUTE);
         String garbled = "not*base64url";
         ArrayNode a = arr();
-        a.add(expect(receiverCase("enforce: check 9 refuses it", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("enforce: check 9 refuses it", Service.PAYMENT, "enforce",
                 Chains.request(headers(chain, proof, garbled), PAY)), refused(403, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("enforce: an earlier check refuses first", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("enforce: an earlier check refuses first", Service.PAYMENT, "enforce",
                 Chains.request(headers(forged, proof, garbled), PAY)), refused(403, ReasonCode.BAD_SIGNATURE)));
-        a.add(expect(receiverCase("audit, on a chain that verifies otherwise", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("audit, on a chain that verifies otherwise", Service.PAYMENT, "audit",
                 Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("audit, on a chain that fails", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("audit, on a chain that fails", Service.PAYMENT, "audit",
                 Chains.request(headers(forged, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("audit: a JSON object, not a list", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("audit: a JSON object, not a list", Service.PAYMENT, "audit",
                 Chains.request(headers(chain, proof, b64("{\"cls\":\"private\",\"src\":\"s\",\"h\":\"h\"}")), PAY)),
                 refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("audit: an entry with an empty owner", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("audit: an entry with an empty owner", Service.PAYMENT, "audit",
                 Chains.request(headers(chain, proof, b64("[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"h\","
                         + "\"owner\":\"\"}]")), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
-        a.add(expect(receiverCase("a service that verifies only to attest", Service.ATTESTING, null,
+        a.add(expect(receiverCase("a service that verifies only to attest", Service.PAYMENT, null,
                 Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null,
                 Chains.request(headers(chain, proof, garbled), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
@@ -620,24 +622,24 @@ final class VectorsHttpRules {
     /** verification.md, who attests: only a chain that passed the live order at this service. */
     private static ArrayNode attestation(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("enforce, verified", Service.ENFORCING, "enforce", ch.request(ch.owned, OWNED)),
+        a.add(expect(receiverCase("enforce, verified", Service.PAYMENT, "enforce", ch.request(ch.owned, OWNED)),
                 served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("enforce, refused", Service.ENFORCING, "enforce", ch.request(ch.forged, List.of())),
+        a.add(expect(receiverCase("enforce, refused", Service.PAYMENT, "enforce", ch.request(ch.forged, List.of())),
                 refused(403, ReasonCode.BAD_SIGNATURE)));
-        a.add(expect(receiverCase("audit, verified", Service.ENFORCING, "audit", ch.request(ch.owned, OWNED)),
+        a.add(expect(receiverCase("audit, verified", Service.PAYMENT, "audit", ch.request(ch.owned, OWNED)),
                 served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("audit, failed: served with what came, unattested", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("audit, failed: served with what came, unattested", Service.PAYMENT, "audit",
                 ch.request(ch.forgedSteered, STEERED)), served(false, STEERED, false, false)));
-        a.add(expect(receiverCase("no mode, verified for attestation alone", Service.ATTESTING, null,
+        a.add(expect(receiverCase("no mode, verified for attestation alone", Service.PAYMENT, null,
                 ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("no mode, a forged chain: served, unattested", Service.ATTESTING, null,
+        a.add(expect(receiverCase("no mode, a forged chain: served, unattested", Service.PAYMENT, null,
                 ch.request(ch.forged, List.of())), served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("no mode, a one-stamp chain with an empty signature", Service.ATTESTING, null,
+        a.add(expect(receiverCase("no mode, a one-stamp chain with an empty signature", Service.PAYMENT, null,
                 ch.request(ch.unsigned, List.of())), served(false, List.of(), false, false)));
         a.add(expect(receiverCase("no verifier: nothing to verify with, so never attests", Service.NO_VERIFIER, null,
                 ch.request(ch.owned, OWNED)), served(false, OWNED, false, false)));
-        a.add(expect(receiverCase("off: verifies and attests nothing", Service.ENFORCING, "off",
-                ch.request(ch.owned, OWNED)), served(false, OWNED, false, false)));
+        a.add(expect(receiverCase("off: verifies and attests nothing", Service.PAYMENT, "off",
+                ch.request(ch.clean, List.of())), served(false, List.of(), false, false)));
         a.add(expect(receiverCase("an origin never attests", Service.ORIGIN, null, ch.request(ch.owned, OWNED)),
                 served(false, List.of(), false, false)));
         return a;
@@ -647,23 +649,23 @@ final class VectorsHttpRules {
     private static ArrayNode refusals(Chains ch) {
         ArrayNode a = arr();
         a.add(expect(receiverCase("a route not allowed names its last signer, but not to the caller",
-                Service.ENFORCING, "enforce", Chains.request(headers(HttpV3.encodeChain(ch.direct), null, null), PAY)),
+                Service.PAYMENT, "enforce", Chains.request(headers(HttpV3.encodeChain(ch.direct), null, null), PAY)),
                 refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         ObjectNode peer = receiverCase("a peer that is not the last signer is named, but not to the caller",
-                Service.ENFORCING, "enforce", ch.request(ch.clean, List.of()));
+                Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
         ObjectNode p = peer.putObject("peer");
         p.put("svc", "gateway");
         p.put("inst", "10.1.0.9");
         a.add(expect(peer, refused(403, ReasonCode.PEER_MISMATCH)));
-        ObjectNode late = receiverCase("an expired chain", Service.ENFORCING, "enforce",
+        ObjectNode late = receiverCase("an expired chain", Service.PAYMENT, "enforce",
                 ch.request(ch.clean, List.of()));
         late.put("now", NOW + 10_000);
         a.add(expect(late, refused(403, ReasonCode.EXPIRED)));
         ObjectNode altered = Chains.request(headers(HttpV3.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
                 null), utf8("{\"amount\":999}"));
-        a.add(expect(receiverCase("a body altered in transit", Service.ENFORCING, "enforce", altered),
+        a.add(expect(receiverCase("a body altered in transit", Service.PAYMENT, "enforce", altered),
                 refused(403, ReasonCode.BINDING_MISMATCH)));
-        a.add(expect(receiverCase("unreadable influence in audit mode", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("unreadable influence in audit mode", Service.PAYMENT, "audit",
                 Chains.request(headers(HttpV3.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
                         "not*base64url"), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         return a;
@@ -672,35 +674,35 @@ final class VectorsHttpRules {
     /** sessions-and-influence.md, trusted records: a verified chain, and no untrusted content in what it holds. */
     private static ArrayNode trustedRecord(Chains ch) {
         ArrayNode a = arr();
-        a.add(expect(receiverCase("verified, no influence", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("verified, no influence", Service.PAYMENT, "enforce",
                 ch.request(ch.clean, List.of())), served(true, List.of(), true, true)));
-        a.add(expect(receiverCase("verified, private and public with owners", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("verified, private and public with owners", Service.PAYMENT, "enforce",
                 ch.request(ch.owned, OWNED)), served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("verified, third-party content", Service.ENFORCING, "enforce",
+        a.add(expect(receiverCase("verified, third-party content", Service.PAYMENT, "enforce",
                 ch.request(ch.steered, STEERED)), served(true, STEERED, true, false)));
         List<InfluenceEntry> untrusted = List.of(
                 new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:search", "h-search-1", null, null));
-        ObjectNode readUntrusted = receiverCase("verified, then a local-untrusted read", Service.ENFORCING,
+        ObjectNode readUntrusted = receiverCase("verified, then a local-untrusted read", Service.PAYMENT,
                 "enforce", ch.request(ch.owned, OWNED));
         readUntrusted.set("read", entries(untrusted));
         a.add(expect(readUntrusted, served(true, OWNED, true, false)));
         List<InfluenceEntry> card = List.of(
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:cards", "h-card-1", null, "bob"));
-        ObjectNode readPrivate = receiverCase("verified, then a private read of someone else's", Service.ENFORCING,
+        ObjectNode readPrivate = receiverCase("verified, then a private read of someone else's", Service.PAYMENT,
                 "enforce", ch.request(ch.owned, OWNED));
         readPrivate.set("read", entries(card));
         a.add(expect(readPrivate, served(true, OWNED, true, true)));
-        a.add(expect(receiverCase("a chain that failed in audit mode", Service.ENFORCING, "audit",
+        a.add(expect(receiverCase("a chain that failed in audit mode", Service.PAYMENT, "audit",
                 ch.request(ch.forged, List.of())), served(false, List.of(), false, false)));
-        a.add(expect(receiverCase("refused", Service.ENFORCING, "enforce", ch.request(ch.forged, List.of())),
+        a.add(expect(receiverCase("refused", Service.PAYMENT, "enforce", ch.request(ch.forged, List.of())),
                 refused(403, ReasonCode.BAD_SIGNATURE)));
-        a.add(expect(receiverCase("a hop that is off", Service.ENFORCING, "off", ch.request(ch.clean, List.of())),
+        a.add(expect(receiverCase("a hop that is off", Service.PAYMENT, "off", ch.request(ch.clean, List.of())),
                 served(false, List.of(), false, false)));
         a.add(expect(receiverCase("a service with no verifier", Service.NO_VERIFIER, null,
                 ch.request(ch.clean, List.of())), served(false, List.of(), false, false)));
         a.add(expect(receiverCase("an origin", Service.ORIGIN, null, ch.request(ch.clean, List.of())),
                 served(false, List.of(), false, false)));
-        ObjectNode outside = receiverCase("work outside any request", Service.ENFORCING, "enforce", null);
+        ObjectNode outside = receiverCase("work outside any request", Service.PAYMENT, "enforce", null);
         outside.putNull("request");
         a.add(expect(outside, served(false, List.of(), false, false)));
         return a;
@@ -752,7 +754,7 @@ final class VectorsHttpRules {
         boolean origin = s.get("origin").asBoolean();
         long now = c.get("now").asLong();
         HttpReceiver.Builder b = HttpReceiver.builder(svc).origin(origin)
-                .verifyRequests(s.get("verifyRequests").asBoolean()).publisher(event -> { });
+                .verifyRequests(!c.get("mode").isNull()).publisher(event -> { });
         if (s.get("verifier").asBoolean()) {
             Material m = fx.material(c.get("material").asText());
             InMemoryNonceCache nonces = new InMemoryNonceCache(c.get("nonceTtlMs").asLong());
@@ -761,11 +763,8 @@ final class VectorsHttpRules {
                     textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
                     c.get("runMaxAgeMs").asLong())));
         }
-        if (s.get("stamps").asBoolean()) {
-            b.stamper(new StamperV3(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
-                    () -> now));
-        }
-        return b.build();
+        return b.stamper(new StamperV3(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
+                () -> now)).build();
     }
 
     static InboundRequest inbound(JsonNode r) {
@@ -778,7 +777,11 @@ final class VectorsHttpRules {
         return p.isNull() ? null : new Peer(p.get("svc").asText(), p.get("inst").asText());
     }
 
-    /** A service that does not verify requests has no mode, which the receiver is given as {@code OFF}. */
+    /**
+     * The case's {@code mode}: {@code enforce} or {@code audit}; {@code off}, a hop its deployment has switched off,
+     * which verifies requests under no mode at all; or null, a service that does not verify requests. The receiver
+     * is given both of the last two as {@code OFF}, the one value its API has for them.
+     */
     static VerificationMode mode(JsonNode m) {
         return m.isNull() ? VerificationMode.OFF : VerificationMode.valueOf(m.asText().toUpperCase());
     }
