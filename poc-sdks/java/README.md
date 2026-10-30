@@ -99,6 +99,17 @@ refuses own material no client could accept, naming each `Fault`.
 unsafe session may not do. The starter's filters, gate and handshake endpoint are
 adapters over these, and another framework would adapt the same functions.
 
+`HttpCaller` is a service's side of its own calls.
+`HttpCaller.stamp(method, uri, body, inbound, influence)` stamps one call over its
+raw target and answers the headers to set, and `HttpCaller.check(sent, status,
+xPathResponse, body)` checks its response against the chain that was sent and
+answers what it adds to the request's influence: its labels, each with `src`
+`http:<target>`, when it verifies, and otherwise one `local-untrusted` entry. It
+names the receiver by its policy name: the URI's host, unless its builder's
+`receivers(Map)` maps that host to another name. `stamp(method, uri, body)` and
+`record(...)` are the same two in the blocking binding below, which read and add
+to the request's context, and record nothing outside a scope.
+
 `BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
 service's stamper, proofs, root, keyring and policy key, the partner's entry
 service, `https` URL and pinned policy key, the boundary key, a listener, the JDK
@@ -204,21 +215,32 @@ hands a session request's body to `HttpSessions.serve`.
   failures are not attested. The stamp covers the whole body, so the body is held
   until the handler returns. An async response is not attested: its body is sent
   whole when the async work completes, with no `X-Path-Response`.
-- **The outbound interceptor** stamps every `RestClient` call through `StamperV3`,
-  attaches the proof and the influence so far, and reads each response whole. The
-  receiver it stamps, as the last stamp's `rcv`, is the URL's host, so by default a
-  service's policy name is the host its callers reach it by (in the mesh demo,
-  Docker Compose service names): `https://payment:8443/pay` is stamped for
-  `payment`. The same name is the response's `<target>`. The
+- **The outbound interceptor** stamps every `RestClient` call through
+  `HttpCaller`, attaches the proof and the influence so far, and reads each
+  response whole. The receiver it stamps, as the last stamp's `rcv`, is the URL's
+  host, so by default a service's policy name is the host its callers reach it by
+  (in the mesh demo, Docker Compose service names): `https://payment:8443/pay` is
+  stamped for `payment`. The same name is the response's `<target>`. The
   [spec](../spec/verification.md#receivers-the-peer-and-attribution) requires the
   receiver's policy name, so a destination reached by any other host (an address,
-  a load balancer's name) fails at the receiver (`BINDING_MISMATCH`).
-  Wherever there is a keyring, a root and the policy pin, it checks the response's
-  attestation: verified labels become influence entries, and any other response
-  becomes one `local-untrusted` entry (`src` `http:<target>`, `h` the result
-  hash). The verifier's replay cache forgets a key after
-  `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call window,
-  which the verifier requires, and never so late that it grows without end.
+  a load balancer's name) fails at the receiver (`BINDING_MISMATCH`), unless it is
+  mapped.
+- **Receiver names.** `paztport.receiver-names.<host>=<policy name>` names the
+  receiver for a host that is not its policy name:
+  `paztport.receiver-names.orders-internal=orders` stamps a call to
+  `https://orders-internal/x` for `orders`, and that call's response must then be
+  attested by `orders` and is recorded as `http:orders`. Hosts match ignoring
+  case, a dotted host is written as it stands
+  (`paztport.receiver-names.pay.svc.cluster.local=payment`), and a host not
+  listed is still its own name, so with nothing set nothing changes. The mapping
+  is configuration: nothing a request or a destination says changes it. Outside
+  the starter it is `HttpCaller.builder(...).receivers(Map)`.
+- **Response checks.** Wherever there is a keyring, a root and the policy pin, the
+  interceptor checks the response's attestation: verified labels become influence
+  entries, and any other response becomes one `local-untrusted` entry (`src`
+  `http:<target>`, `h` the result hash). The verifier's replay cache forgets a key
+  after `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call
+  window, which the verifier requires, and never so late that it grows without end.
 - **The context scope.** Influence is recorded only inside a `RequestContext`
   scope. The filter opens one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still
