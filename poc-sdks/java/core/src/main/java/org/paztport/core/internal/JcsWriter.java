@@ -70,7 +70,8 @@ public final class JcsWriter {
             while (it.hasNext()) {
                 names.add(it.next());
             }
-            // String.compareTo orders by UTF-16 code unit, which is what RFC 8785 asks for.
+            // RFC 8785 (section 3.2.3) sorts property names by their UTF-16 code units, each taken as an unsigned
+            // number, with no regard to locale. A Java char is such a unit, and compareTo compares the chars in turn.
             names.sort(String::compareTo);
             sb.append('{');
             for (int i = 0; i < names.size(); i++) {
