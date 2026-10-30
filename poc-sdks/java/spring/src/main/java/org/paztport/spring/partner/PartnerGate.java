@@ -5,7 +5,9 @@ package org.paztport.spring.partner;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import java.nio.charset.StandardCharsets;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.http.HttpAnswer;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.UnsafeOperations;
 import org.paztport.spring.PartnerFilter;
@@ -59,9 +61,10 @@ final class PartnerGate implements HandlerInterceptor {
             TRACE.info(DecisionLine.of(receiver, "unsafe-session", ReasonCode.UNSAFE_SESSION,
                     PaztportContext.influence()));
         }
-        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        HttpAnswer refusal = UnsafeOperations.refusal();
+        response.setStatus(refusal.status());
         response.setContentType("application/json");
-        response.getWriter().write("{\"reason\":\"UNSAFE_SESSION\"}");
+        response.getWriter().write(new String(refusal.json(), StandardCharsets.UTF_8));
         return false;
     }
 }

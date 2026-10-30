@@ -23,6 +23,7 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
+import org.paztport.http.ReceiverAccess;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.partner.TraceAccess;
 import org.slf4j.LoggerFactory;
@@ -64,7 +65,7 @@ class TraceLineTest {
         VerifyResult refused = new VerifyResult(ReasonCode.PEER_MISMATCH, "gateway", "gw-1");
         assertEquals("PAZTPORT_TRACE request rid=rid-7 reason=PEER_MISMATCH receiver=payment ✗ "
                 + "peer=gateway (mTLS) classes=private,third-party",
-                InboundFilter.traceLine("rid-7", refused, "payment", new Peer("gateway", "10.0.0.7"),
+                ReceiverAccess.traceLine("rid-7", refused, "payment", new Peer("gateway", "10.0.0.7"),
                         List.of(MINE, WEB)));
     }
 

@@ -35,11 +35,11 @@ import org.slf4j.LoggerFactory;
 
 /**
  * The partner's side of the session handshake: it answers a client's request with a signed reply and remembers the
- * session it opened, for the request filter to look up. HTTP has no connection to hold a session, so each session is
- * kept by its id and records the peer that opened it: the client certificate's issuer and common name, both of which
- * the TLS layer authenticated. A call is in a session only when that same issuer and name present its id; the name
- * alone is not enough, since another CA the container trusts could issue a certificate with the same name. CAs are
- * told apart by their distinguished name, not by their key, so two CAs with identical subject names are not.
+ * session it opened, for the partner's receiver to look up. HTTP has no connection to hold a session, so each
+ * session is kept by its id and records the peer that opened it: the client certificate's issuer and common name, both
+ * of which the TLS layer authenticated. A call is in a session only when that same issuer and name present its id; the
+ * name alone is not enough, since another CA the container trusts could issue a certificate with the same name. CAs
+ * are told apart by their distinguished name, not by their key, so two CAs with identical subject names are not.
  *
  * <p>A handshake adds a session and replaces none, so replicas of one client that share a certificate each keep
  * their own up to the cap, beyond which they evict each other's least recently used sessions (a call that then
@@ -84,10 +84,7 @@ public final class PartnerSessions {
     /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
 
-    /**
-     * A session a peer opened; {@code verifier} is null when it is unsafe. Public for the starter's partner filter,
-     * which is in another package, not for applications.
-     */
+    /** A session a peer opened; {@code verifier} is null when it is unsafe. */
     public record Session(String sess, boolean attested, VerifierV3 verifier) {
     }
 
@@ -268,8 +265,8 @@ public final class PartnerSessions {
      * The session {@code sess} when it is live and was opened by exactly this peer, the same issuer and name, else
      * null: another peer's, one under the same name from another issuer (told apart by its distinguished name), an
      * evicted, expired or unknown id, or a peer with no certificate, issuer or name. A session found is used, so its
-     * idle period starts again. Public for the starter's partner filter, which is in another package, not for
-     * applications: a lookup keeps a session alive as a call in it would.
+     * idle period starts again: a lookup keeps a session alive as a call in it would, so only the partner's receiver
+     * ({@link PartnerReceiver}) looks one up for a call.
      */
     public Session find(String peerIssuer, String peerSvc, String sess) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty() || sess == null) {

@@ -9,20 +9,29 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
+import org.paztport.http.Accepted;
+import org.paztport.http.PartnerAccepted;
+import org.paztport.http.internal.LogSafe;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
- * Request-scoped carrier of what one request has seen. The inbound filter, or on a partner the partner filter, stores
- * the chain a service received and the influence that came with it; the handler adds the influence of whatever else
- * it reads, and labels what it produces; the outbound interceptor reads the chain to append the next stamp and commits
- * the influence so far.
+ * Request-scoped carrier of what one request has seen: the blocking Java binding of a receiver's result, for servlet
+ * and other thread-per-request code, virtual threads included. The receivers decide; the request's filter enters
+ * their result here ({@link #enter(Accepted)}), which stores the chain a service received and the influence that came
+ * with it; the handler adds the influence of whatever else it reads, and labels what it produces; the outbound
+ * interceptor reads the chain to append the next stamp and commits the influence so far. It is not the protocol: a
+ * reactive or non-Java binding carries the same values its own way, around the same receiver functions.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
  * unit of work learns must not outlive it: influence left behind would be committed to another request's calls,
  * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. Each of
- * the two filters opens one per request; outside any scope the outbound interceptor neither reads the context nor
+ * the two filters enters one per request; outside any scope the outbound interceptor neither reads the context nor
  * records responses into it, so calls made there stamp with no influence and leave nothing behind.
  */
 public final class PaztportContext {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PaztportContext.class);
 
     private static final ThreadLocal<List<StampV3>> INBOUND = new ThreadLocal<>();
     private static final ThreadLocal<List<StampV3>> VERIFIED = new ThreadLocal<>();
@@ -43,10 +52,9 @@ public final class PaztportContext {
     }
 
     /**
-     * Marks the inbound chain as having passed the live order at this hop. Only the two request filters call this, the
-     * inbound filter and the partner filter, each only from the result that decides attestation, so that anything
-     * which later signs on the strength of it (the boundary signer) can rely on it never being set by a chain that
-     * failed, was not checked, or came to an origin.
+     * Marks the inbound chain as having passed the live order at this hop. Only {@link #enter} calls this, from a
+     * receiver's result, which no other code can make, so that anything which later signs on the strength of it (the
+     * boundary signer) can rely on it never being set by a chain that failed, was not checked, or came to an origin.
      */
     static void markVerified(List<StampV3> chain) {
         VERIFIED.set(chain);
@@ -100,15 +108,65 @@ public final class PaztportContext {
         return scope;
     }
 
+    /**
+     * Opens the scope a request the receiver served is handled in, holding what it decided: the chain the request
+     * carried, the influence the handler starts from, and the chain as verified at this hop only where it was. A scope
+     * that other code left open on this pooled thread and never closed is ended first, with a warning: refusing to
+     * open the request's own would fail this request and every later one served here.
+     *
+     * @throws IllegalArgumentException for a refusal, which is answered, not served
+     */
+    public static Scope enter(Accepted accepted) {
+        if (accepted.refusal() != null) {
+            throw new IllegalArgumentException("a refused request is not served");
+        }
+        Scope scope = openEnded();
+        setInboundChain(accepted.inbound());
+        if (accepted.verifiedChain() != null) {
+            markVerified(accepted.verifiedChain());
+        }
+        addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
+        return scope;
+    }
+
+    /**
+     * {@link #enter(Accepted)} for a partner's call: in an attested session, the chain and influence that verified
+     * there; in an unsafe one, nothing, whatever the request carried.
+     *
+     * @throws IllegalArgumentException for a refusal, which is answered, not served
+     */
+    public static Scope enter(PartnerAccepted accepted) {
+        if (accepted.refusal() != null) {
+            throw new IllegalArgumentException("a refused request is not served");
+        }
+        Scope scope = openEnded();
+        if (accepted.attested()) {
+            addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
+            setInboundChain(accepted.verifiedChain());
+            markVerified(accepted.verifiedChain());
+        }
+        return scope;
+    }
+
+    /** {@link #open}, after ending a scope leaked on this thread. */
+    private static Scope openEnded() {
+        if (isOpen()) {
+            LOG.warn("a paztport context scope was leaked on thread {}; ending it before serving this request",
+                    LogSafe.of(Thread.currentThread().getName()));
+            reset();
+        }
+        return open();
+    }
+
     /** True while a scope is open on this thread: only then are responses recorded as influence. */
     public static boolean isOpen() {
         return CURRENT.get() != null;
     }
 
     /**
-     * Ends whatever scope is open on this thread and empties the context. Only the inbound filter calls this, when
-     * a scope that other code opened on a pooled thread was never closed: without it, every later request served
-     * on that thread would fail to open its own.
+     * Ends whatever scope is open on this thread and empties the context. Only {@link #enter} calls this, when a
+     * scope that other code opened on a pooled thread was never closed: without it, every later request served on
+     * that thread would fail to open its own.
      */
     static void reset() {
         clear();

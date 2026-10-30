@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import java.util.List;
+import org.paztport.core.verify.ReasonCode;
 
 /**
  * The operations a partner switches off for unsafe sessions, and the rule that says whether a request is one. An
@@ -26,6 +27,13 @@ public final class UnsafeOperations {
     public boolean refuses(String method, String routePattern) {
         return disabled.contains(method + " " + routePattern)
                 || ("HEAD".equals(method) && disabled.contains("GET " + routePattern));
+    }
+
+    /**
+     * The answer to a request this refuses, sent before its handler runs: {@code 403 {"reason":"UNSAFE_SESSION"}}.
+     */
+    public static HttpAnswer refusal() {
+        return HttpAnswer.refusal(403, ReasonCode.UNSAFE_SESSION);
     }
 
     /** The operations switched off, as the replies list them. */

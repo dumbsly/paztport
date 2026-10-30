@@ -140,12 +140,23 @@ public final class HttpV3 {
     public static VerifyInputV3 request(String chainHeader, String proofHeader, String influenceHeader, String method,
             String target, byte[] body, String receiver, Peer peer) {
         String chain = decodeChain(chainHeader);
-        return new VerifyInputV3(chain, RequestBinding.compute(method, target, body), decodeInfluence(influenceHeader),
-                decodeProof(proofHeader), receiver, true, requestNonceKey(chain), peer);
+        return request(chain, Chains.parse(chain, false), proofHeader, influenceHeader, method, target, body, receiver,
+                peer);
     }
 
-    private static String requestNonceKey(String chain) {
-        ParsedChain parsed = Chains.parse(chain, false);
+    /**
+     * {@link #request(String, String, String, String, String, byte[], String, Peer)} for a receiver that has already
+     * decoded the chain header to {@code chain} ({@link #decodeChain}) and read that to {@code parsed}
+     * ({@code Chains.parse(chain, false)}), so that it reads one request's chain once rather than again here for the
+     * nonce key. The verifier still reads {@code chain} itself, as it must: it trusts no reading but its own.
+     */
+    static VerifyInputV3 request(String chain, ParsedChain parsed, String proofHeader, String influenceHeader,
+            String method, String target, byte[] body, String receiver, Peer peer) {
+        return new VerifyInputV3(chain, RequestBinding.compute(method, target, body), decodeInfluence(influenceHeader),
+                decodeProof(proofHeader), receiver, true, requestNonceKey(parsed), peer);
+    }
+
+    private static String requestNonceKey(ParsedChain parsed) {
         if (!parsed.ok()) {
             return "";
         }
