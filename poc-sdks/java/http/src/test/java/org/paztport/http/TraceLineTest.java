@@ -23,6 +23,7 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
+import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 /**

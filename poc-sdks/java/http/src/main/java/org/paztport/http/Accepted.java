@@ -9,6 +9,7 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.http.internal.LogSafe;
+import org.paztport.http.wire.HttpV3;
 
 /**
  * What {@link HttpReceiver#accept} decided about one request: a refusal to send in place of the handler's answer,

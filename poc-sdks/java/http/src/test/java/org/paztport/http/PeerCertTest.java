@@ -21,6 +21,7 @@ import java.util.Arrays;
 import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.verify.Peer;
+import org.paztport.http.internal.SubjectService;
 
 /**
  * The peer a client certificate names, from the certificate alone: its service by the spec's common-name rule, the

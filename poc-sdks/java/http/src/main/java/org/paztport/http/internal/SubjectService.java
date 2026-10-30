@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.http;
+package org.paztport.http.internal;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
@@ -32,7 +32,7 @@ import java.util.Arrays;
  *
  * Anything else names no service, which is {@code ""}: the peer check then fails closed rather than picking a name.
  */
-final class SubjectService {
+public final class SubjectService {
 
     /** The contents of the DER OBJECT IDENTIFIER 2.5.4.3, id-at-commonName. */
     private static final byte[] COMMON_NAME = {0x55, 0x04, 0x03};
@@ -64,7 +64,7 @@ final class SubjectService {
      * definite length, in its shortest form, that stays within the {@code TBSCertificate}; what each holds is not
      * looked at. A {@code TBSCertificate} that cannot be walked as far as the subject names no service.
      */
-    static String ofCertificate(byte[] tbs) {
+    public static String ofCertificate(byte[] tbs) {
         try {
             Reader whole = new Reader(tbs, 0, tbs.length);
             Reader fields = whole.next(SEQUENCE).contents();
@@ -86,7 +86,7 @@ final class SubjectService {
     }
 
     /** The service {@code name}, a DER-encoded {@code Name}, names, or {@code ""} when it names none. */
-    static String of(byte[] name) {
+    public static String of(byte[] name) {
         try {
             Reader whole = new Reader(name, 0, name.length);
             Element sequence = whole.next(SEQUENCE);

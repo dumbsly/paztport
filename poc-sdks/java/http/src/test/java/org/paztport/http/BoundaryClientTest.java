@@ -57,6 +57,9 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 /**

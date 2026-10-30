@@ -49,6 +49,8 @@ import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.RequestBinding;
 
 /**
  * Builds {@code spec/vectors/http-v3.json} and replays it. Unlike the v1 exporter this is deterministic: the

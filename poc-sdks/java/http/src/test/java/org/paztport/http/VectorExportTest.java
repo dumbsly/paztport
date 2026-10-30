@@ -36,6 +36,8 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV1;
 import org.paztport.core.verify.VerifierV1;
 import org.paztport.core.verify.VerifyResult;
+import org.paztport.http.wire.HttpVerifyRequestsV1;
+import org.paztport.http.wire.RequestBinding;
 
 /**
  * Made the committed v1 file, {@code spec/vectors/v1.json}, and is kept only as the record of how. It is opt-in

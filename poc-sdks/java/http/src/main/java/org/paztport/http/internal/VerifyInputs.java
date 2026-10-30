@@ -8,8 +8,8 @@ import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.RecordedStamp;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.VerifyInputV3;
-import org.paztport.http.HttpV3;
-import org.paztport.http.RequestBinding;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.RequestBinding;
 
 /**
  * The receivers' form of {@link HttpV3}'s request verify input, which takes a chain that has already been read. It is

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.PublicApi;
+import org.paztport.http.wire.HttpV3;
 
 /**
  * The HTTP module's public API names no JSON library, for the reason core's does: a user brings whichever Jackson

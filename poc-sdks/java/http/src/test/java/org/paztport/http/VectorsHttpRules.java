@@ -52,6 +52,9 @@ import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 
 /**
  * Builds and replays the {@code rules} section of {@code spec/vectors/http-v3.json}: the HTTP rules the spec requires

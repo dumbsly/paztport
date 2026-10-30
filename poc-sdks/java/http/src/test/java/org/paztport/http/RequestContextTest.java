@@ -41,6 +41,9 @@ import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.event.EventPublisher;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 class RequestContextTest {

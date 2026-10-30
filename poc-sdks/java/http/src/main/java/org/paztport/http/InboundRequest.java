@@ -7,6 +7,8 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 
 /**
  * One request as a receiver reads it, taken from whatever framework received it.

@@ -39,6 +39,9 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.WholeExchange;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.PaztportHeaders;
+import org.paztport.http.wire.RequestBinding;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

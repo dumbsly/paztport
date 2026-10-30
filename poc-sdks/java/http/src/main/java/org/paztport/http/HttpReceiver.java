@@ -22,6 +22,8 @@ import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.VerifyInputs;
+import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.PaztportHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

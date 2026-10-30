@@ -8,6 +8,7 @@ import java.security.cert.X509Certificate;
 import java.util.Objects;
 import javax.security.auth.x500.X500Principal;
 import org.paztport.core.verify.Peer;
+import org.paztport.http.internal.SubjectService;
 
 /**
  * The sender a client certificate names, as a receiver needs it: the {@link Peer} the verifier compares with the

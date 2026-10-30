@@ -23,6 +23,7 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 class PublicWritesTest {
