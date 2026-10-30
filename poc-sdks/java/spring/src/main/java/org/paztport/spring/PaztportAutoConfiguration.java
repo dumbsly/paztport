@@ -62,7 +62,7 @@ import org.springframework.core.Ordered;
  * {@link PartnerFilter} in place of the inbound filter, behind {@link org.paztport.spring.partner.PartnerGate}.
  *
  * <p>Each feature's beans are built by a configuration class of its own, which this imports. The request path's
- * own beans are defined here: the two filters, which alone may mark a chain verified, and the public-writes rule.
+ * own beans are defined here: the two filters, which adapt the receivers, and the public-writes rule.
  */
 @AutoConfiguration
 @EnableConfigurationProperties(PaztportProperties.class)

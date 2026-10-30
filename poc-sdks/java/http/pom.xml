@@ -12,7 +12,7 @@
 
     <artifactId>paztport-http</artifactId>
     <name>Paztport HTTP</name>
-    <description>HTTP request binding, wire header names and the verify-request builder; no web framework.</description>
+    <description>v3 over HTTP with no web framework: the header codecs, the receivers, the partner's session registry, and the blocking request context.</description>
 
     <dependencies>
         <dependency>

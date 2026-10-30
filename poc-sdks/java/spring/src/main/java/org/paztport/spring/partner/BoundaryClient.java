@@ -54,7 +54,7 @@ import org.slf4j.LoggerFactory;
  * service's key over the request it sends, in a session opened with the partner.
  *
  * <p>The boundary stamp vouches for the request that led to it, so it is signed only over a chain that passed the
- * full live order at this hop: {@link RequestContext#verifiedChain()}, which only the inbound filter sets, and only
+ * full live order at this hop: {@link RequestContext#verifiedChain()}, which only a receiver's result sets, and only
  * from the result that decides attestation. With no request scope, or with no verified chain (an origin, a hop
  * that is off, a chain that failed in audit, a hop with no verifier), {@link #post} throws before anything is sent,
  * the handshake included, so a request this service never accepted cannot even make it open a session.

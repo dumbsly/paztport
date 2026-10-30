@@ -101,7 +101,7 @@ class PublicWritesTest {
         assertFalse(lines.get(0).contains("alice") || lines.get(0).contains("mallory"));
     }
 
-    /** A one-stamp chain from the gateway, as a filter would have verified it. */
+    /** A one-stamp chain from the gateway, as a receiver would have verified it. */
     private static List<StampV3> chain(String rid) {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         KeyPair gateway = Crypto.generateEd25519KeyPair();

@@ -85,6 +85,27 @@ writes `{"error":"<code>"}`; core reads the bodies, a request with
 ...)`, as strictly as `HttpV3` reads a header (trailing tokens are refused).
 `HttpVerifyRequestsV1` is the v1 equivalent, kept for `v1.json`.
 
+The receivers decide a request with no framework and keep no per-request state.
+`HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request
+for a service and returns an `Accepted`: either a refusal to send in place of the
+handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what the handler
+starts from and whether its answer is attested, by `Accepted.attest(status, body,
+labels)` once the framework holds the answer whole. `PartnerReceiver.accept(
+InboundRequest, PeerCert)` does the same for a partner, in the session the caller
+names. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
+client certificate. `PartnerSessions` keeps a partner's sessions; its `builder()`
+refuses own material no client could accept, naming each `Fault`.
+`HttpSessions.serve` answers one handshake, and `UnsafeOperations` says what an
+unsafe session may not do. The starter's filters, gate and handshake endpoint are
+adapters over these, and another framework would adapt the same functions.
+
+`RequestContext` is the blocking Java binding of their results: a thread-local
+scope, for servlet and other thread-per-request code, that an adapter enters per
+request with `RequestContext.enter(accepted)` and that the handler, the caller and
+`PublicWrites` then read. It is not the protocol: a reactive framework, or another
+language, carries the same results its own way. Its verified chain is set only
+from a receiver's result, which only a receiver can make.
+
 It also holds what any server needs beside the protocol: `VerificationMode` (`OFF`,
 `AUDIT`, `ENFORCE`) and the `ModeHolder` that switches it at runtime, the
 `ReceivedRequestListener` hook, and the event publishers in `org.paztport.http.event`,
@@ -101,12 +122,12 @@ application uses: Boot 4's web layer and `RestClient` use Jackson 3
 (`tools.jackson`), and the SDK reads with Jackson 2 inside. An SDK value's JSON,
 such as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
 labelled `application/json`, so it is written exactly as it stands; a body goes to
-the SDK as the bytes or text it arrived in, as the starter's
-`PartnerSessionController` hands a session request to `SessionRequest.parse`.
+the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
+hands a session request's body to `HttpSessions.serve`.
 
-- **The inbound filter** caches the body, opens a `PaztportContext` scope for the
-  request, and keeps the received chain and influence there for the outbound
-  calls. Where `paztport.verify=true` it verifies the request in the current mode;
+- **The inbound filter** caches the body, hands the request to `HttpReceiver`, and
+  serves it in the `RequestContext` scope the receiver's result enters, which keeps
+  the received chain and influence there for the outbound calls. Where `paztport.verify=true` it verifies the request in the current mode;
   such a service also needs a keyring, a root and the policy pin
   (`paztport.policy-key-path`), or it refuses to start. Influence it can't read is
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
@@ -164,7 +185,7 @@ the SDK as the bytes or text it arrived in, as the starter's
   nothing and attests nothing: `off` turns Paztport off on that hop. That is
   fail-safe, because its callers record an unattested response as `local-untrusted`.
   The stamp binds the status, the body and the labels its handler added with
-  `PaztportContext.label`, and is sent as `X-Path-Response`. Refusals and audit-mode
+  `RequestContext.label`, and is sent as `X-Path-Response`. Refusals and audit-mode
   failures are not attested. The stamp covers the whole body, so the body is held
   until the handler returns. An async response is not attested: its body is sent
   whole when the async work completes, with no `X-Path-Response`.
@@ -183,8 +204,8 @@ the SDK as the bytes or text it arrived in, as the starter's
   hash). The verifier's replay cache forgets a key after
   `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call window,
   which the verifier requires, and never so late that it grows without end.
-- **The context scope.** Influence is recorded only inside a `PaztportContext`
-  scope. The filter opens one per request; background work, such as a scheduled
+- **The context scope.** Influence is recorded only inside a `RequestContext`
+  scope. The filter enters one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still
   stamped and responses still checked, but nothing is carried.
 - **Mutual TLS.** `paztport.tls-bundle` names the Spring Boot SSL bundle the
@@ -194,8 +215,8 @@ the SDK as the bytes or text it arrived in, as the starter's
   honours the bundle's protocols and ciphers; its `builder()` gives a client with
   TLS and no stamping, for calls that set their own headers. Its timeouts are
   under **Timeouts**, below. On a request that came with a client certificate,
-  `PeerIdentity` makes the verifier's peer: the subject's common name when there
-  is exactly one and it is a UTF8String or a PrintableString, else `""`, at the
+  `PeerCert` makes the verifier's peer from the leaf: the subject's common name when
+  there is exactly one and it is a UTF8String or a PrintableString, else `""`, at the
   TCP address the connection came from. It reads the name, by the
   [spec's rule](../spec/verification.md#http-requests-and-responses), from the
   subject's DER bytes as they stand in the certificate's `TBSCertificate`, the
@@ -220,11 +241,11 @@ the SDK as the bytes or text it arrived in, as the starter's
   handshake has 10 s, whatever `paztport.read-timeout-ms` is. Without
   `paztport.tls-bundle` the shared builder keeps the application's own request
   factory, and its timeouts are the application's to set.
-- **The verified chain.** `PaztportContext.verifiedChain()` is the request's chain
+- **The verified chain.** `RequestContext.verifiedChain()` is the request's chain
   once it has passed the full live order at this hop, and is null otherwise: in `off`
   mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
-  outside a request scope. Only the inbound filter sets it, from the result that
-  decides attestation. Nothing is signed at the boundary over anything else.
+  outside a request scope. Only `RequestContext.enter` sets it, from a receiver's
+  result, which only a receiver can make: the one that decides attestation. Nothing is signed at the boundary over anything else.
 - **`PublicWrites`.** A bean with two methods. `decide(destinationOwner)` runs the
   owner-aware rule over the request's influence and returns `OK` or
   `INFLUENCE_DENIED`. The service supplies the destination owner from its own

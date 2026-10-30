@@ -4,7 +4,7 @@
 package org.paztport.http;
 
 /**
- * Optional hook offered every request the inbound filter receives, with the raw
+ * Optional hook offered every request a {@link HttpReceiver} receives, with the raw
  * attestation headers and body, before verification runs. It lets an application
  * observe traffic (a demo harness retaining a request to replay, say) without the
  * SDK knowing what it is for. Implementations must not throw or block.

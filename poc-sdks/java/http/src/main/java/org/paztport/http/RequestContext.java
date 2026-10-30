@@ -14,18 +14,23 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Request-scoped carrier of what one request has seen: the blocking Java binding of a receiver's result, for servlet
- * and other thread-per-request code, virtual threads included. The receivers decide; the request's filter enters
+ * The blocking Java binding of the receivers' results: a request-scoped carrier of what one request has seen, for
+ * servlet and other thread-per-request code, virtual threads included. It is not the protocol. The receivers
+ * ({@link HttpReceiver}, {@link PartnerReceiver}) decide each request without it; a framework's adapter then enters
  * their result here ({@link #enter(Accepted)}), which stores the chain a service received and the influence that came
- * with it; the handler adds the influence of whatever else it reads, and labels what it produces; the outbound
- * interceptor reads the chain to append the next stamp and commits the influence so far. It is not the protocol: a
- * reactive or non-Java binding carries the same values its own way, around the same receiver functions.
+ * with it; the handler adds the influence of whatever else it reads, and labels what it produces; the caller reads
+ * the chain to append the next stamp and commits the influence so far. A reactive binding, or another language's
+ * (Go would use {@code context.Context}), carries the same values its own way around the same receiver functions.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
  * unit of work learns must not outlive it: influence left behind would be committed to another request's calls,
- * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. Each of
- * the two filters enters one per request; outside any scope the outbound interceptor neither reads the context nor
- * records responses into it, so calls made there stamp with no influence and leave nothing behind.
+ * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. An
+ * adapter enters one per request it serves; outside any scope the caller neither reads the context nor records
+ * responses into it, so calls made there stamp with no influence and leave nothing behind.
+ *
+ * <p>The verified chain is the one value here other code signs on the strength of (the egress's boundary stamp, the
+ * trusted-record rule), so it is set only by {@link #enter}, from a result only a receiver can make: the method that
+ * sets it is package-private, beside the receivers, and an application can read the chain but never mark one.
  */
 public final class RequestContext {
 
@@ -90,11 +95,11 @@ public final class RequestContext {
     }
 
     /**
-     * Opens a scope on this thread, starting from an empty context; closing it empties the context again. The
-     * inbound filter opens one around every request it serves. Background work (a scheduled job, a startup
-     * runner) that wants what its calls learn to be carried opens its own, with try-with-resources, around one
-     * unit of work. Scopes do not nest: opening one while one is open throws {@link IllegalStateException}, since
-     * the inner scope would otherwise drop the outer one's influence when it closed.
+     * Opens a scope on this thread, starting from an empty context; closing it empties the context again. A request
+     * is served in the one {@link #enter} opens. Background work (a scheduled job, a startup runner) that wants what
+     * its calls learn to be carried opens its own, with try-with-resources, around one unit of work. Scopes do not
+     * nest: opening one while one is open throws {@link IllegalStateException}, since the inner scope would otherwise
+     * drop the outer one's influence when it closed.
      */
     public static Scope open() {
         if (CURRENT.get() != null) {

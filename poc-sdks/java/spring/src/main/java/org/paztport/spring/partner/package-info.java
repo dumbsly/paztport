@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * Calls between organisations: the egress's client to a partner, and the partner's side, which answers the session
- * handshake, keeps the sessions it opened and refuses what an unsafe one may not do. The partner's request filter is
- * {@code org.paztport.spring.PartnerFilter}, kept at the root because only the filters there may mark a chain verified.
+ * Calls between organisations: the egress's client to a partner, and the adapters of the partner's side, which
+ * answer the session handshake ({@code PartnerSessionController}) and refuse what an unsafe session may not do
+ * ({@code PartnerGate}) over {@code paztport-http}'s session registry. The partner's request filter is
+ * {@code org.paztport.spring.PartnerFilter}, beside the inbound filter it stands in for.
  */
 package org.paztport.spring.partner;

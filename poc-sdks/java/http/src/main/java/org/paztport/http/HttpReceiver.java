@@ -77,7 +77,7 @@ import org.slf4j.LoggerFactory;
  * chain the handler carries and the nonce key alike; the verifier reads it again for itself.
  *
  * <p>This is the function a framework adapts, in any binding: it touches no thread-local. Carrying its result for the
- * handler is the binding's work, as the request context's {@code enter} does for blocking Java.
+ * handler is the binding's work, as {@link RequestContext#enter(Accepted)} does for blocking Java.
  */
 public final class HttpReceiver {
 
