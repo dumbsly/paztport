@@ -5,7 +5,6 @@ package org.paztport.spring.outbound;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -19,14 +18,12 @@ import ch.qos.logback.core.read.ListAppender;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,6 +41,7 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
+import org.paztport.http.HttpCaller;
 import org.paztport.http.HttpV3;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
@@ -54,12 +52,17 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.ClientHttpResponse;
-import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.test.web.client.ResponseCreator;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 
+/**
+ * The interceptor's Spring part: the caller's headers go on the request as the RestClient sends it, the binding is
+ * over the target as encoded on the wire, and the response is handed to the caller whole, then back to the
+ * application from memory. What the stamp and the response check say is {@code HttpCallerTest}'s, in
+ * {@code paztport-http}.
+ */
 class OutboundInterceptorTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
@@ -128,14 +131,9 @@ class OutboundInterceptorTest {
 
     /** As above, answering with whatever {@code answer} creates for the request it received. */
     private RestClient client(OutboundInterceptor interceptor, String uri, ResponseCreator answer) {
-        return client(interceptor, uri, answer, 1);
-    }
-
-    /** As above, expecting {@code times} requests. */
-    private RestClient client(OutboundInterceptor interceptor, String uri, ResponseCreator answer, int times) {
         RestClient.Builder builder = RestClient.builder().requestInterceptor(interceptor);
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        server.expect(ExpectedCount.times(times), requestTo(uri)).andRespond(request -> {
+        server.expect(requestTo(uri)).andRespond(request -> {
             sent.add(request.getHeaders());
             return answer.createResponse(request);
         });
@@ -175,19 +173,6 @@ class OutboundInterceptorTest {
     }
 
     @Test
-    void stampsForTheUriHostAndAttachesTheProof() {
-        client(gatewayInterceptor(), "http://orders:8080/orders")
-                .post().uri("http://orders:8080/orders").body("{}").retrieve().toBodilessEntity();
-
-        List<StampV3> chain = chainOf(sent.get(0));
-        assertEquals(1, chain.size());
-        assertEquals("gateway", chain.get(0).svc());
-        assertEquals("orders", chain.get(0).rcv());
-        assertEquals("", chain.get(0).infl());
-        assertNotNull(sent.get(0).getFirst(PaztportHeaders.PROOF), "proof for gateway/orders must be attached");
-    }
-
-    @Test
     void appendsToTheInboundChainCommittingTheContextInfluence() {
         StamperV3.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
                 policy.bundles().get("gateway"));
@@ -214,22 +199,17 @@ class OutboundInterceptorTest {
     }
 
     @Test
-    void noInfluenceSendsNoInfluenceHeader() {
-        client(gatewayInterceptor(), "http://orders:8080/orders")
-                .post().uri("http://orders:8080/orders").body("{}").retrieve().toBodilessEntity();
+    void stampsForTheReceiverTheCallerNames() {
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
+                .receivers(Map.of("orders-internal", "orders")).build();
+        client(new OutboundInterceptor(caller), "http://orders-internal:8080/orders")
+                .get().uri("http://orders-internal:8080/orders").retrieve().toBodilessEntity();
 
-        assertNull(sent.get(0).getFirst(PaztportHeaders.INFLUENCE));
+        assertEquals("orders", chainOf(sent.get(0)).get(0).rcv());
+        assertNotNull(sent.get(0).getFirst(PaztportHeaders.PROOF), "the proof is for the route to orders");
     }
 
-    @Test
-    void omitsTheProofHeaderWhenNoneIsHeldForTheRoute() {
-        // gateway -> payment is not a route gateway holds a proof for.
-        client(gatewayInterceptor(), "http://payment:8080/pay")
-                .post().uri("http://payment:8080/pay").body("{}").retrieve().toBodilessEntity();
-
-        assertNull(sent.get(0).getFirst(PaztportHeaders.PROOF));
-    }
-
+    // The RestClient encodes the space; the binding is over the query as it goes on the wire.
     @Test
     void bindsTheRawQuery() {
         client(gatewayInterceptor(),
@@ -239,16 +219,6 @@ class OutboundInterceptorTest {
         StampV3 stamp = chainOf(sent.get(0)).get(0);
         assertEquals("search", stamp.rcv());
         assertEquals(RequestBinding.compute("GET", "/search?q=a%20b", new byte[0]), stamp.bind());
-    }
-
-    @Test
-    void bindsAnEncodedQueryAsSent() {
-        URI uri = URI.create("http://search:8080/search?q=caf%C3%A9%20x");
-        client(gatewayInterceptor(), uri.toString())
-                .get().uri(uri).retrieve().toBodilessEntity();
-
-        assertEquals(RequestBinding.compute("GET", "/search?q=caf%C3%A9%20x", new byte[0]),
-                chainOf(sent.get(0)).get(0).bind());
     }
 
     @Test
@@ -271,24 +241,6 @@ class OutboundInterceptorTest {
     }
 
     @Test
-    void aResponseThatFailsItsAttestationIsOneUntrustedEntry() {
-        RestClient client = client(
-                new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
-                        "gateway"),
-                "http://orders:8080/orders",
-                attested("hellx", "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))));
-
-        List<InfluenceEntry> recorded = fetchRecorded(client, "hellx");
-
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
-                HttpV3.resultHash(200, "hellx".getBytes(StandardCharsets.UTF_8)), null, null)),
-                recorded, "labels the stamp does not commit to are not believed");
-        assertEquals(List.of(
-                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=BINDING_MISMATCH receiver=gateway ✗ labels=-"),
-                traceLines());
-    }
-
-    @Test
     void anUnattestedErrorIsBufferedAndUntrusted() {
         RestClient client = client(
                 new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), gatewayVerifier(),
@@ -303,49 +255,6 @@ class OutboundInterceptorTest {
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),
                 traceLines());
-    }
-
-    @Test
-    void withoutAVerifierEveryResponseIsOneUntrustedEntry() {
-        RestClient client = client(gatewayInterceptor(), "http://orders:8080/orders",
-                attested("hello", "hello", List.of(ContentLabel.fresh(InfluenceClass.PUBLIC, null))));
-
-        List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
-
-        assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
-                HttpV3.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8)), null, null)),
-                recorded, "an attestation nobody checked counts for nothing");
-        assertEquals(List.of("PAZTPORT_TRACE response rid=rid-1 from=orders reason=- receiver=gateway ✗ labels=-"),
-                traceLines());
-    }
-
-    @Test
-    void outsideAScopeNothingIsRecordedOrCarried() {
-        // A scheduled job or a startup runner: no request, so no scope, on a thread that is reused.
-        AtomicInteger rids = new AtomicInteger();
-        StamperV3 stamper = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true,
-                () -> "rid-" + rids.incrementAndGet(), () -> 1000L);
-        RestClient client = client(
-                new OutboundInterceptor(stamper, policy.bundles().get("gateway"), gatewayVerifier(), "gateway"),
-                "http://orders:8080/orders",
-                attested("hello", "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))), 2);
-        try {
-            RequestContext.addInfluence(MINE); // written by unscoped code; must not be committed either
-
-            assertEquals("hello", fetchOrders(client));
-            assertEquals("hello", fetchOrders(client));
-
-            assertEquals(List.of(MINE), RequestContext.influence(), "neither response was recorded");
-            for (HttpHeaders headers : sent) {
-                assertNull(headers.getFirst(PaztportHeaders.INFLUENCE));
-                assertEquals("", chainOf(headers).get(0).infl());
-            }
-            assertEquals(2, traceLines().size());
-            assertTrue(traceLines().stream().allMatch(l -> l.contains(" reason=OK ") && l.contains("labels=private")),
-                    "both verified and carried alice's label, so there was something to leak: " + traceLines());
-        } finally {
-            RequestContext.clear();
-        }
     }
 
     @Test

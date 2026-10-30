@@ -5,6 +5,8 @@ package org.paztport.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.anything;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -60,6 +62,7 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.http.HttpV3;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.PeerCert;
@@ -88,6 +91,8 @@ import org.springframework.core.Ordered;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.web.client.ExpectedCount;
+import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
@@ -938,6 +943,41 @@ class PaztportAutoConfigurationTest {
                             .toList();
                     assertThat(order)
                             .containsExactly("paztportRestClientCustomizer", "paztportTlsRestClientCustomizer");
+                });
+    }
+
+    /**
+     * {@code paztport.receiver-names} maps the host a call goes to onto the policy name its stamp names, a dotted
+     * host as much as a plain one, and ignoring case; a host not listed is its own name.
+     */
+    @Test
+    void theReceiverNamesMapAHostToItsPolicyName(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        runner.withPropertyValues(
+                        "paztport.service-name=gateway", "paztport.origin=true",
+                        "paztport.key-path=" + dir.resolve("gateway.key"),
+                        "paztport.receiver-names.orders-internal=orders",
+                        "paztport.receiver-names.pay.svc.cluster.local=payment")
+                .run(context -> {
+                    assertThat(context.getBean(PaztportProperties.class).getReceiverNames())
+                            .containsExactlyInAnyOrderEntriesOf(Map.of(
+                                    "orders-internal", "orders", "pay.svc.cluster.local", "payment"));
+                    RestClient.Builder builder = RestClient.builder();
+                    context.getBean(RestClientCustomizer.class).customize(builder);
+                    List<String> receivers = new ArrayList<>();
+                    MockRestServiceServer.bindTo(builder).build()
+                            .expect(ExpectedCount.times(3), anything()).andRespond(request -> {
+                                receivers.add(((StampV3) Chains.parse(HttpV3.decodeChain(
+                                        request.getHeaders().getFirst(PaztportHeaders.CHAIN)), false)
+                                        .stamps().get(0)).rcv());
+                                return withSuccess().createResponse(request);
+                            });
+                    RestClient client = builder.build();
+                    for (String uri : List.of("http://orders-internal:8080/x", "https://PAY.svc.cluster.local/x",
+                            "http://search:8080/x")) {
+                        client.get().uri(uri).retrieve().toBodilessEntity();
+                    }
+                    assertThat(receivers).containsExactly("orders", "payment", "search");
                 });
     }
 

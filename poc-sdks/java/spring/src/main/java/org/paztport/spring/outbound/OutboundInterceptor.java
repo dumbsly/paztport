@@ -6,22 +6,12 @@ package org.paztport.spring.outbound;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URI;
-import java.util.List;
-import java.util.TreeSet;
-import org.paztport.core.influence.ContentLabel;
-import org.paztport.core.influence.InfluenceClass;
-import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.VerifierV3;
-import org.paztport.http.HttpV3;
+import org.paztport.http.HttpCaller;
 import org.paztport.http.PaztportHeaders;
-import org.paztport.http.RequestBinding;
 import org.paztport.http.RequestContext;
-import org.paztport.http.internal.LogSafe;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatusCode;
@@ -30,62 +20,38 @@ import org.springframework.http.client.ClientHttpRequestInterceptor;
 import org.springframework.http.client.ClientHttpResponse;
 
 /**
- * Stamps every outbound RestClient request, and checks every response. The receiver is taken from the request URI
- * host (Docker Compose service names equal hostnames), and the inbound chain and the influence so far come from
- * {@link RequestContext}, so the stamp names where the call goes and commits to what shaped it.
+ * Stamps every outbound RestClient request, and checks every response, through {@code paztport-http}'s
+ * {@link HttpCaller} in its blocking binding: the receiver's policy name, the binding over the raw target, the
+ * response check and what a response adds to the request's influence are all the caller's. This adapts it to
+ * Spring: it sets the headers the caller gives on the request as it goes on the wire, and hands the caller the
+ * response read whole.
  *
- * <p>The binding covers the raw path and the raw query, exactly as they go on the wire, so the receiver can bind
- * the same bytes its container hands it without decoding anything.
- *
- * <p>What a response says becomes part of this request, so it is recorded as influence before the caller sees it.
- * The body is read whole, because the attestation covers all of it, and handed back from memory. A response whose
- * attestation verifies contributes its labels; any other — unattested, failing, a refusal, or one received where
- * no verifier is configured — contributes one {@code local-untrusted} entry, so content nobody vouched for still
- * counts against later calls. Every response checked logs one {@code PAZTPORT_TRACE response} line.
- *
- * <p>All of this happens only inside a {@link RequestContext.Scope}, which the inbound filter opens per request.
- * Outside one (a scheduled job, a startup runner, a control-plane handler) a call is still stamped, with no
- * inbound chain and no influence, and its response is still checked and traced, but nothing is recorded: there
- * is no unit of work to carry it, and a pooled thread would otherwise hand it to whatever ran next.
+ * <p>The body is read whole because the attestation covers all of it, and handed back from memory, so the
+ * application reads exactly what was checked. Influence is recorded only inside a {@link RequestContext.Scope},
+ * which the inbound filter opens per request; outside one a call is still stamped and its response still checked
+ * and traced, but nothing is recorded.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
-    private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
+    private final HttpCaller caller;
 
-    private final StamperV3 stamper;
-    private final ProofBundle bundle;
-    private final VerifierV3 verifier;
-    private final String caller;
-
-    /** {@code verifier} is null where responses cannot be checked; {@code caller} is this service's name. */
-    public OutboundInterceptor(StamperV3 stamper, ProofBundle bundle, VerifierV3 verifier, String caller) {
-        this.stamper = stamper;
-        this.bundle = bundle;
-        this.verifier = verifier;
+    public OutboundInterceptor(HttpCaller caller) {
         this.caller = caller;
+    }
+
+    /**
+     * A caller that names each receiver by its URI host. {@code verifier} is null where responses cannot be checked;
+     * {@code caller} is this service's name.
+     */
+    public OutboundInterceptor(StamperV3 stamper, ProofBundle bundle, VerifierV3 verifier, String caller) {
+        this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).build());
     }
 
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
-        URI uri = request.getURI();
-        String query = uri.getRawQuery();
-        String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
-        // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
-        boolean scoped = RequestContext.isOpen();
-        List<InfluenceEntry> influence = scoped ? RequestContext.influence() : List.of();
-
-        StamperV3.Stamped stamped = stamper.next(scoped ? RequestContext.inboundChain() : null, uri.getHost(),
-                RequestBinding.compute(request.getMethod().name(), target, body), influence, bundle);
-
-        request.getHeaders().set(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
-        if (stamped.proof() != null) {
-            request.getHeaders().set(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
-        }
-        String influenceHeader = HttpV3.encodeInfluence(influence);
-        if (influenceHeader != null) {
-            request.getHeaders().set(PaztportHeaders.INFLUENCE, influenceHeader);
-        }
+        HttpCaller.Outbound sent = caller.stamp(request.getMethod().name(), request.getURI(), body);
+        sent.headers().forEach(request.getHeaders()::set);
 
         ClientHttpResponse response = execution.execute(request, body);
         Buffered buffered;
@@ -101,60 +67,13 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             throw e;
         }
         try {
-            record(stamped, uri.getHost(), buffered, scoped);
+            caller.record(sent, buffered.getStatusCode().value(),
+                    buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
         } catch (IOException | RuntimeException e) {
             buffered.close();
             throw e;
         }
         return buffered;
-    }
-
-    /**
-     * Checks the response against the chain that was sent, logs the result, and, inside a scope, adds what the
-     * response contributes to the context.
-     */
-    private void record(StamperV3.Stamped sent, String from, Buffered response, boolean scoped) throws IOException {
-        int status = response.getStatusCode().value();
-        String src = "http:" + from;
-        HttpV3.ResponseCheck check = null;
-        String hash;
-        if (verifier != null) {
-            check = HttpV3.verifyResponse(verifier, sent.chain(), sent.proof(),
-                    response.getHeaders().getFirst(PaztportHeaders.RESPONSE), status, response.body, caller);
-            hash = check.resultHash();
-        } else {
-            hash = HttpV3.resultHash(status, response.body);
-        }
-        // Unscoped, there is nothing to carry it to: recording would leak it into whatever this thread runs next.
-        if (scoped) {
-            if (check != null && check.result().ok()) {
-                RequestContext.addInfluence(check.labels().stream().map(l -> l.toEntry(src, hash))
-                        .toArray(InfluenceEntry[]::new));
-            } else {
-                RequestContext.addInfluence(
-                        new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, src, hash, null, null));
-            }
-        }
-        if (TRACE.isInfoEnabled()) {
-            TRACE.info(traceLine(sent.chain().get(0).rid(), from, check, caller));
-        }
-    }
-
-    /**
-     * {@code PAZTPORT_TRACE response rid=… from=… reason=… receiver=… ✓|✗ labels=…|labels=-}. With no verifier
-     * nothing was checked, so the reason is {@code -}. The labels are the verified ones' classes; every value goes
-     * through {@link LogSafe}, since the target and the labels come from outside.
-     */
-    static String traceLine(String rid, String from, HttpV3.ResponseCheck check, String receiver) {
-        TreeSet<String> classes = new TreeSet<>();
-        if (check != null) {
-            check.labels().stream().map(ContentLabel::cls).forEach(c -> classes.add(c.wire()));
-        }
-        boolean ok = check != null && check.result().ok();
-        return String.format("PAZTPORT_TRACE response rid=%s from=%s reason=%s receiver=%s %s labels=%s",
-                LogSafe.of(rid), LogSafe.of(from), check == null ? "-" : check.result().reason(),
-                LogSafe.of(receiver), ok ? "✓" : "✗",
-                classes.isEmpty() ? "-" : LogSafe.of(String.join(",", classes)));
     }
 
     /** The response, with its body already read into memory, so the caller reads exactly what was checked. */

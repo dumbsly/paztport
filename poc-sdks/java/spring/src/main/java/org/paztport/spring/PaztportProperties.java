@@ -3,7 +3,9 @@
 
 package org.paztport.spring;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.paztport.http.BoundaryClient;
 import org.paztport.http.PartnerSessions;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -84,6 +86,13 @@ public class PaztportProperties {
 
     /** Allowed origin service names. */
     private List<String> origins = List.of("gateway");
+
+    /**
+     * The policy names of the services this one calls, by the host it calls them at, where that host is not the
+     * name: {@code paztport.receiver-names.orders-internal=orders} stamps a call to {@code https://orders-internal/x}
+     * for {@code orders}. A host not listed is its own name, and hosts match ignoring case.
+     */
+    private Map<String, String> receiverNames = new LinkedHashMap<>();
 
     /**
      * The Spring Boot SSL bundle ({@code spring.ssl.bundle.*}) this service presents on its outbound calls and on
@@ -414,6 +423,14 @@ public class PaztportProperties {
 
     public void setOrigins(List<String> origins) {
         this.origins = origins;
+    }
+
+    public Map<String, String> getReceiverNames() {
+        return receiverNames;
+    }
+
+    public void setReceiverNames(Map<String, String> receiverNames) {
+        this.receiverNames = receiverNames;
     }
 
     public String getTlsBundle() {

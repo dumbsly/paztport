@@ -3,6 +3,7 @@
 
 /**
  * This service's own calls: the interceptor that stamps each one and, where the service verifies, checks its
- * response, and the pooled client that presents the service's TLS bundle and bounds every exchange.
+ * response, through {@code paztport-http}'s {@code HttpCaller}, and the pooled client that presents the service's
+ * TLS bundle and bounds every exchange.
  */
 package org.paztport.spring.outbound;
