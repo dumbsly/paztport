@@ -482,6 +482,49 @@ class HttpCallerTest {
         }
     }
 
+    // The call's scope is the request it was made for: once that has closed, what its response adds belongs to no
+    // request, and recording it would leak it to this thread's next unit of work or credit it to a later request.
+    @Test
+    void aCallStampedInAScopeThatHasClosedIsRefusedOutsideAnyScope() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent;
+        String attested;
+        try (RequestContext.Scope a = RequestContext.open()) {
+            sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            attested = attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null)));
+        }
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> caller.recordToContext(sent, 200, attested, utf8("hello")));
+
+        assertTrue(e.getMessage().contains("scope that has ended"), e.getMessage());
+        assertEquals(List.of(), traceLines(), "refused before anything is checked or logged");
+        assertEquals(List.of(), RequestContext.influence(), "nor recorded to the thread outside any scope");
+        assertEquals(ReasonCode.OK, caller.check(sent, 200, attested, utf8("hello")).check().result().reason(),
+                "the response's nonce is still unspent");
+    }
+
+    @Test
+    void aCallStampedInAScopeThatHasClosedIsRefusedInALaterScope() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent;
+        String attested;
+        try (RequestContext.Scope a = RequestContext.open()) {
+            sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            attested = attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null)));
+        }
+        try (RequestContext.Scope b = RequestContext.open()) {
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> caller.recordToContext(sent, 200, attested, utf8("hello")));
+
+            assertTrue(e.getMessage().contains("scope that has ended"), e.getMessage());
+            assertEquals(List.of(), traceLines(), "refused before anything is checked or logged");
+            assertEquals(List.of(), RequestContext.influence(), "nor credited to the later scope");
+            assertEquals(ReasonCode.OK, caller.check(sent, 200, attested, utf8("hello")).check().result().reason(),
+                    "the response's nonce is still unspent");
+        }
+    }
+
     @Test
     void outsideAScopeACallTheFunctionStampedIsCheckedAndNotRecorded() {
         HttpCaller caller = verifyingCaller();

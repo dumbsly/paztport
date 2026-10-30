@@ -161,13 +161,18 @@ public final class HttpCaller {
         private final Map<String, String> headers;
         private final StamperV3.Stamped sent;
         private final String receiver;
-        private final boolean scoped;
+        /**
+         * The scope {@link #stampFromContext} stamped this call in, or null where it was stamped outside one or by
+         * the function: {@link #recordToContext} records its response only to that same scope, while it is open.
+         */
+        final RequestContext.Scope scope;
 
-        private Outbound(Map<String, String> headers, StamperV3.Stamped sent, String receiver, boolean scoped) {
+        private Outbound(Map<String, String> headers, StamperV3.Stamped sent, String receiver,
+                RequestContext.Scope scope) {
             this.headers = headers;
             this.sent = sent;
             this.receiver = receiver;
-            this.scoped = scoped;
+            this.scope = scope;
         }
 
         /**
@@ -213,7 +218,7 @@ public final class HttpCaller {
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<StampV3> inbound,
             List<InfluenceEntry> influence) {
-        return stamp(method, uri, body, inbound, influence, false);
+        return stamp(method, uri, body, inbound, influence, null);
     }
 
     /**
@@ -223,13 +228,13 @@ public final class HttpCaller {
      */
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
-        boolean scoped = RequestContext.isOpen();
-        return stamp(method, uri, body, scoped ? RequestContext.inboundChain() : null,
-                scoped ? RequestContext.influence() : List.of(), scoped);
+        RequestContext.Scope scope = RequestContext.current();
+        return stamp(method, uri, body, scope != null ? RequestContext.inboundChain() : null,
+                scope != null ? RequestContext.influence() : List.of(), scope);
     }
 
     private Outbound stamp(String method, URI uri, byte[] body, List<StampV3> inbound,
-            List<InfluenceEntry> influence, boolean scoped) {
+            List<InfluenceEntry> influence, RequestContext.Scope scope) {
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
         String receiver = receiver(uri);
@@ -245,7 +250,7 @@ public final class HttpCaller {
         if (influenceHeader != null) {
             headers.put(PaztportHeaders.INFLUENCE, influenceHeader);
         }
-        return new Outbound(Collections.unmodifiableMap(headers), stamped, receiver, scoped);
+        return new Outbound(Collections.unmodifiableMap(headers), stamped, receiver, scope);
     }
 
     /**
@@ -282,28 +287,38 @@ public final class HttpCaller {
     }
 
     /**
-     * The blocking binding of {@link #check}: checks the response and, when the call was stamped inside a scope,
-     * adds what it contributes to the request's influence.
+     * The blocking binding of {@link #check}: checks the response and, when the call was stamped inside the scope
+     * that is open now, adds what it contributes to the request's influence.
      *
      * <p>A call not stamped from the context, by the function or before the scope opened, is refused while a scope
      * is open, before it is checked, traced or recorded. The binding cannot tell whose work such a call was:
      * recording what its response adds might credit the wrong request, and dropping it, as an unscoped call's is,
-     * would silently lose it, the {@code local-untrusted} entry an unchecked response must leave included. Refusing
-     * before the check also leaves the response's nonce unspent, so {@link #check} can still take it. Outside a scope
-     * there is no request to credit, so such a call is checked and traced, and nothing is recorded.
+     * would silently lose it, the {@code local-untrusted} entry an unchecked response must leave included. A call
+     * stamped in a scope that has since closed is refused in the same way, inside a later scope or outside any: its
+     * request is over, so what its response adds would be credited to another unit of work, or left on the thread
+     * for the next. Refusing before the check also leaves the response's nonce unspent, so {@link #check} can still
+     * take it. Outside a scope, a call stamped outside one has no request to credit, so it is checked and traced,
+     * and nothing is recorded.
      *
      * @return the check of the response's attestation, or null where this caller has no verifier
-     * @throws IllegalStateException when a scope is open and {@code sent} was not stamped from it
+     * @throws IllegalStateException when {@code sent} was not stamped in the scope open now, and either a scope is
+     *     open or it was stamped in one
      */
     public HttpV3.ResponseCheck recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
-        if (!sent.scoped && RequestContext.isOpen()) {
+        RequestContext.Scope current = RequestContext.current();
+        if (sent.scope == null && current != null) {
             throw new IllegalStateException("this call was not stamped from the request's context, so its response"
                     + " cannot be recorded to it: stamp it with stampFromContext, or check its response with check"
                     + " and carry what that answers");
         }
+        if (sent.scope != current) {
+            throw new IllegalStateException("this call was stamped in a scope that has ended, so its response cannot"
+                    + " be recorded: record it before its scope closes, or check its response with check and carry"
+                    + " what that answers");
+        }
         Received received = check(sent, status, xPathResponse, body);
         // Unscoped, there is nothing to carry it to: recording would leak it into whatever this thread runs next.
-        if (sent.scoped) {
+        if (current != null) {
             RequestContext.addInfluence(received.influence().toArray(InfluenceEntry[]::new));
         }
         return received.check();

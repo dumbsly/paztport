@@ -114,7 +114,9 @@ which read and add to the request's context, and record nothing outside a scope.
 The layers do not mix: inside a scope, `recordToContext` refuses a call that was
 not stamped from the context (`IllegalStateException`, before anything is checked
 or logged) rather than silently drop what its response adds, so a call the
-function stamped is checked with `check`.
+function stamped is checked with `check`. It refuses a call stamped in a scope
+that has since closed in the same way, inside a later scope or outside any, since
+its request is over and what its response adds would go to another.
 
 `BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
 service's stamper, proofs, root, keyring and policy key, the partner's entry

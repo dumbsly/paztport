@@ -216,6 +216,14 @@ public final class RequestContext {
     }
 
     /**
+     * The scope open on this thread, or null. Package-private, for the caller to tell which scope a call was stamped
+     * in; an application has no use for the object, which can only be closed.
+     */
+    static Scope current() {
+        return CURRENT.get();
+    }
+
+    /**
      * Ends whatever scope is open on this thread and empties the context. Only {@link #accept} calls this, when a
      * scope that other code opened on a pooled thread was never closed: without it, every later request served on
      * that thread would fail to open its own.
