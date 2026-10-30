@@ -32,7 +32,7 @@ public final class HttpSessions {
 
     /** Reads a request body, throwing {@link IllegalArgumentException} for anything a server must answer 400. */
     public static SessionRequest parseRequest(byte[] body) {
-        return Sessions.parseRequest(body);
+        return SessionRequest.parse(body);
     }
 
     /** The body of a refusal: {@code {"error":"<code>"}}. */

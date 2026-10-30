@@ -24,7 +24,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
-import org.paztport.core.session.Sessions;
+import org.paztport.core.session.SessionRequest;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.StampV3;
@@ -206,7 +206,7 @@ class JsonTextRoundTripTest {
             return ((StampV3) parsed.stamps().get(0)).toJson();
         }),
         INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
-        REQUEST(json -> Sessions.parseRequest(json).toJson()),
+        REQUEST(json -> SessionRequest.parse(json).toJson()),
         CERT(json -> ReplyCert.parse(json).toJson());
 
         final UnaryOperator<String> roundTrip;

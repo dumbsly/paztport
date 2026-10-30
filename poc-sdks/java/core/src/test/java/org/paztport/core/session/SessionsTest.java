@@ -90,7 +90,7 @@ class SessionsTest {
     }
 
     private static SessionRequest parse(JsonNode request) {
-        return Sessions.parseRequest(request.toString());
+        return SessionRequest.parse(request.toString());
     }
 
     @Test
@@ -104,7 +104,7 @@ class SessionsTest {
         assertEquals(Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), reply.nonce(), clientKey,
                 clientRing), reply.sess());
         // the request survives its own wire form
-        assertEquals(req, Sessions.parseRequest(req.toJson()));
+        assertEquals(req, SessionRequest.parse(req.toJson()));
     }
 
     @Test
@@ -247,7 +247,7 @@ class SessionsTest {
      */
     @Test
     void newFormClientRootSurvivesParsing() {
-        SessionRequest parsed = Sessions.parseRequest(request(clientRoot).toJson());
+        SessionRequest parsed = SessionRequest.parse(request(clientRoot).toJson());
 
         assertEquals(clientRoot, parsed.clientRoot());
         assertEquals("attested", status(parsed));
@@ -313,9 +313,9 @@ class SessionsTest {
         // The same root and nonce with the keyring in either form, each as the server parses it off the wire: the
         // two differ in the keyring's signature and window, and in nothing the session id binds.
         String cn = Sessions.newNonce();
-        SessionRequest newRing = Sessions.parseRequest(
+        SessionRequest newRing = SessionRequest.parse(
                 SessionRequest.of(clientRoot, clientKey, clientKeyring, cn).toJson());
-        SessionRequest oldFormRing = Sessions.parseRequest(
+        SessionRequest oldFormRing = SessionRequest.parse(
                 SessionRequest.of(clientRoot, clientKey, oldRing, cn).toJson());
         assertNotEquals(newRing.clientKeyringSig(), oldFormRing.clientKeyringSig());
         assertEquals(NOT_AFTER, newRing.clientKeyringNotAfter());
@@ -343,11 +343,11 @@ class SessionsTest {
         SignedRoot oldRoot = SignedRoot.signOldForm(Crypto.sha256("c".getBytes()), "v1", clientPolicy.getPrivate());
         assertTrue(oldRing.verifies(clientKey));
         assertTrue(oldRoot.verify(clientPolicy.getPublic()));
-        assertEquals("unsafe", status(Sessions.parseRequest(
+        assertEquals("unsafe", status(SessionRequest.parse(
                 SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "both old form");
-        assertEquals("unsafe", status(Sessions.parseRequest(
+        assertEquals("unsafe", status(SessionRequest.parse(
                 SessionRequest.of(oldRoot, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "old root");
-        assertEquals("unsafe", status(Sessions.parseRequest(
+        assertEquals("unsafe", status(SessionRequest.parse(
                 SessionRequest.of(clientRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "old keyring");
         SessionRequest req = request(clientRoot);
         SignedRoot oldServer = SignedRoot.signOldForm(Crypto.sha256("s".getBytes()), "v1", serverPolicy.getPrivate());
@@ -383,7 +383,7 @@ class SessionsTest {
         SignedRoot moved = new SignedRoot(expired.rootId(), expired.root(), expired.sig(), NOT_AFTER);
         assertTrue(moved.isCurrent(NOW));
         assertFalse(moved.verify(clientPolicy.getPublic()));
-        assertEquals("unsafe", status(Sessions.parseRequest(
+        assertEquals("unsafe", status(SessionRequest.parse(
                 SessionRequest.of(moved, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "root moved");
 
         KeyringFile expiredRing = KeyringFile.sign(clientRing, clientKey, NOW - 1, clientPolicy.getPrivate());

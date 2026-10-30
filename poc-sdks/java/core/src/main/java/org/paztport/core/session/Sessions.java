@@ -27,8 +27,8 @@ import org.paztport.core.policy.SignedRoot;
 /**
  * The session handshake as pure functions over messages, with no transport: building and checking the request and
  * reply, deriving the session id and deciding the status. A transport carries the JSON forms between the two
- * sides. Every check that reads untrusted input fails closed rather than throwing, except {@link #parseRequest},
- * which throws so a server can answer Invalid params.
+ * sides. Every check that reads untrusted input fails closed rather than throwing; the request's reader,
+ * {@link SessionRequest#parse}, throws so a server can answer Invalid params.
  */
 public final class Sessions {
 
@@ -62,65 +62,14 @@ public final class Sessions {
         return o;
     }
 
-    /**
-     * Reads a request, throwing {@link IllegalArgumentException} on a shape error (the spec's Invalid params), text
-     * that is not one JSON value included. A missing {@code clientKeyringSig} is legacy (null); a present one that
-     * is not a string reads as the empty string, which never verifies. The client root is read whole by
-     * {@link SignedRoot#parse}, its {@code notAfter} included. A present {@code clientKeyringNotAfter}, or a client
-     * root {@code notAfter}, that is not an integer in [0, 2^53 &minus; 1] (judged by value) is a shape error rather
-     * than an absent field: read as absent, a damaged window would pass for the old form.
-     */
-    public static SessionRequest parseRequest(String json) {
-        return json == null ? parseRequest((JsonNode) null) : parseRequest(Json.tree(json));
-    }
-
-    /**
-     * {@link #parseRequest(String)} over a request body as it arrived: bytes in whichever Unicode encoding their
-     * first bytes show, UTF-8 with or without a byte order mark included.
-     */
-    public static SessionRequest parseRequest(byte[] json) {
-        return json == null ? parseRequest((JsonNode) null) : parseRequest(Json.tree(json));
-    }
-
-    private static SessionRequest parseRequest(JsonNode params) {
-        if (params == null || !params.isObject()) {
-            throw new IllegalArgumentException("session request must be an object");
-        }
-        JsonNode r = params.get("clientRoot");
-        SignedRoot root = null;
-        if (r == null || !(r.isNull() || r.isObject())) {
-            throw new IllegalArgumentException("clientRoot must be an object or null");
-        }
-        if (r.isObject()) {
-            root = RootJson.read(r);
-        }
-        JsonNode ring = params.get("clientKeyring");
-        if (ring == null || !ring.isObject()) {
-            throw new IllegalArgumentException("clientKeyring must be an object");
-        }
-        String sig = null;
-        if (params.has("clientKeyringSig")) {
-            sig = params.get("clientKeyringSig").isTextual() ? params.get("clientKeyringSig").textValue() : "";
-        }
-        Long ringNotAfter = null;
-        if (params.has("clientKeyringNotAfter")) {
-            ringNotAfter = JsonIntegers.notAfter(params.get("clientKeyringNotAfter"));
-            if (ringNotAfter == null) {
-                throw new IllegalArgumentException("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
-            }
-        }
-        return new SessionRequest(root, text(params.get("clientPolicyKey"), "clientPolicyKey"), stringMap(ring), sig,
-                ringNotAfter, text(params.get("nonce"), "nonce"));
-    }
-
-    private static String text(JsonNode n, String what) {
+    static String text(JsonNode n, String what) {
         if (n == null || !n.isTextual()) {
             throw new IllegalArgumentException(what + " must be a string");
         }
         return n.textValue();
     }
 
-    private static Map<String, String> stringMap(JsonNode o) {
+    static Map<String, String> stringMap(JsonNode o) {
         Map<String, String> out = new LinkedHashMap<>();
         for (Map.Entry<String, JsonNode> e : o.properties()) {
             out.put(e.getKey(), text(e.getValue(), "entry " + e.getKey()));
