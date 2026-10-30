@@ -5,6 +5,7 @@ package org.paztport.spring;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -438,6 +439,37 @@ class InboundFilterTest {
 
         assertEquals(200, response.getStatus());
         assertNotNull(chain.getRequest(), "management path must reach the controller");
+    }
+
+    @Test
+    void wholeControlPlaneSegmentsAreLeftUnverified() {
+        for (String path : List.of("/admin", "/admin/", "/admin/mode", "/debug", "/debug/last-request", "/actuator",
+                "/actuator/health")) {
+            assertTrue(InboundFilter.controlPlane(path), path);
+        }
+    }
+
+    // Matched by segment, not by text: a data-path name that only begins like a control-plane one is verified.
+    @Test
+    void namesThatOnlyBeginLikeTheControlPlaneAreVerified() {
+        for (String path : List.of("/administration", "/admins/1", "/debugger", "/debug-report", "/actuators",
+                "/actuatorhealth", "/admin;x/mode", "/x/admin", "/", "")) {
+            assertFalse(InboundFilter.controlPlane(path), path);
+        }
+    }
+
+    @Test
+    void aDataPathThatBeginsLikeTheControlPlaneIsRefusedWithoutAChain() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/administration");
+        request.setContent(new byte[0]);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+
+        filter(VerificationMode.ENFORCE, null).doFilter(request, response, chain);
+
+        assertEquals(403, response.getStatus());
+        assertEquals("{\"reason\":\"CHAIN_MISSING\"}", response.getContentAsString());
+        assertNull(chain.getRequest(), "refused before the handler");
     }
 
     @Test

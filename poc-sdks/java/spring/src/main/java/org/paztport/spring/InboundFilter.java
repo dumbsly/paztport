@@ -102,6 +102,9 @@ public final class InboundFilter extends OncePerRequestFilter {
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final Logger LOG = LoggerFactory.getLogger(InboundFilter.class);
 
+    /** The first path segments of the control plane, which is not part of the attested data path. */
+    private static final List<String> CONTROL_PLANE = List.of("/admin", "/debug", "/actuator");
+
     private final VerifierV3 verifier;
     private final boolean verifyRequests;
     private final boolean origin;
@@ -143,9 +146,19 @@ public final class InboundFilter extends OncePerRequestFilter {
         return controlPlane(request.getRequestURI());
     }
 
-    /** Control-plane endpoints are not part of the attested data path. */
+    /**
+     * Whether {@code path}, the raw request URI, is in the control plane: one of {@link #CONTROL_PLANE} as a whole
+     * first segment, alone or followed by {@code /}. Matched by segment, not by text, so that a data-path handler
+     * whose name only begins the same way, such as {@code /administration}, is still verified. Anything else is
+     * verified, including a segment with a path parameter ({@code /admin;x}), which fails closed.
+     */
     static boolean controlPlane(String path) {
-        return path.startsWith("/admin") || path.startsWith("/debug") || path.startsWith("/actuator");
+        for (String segment : CONTROL_PLANE) {
+            if (path.equals(segment) || path.startsWith(segment + "/")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
