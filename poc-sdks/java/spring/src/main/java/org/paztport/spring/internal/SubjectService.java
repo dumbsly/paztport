@@ -11,22 +11,26 @@ import java.util.Arrays;
 
 /**
  * The service a certificate's subject names, read from the subject's DER encoding (RFC 5280's {@code Name}, encoded
- * as X.690 requires) rather than from any string the JDK renders it as, so that the rule is exactly the one the spec
- * states and does not move with a rendering:
+ * as X.690 requires) as it stands in the certificate's own {@code TBSCertificate}, rather than from a string the JDK
+ * renders it as or an encoding the JDK rebuilds from its parse, so that the rule is exactly the one the spec states
+ * and is applied to the bytes the certificate's signature covers:
  *
  * <ul>
- *   <li>The common names (attribute type 2.5.4.3) are counted across every RDN, and every value within a
- *       multi-valued RDN counts on its own, so {@code CN=a+CN=a} is two. Only a subject with exactly one names a
- *       service.</li>
- *   <li>That value must be a UTF8String or a PrintableString, well formed for its type: the two encodings of a
- *       DirectoryString RFC 5280 requires conforming CAs to use (sections 4.1.2.4 and 4.1.2.6), so the others need
- *       no decoding of their own.
- *       Any other type, TeletexString, UniversalString, BMPString, IA5String and GeneralString among them, names no
- *       service.</li>
+ *   <li>An attribute is a common name exactly when its OBJECT IDENTIFIER's contents are {@code 55 04 03}
+ *       (2.5.4.3); any other contents, well formed or not, are some other attribute. The common names are counted
+ *       across every RDN, and every value within a multi-valued RDN counts on its own, so {@code CN=a+CN=a} is two.
+ *       Only a subject with exactly one names a service.</li>
+ *   <li>That value's identifier octet must be exactly {@code 0x0C} (UTF8String) or {@code 0x13} (PrintableString),
+ *       and the value well formed for its type: the two encodings of a DirectoryString RFC 5280 requires conforming
+ *       CAs to use (section 4.1.2.6 for the subject, as 4.1.2.4 for the issuer), so the others need no decoding of
+ *       their own. Any other identifier names no service: a constructed or high-tag-number form, and TeletexString,
+ *       UniversalString, BMPString, IA5String and GeneralString, among others.</li>
+ *   <li>The headers walked (the {@code Name}, each RDN, each attribute, its OBJECT IDENTIFIER and its value) must be
+ *       DER: definite lengths in their shortest form, each within its parent, and nothing after a {@code Name} read
+ *       on its own. Nothing inside a value is walked, so what another attribute's value holds is never checked.</li>
  * </ul>
  *
- * Anything else, a subject that is not a well-formed DER {@code Name} included, names no service, which is
- * {@code ""}: the peer check then fails closed rather than picking a name.
+ * Anything else names no service, which is {@code ""}: the peer check then fails closed rather than picking a name.
  */
 final class SubjectService {
 
@@ -35,7 +39,10 @@ final class SubjectService {
 
     private static final int SEQUENCE = 0x30;
     private static final int SET = 0x31;
+    private static final int INTEGER = 0x02;
     private static final int OBJECT_IDENTIFIER = 0x06;
+    /** The identifier of a certificate's {@code [0] EXPLICIT} version: context-specific, constructed, tag 0. */
+    private static final int VERSION = 0xA0;
     private static final int UTF8_STRING = 0x0C;
     private static final int PRINTABLE_STRING = 0x13;
 
@@ -45,35 +52,76 @@ final class SubjectService {
     private SubjectService() {
     }
 
+    /**
+     * The service the certificate whose DER {@code TBSCertificate} is {@code tbs} names, or {@code ""} when it names
+     * none. The subject is taken from these bytes, which are the ones the certificate's signature covers, because a
+     * parsed principal can hand back an encoding of its own (the JDK's {@code X500Principal.getEncoded()} rebuilds
+     * one from its parse of a subject not in DER), and the rule is about the certificate's encoding, not one rebuilt
+     * from it.
+     *
+     * <p>The fields before the subject (the optional {@code [0]} version, the serial number, the signature algorithm,
+     * the issuer and the validity) are skipped by their headers alone: each must have the tag RFC 5280 gives it and a
+     * definite length, in its shortest form, that stays within the {@code TBSCertificate}; what each holds is not
+     * looked at. A {@code TBSCertificate} that cannot be walked as far as the subject names no service.
+     */
+    static String ofCertificate(byte[] tbs) {
+        try {
+            Reader whole = new Reader(tbs, 0, tbs.length);
+            Reader fields = whole.next(SEQUENCE).contents();
+            whole.end();
+            Element field = fields.next();
+            if (field.tag() == VERSION) {
+                field = fields.next();
+            }
+            if (field.tag() != INTEGER) {
+                throw new IllegalArgumentException("no serial number");
+            }
+            fields.next(SEQUENCE); // signature
+            fields.next(SEQUENCE); // issuer
+            fields.next(SEQUENCE); // validity
+            return service(fields.next(SEQUENCE));
+        } catch (IllegalArgumentException e) {
+            return "";
+        }
+    }
+
     /** The service {@code name}, a DER-encoded {@code Name}, names, or {@code ""} when it names none. */
     static String of(byte[] name) {
         try {
             Reader whole = new Reader(name, 0, name.length);
             Element sequence = whole.next(SEQUENCE);
             whole.end();
-            Reader rdns = sequence.contents();
-            int commonNames = 0;
-            String service = null;
-            while (!rdns.atEnd()) {
-                Reader rdn = rdns.next(SET).contents();
-                if (rdn.atEnd()) {
-                    throw new IllegalArgumentException("an RDN holds at least one attribute");
-                }
-                while (!rdn.atEnd()) {
-                    Reader attribute = rdn.next(SEQUENCE).contents();
-                    Element type = attribute.next(OBJECT_IDENTIFIER);
-                    Element value = attribute.next();
-                    attribute.end();
-                    if (type.contentsAre(COMMON_NAME)) {
-                        commonNames++;
-                        service = text(value);
-                    }
-                }
-            }
-            return commonNames == 1 && service != null ? service : "";
+            return service(sequence);
         } catch (IllegalArgumentException e) {
             return "";
         }
+    }
+
+    /**
+     * The service the {@code Name} whose header has been read as {@code sequence} names, or {@code ""}; a fault in
+     * its contents is an {@link IllegalArgumentException}, which each caller turns into {@code ""}.
+     */
+    private static String service(Element sequence) {
+        Reader rdns = sequence.contents();
+        int commonNames = 0;
+        String service = null;
+        while (!rdns.atEnd()) {
+            Reader rdn = rdns.next(SET).contents();
+            if (rdn.atEnd()) {
+                throw new IllegalArgumentException("an RDN holds at least one attribute");
+            }
+            while (!rdn.atEnd()) {
+                Reader attribute = rdn.next(SEQUENCE).contents();
+                Element type = attribute.next(OBJECT_IDENTIFIER);
+                Element value = attribute.next();
+                attribute.end();
+                if (type.contentsAre(COMMON_NAME)) {
+                    commonNames++;
+                    service = text(value);
+                }
+            }
+        }
+        return commonNames == 1 && service != null ? service : "";
     }
 
     /**

@@ -25,6 +25,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.cert.CertificateException;
+import java.security.cert.X509Certificate;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -39,7 +40,6 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
-import javax.security.auth.x500.X500Principal;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.api.io.TempDir;
@@ -636,8 +636,8 @@ class PaztportAutoConfigurationTest {
         server.createContext("/", exchange -> {
             String peer;
             try {
-                peer = PeerIdentity.commonName(
-                        (X500Principal) ((HttpsExchange) exchange).getSSLSession().getPeerPrincipal());
+                peer = PeerIdentity.service(
+                        (X509Certificate) ((HttpsExchange) exchange).getSSLSession().getPeerCertificates()[0]);
             } catch (SSLPeerUnverifiedException e) {
                 peer = null;
             }

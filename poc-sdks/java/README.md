@@ -187,10 +187,13 @@ the SDK as the bytes or text it arrived in, as the starter's
   under **Timeouts**, below. On a request that came with a client certificate,
   `PeerIdentity` makes the verifier's peer: the subject's common name when there
   is exactly one and it is a UTF8String or a PrintableString, else `""`, at the
-  TCP address the connection came from. It reads the name from the subject's DER
-  encoding, by the [spec's rule](../spec/verification.md#http-requests-and-responses),
-  so `CN=a+CN=a`, and a common name of any other type (BMPString or IA5String,
-  say), name no service. The keygen's certificates use UTF8String. A
+  TCP address the connection came from. It reads the name, by the
+  [spec's rule](../spec/verification.md#http-requests-and-responses), from the
+  subject's DER bytes as they stand in the certificate's `TBSCertificate`, the
+  bytes the CA signed, and not from the JDK's `X500Principal`, which can hand
+  back an encoding rebuilt from its own parse. So `CN=a+CN=a`, a common name of
+  any other type (BMPString or IA5String, say), and a subject not in DER's
+  shortest form name no service. The keygen's certificates use UTF8String. A
   certificate that names no service is still a peer, so the check runs and fails
   (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`. Responses are checked with
   no peer.
