@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Tests exercise warnings and trace lines on purpose; keep their log lines off the console. A test that asserts on
+     a line attaches its own appender and sets that logger's level, and a failure is reported by the test, not the log,
+     so nothing is hidden. -->
+<configuration>
+    <root level="OFF"/>
+</configuration>
