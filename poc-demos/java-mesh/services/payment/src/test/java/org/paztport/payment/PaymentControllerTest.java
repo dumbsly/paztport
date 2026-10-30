@@ -17,7 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 // Verification disabled so the context loads without mounted key/root files; this
 // test covers the controller contract. End-to-end verification is proven by the
 // glue tests and the Docker scenario-1 run.
-@SpringBootTest(properties = "paztport.verify=false")
+// The TLS client is off too: it reads its certificates at startup, and none are mounted here.
+@SpringBootTest(properties = {"paztport.verify=false", "paztport.tls-bundle=false"})
 @AutoConfigureMockMvc
 class PaymentControllerTest {
 

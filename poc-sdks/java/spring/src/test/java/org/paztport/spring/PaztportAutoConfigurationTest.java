@@ -755,11 +755,11 @@ class PaztportAutoConfigurationTest {
     }
 
     /**
-     * The bundle's files are read on the first call, so a service starts, and its tests run, where its certificate
-     * is not mounted; the call that needs it is the one that fails.
+     * The bundle's files are read when the context starts, so a service whose certificate is not mounted never
+     * becomes ready.
      */
     @Test
-    void aTlsBundleWhoseFilesAreNotThereFailsTheCallNotTheStartup(@TempDir Path dir) throws Exception {
+    void aTlsBundleWhoseFilesAreNotThereFailsTheStartup(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         withClients.withPropertyValues(stampingVerifier(dir, "https://127.0.0.1:1"))
                 .withPropertyValues(
@@ -768,11 +768,8 @@ class PaztportAutoConfigurationTest {
                         "spring.ssl.bundle.pem.mesh.truststore.certificate=classpath:tls/ca.crt",
                         "paztport.tls-bundle=mesh")
                 .run(context -> {
-                    assertThat(context).hasNotFailed().hasSingleBean(PooledTlsClient.class);
-                    RestClient client = context.getBean(RestClient.Builder.class).build();
-                    assertThatThrownBy(() -> client.post().uri("https://127.0.0.1:1/call").body("{}").retrieve()
-                            .toBodilessEntity())
-                            .hasStackTraceContaining("absent.crt");
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasStackTraceContaining("absent.crt");
                 });
     }
 

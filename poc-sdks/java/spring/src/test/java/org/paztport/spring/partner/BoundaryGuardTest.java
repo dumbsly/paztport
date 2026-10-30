@@ -347,6 +347,20 @@ class BoundaryGuardTest {
         }
     }
 
+    // The egress reads its bundle when the context starts, so a partner certificate that is not mounted fails the
+    // startup rather than the first call.
+    @Test
+    void anEgressBundleWhoseFilesAreNotThereFailsStartup() {
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withPropertyValues(
+                        "spring.ssl.bundle.pem.psp.keystore.certificate=file:" + trust.resolve("absent.crt"),
+                        "spring.ssl.bundle.pem.psp.keystore.private-key=file:" + trust.resolve("absent.key"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).hasStackTraceContaining("absent.crt");
+                });
+    }
+
     @Test
     void fullConfigStartsWithItsOwnTlsClient() {
         // No paztport.tls-bundle: there is no shared client, so the boundary's must be its own.

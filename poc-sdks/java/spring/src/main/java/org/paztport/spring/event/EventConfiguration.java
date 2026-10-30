@@ -43,7 +43,7 @@ public class EventConfiguration {
             }
             Duration timeout = Durations.positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
             // The bare JDK client, never the shared builder's stamping interceptor: the pooled one over the TLS
-            // bundle, read on the first event, else a plain one of the starter's own.
+            // bundle, read at startup, else a plain one of the starter's own.
             Supplier<HttpClient> http;
             if (props.getTlsBundle() != null) {
                 PooledTlsClient pooled = tls.getObject();

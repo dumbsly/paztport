@@ -17,7 +17,8 @@ import org.springframework.test.web.servlet.MockMvc;
 
 // The SDK filter hands each received request to the demo's listener, and the
 // debug endpoint (skipped by the filter) serves the last one back for replay.
-@SpringBootTest(properties = {"paztport.verify=false", "paztport.capture=true"})
+// The TLS client is off too: it reads its certificates at startup, and none are mounted here.
+@SpringBootTest(properties = {"paztport.verify=false", "paztport.capture=true", "paztport.tls-bundle=false"})
 @AutoConfigureMockMvc
 class CaptureWiringTest {
 
