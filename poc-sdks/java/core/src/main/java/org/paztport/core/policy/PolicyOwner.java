@@ -4,6 +4,7 @@
 package org.paztport.core.policy;
 
 import java.security.PrivateKey;
+import java.security.PublicKey;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.session.ReplyCert;
@@ -45,14 +46,20 @@ public final class PolicyOwner {
      * The root signed again until {@code notAfter}, with the same {@code root} and {@code rootId} so existing proof
      * bundles stay valid. It must verify, in either form and expired or not, under {@code policyPublicKey}, the
      * base64url key of the policy key that will sign the renewal (a keyring's {@code policy}, once
-     * {@link #renewKeyring} has accepted it). Renewing vouches that every route in the tree is still allowed; a
-     * narrowed policy is a new tree, never a renewal.
+     * {@link #renewKeyring} has accepted it), and {@code policyKey} must be that key's private half: otherwise the
+     * renewed root would not verify under the key it was checked against. Renewing vouches that every route in the
+     * tree is still allowed; a narrowed policy is a new tree, never a renewal.
      */
     public static SignedRoot renewRoot(SignedRoot root, String policyPublicKey, long notAfter, PrivateKey policyKey) {
-        if (!root.verify(Crypto.decodePublicKey(Base64Url.decode(policyPublicKey)))) {
+        PublicKey publicKey = policyPublicKey(policyPublicKey);
+        if (!root.verify(publicKey)) {
             throw new IllegalArgumentException("root is not signed by this policy key");
         }
-        return root.renewed(notAfter, policyKey);
+        SignedRoot renewed = root.renewed(notAfter, policyKey);
+        if (!renewed.verify(publicKey)) {
+            throw new IllegalArgumentException("root is not signed by this policy key");
+        }
+        return renewed;
     }
 
     /**
@@ -73,5 +80,21 @@ public final class PolicyOwner {
             throw new IllegalArgumentException("keyring is not signed by this policy key");
         }
         return cert;
+    }
+
+    /**
+     * The base64url key {@link #renewRoot} checks against. A missing or malformed one is refused under the root's
+     * name, as the other refusals are, since the root is what could not be checked.
+     */
+    private static PublicKey policyPublicKey(String policyPublicKey) {
+        String refusal = "root cannot be checked: the policy key is not an Ed25519 public key";
+        if (policyPublicKey == null) {
+            throw new IllegalArgumentException(refusal);
+        }
+        try {
+            return Crypto.decodePublicKey(Base64Url.decode(policyPublicKey));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(refusal, e);
+        }
     }
 }

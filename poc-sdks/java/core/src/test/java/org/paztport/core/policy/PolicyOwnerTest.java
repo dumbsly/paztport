@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.security.KeyPair;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -76,6 +77,39 @@ class PolicyOwnerTest {
         assertTrue(renewed.verify(policy.getPublic()));
         assertThrows(IllegalArgumentException.class,
                 () -> PolicyOwner.renewRoot(built.signedRoot(), pub(other), NEW, other.getPrivate()));
+    }
+
+    @Test
+    void renewsAnOldFormRootInTheNewForm() {
+        SignedRoot oldForm = SignedRoot.signOldForm(new byte[32], "root-1", policy.getPrivate());
+
+        SignedRoot renewed = PolicyOwner.renewRoot(oldForm, pub(policy), NEW, policy.getPrivate());
+
+        assertTrue(renewed.isNewForm());
+        assertEquals(oldForm.rootId(), renewed.rootId());
+        assertEquals(oldForm.root(), renewed.root());
+        assertEquals(NEW, renewed.notAfter());
+        assertTrue(renewed.verify(policy.getPublic()));
+    }
+
+    @Test
+    void refusesToRenewARootWithAPrivateKeyThatIsNotThePolicyKeysOwn() {
+        SignedRoot root = SignedRoot.sign(new byte[32], "root-1", OLD, policy.getPrivate());
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyOwner.renewRoot(root, pub(policy), NEW, other.getPrivate()));
+        assertEquals("root is not signed by this policy key", e.getMessage());
+    }
+
+    @Test
+    void refusesToRenewARootAgainstAMalformedPolicyKey() {
+        SignedRoot root = SignedRoot.sign(new byte[32], "root-1", OLD, policy.getPrivate());
+
+        for (String key : Arrays.asList(null, "", "not base64url!", Base64Url.encode(new byte[12]))) {
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> PolicyOwner.renewRoot(root, key, NEW, policy.getPrivate()));
+            assertTrue(e.getMessage().startsWith("root "), e.getMessage());
+        }
     }
 
     @Test
