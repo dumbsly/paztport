@@ -62,9 +62,11 @@ class EventVectorsExport {
             + " (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body"
             + " is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the"
             + " last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a"
-            + " refused one the refusal's name and a null `event`. Bodies are the exact text received. The window is 30000 ms either way, and an accepted"
-            + " id is remembered for 60000 ms. Ed25519 is deterministic, so the file is reproduced byte for byte."
-            + " Cases may be added; a recorded answer changes only with a protocol change.";
+            + " refused one the refusal's name and a null `event`. Bodies are the exact text received, and the"
+            + " envelope and the event are read strictly, so a replay hands each body over unchanged. The window is"
+            + " 30000 ms either way, and an accepted id is remembered for 60000 ms. Ed25519 is deterministic, so the"
+            + " file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol"
+            + " change.";
 
     private static final long NOW = 1_767_225_600_000L;
     private static final long WINDOW_MS = 30_000;
@@ -229,6 +231,62 @@ class EventVectorsExport {
         verify.add(verifyCase("no eventId, outside the window", responder, List.of(),
                 signed("payment", pay, noId.replace(Long.toString(NOW), Long.toString(NOW - WINDOW_MS - 1))),
                 NOW, 1));
+
+        // Read strictly: nothing coerced, filled in or left trailing, in the envelope or the event.
+        String base = event(NOW, "event-1").toJson();
+        String sigOk = "\"sig\":\"" + a.sig() + "\"";
+        verify.add(verifyCase("envelope with trailing text", responder, List.of(), good + " x", NOW, 1));
+        verify.add(verifyCase("envelope with a second value", responder, List.of(), good + "{}", NOW, 1));
+        verify.add(verifyCase("signer as a number", responder, List.of(),
+                "{\"signer\":1,\"payload\":\"" + a.payload() + "\"," + sigOk + "}", NOW, 1));
+        verify.add(verifyCase("envelope with another member", responder, List.of(),
+                "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\"," + sigOk + ",\"kid\":\"k\"}",
+                NOW, 1));
+        verify.add(verifyCase("event with trailing text", responder, List.of(),
+                signed("payment", pay, base + " x"), NOW, 1));
+        verify.add(verifyCase("ts as a string", responder, List.of(), signed("payment", pay,
+                base.replace("\"ts\":" + NOW, "\"ts\":\"" + NOW + "\"")), NOW, 1));
+        verify.add(verifyCase("audit as a number", responder, List.of(), signed("payment", pay,
+                base.replace("\"audit\":false", "\"audit\":0")), NOW, 1));
+        verify.add(verifyCase("reason as a number", responder, List.of(), signed("payment", pay,
+                base.replace("\"reason\":\"PATH_NOT_ALLOWED\"", "\"reason\":3")), NOW, 1));
+        verify.add(verifyCase("no reason", responder, List.of(), signed("payment", pay,
+                base.replace("\"reason\":\"PATH_NOT_ALLOWED\",", "")), NOW, 1));
+        verify.add(verifyCase("no ts", responder, List.of(), signed("payment", pay,
+                base.replace(",\"ts\":" + NOW, "")), NOW, 1));
+        verify.add(verifyCase("null reason", responder, List.of(), signed("payment", pay,
+                base.replace("\"reason\":\"PATH_NOT_ALLOWED\"", "\"reason\":null")), NOW, 1));
+        verify.add(verifyCase("null eventId", responder, List.of(), signed("payment", pay,
+                base.replace("\"eventId\":\"event-1\"", "\"eventId\":null")), NOW, 1));
+        verify.add(verifyCase("eventId as a number", responder, List.of(), signed("payment", pay,
+                base.replace("\"eventId\":\"event-1\"", "\"eventId\":1")), NOW, 1));
+        verify.add(verifyCase("whitespace eventId", responder, List.of(),
+                signed("payment", pay, event(NOW, " ")), NOW, 1));
+        verify.add(verifyCase("event with another member", responder, List.of(), signed("payment", pay,
+                base.replace("}", ",\"peer\":\"search\"}")), NOW, 1));
+        for (String[] ts : new String[][] {
+                {"ts with a fraction", NOW + ".5"},
+                {"ts written with .0, read by value", NOW + ".0"},
+                {"ts written with an exponent, read by value", "1.7672256E12"},
+                {"ts of 2^53", "9007199254740992"},
+                {"ts of -(2^53)", "-9007199254740992"},
+                {"ts of -(2^63)", "-9223372036854775808"},
+                {"ts of 2^53 - 1, in range", "9007199254740991"}}) {
+            verify.add(verifyCase(ts[0], responder, List.of(), signed("payment", pay,
+                    base.replace("\"ts\":" + NOW, "\"ts\":" + ts[1])), NOW, 1));
+        }
+        byte[] invalid = base.replace("search-1", "search-\u0001").getBytes(StandardCharsets.UTF_8);
+        invalid[base.indexOf("search-1") + "search-".length()] = (byte) 0xFF;
+        verify.add(verifyCase("payload not UTF-8", responder, List.of(),
+                overPayload("payment", pay, Base64Url.encode(invalid)), NOW, 1));
+        byte[] json = base.getBytes(StandardCharsets.UTF_8);
+        byte[] bom = new byte[json.length + 3];
+        bom[0] = (byte) 0xEF;
+        bom[1] = (byte) 0xBB;
+        bom[2] = (byte) 0xBF;
+        System.arraycopy(json, 0, bom, 3, json.length);
+        verify.add(verifyCase("payload with a byte order mark", responder, List.of(),
+                overPayload("payment", pay, Base64Url.encode(bom)), NOW, 1));
 
         // Replay what was just built, read back from the text it is written as.
         assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)));

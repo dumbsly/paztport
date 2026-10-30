@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport event conformance vectors: the signed events a verifying service sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An envelope case signs `eventJson`, the text a sender writes for `event`, as `signer` with that signer's key: `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the refusal's name and a null `event`. Bodies are the exact text received. The window is 30000 ms either way, and an accepted id is remembered for 60000 ms. Ed25519 is deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about" : "Paztport event conformance vectors: the signed events a verifying service sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An envelope case signs `eventJson`, the text a sender writes for `event`, as `signer` with that signer's key: `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event are read strictly, so a replay hands each body over unchanged. The window is 30000 ms either way, and an accepted id is remembered for 60000 ms. Ed25519 is deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -457,6 +457,270 @@
     "uses" : 1,
     "expected" : {
       "refusal" : "NO_EVENT_ID",
+      "event" : null
+    }
+  }, {
+    "name" : "envelope with trailing text",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"} x",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "envelope with a second value",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}{}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "signer as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":1,\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "envelope with another member",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2M6wDclf1rnfQHciWbGo5Fen0b5FUeSQU1uKQCQ0pBUT8xsfaRGRwUwz0BSZg1nOqdj5qFUfUSLatzVORepvBw\",\"kid\":\"k\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_ENVELOPE",
+      "event" : null
+    }
+  }, {
+    "name" : "event with trailing text",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0geA\",\"sig\":\"aL-4JHaCzvEHygkKWy54VM3Xyr11BXsaeMjjKvkBWxFJTQNTLK9jM29kE9mRYkF1HxM7XN6ogPRt46VSd5UNCg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts as a string",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOiIxNzY3MjI1NjAwMDAwIiwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"W5RFW_T7Gii1vyFuOvhsdHtWEmo4fvMG2_Ijz1vHwLBNkDMCPaWBCBVltju9r7PYOXLx2dkW7XWBA0B5eqMADw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "audit as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjowLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"cb0pcMJCP0wG1wtxJjYDQl7te-nv36FkWzrlz52xEsszaG9D-jwjMTl1JQm3Cje80pHnKRszGHl6nPTFO5xlAg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "reason as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOjMsInN1c3BlY3RTdmMiOiJzZWFyY2giLCJzdXNwZWN0SW5zdCI6InNlYXJjaC0xIiwicmlkIjoicmlkLWV2ZW50LTEiLCJhdWRpdCI6ZmFsc2UsInRzIjoxNzY3MjI1NjAwMDAwLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"lUkCJxqYsCdBssDu5ljisWNQPq4ud-v_GYAXAWVrYZKtYVxjUpdXzC53_jP32oJjdjNqgiD885uxnV6vdv9HBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "no reason",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJzdXNwZWN0U3ZjIjoic2VhcmNoIiwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInJpZCI6InJpZC1ldmVudC0xIiwiYXVkaXQiOmZhbHNlLCJ0cyI6MTc2NzIyNTYwMDAwMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"sLTeYOuJtMG_lAoRoz_AeOvUdZVRo6U97t9FUWQz8YfpkRULsHimeFoJ5fE1T54lyd9erlMlXfW_H5fyz3A0AA\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "no ts",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"yFWG9RYdaVkplg2gvcphKLZTr6eIkSUwcQU_vYDK4Z-cPHomna3ufqi5vXMxga0RK4Oek3ERSn1KXluWuSWEBg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "null reason",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOm51bGwsInN1c3BlY3RTdmMiOiJzZWFyY2giLCJzdXNwZWN0SW5zdCI6InNlYXJjaC0xIiwicmlkIjoicmlkLWV2ZW50LTEiLCJhdWRpdCI6ZmFsc2UsInRzIjoxNzY3MjI1NjAwMDAwLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"Nw4QGhM3Lj6SkdB059HyEvTL8eVwWxrQ2ac7jXwhWCL2eFGK7i59Bxhkh6YjmWAkoR_7NgH9QjDjjt5wCyYEDA\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "null eventId",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOm51bGx9\",\"sig\":\"dYOmGt5zvLfBIwoXXMLnsPRJ5N28HooTxJLil5mY-47NNXC5I6KDAf7k1nPLu4N2ASEhnjDIfwehB0GRBmZXDw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "NO_EVENT_ID",
+      "event" : null
+    }
+  }, {
+    "name" : "eventId as a number",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOjF9\",\"sig\":\"lx_hbVexxHLyGnYToNHd_gAUkWViPXuIKLBhXN5UcpbNM9RRbZ_jqB7XNTW9vwZ700hmHdw7y6IOe4AdP1pnAQ\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "whitespace eventId",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiIgIn0\",\"sig\":\"ZLqETYbDJHVsbIrR-cNDJ4GVLyzGHun-FsY4H8aVhyptD2Q_rD97jAUYzGpXeh-jqueYR3F-1qldjjdz7JgVCw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "reason" : "PATH_NOT_ALLOWED",
+        "suspectSvc" : "search",
+        "suspectInst" : "search-1",
+        "rid" : "rid-event-1",
+        "audit" : false,
+        "ts" : 1767225600000,
+        "eventId" : " "
+      }
+    }
+  }, {
+    "name" : "event with another member",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIiwicGVlciI6InNlYXJjaCJ9\",\"sig\":\"I970AHm3MTGIggu4bFmAKHboI_ysxs9Ud7t4ujOAM_8WLJ8S1pzaid0OT32HJJ8UzgFdzZXxlSGz0KfL_hLIAw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts with a fraction",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAuNSwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"PHWAWnH2lQCBSVKrr67QUCgYnU3oJZagDc_O4WOo7Jz0BmoA8cqZe2AMrXyFf15C3UvQ2DJFMulYw7kFxCZ5AQ\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts written with .0, read by value",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAuMCwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"f3I08MWiDqpSIGXkLWALKvyu_gQIyD5dFiU_hZsXq-0LpNWAWlzZZJ4GmJ_APiyrR1QjUM2dTgw7x91-g_IiDg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "reason" : "PATH_NOT_ALLOWED",
+        "suspectSvc" : "search",
+        "suspectInst" : "search-1",
+        "rid" : "rid-event-1",
+        "audit" : false,
+        "ts" : 1767225600000,
+        "eventId" : "event-1"
+      }
+    }
+  }, {
+    "name" : "ts written with an exponent, read by value",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjEuNzY3MjI1NkUxMiwiZXZlbnRJZCI6ImV2ZW50LTEifQ\",\"sig\":\"fUtSIFSP9yYME1y-b1INxV-a3dprN1LadKFLSgO0myccCQJweNWGZsoGZ332t6hOLbKF0DUo86puXNsZQx16Cg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "reason" : "PATH_NOT_ALLOWED",
+        "suspectSvc" : "search",
+        "suspectInst" : "search-1",
+        "rid" : "rid-event-1",
+        "audit" : false,
+        "ts" : 1767225600000,
+        "eventId" : "event-1"
+      }
+    }
+  }, {
+    "name" : "ts of 2^53",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjkwMDcxOTkyNTQ3NDA5OTIsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"N-tv1_EuplYcwT4yRxkyIfz7LLxOw16IF06aCXJA6ieYDyFU5eVjIM7snuBcDS93-990Dq8ebujuU_qrBlo4Dw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts of -(2^53)",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOi05MDA3MTk5MjU0NzQwOTkyLCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"oEdQi86yAkb9ImHRwtl85bm51EPREoGKHB_BJ65g_zZVR2y1UK_daGhFWFThjXw1XnTroEJFLTEc4oBfKWoODg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts of -(2^63)",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOi05MjIzMzcyMDM2ODU0Nzc1ODA4LCJldmVudElkIjoiZXZlbnQtMSJ9\",\"sig\":\"hQ_FMDOmkWyRjw-gg9osOsbPbIyXmn1lSuCbVEtAdAxLHmmMZed4CztjliRtM85bUe5IQeHVv6H9VksN4_PmBg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "ts of 2^53 - 1, in range",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjkwMDcxOTkyNTQ3NDA5OTEsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"cBVMAc6sg50c1DmzNfIkLd4Kkvm2GmHbt-Z4MSBHshG93zEPtSFW8ij4CxfHUV6oPncPGgboO5awSvcutgqOCg\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "OUTSIDE_WINDOW",
+      "event" : null
+    }
+  }, {
+    "name" : "payload not UTF-8",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLf8iLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"-aENP4g7lm9GZgyLF5bNc3nNzw9VZITJ50tg0AxoaiGkOtyHrwYPBYF6NnHKB72X4B1j3v77_1fLl5VMQf9-CA\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
+      "event" : null
+    }
+  }, {
+    "name" : "payload with a byte order mark",
+    "earlier" : [ ],
+    "body" : "{\"signer\":\"payment\",\"payload\":\"77u_eyJyZWFzb24iOiJQQVRIX05PVF9BTExPV0VEIiwic3VzcGVjdFN2YyI6InNlYXJjaCIsInN1c3BlY3RJbnN0Ijoic2VhcmNoLTEiLCJyaWQiOiJyaWQtZXZlbnQtMSIsImF1ZGl0IjpmYWxzZSwidHMiOjE3NjcyMjU2MDAwMDAsImV2ZW50SWQiOiJldmVudC0xIn0\",\"sig\":\"2caNToo9uvH_qk49Ozzc2XhaJ1PIHjRgY-3YwuxqcqDdN6z0krJ2jDgY_Y1dk0pm5Yolhj3oVXn05pPuTQkOBw\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : "MALFORMED_EVENT",
       "event" : null
     }
   } ]
