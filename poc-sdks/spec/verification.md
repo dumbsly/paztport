@@ -121,9 +121,9 @@ destination any other way, by an address, an alias or a port, fails check 4 at a
 (`BINDING_MISMATCH`). How a caller maps a destination to that name is its deployment's configuration, never
 something the request or the destination says. Over HTTP the same name is the caller's `<target>`: in the response's
 nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
-adds to its influence. The Java SDK takes the name from the URL's host ([Java SDK
-README](../java/README.md#paztport-spring)), and an egress names its partner's entry service by configuration
-([sessions-and-influence.md](sessions-and-influence.md#between-organisations)).
+adds to its influence. An egress names its partner's entry service by configuration
+([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java SDK takes the name from
+the URL's host by default: [Java SDK README](../java/README.md#paztport-spring).)
 
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per
@@ -293,7 +293,7 @@ A service that verifies requests does so in one of two modes. Nothing else is a 
 | Mode | On a result other than `OK` |
 |---|---|
 | `enforce` | The service refuses the request with the result's code. |
-| `audit` | The service runs every check, refuses nothing and reports the result: the request is served as if it had passed. |
+| `audit` | The service runs every check, refuses nothing and reports the result: the request is served, but not as verified. Its chain is not taken as having passed the live order here, so its response is not attested, no boundary stamp is signed over it, and it cannot write a [trusted record](sessions-and-influence.md#trusted-records). |
 
 A service that cannot tell which mode it is in MUST enforce, so that a mistake in its configuration fails closed.
 
@@ -329,7 +329,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 
 | Transport | A refusal |
 |---|---|
-| HTTP | Status `403`, or `400` for influence that does not parse, with `Content-Type: application/json` and the body `{"reason":"<code>"}`: one JSON object whose only member is `reason`, a string. The Java SDK writes it with no whitespace. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| HTTP | Status `403`, or `400` for influence that does not parse, with `Content-Type: application/json` and the body `{"reason":"<code>"}`: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
 | MCP | A result with `isError: true` and `_meta["paztport/verdict"] = { "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification

@@ -1,9 +1,9 @@
 # Sessions and influence
 
-How two sides open a session and decide how far to trust each other, how influence is recorded and committed,
-the one rule that decides a public write and the one that guards a trusted record, and how a chain crosses from
-one organisation to another. The bytes of
-stamps, roots and keyrings are in [wire.md](wire.md), and the checks in [verification.md](verification.md).
+How two sides open a session and decide how far to trust each other, how influence is recorded and committed, the
+one rule that decides a public write and the one that guards a trusted record, and how a chain crosses from one
+organisation to another. The bytes of stamps, roots and keyrings are in [wire.md](wire.md), and the checks in
+[verification.md](verification.md).
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
@@ -464,8 +464,7 @@ steered it. A request that fails the rule MAY still be served, but the record MU
 | yes | yes | not written |
 | yes | no (no entries, or only `private` and `public` ones, with any owners) | may be written |
 
-No vector pins this rule yet. The Java SDK applies it as `PublicWrites.shapedOnlyByTrusted()`, and the mesh demo's
-payment provider registers a card from a charge only when it holds.
+No vector pins this rule yet. (The Java SDK applies it as `PublicWrites.shapedOnlyByTrusted()`.)
 
 ## Between organisations
 
