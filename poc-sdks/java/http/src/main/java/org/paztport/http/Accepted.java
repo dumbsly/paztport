@@ -14,9 +14,8 @@ import org.paztport.http.internal.LogSafe;
  * What {@link HttpReceiver#accept} decided about one request: a refusal to send in place of the handler's answer,
  * or what the handler starts from, and whether its answer may be attested.
  *
- * <p>Only a receiver makes one, so a chain it says verified ({@link #verifiedChain}) passed the full live order at
- * this hop: there is no other constructor, and the class cannot be extended. That is what lets
- * {@link RequestContext#enter(Accepted)} take its verified chain from here and from nowhere else.
+ * <p>Only a receiver makes one: there is no other constructor, and the class cannot be extended. So a chain it says
+ * verified passed the full live order at this hop, and the request context marks that chain verified only from here.
  */
 public final class Accepted {
 

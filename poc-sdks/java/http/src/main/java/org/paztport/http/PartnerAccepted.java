@@ -12,9 +12,8 @@ import org.paztport.core.stamp.StampV3;
  * handler's answer, or a call served in an unsafe session, where nothing from the request is believed, or in an
  * attested one, where the call verified in that session.
  *
- * <p>Only a receiver makes one, so a chain it says verified passed the live order in its session at this hop: there
- * is no other constructor, and the class cannot be extended, so {@link RequestContext#enter(PartnerAccepted)} takes its
- * verified chain from here and from nowhere else.
+ * <p>Only a receiver makes one: there is no other constructor, and the class cannot be extended. So a chain it says
+ * verified passed the live order in its session at this hop, and the request context marks it verified only from here.
  */
 public final class PartnerAccepted {
 

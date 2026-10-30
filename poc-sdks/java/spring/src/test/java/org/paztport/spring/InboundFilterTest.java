@@ -492,9 +492,16 @@ class InboundFilterTest {
 
             Seen first = new Seen();
             MockHttpServletResponse firstResponse = new MockHttpServletResponse();
-            filter(VerificationMode.ENFORCE, null).doFilter(paymentRequest(validHeaders(), TO_PAYMENT),
-                    firstResponse, new MockFilterChain(first));
+            List<Object> listened = new ArrayList<>();
+            filter(VerificationMode.ENFORCE, (chain, proof, influence, method, target, body) -> {
+                listened.add(warnings.list.size());
+                listened.add(RequestContext.isOpen());
+                listened.add(RequestContext.inboundChain().get(0).rid());
+                listened.add(RequestContext.influence());
+            }).doFilter(paymentRequest(validHeaders(), TO_PAYMENT), firstResponse, new MockFilterChain(first));
 
+            assertEquals(List.of(1, true, "rid-1", List.of()), listened,
+                    "the leak was ended first, and the listener ran in the request's own scope");
             assertEquals(200, firstResponse.getStatus());
             assertTrue(first.reached && first.scoped);
             assertEquals(List.of(), first.influence, "nothing the leaked scope held reaches the request");
@@ -512,6 +519,19 @@ class InboundFilterTest {
             assertEquals(200, secondResponse.getStatus());
             assertTrue(second.reached);
             assertEquals(1, warnings.list.size(), "the thread is clean again");
+
+            // A request that is refused ends a leaked scope as well, so no stale scope outlives any request.
+            RequestContext.open();
+            RequestContext.addInfluence(WEB);
+            MockHttpServletRequest unstamped = new MockHttpServletRequest("POST", "/pay");
+            unstamped.setContent(TO_PAYMENT);
+            MockHttpServletResponse refused = new MockHttpServletResponse();
+            filter(VerificationMode.ENFORCE, null).doFilter(unstamped, refused, new MockFilterChain());
+
+            assertEquals(403, refused.getStatus());
+            assertTrue(!RequestContext.isOpen(), "the thread is clean after a refusal too");
+            assertEquals(List.of(), RequestContext.influence());
+            assertEquals(2, warnings.list.size());
         } finally {
             filterLog.detachAppender(warnings);
             filterLog.setLevel(null);

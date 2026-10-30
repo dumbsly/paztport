@@ -6,6 +6,7 @@ package org.paztport.http;
 import java.util.List;
 import java.util.Objects;
 import java.util.TreeSet;
+import java.util.function.Consumer;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
@@ -77,7 +78,8 @@ import org.slf4j.LoggerFactory;
  * chain the handler carries and the nonce key alike; the verifier reads it again for itself.
  *
  * <p>This is the function a framework adapts, in any binding: it touches no thread-local. Carrying its result for the
- * handler is the binding's work, as {@link RequestContext#enter(Accepted)} does for blocking Java.
+ * handler is the binding's work, as
+ * {@link RequestContext#accept(HttpReceiver, InboundRequest, Peer, VerificationMode)} does for blocking Java.
  */
 public final class HttpReceiver {
 
@@ -192,6 +194,16 @@ public final class HttpReceiver {
      * @throws IllegalArgumentException when a receiver that does not verify requests is given another mode
      */
     public Accepted accept(InboundRequest request, Peer peer, VerificationMode mode) {
+        return accept(request, peer, mode, chain -> {
+        });
+    }
+
+    /**
+     * {@link #accept(InboundRequest, Peer, VerificationMode)}, telling {@code carried} the chain the request carries
+     * as soon as it is read, before the listener is offered the request. A binding uses it to hold that chain for
+     * everything the receiver calls out to, as it will for the handler; the receiver itself holds nothing.
+     */
+    Accepted accept(InboundRequest request, Peer peer, VerificationMode mode, Consumer<List<StampV3>> carried) {
         Objects.requireNonNull(mode, "mode");
         if (!verifyRequests && mode != VerificationMode.OFF) {
             throw new IllegalArgumentException("a receiver that does not verify requests has no mode but OFF");
@@ -206,6 +218,7 @@ public final class HttpReceiver {
         List<StampV3> received = stamps(parsed);
         List<StampV3> inbound = origin ? null : received;
         String rid = received != null ? received.get(0).rid() : "";
+        carried.accept(inbound);
         if (listener != null) {
             listener.received(chainHeader, proofHeader, influenceHeader, request.method(), request.target(),
                     request.body());

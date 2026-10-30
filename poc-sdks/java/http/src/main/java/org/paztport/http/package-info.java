@@ -11,9 +11,10 @@
  * answers a session handshake from the partner's registry ({@code PartnerSessions}); {@code UnsafeOperations} says
  * what an unsafe session may not do. None of them keeps per-request state, so another language mirrors these.
  *
- * <p>The blocking Java binding carries their results for one request on its thread: {@code RequestContext}, which a
- * framework's adapter enters per request and the handler, the caller and {@code PublicWrites} read. Its verified
- * chain is set only from a receiver's result, which only a receiver can make, so the receivers sit in this package
- * beside it. A reactive framework, or another language, would bind the same results its own way.
+ * <p>The blocking Java binding carries their results for one request on its thread: {@code RequestContext}, whose
+ * {@code accept} a framework's adapter runs each request's receiver through, and which the handler, the caller and
+ * {@code PublicWrites} read. It opens the request's scope before the receiver runs, and sets its verified chain only
+ * from the result of the receiver it ran, so the receivers sit in this package beside it. A reactive framework, or
+ * another language, would bind the same results its own way.
  */
 package org.paztport.http;

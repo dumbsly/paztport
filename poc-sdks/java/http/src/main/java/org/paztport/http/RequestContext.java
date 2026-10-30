@@ -9,27 +9,29 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.StampV3;
+import org.paztport.core.verify.Peer;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * The blocking Java binding of the receivers' results: a request-scoped carrier of what one request has seen, for
- * servlet and other thread-per-request code, virtual threads included. It is not the protocol. The receivers
- * ({@link HttpReceiver}, {@link PartnerReceiver}) decide each request without it; a framework's adapter then enters
- * their result here ({@link #enter(Accepted)}), which stores the chain a service received and the influence that came
- * with it; the handler adds the influence of whatever else it reads, and labels what it produces; the caller reads
- * the chain to append the next stamp and commits the influence so far. A reactive binding, or another language's
- * (Go would use {@code context.Context}), carries the same values its own way around the same receiver functions.
+ * The blocking Java binding of the receivers: a request-scoped carrier of what one request has seen, for servlet and
+ * other thread-per-request code, virtual threads included. It is not the protocol. The receivers
+ * ({@link HttpReceiver}, {@link PartnerReceiver}) decide each request without it; a framework's adapter runs them
+ * through it ({@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}), which opens the request's scope
+ * and stores the chain the service received and the influence that came with it; the handler adds the influence of
+ * whatever else it reads, and labels what it produces; the caller reads the chain to append the next stamp and
+ * commits the influence so far. A reactive binding, or another language's (Go would use {@code context.Context}),
+ * carries the same values its own way around the same receiver functions.
  *
  * <p>Calls are synchronous on the request thread, so a thread-local is sufficient. Threads are pooled, so what one
  * unit of work learns must not outlive it: influence left behind would be committed to another request's calls,
  * and a label to another request's response. The context is therefore carried only inside a {@link Scope}. An
- * adapter enters one per request it serves; outside any scope the caller neither reads the context nor records
- * responses into it, so calls made there stamp with no influence and leave nothing behind.
+ * adapter opens one per request it filters, through {@link #accept}; outside any scope the caller neither reads the
+ * context nor records responses into it, so calls made there stamp with no influence and leave nothing behind.
  *
  * <p>The verified chain is the one value here other code signs on the strength of (the egress's boundary stamp, the
- * trusted-record rule), so it is set only by {@link #enter}, from a result only a receiver can make: the method that
+ * trusted-record rule), so it is set only by {@link #accept}, from what the receiver it ran returned: the method that
  * sets it is package-private, beside the receivers, and an application can read the chain but never mark one.
  */
 public final class RequestContext {
@@ -55,8 +57,8 @@ public final class RequestContext {
     }
 
     /**
-     * Marks the inbound chain as having passed the live order at this hop. Only {@link #enter} calls this, from a
-     * receiver's result, which no other code can make, so that anything which later signs on the strength of it (the
+     * Marks the inbound chain as having passed the live order at this hop. Only {@link #accept} calls this, from the
+     * result of the receiver it has just run, so that anything which later signs on the strength of it (the
      * boundary signer) can rely on it never being set by a chain that failed, was not checked, or came to an origin.
      */
     static void markVerified(List<StampV3> chain) {
@@ -96,7 +98,7 @@ public final class RequestContext {
 
     /**
      * Opens a scope on this thread, starting from an empty context; closing it empties the context again. A request
-     * is served in the one {@link #enter} opens. Background work (a scheduled job, a startup runner) that wants what
+     * is served in the one {@link #accept} opens. Background work (a scheduled job, a startup runner) that wants what
      * its calls learn to be carried opens its own, with try-with-resources, around one unit of work. Scopes do not
      * nest: opening one while one is open throws {@link IllegalStateException}, since the inner scope would otherwise
      * drop the outer one's influence when it closed.
@@ -112,43 +114,79 @@ public final class RequestContext {
     }
 
     /**
-     * Opens the scope a request the receiver served is handled in, holding what it decided: the chain the request
-     * carried, the influence the handler starts from, and the chain as verified at this hop only where it was. A scope
-     * that other code left open on this pooled thread and never closed is ended first, with a warning: refusing to
-     * open the request's own would fail this request and every later one served here.
+     * The blocking binding of {@link HttpReceiver#accept}: ends a scope that other code left open on this pooled thread
+     * and never closed, with a warning, opens the request's own, and only then runs the receiver in it, so whatever
+     * the receiver calls out to (the listener, the event publisher) runs in the request's scope with the chain the
+     * request carries already held, and a stale scope can outlive no request, refused or not. Refusing to open the
+     * request's own scope instead would fail this request and every later one served here. Once the receiver has
+     * decided, the scope holds, for a request it serves, the influence the handler starts from and the chain as
+     * verified at this hop only where it was.
      *
-     * @throws IllegalArgumentException for a refusal, which is answered, not served
+     * <p>Close what this returns, with try-with-resources, once the request is answered, whatever the answer: the
+     * scope ends then. If the receiver throws, the scope is ended before the exception goes on.
      */
-    public static Scope enter(Accepted accepted) {
-        if (accepted.refusal() != null) {
-            throw new IllegalArgumentException("a refused request is not served");
-        }
+    public static Entered<Accepted> accept(HttpReceiver receiver, InboundRequest request, Peer peer,
+            VerificationMode mode) {
         Scope scope = openEnded();
-        setInboundChain(accepted.inbound());
-        if (accepted.verifiedChain() != null) {
-            markVerified(accepted.verifiedChain());
+        try {
+            Accepted accepted = receiver.accept(request, peer, mode, RequestContext::setInboundChain);
+            if (accepted.refusal() == null) {
+                if (accepted.verifiedChain() != null) {
+                    markVerified(accepted.verifiedChain());
+                }
+                addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
+            }
+            return new Entered<>(scope, accepted);
+        } catch (RuntimeException | Error e) {
+            scope.close();
+            throw e;
         }
-        addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
-        return scope;
     }
 
     /**
-     * {@link #enter(Accepted)} for a partner's call: in an attested session, the chain and influence that verified
-     * there; in an unsafe one, nothing, whatever the request carried.
-     *
-     * @throws IllegalArgumentException for a refusal, which is answered, not served
+     * {@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)} for a partner's call: the scope is opened
+     * first in the same way, and then holds, in an attested session, the chain and influence that verified there,
+     * and in an unsafe one nothing, whatever the request carried.
      */
-    public static Scope enter(PartnerAccepted accepted) {
-        if (accepted.refusal() != null) {
-            throw new IllegalArgumentException("a refused request is not served");
-        }
+    public static Entered<PartnerAccepted> accept(PartnerReceiver receiver, InboundRequest request, PeerCert peer) {
         Scope scope = openEnded();
-        if (accepted.attested()) {
-            addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
-            setInboundChain(accepted.verifiedChain());
-            markVerified(accepted.verifiedChain());
+        try {
+            PartnerAccepted accepted = receiver.accept(request, peer);
+            if (accepted.attested()) {
+                addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
+                setInboundChain(accepted.verifiedChain());
+                markVerified(accepted.verifiedChain());
+            }
+            return new Entered<>(scope, accepted);
+        } catch (RuntimeException | Error e) {
+            scope.close();
+            throw e;
         }
-        return scope;
+    }
+
+    /**
+     * A request's scope, open, with what its receiver decided about it ({@link #result}): a refusal to answer, or what
+     * the handler is served with. Closing it ends the scope, as closing a {@link Scope} does.
+     */
+    public static final class Entered<T> implements AutoCloseable {
+
+        private final Scope scope;
+        private final T result;
+
+        private Entered(Scope scope, T result) {
+            this.scope = scope;
+            this.result = result;
+        }
+
+        /** What the receiver decided. */
+        public T result() {
+            return result;
+        }
+
+        @Override
+        public void close() {
+            scope.close();
+        }
     }
 
     /** {@link #open}, after ending a scope leaked on this thread. */
@@ -167,7 +205,7 @@ public final class RequestContext {
     }
 
     /**
-     * Ends whatever scope is open on this thread and empties the context. Only {@link #enter} calls this, when a
+     * Ends whatever scope is open on this thread and empties the context. Only {@link #accept} calls this, when a
      * scope that other code opened on a pooled thread was never closed: without it, every later request served on
      * that thread would fail to open its own.
      */

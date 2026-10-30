@@ -19,11 +19,14 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.ContentLabel;
@@ -200,22 +203,42 @@ class RequestContextTest {
         return new InboundRequest("POST", "/x", headers, BODY);
     }
 
-    /** What {@code orders} decides about {@code request} when it verifies requests and enforces. */
-    private Accepted verified(InboundRequest request) {
+    /** {@code orders} verifying requests, offering each to {@code listener} first. */
+    private HttpReceiver orders(ReceivedRequestListener listener) {
         VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(Keyring.of(Map.of("gateway", gateway.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000));
         EventPublisher none = event -> {
         };
-        return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(none).build()
-                .accept(request, null, VerificationMode.ENFORCE);
+        return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(none)
+                .listener(listener).build();
+    }
+
+    /** The context's warnings, captured until {@link #releaseWarnings}. */
+    private final ListAppender<ILoggingEvent> warnings = new ListAppender<>();
+    private final Logger contextLog = (Logger) LoggerFactory.getLogger(RequestContext.class);
+
+    @BeforeEach
+    void captureWarnings() {
+        warnings.start();
+        contextLog.addAppender(warnings);
+        contextLog.setLevel(Level.WARN);
+        contextLog.setAdditive(false);
+    }
+
+    @AfterEach
+    void releaseWarnings() {
+        contextLog.detachAppender(warnings);
+        contextLog.setLevel(null);
+        contextLog.setAdditive(true);
     }
 
     @Test
-    void enteringARequestHoldsWhatItsReceiverDecidedUntilTheScopeCloses() {
-        Accepted accepted = verified(request(List.of(MINE)));
-
-        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
+    void acceptingARequestHoldsWhatItsReceiverDecidedUntilTheScopeCloses() {
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders(null), request(List.of(MINE)),
+                null, VerificationMode.ENFORCE)) {
+            Accepted accepted = entered.result();
+            assertNull(accepted.refusal());
             assertTrue(RequestContext.isOpen());
             assertEquals(accepted.inbound(), RequestContext.inboundChain());
             assertEquals(accepted.inbound(), RequestContext.verifiedChain(), "it passed the live order here");
@@ -227,54 +250,101 @@ class RequestContextTest {
 
     @Test
     void aChainCarriedButNotCheckedIsNotVerified() {
-        Accepted carried = HttpReceiver.builder("orders").build().accept(request(List.of(WEB)), null,
-                VerificationMode.OFF);
-
-        try (RequestContext.Scope scope = RequestContext.enter(carried)) {
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(HttpReceiver.builder("orders").build(),
+                request(List.of(WEB)), null, VerificationMode.OFF)) {
+            assertNull(entered.result().refusal());
             assertEquals(1, RequestContext.inboundChain().size(), "carried for the handler's calls");
             assertNull(RequestContext.verifiedChain(), "but nothing checked it");
             assertEquals(List.of(WEB), RequestContext.influence());
         }
     }
 
+    // The receiver runs in the request's scope: what it calls out to sees the request's chain, as the handler will.
     @Test
-    void aRefusalIsAnsweredNotEntered() {
-        Accepted refused = verified(new InboundRequest("POST", "/x", Map.of(), BODY));
+    void theListenerRunsInTheRequestsOwnScopeWithItsChain() {
+        List<Object> seen = new ArrayList<>();
 
-        assertThrows(IllegalArgumentException.class, () -> RequestContext.enter(refused));
-        assertFalse(RequestContext.isOpen(), "no scope is opened for it");
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders((chain, proof, influence,
+                method, target, body) -> {
+            seen.add(RequestContext.isOpen());
+            seen.add(RequestContext.inboundChain().get(0).rid());
+            seen.add(RequestContext.verifiedChain());
+        }), request(List.of()), null, VerificationMode.ENFORCE)) {
+            assertNull(entered.result().refusal());
+        }
+        assertEquals(Arrays.asList(true, "rid-1", null), seen, "open, with its chain, not yet verified");
     }
 
     @Test
-    void enteringEndsAScopeLeakedOnThisThreadWithAWarning() {
-        ListAppender<ILoggingEvent> warnings = new ListAppender<>();
-        Logger log = (Logger) LoggerFactory.getLogger(RequestContext.class);
-        warnings.start();
-        log.addAppender(warnings);
-        log.setLevel(Level.WARN);
-        log.setAdditive(false);
-        try {
-            RequestContext.Scope leaked = RequestContext.open(); // never closed by the code that opened it
-            RequestContext.addInfluence(WEB);
-
-            try (RequestContext.Scope scope = RequestContext.enter(verified(request(List.of())))) {
-                assertEquals(List.of(), RequestContext.influence(), "nothing the leaked scope held is carried");
-                leaked.close();
-                assertTrue(RequestContext.isOpen(), "and closing it late does not end the request's own");
-            }
-            assertEquals(1, warnings.list.size());
-            assertTrue(warnings.list.get(0).getFormattedMessage()
-                    .startsWith("a paztport context scope was leaked on thread "));
-        } finally {
-            log.detachAppender(warnings);
-            log.setLevel(null);
-            log.setAdditive(true);
+    void aRefusalIsAnsweredInTheRequestsScopeWhichNothingMarksVerified() {
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders(null),
+                new InboundRequest("POST", "/x", Map.of(), BODY), null, VerificationMode.ENFORCE)) {
+            assertEquals(403, entered.result().refusal().status());
+            assertTrue(RequestContext.isOpen());
+            assertNull(RequestContext.verifiedChain());
+            assertEquals(List.of(), RequestContext.influence());
         }
+        assertFalse(RequestContext.isOpen());
+    }
+
+    // A scope leaked on this thread is ended, with a warning, before the receiver runs: the listener sees the
+    // request's own scope, never the stale one.
+    @Test
+    void aScopeLeakedOnThisThreadIsEndedBeforeTheReceiverRuns() {
+        RequestContext.Scope leaked = RequestContext.open(); // never closed by the code that opened it
+        RequestContext.addInfluence(WEB);
+        List<Object> seen = new ArrayList<>();
+
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders((chain, proof, influence,
+                method, target, body) -> {
+            seen.add(warnings.list.size());
+            seen.add(RequestContext.influence());
+        }), request(List.of()), null, VerificationMode.ENFORCE)) {
+            assertEquals(List.of(), RequestContext.influence(), "nothing the leaked scope held is carried");
+            leaked.close();
+            assertTrue(RequestContext.isOpen(), "and closing it late does not end the request's own");
+        }
+        assertEquals(List.of(1, List.of()), seen, "the warning came first, and the stale influence was gone");
+        assertTrue(warnings.list.get(0).getFormattedMessage()
+                .startsWith("a paztport context scope was leaked on thread "));
+    }
+
+    @Test
+    void aRefusedRequestEndsALeakedScopeToo() {
+        RequestContext.open();
+        RequestContext.addInfluence(WEB);
+
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(orders(null),
+                new InboundRequest("POST", "/x", Map.of(), BODY), null, VerificationMode.ENFORCE)) {
+            assertEquals(403, entered.result().refusal().status());
+        }
+
+        assertFalse(RequestContext.isOpen(), "the thread is clean after a refusal");
+        assertEquals(List.of(), RequestContext.influence());
+        assertEquals(1, warnings.list.size());
+    }
+
+    @Test
+    void aReceiverThatThrowsLeavesNoScopeBehind() {
+        RequestContext.open();
+        RequestContext.addInfluence(WEB);
+        IllegalStateException fault = new IllegalStateException("listener failed");
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> RequestContext.accept(
+                orders((chain, proof, influence, method, target, body) -> {
+                    throw fault;
+                }), request(List.of()), null, VerificationMode.ENFORCE));
+
+        assertSame(fault, thrown);
+        assertFalse(RequestContext.isOpen(), "neither the leaked scope nor the request's own is left open");
+        assertEquals(List.of(), RequestContext.influence());
+        assertEquals(1, warnings.list.size());
     }
 
     /**
-     * A chain is marked verified only from a receiver's result, so that result must be one only a receiver can make:
-     * a final class, not a record, with no constructor or factory any other code can call.
+     * A chain is marked verified only from a receiver's result; that result is also one only a receiver can make, a
+     * final class, not a record, with no constructor or factory any other code can call, so no other code can hold
+     * one that says a chain verified when it did not.
      */
     @Test
     void theResultsThatMarkAChainVerifiedCannotBeMadeOutsideTheReceivers() {
@@ -293,9 +363,9 @@ class RequestContextTest {
     }
 
     /**
-     * Only {@link RequestContext#enter}, from a receiver's result, may mark a chain verified, since the boundary
-     * signer and the public-writes rule trust the chain marked, and only it may end a scope that other code opened;
-     * neither may widen.
+     * Only {@link RequestContext#accept}, from the result of the receiver it ran, may mark a chain verified, since the
+     * boundary signer and the public-writes rule trust the chain marked, and only it may end a scope that other code
+     * opened; neither may widen.
      */
     @Test
     void markVerifiedAndResetAreNotPublic() throws Exception {

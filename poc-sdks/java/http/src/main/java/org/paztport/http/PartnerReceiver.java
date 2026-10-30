@@ -42,7 +42,7 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Each call logs one {@code PAZTPORT_TRACE request} line naming its session's status. Like {@link HttpReceiver},
  * it touches no thread-local: carrying its result for the handler is the binding's work
- * ({@link RequestContext#enter(PartnerAccepted)} for blocking Java).
+ * ({@link RequestContext#accept(PartnerReceiver, InboundRequest, PeerCert)} for blocking Java).
  */
 public final class PartnerReceiver {
 

@@ -11,6 +11,6 @@
  * which defines the filters and the public-writes rule, and {@code PaztportProperties}, the {@code paztport.*}
  * settings it binds. The sub-packages hold the rest.
  *
- * <p>Nothing here can mark a chain verified: only {@code RequestContext.enter}, given a receiver's result, does.
+ * <p>Nothing here can mark a chain verified: only {@code RequestContext.accept} does, from the receiver it runs.
  */
 package org.paztport.spring;

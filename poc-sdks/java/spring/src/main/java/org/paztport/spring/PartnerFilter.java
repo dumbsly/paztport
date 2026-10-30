@@ -9,9 +9,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import org.paztport.http.HttpSessions;
+import org.paztport.http.InboundRequest;
 import org.paztport.http.PartnerAccepted;
 import org.paztport.http.PartnerReceiver;
 import org.paztport.http.PartnerSessions;
+import org.paztport.http.PeerCert;
 import org.paztport.http.RequestContext;
 import org.paztport.spring.internal.PeerIdentity;
 import org.paztport.spring.internal.SessionStatus;
@@ -23,11 +25,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * publishes no events and attests no responses.
  *
  * <p>This filter caches the body, hands the receiver the call and the client certificate the TLS layer
- * authenticated ({@link PeerIdentity}), and then either writes the receiver's refusal or serves the call inside a
- * {@link RequestContext.Scope} holding what the receiver decided ({@link RequestContext#enter(PartnerAccepted)}):
- * in an unsafe session, no influence and no verified chain, whatever headers came; in an attested one, the verified
- * influence, owners included, and the verified chain. {@link org.paztport.spring.partner.PartnerGate} then refuses
- * the operations switched off for unsafe sessions.
+ * authenticated ({@link PeerIdentity}), through the request context
+ * ({@link RequestContext#accept(PartnerReceiver, InboundRequest, PeerCert)}), which first ends any scope left open
+ * on the thread and opens the call's own. It then either writes the receiver's refusal or serves the call in that
+ * scope, which holds what the receiver decided: in an unsafe session, no influence and no verified chain, whatever
+ * headers came; in an attested one, the verified influence, owners included, and the verified chain.
+ * {@link org.paztport.spring.partner.PartnerGate} then refuses the operations switched off for unsafe sessions.
  *
  * <p>Every request gets {@link #SESSION_STATUS}, {@code attested} or {@code unsafe}, for the gate; a refused one is
  * marked unsafe, so nothing downstream could take it for attested.
@@ -63,12 +66,13 @@ public final class PartnerFilter extends OncePerRequestFilter {
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         // Marked unsafe until the request has verified, so a refusal is never taken for attested.
         request.setAttribute(SESSION_STATUS, SessionStatus.UNSAFE);
-        PartnerAccepted accepted = receiver.accept(InboundFilter.inbound(request, body), PeerIdentity.cert(request));
-        if (accepted.refusal() != null) {
-            InboundFilter.refuse(response, accepted.refusal());
-            return;
-        }
-        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
+        try (RequestContext.Entered<PartnerAccepted> entered = RequestContext.accept(receiver,
+                InboundFilter.inbound(request, body), PeerIdentity.cert(request))) {
+            PartnerAccepted accepted = entered.result();
+            if (accepted.refusal() != null) {
+                InboundFilter.refuse(response, accepted.refusal());
+                return;
+            }
             if (accepted.attested()) {
                 request.setAttribute(SESSION_STATUS, SessionStatus.ATTESTED);
             }

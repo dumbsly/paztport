@@ -99,12 +99,15 @@ refuses own material no client could accept, naming each `Fault`.
 unsafe session may not do. The starter's filters, gate and handshake endpoint are
 adapters over these, and another framework would adapt the same functions.
 
-`RequestContext` is the blocking Java binding of their results: a thread-local
-scope, for servlet and other thread-per-request code, that an adapter enters per
-request with `RequestContext.enter(accepted)` and that the handler, the caller and
-`PublicWrites` then read. It is not the protocol: a reactive framework, or another
-language, carries the same results its own way. Its verified chain is set only
-from a receiver's result, which only a receiver can make.
+`RequestContext` is the blocking Java binding of the receivers: a thread-local
+scope, for servlet and other thread-per-request code, that the handler, the caller
+and `PublicWrites` read. An adapter runs each request's receiver through
+`RequestContext.accept(receiver, request, …)`, which ends a scope other code left
+open on the thread (with a warning), opens the request's own, and only then runs
+the receiver, so the listener and the event publisher run in that scope too, and
+no stale scope outlives a request, refused or not. It is not the protocol: a
+reactive framework, or another language, carries the same results its own way.
+Its verified chain is set only from the result of the receiver it ran.
 
 It also holds what any server needs beside the protocol: `VerificationMode` (`OFF`,
 `AUDIT`, `ENFORCE`) and the `ModeHolder` that switches it at runtime, the
@@ -244,8 +247,9 @@ hands a session request's body to `HttpSessions.serve`.
 - **The verified chain.** `RequestContext.verifiedChain()` is the request's chain
   once it has passed the full live order at this hop, and is null otherwise: in `off`
   mode, after an audit-mode failure, at an origin, at a hop with no verifier, and
-  outside a request scope. Only `RequestContext.enter` sets it, from a receiver's
-  result, which only a receiver can make: the one that decides attestation. Nothing is signed at the boundary over anything else.
+  outside a request scope. Only `RequestContext.accept` sets it, from the result of
+  the receiver it ran: the one that decides attestation. Nothing is signed at the
+  boundary over anything else.
 - **`PublicWrites`.** A bean with two methods. `decide(destinationOwner)` runs the
   owner-aware rule over the request's influence and returns `OK` or
   `INFLUENCE_DENIED`. The service supplies the destination owner from its own

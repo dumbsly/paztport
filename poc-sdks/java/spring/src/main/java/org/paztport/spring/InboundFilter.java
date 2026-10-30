@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.Accepted;
 import org.paztport.http.HttpAnswer;
@@ -36,10 +37,12 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * refused, what the handler starts from, when the answer is attested) as its Javadoc says. This filter caches the
  * body, reads the current {@link VerificationMode} once per request on a service that verifies requests
  * ({@code paztport.verify=true}), hands the receiver the request and the peer the TLS handshake authenticated
- * ({@link PeerIdentity}), and then either writes the receiver's refusal or serves the request inside a
- * {@link RequestContext.Scope} holding what the receiver decided ({@link RequestContext#enter(Accepted)}), so what
- * its handler and its calls learn is carried for the request and dropped when it ends. Async work after the handler
- * returns runs outside it.
+ * ({@link PeerIdentity}). It runs the receiver through the request context
+ * ({@link RequestContext#accept(HttpReceiver, InboundRequest, Peer, VerificationMode)}), which first ends any scope
+ * left open on the thread and opens the request's own, so the listener and the publisher run in it too. It then
+ * either writes the receiver's refusal or serves the request in that scope, which holds what the receiver decided,
+ * so what its handler and its calls learn is carried for the request and dropped when it ends, refused or not. Async
+ * work after the handler returns runs outside it.
  *
  * <p>When the receiver says the answer is attested, this filter holds the body until the handler returns, since the
  * stamp covers all of it, and hands the status, the body and the handler's labels ({@link RequestContext#label}) to
@@ -139,12 +142,13 @@ public final class InboundFilter extends OncePerRequestFilter {
         byte[] body = CachedBodyHttpServletRequest.readAll(request);
         CachedBodyHttpServletRequest wrapped = new CachedBodyHttpServletRequest(request, body);
         VerificationMode mode = verifyRequests ? modeHolder.get() : VerificationMode.OFF;
-        Accepted accepted = receiver.accept(inbound(request, body), PeerIdentity.from(request), mode);
-        if (accepted.refusal() != null) {
-            refuse(response, accepted.refusal());
-            return;
-        }
-        try (RequestContext.Scope scope = RequestContext.enter(accepted)) {
+        try (RequestContext.Entered<Accepted> entered = RequestContext.accept(receiver, inbound(request, body),
+                PeerIdentity.from(request), mode)) {
+            Accepted accepted = entered.result();
+            if (accepted.refusal() != null) {
+                refuse(response, accepted.refusal());
+                return;
+            }
             if (!accepted.attests()) {
                 chain.doFilter(wrapped, response);
                 return;
