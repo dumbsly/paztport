@@ -41,6 +41,15 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+                <!-- The test jar shares the vector loader and the public-API walk with the http module's
+                     tests, so both modules replay vectors and check their API the same way. -->
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

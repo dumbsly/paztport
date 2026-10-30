@@ -30,6 +30,14 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Core's vector loader and public-API walk. -->
+        <dependency>
+            <groupId>org.paztport</groupId>
+            <artifactId>paztport-core</artifactId>
+            <version>${project.version}</version>
+            <type>test-jar</type>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
