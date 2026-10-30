@@ -6,6 +6,7 @@ package org.paztport.spring;
 import java.util.List;
 import org.paztport.spring.outbound.PooledTlsClient;
 import org.paztport.spring.partner.BoundaryClient;
+import org.paztport.spring.partner.PartnerSessions;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Configuration for the path-attestation glue, bound from {@code paztport.*}. */
@@ -209,10 +210,10 @@ public class PaztportProperties {
         private List<String> unsafeDisabled = List.of();
 
         /** How many sessions one client certificate may hold at once; its least recently used goes first. */
-        private int maxSessionsPerPeer = 16;
+        private int maxSessionsPerPeer = PartnerSessions.DEFAULT_MAX_SESSIONS_PER_PEER;
 
         /** How long a session no call has used is kept, in milliseconds. */
-        private long sessionIdleMs = 900_000;
+        private long sessionIdleMs = PartnerSessions.DEFAULT_SESSION_IDLE_MS;
 
         public boolean isEnabled() {
             return enabled;

@@ -5,7 +5,6 @@ package org.paztport.spring.partner;
 
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.time.Duration;
@@ -16,9 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
-import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
@@ -130,13 +127,14 @@ public class PartnerConfiguration {
      * are in the new form and current ({@link OwnMaterial}, which names the property and the fix); the
      * keyring holds {@code paztport.service-name}; that entry is the key at {@code paztport.key-path}; the reply
      * certificate verifies under the pin, names that service and that key, and has not expired by the wall clock.
-     * Each would otherwise sign replies no client could accept. A certificate that expires while the service runs
-     * is not caught here: replies then fail at the client, which falls back to an unsafe session, so the
-     * certificate must be reissued and the service restarted before it expires. Its own keyring and root are the
-     * other case: once either expires the partner keeps running and opens only unsafe sessions
+     * The checks after the first are {@link PartnerSessions.Builder#build}'s, worded here in terms of the property
+     * at fault. Each would otherwise sign replies no client could accept. A certificate that expires while the
+     * service runs is not caught here: replies then fail at the client, which falls back to an unsafe session, so
+     * the certificate must be reissued and the service restarted before it expires. Its own keyring and root are
+     * the other case: once either expires the partner keeps running and opens only unsafe sessions
      * ({@link PartnerSessions}). The time all of this is judged by, at startup and in every handshake and call
-     * after it (stamp freshness included), is the system clock, fixed when the bean is made: an ordinary application
-     * bean cannot move it. No message carries key material.
+     * after it (stamp freshness included), is the system clock, fixed when the bean is made: an application bean
+     * that looks like a clock cannot move it. No message carries key material.
      */
     @Bean
     @ConditionalOnProperty("paztport.partner.enabled")
@@ -147,11 +145,10 @@ public class PartnerConfiguration {
 
     /**
      * The partner's session registry as {@link #paztportPartnerSessions} builds it, judged by {@code clock} (ms since
-     * the epoch) at startup and from then on. Only this package can call it, or build a {@link PartnerSessions} to
-     * define in place of the one above, since this method and the type's constructor are package-private: tests do,
-     * to move time. An application can name the type but cannot build one without reaching into this package (a
-     * class of its own in it, or a bean definition registered by reflection), which is no accident; the module
-     * system would close even that, and this starter does not use it.
+     * the epoch) at startup and from then on. Package-private, for tests, which move time. An application that
+     * defines a {@link PartnerSessions} bean of its own, with {@link PartnerSessions#builder}, has it used in place
+     * of this one, judged by whatever clock it gave the builder: that is a choice it makes in code, as it would be
+     * for any other bean it replaces, and never one a stray clock bean makes for it.
      */
     static PartnerSessions partnerSessions(PaztportProperties props, LongSupplier clock) {
         PaztportProperties.Partner p = props.getPartner();
@@ -193,15 +190,7 @@ public class PartnerConfiguration {
         SignedRoot ownRoot = SignedRoot.load(Path.of(props.getRootPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
                 clock.getAsLong());
-        String entryKey = keyring.services().get(service);
-        if (entryKey == null) {
-            throw new IllegalStateException("paztport.keyring-path has no key for paztport.service-name");
-        }
         PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
-        if (!belongsTo(serviceKey, entryKey)) {
-            throw new IllegalStateException(
-                    "paztport.key-path does not match the key paztport.keyring-path holds for paztport.service-name");
-        }
         ReplyCert cert;
         try {
             cert = ReplyCert.load(Path.of(p.getReplyCertPath()));
@@ -211,48 +200,46 @@ public class PartnerConfiguration {
             // Without the parser's cause, which quotes the file: a key file named here by mistake must not be logged.
             throw new IllegalStateException("paztport.partner.reply-cert-path is not a reply certificate");
         }
-        if (!cert.verifies(pin)) {
-            throw new IllegalStateException(
-                    "paztport.partner.reply-cert-path does not verify under paztport.policy-key-path");
-        }
-        if (!cert.svc().equals(service)) {
-            throw new IllegalStateException("paztport.partner.reply-cert-path is not for paztport.service-name");
-        }
-        if (!cert.key().equals(entryKey)) {
-            throw new IllegalStateException("paztport.partner.reply-cert-path is not for the key at paztport.key-path");
-        }
-        if (clock.getAsLong() > cert.notAfter()) {
-            throw new IllegalStateException("paztport.partner.reply-cert-path has expired");
-        }
         Set<String> clientKeys = new LinkedHashSet<>();
         p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(KeyFiles.loadPolicyPin(Path.of(path))));
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
-        return new PartnerSessions(
-                ownRoot,
-                keyring,
-                pin,
-                service,
-                serviceKey,
-                cert,
-                clientKeys,
-                Set.copyOf(p.getClientOrigins()),
-                p.getUnsafeDisabled(),
-                new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())),
-                clock,
-                props.getMaxAgeMs(),
-                runMaxAgeMs,
-                p.getMaxSessionsPerPeer(),
-                p.getSessionIdleMs());
+        try {
+            return PartnerSessions.builder()
+                    .ownRoot(ownRoot)
+                    .ownKeyring(keyring)
+                    .ownPolicyKey(pin)
+                    .ownService(service)
+                    .ownServiceKey(serviceKey)
+                    .ownReplyCert(cert)
+                    .pinnedClientKeys(clientKeys)
+                    .clientOrigins(Set.copyOf(p.getClientOrigins()))
+                    .unsafeDisabled(p.getUnsafeDisabled())
+                    .nonces(new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())))
+                    .clock(clock)
+                    .callMaxAgeMs(props.getMaxAgeMs())
+                    .runMaxAgeMs(runMaxAgeMs)
+                    .maxSessionsPerPeer(p.getMaxSessionsPerPeer())
+                    .sessionIdleMs(p.getSessionIdleMs())
+                    .build();
+        } catch (PartnerSessions.InvalidMaterial e) {
+            throw new IllegalStateException(message(e.fault()));
+        }
     }
 
-    /** Whether {@code key} is the private half of {@code publicKey}, by signing a probe; never throws. */
-    private static boolean belongsTo(PrivateKey key, String publicKey) {
-        byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
-        try {
-            return Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(publicKey)), probe, Crypto.sign(key, probe));
-        } catch (RuntimeException e) {
-            return false;
-        }
+    /** What is wrong, in terms of the {@code paztport.*} property that holds it. */
+    private static String message(PartnerSessions.Fault fault) {
+        return switch (fault) {
+            // Not reached: OwnMaterial.require has refused it already, with the property and the fix.
+            case OWN_MATERIAL -> "paztport.keyring-path or paztport.root-path is not current under "
+                    + "paztport.policy-key-path";
+            case NO_ENTRY_KEY -> "paztport.keyring-path has no key for paztport.service-name";
+            case KEY_MISMATCH ->
+                    "paztport.key-path does not match the key paztport.keyring-path holds for paztport.service-name";
+            case CERT_UNVERIFIED -> "paztport.partner.reply-cert-path does not verify under paztport.policy-key-path";
+            case CERT_WRONG_SERVICE -> "paztport.partner.reply-cert-path is not for paztport.service-name";
+            case CERT_WRONG_KEY -> "paztport.partner.reply-cert-path is not for the key at paztport.key-path";
+            case CERT_EXPIRED -> "paztport.partner.reply-cert-path has expired";
+        };
     }
 
     @Bean

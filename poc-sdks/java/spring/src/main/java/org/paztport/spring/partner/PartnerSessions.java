@@ -3,6 +3,7 @@
 
 package org.paztport.spring.partner;
 
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
@@ -17,11 +19,13 @@ import java.util.function.LongSupplier;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.OwnMaterial;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.VerifierConfigV3;
 import org.paztport.core.verify.VerifierV3;
@@ -68,6 +72,11 @@ import org.slf4j.LoggerFactory;
  * and its reply lists the operations this side has switched off for it.
  */
 public final class PartnerSessions {
+
+    /** How many sessions one peer may hold at once unless told otherwise. */
+    public static final int DEFAULT_MAX_SESSIONS_PER_PEER = 16;
+    /** How long a session no call has used is kept unless told otherwise: 15 minutes, in milliseconds. */
+    public static final long DEFAULT_SESSION_IDLE_MS = 900_000;
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final Logger LOG = LoggerFactory.getLogger(PartnerSessions.class);
@@ -125,8 +134,8 @@ public final class PartnerSessions {
      * The caller checks first that the keyring, the root and the certificate verify under {@code ownPolicyKey} (each
      * handshake judges the keyring only by its window and relies on this, as {@link Sessions#status} says), that
      * {@code ownServiceKey} is the key the keyring holds for {@code ownService}, and that the certificate has not
-     * expired; the auto-configuration does, naming the property at fault. This refuses only a certificate that is
-     * not for the keyring's key for {@code ownService}, whose replies no client could accept.
+     * expired; {@link Builder#build} does. This refuses only a certificate that is not for the keyring's key for
+     * {@code ownService}, whose replies no client could accept.
      *
      * @param ownService this side's entry service, whose key signs the replies
      * @param ownServiceKey that service's private key
@@ -173,8 +182,11 @@ public final class PartnerSessions {
      * {@link Sessions#opensSession}. It throws {@link IllegalArgumentException}, with every session left as it was,
      * when the request opens no session, when the peer has no issuer or no name (so no session is ever kept under
      * a missing one), or when the id is already in use, which would take a repeated server nonce.
+     *
+     * <p>The peer is the one the transport authenticated, never one the request names, so that no client can open
+     * a session as another.
      */
-    SessionReply open(SessionRequest req, String peerIssuer, String peerSvc) {
+    public SessionReply open(SessionRequest req, String peerIssuer, String peerSvc) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty()) {
             throw new IllegalArgumentException("a session is opened only for a peer with an issuer and a name");
         }
@@ -318,5 +330,243 @@ public final class PartnerSessions {
     /** The operations an unsafe session may not perform, as the reply lists them. */
     List<String> unsafeDisabled() {
         return unsafeDisabled;
+    }
+
+    /**
+     * The rule over the operations an unsafe session may not perform: the same list the replies name, so that what
+     * a client is told it may not do and what is refused are one list.
+     */
+    public UnsafeOperations unsafeOperations() {
+        return new UnsafeOperations(unsafeDisabled);
+    }
+
+    /** A registry to build; see {@link Builder}. */
+    public static Builder builder() {
+        return new Builder();
+    }
+
+    /** What {@link Builder#build} found wrong with a partner's own material, in the order it checks. */
+    public enum Fault {
+        /** The keyring or the root does not verify under the pin, is in the old form, or has expired. */
+        OWN_MATERIAL,
+        /** The keyring holds no key for the entry service. */
+        NO_ENTRY_KEY,
+        /** The service key is not the one the keyring holds for the entry service. */
+        KEY_MISMATCH,
+        /** The reply certificate does not verify under the pin. */
+        CERT_UNVERIFIED,
+        /** The reply certificate is for another service. */
+        CERT_WRONG_SERVICE,
+        /** The reply certificate is for another key. */
+        CERT_WRONG_KEY,
+        /** The reply certificate's {@code notAfter} has passed. */
+        CERT_EXPIRED
+    }
+
+    /**
+     * A partner that would sign replies no client could accept, refused at startup. It names the {@link Fault} so
+     * that a framework can word it in its own settings' terms; it carries no key material.
+     */
+    public static final class InvalidMaterial extends IllegalArgumentException {
+
+        private final Fault fault;
+
+        InvalidMaterial(Fault fault) {
+            super("the partner's own material is unusable: " + fault);
+            this.fault = fault;
+        }
+
+        public Fault fault() {
+            return fault;
+        }
+    }
+
+    /**
+     * Builds a registry once its material is checked. The partner's own material is required, as are at least one
+     * pinned client policy key and one client origin; the rest have defaults: no operations switched off in unsafe
+     * sessions, {@link #DEFAULT_MAX_SESSIONS_PER_PEER}, {@link #DEFAULT_SESSION_IDLE_MS}, the system clock, a run
+     * age equal to the call age, and a replay cache that remembers for {@link VerifierConfigV3#nonceTtlFor}.
+     */
+    public static final class Builder {
+
+        private SignedRoot ownRoot;
+        private KeyringFile ownKeyring;
+        private String ownPolicyKey;
+        private String ownService;
+        private PrivateKey ownServiceKey;
+        private ReplyCert ownReplyCert;
+        private Set<String> pinnedClientKeys = Set.of();
+        private Set<String> clientOrigins = Set.of();
+        private List<String> unsafeDisabled = List.of();
+        private NonceCache nonces;
+        private LongSupplier clock = System::currentTimeMillis;
+        private long callMaxAgeMs;
+        private Long runMaxAgeMs;
+        private int maxSessionsPerPeer = DEFAULT_MAX_SESSIONS_PER_PEER;
+        private long sessionIdleMs = DEFAULT_SESSION_IDLE_MS;
+
+        private Builder() {
+        }
+
+        /** This side's root, which its replies carry. */
+        public Builder ownRoot(SignedRoot root) {
+            this.ownRoot = root;
+            return this;
+        }
+
+        /** This side's keyring, which must hold the entry service's key. */
+        public Builder ownKeyring(KeyringFile keyring) {
+            this.ownKeyring = keyring;
+            return this;
+        }
+
+        /** This side's pinned policy key, base64url: the keyring, the root and the certificate verify under it. */
+        public Builder ownPolicyKey(String pin) {
+            this.ownPolicyKey = pin;
+            return this;
+        }
+
+        /** This side's entry service, whose key signs the replies. */
+        public Builder ownService(String service) {
+            this.ownService = service;
+            return this;
+        }
+
+        /** The entry service's private key. */
+        public Builder ownServiceKey(PrivateKey key) {
+            this.ownServiceKey = key;
+            return this;
+        }
+
+        /** The policy key's certificate for the entry service's key. */
+        public Builder ownReplyCert(ReplyCert cert) {
+            this.ownReplyCert = cert;
+            return this;
+        }
+
+        /** The policy keys, base64url, of each organisation whose sessions may be attested. */
+        public Builder pinnedClientKeys(Set<String> keys) {
+            this.pinnedClientKeys = Set.copyOf(keys);
+            return this;
+        }
+
+        /** The services allowed to start a chain in a client's attested session. */
+        public Builder clientOrigins(Set<String> origins) {
+            this.clientOrigins = Set.copyOf(origins);
+            return this;
+        }
+
+        /** What an unsafe session may not do, as {@code <METHOD> <route pattern>}; the reply tells the client. */
+        public Builder unsafeDisabled(List<String> operations) {
+            this.unsafeDisabled = List.copyOf(operations);
+            return this;
+        }
+
+        /** The replay cache every session verifier shares. */
+        public Builder nonces(NonceCache nonces) {
+            this.nonces = nonces;
+            return this;
+        }
+
+        /**
+         * The time in milliseconds since the epoch: the material is judged by it here, and the sessions and their
+         * calls from then on.
+         */
+        public Builder clock(LongSupplier clock) {
+            this.clock = clock;
+            return this;
+        }
+
+        /** The call freshness window, in milliseconds. */
+        public Builder callMaxAgeMs(long ms) {
+            this.callMaxAgeMs = ms;
+            return this;
+        }
+
+        /** The run's lifetime, in milliseconds; the call window unless set. */
+        public Builder runMaxAgeMs(long ms) {
+            this.runMaxAgeMs = ms;
+            return this;
+        }
+
+        /** How many sessions one peer may hold at once; at least 1. */
+        public Builder maxSessionsPerPeer(int max) {
+            this.maxSessionsPerPeer = max;
+            return this;
+        }
+
+        /** How long a session no call has used is kept, in milliseconds; positive. */
+        public Builder sessionIdleMs(long ms) {
+            this.sessionIdleMs = ms;
+            return this;
+        }
+
+        /**
+         * The registry, once this side's material is fit to sign replies: in this order, its keyring and root
+         * verify under its pin and are in the new form and current; the keyring holds the entry service; that entry
+         * is the service key; the reply certificate verifies under the pin, names that service and that key, and
+         * has not expired by the clock. Each would otherwise sign replies no client could accept, so each is an
+         * {@link InvalidMaterial} naming its {@link Fault}. A certificate that expires later is not caught here:
+         * replies then fail at the client, which falls back to an unsafe session. The partner's own keyring and
+         * root are the other case: once either expires, the registry opens only unsafe sessions.
+         *
+         * @throws NullPointerException if any of this side's material is missing
+         * @throws IllegalArgumentException if no client key is pinned, no client origin allowed, or the session
+         *     cap or idle period is not positive
+         */
+        public PartnerSessions build() {
+            Objects.requireNonNull(ownRoot, "ownRoot");
+            Objects.requireNonNull(ownKeyring, "ownKeyring");
+            Objects.requireNonNull(ownPolicyKey, "ownPolicyKey");
+            Objects.requireNonNull(ownService, "ownService");
+            Objects.requireNonNull(ownServiceKey, "ownServiceKey");
+            Objects.requireNonNull(ownReplyCert, "ownReplyCert");
+            Objects.requireNonNull(clock, "clock");
+            if (pinnedClientKeys.isEmpty()) {
+                throw new IllegalArgumentException("no client policy key is pinned, so no session could be attested");
+            }
+            if (clientOrigins.isEmpty()) {
+                throw new IllegalArgumentException("no client origin is allowed, so no call could verify");
+            }
+            long now = clock.getAsLong();
+            if (!OwnMaterial.check(ownKeyring, ownRoot, ownPolicyKey, now).isEmpty()) {
+                throw new InvalidMaterial(Fault.OWN_MATERIAL);
+            }
+            String entryKey = ownKeyring.services().get(ownService);
+            if (entryKey == null) {
+                throw new InvalidMaterial(Fault.NO_ENTRY_KEY);
+            }
+            if (!belongsTo(ownServiceKey, entryKey)) {
+                throw new InvalidMaterial(Fault.KEY_MISMATCH);
+            }
+            if (!ownReplyCert.verifies(ownPolicyKey)) {
+                throw new InvalidMaterial(Fault.CERT_UNVERIFIED);
+            }
+            if (!ownReplyCert.svc().equals(ownService)) {
+                throw new InvalidMaterial(Fault.CERT_WRONG_SERVICE);
+            }
+            if (!ownReplyCert.key().equals(entryKey)) {
+                throw new InvalidMaterial(Fault.CERT_WRONG_KEY);
+            }
+            if (now > ownReplyCert.notAfter()) {
+                throw new InvalidMaterial(Fault.CERT_EXPIRED);
+            }
+            NonceCache cache = nonces != null
+                    ? nonces : new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(callMaxAgeMs));
+            return new PartnerSessions(ownRoot, ownKeyring, ownPolicyKey, ownService, ownServiceKey, ownReplyCert,
+                    pinnedClientKeys, clientOrigins, unsafeDisabled, cache, clock, callMaxAgeMs,
+                    runMaxAgeMs != null ? runMaxAgeMs : callMaxAgeMs, maxSessionsPerPeer, sessionIdleMs);
+        }
+
+        /** Whether {@code key} is the private half of {@code publicKey}, by signing a probe; never throws. */
+        private static boolean belongsTo(PrivateKey key, String publicKey) {
+            byte[] probe = "paztport-partner-probe".getBytes(StandardCharsets.UTF_8);
+            try {
+                return Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(publicKey)), probe,
+                        Crypto.sign(key, probe));
+            } catch (RuntimeException e) {
+                return false;
+            }
+        }
     }
 }
