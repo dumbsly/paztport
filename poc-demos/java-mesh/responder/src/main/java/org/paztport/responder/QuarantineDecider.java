@@ -21,6 +21,13 @@ import org.paztport.core.event.ResponderEvent;
  * by the service that signed it, so keying by it alone would let one service's
  * events build up a count against another service's instance.
  *
+ * <p>The protocol spec's rule for which events may lead to action is narrower than this one, and fails closed:
+ * {@code audit} false, both suspect fields non-empty, and a reason from its list of thirteen codes
+ * ({@code poc-sdks/spec/wire.md}, "The event"). This class keeps the demo's deny-list until the decision moves
+ * into the SDK's core, which will follow the spec. Every event the Java SDK sends meets both rules alike, since its
+ * verifier never sends the other reasons; the one difference it can send, a peer certificate with no single
+ * common name, names an empty service, and the instance check before quarantine refuses that.
+ *
  * <p>Not thread-safe on its own; the event endpoint serialises calls.
  */
 public final class QuarantineDecider {
