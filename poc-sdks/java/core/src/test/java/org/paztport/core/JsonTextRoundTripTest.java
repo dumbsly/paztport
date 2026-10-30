@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -20,10 +21,12 @@ import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.encoding.Jcs;
 import org.paztport.core.influence.Influence;
+import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
@@ -38,8 +41,9 @@ import org.paztport.core.stamp.StampV3;
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
  * malformed inputs. The rest are normalised: an extra field dropped, or a number written {@code 1798761600000.0} read
  * by value and written back as plain digits; writing those back again changes nothing. Each object is read from its own
- * text in the file, so two that differ only in how they are written are two cases. A whole session reply has no value
- * type, since the client checks it as received, so its parts (the root and certificate) are read instead.
+ * text in the file, so two that differ only in how they are written are two cases. A whole session reply has no reader
+ * in the SDK, since the client checks a reply as received, so a reply is built here from its fields and written back
+ * with {@code SessionReply.toJson()}, which pins the reply's wire form as well.
  */
 class JsonTextRoundTripTest {
 
@@ -51,6 +55,13 @@ class JsonTextRoundTripTest {
             "keyring/notAfter not an integer",
             "root/notAfter 2^53",
             "root/notAfter not an integer",
+            // The whole replies refused are exactly the vectors' MALFORMED_REPLY cases.
+            "sessionReply/notAfter not an integer/reply",
+            "sessionReply/server root notAfter not an integer/reply",
+            "sessionReply/serverKeyringNotAfter not an integer/reply",
+            "sessionReply/serverKeyringNotAfter null/reply",
+            "sessionReply/serverKeyringSig null/reply",
+            "sessionReply/serverReplyCert null/reply",
             "sessionReply/notAfter not an integer/reply/serverReplyCert",
             "sessionReply/server root notAfter not an integer/reply/serverRoot",
             "sessionReply/serverReplyCert null/reply/serverReplyCert",
@@ -62,11 +73,12 @@ class JsonTextRoundTripTest {
     private static final Set<String> NORMALISED = Set.of(
             "keyring/notAfter written 1798761600000.0",
             "replyCert/an extra field is ignored",
-            "root/notAfter written 1798761600000.0");
+            "root/notAfter written 1798761600000.0",
+            "sessionReply/entry named in the reply is ignored/reply");
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 29, Kind.PROOF, 5,
-            Kind.STAMP, 18, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12);
+            Kind.STAMP, 18, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
@@ -165,6 +177,9 @@ class JsonTextRoundTripTest {
                     add(out, seen, Kind.ROOT, name + "/request/clientRoot", req.get("clientRoot"));
                 }
                 JsonNode reply = c.path("reply");
+                if (!reply.isMissingNode()) {
+                    add(out, seen, Kind.REPLY, name + "/reply", reply);
+                }
                 if (reply.path("serverRoot").isObject()) {
                     add(out, seen, Kind.ROOT, name + "/reply/serverRoot", reply.get("serverRoot"));
                 }
@@ -207,13 +222,64 @@ class JsonTextRoundTripTest {
         }),
         INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
         REQUEST(json -> SessionRequest.parse(json).toJson()),
-        CERT(json -> ReplyCert.parse(json).toJson());
+        CERT(json -> ReplyCert.parse(json).toJson()),
+        REPLY(json -> reply(json).toJson());
 
         final UnaryOperator<String> roundTrip;
 
         Kind(UnaryOperator<String> roundTrip) {
             this.roundTrip = roundTrip;
         }
+    }
+
+    /**
+     * A session reply built from its wire form, for the round trip only. The SDK has no reply reader, since the
+     * client checks a reply as received, so the fields are read here; a root and a certificate go through their
+     * own readers, and anything not shaped like a reply is refused.
+     */
+    private static SessionReply reply(String json) {
+        JsonNode r = exact(json);
+        if (!r.isObject()) {
+            throw new IllegalArgumentException("not an object");
+        }
+        JsonNode root = r.path("serverRoot");
+        Map<String, String> ring = new LinkedHashMap<>();
+        r.path("serverKeyring").properties().forEach(e -> ring.put(e.getKey(), text(e.getValue())));
+        List<String> disabled = new ArrayList<>();
+        r.path("disabled").forEach(d -> disabled.add(text(d)));
+        return new SessionReply(root.isNull() ? null : SignedRoot.parse(Vectors.json(root)),
+                text(r.get("serverPolicyKey")), ring, optionalText(r, "serverKeyringSig"),
+                r.has("serverKeyringNotAfter") ? notAfter(r.get("serverKeyringNotAfter")) : null,
+                r.has("serverReplyCert") ? ReplyCert.parse(Vectors.json(r.get("serverReplyCert"))) : null,
+                text(r.get("nonce")), text(r.get("sess")), text(r.get("status")), disabled, optionalText(r, "sig"));
+    }
+
+    /** The reply's tree, each part keeping its own text, so a root or certificate reaches its reader as written. */
+    private static JsonNode exact(String json) {
+        try {
+            return Vectors.read(json);
+        } catch (IOException e) {
+            throw new IllegalArgumentException(e);
+        }
+    }
+
+    private static String text(JsonNode n) {
+        if (n == null || !n.isTextual()) {
+            throw new IllegalArgumentException("not a string: " + n);
+        }
+        return n.textValue();
+    }
+
+    private static String optionalText(JsonNode o, String name) {
+        return o.has(name) ? text(o.get(name)) : null;
+    }
+
+    private static Long notAfter(JsonNode n) {
+        Long v = JsonIntegers.notAfter(n);
+        if (v == null) {
+            throw new IllegalArgumentException("not a notAfter: " + n);
+        }
+        return v;
     }
 
     private static byte[] jcs(String json) {
