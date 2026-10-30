@@ -33,6 +33,9 @@ class PublicWritesTest {
 
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
+    private static final InfluenceEntry UNOWNED = new InfluenceEntry(InfluenceClass.PRIVATE, "db:b", "h4", null, null);
+    private static final InfluenceEntry PUBLISHED =
+            new InfluenceEntry(InfluenceClass.PUBLIC, "web:docs", "h5", null, null);
     private static final InfluenceEntry RELAYED =
             new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:psp", "h3", null, null);
 
@@ -144,10 +147,18 @@ class PublicWritesTest {
         assertFalse(trustedWith(RELAYED));
     }
 
+    // Whose private data it is does not matter here: no untrusted content steered the request.
     @Test
     void trustedRecordAllowsVerifiedAndClean() {
         assertTrue(trustedWith());
         assertTrue(trustedWith(MINE));
+        assertTrue(trustedWith(UNOWNED));
+    }
+
+    @Test
+    void trustedRecordAllowsPublicContent() {
+        assertTrue(trustedWith(PUBLISHED));
+        assertTrue(trustedWith(PUBLISHED, MINE));
     }
 
     @Test
