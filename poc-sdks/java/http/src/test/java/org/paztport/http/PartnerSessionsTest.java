@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -11,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
 import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.List;
@@ -380,5 +383,19 @@ class PartnerSessionsTest {
         long live = opened.stream().filter(sess -> four.find(SHOP_CA, "orders", sess) != null).count();
         assertEquals(4, live, "the peer holds exactly its cap");
         assertNotNull(four.find(SHOP_CA, "gateway", other), "another peer's session survives");
+    }
+
+    /**
+     * Only the partner's receiver looks a session up for a call, and a lookup keeps a session alive as a call would,
+     * so neither the lookup nor the record it returns is public.
+     */
+    @Test
+    void findAndSessionAreNotPublic() throws Exception {
+        Method find = PartnerSessions.class.getDeclaredMethod("find", String.class, String.class, String.class);
+        assertFalse(Modifier.isPublic(find.getModifiers()), "find must not be public");
+        assertFalse(Modifier.isProtected(find.getModifiers()), "find must not be protected");
+        int session = PartnerSessions.Session.class.getModifiers();
+        assertFalse(Modifier.isPublic(session), "Session must not be public");
+        assertFalse(Modifier.isProtected(session), "Session must not be protected");
     }
 }

@@ -391,7 +391,8 @@ class RequestContextTest {
     @Test
     void markVerifiedAndResetAreNotPublic() throws Exception {
         for (Method m : List.of(RequestContext.class.getDeclaredMethod("markVerified", List.class),
-                RequestContext.class.getDeclaredMethod("reset"))) {
+                RequestContext.class.getDeclaredMethod("reset"),
+                RequestContext.class.getDeclaredMethod("current"))) {
             assertFalse(Modifier.isPublic(m.getModifiers()), m.getName() + " must not be public");
             assertFalse(Modifier.isProtected(m.getModifiers()), m.getName() + " must not be protected");
         }

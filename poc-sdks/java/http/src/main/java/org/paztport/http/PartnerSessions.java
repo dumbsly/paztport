@@ -84,8 +84,11 @@ public final class PartnerSessions {
     /** Set once this side has said that its own material lapsed, so that a handshake never says it again. */
     private final AtomicBoolean ownLapseLogged = new AtomicBoolean();
 
-    /** A session a peer opened; {@code verifier} is null when it is unsafe. */
-    public record Session(String sess, boolean attested, VerifierV3 verifier) {
+    /**
+     * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
+     * ({@link PartnerReceiver}) reads it.
+     */
+    record Session(String sess, boolean attested, VerifierV3 verifier) {
     }
 
     /** The authenticated peer a session belongs to: the client certificate's issuer, RFC 2253, and common name. */
@@ -268,7 +271,7 @@ public final class PartnerSessions {
      * idle period starts again: a lookup keeps a session alive as a call in it would, so only the partner's receiver
      * ({@link PartnerReceiver}) looks one up for a call.
      */
-    public Session find(String peerIssuer, String peerSvc, String sess) {
+    Session find(String peerIssuer, String peerSvc, String sess) {
         if (peerIssuer == null || peerIssuer.isEmpty() || peerSvc == null || peerSvc.isEmpty() || sess == null) {
             return null;
         }
