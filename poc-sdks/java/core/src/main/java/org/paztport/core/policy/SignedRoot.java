@@ -23,6 +23,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Jcs;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.RootJson;
 
 /**
  * The pinned policy root: the Merkle root plus its version, signed by the policy key. Services pin this and reject
@@ -168,17 +169,7 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
      * {@code 1.5} to 1, which is why this, not binding, is the reader.
      */
     public static SignedRoot parse(JsonNode node) {
-        if (node == null || !node.isObject()) {
-            throw new IllegalArgumentException("a signed root must be a JSON object");
-        }
-        Long notAfter = null;
-        if (node.has("notAfter")) {
-            notAfter = JsonIntegers.notAfter(node.get("notAfter"));
-            if (notAfter == null) {
-                throw new IllegalArgumentException("signed root notAfter must be an integer in [0, 2^53 - 1]");
-            }
-        }
-        return new SignedRoot(text(node, "rootId"), text(node, "root"), text(node, "sig"), notAfter);
+        return RootJson.read(node);
     }
 
     /** Reads {@code root.json}; malformed content throws {@link IllegalArgumentException}. */
@@ -197,13 +188,5 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
     private static SignedRoot signText(String rootId, String rootB64, long notAfter, PrivateKey policyKey) {
         String sig = Base64Url.encode(Crypto.sign(policyKey, signingBytes(rootId, rootB64, notAfter)));
         return new SignedRoot(rootId, rootB64, sig, notAfter);
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || !v.isTextual()) {
-            throw new IllegalArgumentException("signed root " + field + " must be a string");
-        }
-        return v.textValue();
     }
 }
