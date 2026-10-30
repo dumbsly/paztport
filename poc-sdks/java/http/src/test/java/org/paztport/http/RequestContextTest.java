@@ -389,10 +389,11 @@ class RequestContextTest {
     /**
      * Only {@link RequestContext#accept}, from the result of the receiver it ran, may mark a chain verified, since the
      * boundary signer and the public-writes rule trust the chain marked, and only it may end a scope that other code
-     * opened; neither may widen.
+     * opened; neither may widen. {@code current()} stays package-private too, because it lets {@code HttpCaller}
+     * tell which scope a call was stamped in.
      */
     @Test
-    void markVerifiedAndResetAreNotPublic() throws Exception {
+    void guardIsNotPublic() throws Exception {
         for (Method m : List.of(RequestContext.class.getDeclaredMethod("markVerified", List.class),
                 RequestContext.class.getDeclaredMethod("reset"),
                 RequestContext.class.getDeclaredMethod("current"))) {

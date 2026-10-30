@@ -14,10 +14,10 @@ import java.util.function.LongSupplier;
 public final class BoundaryHooks {
 
     /** The refusal's message when the request's context holds no chain that verified here. */
-    public static final String NO_VERIFIED_CHAIN = "no verified chain: nothing is signed at the boundary";
+    public static final String NO_VERIFIED_CHAIN = BoundaryClient.NO_VERIFIED_CHAIN;
 
     /** How long a replacement session is kept before the partner is asked for an attested one again. */
-    public static final Duration FALLBACK_PERIOD = Duration.ofSeconds(30);
+    public static final Duration FALLBACK_PERIOD = BoundaryClient.FALLBACK_PERIOD;
 
     private BoundaryHooks() {
     }

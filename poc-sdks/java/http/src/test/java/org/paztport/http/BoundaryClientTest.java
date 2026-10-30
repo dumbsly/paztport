@@ -72,8 +72,9 @@ import org.slf4j.LoggerFactory;
  * it cannot use, and a fresh session after the partner forgets one or this side has left one idle. Above all, nothing
  * at all leaves, the handshake included, unless this hop verified the request's chain.
  *
- * <p>It sits in the root package, not {@code boundary}, because it marks chains verified, which only this package
- * can, and scripts {@code StubPartner}; it reaches the egress's test hooks through {@link BoundaryHooks}.
+ * <p>It sits in the root package, not {@code boundary}, because it marks chains verified, which only
+ * {@link RequestContext}'s package can, and scripts {@code StubPartner}; it reaches the egress's test hooks through
+ * {@link BoundaryHooks}.
  */
 class BoundaryClientTest {
 
