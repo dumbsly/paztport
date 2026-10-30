@@ -18,7 +18,6 @@ import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.http.Accepted;
-import org.paztport.http.HttpAnswer;
 import org.paztport.http.HttpReceiver;
 import org.paztport.http.InboundRequest;
 import org.paztport.http.ModeHolder;

@@ -10,7 +10,6 @@ import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.RequestContext;
-import org.paztport.http.internal.LogSafe;
 
 /**
  * The {@code PAZTPORT_TRACE decision} line, which the public-write rule and the partner's unsafe-session gate both
