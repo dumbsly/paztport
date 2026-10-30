@@ -11,6 +11,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.util.List;
+import java.util.Locale;
 import java.util.TreeSet;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
@@ -149,14 +150,20 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /**
      * Whether {@code path}, the raw request URI, is in the control plane: one of {@link #CONTROL_PLANE} as a whole
-     * first segment, alone or followed by {@code /}, with no dot segment anywhere in it. Matched by segment, not by
-     * text, so that a data-path handler whose name only begins the same way, such as {@code /administration}, is
-     * still verified. A dot segment ({@link #dotSegment}) is never skipped, since whatever resolves it, the container
-     * or a handler, could take {@code /admin/../pay} to a data-path handler that would then run unverified. Anything
-     * else is verified, an encoded or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path
-     * parameter ({@code /admin;x}) included, which fails closed.
+     * first segment, alone or followed by {@code /}, with no dot segment and no encoded or backslash separator
+     * anywhere in it. Matched by segment, not by text, so that a data-path handler whose name only begins the same
+     * way, such as {@code /administration}, is still verified. A dot segment ({@link #dotSegment}) is never skipped,
+     * since whatever resolves it, the container or a handler, could take {@code /admin/../pay} to a data-path handler
+     * that would then run unverified; nor is {@code %2f}, {@code %5c} (in either case) or a literal {@code \}, which
+     * something downstream might read as a separator and so as a dot segment's. Anything else is verified, an encoded
+     * or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path parameter ({@code /admin;x})
+     * included, which fails closed.
      */
     static boolean controlPlane(String path) {
+        String lower = path.toLowerCase(Locale.ROOT);
+        if (path.indexOf('\\') >= 0 || lower.contains("%2f") || lower.contains("%5c")) {
+            return false;
+        }
         for (String prefix : CONTROL_PLANE) {
             if (path.equals(prefix) || path.startsWith(prefix + "/")) {
                 for (String segment : path.split("/", -1)) {

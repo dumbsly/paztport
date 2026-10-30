@@ -468,6 +468,16 @@ class InboundFilterTest {
         }
     }
 
+    // Something downstream might read an encoded slash or a backslash as a separator, so a path with one is verified.
+    @Test
+    void controlPlanePathsWithAnEncodedOrBackslashSeparatorAreVerified() {
+        for (String path : List.of("/admin/..%2fpay", "/admin/..%2Fpay", "/admin%2f..%2fpay", "/admin/x%2fy",
+                "/admin/..%5cpay", "/admin/..%5Cpay", "/admin/..\\pay", "/admin\\mode", "/actuator/health%2F",
+                "/debug/%5c")) {
+            assertFalse(InboundFilter.controlPlane(path), path);
+        }
+    }
+
     // Only the plain spelling is the control plane: an encoded, doubled or extended first segment is verified.
     @Test
     void otherSpellingsOfTheControlPlaneAreVerified() {
