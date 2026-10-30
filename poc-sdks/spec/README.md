@@ -94,13 +94,13 @@ expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`.
 |---|---|---|
 | `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `<rid>\|<last svc>\|req`, which other directions' and hops' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and influence (`INFLUENCE_MISMATCH`). |
 | `unreadableInfluence` | receiver | Influence that does not parse is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
-| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it enforces; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin. |
+| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
 | `sessionHeader` | partner | `X-Path-Session` ([sessions-and-influence.md](sessions-and-influence.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
 | `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
 | `unsafeOperations` | table | An operation is `<METHOD> <route pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
 | `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` window included), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; and a request that opens an attested and an unsafe session. |
-| `egress` | egress | The egress's steps 1 to 7 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says; each reply recorded as one `local-untrusted` entry; and a session dropped after `SESSION_UNKNOWN`. |
+| `egress` | egress | The egress's steps 1 to 7 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says, and a call that fails when the replacement is answered 404 too; each reply recorded as one `local-untrusted` entry; and a session dropped after `SESSION_UNKNOWN`. |
 | `callerInfluence` | caller | A response at the caller: each label of a response that verifies becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name; any other response adds exactly one `local-untrusted` entry. |
 | `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions-and-influence.md](sessions-and-influence.md#status)). |
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
@@ -108,12 +108,14 @@ expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`.
 | `trustedRecord` | receiver | Trusted records ([sessions-and-influence.md](sessions-and-influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
-and `inst`, whether it is an `origin`, whether it has a `verifier`, pinned to `material`, and a stamp key
-(`stamps`), and whether it verifies requests under `mode` (`enforce`, `audit` or `off`; null for a service that
-verifies under no mode). Each entry has `peer`, or none, and one nonce cache that already holds the keys in
-`spent`; then the handler reads `read`. `expected` is the last entry's answer: the `refusal`, or null; whether
-the chain `verified` at this hop; the `influence` the handler starts from; whether the answer `attests`; and
-whether a `trustedRecord` may be written from it. A null `request` is work outside any request.
+and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
+its stamp key. `mode` is the [mode](verification.md#modes-and-refusals) it verifies requests under, `enforce` or
+`audit`; or `off`, which is no mode but a hop its deployment has switched Paztport off on; or null, a service that
+verifies no requests and may still verify a chain to decide whether to attest. Each entry has `peer`, or none,
+and one nonce cache that already holds the keys in `spent`; then the handler reads `read`. `expected` is the last
+entry's answer: the `refusal`, or null; whether the chain `verified` at this hop; the `influence` the handler
+starts from; whether the answer `attests`; and whether a `trustedRecord` may be written from it. A null `request`
+is work outside any request.
 
 A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has
 `pinned`, `clientOrigins`, the operations it has switched off for unsafe sessions, `maxSessionsPerPeer`,
@@ -134,13 +136,17 @@ sends each of `posts` to a scripted partner. Each handshake that carries a clien
 `partnerScript.handshakes`: `attested` or `unsafe`, a genuine reply in the entry-key form from the `psp`
 material; `notFound`, a `404`; `wrongKey`, a reply in the policy-key form signed by and naming `stranger-policy`.
 One with no client root gets a genuine reply whose status is `replacement`, and each call takes the next of
-`calls`. It expects each post's `outcome` (`answered`, with the partner's `status` and whether the call went out
-`attested`; or `refused`, with nothing sent), everything the partner `received` in order, and the influence the
-request holds afterwards, normalised. A received `handshake` says whether it carried a `clientRoot`. A received
-`call` gives its `session` and `stampSession`, the position in `received` of the handshake whose reply issued
-the id in its `X-Path-Session` and in its stamps' `sess`, then its `stamps` with `sess` and `sig` left out (the
-partner chose the id, and `sig` covers it), and its `proof` and `influence` as decoded; each is null when the
-header is absent.
+`calls`. A handshake or call the script has no answer for fails the replay, so a case whose script is empty
+expects nothing to be sent. It expects each post's `outcome` (`answered`, with the partner's `status` and whether
+the call went out `attested`; `refused`, the egress declining before anything is sent; or `failed`, no session
+could be opened, so the call itself is not sent), everything the partner `received` in order, and the influence
+the request holds afterwards, normalised. A received `handshake` says whether it carried a `clientRoot`. A
+received `call` gives its `session` and `stampSession`, the position in `received` of the handshake whose reply
+issued the id in its `X-Path-Session` and in its stamps' `sess`, then its `stamps` with `sess` and `sig` left out
+(the partner chose the id, and `sig` covers it), and its `proof` and `influence` as decoded; each is null when the
+header is absent. The replay also verifies every received stamp's `sig` under the key the egress's keyring (its
+`material`'s) holds for the stamp's `svc`, over its fields as received, `sess` included; a stamp that does not
+verify fails the case.
 
 A **caller** case is a call by `caller` after the chain `inbound`, with `influence` so far, and the `response`
 to it (`status`, `header`, `body`). It expects the sent stamp's `rcv`, the response check's `reason` (null when
@@ -148,6 +154,7 @@ the caller has no verifier and checks nothing) and the `influence` the response 
 
 Some rules are the Java SDK's own and are tested in `paztport-http` rather than pinned: the startup checks of a
 partner's and an egress's own material, the 256 KiB limit on a handshake body, clearing a session after
-`POLICY_EXPIRED`, and the egress's own idle period.
+`POLICY_EXPIRED`, the egress's own idle period, and the egress labelling its own response to its caller
+`local-untrusted`, since a handler may relay what the partner said.
 
 Cases may be added at any time. A recorded answer changes only with a protocol change.
