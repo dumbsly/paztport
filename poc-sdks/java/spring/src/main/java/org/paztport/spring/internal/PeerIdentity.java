@@ -5,12 +5,6 @@ package org.paztport.spring.internal;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.cert.X509Certificate;
-import java.util.ArrayList;
-import java.util.List;
-import javax.naming.NamingException;
-import javax.naming.directory.Attribute;
-import javax.naming.ldap.LdapName;
-import javax.naming.ldap.Rdn;
 import javax.security.auth.x500.X500Principal;
 import org.paztport.core.verify.Peer;
 
@@ -19,10 +13,11 @@ import org.paztport.core.verify.Peer;
  * the client certificate against the shop's CA before any request reaches the filter, so the certificate's subject
  * names a service the shop vouched for, and the chain's last signer must be that service.
  *
- * <p>The service is the subject's common name, but only when there is exactly one: a certificate with none, or with
- * several, names no service, so the peer's service is {@code ""} and the peer check fails closed rather than
- * picking one. The instance is the TCP address the request came from, which is what a responder acts against; it
- * is not compared with the chain.
+ * <p>The service is the subject's common name, but only when there is exactly one, counted value by value across
+ * every RDN, and it is a DirectoryString: a certificate with none, with several, or with one of another type names
+ * no service, so the peer's service is {@code ""} and the peer check fails closed rather than picking one. It is read
+ * from the subject's encoding ({@link SubjectService}), not from a rendering of it. The instance is the TCP address
+ * the request came from, which is what a responder acts against; it is not compared with the chain.
  */
 public final class PeerIdentity {
 
@@ -53,21 +48,11 @@ public final class PeerIdentity {
                 ? chain[0] : null;
     }
 
-    /** The subject's CN when it has exactly one, else {@code ""}. */
+    /**
+     * The service {@code subject} names: its one common name, read from its DER encoding by the spec's rule
+     * ({@link SubjectService}), else {@code ""}.
+     */
     public static String commonName(X500Principal subject) {
-        List<Object> names = new ArrayList<>();
-        try {
-            for (Rdn rdn : new LdapName(subject.getName(X500Principal.RFC2253)).getRdns()) {
-                // A multi-valued RDN (CN=a+CN=b) holds its values under one attribute.
-                Attribute cn = rdn.toAttributes().get("cn");
-                for (int i = 0; cn != null && i < cn.size(); i++) {
-                    names.add(cn.get(i));
-                }
-            }
-        } catch (NamingException e) {
-            return "";
-        }
-        // A value the encoding could not render as text (hex-encoded) names no service either.
-        return names.size() == 1 && names.get(0) instanceof String name ? name : "";
+        return SubjectService.of(subject.getEncoded());
     }
 }

@@ -241,9 +241,26 @@ So, for the peer check, a service's client certificate:
 - MUST be issued by a CA the receiver's TLS layer trusts to name that organisation's services, since the
   receiver takes the name it carries as authenticated;
 - MUST carry the service's name, exactly as the keyring names it, as the subject's only common name (OID
-  2.5.4.3). Common names are counted across every RDN of the subject, a multi-valued RDN's included, and a value
-  that is not a DirectoryString (RFC 5280) names no service, so either gives `peer.svc = ""`. Nothing else in the
-  certificate is read for it, not a subjectAltName nor the organisation.
+  2.5.4.3), and that value MUST be a DirectoryString (RFC 5280). Nothing else in the certificate is read for it,
+  not a subjectAltName nor the organisation.
+
+The receiver reads `peer.svc` from the subject's DER encoding, RFC 5280's `Name`, never from a string rendering
+of it, so every implementation reads the same name from the same certificate:
+
+1. The values of type 2.5.4.3 are counted across every RDN, each value of a multi-valued RDN on its own, so
+   `CN=a+CN=a` and `CN=a,CN=a` are two. A value of any type counts. Unless there is exactly one, `peer.svc` is
+   `""`.
+2. That one value MUST be a UTF8String, PrintableString, TeletexString, UniversalString or BMPString, well formed
+   for its type: UTF8String is UTF-8 (RFC 3629); PrintableString holds only X.680's printable characters (letters,
+   digits, space and `'()+,-./:=?`); a TeletexString's octets are read as ISO 8859-1 characters; a UniversalString
+   is four octets per character and a BMPString two, big-endian, each a Unicode scalar value (so no surrogate).
+   Any other type, IA5String and GeneralString among them, or a value not well formed for its type, gives
+   `peer.svc = ""`.
+3. A subject that is not a well-formed DER `Name` (X.690's distinguished encoding: definite lengths in their
+   shortest form, nothing after the outer `SEQUENCE`, no empty RDN) gives `peer.svc = ""`.
+
+`peer.svc` is the value's text as it is, compared with the last signer's `svc` exactly, with no case folding or
+other normalisation.
 
 A certificate is issued per service, not per instance, which is why `peer.inst` comes from the connection and not
 from the certificate.

@@ -183,7 +183,10 @@ the SDK as the bytes or text it arrived in, as the starter's
   TLS and no stamping, for calls that set their own headers. Its timeouts are
   under **Timeouts**, below. On a request that came with a client certificate,
   `PeerIdentity` makes the verifier's peer: the subject's common name when there
-  is exactly one, else `""`, at the TCP address the connection came from. A
+  is exactly one and it is a DirectoryString, else `""`, at the TCP address the
+  connection came from. It reads the name from the subject's DER encoding, by the
+  [spec's rule](../spec/verification.md#http-requests-and-responses), so
+  `CN=a+CN=a` and an IA5String common name both name no service. A
   certificate that names no service is still a peer, so the check runs and fails
   (`PEER_MISMATCH`); its trace reads `peer="" (mTLS)`. Responses are checked with
   no peer.
