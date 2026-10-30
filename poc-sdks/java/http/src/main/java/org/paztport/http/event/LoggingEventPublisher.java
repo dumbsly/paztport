@@ -3,6 +3,7 @@
 
 package org.paztport.http.event;
 
+import org.paztport.core.event.AttestationEvent;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

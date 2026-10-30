@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.event.EventEnvelope;
 import org.paztport.http.SilentPeer;
 import org.slf4j.LoggerFactory;

@@ -3,6 +3,8 @@
 
 package org.paztport.http.event;
 
+import org.paztport.core.event.AttestationEvent;
+
 /** Sink for verification events: logged, or POSTed to the responder. */
 public interface EventPublisher {
 

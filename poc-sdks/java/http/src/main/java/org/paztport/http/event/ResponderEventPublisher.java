@@ -15,6 +15,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
+import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.event.EventEnvelope;
 import org.paztport.core.event.ResponderEvent;
 import org.paztport.http.internal.WholeExchange;
@@ -103,8 +104,7 @@ public final class ResponderEventPublisher implements EventPublisher {
 
     /** The verdict as the responder reads it, with the time it is sent and a fresh random id, signed. */
     EventEnvelope envelope(AttestationEvent event) {
-        ResponderEvent wire = new ResponderEvent(event.reason(), event.suspectSvc(), event.suspectInst(),
-                event.rid(), event.audit(), clock.getAsLong(), UUID.randomUUID().toString());
+        ResponderEvent wire = event.sentAt(clock.getAsLong(), UUID.randomUUID().toString());
         return EventEnvelope.sign(signer, wire.toJson().getBytes(StandardCharsets.UTF_8), key);
     }
 }
