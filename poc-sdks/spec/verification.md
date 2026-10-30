@@ -95,7 +95,7 @@ can't spend each other's keys:
 |---|---|
 | MCP tool call (server side) | `<rid>\|<callId>\|req` |
 | MCP response (client side) | `<rid>\|<callId>\|resp` |
-| Local step | `<rid>\|<callId>\|local` |
+| Local step ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|local` |
 | HTTP request (receiver side) | `<rid>\|<last svc>\|req` |
 | HTTP response (caller side) | `<rid>\|<target>\|resp` |
 | v1 HTTP hop (`v1.json` only) | `<rid>\|<last svc>` |
@@ -197,8 +197,8 @@ these codes, and MUST replace anything else, `OK` included, with `UNKNOWN`:
 `REPLAY`, `PATH_NOT_ALLOWED`, `SESSION_UNKNOWN`, `CLIENT_PATH_NOT_ALLOWED`, `INFLUENCE_MISMATCH`,
 `INFLUENCE_DENIED`, `UNSAFE_SESSION`, `SCOPE_DENIED`, `UNCHECKABLE`, `PEER_MISMATCH`, `POLICY_EXPIRED`.
 
-That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH` and
-`PROMPT_MISMATCH`.
+That is every [reason code](#reason-codes) except `OK` and the offline-only `TIME_MISMATCH`,
+`PROMPT_MISMATCH`, `OUTSIDE_SESSION`, `PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`.
 
 ## HTTP requests and responses
 
@@ -396,18 +396,21 @@ Each kind of record is checked this way:
 - **A recorded call**: the server-side call check above, with the offline chain verifier, the age limits and the
   time the calling hop recorded stamping it. A chain that verifies but names a different call id from the
   record's is `RID_MISMATCH`. The call counts in its session only up to the session's limits, judged at the last
-  stamp's `ts` (see the handshake below).
+  stamp's `ts` (see the handshake below). A call whose session does not cover that time is `OUTSIDE_SESSION`: its
+  session was opened for it but has expired by then, or was never opened for it.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
   Check 0 runs at that time, with the `policyNotAfter` the client used: the earliest `notAfter` of the server's
   root and, in the entry-key form, its keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when
   neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
-- **A recorded local step**: the offline chain verifier with `signers` (the origin service then the client hop,
+- **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers` (the origin service then the client hop,
   both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
   <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
-  later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the decision it signed is
-  checked again against the signed rules.
+  later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route verdict and proof
+  the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the rules the step was signed
+  under MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those
+  signed rules (`VERDICT_MISMATCH`).
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
   verifies. It is judged at the time of each call that relies on it: a new-form root or keyring, on either side,
@@ -473,9 +476,13 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
-| `POLICY_EXPIRED` | live | The verifier's own pinned keyring or root has expired: `now` is past `policyNotAfter`, or there is none. Names no one. |
+| `POLICY_EXPIRED` | live, offline | The verifier's own pinned keyring or root has expired: `now` is past `policyNotAfter`, or there is none. Offline, the time judged is the record's own. Names no one. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
+| `OUTSIDE_SESSION` | offline only | A recorded call whose session does not cover it at its last stamp's `ts`. |
+| `PROOF_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose recorded route verdict or proof disagrees with what its chain proves. |
+| `RULES_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) signed under rules other than the client's. |
+| `VERDICT_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose decision, re-derived from the signed rules, differs from the one it signed. |
 | `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name for `PATH_NOT_ALLOWED` against the client's policy. |
 | `INFLUENCE_DENIED` | server decision, client local | The influence rule refused a public write. |
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |

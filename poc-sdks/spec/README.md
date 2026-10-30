@@ -56,7 +56,8 @@ What v3 changed, deliberately:
 | v1 | yes, for `v1.json` | yes, for `v1.json` |
 | v2 (offline, legacy) | yes | yes |
 | v3: stamps, the live and offline verifiers, influence and sessions | yes | yes |
-| v3 over MCP | no | yes |
+| v3 over MCP ([the MCP profile](#the-mcp-profile)) | no | yes |
+| Local steps ([the MCP profile](#the-mcp-profile)) | no | yes |
 | v3 over HTTP | yes | no |
 | Responder events | yes | not yet |
 
@@ -79,6 +80,17 @@ null when that `notAfter` is not an integer in [0, 2^53 − 1], which a reader r
 present, gives whether it is valid at each `at`. The file writes one `keyring` and one `root` case's `notAfter`
 as `1798761600000.0`, which a reader must read by value as the integer its signature is over, so a replay must
 read the file's own text.
+
+### The MCP profile
+
+The MCP profile is the part of the protocol that only an MCP client and server speak: the `tools/call`, result and
+local-tool [bindings](wire.md#bindings), the MCP tool call and response chains, and local steps (a client's
+own tool calls, signed by the client alone, with their route, nonce key and recorded check). An implementation
+that speaks the protocol over HTTP only MUST NOT be required to implement the profile, and the HTTP rules never
+refer to it. An implementation that claims the profile MUST implement all of it, and MUST pass the cases of
+`v2.json` and `v3.json` that use it. Three offline results belong to the profile alone
+(`PROOF_MISMATCH`, `RULES_MISMATCH` and `VERDICT_MISMATCH`, [verification.md](verification.md#reason-codes)). Each
+passage of the spec that belongs to it says so and links here.
 
 ### The HTTP rules in http-v3.json
 

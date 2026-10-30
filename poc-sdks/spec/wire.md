@@ -184,7 +184,7 @@ A chain is an array of stamps, **origin first**.
 | Run origin (agents) | `session` | `pi`: the client hop the run's origin hands to. The origin is minted once per run and server session, and reused for every call in it. |
 | MCP tool call | `session`, `pi` | `pi`, then `mcp:<server>.<tool>`, where `<server>` is the server id and `<tool>` the tool name. |
 | MCP response | `mcp-entry`, `github-tools` | `github-tools`, then the calling client's `svc` (`pi`): the response chain ends at whoever made the call. |
-| Local step | `session`, `pi` (with `sess = ""`) | `pi`, then `local:<tool>`. |
+| Local step ([MCP profile](README.md#the-mcp-profile)) | `session`, `pi` (with `sess = ""`) | `pi`, then `local:<tool>`. |
 | Boundary stamp | the egress service | The partner's entry service ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). |
 
 The names in the second column are the agents demo's and the vectors'; the shape of each row is the rule.
@@ -203,10 +203,10 @@ is `b64url(H(bytes))`, over these bytes:
 | HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when the query is non-empty, with nothing decoded, so `/pay?` binds as `/pay`. With no query the bytes are v1's. |
 | HTTP result | An HTTP response's `resultHash` | `utf8("http-response\n" ‖ status ‖ "\n") ‖ BODY`, with `status` the response's status code in decimal and the body as raw bytes, so a response can't pass under another status. |
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
-| `tools/call` | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
-| Result | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
+| `tools/call` ([MCP profile](README.md#the-mcp-profile)) | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
+| Result ([MCP profile](README.md#the-mcp-profile)) | An MCP result's `resultHash` | `utf8("result\n" ‖ JCS(result))`, with the result's top-level `_meta` key removed first. |
 | Response | The last stamp of a response chain | `utf8(resultHash ‖ "\n" ‖ toolCallId ‖ "\n" ‖ JCS(labels))`. There is no prefix: it starts with the result hash. |
-| Local tool | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`. An absent or `null` input, or decision, hashes as `{}`. |
+| Local tool ([MCP profile](README.md#the-mcp-profile)) | A local step's stamp | `utf8("tool\n" ‖ toolName ‖ "\n" ‖ JCS({ "input": input, "resolved": decision }))`. An absent or `null` input, or decision, hashes as `{}`. |
 
 Rules:
 
@@ -363,8 +363,8 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
   is not on it: the server's policy can't list every client.
 - An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.
   Its receiver, the caller, is already on it.
-- A local step's route is `session/pi/local:<tool>`.
-- A client's local folder rules are pinned as one more route, `session/pi/rules:<rulesHash>`, where
+- A local step's route is `session/pi/local:<tool>`. Local steps belong to [the MCP profile](README.md#the-mcp-profile).
+- A client's local folder rules (the MCP profile again) are pinned as one more route, `session/pi/rules:<rulesHash>`, where
   `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is the parsed rule set
   `{ "v": 1, "folders": [...], "programs": [...] }` (its format is in the
   [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A client MUST NOT
