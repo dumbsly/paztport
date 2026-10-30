@@ -11,7 +11,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
@@ -263,11 +262,8 @@ class MutualTlsTest {
     void anotherServicesCertificateIsRefusedAndNamed() throws Exception {
         Answer answer = sendOrdersChain(client("gateway"));
 
-        assertEquals(403, answer.status());
-        JsonNode body = JSON.readTree(answer.body());
-        assertEquals("PEER_MISMATCH", body.get("reason").asText());
-        assertEquals("gateway", body.get("suspectSvc").asText());
-        assertEquals("127.0.0.1", body.get("suspectInst").asText());
+        // The caller is told the reason only; the peer it is suspected as is in the event and the trace line.
+        assertEquals(new Answer(403, "{\"reason\":\"PEER_MISMATCH\"}"), answer);
         assertEquals(List.of("PAZTPORT_EVENT reason=PEER_MISMATCH suspectSvc=gateway suspectInst=127.0.0.1 "),
                 lines("PAZTPORT_EVENT ").stream().map(l -> l.substring(0, l.indexOf("rid="))).toList());
         List<String> traces = lines("PAZTPORT_TRACE request ");
@@ -284,11 +280,9 @@ class MutualTlsTest {
     void aCertificateWithNoCommonNameIsRefusedNotSkipped() throws Exception {
         Answer answer = sendOrdersChain(client("nameless"));
 
-        assertEquals(403, answer.status());
-        JsonNode body = JSON.readTree(answer.body());
-        assertEquals("PEER_MISMATCH", body.get("reason").asText());
-        assertEquals("", body.get("suspectSvc").asText());
-        assertEquals("127.0.0.1", body.get("suspectInst").asText());
+        assertEquals(new Answer(403, "{\"reason\":\"PEER_MISMATCH\"}"), answer);
+        assertEquals(List.of("PAZTPORT_EVENT reason=PEER_MISMATCH suspectSvc= suspectInst=127.0.0.1 "),
+                lines("PAZTPORT_EVENT ").stream().map(l -> l.substring(0, l.indexOf("rid="))).toList());
         assertEquals(List.of(), Pay.PEERS, "refused before the handler");
         List<String> traces = lines("PAZTPORT_TRACE request ");
         assertEquals(1, traces.size(), traces.toString());

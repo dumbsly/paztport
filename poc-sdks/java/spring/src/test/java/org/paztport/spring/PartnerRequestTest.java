@@ -325,9 +325,9 @@ class PartnerRequestTest {
         StamperV3.Stamped twoStamps = orders().next(gatewayFirst, PARTNER, bind, INFLUENCE, null);
         Answer internal = post(orders, "/refund", headers(sess, twoStamps.chain(), null), REFUND);
 
+        // The other organisation is told the reason only, never whom this side suspects.
         assertEquals(403, internal.status());
-        assertEquals("BAD_ORIGIN", internal.reason());
-        assertEquals("orders", internal.json().get("suspectSvc").asText());
+        assertEquals("{\"reason\":\"BAD_ORIGIN\"}", internal.body());
 
         // One stamp from orders, but in the mesh's empty session rather than this one.
         StamperV3.Stamped meshStamp = new StamperV3("orders", "orders-1", SHOP_KEY.getPrivate(), true,
@@ -359,8 +359,7 @@ class PartnerRequestTest {
 
         Answer otherPeer = post(client("gateway"), "/refund", boundary(sess, "rid-p1", "/refund", REFUND), REFUND);
         assertEquals(403, otherPeer.status());
-        assertEquals("SESSION_UNKNOWN", otherPeer.reason());
-        assertEquals("gateway", otherPeer.json().get("suspectSvc").asText());
+        assertEquals("{\"reason\":\"SESSION_UNKNOWN\"}", otherPeer.body());
 
         Answer madeUp = post(orders, "/refund", boundary("made-up-id", "rid-p2", "/refund", REFUND), REFUND);
         assertEquals(403, madeUp.status());

@@ -504,8 +504,10 @@ class InboundFilterTest {
         }
     }
 
+    // A refusal is for the caller, who is usually the suspect: the body is the reason alone, and the suspect, with
+    // whatever inst it signed, goes to the event and the trace line.
     @Test
-    void theRefusalBodyIsJsonWhateverTheSuspectSigned() throws Exception {
+    void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() throws Exception {
         String inst = "ord\"1\\";
         StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
                 .next(null, "orders", "b", List.of(), policy.bundles().get("gateway"));
@@ -520,12 +522,13 @@ class InboundFilterTest {
                 response, new MockFilterChain());
 
         assertEquals(403, response.getStatus());
-        JsonNode body = new ObjectMapper().readTree(response.getContentAsString());
-        assertEquals("PATH_NOT_ALLOWED", body.get("reason").textValue());
-        assertEquals("orders", body.get("suspectSvc").textValue());
-        assertEquals(inst, body.get("suspectInst").textValue());
-        assertEquals("{\"reason\":\"PATH_NOT_ALLOWED\",\"suspectSvc\":\"orders\",\"suspectInst\":\"ord\\\"1\\\\\"}",
-                response.getContentAsString(), "same fields, same order, properly escaped");
+        assertEquals("{\"reason\":\"PATH_NOT_ALLOWED\"}", response.getContentAsString());
+        assertEquals("application/json;charset=UTF-8", response.getContentType());
+        assertEquals(1, events.all.size());
+        assertEquals("orders", events.all.get(0).suspectSvc());
+        assertEquals(inst, events.all.get(0).suspectInst());
+        assertEquals(1, traceLines().size());
+        assertTrue(traceLines().get(0).contains(" reason=PATH_NOT_ALLOWED receiver=payment ✗ "), traceLines().get(0));
     }
 
     @Test

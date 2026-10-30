@@ -3,8 +3,6 @@
 
 package org.paztport.spring;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.AsyncEvent;
 import jakarta.servlet.AsyncListener;
 import jakarta.servlet.FilterChain;
@@ -22,6 +20,7 @@ import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.Peer;
+import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.core.verify.VerifyResult;
@@ -50,7 +49,7 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  *       400.</li>
  *   <li>{@code AUDIT} — verify, publish an event on failure, and pass through, unless the influence cannot be
  *       read: that is answered 400 in every mode, as below.</li>
- *   <li>{@code ENFORCE} — verify, publish an event and return 403 on failure.</li>
+ *   <li>{@code ENFORCE} — verify, publish an event and return {@code 403 {"reason":"<code>"}} on failure.</li>
  * </ul>
  *
  * The influence the handler starts from is the verified entries when the request verified, and otherwise the
@@ -86,8 +85,9 @@ import org.springframework.web.util.ContentCachingResponseWrapper;
  * completes, without {@code X-Path-Response}, and its caller counts it as untrusted.
  *
  * <p>Under mutual TLS the request is verified against the sender the handshake authenticated ({@link PeerIdentity}):
- * the chain's last signer must be the service its certificate names, and every result, so every refusal and every
- * event, names that service at the address it connected from. Without a client certificate there is no peer.
+ * the chain's last signer must be the service its certificate names, and every result, so every event and every
+ * trace line, names that service at the address it connected from. A refusal names no one: its body is
+ * {@code {"reason":"<code>"}} alone ({@link #reject}). Without a client certificate there is no peer.
  *
  * <p>Each request is served inside a {@link PaztportContext.Scope}, so what its handler and its calls learn is
  * carried for the request and dropped when it ends. Async work after the handler returns runs outside it. A scope
@@ -101,7 +101,6 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final Logger LOG = LoggerFactory.getLogger(InboundFilter.class);
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final VerifierV3 verifier;
     private final boolean verifyRequests;
@@ -205,7 +204,7 @@ public final class InboundFilter extends OncePerRequestFilter {
                             checked.reason().name(), checked.suspectSvc(), checked.suspectInst(),
                             rid, mode == VerificationMode.AUDIT));
                     if (mode == VerificationMode.ENFORCE) {
-                        reject(response, checked);
+                        reject(response, checked.reason());
                         return;
                     }
                 } else if (!origin && inbound != null) {
@@ -355,16 +354,17 @@ public final class InboundFilter extends OncePerRequestFilter {
         return svc.isEmpty() ? "\"\"" : LogSafe.of(svc);
     }
 
-    /** The suspect is whatever its signer chose, so the body is written by an encoder, never by formatting. */
-    static void reject(HttpServletResponse response, VerifyResult result) throws IOException {
-        ObjectNode body = JSON.createObjectNode()
-                .put("reason", result.reason().name())
-                .put("suspectSvc", result.suspectSvc())
-                .put("suspectInst", result.suspectInst());
+    /**
+     * {@code 403 {"reason":"<code>"}} and nothing more. A refusal tells the caller what to do next; who is suspected
+     * is for the operator and the responder, so it goes to the trace line and the event only. The suspect is
+     * usually the caller itself, and naming it in the answer would tip it off before the responder acts. The code
+     * is a {@link ReasonCode} name, so the body needs no escaping.
+     */
+    static void reject(HttpServletResponse response, ReasonCode reason) throws IOException {
         response.setStatus(HttpServletResponse.SC_FORBIDDEN);
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
-        response.getWriter().write(JSON.writeValueAsString(body));
+        response.getWriter().write("{\"reason\":\"" + reason.name() + "\"}");
     }
 
     static void unreadableInfluence(HttpServletResponse response) throws IOException {

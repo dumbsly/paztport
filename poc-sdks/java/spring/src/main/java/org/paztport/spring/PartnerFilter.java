@@ -105,7 +105,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
                     VerifyResult unknown = new VerifyResult(ReasonCode.SESSION_UNKNOWN,
                             peer == null ? "" : peer.svc(), peer == null ? "" : peer.inst());
                     trace(InboundFilter.traceLine(rid, unknown, receiver, peer, null, "unknown"));
-                    InboundFilter.reject(response, unknown);
+                    InboundFilter.reject(response, ReasonCode.SESSION_UNKNOWN);
                     return;
                 }
             }
@@ -124,7 +124,7 @@ public final class PartnerFilter extends OncePerRequestFilter {
             List<InfluenceEntry> influence = InboundFilter.parseInfluence(input.influence());
             trace(InboundFilter.traceLine(rid, result, receiver, peer, influence, SessionStatus.ATTESTED));
             if (!result.ok()) {
-                InboundFilter.reject(response, result);
+                InboundFilter.reject(response, result.reason());
                 return;
             }
             if (influence == null || received == null) {
