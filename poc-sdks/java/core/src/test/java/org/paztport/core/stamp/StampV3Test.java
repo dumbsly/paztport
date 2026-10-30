@@ -62,6 +62,11 @@ class StampV3Test {
                 () -> StampV3.sign("pi", "i", "r", 9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
         assertThrows(IllegalArgumentException.class,
                 () -> StampV3.sign("pi", "i", "r", -9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", Long.MIN_VALUE, "", "x", "b", "", "", KEY.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", Long.MAX_VALUE, "", "x", "b", "", "", KEY.getPrivate()));
         StampV3.sign("pi", "i", "r", 9007199254740991L, "", "x", "b", "", "", KEY.getPrivate());
+        StampV3.sign("pi", "i", "r", -9007199254740991L, "", "x", "b", "", "", KEY.getPrivate());
     }
 }

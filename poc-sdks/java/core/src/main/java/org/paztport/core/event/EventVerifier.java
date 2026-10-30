@@ -113,7 +113,7 @@ public final class EventVerifier {
         }
         ResponderEvent event = new ResponderEvent(node.get("reason").asText(), node.get("suspectSvc").asText(),
                 node.get("suspectInst").asText(), node.get("rid").asText(), node.get("audit").asBoolean(),
-                ts(node.get("ts")), id.asText());
+                JsonIntegers.safeInteger(node.get("ts")), id.asText());
 
         long now = clock.getAsLong();
         if (!withinWindow(now, event.ts())) {
@@ -184,21 +184,11 @@ public final class EventVerifier {
             }
         }
         JsonNode audit = node.get("audit");
-        if (audit == null || !audit.isBoolean() || ts(node.get("ts")) == null) {
+        if (audit == null || !audit.isBoolean() || JsonIntegers.safeInteger(node.get("ts")) == null) {
             return null;
         }
         JsonNode id = node.get("eventId");
         return id == null || id.isNull() || id.isTextual() ? node : null;
-    }
-
-    /**
-     * The event's {@code ts} when it is an integer within &plusmn;(2^53 &minus; 1), judged by value; else null.
-     * {@link JsonIntegers#safeInteger} lets &minus;2^63 through, since {@code Math.abs(Long.MIN_VALUE)} is
-     * negative, so the range is checked here as well.
-     */
-    private static Long ts(JsonNode n) {
-        Long v = JsonIntegers.safeInteger(n);
-        return v != null && v >= -JsonIntegers.MAX_SAFE && v <= JsonIntegers.MAX_SAFE ? v : null;
     }
 
     /**

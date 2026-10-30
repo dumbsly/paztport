@@ -35,10 +35,18 @@ public final class JsonIntegers {
         try {
             BigDecimal d = n.isIntegralNumber() ? new BigDecimal(n.bigIntegerValue()) : n.decimalValue();
             long v = d.toBigIntegerExact().longValueExact();
-            return Math.abs(v) <= MAX_SAFE ? v : null;
+            return isSafe(v) ? v : null;
         } catch (ArithmeticException | NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * True when {@code v} is within &plusmn;(2^53 &minus; 1). Both ends are compared, not {@code Math.abs(v)}:
+     * &minus;2^63 has no positive {@code long}, so its absolute value is itself, which is negative, and would pass.
+     */
+    public static boolean isSafe(long v) {
+        return v >= -MAX_SAFE && v <= MAX_SAFE;
     }
 
     /**

@@ -73,7 +73,9 @@ class ChainsTest {
 
     @Test
     void tsIsCheckedByValue() throws Exception {
-        for (String bad : new String[] {"1.5", "9007199254740992", "-9007199254740992", "\"1\"", "null", "1e400"}) {
+        for (String bad : new String[] {"1.5", "9007199254740992", "-9007199254740992", "\"1\"", "null", "1e400",
+                // the ends of Java's long: -2^63 has no positive counterpart, so Math.abs of it is negative
+                "-9223372036854775808", "9223372036854775807"}) {
             ObjectNode s = v3();
             s.set("ts", MAPPER.readTree(bad));
             rejects(ReasonCode.CHAIN_MISSING, chain(s));
@@ -81,7 +83,7 @@ class ChainsTest {
         ObjectNode missing = v3();
         missing.remove("ts");
         rejects(ReasonCode.CHAIN_MISSING, chain(missing));
-        for (String ok : new String[] {"1.0", "1e3", "9007199254740991"}) {
+        for (String ok : new String[] {"1.0", "1e3", "9007199254740991", "-9007199254740991"}) {
             ObjectNode s = v3();
             s.set("ts", MAPPER.readTree(ok));
             assertTrue(Chains.parse(chain(s).toString(), false).ok(), ok);

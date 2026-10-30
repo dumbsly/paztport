@@ -11,6 +11,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonIntegers;
 
 /**
  * The current stamp. {@code rcv} is signed, so a stamp is only good for the receiver it names and a captured one
@@ -20,12 +21,10 @@ import org.paztport.core.internal.Json;
 public record StampV3(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
         String infl, String prev, String sig) implements RecordedStamp {
 
-    private static final long MAX_SAFE_TS = (1L << 53) - 1;
-
     /** Signs a stamp; throws {@link IllegalArgumentException} if a signed field holds the delimiter or a lone surrogate, or ts is outside the safe-integer range. */
     public static StampV3 sign(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
             String infl, String prev, PrivateKey key) {
-        if (Math.abs(ts) > MAX_SAFE_TS) {
+        if (!JsonIntegers.isSafe(ts)) {
             throw new IllegalArgumentException("stamp ts must be within +/-(2^53-1)");
         }
         byte[] bytes = join("3", svc, inst, rid, Long.toString(ts), sess, rcv, bind, infl, prev);
