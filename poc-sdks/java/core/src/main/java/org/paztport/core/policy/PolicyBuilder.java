@@ -38,9 +38,11 @@ public final class PolicyBuilder {
     /**
      * Builds the tree and signs its root in the new form, vouched for until {@code notAfter} (milliseconds since the
      * epoch, inclusive). The caller must currently allow every route in {@code routes}: the signature says so until
-     * {@code notAfter}, and nothing can take it back sooner.
+     * {@code notAfter}, and nothing can take it back sooner. Throws {@link IllegalArgumentException}, signing
+     * nothing, for a node {@link Routes#requireValidNode} refuses.
      */
     public static Result build(List<List<String>> routes, int depth, long notAfter, PrivateKey policyKey) {
+        routes.forEach(route -> route.forEach(Routes::requireValidNode));
         List<String> routeStrings = routes.stream().map(r -> Routes.join(r)).toList();
         String rootId = newRootId();
 

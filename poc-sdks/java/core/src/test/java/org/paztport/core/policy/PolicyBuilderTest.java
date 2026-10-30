@@ -6,6 +6,7 @@ package org.paztport.core.policy;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.security.KeyPair;
@@ -30,6 +31,15 @@ class PolicyBuilderTest {
 
     private PolicyBuilder.Result build(List<List<String>> paths) {
         return PolicyBuilder.build(paths, DEPTH, NOT_AFTER, policy.getPrivate());
+    }
+
+    @Test
+    void refusesARouteNodeTheSpecForbidsAnywhereInARoute() {
+        for (String bad : List.of("", ".", "..", "a/b", "a\\b", "a|b", "a\ud800")) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> build(List.of(List.of("gateway", "orders"), List.of("gateway", bad, "payment"))), bad);
+            assertThrows(IllegalArgumentException.class, () -> build(List.of(List.of(bad, "orders"))), bad);
+        }
     }
 
     @Test

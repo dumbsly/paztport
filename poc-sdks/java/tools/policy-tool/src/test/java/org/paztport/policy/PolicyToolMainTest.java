@@ -200,6 +200,22 @@ class PolicyToolMainTest {
     }
 
     @Test
+    void refusesARouteNodeCoreRefusesAndWritesNothing(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        for (String bad : new String[] {"\"..\"", "\"a|b\"", "\"a\\\\b\"", "\"\"", "\"a/b\""}) {
+            Files.writeString(pathsYaml, "paths:\n  - [gateway, " + bad + "]\n");
+            Map<Path, String> before = snapshot(keys);
+
+            assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8), bad);
+            assertFalse(Files.exists(out), bad);
+            assertEquals(before, snapshot(keys), bad);
+        }
+    }
+
+    @Test
     void refusesAServiceTheKeyringLacksAndWritesNothing(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
         Path pathsYaml = dir.resolve("paths.yaml");
