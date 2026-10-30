@@ -8,8 +8,9 @@ import org.paztport.core.verify.ReasonCode;
 
 /**
  * An answer the SDK gives in place of a handler's: a refusal, or the session endpoint's reply. The body is JSON,
- * sent labelled {@code application/json}, with no parameters, and exactly as these bytes, so a framework writes it out and does not
- * serialise it again. Each read of {@link #json} is a copy, so no caller can change what another is sent.
+ * sent labelled {@code application/json}, with no parameters, and exactly as these bytes, so a framework writes it
+ * out and does not serialise it again. Each read of {@link #json} is a copy, so no caller can change what another is
+ * sent.
  *
  * @param status the HTTP status
  * @param json the body: UTF-8 JSON text

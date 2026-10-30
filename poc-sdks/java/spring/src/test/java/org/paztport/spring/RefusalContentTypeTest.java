@@ -42,22 +42,28 @@ import org.springframework.boot.SpringBootConfiguration;
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
+import org.springframework.core.Ordered;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.filter.CharacterEncodingFilter;
 
 /**
  * A mesh refusal on the real servlet container, header and body as the wire carries them: {@code Content-Type:
  * application/json} and nothing after it, because the container adds a character encoding of its own to anything
  * written through a writer, and RFC 8259 defines no such parameter. The partner's refusals are checked the same way
  * in {@code PartnerRequestTest}. The app is {@code localhost}, as in {@code ResponseAttestationTest}, whose set-up
- * this follows.
+ * this follows. The application also forces a response encoding, as {@code server.servlet.encoding.force-response}
+ * does where it applies, which a refusal must still not carry.
  */
 @SpringBootTest(classes = RefusalContentTypeTest.App.class,
-        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT, properties = "spring.main.banner-mode=off")
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = "spring.main.banner-mode=off")
 class RefusalContentTypeTest {
 
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
@@ -109,6 +115,15 @@ class RefusalContentTypeTest {
     @EnableAutoConfiguration
     @Import(Handlers.class)
     static class App {
+
+        /** Sets UTF-8 on every response before anything else runs, the way Spring's own encoding filter does. */
+        @Bean
+        FilterRegistrationBean<CharacterEncodingFilter> forcedEncoding() {
+            FilterRegistrationBean<CharacterEncodingFilter> bean =
+                    new FilterRegistrationBean<>(new CharacterEncodingFilter("UTF-8", false, true));
+            bean.setOrder(Ordered.HIGHEST_PRECEDENCE);
+            return bean;
+        }
     }
 
     @RestController
