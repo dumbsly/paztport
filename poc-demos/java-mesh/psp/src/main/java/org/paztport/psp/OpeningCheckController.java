@@ -3,9 +3,8 @@
 
 package org.paztport.psp;
 
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.StandardCharsets;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -33,6 +32,8 @@ import org.springframework.web.bind.annotation.RestController;
 @ConditionalOnProperty(name = "paztport.openings", havingValue = "true")
 public class OpeningCheckController {
 
+    private static final ObjectMapper JSON = new ObjectMapper();
+
     private final ReceivedInfluence received;
 
     public OpeningCheckController(ReceivedInfluence received) {
@@ -43,17 +44,18 @@ public class OpeningCheckController {
      * {@code {"opens": true|false}}; {@code 404} when no call of {@code rid} was recorded, or it carried no entry
      * of the opening's class and owner; {@code 400} for a body that is not an opening.
      *
-     * <p>The body arrives as bytes and must be UTF-8: bytes that are not are a bad request, never read with a
-     * replacement character in place of what was sent. Only JSON is taken: any other content type is answered
-     * {@code 415}.
+     * <p>The body arrives as bytes and is read as this endpoint always has: leniently, in whichever Unicode
+     * encoding its first bytes show, and up to the end of the first JSON value. The value read is handed to
+     * {@link BoundaryInfluence.Opening#parse} as text; every field an opening is judged by is a string, and unknown
+     * fields are dropped, so writing the value out again changes nothing it is judged on. Bytes that are not
+     * well-formed are a bad request. Only JSON is taken: any other content type is answered {@code 415}.
      */
     @PostMapping(path = "/debug/check-opening", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
         BoundaryInfluence.Opening opening;
         try {
-            opening = BoundaryInfluence.Opening.parse(StandardCharsets.UTF_8.newDecoder()
-                    .decode(ByteBuffer.wrap(body)).toString());
-        } catch (CharacterCodingException | IllegalArgumentException e) {
+            opening = BoundaryInfluence.Opening.parse(JSON.writeValueAsString(JSON.readTree(body)));
+        } catch (IOException | IllegalArgumentException e) {
             return ResponseEntity.badRequest().body(Map.of("reason", "MALFORMED_OPENING"));
         }
         List<InfluenceEntry> entries = received.received(rid).orElse(null);

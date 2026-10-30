@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
@@ -96,6 +97,33 @@ class OpeningCheckControllerTest {
         mvc.perform(post("/debug/check-opening").param("rid", RID)
                         .contentType(MediaType.TEXT_PLAIN).content(aliceOpening(ORIGINALS).toJson()))
                 .andExpect(status().isUnsupportedMediaType());
+    }
+
+    /**
+     * The body is read as it always has been: up to the end of the first JSON value, whatever follows it, and in
+     * whichever Unicode encoding its first bytes show.
+     */
+    @Test
+    void aBodyIsReadLeniently() throws Exception {
+        String json = aliceOpening(ORIGINALS).toJson();
+        check(RID, json + " trailing, not JSON")
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+        check(RID, json + " {\"second\":\"value\"}")
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+        for (Charset charset : List.of(StandardCharsets.UTF_16BE, StandardCharsets.UTF_16LE,
+                Charset.forName("UTF-32BE"))) {
+            mvc.perform(post("/debug/check-opening").param("rid", RID)
+                            .contentType(MediaType.APPLICATION_JSON).content(json.getBytes(charset)))
+                    .andExpect(status().isOk())
+                    .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+        }
+        mvc.perform(post("/debug/check-opening").param("rid", RID)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(("\uFEFF" + json).getBytes(StandardCharsets.UTF_8)))
+                .andExpect(status().isOk())
+                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
     }
 
     @Test
