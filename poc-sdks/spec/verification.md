@@ -380,11 +380,11 @@ and changes nothing, `seen` included.
 
 | # | Check | Refusal |
 |---|---|---|
-| 1 | The body is exactly one JSON object, with nothing after it, whose `signer`, `payload` and `sig` are strings and which has no other member ([the envelope](wire.md#the-envelope)). | `MALFORMED_ENVELOPE` |
+| 1 | The body is exactly one JSON object, with nothing but JSON whitespace (RFC 8259 `ws`) before or after it and no byte order mark, whose `signer`, `payload` and `sig` are strings and which has no other member ([the envelope](wire.md#the-envelope)). | `MALFORMED_ENVELOPE` |
 | 2 | `signer` is in `allowedSigners`. | `SIGNER_NOT_ALLOWED` |
 | 3 | `keyring` has a key for `signer`. | `UNKNOWN_SIGNER` |
 | 4 | `sig` decodes as base64url, and verifies under that key over the signed bytes. | `BAD_SIGNATURE` |
-| 5 | `payload` decodes as base64url to [an event](wire.md#the-event): bytes that decode as UTF-8, strictly, to exactly one JSON object, with each of the event's members of its type and no other member. The one exception is an absent or `null` `eventId`, which is left to check 6; an `eventId` that is present otherwise MUST be a string. | `MALFORMED_EVENT` |
+| 5 | `payload` decodes as base64url to [an event](wire.md#the-event): bytes that are well-formed UTF-8 (RFC 3629, so an overlong form or an encoded surrogate is malformed), holding exactly one JSON object with nothing but JSON whitespace before or after it and no byte order mark, with each of the event's members of its type and no other member. The one exception is an absent or `null` `eventId`, which is left to check 6; an `eventId` that is present otherwise MUST be a string. | `MALFORMED_EVENT` |
 | 6 | `eventId` is present, and is neither `null` nor `""`. Any other string is an id. | `NO_EVENT_ID` |
 | 7 | `ts` is at most `EVENT_WINDOW_MS` from `now`, either way: \|`now` − `ts`\| ≤ `EVENT_WINDOW_MS`, computed exactly, with no overflow. | `OUTSIDE_WINDOW` |
 | 8 | `eventId` is not in `seen`. It is then added, at `now`. | `REPEATED_EVENT_ID` |
@@ -424,27 +424,36 @@ responder's own log; the sender is told only that the event was refused
 | `OUTSIDE_WINDOW` | The event's `ts` is more than `EVENT_WINDOW_MS` from `now`. |
 | `REPEATED_EVENT_ID` | The responder has already accepted an event with this id. |
 
-`events.json` pins these in `verify`: an accepted event and an accepted audit event; `ts` at
-`EVENT_WINDOW_MS` from `now` and 1 ms past it, on both sides; a replay (`uses` = 2), a new payload under a
-spent id, an id still in `seen` while its `ts` is fresh, and a replay after the window; a bad signature and a
-stale event that spend no id; malformed envelopes (not JSON, empty, an array, `null`, a bare event, a missing
-`sig`, a `null` signer, a number as the signer, another member, trailing text and a second value); a signer not
-allowed, before its signature is looked at; an allowed signer with no key; a wrong signer's key, a tampered
-payload, a signature made without the prefix, and a `sig` that is not base64url; malformed payloads (not
-base64url, not UTF-8, a byte order mark, not JSON, not an object, trailing text, another member, a missing
-`reason` or `ts`, a `null` `reason`, a string `ts`, a number as `audit`, `reason` or `eventId`, a `ts` with a
-fraction, and a `ts` of 2^53, −2^53 and −2^63); `ts` written `1767225600000.0` and `1.7672256E12`, read by value and
-accepted, and 2^53 − 1, which is in range but outside the window; a missing, `null` or empty `eventId`, refused,
-and one of a single space, accepted. The order cases put a bad signature before the window, an event with no id
-before the window, and the window before `seen`.
+`events.json` pins these in `verify`:
+
+- **Accepted:** an event, an audit event, an `eventId` of a single space, JSON whitespace around the body and
+  around the payload, and `ts` written `1767225600000.0` and `1.7672256E12`, read by value.
+- **The window:** `ts` at `EVENT_WINDOW_MS` from `now` and 1 ms past it, on both sides, and ±(2^53 − 1), which
+  are in range but outside the window.
+- **`seen`:** a replay (`uses` = 2), a new payload under a spent id, an id still in `seen` while its `ts` is
+  fresh, a replay after the window, and a bad signature and a stale event that spend no id.
+- **Malformed envelopes:** not JSON, empty, an array, `null`, a bare event, a missing `sig`, a `null` signer,
+  a number as `signer`, `payload` or `sig`, another member, trailing text, a second value and a byte order mark.
+- **Signers and signatures:** a signer not allowed, before its signature is looked at; an allowed signer with no
+  key; a wrong signer's key, a tampered payload, a signature made without the prefix, and a `sig` that is not
+  base64url.
+- **Malformed payloads:** not base64url; not UTF-8, an overlong form and an encoded surrogate; a byte order
+  mark; not JSON, not an object, trailing text and another member; a missing `reason`, `ts` or `audit`; `null`
+  as `reason`, `suspectSvc`, `suspectInst`, `rid` or `ts`; a number as `reason`, `suspectSvc`, `suspectInst`,
+  `rid`, `audit` or `eventId`; a string as `ts` or `audit`; a `ts` with a fraction; and a `ts` of 2^53, −2^53
+  and −2^63.
+- **`eventId`:** missing, `null` or empty, refused.
+- **The order:** a bad signature before a payload that is not base64url and before one that is not JSON; a bad
+  signature before the window; a malformed event before a missing id; a missing id before the window; and the
+  window before `seen`.
 
 ## Guidance for a responder
 
 A responder acts on rejections, for example by isolating the named instance.
 
-- **Only events it accepted.** Anyone can send a responder a body, so it acts only on an event that passed
-  [Receiving an event](#receiving-an-event), and only on one that is
-  [attributable](wire.md#the-event), which the rest of this list explains.
+- **Only events it accepted, and only attributable ones.** Anyone can send a responder a body, so it acts only
+  on an event that passed [Receiving an event](#receiving-an-event). A responder MUST NOT act against a suspect
+  on an event that is not [attributable](wire.md#the-event); the rest of this list explains why.
 - **Only attributable rejections are triggers.** `INFLUENCE_DENIED` and `UNSAFE_SESSION` are about content and
   capability, not compromise: an honest component misled by poisoned input gets them. A responder MUST NOT
   quarantine on them. It SHOULD log them. The same holds for the client-local codes, and for `POLICY_EXPIRED`,

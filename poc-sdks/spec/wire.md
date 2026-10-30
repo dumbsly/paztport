@@ -491,10 +491,11 @@ the largest `notAfter`.
 
 ## Events
 
-A verifying service MAY report each request it refuses to a responder, which may act on it, for example by
-isolating the named instance ([verification.md](verification.md#guidance-for-a-responder)). Anyone who can reach
-the responder can send it a body, so an event counts only when a service the responder allows has signed it.
-[verification.md](verification.md#receiving-an-event) says how the responder checks one.
+A verifying service MAY send its responder an event for each request whose live verification does not give
+`OK`, in audit mode as well as enforce mode, with the result's reason and suspect. The responder may act on it,
+for example by isolating the named instance ([verification.md](verification.md#guidance-for-a-responder)). Anyone
+who can reach the responder can send it a body, so an event counts only when a service the responder allows has
+signed it. [verification.md](verification.md#receiving-an-event) says how the responder checks one.
 
 ### The envelope
 
@@ -519,8 +520,9 @@ so the responder verifies the bytes it was given and never canonicalises JSON. T
 be JCS: a signer SHOULD write the fields in the order shown below, with no whitespace, and a responder MUST read
 the event from the payload it verified, never from a form written again. `signer` is not signed, but a name other
 than the signer's own looks up another key, and the signature fails. The body is exactly one JSON object, with
-nothing after it, and has exactly these three members, each a string. The prefix keeps an event signature from being read as a stamp, or as anything else the
-same key signs ([Encodings](#encodings)).
+nothing but JSON whitespace (RFC 8259 `ws`) before or after it and no byte order mark, and it has exactly these
+three members, each a string. The prefix keeps an event signature from being read as a stamp, or as anything else
+the same key signs ([Encodings](#encodings)).
 
 `events.json` pins the signed bytes and signatures in `envelope`: an attributed refusal, an audit event that
 names no one, and one with non-ASCII text.
@@ -540,18 +542,16 @@ names no one, and one with non-ASCII text.
 | `ts` | integer | When the event was signed, in ms since the Unix epoch. |
 | `eventId` | string | This event's id. It MUST NOT be `""`; any other string is an id, one of only spaces included. A signer MUST NOT reuse one. It SHOULD be a random UUID (RFC 9562, version 4): one responder remembers the ids of every signer together, so a guessable id would let one signer spend another's. |
 
-The payload is the UTF-8 encoding of exactly one JSON object, with no byte order mark and nothing after it. The
+The payload is the UTF-8 encoding (RFC 3629) of exactly one JSON object, with nothing but JSON whitespace before
+or after it and no byte order mark. The
 object has exactly these seven members, and each is of the type shown, so no member is `null`: nothing is
 converted from another type or filled in when absent, so that every implementation reads the same event from the
 same bytes. `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1, checked by value
 as a stamp's `ts` is ([Stamp field rules](#stamp-field-rules)): `1767225600000.0` is the integer 1767225600000,
 and `1767225600000.5` is not an integer.
 
-The Java SDK sends one event for each request whose live verification does not give `OK`, in `audit` mode and in
-`enforce` mode, with the result's reason and suspect.
-
-**Attributable events.** An event is attributable, and only an attributable event may lead a responder to act
-against its suspect, when all of these hold:
+**Attributable events.** A responder MUST NOT act against a suspect on an event that is not attributable. An
+event is attributable when all of these hold:
 
 - `audit` is `false`. An audit-mode verifier is measuring its rules, not refusing.
 - `suspectSvc` and `suspectInst` are both non-empty. A result that names no one does so by design: the name would
@@ -570,9 +570,9 @@ on a request, and `OK` refuses nothing.
 
 Over HTTP a service sends an event as a `POST` to its responder's `/events` path, with the envelope as a UTF-8 JSON
 body and `Content-Type: application/json`. An event MUST NOT change the verdict it reports: a responder that is
-down, slow or refuses the event leaves the refusal as it was. A sender SHOULD bound how long it waits for the
-responder, since it may hold the refusal until then; the Java SDK sends each event before answering the refusal,
-and gives up after `paztport.event-timeout-ms` ([Java SDK README](../java/README.md#paztport-spring)). The
+down, slow or refuses the event leaves the refusal as it was. A sender that waits for the responder before
+answering the refusal SHOULD bound that wait, so that a slow responder cannot hold refusals up (the Java SDK
+waits at most `paztport.event-timeout-ms`; see the [Java SDK README](../java/README.md#paztport-spring)). The
 responder answers `200` when it accepts an event and `403` when it refuses one, with the same body for every
 refusal, so the answer tells a sender nothing about the allowed signers, the keyring or the window.
 
