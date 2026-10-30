@@ -290,6 +290,14 @@ class HttpCallerTest {
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(twice));
     }
 
+    @Test
+    void aNullMappingIsRefusedByName() {
+        HttpCaller.Builder builder = HttpCaller.builder("gateway", gatewayStamper());
+
+        NullPointerException e = assertThrows(NullPointerException.class, () -> builder.receivers(null));
+        assertEquals("receivers", e.getMessage());
+    }
+
     // --- Responses ---
 
     @Test

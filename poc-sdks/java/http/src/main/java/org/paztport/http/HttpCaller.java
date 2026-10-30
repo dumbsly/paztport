@@ -117,9 +117,11 @@ public final class HttpCaller {
          * <p>A table, not a function: the name is the deployment's configuration, which a table holds and shows, and
          * the same table is what the starter binds, and what another language's caller is given.
          *
+         * @throws NullPointerException when {@code byHost} is null; an empty map is no mapping
          * @throws IllegalArgumentException when a host or a name is blank, or two hosts differ only in case
          */
         public Builder receivers(Map<String, String> byHost) {
+            Objects.requireNonNull(byHost, "receivers");
             Map<String, String> names = new HashMap<>();
             byHost.forEach((host, name) -> {
                 if (host == null || host.isBlank() || name == null || name.isBlank()) {
