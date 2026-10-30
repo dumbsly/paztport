@@ -41,6 +41,7 @@ import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.http.HttpSessions;
+import org.paztport.http.PartnerSessions;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.spring.PartnerFilter;
 import org.paztport.spring.PaztportAutoConfiguration;

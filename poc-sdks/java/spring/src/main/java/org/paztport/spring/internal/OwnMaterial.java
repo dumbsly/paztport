@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory;
  * <p>It refuses, rather than degrades, because a service that loads its own material already old-form or expired
  * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
  * to re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to
- * unsafe sessions ({@link org.paztport.spring.partner.PartnerSessions}), because stopping would cut off the callers
+ * unsafe sessions ({@link org.paztport.http.PartnerSessions}), because stopping would cut off the callers
  * it serves without attestation too. The same refusal is what lets
  * {@link org.paztport.core.session.Sessions#status} judge only the windows of the partner's own keyring and root:
  * this check has already made sure both verify under the policy pin.

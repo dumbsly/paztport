@@ -6,6 +6,7 @@ package org.paztport.spring.internal;
 import jakarta.servlet.http.HttpServletRequest;
 import java.security.cert.X509Certificate;
 import org.paztport.core.verify.Peer;
+import org.paztport.http.PeerCert;
 
 /**
  * The sender the TLS layer authenticated, read from the servlet request. Under mutual TLS the container has already

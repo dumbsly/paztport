@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.internal;
+package org.paztport.http;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;

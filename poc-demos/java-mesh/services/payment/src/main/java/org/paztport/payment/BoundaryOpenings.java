@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.spring.partner.BoundaryListener;
+import org.paztport.http.BoundaryListener;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 

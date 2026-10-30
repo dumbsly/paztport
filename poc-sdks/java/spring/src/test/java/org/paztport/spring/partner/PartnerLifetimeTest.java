@@ -44,6 +44,7 @@ import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.HttpV3;
+import org.paztport.http.PartnerSessions;
 import org.paztport.http.PaztportHeaders;
 import org.paztport.http.RequestBinding;
 import org.paztport.spring.ContextAccess;

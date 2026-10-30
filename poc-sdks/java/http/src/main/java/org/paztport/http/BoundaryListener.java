@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package org.paztport.spring.partner;
+package org.paztport.http;
 
 import java.util.List;
 import org.paztport.core.influence.InfluenceEntry;
@@ -9,12 +9,12 @@ import org.paztport.core.influence.InfluenceEntry;
 /**
  * Told what the egress is about to send a partner, so the shop can keep what the blinded entries stood for. The
  * partner holds only one entry per class and owner, each a salted commitment; to open one later the shop needs
- * the originals, which this is the only place to see, and {@link BoundaryClient#opening} re-derives the salt.
+ * the originals, which this is the only place to see, and {@code BoundaryClient.opening} re-derives the salt.
  *
  * <p>It is called only in an attested session, after the request's chain passed the live order at this hop and
  * the session is open, and before the request is sent. An unsafe session sends no influence, so it is not called
  * there. An exception it throws stops the call before anything of the request is sent (the handshake may already
- * have happened) and reaches the caller of {@link BoundaryClient#post}: an entry the shop could not record is an
+ * have happened) and reaches the caller of {@code BoundaryClient.post}: an entry the shop could not record is an
  * entry it could never open, so it is not sent.
  *
  * <p>It may be called from several request threads at once, one call per request, so an implementation must be

@@ -11,6 +11,7 @@ import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.verify.Peer;
+import org.paztport.http.PeerCert;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 /**
