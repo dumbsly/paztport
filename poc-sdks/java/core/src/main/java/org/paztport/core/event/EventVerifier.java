@@ -93,6 +93,9 @@ public final class EventVerifier {
             return refuse(Refusal.BAD_SIGNATURE, envelope.signer());
         }
         byte[] json = envelope.payloadBytes();
+        if (json == null) {
+            return refuse(Refusal.MALFORMED_EVENT, null);
+        }
         ResponderEvent event;
         try {
             event = JSON.readValue(new String(json, StandardCharsets.UTF_8), ResponderEvent.class);

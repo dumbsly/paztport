@@ -3,13 +3,12 @@
 
 package org.paztport.spring.event;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.time.Duration;
 import java.util.Objects;
@@ -17,6 +16,7 @@ import java.util.UUID;
 import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import org.paztport.core.event.EventEnvelope;
+import org.paztport.core.event.ResponderEvent;
 import org.paztport.spring.internal.WholeExchange;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,12 +46,6 @@ import org.slf4j.LoggerFactory;
 public final class ResponderEventPublisher implements EventPublisher {
 
     private static final Logger log = LoggerFactory.getLogger(ResponderEventPublisher.class);
-    private static final ObjectMapper JSON = new ObjectMapper();
-
-    /** The event as the responder reads it: the verdict plus a timestamp and a unique id. */
-    private record Wire(String reason, String suspectSvc, String suspectInst, String rid, boolean audit,
-            long ts, String eventId) {
-    }
 
     private final EventPublisher logging = new LoggingEventPublisher();
     private final Supplier<HttpClient> http;
@@ -90,7 +84,7 @@ public final class ResponderEventPublisher implements EventPublisher {
             HttpRequest request = HttpRequest.newBuilder(URI.create(responderUrl + "/events"))
                     .header("Content-Type", "application/json")
                     .timeout(timeout)
-                    .POST(HttpRequest.BodyPublishers.ofByteArray(JSON.writeValueAsBytes(envelope(event))))
+                    .POST(HttpRequest.BodyPublishers.ofString(envelope(event).toJson(), StandardCharsets.UTF_8))
                     .build();
             int status = WholeExchange.send(http.get(), request, HttpResponse.BodyHandlers.discarding())
                     .statusCode();
@@ -107,13 +101,10 @@ public final class ResponderEventPublisher implements EventPublisher {
         return timeout;
     }
 
+    /** The verdict as the responder reads it, with the time it is sent and a fresh random id, signed. */
     EventEnvelope envelope(AttestationEvent event) {
-        Wire wire = new Wire(event.reason(), event.suspectSvc(), event.suspectInst(), event.rid(), event.audit(),
-                clock.getAsLong(), UUID.randomUUID().toString());
-        try {
-            return EventEnvelope.sign(signer, JSON.writeValueAsBytes(wire), key);
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to encode event", e);
-        }
+        ResponderEvent wire = new ResponderEvent(event.reason(), event.suspectSvc(), event.suspectInst(),
+                event.rid(), event.audit(), clock.getAsLong(), UUID.randomUUID().toString());
+        return EventEnvelope.sign(signer, wire.toJson().getBytes(StandardCharsets.UTF_8), key);
     }
 }

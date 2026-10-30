@@ -8,6 +8,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.internal.Json;
 
 /**
  * The signed wrapper around an event on its way to the responder. The signature
@@ -42,6 +43,14 @@ public record EventEnvelope(String signer, String payload, String sig) {
         } catch (IllegalArgumentException e) {
             return false;
         }
+    }
+
+    /**
+     * The wire form, {@code {signer, payload, sig}}, for the body sent to the responder. Nothing in it is
+     * canonicalised, since the signature covers the {@code payload} text and not this object.
+     */
+    public String toJson() {
+        return Json.writeText(this);
     }
 
     /** The event's JSON bytes, or null if the payload is not valid base64url. */

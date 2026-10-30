@@ -21,7 +21,9 @@
  * {@code ContentLabel.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}. {@code Chains.parse} returns
  * its failure as a reason rather than throwing, since reading a chain is the verifier's first check.
  * <li>A message judged as received has no reader. The session reply is one: its signature covers the form it
- * arrived in, so {@code Sessions.checkReply} takes its text or bytes, and the server only ever writes one.
+ * arrived in, so {@code Sessions.checkReply} takes its text or bytes, and the server only ever writes one. A
+ * responder event is another: {@code EventVerifier.accept} takes the body's text, and a sender writes it with
+ * {@code ResponderEvent.toJson} and {@code EventEnvelope.toJson}.
  * <li>The verifiers take the stamps, influence and proof as the JSON text received, and read each at the check
  * that needs it, so text that is not JSON is a rejection there like any other malformed input.
  * <li>{@link Jcs} canonicalises JSON text.

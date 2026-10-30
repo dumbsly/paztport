@@ -3,6 +3,8 @@
 
 package org.paztport.core.event;
 
+import org.paztport.core.internal.Json;
+
 /**
  * The rejection event payment sends to the responder, carried inside a signed
  * envelope. Mirrors the verifier's verdict; {@code ts} (epoch ms) and
@@ -10,4 +12,13 @@ package org.paztport.core.event;
  */
 public record ResponderEvent(
         String reason, String suspectSvc, String suspectInst, String rid, boolean audit, long ts, String eventId) {
+
+    /**
+     * The event's JSON, fields in the order the spec lists them, as the bytes {@link EventEnvelope#sign} signs.
+     * The responder reads back the bytes it was sent, so this need not be canonical, only one form every sender
+     * of this SDK writes.
+     */
+    public String toJson() {
+        return Json.writeText(this);
+    }
 }
