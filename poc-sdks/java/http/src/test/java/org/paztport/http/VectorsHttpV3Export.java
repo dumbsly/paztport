@@ -210,6 +210,8 @@ class VectorsHttpV3Export {
         responses.add(responseCase("replayed response", sent, okHeader, 200, RESPONSE_BODY, 2,
                 ReasonCode.REPLAY, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
+        // Placed before boundaryInfluence, so the cases recorded earlier keep their bytes, their last line included.
+        out.set("rules", VectorsHttpRules.build(out, v3));
 
         out.set("boundaryInfluence", boundaryInfluence());
 
@@ -349,6 +351,7 @@ class VectorsHttpV3Export {
             assertResponse(c, http, v3);
         }
         assertBoundaryInfluence(http.get("boundaryInfluence"));
+        VectorsHttpRules.assertAll(http.get("rules"), http, v3);
     }
 
     private static PublicKey publicKey(String name, JsonNode http, JsonNode v3) {
