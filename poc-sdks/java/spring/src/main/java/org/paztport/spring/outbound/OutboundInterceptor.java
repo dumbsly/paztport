@@ -50,7 +50,7 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     @Override
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
-        HttpCaller.Outbound sent = caller.stamp(request.getMethod().name(), request.getURI(), body);
+        HttpCaller.Outbound sent = caller.stampFromContext(request.getMethod().name(), request.getURI(), body);
         sent.headers().forEach(request.getHeaders()::set);
 
         ClientHttpResponse response = execution.execute(request, body);
@@ -67,7 +67,7 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
             throw e;
         }
         try {
-            caller.record(sent, buffered.getStatusCode().value(),
+            caller.recordToContext(sent, buffered.getStatusCode().value(),
                     buffered.getHeaders().getFirst(PaztportHeaders.RESPONSE), buffered.body);
         } catch (IOException | RuntimeException e) {
             buffered.close();

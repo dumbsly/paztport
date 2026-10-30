@@ -26,8 +26,8 @@ import org.slf4j.LoggerFactory;
 /**
  * A service's caller for v3 over HTTP, with no web framework: it stamps each call this service makes, and checks
  * each response against the chain it sent. A framework's adapter hands it the call as it will go on the wire, sets
- * the headers {@link #stamp} returns, sends it, reads the response whole, and hands that to {@link #record} before
- * the application sees it.
+ * the headers {@link #stampFromContext} returns, sends it, reads the response whole, and hands that to
+ * {@link #recordToContext} before the application sees it.
  *
  * <p>The stamp names the receiver by its policy name, which the spec requires and which is the deployment's to
  * configure, never the request's or the destination's to say. By default that name is the URI's host (Docker Compose
@@ -45,12 +45,13 @@ import org.slf4j.LoggerFactory;
  *
  * <p>The functions are {@link #stamp(String, URI, byte[], List, List)}, given the inbound chain and the influence
  * so far, and {@link #check}, which answers what a response contributes; they touch no thread-local, so another
- * binding, or another language, mirrors them. {@link #stamp(String, URI, byte[])} and {@link #record} are the blocking
+ * binding, or another language, mirrors them. {@link #stampFromContext} and {@link #recordToContext} are the blocking
  * Java binding of the same two, over {@link RequestContext}: inside a {@link RequestContext.Scope} the stamp commits
  * to the request's chain and influence, and what the response contributes is recorded there. Outside one (a
  * scheduled job, a startup runner, a control-plane handler) a call is still stamped, with no inbound chain and no
  * influence, and its response is still checked and traced, but nothing is recorded: there is no unit of work to
- * carry it, and a pooled thread would otherwise hand it to whatever ran next.
+ * carry it, and a pooled thread would otherwise hand it to whatever ran next. The two layers do not mix: a call the
+ * function stamped is checked by the function, whose caller carries what it answers.
  */
 public final class HttpCaller {
 
@@ -149,7 +150,7 @@ public final class HttpCaller {
 
     /**
      * A call, stamped: the headers to set on it, in order, and what was stamped, which {@link #check} and
-     * {@link #record} check its response against.
+     * {@link #recordToContext} check its response against.
      */
     public static final class Outbound {
 
@@ -215,7 +216,7 @@ public final class HttpCaller {
      * after the request's inbound chain and commits to its influence so far; outside one, with neither, and its
      * response will not be recorded.
      */
-    public Outbound stamp(String method, URI uri, byte[] body) {
+    public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
         boolean scoped = RequestContext.isOpen();
         return stamp(method, uri, body, scoped ? RequestContext.inboundChain() : null,
@@ -246,7 +247,7 @@ public final class HttpCaller {
      * Checks a response to {@code sent} against the chain that was sent, logs the result, and answers what it
      * contributes. This touches no thread-local.
      *
-     * @param sent the call, as {@link #stamp} stamped it
+     * @param sent the call, as either stamp stamped it
      * @param status the response status
      * @param xPathResponse the {@code X-Path-Response} header, or null when none came
      * @param body the response body, whole
@@ -278,9 +279,22 @@ public final class HttpCaller {
      * The blocking binding of {@link #check}: checks the response and, when the call was stamped inside a scope,
      * adds what it contributes to the request's influence.
      *
+     * <p>A call not stamped from the context, by the function or before the scope opened, is refused while a scope
+     * is open, before it is checked, traced or recorded. The binding cannot tell whose work such a call was:
+     * recording what its response adds might credit the wrong request, and dropping it, as an unscoped call's is,
+     * would silently lose it, the {@code local-untrusted} entry an unchecked response must leave included. Refusing
+     * before the check also leaves the response's nonce unspent, so {@link #check} can still take it. Outside a scope
+     * there is no request to credit, so such a call is checked and traced, and nothing is recorded.
+     *
      * @return the check of the response's attestation, or null where this caller has no verifier
+     * @throws IllegalStateException when a scope is open and {@code sent} was not stamped from it
      */
-    public HttpV3.ResponseCheck record(Outbound sent, int status, String xPathResponse, byte[] body) {
+    public HttpV3.ResponseCheck recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
+        if (!sent.scoped && RequestContext.isOpen()) {
+            throw new IllegalStateException("this call was not stamped from the request's context, so its response"
+                    + " cannot be recorded to it: stamp it with stampFromContext, or check its response with check"
+                    + " and carry what that answers");
+        }
         Received received = check(sent, status, xPathResponse, body);
         // Unscoped, there is nothing to carry it to: recording would leak it into whatever this thread runs next.
         if (sent.scoped) {

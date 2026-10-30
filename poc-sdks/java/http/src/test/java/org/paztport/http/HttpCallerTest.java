@@ -3,6 +3,7 @@
 
 package org.paztport.http;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -132,7 +133,7 @@ class HttpCallerTest {
 
     @Test
     void stampsForTheUriHostAndAttachesTheProof() {
-        HttpCaller.Outbound sent = gatewayCaller().stamp("POST", ORDERS, utf8("{}"));
+        HttpCaller.Outbound sent = gatewayCaller().stampFromContext("POST", ORDERS, utf8("{}"));
 
         List<StampV3> chain = chainOf(sent.headers());
         assertEquals(1, chain.size());
@@ -154,7 +155,7 @@ class HttpCallerTest {
             RequestContext.setInboundChain(received.chain());
             RequestContext.addInfluence(MINE, WEB);
 
-            sent = ordersCaller.stamp("POST", URI.create("http://payment:8080/pay"), utf8("{\"amount\":1}"));
+            sent = ordersCaller.stampFromContext("POST", URI.create("http://payment:8080/pay"), utf8("{\"amount\":1}"));
         }
 
         List<StampV3> chain = chainOf(sent.headers());
@@ -195,13 +196,13 @@ class HttpCallerTest {
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.addInfluence(WEB);
             assertEquals(List.of(PaztportHeaders.CHAIN, PaztportHeaders.PROOF, PaztportHeaders.INFLUENCE),
-                    List.copyOf(gatewayCaller().stamp("GET", ORDERS, NO_BODY).headers().keySet()));
+                    List.copyOf(gatewayCaller().stampFromContext("GET", ORDERS, NO_BODY).headers().keySet()));
         }
     }
 
     @Test
     void noInfluenceSendsNoInfluenceHeader() {
-        HttpCaller.Outbound sent = gatewayCaller().stamp("POST", ORDERS, utf8("{}"));
+        HttpCaller.Outbound sent = gatewayCaller().stampFromContext("POST", ORDERS, utf8("{}"));
 
         assertNull(sent.headers().get(PaztportHeaders.INFLUENCE));
         assertEquals(Set.of(PaztportHeaders.CHAIN, PaztportHeaders.PROOF), sent.headers().keySet());
@@ -210,14 +211,15 @@ class HttpCallerTest {
     @Test
     void omitsTheProofHeaderWhenNoneIsHeldForTheRoute() {
         // gateway -> payment is not a route gateway holds a proof for.
-        HttpCaller.Outbound sent = gatewayCaller().stamp("POST", URI.create("http://payment:8080/pay"), utf8("{}"));
+        HttpCaller.Outbound sent = gatewayCaller().stampFromContext("POST", URI.create("http://payment:8080/pay"),
+                utf8("{}"));
 
         assertNull(sent.headers().get(PaztportHeaders.PROOF));
     }
 
     @Test
     void bindsTheRawPathAndQueryAsSent() {
-        HttpCaller.Outbound sent = gatewayCaller().stamp("GET",
+        HttpCaller.Outbound sent = gatewayCaller().stampFromContext("GET",
                 URI.create("http://search:8080/search?q=caf%C3%A9%20x"), NO_BODY);
 
         StampV3 stamp = chainOf(sent.headers()).get(0);
@@ -232,7 +234,7 @@ class HttpCallerTest {
         HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
                 .receivers(Map.of("orders-internal", "orders")).build();
 
-        HttpCaller.Outbound sent = caller.stamp("GET", URI.create("https://orders-internal/x"), NO_BODY);
+        HttpCaller.Outbound sent = caller.stampFromContext("GET", URI.create("https://orders-internal/x"), NO_BODY);
 
         assertEquals("orders", sent.sent().chain().get(0).rcv());
         assertEquals("orders", sent.receiver());
@@ -242,7 +244,7 @@ class HttpCallerTest {
     void withNoMappingTheHostIsTheName() {
         HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).build();
 
-        HttpCaller.Outbound sent = caller.stamp("GET", URI.create("https://orders-internal/x"), NO_BODY);
+        HttpCaller.Outbound sent = caller.stampFromContext("GET", URI.create("https://orders-internal/x"), NO_BODY);
 
         assertEquals("orders-internal", sent.sent().chain().get(0).rcv());
     }
@@ -264,7 +266,8 @@ class HttpCallerTest {
         ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
         HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).bundle(policy.bundles().get("gateway"))
                 .verifier(gatewayVerifier()).receivers(Map.of("orders-internal", "orders")).build();
-        HttpCaller.Outbound sent = caller.stamp("GET", URI.create("https://orders-internal/orders"), NO_BODY);
+        HttpCaller.Outbound sent = caller.stampFromContext("GET", URI.create("https://orders-internal/orders"),
+                NO_BODY);
 
         HttpCaller.Received received = caller.check(sent, 200, attestation(sent, "hello", List.of(web)),
                 utf8("hello"));
@@ -297,8 +300,8 @@ class HttpCallerTest {
         List<InfluenceEntry> recorded;
         HttpV3.ResponseCheck check;
         try (RequestContext.Scope scope = RequestContext.open()) {
-            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY);
-            check = caller.record(sent, 200, attestation(sent, "hello", List.of(mine, web)), utf8("hello"));
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            check = caller.recordToContext(sent, 200, attestation(sent, "hello", List.of(mine, web)), utf8("hello"));
             recorded = RequestContext.influence();
         }
 
@@ -315,8 +318,8 @@ class HttpCallerTest {
         HttpCaller caller = verifyingCaller();
         List<InfluenceEntry> recorded;
         try (RequestContext.Scope scope = RequestContext.open()) {
-            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY);
-            caller.record(sent, 200,
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            caller.recordToContext(sent, 200,
                     attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))),
                     utf8("hellx"));
             recorded = RequestContext.influence();
@@ -335,7 +338,7 @@ class HttpCallerTest {
         HttpCaller caller = verifyingCaller();
         List<InfluenceEntry> recorded;
         try (RequestContext.Scope scope = RequestContext.open()) {
-            caller.record(caller.stamp("GET", ORDERS, NO_BODY), 500, null, utf8("boom"));
+            caller.recordToContext(caller.stampFromContext("GET", ORDERS, NO_BODY), 500, null, utf8("boom"));
             recorded = RequestContext.influence();
         }
 
@@ -353,8 +356,8 @@ class HttpCallerTest {
         List<InfluenceEntry> recorded;
         HttpV3.ResponseCheck check;
         try (RequestContext.Scope scope = RequestContext.open()) {
-            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY);
-            check = caller.record(sent, 200,
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+            check = caller.recordToContext(sent, 200,
                     attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PUBLIC, null))),
                     utf8("hello"));
             recorded = RequestContext.influence();
@@ -379,10 +382,10 @@ class HttpCallerTest {
         RequestContext.addInfluence(MINE); // written by unscoped code; must not be committed either
 
         for (int i = 0; i < 2; i++) {
-            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY);
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
             assertNull(sent.headers().get(PaztportHeaders.INFLUENCE));
             assertEquals("", chainOf(sent.headers()).get(0).infl());
-            caller.record(sent, 200,
+            caller.recordToContext(sent, 200,
                     attestation(sent, "hello", List.of(ContentLabel.fresh(InfluenceClass.PRIVATE, "alice"))),
                     utf8("hello"));
         }
@@ -398,7 +401,7 @@ class HttpCallerTest {
     void checkAnswersTheEntriesAndRecordsNothing() {
         HttpCaller caller = verifyingCaller();
         try (RequestContext.Scope scope = RequestContext.open()) {
-            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY);
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
 
             HttpCaller.Received received = caller.check(sent, 502, null, utf8("bad gateway"));
 
@@ -407,5 +410,60 @@ class HttpCallerTest {
                     HttpV3.resultHash(502, utf8("bad gateway")), null, null)), received.influence());
             assertEquals(List.of(), RequestContext.influence(), "nothing is recorded by the function");
         }
+    }
+
+    // --- The two layers do not mix ---
+
+    // Inside a scope the binding cannot tell whose work a call the function stamped was, so it refuses it rather
+    // than drop what its response adds, before the check, which leaves the response's nonce for check to take.
+    @Test
+    void aCallNotStampedFromTheContextIsRefusedInsideAScope() {
+        ContentLabel web = ContentLabel.fresh(InfluenceClass.THIRD_PARTY, null);
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound early = caller.stampFromContext("GET", ORDERS, NO_BODY); // before the scope opened
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, List.of());
+            String attested = attestation(sent, "hello", List.of(web));
+
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> caller.recordToContext(sent, 200, attested, utf8("hello")));
+            assertThrows(IllegalStateException.class,
+                    () -> caller.recordToContext(early, 500, null, utf8("boom")));
+
+            assertTrue(e.getMessage().contains("not stamped from the request's context"), e.getMessage());
+            assertTrue(e.getMessage().contains("check"), e.getMessage());
+            assertEquals(List.of(), traceLines(), "refused before anything is checked or logged");
+            assertEquals(List.of(), RequestContext.influence(), "nor recorded");
+            assertEquals(ReasonCode.OK, caller.check(sent, 200, attested, utf8("hello")).check().result().reason(),
+                    "the response's nonce is still unspent");
+        }
+    }
+
+    @Test
+    void aCallStampedFromTheContextIsRecordedToIt() {
+        HttpCaller caller = verifyingCaller();
+        try (RequestContext.Scope scope = RequestContext.open()) {
+            HttpCaller.Outbound sent = caller.stampFromContext("GET", ORDERS, NO_BODY);
+
+            assertDoesNotThrow(() -> caller.recordToContext(sent, 502, null, utf8("bad gateway")));
+
+            assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
+                    HttpV3.resultHash(502, utf8("bad gateway")), null, null)), RequestContext.influence());
+        }
+    }
+
+    @Test
+    void outsideAScopeACallTheFunctionStampedIsCheckedAndNotRecorded() {
+        HttpCaller caller = verifyingCaller();
+        HttpCaller.Outbound sent = caller.stamp("GET", ORDERS, NO_BODY, null, List.of());
+
+        HttpV3.ResponseCheck check = assertDoesNotThrow(
+                () -> caller.recordToContext(sent, 502, null, utf8("bad gateway")));
+
+        assertEquals(ReasonCode.CHAIN_MISSING, check.result().reason());
+        assertEquals(List.of(), RequestContext.influence());
+        assertEquals(List.of(
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),
+                traceLines());
     }
 }

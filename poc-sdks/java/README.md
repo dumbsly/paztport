@@ -106,9 +106,13 @@ xPathResponse, body)` checks its response against the chain that was sent and
 answers what it adds to the request's influence: its labels, each with `src`
 `http:<target>`, when it verifies, and otherwise one `local-untrusted` entry. It
 names the receiver by its policy name: the URI's host, unless its builder's
-`receivers(Map)` maps that host to another name. `stamp(method, uri, body)` and
-`record(...)` are the same two in the blocking binding below, which read and add
-to the request's context, and record nothing outside a scope.
+`receivers(Map)` maps that host to another name. `stampFromContext(method, uri,
+body)` and `recordToContext(...)` are the same two in the blocking binding below,
+which read and add to the request's context, and record nothing outside a scope.
+The layers do not mix: inside a scope, `recordToContext` refuses a call that was
+not stamped from the context (`IllegalStateException`, before anything is checked
+or logged) rather than silently drop what its response adds, so a call the
+function stamped is checked with `check`.
 
 `BoundaryClient` is the egress's side: `BoundaryClient.builder()` takes this
 service's stamper, proofs, root, keyring and policy key, the partner's entry
