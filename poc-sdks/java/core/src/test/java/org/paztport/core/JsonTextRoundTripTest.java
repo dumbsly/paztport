@@ -36,10 +36,10 @@ import org.paztport.core.stamp.StampV3;
  * the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
- * malformed inputs. The rest are normalised: an extra field dropped, or a number written {@code 1798761600000.0}
- * read by value and written back as plain digits; writing those back again changes nothing. A whole session reply
- * has no value type, since the client checks it as received, so its parts (the root and certificate) are read
- * instead.
+ * malformed inputs. The rest are normalised: an extra field dropped, or a number written {@code 1798761600000.0} read
+ * by value and written back as plain digits; writing those back again changes nothing. Each object is read from its own
+ * text in the file, so two that differ only in how they are written are two cases. A whole session reply has no value
+ * type, since the client checks it as received, so its parts (the root and certificate) are read instead.
  */
 class JsonTextRoundTripTest {
 
@@ -65,8 +65,8 @@ class JsonTextRoundTripTest {
             "root/notAfter written 1798761600000.0");
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
-    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 24, Kind.PROOF, 5,
-            Kind.STAMP, 18, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 10);
+    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 29, Kind.PROOF, 5,
+            Kind.STAMP, 18, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
@@ -186,7 +186,7 @@ class JsonTextRoundTripTest {
         if (node == null || node.isMissingNode()) {
             return;
         }
-        String json = node.toString();
+        String json = Vectors.json(node);
         if (seen.add(kind + " " + json) && out.put(name, new Case(name, kind, json)) != null) {
             throw new IllegalStateException("two objects named " + name);
         }
@@ -199,7 +199,7 @@ class JsonTextRoundTripTest {
         ROOT(json -> SignedRoot.parse(json).toJson()),
         PROOF(json -> MerkleProof.parse(json).toJson()),
         STAMP(json -> {
-            ParsedChain parsed = Chains.parse(MAPPER.createArrayNode().add(tree(json)).toString(), false);
+            ParsedChain parsed = Chains.parse("[" + json + "]", false);
             if (!parsed.ok()) {
                 throw new IllegalArgumentException(parsed.failure().name());
             }
