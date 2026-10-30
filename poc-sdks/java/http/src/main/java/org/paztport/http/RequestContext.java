@@ -125,6 +125,8 @@ public final class RequestContext {
      *
      * <p>Close what this returns, with try-with-resources, once the request is answered, whatever the answer: the
      * scope ends then. If the receiver throws, the scope is ended before the exception goes on.
+     *
+     * <p>Only a framework's adapter calls this, once per request, before the handler runs.
      */
     public static Entered<Accepted> accept(HttpReceiver receiver, InboundRequest request, Peer peer,
             VerificationMode mode) {
@@ -143,7 +145,8 @@ public final class RequestContext {
     /**
      * {@link #accept(HttpReceiver, InboundRequest, Peer, VerificationMode)} for a partner's call: the scope is opened
      * first in the same way, and then holds, in an attested session, the chain and influence that verified there,
-     * and in an unsafe one nothing, whatever the request carried.
+     * and in an unsafe one nothing, whatever the request carried. Only a framework's adapter calls this, once per
+     * call.
      */
     public static Entered<PartnerAccepted> accept(PartnerReceiver receiver, InboundRequest request, PeerCert peer) {
         return entered(() -> {
