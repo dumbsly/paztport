@@ -58,8 +58,8 @@ has one, the authenticated peer.
   canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
-  `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and
-  `EventVerifier` for events sent to a responder, with `AttestationEvent`, the verdict
+  `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks before the policy owner signs), `Routes`,
+  and `EventVerifier` for events sent to a responder, with `AttestationEvent`, the verdict
   before it is signed. A service's own files are read by `KeyringFile.load`,
   `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin` and
   `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say what it
@@ -493,8 +493,10 @@ keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7).
   files are renewed into the new form all the same.
 
 Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
-not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Any of these
-failing is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
+not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Rebuilding also
+refuses a route node the [spec](../spec/wire.md#routes) forbids (empty, `.`, `..`, or holding `/`, `\`, `|` or a
+lone surrogate). The checks are core's `PolicyOwner` and `Routes`;
+the tool only reads arguments and files. Any of these failing is refused, exit 2, with nothing written. The keyring is written in place (truncated and rewritten, never
 renamed over), so it can be a single file mounted writable into the tool. It is written first, so a keyring
 the tool cannot write stops the run with `policy-tool: cannot write <file>: <reason>`, the file system's reason
 (`Read-only file system`, `Permission denied`, `No space left on device`), and nothing written. I/O errors like
