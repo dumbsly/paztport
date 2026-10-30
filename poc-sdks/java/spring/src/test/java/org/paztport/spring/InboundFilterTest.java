@@ -458,18 +458,42 @@ class InboundFilterTest {
         }
     }
 
+    // Whatever resolves a dot segment could take it off the control plane, so a path holding one is verified.
+    @Test
+    void controlPlanePathsWithADotSegmentAreVerified() {
+        for (String path : List.of("/admin/../pay", "/admin/%2e%2e/pay", "/admin/%2E%2e/pay", "/admin/.%2E/pay",
+                "/admin/..;/pay", "/admin/..;x=1/pay", "/actuator/../pay", "/debug/./../pay", "/admin/.", "/admin/..",
+                "/admin/%2e", "/admin/.;x/mode")) {
+            assertFalse(InboundFilter.controlPlane(path), path);
+        }
+    }
+
+    // Only the plain spelling is the control plane: an encoded, doubled or extended first segment is verified.
+    @Test
+    void otherSpellingsOfTheControlPlaneAreVerified() {
+        for (String path : List.of("/%61dmin", "/%61dmin/mode", "//admin", "//admin/mode", "/admin.", "/admin;x",
+                "/ADMIN/mode")) {
+            assertFalse(InboundFilter.controlPlane(path), path);
+        }
+        // A segment that only holds dots among other text is a name, not a dot segment.
+        assertTrue(InboundFilter.controlPlane("/admin/.well-known"));
+        assertTrue(InboundFilter.controlPlane("/actuator/health..json"));
+    }
+
     @Test
     void aDataPathThatBeginsLikeTheControlPlaneIsRefusedWithoutAChain() throws Exception {
-        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/administration");
-        request.setContent(new byte[0]);
-        MockHttpServletResponse response = new MockHttpServletResponse();
-        MockFilterChain chain = new MockFilterChain();
+        for (String path : List.of("/administration", "/admin/../pay")) {
+            MockHttpServletRequest request = new MockHttpServletRequest("POST", path);
+            request.setContent(new byte[0]);
+            MockHttpServletResponse response = new MockHttpServletResponse();
+            MockFilterChain chain = new MockFilterChain();
 
-        filter(VerificationMode.ENFORCE, null).doFilter(request, response, chain);
+            filter(VerificationMode.ENFORCE, null).doFilter(request, response, chain);
 
-        assertEquals(403, response.getStatus());
-        assertEquals("{\"reason\":\"CHAIN_MISSING\"}", response.getContentAsString());
-        assertNull(chain.getRequest(), "refused before the handler");
+            assertEquals(403, response.getStatus(), path);
+            assertEquals("{\"reason\":\"CHAIN_MISSING\"}", response.getContentAsString(), path);
+            assertNull(chain.getRequest(), path + ": refused before the handler");
+        }
     }
 
     @Test

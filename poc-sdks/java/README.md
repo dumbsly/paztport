@@ -123,11 +123,16 @@ the SDK as the bytes or text it arrived in, as the starter's
   that is kept: the peer's service, and no instance.
 - **Unverified paths.** Neither the inbound filter nor the partner filter runs on
   the control plane: a request whose raw request URI is `/admin`, `/debug` or
-  `/actuator`, or starts with one of them followed by `/`. The match is by whole
-  segment, so `/admin/mode` and `/actuator/health` are skipped but
-  `/administration` and `/debugger` are verified; a path parameter on the segment
-  (`/admin;x`) is verified too, and a context path is part of the URI, so under one
-  nothing is skipped. They are skipped because they are operator endpoints, not
+  `/actuator`, or starts with one of them followed by `/`, and has no dot segment.
+  The match is by whole segment, so `/admin/mode` and `/actuator/health` are
+  skipped but `/administration` and `/debugger` are verified. A dot segment is any
+  segment that is `.` or `..` once a `;` parameter is dropped and `%2e`, in either
+  case, is read as `.`: `/admin/../pay`, `/admin/%2e%2e/pay` and `/admin/..;/pay`
+  are all verified, since whatever resolves the dots could hand the request to a
+  data-path handler. Only the plain spelling is skipped: `/%61dmin/mode`,
+  `//admin/mode`, `/admin;x`, `/admin.` and `/ADMIN/mode` are all verified, as is
+  everything under a context path, which is part of the URI. So an operator must
+  call these endpoints by their plain path. They are skipped because they are operator endpoints, not
   steps on a request's path: nothing calls them with a chain, so verifying them
   would refuse every one in `enforce`. A handler there runs with no request scope:
   no influence, no verified chain, no attestation, and at a partner it counts as

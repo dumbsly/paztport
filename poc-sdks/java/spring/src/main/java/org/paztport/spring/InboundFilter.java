@@ -149,17 +149,36 @@ public final class InboundFilter extends OncePerRequestFilter {
 
     /**
      * Whether {@code path}, the raw request URI, is in the control plane: one of {@link #CONTROL_PLANE} as a whole
-     * first segment, alone or followed by {@code /}. Matched by segment, not by text, so that a data-path handler
-     * whose name only begins the same way, such as {@code /administration}, is still verified. Anything else is
-     * verified, including a segment with a path parameter ({@code /admin;x}), which fails closed.
+     * first segment, alone or followed by {@code /}, with no dot segment anywhere in it. Matched by segment, not by
+     * text, so that a data-path handler whose name only begins the same way, such as {@code /administration}, is
+     * still verified. A dot segment ({@link #dotSegment}) is never skipped, since whatever resolves it, the container
+     * or a handler, could take {@code /admin/../pay} to a data-path handler that would then run unverified. Anything
+     * else is verified, an encoded or doubled first segment ({@code /%61dmin}, {@code //admin}) and one with a path
+     * parameter ({@code /admin;x}) included, which fails closed.
      */
     static boolean controlPlane(String path) {
-        for (String segment : CONTROL_PLANE) {
-            if (path.equals(segment) || path.startsWith(segment + "/")) {
+        for (String prefix : CONTROL_PLANE) {
+            if (path.equals(prefix) || path.startsWith(prefix + "/")) {
+                for (String segment : path.split("/", -1)) {
+                    if (dotSegment(segment)) {
+                        return false;
+                    }
+                }
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Whether a raw path segment is {@code .} or {@code ..}: after dropping any {@code ;} parameter, and with each
+     * {@code %2e}, in either case, read as the dot it encodes, since a container may decode either before it
+     * resolves the path.
+     */
+    static boolean dotSegment(String segment) {
+        int semicolon = segment.indexOf(';');
+        String name = (semicolon < 0 ? segment : segment.substring(0, semicolon)).replaceAll("(?i)%2e", ".");
+        return name.equals(".") || name.equals("..");
     }
 
     /**
