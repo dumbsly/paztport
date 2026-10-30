@@ -128,10 +128,11 @@ labelled `application/json`, so it is written exactly as it stands; a body goes 
 the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
 hands a session request's body to `HttpSessions.serve`.
 
-- **The inbound filter** caches the body, hands the request to `HttpReceiver`, and
-  serves it in the `RequestContext` scope the receiver's result enters, which keeps
-  the received chain and influence there for the outbound calls. Where `paztport.verify=true` it verifies the request in the current mode;
-  such a service also needs a keyring, a root and the policy pin
+- **The inbound filter** caches the body, runs `HttpReceiver` through
+  `RequestContext.accept`, and serves the request in the scope that opens, which
+  keeps the received chain and influence there for the outbound calls. Where
+  `paztport.verify=true` it verifies the request in the current mode; such a
+  service also needs a keyring, a root and the policy pin
   (`paztport.policy-key-path`), or it refuses to start. Influence it can't read is
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
   refused the request first. An origin (`paztport.origin=true`) starts every
@@ -208,9 +209,16 @@ hands a session request's body to `HttpSessions.serve`.
   `max(15 s, 2 × paztport.max-age-ms)`: never sooner than twice the call window,
   which the verifier requires, and never so late that it grows without end.
 - **The context scope.** Influence is recorded only inside a `RequestContext`
-  scope. The filter enters one per request; background work, such as a scheduled
+  scope. The filter opens one per request; background work, such as a scheduled
   job, can open its own around one unit of work. Outside one, calls are still
-  stamped and responses still checked, but nothing is carried.
+  stamped and responses still checked, but nothing is carried. A scope that other
+  code opened on a request thread and never closed is ended when the next request
+  arrives there, refused or not, with a warning from the logger
+  `org.paztport.http.RequestContext`; an answer whose rid or labels the response
+  binding cannot carry is served unattested, with a warning from
+  `org.paztport.http.HttpReceiver`. Both used to come from
+  `org.paztport.spring.InboundFilter`, so an operator who filters logs by logger
+  name should follow them there.
 - **Mutual TLS.** `paztport.tls-bundle` names the Spring Boot SSL bundle the
   service presents on its calls and its events. Both go out on one
   `PooledTlsClient` per application, a JDK `HttpClient` speaking HTTP/1.1 that
