@@ -14,6 +14,10 @@
     <name>Paztport HTTP</name>
     <description>v3 over HTTP, no web framework: codecs, receivers, session registry, request context.</description>
 
+    <properties>
+        <test.logback>${project.basedir}/src/test/logback/logback-test.xml</test.logback>
+    </properties>
+
     <dependencies>
         <dependency>
             <groupId>org.paztport</groupId>
@@ -60,6 +64,18 @@
 
     <build>
         <plugins>
+            <!-- The tests' logback configuration is named here, not put on the test class path: in a reactor
+                 build that stops short of packaging, the starter's tests see this module's test classes
+                 directory whole, in place of the test jar, and logback would find two logback-test.xml files. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <logback.configurationFile>${test.logback}</logback.configurationFile>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
             <!-- A stable module name for module-path users, from the root package. There is no
                  module-info.java: Spring applications run on the class path. -->
             <plugin>
