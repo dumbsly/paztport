@@ -88,7 +88,9 @@ endpoint, the egress, what a response adds to the caller's influence, refusals a
 replayed through functions that take a request as it arrived, with no web framework, so nothing in the file is a
 framework's choice. Its `about` says how its keys, material, trees and handshake nonces are derived, so the file
 can be rebuilt byte for byte. Bodies and certificates are hex, headers are their values as sent, and every
-expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`.
+expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`. The functions that answer return the status and
+the body only, so the file does not carry the header: every refusal, and every `refusals` and `boundaryRefusals` case
+among them, is sent with `Content-Type: application/json` and no parameters ([verification.md](verification.md#modes-and-refusals)).
 
 | Kind | Shape | What it pins |
 |---|---|---|
