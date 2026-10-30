@@ -3,7 +3,6 @@
 
 package org.paztport.spring;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.AsyncEvent;
@@ -313,9 +312,9 @@ public final class InboundFilter extends OncePerRequestFilter {
     }
 
     /** The entries, or null when the header could not be read as influence. */
-    static List<InfluenceEntry> parseInfluence(JsonNode node) {
+    static List<InfluenceEntry> parseInfluence(String json) {
         try {
-            return Influence.parse(node);
+            return Influence.parse(json);
         } catch (IllegalArgumentException e) {
             return null;
         }

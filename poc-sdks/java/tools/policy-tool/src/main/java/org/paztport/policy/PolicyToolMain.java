@@ -114,7 +114,7 @@ public final class PolicyToolMain {
             MAPPER.writeValue(outDir.resolve("proofs-" + bundle.service() + ".json").toFile(), bundle);
         }
         if (cert != null) {
-            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), cert.toJson());
+            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), MAPPER.readTree(cert.toJson()));
         }
     }
 
@@ -153,7 +153,7 @@ public final class PolicyToolMain {
         writeKeyringInPlace(keyringFile, ring);
         MAPPER.writeValue(rootFile.toFile(), renewed);
         if (cert != null) {
-            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), cert.toJson());
+            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), MAPPER.readTree(cert.toJson()));
         }
     }
 

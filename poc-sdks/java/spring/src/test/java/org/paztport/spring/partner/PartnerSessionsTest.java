@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.security.KeyPair;
 import java.util.ArrayList;
@@ -129,18 +130,18 @@ class PartnerSessionsTest {
     // Forged: the same reply passed off as the policy-key form, its keyring signature and certificate stripped.
     // It is the entry key's signature, so it fails under the pin.
     @Test
-    void replyIsSignedByTheEntryKey() {
+    void replyIsSignedByTheEntryKey() throws Exception {
         SessionRequest req = request(shop, shop.root());
         SessionReply reply = partner.open(req, SHOP_CA, "orders");
 
         assertEquals(psp.keyring().sig(), reply.serverKeyringSig());
         assertEquals(psp.cert(), reply.serverReplyCert());
         assertEquals(ReplyCheck.ATTESTED, check(reply, req));
-        ObjectNode stripped = reply.toJson();
+        ObjectNode stripped = (ObjectNode) new ObjectMapper().readTree(reply.toJson());
         stripped.remove("serverKeyringSig");
         stripped.remove("serverReplyCert");
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(stripped, req, psp.pin(), "psp", System.currentTimeMillis()));
+                Sessions.checkReply(stripped.toString(), req, psp.pin(), "psp", System.currentTimeMillis()));
     }
 
     // A certificate for another service, or for a key the keyring does not hold for this one, would sign replies

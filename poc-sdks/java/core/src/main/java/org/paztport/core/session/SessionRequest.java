@@ -6,6 +6,7 @@ package org.paztport.core.session;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Map;
+import org.paztport.core.internal.Json;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
@@ -53,7 +54,11 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
      * The wire form; an absent keyring signature stays absent, and {@code clientKeyringNotAfter} is written only
      * for a new-form keyring.
      */
-    public ObjectNode toJson() {
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.set("clientRoot", Sessions.rootJson(clientRoot));
         o.put("clientPolicyKey", clientPolicyKey);

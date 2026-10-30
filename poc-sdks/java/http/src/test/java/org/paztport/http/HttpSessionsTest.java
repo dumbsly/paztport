@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.Map;
@@ -35,9 +34,13 @@ class HttpSessionsTest {
                         NOT_AFTER, policy.getPrivate()),
                 pin, KeyringFile.sign(ring, pin, NOT_AFTER, policy.getPrivate()), Sessions.newNonce());
 
-        SessionRequest back = HttpSessions.parseRequest(new ObjectMapper().writeValueAsBytes(req.toJson()));
+        SessionRequest back = HttpSessions.parseRequest(req.toJson().getBytes(StandardCharsets.UTF_8));
 
         assertEquals(req, back);
+        // A body is read in the encoding its first bytes show, as it always has been: UTF-16, or UTF-8 behind a
+        // byte order mark, reads as the same request.
+        assertEquals(req, HttpSessions.parseRequest(req.toJson().getBytes(StandardCharsets.UTF_16BE)));
+        assertEquals(req, HttpSessions.parseRequest(("\uFEFF" + req.toJson()).getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test

@@ -12,8 +12,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.JcsWriter;
+import org.paztport.core.internal.Json;
 
 /** Parsing, normalising and committing influence entries, the same way in every SDK. */
 public final class Influence {
@@ -32,8 +33,19 @@ public final class Influence {
     private Influence() {
     }
 
-    /** Throws unless the node is an array of well-formed entries; unknown fields are dropped. */
-    public static List<InfluenceEntry> parse(JsonNode node) {
+    /**
+     * Reads the wire form of an influence list. Throws {@link IllegalArgumentException} unless {@code json} is an
+     * array of well-formed entries; unknown fields are dropped.
+     */
+    public static List<InfluenceEntry> parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("influence must be an array");
+        }
+        return fromTree(Json.tree(json));
+    }
+
+    /** {@link #parse(String)} over a tree already read, as an opening's originals are. */
+    static List<InfluenceEntry> fromTree(JsonNode node) {
         if (node == null || !node.isArray()) {
             throw new IllegalArgumentException("influence must be an array");
         }
@@ -83,10 +95,15 @@ public final class Influence {
         return new ArrayList<>(new LinkedHashSet<>(sorted));
     }
 
-    public static ArrayNode toJson(List<InfluenceEntry> entries) {
+    /** The wire form of {@code entries}, in the order given, each as {@link InfluenceEntry#toJson()} writes it. */
+    public static String toJson(List<InfluenceEntry> entries) {
+        return Json.text(tree(entries));
+    }
+
+    static ArrayNode tree(List<InfluenceEntry> entries) {
         ArrayNode a = JsonNodeFactory.instance.arrayNode();
         for (InfluenceEntry e : entries) {
-            a.add(e.toJson());
+            a.add(e.tree());
         }
         return a;
     }
@@ -96,6 +113,6 @@ public final class Influence {
         if (entries.isEmpty()) {
             return "";
         }
-        return Base64Url.encode(Crypto.sha256(Jcs.bytes(toJson(normalise(entries)))));
+        return Base64Url.encode(Crypto.sha256(JcsWriter.bytes(tree(normalise(entries)))));
     }
 }

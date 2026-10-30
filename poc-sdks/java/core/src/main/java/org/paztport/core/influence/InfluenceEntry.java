@@ -6,6 +6,7 @@ package org.paztport.core.influence;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.Json;
 
 /**
  * One piece of context that shaped an agent's output. {@code cid} and {@code owner} are null when absent; an
@@ -28,7 +29,12 @@ public record InfluenceEntry(InfluenceClass cls, String src, String h, String ci
         }
     }
 
-    public ObjectNode toJson() {
+    /** The wire form: {@code {cls, src, h, cid?, owner?}}, with an absent field left out. */
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.put("cls", cls.wire());
         o.put("src", src);

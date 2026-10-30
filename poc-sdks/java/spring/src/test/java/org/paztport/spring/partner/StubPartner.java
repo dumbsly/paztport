@@ -221,7 +221,7 @@ final class StubPartner implements AutoCloseable {
                     send(exchange, failure, "");
                     return;
                 }
-                send(exchange, 200, reply(req).toJson().toString());
+                send(exchange, 200, reply(req).toJson());
                 return;
             }
             SilentPeer.Stall stall;

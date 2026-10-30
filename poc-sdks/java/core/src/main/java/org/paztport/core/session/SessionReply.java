@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import java.util.Map;
+import org.paztport.core.internal.Json;
 import org.paztport.core.policy.SignedRoot;
 
 /**
@@ -37,7 +38,11 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
      * The wire form: a null root is JSON null, and {@code serverKeyringSig}, {@code serverKeyringNotAfter},
      * {@code serverReplyCert} and {@code sig} are each left out while null.
      */
-    public ObjectNode toJson() {
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.set("serverRoot", Sessions.rootJson(serverRoot));
         o.put("serverPolicyKey", serverPolicyKey);
@@ -50,7 +55,7 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
             o.put("serverKeyringNotAfter", serverKeyringNotAfter);
         }
         if (serverReplyCert != null) {
-            o.set("serverReplyCert", serverReplyCert.toJson());
+            o.set("serverReplyCert", serverReplyCert.tree());
         }
         o.put("nonce", nonce);
         o.put("sess", sess);

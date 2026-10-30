@@ -3,8 +3,6 @@
 
 package org.paztport.core.offline;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -39,7 +37,7 @@ import org.paztport.core.verify.VerifyResult;
  */
 public final class OfflineVerifier {
 
-    private static final JsonNode NO_INFLUENCE = JsonNodeFactory.instance.arrayNode();
+    private static final String NO_INFLUENCE = "[]";
 
     private OfflineVerifier() {
     }

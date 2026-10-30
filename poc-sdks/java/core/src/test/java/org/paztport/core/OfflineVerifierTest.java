@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.TextNode;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
@@ -44,7 +43,7 @@ class OfflineVerifierTest {
                 runMax, callMax);
     }
 
-    private static OfflineInput with(OfflineInput i, JsonNode stamps, RecordedTimes t, String prompt, String nonce) {
+    private static OfflineInput with(OfflineInput i, String stamps, RecordedTimes t, String prompt, String nonce) {
         return new OfflineInput(stamps, i.expectedBind(), i.influence(), i.proof(), i.receiver(),
                 i.receiverInRoute(), nonce, i.rid(), t, prompt);
     }
@@ -63,7 +62,7 @@ class OfflineVerifierTest {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         OfflineConfig cfg = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
-        assertEquals(ReasonCode.CHAIN_MISSING, run(with(in, TextNode.valueOf("x"), in.recordedTs(), in.prompt(),
+        assertEquals(ReasonCode.CHAIN_MISSING, run(with(in, "\"x\"", in.recordedTs(), in.prompt(),
                 in.nonceKey()), cfg).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, run(null, cfg).reason());
     }
@@ -95,7 +94,7 @@ class OfflineVerifierTest {
         OfflineConfig cfg = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
         assertEquals(ReasonCode.TIME_MISMATCH, run(with(in, in.stamps(), new RecordedTimes(last, Set.of(1L)),
                 in.prompt(), in.nonceKey()), cfg).reason());
-        long origin = in.stamps().get(0).get("ts").asLong();
+        long origin = c.get("chain").get(0).get("ts").asLong();
         assertEquals(ReasonCode.OK, run(with(in, in.stamps(), new RecordedTimes(last, Set.of(origin)),
                 in.prompt(), "k2"), cfg).reason());
     }

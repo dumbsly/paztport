@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Objects;
 import org.junit.jupiter.api.BeforeEach;
@@ -51,9 +52,14 @@ class OpeningCheckControllerTest {
         return new BoundaryInfluence.Opening(InfluenceClass.PRIVATE, "alice", Base64Url.encode(salt), group);
     }
 
-    private ResultActions check(String rid, Object body) throws Exception {
+    private ResultActions check(String rid, String body) throws Exception {
         return mvc.perform(post("/debug/check-opening").param("rid", rid)
-                .contentType(MediaType.APPLICATION_JSON).content(JSON.writeValueAsString(body)));
+                .contentType(MediaType.APPLICATION_JSON).content(body));
+    }
+
+    /** The opening's JSON with one field changed, as a shop misstating it would send it. */
+    private static String with(BoundaryInfluence.Opening opening, String field, String value) throws Exception {
+        return ((ObjectNode) JSON.readTree(opening.toJson())).put(field, value).toString();
     }
 
     @Test
@@ -76,22 +82,30 @@ class OpeningCheckControllerTest {
     @Test
     void anUnknownRidOrGroupIsNotFound() throws Exception {
         check("rid-2", aliceOpening(ORIGINALS).toJson()).andExpect(status().isNotFound());
-        ObjectNode bob = aliceOpening(ORIGINALS).toJson().put("owner", "bob");
-        check(RID, bob).andExpect(status().isNotFound());
+        check(RID, with(aliceOpening(ORIGINALS), "owner", "bob")).andExpect(status().isNotFound());
     }
 
     @Test
     void aMalformedOpeningIsABadRequest() throws Exception {
-        ObjectNode shortSalt = aliceOpening(ORIGINALS).toJson().put("salt", "AAAA");
-        check(RID, shortSalt).andExpect(status().isBadRequest());
-        check(RID, List.of()).andExpect(status().isBadRequest());
+        check(RID, with(aliceOpening(ORIGINALS), "salt", "AAAA")).andExpect(status().isBadRequest());
+        check(RID, "[]").andExpect(status().isBadRequest());
     }
 
     @Test
     void aBodyOfAnotherContentTypeIsUnsupported() throws Exception {
         mvc.perform(post("/debug/check-opening").param("rid", RID)
-                        .contentType(MediaType.TEXT_PLAIN).content(aliceOpening(ORIGINALS).toJson().toString()))
+                        .contentType(MediaType.TEXT_PLAIN).content(aliceOpening(ORIGINALS).toJson()))
                 .andExpect(status().isUnsupportedMediaType());
+    }
+
+    @Test
+    void aBodyThatIsNotUtf8IsABadRequest() throws Exception {
+        byte[] latin1 = aliceOpening(ORIGINALS).toJson().replace("\"alice\"", "\"al\u00efce\"")
+                .getBytes(StandardCharsets.ISO_8859_1);
+        mvc.perform(post("/debug/check-opening").param("rid", RID)
+                        .contentType(MediaType.APPLICATION_JSON).content(latin1))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     @Test

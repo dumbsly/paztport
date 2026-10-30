@@ -8,7 +8,6 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.node.TextNode;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
@@ -18,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
+import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
@@ -85,8 +85,7 @@ class HttpV3Test {
     @Test
     void noInfluenceIsNoHeader() {
         assertNull(HttpV3.encodeInfluence(List.of()));
-        assertTrue(HttpV3.decodeInfluence(null).isArray());
-        assertEquals(0, HttpV3.decodeInfluence(null).size());
+        assertEquals("[]", HttpV3.decodeInfluence(null));
     }
 
     @Test
@@ -125,7 +124,7 @@ class HttpV3Test {
                 HttpV3.request(chain, null, null, "POST", "/pay", BODY, "payment", null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED, verifier().verify(
                 HttpV3.request(chain, "%%%", null, "POST", "/pay", BODY, "payment", null)).reason());
-        assertEquals(new TextNode("malformed"), HttpV3.decodeChain("%%%"));
+        assertEquals("\"malformed\"", HttpV3.decodeChain("%%%"));
         assertNull(HttpV3.decodeChain(" "));
         assertNull(HttpV3.decodeProof("%%%"));
         assertEquals("", HttpV3.request("%%%", null, null, "GET", "/", BODY, "payment", null).nonceKey());
@@ -198,6 +197,57 @@ class HttpV3Test {
                 .getBytes(StandardCharsets.UTF_8));
         assertEquals(ReasonCode.CHAIN_MISSING,
                 HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason());
+    }
+
+    /**
+     * The response stamp reaches the verifier as the text it arrived in. A number too large for a double, where a
+     * string belongs, is CHAIN_MISSING; a tree written back out would have turned it into the string
+     * {@code "Infinity"}, which the field check accepts. A repeated name's last value is the one judged.
+     */
+    @Test
+    void responseStampIsJudgedAsSent() {
+        StamperV3.Stamped s = sent(List.of());
+        StampV3 stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpV3.resultHash(200, BODY), RID,
+                LABELS);
+        String good = stamp.toJson();
+        String huge = good.replace("\"svc\":\"payment\"", "\"svc\":1e400");
+        String labels = ContentLabel.toJson(LABELS);
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, "{\"stamp\":" + huge + ",\"labels\":" + labels + "}"));
+        assertEquals(ReasonCode.OK, responseReason(s,
+                "{\"stamp\":" + huge + ",\"labels\":" + labels + ",\"stamp\":" + good + "}"));
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s,
+                "{\"stamp\":" + good + ",\"labels\":" + labels + ",\"stamp\":" + huge + "}"));
+    }
+
+    private ReasonCode responseReason(StamperV3.Stamped s, String envelope) {
+        String header = Base64Url.encode(envelope.getBytes(StandardCharsets.UTF_8));
+        return HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();
+    }
+
+    /**
+     * A header carries the bytes it always has: a character outside the Basic Multilingual Plane goes as an escaped
+     * surrogate pair, not as its four UTF-8 bytes, though the SDK's JSON text holds it as the character itself.
+     */
+    @Test
+    void headersKeepTheirBytes() {
+        InfluenceEntry e = new InfluenceEntry(InfluenceClass.PUBLIC, "s", "\ud83d\ude00", null, null);
+        assertEquals("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"\ud83d\ude00\"}]", Influence.toJson(List.of(e)));
+        assertEquals("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"\\uD83D\\uDE00\"}]",
+                new String(Base64Url.decode(HttpV3.encodeInfluence(List.of(e))), StandardCharsets.UTF_8));
+    }
+
+    /** A decoder hands on the header's JSON exactly as it was sent, spacing and escapes included. */
+    @Test
+    void decodersKeepTheTextAsSent() {
+        String text = " [ {\"a\" : \"\\u0041\"} ] ";
+        String header = Base64Url.encode(text.getBytes(StandardCharsets.UTF_8));
+        assertEquals(text, HttpV3.decodeChain(header));
+        assertEquals(text, HttpV3.decodeInfluence(header));
+        assertEquals(text, HttpV3.decodeProof(header));
+        String trailing = Base64Url.encode("[] []".getBytes(StandardCharsets.UTF_8));
+        assertEquals("\"malformed\"", HttpV3.decodeChain(trailing));
+        assertEquals("\"malformed\"", HttpV3.decodeInfluence(trailing));
+        assertNull(HttpV3.decodeProof(trailing));
     }
 
     @Test

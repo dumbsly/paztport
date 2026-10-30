@@ -7,11 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.security.KeyPair;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -43,7 +40,6 @@ class StamperV3Test {
 
     private static final long NOW = 1_000_000L;
     private static final String RID = "rid-1";
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final KeyPair gatewayKey = Crypto.generateEd25519KeyPair();
     private final KeyPair ordersKey = Crypto.generateEd25519KeyPair();
@@ -65,14 +61,12 @@ class StamperV3Test {
                 new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
     }
 
-    private static ArrayNode json(List<StampV3> chain) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        chain.forEach(s -> a.add(s.toJson()));
-        return a;
+    private static String json(List<StampV3> chain) {
+        return Chains.toJson(chain);
     }
 
-    private static JsonNode json(MerkleProof proof) {
-        return MAPPER.valueToTree(proof);
+    private static String json(MerkleProof proof) {
+        return proof == null ? null : proof.toJson();
     }
 
     private StamperV3.Stamped toOrders(String bind, List<InfluenceEntry> influence) {
@@ -107,7 +101,7 @@ class StamperV3Test {
                 List.of(), policy.bundles().get("orders"));
 
         VerifyResult r = verifier().verify(new VerifyInputV3(json(driven.chain()), "b2",
-                JsonNodeFactory.instance.arrayNode(), json(driven.proof()), "payment", true, RID + "|orders|req",
+                "[]", json(driven.proof()), "payment", true, RID + "|orders|req",
                 new Peer("orders", "10.0.0.3")));
         assertEquals(ReasonCode.OK, r.reason(), "the attack the filter's rule closes");
     }
@@ -187,7 +181,7 @@ class StamperV3Test {
         StamperV3.Stamped second = toPayment(first);
         assertEquals(2, second.chain().size());
         VerifyResult r = verifier().verify(new VerifyInputV3(json(second.chain()), "b2",
-                JsonNodeFactory.instance.arrayNode(), json(second.proof()), "payment", true,
+                "[]", json(second.proof()), "payment", true,
                 RID + "|orders|req", null));
         assertEquals(ReasonCode.OK, r.reason());
     }
@@ -202,16 +196,16 @@ class StamperV3Test {
                 Influence.toJson(influence), json(second.proof()), "payment", true, RID + "|orders|a", null))
                 .reason());
         assertEquals(ReasonCode.INFLUENCE_MISMATCH, verifier().verify(new VerifyInputV3(json(second.chain()), "b2",
-                JsonNodeFactory.instance.arrayNode(), json(second.proof()), "payment", true, RID + "|orders|b",
+                "[]", json(second.proof()), "payment", true, RID + "|orders|b",
                 null)).reason());
     }
 
     /** payment answers orders; the labels and the proof orders sent are what the caller verifies against. */
     private record Response(List<StampV3> sent, MerkleProof proof, List<ContentLabel> labels, StampV3 stamp) {
-        JsonNode chain() {
-            ArrayNode a = json(sent);
-            a.add(stamp.toJson());
-            return a;
+        String chain() {
+            List<StampV3> all = new ArrayList<>(sent);
+            all.add(stamp);
+            return Chains.toJson(all);
         }
     }
 
@@ -223,7 +217,7 @@ class StamperV3Test {
     }
 
     private VerifyResult verifyResponse(Response r, String bind, String receiver) {
-        return verifier().verify(new VerifyInputV3(r.chain(), bind, JsonNodeFactory.instance.arrayNode(),
+        return verifier().verify(new VerifyInputV3(r.chain(), bind, "[]",
                 json(r.proof()), receiver, false, RID + "|payment|resp", null));
     }
 
@@ -261,12 +255,11 @@ class StamperV3Test {
     @Test
     void labelsRoundTripAndRefuseEmptyOwner() throws Exception {
         ContentLabel fresh = ContentLabel.fresh(InfluenceClass.PRIVATE, "alice");
-        ArrayNode wire = JsonNodeFactory.instance.arrayNode().add(fresh.toJson());
-        assertEquals(List.of(fresh), ContentLabel.parseAll(wire));
+        assertEquals(List.of(fresh), ContentLabel.parseAll(ContentLabel.toJson(List.of(fresh))));
         assertEquals(22, ContentLabel.fresh(InfluenceClass.PUBLIC, null).cid().length());
         assertEquals(new InfluenceEntry(InfluenceClass.PRIVATE, "http:x", "h", fresh.cid(), "alice"),
                 fresh.toEntry("http:x", "h"));
-        JsonNode bad = MAPPER.readTree("[{\"cls\":\"private\",\"cid\":\"c\",\"owner\":\"\"}]");
+        String bad = "[{\"cls\":\"private\",\"cid\":\"c\",\"owner\":\"\"}]";
         assertThrows(IllegalArgumentException.class, () -> ContentLabel.parseAll(bad));
         assertThrows(IllegalArgumentException.class, () -> Bindings.response("h", "a\nb", List.of()));
     }

@@ -19,8 +19,9 @@ import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.JcsWriter;
+import org.paztport.core.internal.Json;
 
 /**
  * The influence a sender's egress hands to another organisation. The full entries name internal services and
@@ -102,7 +103,7 @@ public final class BoundaryInfluence {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             mac.update(SALT_DOMAIN);
-            mac.update(Jcs.bytes(o));
+            mac.update(JcsWriter.bytes(o));
             return Arrays.copyOf(mac.doFinal(), SALT_LENGTH);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
@@ -118,7 +119,7 @@ public final class BoundaryInfluence {
         if (salt == null || salt.length != SALT_LENGTH || group == null) {
             throw new IllegalArgumentException("a boundary commitment needs a 16-byte salt and a group");
         }
-        byte[] body = Jcs.bytes(Influence.toJson(Influence.normalise(group)));
+        byte[] body = JcsWriter.bytes(Influence.tree(Influence.normalise(group)));
         byte[] message = new byte[ENTRY_DOMAIN.length + SALT_LENGTH + body.length];
         System.arraycopy(ENTRY_DOMAIN, 0, message, 0, ENTRY_DOMAIN.length);
         System.arraycopy(salt, 0, message, ENTRY_DOMAIN.length, SALT_LENGTH);
@@ -169,7 +170,7 @@ public final class BoundaryInfluence {
         }
 
         /** {@code {cls, owner?, salt, originals}}, with {@code owner} left out when null; needs a well-formed opening. */
-        public ObjectNode toJson() {
+        public String toJson() {
             if (cls == null || salt == null || originals == null || originals.contains(null)) {
                 throw new IllegalArgumentException("only a well-formed opening has a JSON form");
             }
@@ -179,17 +180,21 @@ public final class BoundaryInfluence {
                 o.put("owner", owner);
             }
             o.put("salt", salt);
-            o.set("originals", Influence.toJson(originals));
-            return o;
+            o.set("originals", Influence.tree(originals));
+            return Json.text(o);
         }
 
         /**
-         * Throws {@link IllegalArgumentException} unless the node is an object with a known {@code cls}, an
-         * optional non-empty {@code owner}, a {@code salt} that is base64url of 16 bytes and well-formed
-         * {@code originals}. Whether it opens anything is {@link #opens}'s question, not this one's.
+         * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with a
+         * known {@code cls}, an optional non-empty {@code owner}, a {@code salt} that is base64url of 16 bytes and
+         * well-formed {@code originals}. Whether it opens anything is {@link #opens}'s question, not this one's.
          */
-        public static Opening parse(JsonNode node) {
-            if (node == null || !node.isObject()) {
+        public static Opening parse(String json) {
+            if (json == null) {
+                throw new IllegalArgumentException("an opening must be an object");
+            }
+            JsonNode node = Json.tree(json);
+            if (!node.isObject()) {
                 throw new IllegalArgumentException("an opening must be an object");
             }
             JsonNode cls = node.get("cls");
@@ -209,7 +214,7 @@ public final class BoundaryInfluence {
                 throw new IllegalArgumentException("malformed opening salt");
             }
             return new Opening(InfluenceClass.fromWire(cls.textValue()), owner, salt.textValue(),
-                    Influence.parse(node.get("originals")));
+                    Influence.fromTree(node.get("originals")));
         }
     }
 

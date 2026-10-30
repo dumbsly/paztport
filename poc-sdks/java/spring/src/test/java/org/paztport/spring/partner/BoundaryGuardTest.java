@@ -238,7 +238,7 @@ class BoundaryGuardTest {
         List<StubPartner.Received> calls = partner.calls();
         assertEquals(before + 1, calls.size());
         StubPartner.Received call = calls.get(calls.size() - 1);
-        JsonNode chain = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN));
+        JsonNode chain = JSON.readTree(HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN)));
         assertEquals(1, chain.size());
         assertEquals("payment", chain.get(0).get("svc").textValue());
         assertEquals("psp", chain.get(0).get("rcv").textValue());

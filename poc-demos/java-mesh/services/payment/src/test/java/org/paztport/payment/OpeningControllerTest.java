@@ -10,7 +10,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.security.KeyPair;
 import java.util.List;
@@ -42,7 +41,6 @@ class OpeningControllerTest {
     /** The validity window of the fixture roots and keyrings: 2100-01-01, beyond any clock here. */
     private static final long NOT_AFTER = 4_102_444_800_000L;
 
-    private static final ObjectMapper JSON = new ObjectMapper();
     private static final String RID = "rid-1";
     private static final List<InfluenceEntry> ORIGINALS = List.of(
             new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "aGFzaA", "cid-1", null),
@@ -98,8 +96,8 @@ class OpeningControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andReturn().getResponse().getContentAsString();
-        BoundaryInfluence.Opening opening = BoundaryInfluence.Opening.parse(JSON.readTree(body));
-        assertEquals(opening.toJson().toString(), body);
+        BoundaryInfluence.Opening opening = BoundaryInfluence.Opening.parse(body);
+        assertEquals(opening.toJson(), body);
         return opening;
     }
 

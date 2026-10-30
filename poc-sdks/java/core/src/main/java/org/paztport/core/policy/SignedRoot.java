@@ -20,7 +20,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
+import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.internal.RootJson;
@@ -122,13 +122,18 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
         return Base64Url.decode(root);
     }
 
+    /** The wire form: {@code {rootId, root, sig, notAfter?}}, with a null field left out. */
+    public String toJson() {
+        return Json.writeText(this);
+    }
+
     public String encode() {
         return Base64Url.encode(Json.write(this));
     }
 
     /** Reads the base64url text {@link #encode} writes, by the rules of {@link #parse}. */
     public static SignedRoot decode(String text) {
-        return parse(Json.read(Base64Url.decode(text), JsonNode.class));
+        return RootJson.read(Json.read(Base64Url.decode(text), JsonNode.class));
     }
 
     /** The old form's signed bytes: {@code utf8(rootId + "|" + root)}. */
@@ -152,7 +157,7 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
         o.put("notAfter", notAfter);
         o.put("root", root);
         o.put("rootId", rootId);
-        byte[] body = Jcs.bytes(o);
+        byte[] body = JcsWriter.bytes(o);
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);
@@ -161,15 +166,18 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code node} is an object with string
+     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with string
      * {@code rootId}, {@code root} and {@code sig}, and, if {@code notAfter} is present at all, an integer in
      * [0, 2^53 &minus; 1] judged by value as a reply certificate's is: {@code 1.0e12} is an integer, while a
      * fraction, a string or {@code null} is refused rather than read as an old-form root, so a damaged window can
      * never pass as no window. Other fields are ignored and unsigned. Jackson's record binding would truncate
      * {@code 1.5} to 1, which is why this, not binding, is the reader.
      */
-    public static SignedRoot parse(JsonNode node) {
-        return RootJson.read(node);
+    public static SignedRoot parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("a signed root must be a JSON object");
+        }
+        return RootJson.read(Json.tree(json));
     }
 
     /** Reads {@code root.json}; malformed content throws {@link IllegalArgumentException}. */
@@ -182,7 +190,7 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
-        return parse(node);
+        return RootJson.read(node);
     }
 
     private static SignedRoot signText(String rootId, String rootB64, long notAfter, PrivateKey policyKey) {

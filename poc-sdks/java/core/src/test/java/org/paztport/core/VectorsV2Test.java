@@ -32,7 +32,7 @@ class VectorsV2Test {
     @Test
     void commitInfluence() {
         JsonNode c = vectors.get("commitInfluence");
-        assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(c.get("entries"))));
+        assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(Vectors.json(c.get("entries")))));
     }
 
     @Test
@@ -55,7 +55,7 @@ class VectorsV2Test {
     void bindResponse() {
         JsonNode c = vectors.get("bindResponse");
         assertEquals(c.get("expected").asText(), Bindings.response(c.get("resultHash").asText(),
-                c.get("callId").asText(), ContentLabel.parseAll(c.get("labels"))));
+                c.get("callId").asText(), ContentLabel.parseAll(Vectors.json(c.get("labels")))));
     }
 
     @Test

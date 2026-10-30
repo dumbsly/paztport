@@ -207,7 +207,8 @@ class BoundaryClientTest {
         assertEquals("/charge", call.path());
         assertEquals(sess, call.header(PaztportHeaders.SESSION));
 
-        JsonNode chain = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN));
+        String chainJson = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN));
+        JsonNode chain = JSON.readTree(chainJson);
         assertEquals(1, chain.size(), "only the boundary stamp crosses");
         JsonNode stamp = chain.get(0);
         assertEquals("payment", stamp.get("svc").textValue());
@@ -227,7 +228,7 @@ class BoundaryClientTest {
         // And the partner, holding only payment's keyring and root, verifies it in that session.
         VerifierV3 atPartner = new VerifierV3(VerifierConfigV3.pinned(keyring, built.signedRoot(), policyPub,
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), System::currentTimeMillis, 30_000, 300_000));
-        assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInputV3(chain,
+        assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInputV3(chainJson,
                 RequestBinding.compute("POST", "/charge", call.body()), HttpV3.decodeInfluence(
                         call.header(PaztportHeaders.INFLUENCE)), HttpV3.decodeProof(call.header(PaztportHeaders.PROOF)),
                 "psp", true, "rid-1|payment|req", new Peer("payment", "127.0.0.1"))).reason());
@@ -267,7 +268,7 @@ class BoundaryClientTest {
         }
         assertEquals(Influence.normalise(sent), sent, "the sent list is normalised");
         assertEquals(BoundaryInfluence.reduce(influence, blindingKey, "rid-1", "psp", "payment"), sent);
-        JsonNode stamp = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN)).get(0);
+        JsonNode stamp = JSON.readTree(HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN))).get(0);
         assertEquals(Influence.commit(sent), stamp.get("infl").textValue(), "the stamp commits to what was sent");
 
         String wire = new String(Base64Url.decode(header), StandardCharsets.UTF_8);

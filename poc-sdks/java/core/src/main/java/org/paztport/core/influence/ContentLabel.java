@@ -4,6 +4,7 @@
 package org.paztport.core.influence;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
@@ -11,6 +12,7 @@ import java.util.List;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.Json;
 
 /**
  * What a response says about its own content: a class, a content id the caller can later cite, and (for private
@@ -38,9 +40,16 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         return new ContentLabel(cls, Base64Url.encode(Crypto.randomBytes(16)), owner);
     }
 
-    /** Throws {@link IllegalArgumentException} unless the node is an array of well-formed labels; unknown fields are dropped. */
-    public static List<ContentLabel> parseAll(JsonNode node) {
-        if (node == null || !node.isArray()) {
+    /**
+     * Reads the wire form of a label list. Throws {@link IllegalArgumentException} unless {@code json} is an array
+     * of well-formed labels; unknown fields are dropped.
+     */
+    public static List<ContentLabel> parseAll(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("labels must be an array");
+        }
+        JsonNode node = Json.tree(json);
+        if (!node.isArray()) {
             throw new IllegalArgumentException("labels must be an array");
         }
         List<ContentLabel> out = new ArrayList<>();
@@ -64,7 +73,19 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         return out;
     }
 
-    public ObjectNode toJson() {
+    /** The wire form of {@code labels}, in the order given, each as {@link #toJson()} writes it. */
+    public static String toJson(List<ContentLabel> labels) {
+        ArrayNode a = JsonNodeFactory.instance.arrayNode();
+        labels.forEach(l -> a.add(l.tree()));
+        return Json.text(a);
+    }
+
+    /** The wire form: {@code {cls, cid, owner?}}, with an absent owner left out. */
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    private ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.put("cls", cls.wire());
         o.put("cid", cid);

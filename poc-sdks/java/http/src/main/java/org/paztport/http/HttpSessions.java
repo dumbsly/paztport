@@ -4,11 +4,8 @@
 package org.paztport.http;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import java.io.IOException;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
@@ -28,21 +25,14 @@ public final class HttpSessions {
     /** The error code for a request that does not open a session. */
     public static final String NO_SESSION = "NO_SESSION";
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private HttpSessions() {
     }
 
     /** Reads a request body, throwing {@link IllegalArgumentException} for anything a server must answer 400. */
     public static SessionRequest parseRequest(byte[] body) {
-        JsonNode json;
-        try {
-            json = MAPPER.readTree(body);
-        } catch (IOException e) {
-            throw new IllegalArgumentException("session request is not one JSON value", e);
-        }
-        return Sessions.parseRequest(json);
+        return Sessions.parseRequest(body);
     }
 
     /** The body of a refusal: {@code {"error":"<code>"}}. */

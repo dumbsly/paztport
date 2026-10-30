@@ -73,6 +73,11 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
         return Arrays.equals(working, root);
     }
 
+    /** The wire form: {@code {leafSalt, siblings, dirs, rootId}}. */
+    public String toJson() {
+        return Json.writeText(this);
+    }
+
     public String encode() {
         return Base64Url.encode(Json.write(this));
     }
@@ -88,8 +93,12 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
      * {@link IllegalArgumentException}, which a verifier turns into "not proven". Unknown fields are ignored,
      * as in the TypeScript SDK.
      */
-    public static MerkleProof fromJson(JsonNode node) {
-        if (node == null || !node.isObject()) {
+    public static MerkleProof parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("proof must be an object");
+        }
+        JsonNode node = Json.tree(json);
+        if (!node.isObject()) {
             throw new IllegalArgumentException("proof must be an object");
         }
         JsonNode salt = node.get("leafSalt");

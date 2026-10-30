@@ -411,11 +411,11 @@ public final class BoundaryClient implements AutoCloseable {
         SessionRequest full = SessionRequest.of(ownRoot, ownPolicyKey, ownKeyring, Sessions.newNonce());
         ReplyCheck check = null;
         try {
-            JsonNode reply = handshake(full);
+            byte[] reply = handshake(full);
             check = Sessions.checkReply(reply, full, pinnedPartnerKey, partner, millis.getAsLong());
             if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
                 // The check derived the same id from both sides' inputs, so it is a real session id.
-                Session s = new Session(reply.get("sess").textValue(), check == ReplyCheck.ATTESTED, false,
+                Session s = new Session(read(reply).get("sess").textValue(), check == ReplyCheck.ATTESTED, false,
                         nanos.getAsLong());
                 trace(check.name(), s);
                 return s;
@@ -426,7 +426,7 @@ public final class BoundaryClient implements AutoCloseable {
         SessionRequest replacement = SessionRequest.of(null, ownPolicyKey, ownKeyring, Sessions.newNonce());
         JsonNode reply;
         try {
-            reply = handshake(replacement);
+            reply = read(handshake(replacement));
         } catch (IOException e) {
             throw new IllegalStateException("no session could be opened with " + partner, e);
         }
@@ -441,11 +441,12 @@ public final class BoundaryClient implements AutoCloseable {
     }
 
     /**
-     * Sends one handshake and reads its reply: the JSON, or null for a body that is not one JSON value. Any status
-     * but 200, and no whole answer within the timeout, is an {@link IOException}.
+     * Sends one handshake and returns its reply's body, which the reply check reads as it arrived. Any status but
+     * 200, and no whole answer within the timeout, is an {@link IOException}.
      */
-    private JsonNode handshake(SessionRequest req) throws IOException {
-        byte[] body = JSON.writeValueAsBytes(req.toJson());
+    private byte[] handshake(SessionRequest req) throws IOException {
+        // Written as bytes by the SDK's JSON library, as the handshake body always has been.
+        byte[] body = JSON.writeValueAsBytes(JSON.readTree(req.toJson()));
         HttpResponse<byte[]> response = send(HttpRequest.newBuilder(
                         URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + HttpSessions.PATH))
                 .header("Content-Type", "application/json")
@@ -455,8 +456,13 @@ public final class BoundaryClient implements AutoCloseable {
         if (response.statusCode() != 200) {
             throw new IOException("the session handshake was answered " + response.statusCode());
         }
+        return response.body();
+    }
+
+    /** A reply body's JSON, or null for a body that is not one JSON value. */
+    private static JsonNode read(byte[] body) {
         try {
-            return JSON.readTree(response.body());
+            return JSON.readTree(body);
         } catch (IOException e) {
             return null;
         }

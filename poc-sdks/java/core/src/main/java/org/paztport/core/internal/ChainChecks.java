@@ -3,7 +3,6 @@
 
 package org.paztport.core.internal;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,7 +53,7 @@ public final class ChainChecks {
      * one the expected key signed: BAD_ORIGIN for the origin's instance, BAD_SIGNATURE for any other. The
      * result carries the stamps and whether they are legacy, or the first failure.
      */
-    public static ParsedChain checkStamps(JsonNode value, Keyring keyring, Set<String> allowedOrigins, String sess,
+    public static ParsedChain checkStamps(String value, Keyring keyring, Set<String> allowedOrigins, String sess,
             Shape shape) {
         // 1-2. Parse, and no delimiter in any field.
         ParsedChain parsed = Chains.parse(value, shape.acceptLegacy());
@@ -127,7 +126,7 @@ public final class ChainChecks {
      * Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence
      * (INFLUENCE_MISMATCH). Null when both hold.
      */
-    public static ReasonCode checkCommitments(RecordedStamp last, String expectedBind, JsonNode influence) {
+    public static ReasonCode checkCommitments(RecordedStamp last, String expectedBind, String influence) {
         // 8. Binding.
         if (!last.bind().equals(expectedBind)) {
             return ReasonCode.BINDING_MISMATCH;
@@ -146,7 +145,7 @@ public final class ChainChecks {
      * Check 11 and the result: the chain's services, then the receiver when given, proven against the root
      * (PATH_NOT_ALLOWED). Both outcomes name the last stamp; the caller decides whether that name is kept.
      */
-    public static VerifyResult checkRoute(List<RecordedStamp> stamps, String receiver, JsonNode proof, byte[] root,
+    public static VerifyResult checkRoute(List<RecordedStamp> stamps, String receiver, String proof, byte[] root,
             String rootId) {
         RecordedStamp last = stamps.get(stamps.size() - 1);
         List<String> hops = new ArrayList<>(stamps.stream().map(RecordedStamp::svc).toList());
@@ -160,9 +159,9 @@ public final class ChainChecks {
     }
 
     /** Whether the proof names this root and proves the route against it; any malformed proof is "not proven". */
-    private static boolean provesPath(JsonNode proof, String route, byte[] root, String rootId) {
+    private static boolean provesPath(String proof, String route, byte[] root, String rootId) {
         try {
-            MerkleProof p = MerkleProof.fromJson(proof);
+            MerkleProof p = MerkleProof.parse(proof);
             return p.rootId().equals(rootId) && p.verify(route, root);
         } catch (RuntimeException e) {
             return false;

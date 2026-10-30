@@ -10,6 +10,7 @@ import java.security.PrivateKey;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.Json;
 
 /**
  * The current stamp. {@code rcv} is signed, so a stamp is only good for the receiver it names and a captured one
@@ -42,8 +43,12 @@ public record StampV3(String svc, String inst, String rid, long ts, String sess,
         return rcv;
     }
 
-    /** Writes {@code "v": 3} then the fields in the order the wire format shows. */
-    public ObjectNode toJson() {
+    /** The wire form: {@code "v": 3} then the fields in the order the wire format shows. */
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.put("v", 3);
         o.put("svc", svc);

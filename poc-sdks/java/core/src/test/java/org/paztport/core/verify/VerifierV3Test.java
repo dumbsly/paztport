@@ -9,7 +9,6 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.TextNode;
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.PublicKey;
@@ -62,9 +61,9 @@ class VerifierV3Test {
                 c.get("runMaxAgeMs").asLong()));
     }
 
-    private static VerifyInputV3 input(JsonNode stamps, String bind, JsonNode influence, JsonNode proof, Peer peer) {
+    private static VerifyInputV3 input(String stamps, String bind, String influence, String proof, Peer peer) {
         JsonNode policy = vectors.get("policies").get(peerOk.get("policy").asText());
-        JsonNode good = policy.get("proofs").get(peerOk.get("proofRoute").asText());
+        String good = Vectors.json(policy.get("proofs").get(peerOk.get("proofRoute").asText()));
         return new VerifyInputV3(stamps, bind, influence, proof == null ? good : proof, peerOk.get("receiver").asText(),
                 peerOk.get("receiverInRoute").asBoolean(), peerOk.get("nonceKey").asText(), peer);
     }
@@ -75,21 +74,29 @@ class VerifierV3Test {
 
     @Test
     void neverThrows() {
-        JsonNode chain = peerOk.get("chain");
-        JsonNode infl = peerOk.get("influence");
+        String chain = Vectors.json(peerOk.get("chain"));
+        String infl = Vectors.json(peerOk.get("influence"));
         assertEquals(ReasonCode.CHAIN_MISSING,
-                verifier().verify(input(new TextNode("x"), bind(), infl, null, null)).reason());
+                verifier().verify(input("\"x\"", bind(), infl, null, null)).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(input(null, bind(), infl, null, null)).reason());
         assertEquals(ReasonCode.INFLUENCE_MISMATCH,
-                verifier().verify(input(chain, bind(), JsonNodeFactory.instance.objectNode(), null, null)).reason());
+                verifier().verify(input(chain, bind(), "{}", null, null)).reason());
         assertEquals(ReasonCode.PATH_NOT_ALLOWED,
-                verifier().verify(input(chain, bind(), infl, new TextNode("x"), null)).reason());
+                verifier().verify(input(chain, bind(), infl, "\"x\"", null)).reason());
+        // Text that is not JSON at all fails at the check that reads it, as a wrong type does.
+        assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(input(chain + "]", bind(), infl, null, null))
+                .reason());
+        assertEquals(ReasonCode.INFLUENCE_MISMATCH,
+                verifier().verify(input(chain, bind(), "[", null, null)).reason());
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED,
+                verifier().verify(input(chain, bind(), infl, "{", null)).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(input(chain, null, infl, null, null)).reason());
     }
 
     @Test
     void nullPeerIsNoPeer() {
-        VerifyResult r = verifier().verify(input(peerOk.get("chain"), bind(), peerOk.get("influence"), null, null));
+        VerifyResult r = verifier().verify(input(Vectors.json(peerOk.get("chain")), bind(),
+                Vectors.json(peerOk.get("influence")), null, null));
         assertEquals(new VerifyResult(ReasonCode.OK, "pi", "pi-1"), r);
     }
 
@@ -114,8 +121,8 @@ class VerifierV3Test {
 
     @Test
     void nullInputsAreRejectionsNotExceptions() {
-        JsonNode chain = peerOk.get("chain");
-        JsonNode infl = peerOk.get("influence");
+        String chain = Vectors.json(peerOk.get("chain"));
+        String infl = Vectors.json(peerOk.get("influence"));
         VerifyInputV3 good = input(chain, bind(), infl, null, null);
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(null).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(new VerifyInputV3(chain, bind(), infl,
@@ -141,7 +148,7 @@ class VerifierV3Test {
     private static final KeyPair PI = Crypto.generateEd25519KeyPair();
     private static final MerkleTree TREE = MerkleTree.build(
             List.of(new MerkleLeaf(new byte[16], "session/pi/target")), 1, "vtest");
-    private static final JsonNode PROOF = new ObjectMapper().valueToTree(TREE.proofFor("session/pi/target"));
+    private static final String PROOF = TREE.proofFor("session/pi/target").toJson();
 
     private record Case(String origin, String rid, String sess, String prev, long originTs, long lastTs) {
         Case() {
@@ -179,12 +186,12 @@ class VerifierV3Test {
                 .put("bind", s.bind()).put("infl", s.infl()).put("prev", s.prev()).put("sig", s.sig());
     }
 
-    private static JsonNode chain(Case c) {
+    private static String chain(Case c) {
         StampV3 a = StampV3.sign(c.origin(), "i", "r", c.originTs(), "s", "pi", "b", "", "", SESSION.getPrivate());
         StampV3 b = StampV3.sign("pi", "i", c.rid(), c.lastTs(), c.sess(), "target", "b", "",
                 c.prev() == null ? a.sig() : c.prev(), PI.getPrivate());
         ObjectMapper m = new ObjectMapper();
-        return m.createArrayNode().add(wire(a)).add(wire(b));
+        return m.createArrayNode().add(wire(a)).add(wire(b)).toString();
     }
 
     private static VerifierV3 boundary(NonceCache cache, long callMax, long runMax) {
@@ -319,7 +326,7 @@ class VerifierV3Test {
         // Expiry is not the sender's fault, so even an authenticated peer is not named.
         assertEquals(none, v.verify(boundaryInput("k1", new Peer("pi", "10.0.0.7"))));
         assertEquals(none, v.verify(null));
-        assertEquals(none, v.verify(new VerifyInputV3(new TextNode("x"), "b", null, PROOF, "target", true, "k2",
+        assertEquals(none, v.verify(new VerifyInputV3("\"x\"", "b", null, PROOF, "target", true, "k2",
                 new Peer("search", "10.0.0.9"))));
     }
 

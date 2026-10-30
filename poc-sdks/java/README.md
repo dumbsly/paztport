@@ -45,6 +45,14 @@ has one, the authenticated peer.
   and `checkReply` judge both sides' roots and keyrings at the handshake: old form or
   past `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a
   partner whose own material has expired opens every session unsafe.
+- **JSON in and out.** No public signature names a JSON library. Wire objects
+  enter as JSON text or as the SDK's own value types, and leave as JSON text: each
+  value type has `toJson()`, and a reader such as `KeyringFile.parse(String)` that
+  throws `IllegalArgumentException` for anything malformed, text that is not one
+  JSON value included. A session request or reply may also be handed over as the
+  body's bytes. The verifiers take the stamps, influence and proof as the JSON text
+  received and read it themselves, so text that is not JSON is a typed rejection at
+  the check that reads it. `Jcs` canonicalises JSON text.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree and `PolicyBuilder`, `Routes`, and
@@ -57,8 +65,8 @@ has one, the authenticated peer.
 v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
 `X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
 `X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call is in. `RequestBinding` computes `bind` over the method, the raw path
-plus `?` and the raw query when there is one, and the body. `HttpV3` encodes and
-decodes the headers, builds a request's verify input (nonce key
+plus `?` and the raw query when there is one, and the body. `HttpV3` encodes the
+headers and decodes them to the JSON text they carry, builds a request's verify input (nonce key
 `<rid>|<last svc>|req`), computes a response's result hash over its status and
 body, and checks a response's attestation against the chain the caller sent
 (nonce key `<rid>|<target>|resp`). A service therefore calls a given receiver at
@@ -73,12 +81,13 @@ Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.
 (Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
 have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
 
-The SDK's JSON is Jackson 2 (`com.fasterxml.jackson`), while Boot 4's web layer and
-`RestClient` write bodies with Jackson 3 (`tools.jackson`), which would write a
-Jackson 2 tree such as `Opening.toJson()` as a bean, not as the JSON it holds. So
-an SDK tree goes to Spring MVC or a `RestClient` as a `String` or `byte[]`
-labelled `application/json`, and is read from bytes with the SDK's own Jackson,
-as the starter's `PartnerSessionController` does.
+No SDK type is a JSON tree, so the SDK works beside whichever Jackson the
+application uses: Boot 4's web layer and `RestClient` use Jackson 3
+(`tools.jackson`), and the SDK reads with Jackson 2 inside. An SDK value's JSON,
+such as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
+labelled `application/json`, so it is written exactly as it stands; a body goes to
+the SDK as the bytes or text it arrived in, as the starter's
+`PartnerSessionController` hands a session request to `HttpSessions.parseRequest`.
 
 - **The inbound filter** caches the body, opens a `PaztportContext` scope for the
   request, and keeps the received chain and influence there for the outbound

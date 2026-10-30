@@ -118,7 +118,7 @@ class PartnerRequestTest {
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of(PARTNER, pub(PSP_KEY)), PSP_PIN, NOT_AFTER, PSP_POLICY.getPrivate()));
-        JSON.writeValue(trust.resolve("reply-cert.json").toFile(), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
+        Files.writeString(trust.resolve("reply-cert.json"), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
                 System.currentTimeMillis() + 7 * 86_400_000L, PSP_POLICY.getPrivate()).toJson());
         JSON.writeValue(trust.resolve("root.json").toFile(),
                 PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
@@ -178,7 +178,7 @@ class PartnerRequestTest {
 
         private static String seen(HttpServletRequest request) throws IOException {
             ObjectNode seen = JSON.createObjectNode();
-            seen.set("influence", Influence.toJson(PaztportContext.influence()));
+            seen.set("influence", JSON.readTree(Influence.toJson(PaztportContext.influence())));
             seen.put("verified", PaztportContext.verifiedChain() != null);
             seen.put("session", (String) request.getAttribute(PartnerFilter.SESSION_STATUS));
             return JSON.writeValueAsString(seen);
@@ -241,7 +241,7 @@ class PartnerRequestTest {
         String reply = client.post()
                 .uri("https://localhost:" + port + HttpSessions.PATH)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(JSON.writeValueAsBytes(req.toJson()))
+                .body(req.toJson().getBytes(StandardCharsets.UTF_8))
                 .retrieve()
                 .body(String.class);
         return JSON.readTree(reply).get("sess").asText();
@@ -306,7 +306,7 @@ class PartnerRequestTest {
 
         assertEquals(200, answer.status(), answer.body());
         JsonNode seen = answer.json();
-        assertEquals(INFLUENCE, Influence.parse(seen.get("influence")), "both entries, owners included");
+        assertEquals(INFLUENCE, Influence.parse(seen.get("influence").toString()), "both entries, owners included");
         assertTrue(seen.get("verified").asBoolean());
         assertEquals("attested", seen.get("session").asText());
         assertThat(lines("PAZTPORT_TRACE request ")).containsExactly("PAZTPORT_TRACE request rid=rid-a reason=OK "
@@ -446,7 +446,7 @@ class PartnerRequestTest {
                     assertTrue(response.attested());
                     JsonNode seen = JSON.readTree(response.body());
                     assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, rid, PARTNER, "orders"),
-                            Influence.parse(seen.get("influence")));
+                            Influence.parse(seen.get("influence").toString()));
                     assertTrue(seen.get("verified").asBoolean());
                 }
             }

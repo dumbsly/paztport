@@ -3,8 +3,6 @@
 
 package org.paztport.core.stamp;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.paztport.core.crypto.Crypto;
@@ -49,14 +47,7 @@ public final class Bindings {
         if (callId.contains("\n")) {
             throw new IllegalArgumentException("response: callId must not contain newlines");
         }
-        String text = resultHash + "\n" + callId + "\n" + Jcs.canonicalize(toJson(labels));
+        String text = resultHash + "\n" + callId + "\n" + Jcs.canonicalize(ContentLabel.toJson(labels));
         return Base64Url.encode(Crypto.sha256(text.getBytes(StandardCharsets.UTF_8)));
-    }
-
-    /** The labels as the JSON array the response binding commits to, each in {@link ContentLabel#toJson()}'s form. */
-    private static ArrayNode toJson(List<ContentLabel> labels) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        labels.forEach(l -> a.add(l.toJson()));
-        return a;
     }
 }

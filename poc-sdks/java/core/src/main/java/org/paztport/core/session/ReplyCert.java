@@ -17,7 +17,8 @@ import java.nio.file.Path;
 import java.security.PrivateKey;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
+import org.paztport.core.internal.JcsWriter;
+import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 
 /**
@@ -68,7 +69,7 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         o.put("notAfter", notAfter);
         o.put("policy", policy);
         o.put("svc", svc);
-        byte[] body = Jcs.bytes(o);
+        byte[] body = JcsWriter.bytes(o);
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);
@@ -94,7 +95,11 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     }
 
     /** The wire form, fields in the order the spec lists them. */
-    public ObjectNode toJson() {
+    public String toJson() {
+        return Json.text(tree());
+    }
+
+    ObjectNode tree() {
         ObjectNode o = JsonNodeFactory.instance.objectNode();
         o.put("policy", policy);
         o.put("svc", svc);
@@ -105,13 +110,21 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code node} is an object with string
+     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with string
      * {@code policy}, {@code svc}, {@code key} and {@code sig} and an in-range integer {@code notAfter}.
      * {@code notAfter} is checked by value, by the rule a stamp's {@code ts} follows, so {@code 1.0} and {@code 1e3}
      * are the integers 1 and 1000 and a reply gets the verdict the TypeScript SDK gives it; a string or a fraction
      * is refused. The signature covers the plain digits of that value. Other fields are ignored.
      */
-    public static ReplyCert parse(JsonNode node) {
+    public static ReplyCert parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("a reply certificate must be a JSON object");
+        }
+        return fromTree(Json.tree(json));
+    }
+
+    /** {@link #parse}'s rules over a tree already read, as the certificate inside a session reply is. */
+    static ReplyCert fromTree(JsonNode node) {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException("a reply certificate must be a JSON object");
         }
@@ -133,7 +146,7 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
-        return parse(node);
+        return fromTree(node);
     }
 
     private static boolean inRange(long v) {

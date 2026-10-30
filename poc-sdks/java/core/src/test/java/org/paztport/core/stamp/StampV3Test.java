@@ -43,15 +43,15 @@ class StampV3Test {
     void toJsonWritesVersionThenWireOrder() {
         StampV3 s = StampV3.sign("pi", "i", "r", 1, "", "x", "b", "", "", KEY.getPrivate());
         List<String> names = new ArrayList<>();
-        s.toJson().fieldNames().forEachRemaining(names::add);
+        s.tree().fieldNames().forEachRemaining(names::add);
         assertEquals(List.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig"), names);
-        assertEquals(3, s.toJson().get("v").asInt());
+        assertEquals(3, s.tree().get("v").asInt());
     }
 
     @Test
     void roundTrip() {
         StampV3 s = StampV3.sign("pi", "i", "r", 1767225600000L, "sess", "x", "b", "n", "p", KEY.getPrivate());
-        ParsedChain p = Chains.parse(JsonNodeFactory.instance.arrayNode().add(s.toJson()), false);
+        ParsedChain p = Chains.parse(JsonNodeFactory.instance.arrayNode().add(s.tree()).toString(), false);
         assertTrue(p.ok());
         assertEquals(s, p.stamps().get(0));
     }

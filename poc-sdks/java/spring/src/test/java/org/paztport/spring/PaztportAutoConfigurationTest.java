@@ -51,6 +51,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.ReasonCode;
@@ -318,10 +319,8 @@ class PaztportAutoConfigurationTest {
                                 () -> "rid-" + maxAge, System::currentTimeMillis)
                                 .next(null, "orders", "b", List.of(),
                                         ConfigLoader.loadProofBundle(dir.resolve("proofs-gateway.json")));
-                        VerifyInputV3 input = new VerifyInputV3(JSON.valueToTree(sent.chain().stream()
-                                .map(StampV3::toJson).toList()), "b", JSON.createArrayNode(),
-                                JSON.valueToTree(sent.proof()), "orders", true, "rid-" + maxAge + "|gateway|req",
-                                null);
+                        VerifyInputV3 input = new VerifyInputV3(Chains.toJson(sent.chain()), "b", "[]",
+                                sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
                     });
@@ -390,7 +389,7 @@ class PaztportAutoConfigurationTest {
     }
 
     private static void writeCert(Path dir, ReplyCert cert) throws IOException {
-        JSON.writeValue(dir.resolve("reply-cert.json").toFile(), cert.toJson());
+        Files.writeString(dir.resolve("reply-cert.json"), cert.toJson());
     }
 
     /** Everything partner mode needs, and no policy private key. */

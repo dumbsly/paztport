@@ -21,7 +21,8 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
+import org.paztport.core.internal.JcsWriter;
+import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 
 /**
@@ -143,7 +144,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code node} is an object with a string
+     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with a string
      * {@code policy}, a {@code services} object whose every value is a string, a string {@code sig} if one is
      * present (an unsigned file has none), and, if {@code notAfter} is present at all, an integer in
      * [0, 2^53 &minus; 1] judged by value as a reply certificate's is: {@code 1.0e12} is an integer, while a
@@ -151,7 +152,14 @@ public record KeyringFile(Map<String, String> services, String policy, String si
      * can never pass as no window. Other fields are ignored and unsigned. Jackson's record binding would truncate
      * {@code 1.5} to 1, which is why this, not binding, is the reader.
      */
-    public static KeyringFile parse(JsonNode node) {
+    public static KeyringFile parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("a keyring must be a JSON object");
+        }
+        return fromTree(Json.tree(json));
+    }
+
+    private static KeyringFile fromTree(JsonNode node) {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException("a keyring must be a JSON object");
         }
@@ -190,7 +198,12 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
-        return parse(node);
+        return fromTree(node);
+    }
+
+    /** The wire form: {@code {services, policy, sig?, notAfter?}}, with a null field left out. */
+    public String toJson() {
+        return Json.writeText(this);
     }
 
     private static ObjectNode body(String policy, Map<String, String> services) {
@@ -202,7 +215,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     }
 
     private static byte[] withPrefix(ObjectNode o) {
-        byte[] body = Jcs.bytes(o);
+        byte[] body = JcsWriter.bytes(o);
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);

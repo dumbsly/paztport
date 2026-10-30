@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -129,15 +130,24 @@ class VectorsHttpV3Export {
         return HexFormat.of().formatHex(b);
     }
 
+    /** A value the SDK wrote as JSON text, as a tree to place in a vector. */
+    private static JsonNode tree(String json) {
+        try {
+            return MAPPER.readTree(json);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
     private static ArrayNode stampsJson(List<StampV3> stamps) {
         ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        stamps.forEach(s -> a.add(s.toJson()));
+        stamps.forEach(s -> a.add(tree(s.toJson())));
         return a;
     }
 
     private static ArrayNode labelsJson(List<ContentLabel> labels) {
         ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        labels.forEach(l -> a.add(l.toJson()));
+        labels.forEach(l -> a.add(tree(l.toJson())));
         return a;
     }
 
@@ -147,7 +157,7 @@ class VectorsHttpV3Export {
         PrivateKey gatewayKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("gateway").get("priv").asText()));
         PrivateKey ordersKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("orders").get("priv").asText()));
         JsonNode proof = v3.get("policies").get("mesh").get("proofs").get(ROUTE);
-        MerkleProof sentProof = MerkleProof.fromJson(proof);
+        MerkleProof sentProof = MerkleProof.parse(proof.toString());
 
         // The request chain gateway -> orders -> payment, exactly as StamperV3 builds it in a mesh.
         StamperV3.Stamped toOrders = new StamperV3("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
@@ -231,7 +241,7 @@ class VectorsHttpV3Export {
         b.put("rid", RID);
         b.put("rcv", PARTNER_ENTRY);
         b.put("egress", EGRESS);
-        b.set("input", Influence.toJson(input));
+        b.set("input", tree(Influence.toJson(input)));
         ArrayNode salts = b.putArray("salts");
         for (InfluenceEntry e : reduced) {
             ObjectNode s = salts.addObject();
@@ -241,7 +251,7 @@ class VectorsHttpV3Export {
             }
             s.put("salt", boundarySalt(e));
         }
-        b.set("reduced", Influence.toJson(reduced));
+        b.set("reduced", tree(Influence.toJson(reduced)));
         InfluenceEntry aliceSent = reduced.stream().filter(e -> "alice".equals(e.owner())).findFirst().orElseThrow();
         List<InfluenceEntry> aliceOriginals = input.stream().filter(e -> "alice".equals(e.owner())).toList();
         List<InfluenceEntry> withExtra = new ArrayList<>(aliceOriginals);
@@ -260,8 +270,9 @@ class VectorsHttpV3Export {
             boolean opens) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
-        c.set("sent", sent.toJson());
-        c.set("opening", new BoundaryInfluence.Opening(sent.cls(), sent.owner(), boundarySalt(sent), originals).toJson());
+        c.set("sent", tree(sent.toJson()));
+        c.set("opening", tree(new BoundaryInfluence.Opening(sent.cls(), sent.owner(), boundarySalt(sent), originals)
+                .toJson()));
         c.put("opens", opens);
         return c;
     }
@@ -270,9 +281,9 @@ class VectorsHttpV3Export {
         byte[] key = Base64Url.decode(b.get("key").asText());
         String rid = b.get("rid").asText();
         String rcv = b.get("rcv").asText();
-        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(b.get("input")), key, rid, rcv,
+        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(b.get("input").toString()), key, rid, rcv,
                 b.get("egress").asText());
-        assertEquals(b.get("reduced"), Influence.toJson(reduced), "boundary reduced");
+        assertEquals(b.get("reduced"), tree(Influence.toJson(reduced)), "boundary reduced");
         assertEquals(b.get("salts").size(), reduced.size(), "a salt per group");
         for (JsonNode s : b.get("salts")) {
             InfluenceClass cls = InfluenceClass.fromWire(s.get("cls").asText());
@@ -281,9 +292,9 @@ class VectorsHttpV3Export {
                     "boundary salt " + s);
         }
         for (JsonNode c : b.get("openings")) {
-            InfluenceEntry sent = Influence.parse(JsonNodeFactory.instance.arrayNode().add(c.get("sent"))).get(0);
+            InfluenceEntry sent = Influence.parse(JsonNodeFactory.instance.arrayNode().add(c.get("sent")).toString()).get(0);
             assertEquals(c.get("opens").asBoolean(),
-                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(c.get("opening"))),
+                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(c.get("opening").toString())),
                     c.get("name").asText());
         }
     }
@@ -366,7 +377,7 @@ class VectorsHttpV3Export {
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
         List<StampV3> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));
-        MerkleProof proof = MerkleProof.fromJson(policy.get("proofs").get(c.get("proofRoute").asText()));
+        MerkleProof proof = MerkleProof.parse(policy.get("proofs").get(c.get("proofRoute").asText()).toString());
         JsonNode header = c.get("responseHeader");
         HttpV3.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {

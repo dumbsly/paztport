@@ -42,8 +42,8 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Manages the SDK's Jackson 2 (com.fasterxml.jackson, which its API and canonical JSON are
-                 built on), the Jackson 3 that Spring MVC uses, and JUnit. None is pinned beside it: a
+            <!-- Manages the SDK's Jackson 2 (com.fasterxml.jackson, which it reads and canonicalises JSON
+                 with inside; no public signature names it), the Jackson 3 that Spring MVC uses, and JUnit. None is pinned beside it: a
                  BOM imported after this one loses to it, and a single pinned Jackson module would split
                  Jackson 2 across two lines. -->
             <dependency>

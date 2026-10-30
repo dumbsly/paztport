@@ -3,20 +3,24 @@
 
 package org.paztport.http;
 
+import com.fasterxml.jackson.core.JsonGenerator;
+import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.fasterxml.jackson.databind.node.TextNode;
 import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.StringWriter;
 import java.nio.ByteBuffer;
 import java.nio.charset.CharacterCodingException;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
@@ -38,10 +42,10 @@ import org.paztport.core.verify.VerifyResult;
  * Everything a transport needs to carry v3 over HTTP, with no web framework: the header encodings, the request's
  * verify input, and the check of a response's attestation.
  *
- * <p>Every header holds base64url of UTF-8 JSON. The decoders never throw. A header that is absent decodes to
- * {@code null} (or {@code []} for influence), and one that is present but unreadable decodes to the string
- * {@code "malformed"}, which no verifier check accepts, so the verifier names the reason ({@code CHAIN_MISSING},
- * {@code INFLUENCE_MISMATCH}) instead of this layer guessing at it.
+ * <p>Every header holds base64url of UTF-8 JSON, and decodes to that JSON's text as it arrived. The decoders never
+ * throw. A header that is absent decodes to {@code null} (or {@code []} for influence), and one that is present but
+ * unreadable decodes to the JSON string {@code "malformed"}, which no verifier check accepts, so the verifier names
+ * the reason ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this layer guessing at it.
  *
  * <p>A response is attested by one more stamp on the request chain the responder received, naming the caller as
  * receiver and binding the result hash, the request's {@code rid} and the content labels. The caller already holds
@@ -53,7 +57,9 @@ public final class HttpV3 {
 
     private static final ObjectMapper MAPPER = new ObjectMapper()
             .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
-    private static final JsonNode MALFORMED = TextNode.valueOf("malformed");
+    /** What an unreadable header decodes to: the JSON string {@code "malformed"}, which no verifier check accepts. */
+    private static final String MALFORMED = "\"malformed\"";
+    private static final String NONE = "[]";
 
     private HttpV3() {
     }
@@ -61,27 +67,21 @@ public final class HttpV3 {
     // --- Header encodings ---
 
     public static String encodeChain(List<StampV3> chain) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        chain.forEach(s -> a.add(s.toJson()));
-        return encodeJson(a);
+        return encodeJson(Chains.toJson(chain));
     }
 
-    /** Blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
-    public static JsonNode decodeChain(String header) {
-        return header == null || header.isBlank() ? null : decodeJson(header);
+    /** The chain's JSON text: blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
+    public static String decodeChain(String header) {
+        return header == null || header.isBlank() ? null : readableOrMalformed(header);
     }
 
     public static String encodeProof(MerkleProof proof) {
         return proof == null ? null : proof.encode();
     }
 
-    /** Absent or unreadable gives {@code null}, which the verifier answers as no proof. */
-    public static JsonNode decodeProof(String header) {
-        if (header == null || header.isBlank()) {
-            return null;
-        }
-        JsonNode node = decodeJson(header);
-        return node == MALFORMED ? null : node;
+    /** The proof's JSON text: absent or unreadable gives {@code null}, which the verifier answers as no proof. */
+    public static String decodeProof(String header) {
+        return header == null || header.isBlank() ? null : decodeJson(header);
     }
 
     /** {@code null} for an empty list, so no header is sent. */
@@ -89,20 +89,34 @@ public final class HttpV3 {
         return entries == null || entries.isEmpty() ? null : encodeJson(Influence.toJson(entries));
     }
 
-    /** Absent gives {@code []}; unreadable gives {@code "malformed"}. */
-    public static JsonNode decodeInfluence(String header) {
-        return header == null || header.isBlank() ? JsonNodeFactory.instance.arrayNode() : decodeJson(header);
+    /** The influence's JSON text: absent gives {@code []}; unreadable gives {@code "malformed"}. */
+    public static String decodeInfluence(String header) {
+        return header == null || header.isBlank() ? NONE : readableOrMalformed(header);
     }
 
-    private static String encodeJson(JsonNode node) {
+    /**
+     * The header value for JSON text the SDK wrote: base64url of its UTF-8, in exactly the bytes headers have always
+     * carried. The text is read back and written out as bytes, which writes a character outside the Basic
+     * Multilingual Plane as an escaped surrogate pair rather than as its four UTF-8 bytes.
+     */
+    private static String encodeJson(String json) {
         try {
-            return Base64Url.encode(MAPPER.writeValueAsBytes(node));
+            return Base64Url.encode(MAPPER.writeValueAsBytes(MAPPER.readTree(json)));
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to encode JSON", e);
         }
     }
 
-    private static JsonNode decodeJson(String header) {
+    private static String readableOrMalformed(String header) {
+        String json = decodeJson(header);
+        return json == null ? MALFORMED : json;
+    }
+
+    /**
+     * The header's JSON text exactly as it arrived, once it is known to be base64url of UTF-8 holding one JSON value;
+     * otherwise null. The text, not a tree, is handed on, so the verifier reads exactly what was sent.
+     */
+    private static String decodeJson(String header) {
         try {
             byte[] bytes = Base64Url.decode(header.strip());
             String text = StandardCharsets.UTF_8.newDecoder()
@@ -110,9 +124,9 @@ public final class HttpV3 {
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
                     .decode(ByteBuffer.wrap(bytes)).toString();
             JsonNode node = MAPPER.readTree(text);
-            return node == null || node.isMissingNode() ? MALFORMED : node;
+            return node == null || node.isMissingNode() ? null : text;
         } catch (IllegalArgumentException | CharacterCodingException | JsonProcessingException e) {
-            return MALFORMED;
+            return null;
         }
     }
 
@@ -125,12 +139,12 @@ public final class HttpV3 {
      */
     public static VerifyInputV3 request(String chainHeader, String proofHeader, String influenceHeader, String method,
             String target, byte[] body, String receiver, Peer peer) {
-        JsonNode chain = decodeChain(chainHeader);
+        String chain = decodeChain(chainHeader);
         return new VerifyInputV3(chain, RequestBinding.compute(method, target, body), decodeInfluence(influenceHeader),
                 decodeProof(proofHeader), receiver, true, requestNonceKey(chain), peer);
     }
 
-    private static String requestNonceKey(JsonNode chain) {
+    private static String requestNonceKey(String chain) {
         ParsedChain parsed = Chains.parse(chain, false);
         if (!parsed.ok()) {
             return "";
@@ -151,11 +165,18 @@ public final class HttpV3 {
     }
 
     public static String encodeResponse(StampV3 stamp, List<ContentLabel> labels) {
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.set("stamp", stamp.toJson());
-        ArrayNode a = o.putArray("labels");
-        labels.forEach(l -> a.add(l.toJson()));
-        return encodeJson(o);
+        StringWriter out = new StringWriter();
+        try (JsonGenerator g = MAPPER.getFactory().createGenerator(out)) {
+            g.writeStartObject();
+            g.writeFieldName("stamp");
+            g.writeRawValue(stamp.toJson());
+            g.writeFieldName("labels");
+            g.writeRawValue(ContentLabel.toJson(labels));
+            g.writeEndObject();
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to encode JSON", e);
+        }
+        return encodeJson(out.toString());
     }
 
     /** What a caller learns from a response. {@code labels} is empty unless the result is {@code OK}. */
@@ -172,14 +193,14 @@ public final class HttpV3 {
     public static ResponseCheck verifyResponse(VerifierV3 verifier, List<StampV3> sent, MerkleProof sentProof,
             String responseHeader, int status, byte[] body, String caller) {
         String hash = resultHash(status, body);
-        JsonNode envelope = decodeChain(responseHeader);
-        if (sent.isEmpty() || envelope == null || !envelope.isObject() || !envelope.has("stamp")
-                || !envelope.has("labels")) {
+        String envelope = decodeChain(responseHeader);
+        Map<String, String> members = envelope == null ? null : members(envelope);
+        if (sent.isEmpty() || members == null || !members.containsKey("stamp") || !members.containsKey("labels")) {
             return rejected(ReasonCode.CHAIN_MISSING, hash);
         }
         List<ContentLabel> labels;
         try {
-            labels = ContentLabel.parseAll(envelope.get("labels"));
+            labels = ContentLabel.parseAll(members.get("labels"));
         } catch (IllegalArgumentException e) {
             return rejected(ReasonCode.CHAIN_MISSING, hash);
         }
@@ -190,14 +211,54 @@ public final class HttpV3 {
         } catch (IllegalArgumentException e) {
             return rejected(ReasonCode.BINDING_MISMATCH, hash);
         }
-        ArrayNode chain = JsonNodeFactory.instance.arrayNode();
+        List<String> chain = new ArrayList<>();
         sent.forEach(s -> chain.add(s.toJson()));
-        chain.add(envelope.get("stamp"));
+        chain.add(members.get("stamp"));
         String target = sent.get(sent.size() - 1).rcv();
-        VerifyResult result = verifier.verify(new VerifyInputV3(chain, bind, JsonNodeFactory.instance.arrayNode(),
-                sentProof == null ? null : MAPPER.valueToTree(sentProof), caller, false, rid + "|" + target + "|resp",
-                null));
+        VerifyResult result = verifier.verify(new VerifyInputV3(array(chain), bind, NONE,
+                sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + target + "|resp", null));
         return new ResponseCheck(result, result.ok() ? List.copyOf(labels) : List.of(), hash);
+    }
+
+    /**
+     * The members of the JSON object {@code json}, each value's text exactly as it appears there, with a repeated
+     * name's last value winning as it does when the object is read as a whole; null when {@code json} is not one
+     * object. The response stamp is handed on as this text, not as a tree written back out: written back, a number
+     * too large for a double would come out as the string {@code "Infinity"}, which a field check would accept.
+     */
+    private static Map<String, String> members(String json) {
+        Map<String, String> out = new HashMap<>();
+        try (JsonParser p = MAPPER.getFactory().createParser(json)) {
+            if (p.nextToken() != JsonToken.START_OBJECT) {
+                return null;
+            }
+            while (p.nextToken() == JsonToken.FIELD_NAME) {
+                String name = p.currentName();
+                p.nextToken();
+                int start = (int) p.currentTokenLocation().getCharOffset();
+                p.skipChildren();
+                p.finishToken();
+                out.put(name, json.substring(start, (int) p.currentLocation().getCharOffset()));
+            }
+            return p.currentToken() == JsonToken.END_OBJECT && p.nextToken() == null ? out : null;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
+    /** A JSON array of the given JSON texts, each written as it stands. */
+    private static String array(List<String> values) {
+        StringWriter out = new StringWriter();
+        try (JsonGenerator g = MAPPER.getFactory().createGenerator(out)) {
+            g.writeStartArray();
+            for (String v : values) {
+                g.writeRawValue(v);
+            }
+            g.writeEndArray();
+        } catch (IOException e) {
+            throw new IllegalStateException("failed to encode JSON", e);
+        }
+        return out.toString();
     }
 
     private static ResponseCheck rejected(ReasonCode reason, String hash) {

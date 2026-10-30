@@ -25,7 +25,7 @@ class ChainsTest {
     private static final KeyPair KEY = Crypto.generateEd25519KeyPair();
 
     private static ObjectNode v3() {
-        return StampV3.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate()).toJson();
+        return StampV3.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate()).tree();
     }
 
     private static ObjectNode v2() {
@@ -44,7 +44,7 @@ class ChainsTest {
     }
 
     private static void rejects(ReasonCode code, JsonNode chain) {
-        ParsedChain p = Chains.parse(chain, true);
+        ParsedChain p = Chains.parse(chain == null ? null : chain.toString(), true);
         assertFalse(p.ok());
         assertEquals(code, p.failure());
     }
@@ -84,11 +84,11 @@ class ChainsTest {
         for (String ok : new String[] {"1.0", "1e3", "9007199254740991"}) {
             ObjectNode s = v3();
             s.set("ts", MAPPER.readTree(ok));
-            assertTrue(Chains.parse(chain(s), false).ok(), ok);
+            assertTrue(Chains.parse(chain(s).toString(), false).ok(), ok);
         }
         ObjectNode one = v3();
         one.set("ts", MAPPER.readTree("1.0"));
-        assertEquals(1L, Chains.parse(chain(one), false).stamps().get(0).ts());
+        assertEquals(1L, Chains.parse(chain(one).toString(), false).stamps().get(0).ts());
     }
 
     @Test
@@ -160,20 +160,20 @@ class ChainsTest {
 
     @Test
     void legacyV2OnlyWhenAccepted() {
-        assertEquals(ReasonCode.CHAIN_MISSING, Chains.parse(chain(v2()), false).failure());
-        ParsedChain p = Chains.parse(chain(v2(), v2()), true);
+        assertEquals(ReasonCode.CHAIN_MISSING, Chains.parse(chain(v2()).toString(), false).failure());
+        ParsedChain p = Chains.parse(chain(v2(), v2()).toString(), true);
         assertTrue(p.ok());
         assertTrue(p.legacy());
         assertNull(p.failure());
         assertNull(p.stamps().get(0).rcvOrNull());
-        assertFalse(Chains.parse(chain(v3()), true).legacy());
+        assertFalse(Chains.parse(chain(v3()).toString(), true).legacy());
     }
 
     @Test
     void strayRcvOnV2IsIgnored() {
         ObjectNode s = v2();
         s.put("rcv", 9);
-        ParsedChain p = Chains.parse(chain(s), true);
+        ParsedChain p = Chains.parse(chain(s).toString(), true);
         assertTrue(p.ok());
         assertNull(p.stamps().get(0).rcvOrNull());
     }
@@ -188,6 +188,6 @@ class ChainsTest {
     void unknownFieldsAreIgnored() {
         ObjectNode s = v3();
         s.put("extra", true);
-        assertTrue(Chains.parse(chain(s), false).ok());
+        assertTrue(Chains.parse(chain(s).toString(), false).ok());
     }
 }

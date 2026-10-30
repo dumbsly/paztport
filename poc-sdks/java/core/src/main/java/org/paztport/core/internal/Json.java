@@ -3,13 +3,20 @@
 
 package org.paztport.core.internal;
 
+import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 
 /**
  * The one JSON entry point for the wire format. Reads fail closed: malformed or
  * unexpected JSON throws {@link IllegalArgumentException}, never a silent pass.
+ *
+ * <p>The public API takes and returns JSON text, so a user never meets the JSON library the SDK reads with. Inside,
+ * text is read into a tree here, by one reader that takes exactly one JSON value and refuses trailing tokens, so a
+ * header or body cannot carry a second value another parser would read differently.
  */
 public final class Json {
 
@@ -20,12 +27,24 @@ public final class Json {
             .configure(DeserializationFeature.FAIL_ON_NULL_CREATOR_PROPERTIES, true)
             .configure(DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES, true);
 
+    private static final ObjectMapper TREES = new ObjectMapper()
+            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+
     private Json() {
     }
 
     public static byte[] write(Object value) {
         try {
             return MAPPER.writeValueAsBytes(value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to encode JSON", e);
+        }
+    }
+
+    /** {@link #write}'s JSON as text rather than UTF-8 bytes, for a value type's {@code toJson()}. */
+    public static String writeText(Object value) {
+        try {
+            return MAPPER.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new IllegalStateException("failed to encode JSON", e);
         }
@@ -45,5 +64,48 @@ public final class Json {
         } catch (Exception e) {
             throw new IllegalArgumentException("malformed JSON", e);
         }
+    }
+
+    /** Exactly one JSON value read from {@code json}; null, empty or anything else throws. */
+    public static JsonNode tree(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("no JSON");
+        }
+        try {
+            return present(TREES.readTree(json));
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException("malformed JSON", e);
+        }
+    }
+
+    /**
+     * Exactly one JSON value read from a message body, in whichever Unicode encoding its first bytes show, UTF-8
+     * with or without a byte order mark included; null, empty or anything else throws.
+     */
+    public static JsonNode tree(byte[] json) {
+        if (json == null) {
+            throw new IllegalArgumentException("no JSON");
+        }
+        try {
+            return present(TREES.readTree(json));
+        } catch (IOException e) {
+            throw new IllegalArgumentException("malformed JSON", e);
+        }
+    }
+
+    /** The tree as compact JSON text, members in the order they were added. */
+    public static String text(JsonNode node) {
+        try {
+            return TREES.writeValueAsString(node);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to encode JSON", e);
+        }
+    }
+
+    private static JsonNode present(JsonNode node) {
+        if (node == null || node.isMissingNode()) {
+            throw new IllegalArgumentException("no JSON value");
+        }
+        return node;
     }
 }

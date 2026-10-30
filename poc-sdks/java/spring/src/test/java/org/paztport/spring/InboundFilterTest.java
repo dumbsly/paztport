@@ -207,8 +207,8 @@ class InboundFilterTest {
         }
     }
 
-    private static JsonNode decodeAttestation(MockHttpServletResponse response) {
-        return HttpV3.decodeChain(response.getHeader(PaztportHeaders.RESPONSE));
+    private static JsonNode decodeAttestation(MockHttpServletResponse response) throws IOException {
+        return new ObjectMapper().readTree(HttpV3.decodeChain(response.getHeader(PaztportHeaders.RESPONSE)));
     }
 
     private List<String> traceLines() {
@@ -606,12 +606,12 @@ class InboundFilterTest {
         assertEquals(201, response.getStatus());
         assertEquals("paid", response.getContentAsString(), "the body still reaches the caller");
         JsonNode attestation = decodeAttestation(response);
-        List<ContentLabel> labels = ContentLabel.parseAll(attestation.get("labels"));
+        List<ContentLabel> labels = ContentLabel.parseAll(attestation.get("labels").toString());
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
         StampV3 stamp = (StampV3) Chains.parse(
-                new ObjectMapper().createArrayNode().add(attestation.get("stamp")), false).stamps().get(0);
+                new ObjectMapper().createArrayNode().add(attestation.get("stamp")).toString(), false).stamps().get(0);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
@@ -644,7 +644,7 @@ class InboundFilterTest {
 
         assertEquals("paid", response.getContentAsString());
         StampV3 stamp = (StampV3) Chains.parse(new ObjectMapper().createArrayNode()
-                .add(decodeAttestation(response).get("stamp")), false).stamps().get(0);
+                .add(decodeAttestation(response).get("stamp")).toString(), false).stamps().get(0);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv());
         assertEquals(List.of(

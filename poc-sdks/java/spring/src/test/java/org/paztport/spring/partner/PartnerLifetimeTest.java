@@ -133,7 +133,7 @@ class PartnerLifetimeTest {
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of(PARTNER, pub(PSP_KEY)), PSP_PIN, ownNotAfter, PSP_POLICY.getPrivate()));
-        JSON.writeValue(trust.resolve("reply-cert.json").toFile(), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
+        Files.writeString(trust.resolve("reply-cert.json"), ReplyCert.issue(PSP_PIN, PARTNER, pub(PSP_KEY),
                 START + 60 * DAY_MS, PSP_POLICY.getPrivate()).toJson());
         JSON.writeValue(trust.resolve("root.json").toFile(), PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4,
                 ownNotAfter, PSP_POLICY.getPrivate()).signedRoot());
@@ -252,7 +252,7 @@ class PartnerLifetimeTest {
         JsonNode reply = JSON.readTree(client.post()
                 .uri("https://localhost:" + port + HttpSessions.PATH)
                 .contentType(MediaType.APPLICATION_JSON)
-                .body(JSON.writeValueAsBytes(req.toJson()))
+                .body(req.toJson().getBytes(StandardCharsets.UTF_8))
                 .retrieve()
                 .body(String.class));
         return new Opened(reply.get("sess").asText(), reply.get("status").asText());

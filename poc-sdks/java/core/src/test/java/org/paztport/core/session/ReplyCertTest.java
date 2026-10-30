@@ -121,19 +121,19 @@ class ReplyCertTest {
     @Test
     void jsonRoundTrips() throws Exception {
         ReplyCert c = issued();
-        ObjectNode o = c.toJson();
+        ObjectNode o = c.tree();
         List<String> names = new ArrayList<>();
         o.fieldNames().forEachRemaining(names::add);
         assertEquals(List.of("policy", "svc", "key", "notAfter", "sig"), names);
         assertTrue(o.get("notAfter").isIntegralNumber());
-        assertEquals(c, ReplyCert.parse(json(JSON.writeValueAsString(o))));
+        assertEquals(c, ReplyCert.parse(JSON.writeValueAsString(o)));
     }
 
     @Test
     void parseIgnoresOtherFields() throws Exception {
-        ObjectNode o = issued().toJson();
+        ObjectNode o = issued().tree();
         o.put("note", "not signed");
-        ReplyCert c = ReplyCert.parse(o);
+        ReplyCert c = ReplyCert.parse(o.toString());
         assertEquals(issued(), c);
         assertTrue(c.verifies(pub(POLICY)));
     }
@@ -142,9 +142,9 @@ class ReplyCertTest {
     void parseRefusesABadNotAfter() throws Exception {
         for (String bad : new String[] {"1.5", "-1", "-1.0", "9007199254740992", "9.007199254740992e15",
                 "18446744073709551616", "\"1798761600000\"", "\"1e3\"", "null", "true", "[]", "{}"}) {
-            ObjectNode o = issued().toJson();
+            ObjectNode o = issued().tree();
             o.set("notAfter", json(bad));
-            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(o), bad);
+            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(o.toString()), bad);
         }
     }
 
@@ -153,9 +153,9 @@ class ReplyCertTest {
         String[] text = {"1.0", "1e3", "1798761600000.0", "1.7987616E12"};
         long[] value = {1, 1000, NOT_AFTER, NOT_AFTER};
         for (int i = 0; i < text.length; i++) {
-            ObjectNode o = issued().toJson();
+            ObjectNode o = issued().tree();
             o.set("notAfter", json(text[i]));
-            assertEquals(value[i], ReplyCert.parse(o).notAfter(), text[i]);
+            assertEquals(value[i], ReplyCert.parse(o.toString()).notAfter(), text[i]);
         }
     }
 
@@ -163,39 +163,39 @@ class ReplyCertTest {
     void anIntegralFloatNotAfterStillVerifies() throws Exception {
         String wire = issued().toJson().toString().replace(":" + NOT_AFTER + ",", ":" + NOT_AFTER + ".0,");
         assertTrue(wire.contains(NOT_AFTER + ".0"), wire);
-        assertTrue(ReplyCert.parse(json(wire)).verifies(pub(POLICY)));
+        assertTrue(ReplyCert.parse(wire).verifies(pub(POLICY)));
     }
 
     @Test
     void parseAcceptsTheRangeEnds() throws Exception {
         for (long ok : new long[] {0, MAX_SAFE}) {
-            ObjectNode o = issued().toJson();
+            ObjectNode o = issued().tree();
             o.put("notAfter", ok);
-            assertEquals(ok, ReplyCert.parse(json(o.toString())).notAfter());
+            assertEquals(ok, ReplyCert.parse(o.toString()).notAfter());
         }
     }
 
     @Test
     void parseRefusesAMissingOrNonStringField() {
         for (String field : new String[] {"policy", "svc", "key", "notAfter", "sig"}) {
-            ObjectNode missing = issued().toJson();
+            ObjectNode missing = issued().tree();
             missing.remove(field);
-            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(missing), field);
+            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(missing.toString()), field);
         }
         for (String field : new String[] {"policy", "svc", "key", "sig"}) {
-            ObjectNode number = issued().toJson();
+            ObjectNode number = issued().tree();
             number.put(field, 1);
-            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(number), field);
-            ObjectNode nul = issued().toJson();
+            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(number.toString()), field);
+            ObjectNode nul = issued().tree();
             nul.putNull(field);
-            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(nul), field);
+            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(nul.toString()), field);
         }
     }
 
     @Test
     void parseRefusesANonObject() throws Exception {
         for (String bad : new String[] {"null", "[]", "\"cert\"", "1"}) {
-            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(json(bad)), bad);
+            assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(bad), bad);
         }
         assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(null));
     }
@@ -203,7 +203,7 @@ class ReplyCertTest {
     @Test
     void loadsTheToolsFile(@TempDir Path dir) throws Exception {
         Path f = dir.resolve("reply-cert.json");
-        Files.writeString(f, issued().toJson().toPrettyString());
+        Files.writeString(f, issued().tree().toPrettyString());
         assertEquals(issued(), ReplyCert.load(f));
         for (String bad : new String[] {"{not json", "", "[]", issued().toJson() + " {}"}) {
             Files.writeString(f, bad);

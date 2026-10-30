@@ -6,8 +6,6 @@ package org.paztport.core.influence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
@@ -15,14 +13,8 @@ import org.junit.jupiter.api.Test;
 
 class InfluenceTest {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    private static JsonNode json(String s) throws Exception {
-        return MAPPER.readTree(s);
-    }
-
     @Test
-    void rejectsMalformed() throws Exception {
+    void rejectsMalformed() {
         String[] bad = {
             "{}",
             "\"x\"",
@@ -38,20 +30,21 @@ class InfluenceTest {
             "[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"x\",\"owner\":5}]",
         };
         for (String b : bad) {
-            JsonNode n = json(b);
-            assertThrows(IllegalArgumentException.class, () -> Influence.parse(n), b);
+            assertThrows(IllegalArgumentException.class, () -> Influence.parse(b), b);
         }
+        assertThrows(IllegalArgumentException.class, () -> Influence.parse(null));
+        assertThrows(IllegalArgumentException.class, () -> Influence.parse("[{\"cls\""));
         ObjectNode lone = JsonNodeFactory.instance.objectNode();
         lone.put("cls", "public");
         lone.put("src", "\ud800");
         lone.put("h", "x");
-        assertThrows(IllegalArgumentException.class, () -> Influence.parse(JsonNodeFactory.instance.arrayNode().add(lone)));
+        assertThrows(IllegalArgumentException.class, () -> Influence.parse(JsonNodeFactory.instance.arrayNode().add(lone).toString()));
     }
 
     @Test
-    void dropsUnknownFields() throws Exception {
-        List<InfluenceEntry> e = Influence.parse(json("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"extra\":1}]"));
-        assertEquals(json("{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}"), e.get(0).toJson());
+    void dropsUnknownFields() {
+        List<InfluenceEntry> e = Influence.parse("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"extra\":1}]");
+        assertEquals("{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}", e.get(0).toJson());
     }
 
     @Test

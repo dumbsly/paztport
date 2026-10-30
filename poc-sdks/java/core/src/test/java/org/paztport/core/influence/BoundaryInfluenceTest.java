@@ -10,8 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -151,8 +149,7 @@ class BoundaryInfluenceTest {
         assertTrue(BoundaryInfluence.opens(sent,
                 opening(InfluenceClass.PRIVATE, "alice", ALICE_ORDER, ALICE_CARD, ALICE_ORDER)));
         // It survives the JSON round trip, the form a sender keeps or hands over.
-        JsonNode json = new ObjectMapper().readTree(open.toJson().toString());
-        assertTrue(BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(json)));
+        assertTrue(BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(open.toJson())));
         assertTrue(BoundaryInfluence.opens(sentFor(reduced, InfluenceClass.THIRD_PARTY, null),
                 opening(InfluenceClass.THIRD_PARTY, null, TICKET)));
     }
@@ -267,8 +264,7 @@ class BoundaryInfluenceTest {
     }
 
     @Test
-    void openingParseRefusesMalformed() throws Exception {
-        ObjectMapper m = new ObjectMapper();
+    void openingParseRefusesMalformed() {
         String salt = salt(InfluenceClass.PRIVATE, "alice");
         String originals = "[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"x\",\"owner\":\"alice\"}]";
         String[] bad = {
@@ -288,8 +284,7 @@ class BoundaryInfluenceTest {
             "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + salt + "\",\"originals\":[{\"cls\":\"private\"}]}",
         };
         for (String b : bad) {
-            JsonNode n = m.readTree(b);
-            assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse(n), b);
+            assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse(b), b);
         }
         assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse(null));
     }

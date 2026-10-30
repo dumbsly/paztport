@@ -28,4 +28,12 @@ public final class Vectors {
         }
         throw new IllegalStateException("spec/vectors/" + name + " not found above " + dir);
     }
+
+    /**
+     * A vector's value as the JSON text the SDK takes; null stays null. Written back from the tree, which is the
+     * same value: the vectors hold no number a double cannot carry.
+     */
+    public static String json(JsonNode node) {
+        return node == null ? null : node.toString();
+    }
 }

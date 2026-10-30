@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -56,6 +57,8 @@ import org.paztport.core.verify.VerifyResult;
  */
 class VectorsV3Test {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     static JsonNode vectors;
 
     @BeforeAll
@@ -64,12 +67,12 @@ class VectorsV3Test {
     }
 
     @Test
-    void influence() {
+    void influence() throws IOException {
         for (JsonNode c : vectors.get("influence")) {
             String name = c.get("name").asText();
-            List<InfluenceEntry> normalised = Influence.normalise(Influence.parse(c.get("entries")));
-            assertEquals(c.get("normalized"), Influence.toJson(normalised), name);
-            assertEquals(c.get("commitment").asText(), Influence.commit(Influence.parse(c.get("entries"))), name);
+            List<InfluenceEntry> normalised = Influence.normalise(Influence.parse(Vectors.json(c.get("entries"))));
+            assertEquals(c.get("normalized"), MAPPER.readTree(Influence.toJson(normalised)), name);
+            assertEquals(c.get("commitment").asText(), Influence.commit(Influence.parse(Vectors.json(c.get("entries")))), name);
         }
     }
 
@@ -125,7 +128,7 @@ class VectorsV3Test {
             String pin = vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText();
             KeyringFile file;
             try {
-                file = KeyringFile.parse(signed);
+                file = KeyringFile.parse(Vectors.json(signed));
             } catch (IllegalArgumentException e) {
                 // A notAfter that is not an integer in range: nothing signs it, and the reader refuses it.
                 assertTrue(c.get("signingBytes").isNull(), name);
@@ -157,7 +160,7 @@ class VectorsV3Test {
                     vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText()));
             SignedRoot root;
             try {
-                root = SignedRoot.parse(c.get("signed"));
+                root = SignedRoot.parse(Vectors.json(c.get("signed")));
             } catch (IllegalArgumentException e) {
                 assertTrue(c.get("signingBytes").isNull(), name);
                 assertFalse(c.get("verifies").asBoolean(), name);
@@ -201,20 +204,20 @@ class VectorsV3Test {
         PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinText));
         JsonNode ringTooLarge = named("keyring", "notAfter 2^53");
         assertEquals("9007199254740992", ringTooLarge.get("signed").get("notAfter").asText());
-        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(ringTooLarge.get("signed")));
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(Vectors.json(ringTooLarge.get("signed"))));
         JsonNode rootTooLarge = named("root", "notAfter 2^53");
-        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(rootTooLarge.get("signed")));
+        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(Vectors.json(rootTooLarge.get("signed"))));
 
         JsonNode ringWritten = named("keyring", "notAfter written 1798761600000.0").get("signed");
         assertTrue(ringWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
-        KeyringFile ring = KeyringFile.parse(ringWritten);
+        KeyringFile ring = KeyringFile.parse(Vectors.json(ringWritten));
         assertEquals(1_798_761_600_000L, ring.notAfter());
         assertTrue(ring.verifies(pinText));
         assertEquals(named("keyring", "new form").get("sig").asText(), ring.sig());
 
         JsonNode rootWritten = named("root", "notAfter written 1798761600000.0").get("signed");
         assertTrue(rootWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
-        SignedRoot root = SignedRoot.parse(rootWritten);
+        SignedRoot root = SignedRoot.parse(Vectors.json(rootWritten));
         assertEquals(1_798_761_600_000L, root.notAfter());
         assertTrue(root.verify(pin));
     }
@@ -237,7 +240,7 @@ class VectorsV3Test {
         assertTrue(cases != null && cases.size() > 0, "replyCert section");
         for (JsonNode c : cases) {
             String name = c.get("name").asText();
-            ReplyCert cert = ReplyCert.parse(c.get("cert"));
+            ReplyCert cert = ReplyCert.parse(Vectors.json(c.get("cert")));
             assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
                     ReplyCert.signingBytes(cert.policy(), cert.svc(), cert.key(), cert.notAfter())), name);
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
@@ -256,8 +259,8 @@ class VectorsV3Test {
         assertTrue(cases != null && cases.size() > 0, "sessionReply section");
         for (JsonNode c : cases) {
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
-            SessionRequest req = Sessions.parseRequest(c.get("request"));
-            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(c.get("reply"), req, pin,
+            SessionRequest req = Sessions.parseRequest(Vectors.json(c.get("request")));
+            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(Vectors.json(c.get("reply")), req, pin,
                     c.get("serverEntry").asText(), c.get("now").asLong()), c.get("name").asText());
         }
     }
@@ -271,11 +274,11 @@ class VectorsV3Test {
             Set<String> pinned = new LinkedHashSet<>();
             c.get("pinned").forEach(n -> pinned.add(vectors.get("keys").get(n.asText()).get("pub").asText()));
             String serverKey = vectors.get("keys").get(c.get("serverPolicyKey").asText()).get("pub").asText();
-            KeyringFile serverKeyring = KeyringFile.parse(c.get("serverKeyring"));
+            KeyringFile serverKeyring = KeyringFile.parse(Vectors.json(c.get("serverKeyring")));
             // the server's own keyring is the one it signed, in its own form
             assertTrue(serverKeyring.verifies(serverKey), name);
-            assertEquals(c.get("expected").asText(), Sessions.status(Sessions.parseRequest(c.get("request")),
-                    SignedRoot.parse(c.get("serverRoot")), serverKeyring,
+            assertEquals(c.get("expected").asText(), Sessions.status(Sessions.parseRequest(Vectors.json(c.get("request"))),
+                    SignedRoot.parse(Vectors.json(c.get("serverRoot"))), serverKeyring,
                     Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
         }
     }
@@ -302,8 +305,10 @@ class VectorsV3Test {
                     c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
             JsonNode route = c.get("proofRoute");
             JsonNode peer = c.get("peer");
-            VerifyInputV3 in = new VerifyInputV3(c.get("chain"), c.get("expectedBind").asText(), c.get("influence"),
-                    route.isNull() ? null : policy.get("proofs").get(route.asText()), c.get("receiver").asText(),
+            VerifyInputV3 in = new VerifyInputV3(Vectors.json(c.get("chain")), c.get("expectedBind").asText(),
+                    Vectors.json(c.get("influence")),
+                    route.isNull() ? null : Vectors.json(policy.get("proofs").get(route.asText())),
+                    c.get("receiver").asText(),
                     c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
                     peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
             VerifierV3 verifier = new VerifierV3(cfg);
@@ -328,8 +333,10 @@ class VectorsV3Test {
             }
         }
         JsonNode route = c.get("proofRoute");
-        return new OfflineInput(c.get("chain"), c.get("expectedBind").asText(), c.get("influence"),
-                route.isNull() ? null : policy.get("proofs").get(route.asText()), c.get("receiver").asText(),
+        return new OfflineInput(Vectors.json(c.get("chain")), c.get("expectedBind").asText(),
+                Vectors.json(c.get("influence")),
+                route.isNull() ? null : Vectors.json(policy.get("proofs").get(route.asText())),
+                c.get("receiver").asText(),
                 c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(), c.get("rid").asText(),
                 new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
     }

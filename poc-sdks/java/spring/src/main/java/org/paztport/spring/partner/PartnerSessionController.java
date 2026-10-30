@@ -64,7 +64,7 @@ class PartnerSessionController {
             // Not reachable after the checks above, short of a repeated server nonce; refused, never a 500.
             return error(HttpSessions.NO_SESSION);
         }
-        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(reply.toJson().toString());
+        return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(reply.toJson());
     }
 
     private static ResponseEntity<byte[]> error(String code) {

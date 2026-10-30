@@ -3,8 +3,6 @@
 
 package org.paztport.core.verify;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.List;
 import java.util.Objects;
 import org.paztport.core.internal.ChainChecks;
@@ -49,7 +47,7 @@ import org.paztport.core.stamp.RecordedStamp;
  */
 public final class VerifierV3 {
 
-    private static final JsonNode NO_INFLUENCE = JsonNodeFactory.instance.arrayNode();
+    private static final String NO_INFLUENCE = "[]";
 
     private final VerifierConfigV3 cfg;
 

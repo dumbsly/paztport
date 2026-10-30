@@ -8,9 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import java.io.IOException;
-import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -20,10 +18,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Jcs;
 import org.paztport.core.influence.Influence;
-import org.paztport.core.internal.Json;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
@@ -199,20 +195,19 @@ class JsonTextRoundTripTest {
     // --- Adapters: JSON text in, JSON text out, through each value type's own reader and writer. ---
 
     private enum Kind {
-        KEYRING(json -> text(Json.write(KeyringFile.parse(tree(json))))),
-        ROOT(json -> text(Base64Url.decode(SignedRoot.parse(tree(json)).encode()))),
-        PROOF(json -> text(Base64Url.decode(MerkleProof.fromJson(tree(json)).encode()))),
+        KEYRING(json -> KeyringFile.parse(json).toJson()),
+        ROOT(json -> SignedRoot.parse(json).toJson()),
+        PROOF(json -> MerkleProof.parse(json).toJson()),
         STAMP(json -> {
-            ArrayNode chain = MAPPER.createArrayNode().add(tree(json));
-            ParsedChain parsed = Chains.parse(chain, false);
+            ParsedChain parsed = Chains.parse(MAPPER.createArrayNode().add(tree(json)).toString(), false);
             if (!parsed.ok()) {
                 throw new IllegalArgumentException(parsed.failure().name());
             }
-            return ((StampV3) parsed.stamps().get(0)).toJson().toString();
+            return ((StampV3) parsed.stamps().get(0)).toJson();
         }),
-        INFLUENCE(json -> Influence.toJson(Influence.parse(tree(json))).toString()),
-        REQUEST(json -> Sessions.parseRequest(tree(json)).toJson().toString()),
-        CERT(json -> ReplyCert.parse(tree(json)).toJson().toString());
+        INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
+        REQUEST(json -> Sessions.parseRequest(json).toJson()),
+        CERT(json -> ReplyCert.parse(json).toJson());
 
         final UnaryOperator<String> roundTrip;
 
@@ -222,7 +217,7 @@ class JsonTextRoundTripTest {
     }
 
     private static byte[] jcs(String json) {
-        return Jcs.bytes(tree(json));
+        return Jcs.bytes(json);
     }
 
     private static JsonNode tree(String json) {
@@ -231,9 +226,5 @@ class JsonTextRoundTripTest {
         } catch (IOException e) {
             throw new IllegalStateException(e);
         }
-    }
-
-    private static String text(byte[] utf8) {
-        return new String(utf8, StandardCharsets.UTF_8);
     }
 }

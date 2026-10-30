@@ -106,7 +106,7 @@ class PartnerHandshakeTest {
         trust = Files.createTempDirectory("paztport-partner");
         Files.writeString(trust.resolve("policy.pub"), PSP_PIN + "\n");
         Files.writeString(trust.resolve("psp.key"), Base64Url.encode(Crypto.encodePrivateKey(PSP_KEY.getPrivate())));
-        JSON.writeValue(trust.resolve("reply-cert.json").toFile(), CERT.toJson());
+        Files.writeString(trust.resolve("reply-cert.json"), CERT.toJson());
         Files.writeString(trust.resolve("shop-policy.pub"), SHOP_PIN + "\n");
         JSON.writeValue(trust.resolve("keyring.json").toFile(),
                 KeyringFile.sign(Map.of("psp", pub(PSP_KEY)), PSP_PIN, NOT_AFTER, PSP_POLICY.getPrivate()));
@@ -208,7 +208,7 @@ class PartnerHandshakeTest {
     }
 
     private static byte[] json(SessionRequest req) throws IOException {
-        return JSON.writeValueAsBytes(req.toJson());
+        return req.toJson().getBytes(StandardCharsets.UTF_8);
     }
 
     @Test
@@ -220,7 +220,7 @@ class PartnerHandshakeTest {
         assertEquals(200, answer.status());
         JsonNode reply = JSON.readTree(answer.body());
         assertEquals(reply.toString(), answer.body(), "the reply exactly as the SDK writes it");
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertNotNull(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()));
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
@@ -234,15 +234,15 @@ class PartnerHandshakeTest {
     @Test
     void newFormMaterialOnBothSidesIsAttested() throws Exception {
         SessionRequest req = request(Sessions.newNonce());
-        assertEquals(NOT_AFTER, req.toJson().get("clientKeyringNotAfter").longValue());
-        assertEquals(NOT_AFTER, req.toJson().get("clientRoot").get("notAfter").longValue());
+        assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientKeyringNotAfter").longValue());
+        assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientRoot").get("notAfter").longValue());
 
         JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
 
         assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
         assertEquals("attested", reply.get("status").asText());
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", System.currentTimeMillis()));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", System.currentTimeMillis()));
         assertTrue(sessions.find(SHOP_CA, "orders", reply.get("sess").asText()).attested());
     }
 
@@ -254,15 +254,15 @@ class PartnerHandshakeTest {
         JsonNode reply = JSON.readTree(post(client("orders"), json(req)).body());
         long now = System.currentTimeMillis();
 
-        assertEquals(CERT.toJson(), reply.get("serverReplyCert"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, PSP_PIN, "psp", now));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(reply, req, PSP_PIN, "ledger", now));
+        assertEquals(JSON.readTree(CERT.toJson()), reply.get("serverReplyCert"));
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(reply.toString(), req, PSP_PIN, "ledger", now));
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(reply, req, PSP_PIN, "psp", CERT.notAfter() + 1));
+                Sessions.checkReply(reply.toString(), req, PSP_PIN, "psp", CERT.notAfter() + 1));
         ObjectNode stripped = reply.deepCopy();
         stripped.remove("serverKeyringSig");
         stripped.remove("serverReplyCert");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped, req, PSP_PIN, "psp", now));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped.toString(), req, PSP_PIN, "psp", now));
     }
 
     @Test

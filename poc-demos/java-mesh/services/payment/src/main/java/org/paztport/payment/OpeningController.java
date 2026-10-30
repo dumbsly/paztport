@@ -54,9 +54,7 @@ public class OpeningController {
      * no {@code owner}, or an empty one, names the group with no owner. {@code 404} when no call of that rid to the
      * partner is held, or none of its originals is in the group; {@code 400} for a class that does not exist.
      *
-     * <p>The opening is written with the SDK's own Jackson and handed to the web layer as a string, so the body is
-     * exactly what {@code Opening.toJson()} says; the web layer's Jackson is another major version, and would
-     * write that tree as a bean, not as the JSON it holds.
+     * <p>The body is exactly the text {@code Opening.toJson()} gives, handed to the web layer as a string.
      */
     @GetMapping("/debug/boundary-opening")
     public ResponseEntity<?> opening(@RequestParam String rid, @RequestParam String cls,
@@ -77,7 +75,7 @@ public class OpeningController {
             // No original is in that group: the call sent no entry for it.
             return ResponseEntity.notFound().build();
         }
-        String body = (tamper ? tampered(opening) : opening).toJson().toString();
+        String body = (tamper ? tampered(opening) : opening).toJson();
         return ResponseEntity.ok().contentType(MediaType.APPLICATION_JSON).body(body);
     }
 

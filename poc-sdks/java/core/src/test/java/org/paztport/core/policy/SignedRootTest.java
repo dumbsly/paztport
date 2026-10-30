@@ -115,7 +115,7 @@ class SignedRootTest {
         assertTrue(r.verify(POLICY.getPublic()));
         assertFalse(r.verify(Crypto.generateEd25519KeyPair().getPublic()));
 
-        SignedRoot parsed = SignedRoot.parse(JSON.valueToTree(r));
+        SignedRoot parsed = SignedRoot.parse(r.toJson());
         assertEquals(r, parsed);
         assertTrue(parsed.verify(POLICY.getPublic()));
         assertEquals(r, SignedRoot.decode(r.encode()));
@@ -155,7 +155,7 @@ class SignedRootTest {
         assertTrue(old.verify(POLICY.getPublic()));
         // An old-form root written today carries no notAfter at all, not a null one.
         assertFalse(JSON.writeValueAsString(old).contains("notAfter"));
-        SignedRoot parsed = SignedRoot.parse(json(JSON.writeValueAsString(old)));
+        SignedRoot parsed = SignedRoot.parse(JSON.writeValueAsString(old));
         assertEquals(old, parsed);
         assertTrue(parsed.verify(POLICY.getPublic()));
     }
@@ -189,31 +189,31 @@ class SignedRootTest {
     void notAfterByValue() throws Exception {
         SignedRoot r = newForm();
         String head = "{\"rootId\":\"v1\",\"root\":\"" + r.root() + "\",\"sig\":\"" + r.sig() + "\",\"notAfter\":";
-        assertEquals(1_000_000_000_000L, SignedRoot.parse(json(head + "1.0e12}")).notAfter());
-        assertEquals(MAX_SAFE, SignedRoot.parse(json(head + MAX_SAFE + "}")).notAfter());
-        assertEquals(0L, SignedRoot.parse(json(head + "0}")).notAfter());
-        assertTrue(SignedRoot.parse(json(head + "1798761600000.0}")).verify(POLICY.getPublic()));
+        assertEquals(1_000_000_000_000L, SignedRoot.parse(head + "1.0e12}").notAfter());
+        assertEquals(MAX_SAFE, SignedRoot.parse(head + MAX_SAFE + "}").notAfter());
+        assertEquals(0L, SignedRoot.parse(head + "0}").notAfter());
+        assertTrue(SignedRoot.parse(head + "1798761600000.0}").verify(POLICY.getPublic()));
         for (String bad : new String[] {"1.5", "-1", String.valueOf(MAX_SAFE + 1), "\"1798761600000\"", "null",
                 "true", "{}", "[]"}) {
-            assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(json(head + bad + "}")), bad);
+            assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(head + bad + "}"), bad);
         }
     }
 
     @Test
     void parseRefusesAMalformedRoot() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(null));
-        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(json("[]")));
+        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse("[]"));
         assertThrows(IllegalArgumentException.class,
-                () -> SignedRoot.parse(json("{\"root\":\"R\",\"sig\":\"S\"}")));
+                () -> SignedRoot.parse("{\"root\":\"R\",\"sig\":\"S\"}"));
         assertThrows(IllegalArgumentException.class,
-                () -> SignedRoot.parse(json("{\"rootId\":1,\"root\":\"R\",\"sig\":\"S\"}")));
+                () -> SignedRoot.parse("{\"rootId\":1,\"root\":\"R\",\"sig\":\"S\"}"));
         assertThrows(IllegalArgumentException.class,
-                () -> SignedRoot.parse(json("{\"rootId\":\"v1\",\"root\":\"R\"}")));
+                () -> SignedRoot.parse("{\"rootId\":\"v1\",\"root\":\"R\"}"));
         // An unsigned field is ignored, as on a reply certificate.
         SignedRoot r = newForm();
         ObjectNode extra = JSON.valueToTree(r);
         extra.put("note", "unsigned");
-        assertTrue(SignedRoot.parse(extra).verify(POLICY.getPublic()));
+        assertTrue(SignedRoot.parse(extra.toString()).verify(POLICY.getPublic()));
     }
 
     @Test

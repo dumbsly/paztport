@@ -4,18 +4,22 @@
 package org.paztport.core.stamp;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
+import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.verify.ReasonCode;
 
 /**
- * Reads a chain off the wire, strictly: the first two checks of the live order. It works on the Jackson tree
- * rather than binding to records so a wrong type or an out-of-range integer is seen as it is, and it never
- * throws; every malformed input comes back as a {@link ParsedChain} carrying a reason.
+ * Reads a chain off the wire, strictly: the first two checks of the live order. It reads the JSON text into a tree
+ * rather than binding it to records, so a wrong type or an out-of-range integer is seen as it is, and it never
+ * throws; every malformed input, text that is not JSON included, comes back as a {@link ParsedChain} carrying a
+ * reason.
  */
 public final class Chains {
 
@@ -29,10 +33,17 @@ public final class Chains {
     /**
      * Check 1: the field rules (all stamps one version, exact types, no lone surrogate, canonical {@code sig}),
      * all {@code CHAIN_MISSING}. Check 2: no signed field holds {@code |}, {@code BAD_SIGNATURE}. A v2 chain is
-     * accepted, as legacy, only when {@code acceptLegacy} is set.
+     * accepted, as legacy, only when {@code acceptLegacy} is set. Null, or text that is not one JSON value, is
+     * {@code CHAIN_MISSING} too.
      */
-    public static ParsedChain parse(JsonNode stamps, boolean acceptLegacy) {
-        if (stamps == null || !stamps.isArray() || stamps.isEmpty()) {
+    public static ParsedChain parse(String json, boolean acceptLegacy) {
+        JsonNode stamps;
+        try {
+            stamps = Json.tree(json);
+        } catch (IllegalArgumentException e) {
+            return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
+        }
+        if (!stamps.isArray() || stamps.isEmpty()) {
             return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
         }
         Integer version = version(stamps.get(0));
@@ -55,6 +66,13 @@ public final class Chains {
             }
         }
         return new ParsedChain(out, version == 2, null);
+    }
+
+    /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link StampV3#toJson()}. */
+    public static String toJson(List<StampV3> chain) {
+        ArrayNode a = JsonNodeFactory.instance.arrayNode();
+        chain.forEach(s -> a.add(s.tree()));
+        return Json.text(a);
     }
 
     private static Integer version(JsonNode item) {

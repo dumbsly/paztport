@@ -14,6 +14,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.List;
@@ -71,7 +73,24 @@ class SessionsTest {
     }
 
     private JsonNode wire(SessionReply r) {
-        return JSON.valueToTree(r.toJson());
+        return tree(r.toJson());
+    }
+
+    private static ObjectNode tree(String json) {
+        try {
+            return (ObjectNode) JSON.readTree(json);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        }
+    }
+
+    /** The client's check of a reply held as a tree, so a test can alter it first. */
+    private static ReplyCheck check(JsonNode reply, SessionRequest req, String pin, String entry, long now) {
+        return Sessions.checkReply(reply.toString(), req, pin, entry, now);
+    }
+
+    private static SessionRequest parse(JsonNode request) {
+        return Sessions.parseRequest(request.toString());
     }
 
     @Test
@@ -81,7 +100,7 @@ class SessionsTest {
         assertTrue(Sessions.opensSession(req));
 
         SessionReply reply = reply(req, serverRoot, "attested");
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(wire(reply), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(wire(reply), req, serverKey, "pay", NOW));
         assertEquals(Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), reply.nonce(), clientKey,
                 clientRing), reply.sess());
         // the request survives its own wire form
@@ -114,21 +133,21 @@ class SessionsTest {
         SessionReply attested = reply(req, serverRoot, "attested");
 
         assertEquals(ReplyCheck.MALFORMED_REPLY,
-                Sessions.checkReply(JSON.valueToTree("nope"), req, serverKey, "pay", NOW));
+                check(JSON.valueToTree("nope"), req, serverKey, "pay", NOW));
         ObjectNode noStatus = (ObjectNode) wire(attested);
         noStatus.remove("status");
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(noStatus, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.PIN_MISMATCH, Sessions.checkReply(wire(attested), req, key(clientPolicy), "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(noStatus, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.PIN_MISMATCH, check(wire(attested), req, key(clientPolicy), "pay", NOW));
 
         ObjectNode altered = (ObjectNode) wire(attested);
         altered.put("nonce", Sessions.newNonce());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(altered, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(altered, req, serverKey, "pay", NOW));
 
         SessionReply nullRoot = reply(req, null, "attested");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(wire(nullRoot), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(wire(nullRoot), req, serverKey, "pay", NOW));
 
         SessionReply unsafe = reply(req, serverRoot, "unsafe");
-        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(wire(unsafe), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.UNSAFE, check(wire(unsafe), req, serverKey, "pay", NOW));
         assertNotNull(unsafe.sig());
     }
 
@@ -152,18 +171,18 @@ class SessionsTest {
                 sess, "attested", List.of(), null);
 
         JsonNode byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
-        assertEquals(cert.toJson(), byEntry.get("serverReplyCert"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW + 1000));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW + 1001));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "ledger", NOW));
+        assertEquals(cert.tree(), byEntry.get("serverReplyCert"));
+        assertEquals(ReplyCheck.ATTESTED, check(byEntry, req, serverKey, "pay", NOW + 1000));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "pay", NOW + 1001));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "ledger", NOW));
 
         JsonNode byPolicy = wire(Sessions.signReply(unsigned, serverPolicy.getPrivate()));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byPolicy, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(byPolicy, req, serverKey, "pay", NOW));
 
         ObjectNode noCert = (ObjectNode) byEntry.deepCopy();
         noCert.remove("serverReplyCert");
         noCert.remove("serverKeyringSig");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(noCert, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(noCert, req, serverKey, "pay", NOW));
     }
 
     /**
@@ -186,40 +205,40 @@ class SessionsTest {
                 clientRing);
         SessionReply signed = Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(),
                 NOT_AFTER, cert, nonce, sess, "attested", List.of(), null), entry.getPrivate());
-        String text = JSON.writeValueAsString(signed.toJson());
+        String text = signed.toJson();
         String digits = "\"notAfter\":" + notAfter;
         assertTrue(text.contains(digits));
 
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(JSON.readTree(text), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(JSON.readTree(text), req, serverKey, "pay", NOW));
         for (String same : List.of("1798761600000.0", "1.7987616e12", "1.7987616E+12")) {
             JsonNode rewritten = JSON.readTree(text.replace(digits, "\"notAfter\":" + same));
-            assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(rewritten, req, serverKey, "pay", NOW), same);
+            assertEquals(ReplyCheck.ATTESTED, check(rewritten, req, serverKey, "pay", NOW), same);
         }
         JsonNode fraction = JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.5"));
-        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(fraction, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(fraction, req, serverKey, "pay", NOW));
 
         ObjectNode otherField = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
         otherField.put("nonce", Sessions.newNonce());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(otherField, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(otherField, req, serverKey, "pay", NOW));
         ObjectNode extraInCert = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
         ((ObjectNode) extraInCert.get("serverReplyCert")).put("note", "added");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(extraInCert, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(extraInCert, req, serverKey, "pay", NOW));
     }
 
     @Test
     void parseRequestRejects() throws Exception {
-        assertThrows(IllegalArgumentException.class, () -> Sessions.parseRequest(JSON.readTree("[]")));
-        ObjectNode ok = request(clientRoot).toJson();
+        assertThrows(IllegalArgumentException.class, () -> parse(JSON.readTree("[]")));
+        ObjectNode ok = tree(request(clientRoot).toJson());
         for (String[] bad : new String[][] {{"clientRoot", "5"}, {"clientKeyring", "{\"a\":1}"}, {"nonce", "7"}}) {
             ObjectNode o = ok.deepCopy();
             o.set(bad[0], JSON.readTree(bad[1]));
-            assertThrows(IllegalArgumentException.class, () -> Sessions.parseRequest(o), bad[0]);
+            assertThrows(IllegalArgumentException.class, () -> parse(o), bad[0]);
         }
         ObjectNode odd = ok.deepCopy();
         odd.put("clientKeyringSig", 5);
-        assertEquals("", Sessions.parseRequest(odd).clientKeyringSig());
+        assertEquals("", parse(odd).clientKeyringSig());
         odd.remove("clientKeyringSig");
-        assertTrue(Sessions.parseRequest(odd).legacy());
+        assertTrue(parse(odd).legacy());
     }
 
     /**
@@ -241,15 +260,15 @@ class SessionsTest {
      */
     @Test
     void malformedNotAfterOpensNoSession() throws Exception {
-        ObjectNode ok = request(clientRoot).toJson();
+        ObjectNode ok = tree(request(clientRoot).toJson());
         for (String bad : new String[] {"1.5", "\"x\"", "-1", String.valueOf(MAX_SAFE + 1), "null", "true", "{}",
                 "[]"}) {
             ObjectNode ring = ok.deepCopy();
             ring.set("clientKeyringNotAfter", JSON.readTree(bad));
-            assertThrows(IllegalArgumentException.class, () -> Sessions.parseRequest(ring), "keyring " + bad);
+            assertThrows(IllegalArgumentException.class, () -> parse(ring), "keyring " + bad);
             ObjectNode root = ok.deepCopy();
             ((ObjectNode) root.get("clientRoot")).set("notAfter", JSON.readTree(bad));
-            assertThrows(IllegalArgumentException.class, () -> Sessions.parseRequest(root), "root " + bad);
+            assertThrows(IllegalArgumentException.class, () -> parse(root), "root " + bad);
         }
     }
 
@@ -260,19 +279,19 @@ class SessionsTest {
      */
     @Test
     void clientKeyringNotAfterIsCoveredByTheKeyringSignature() throws Exception {
-        ObjectNode wire = request(clientRoot).toJson();
+        ObjectNode wire = tree(request(clientRoot).toJson());
         assertEquals(NOT_AFTER, wire.get("clientKeyringNotAfter").longValue());
-        assertEquals("attested", status(Sessions.parseRequest(wire)));
+        assertEquals("attested", status(parse(wire)));
 
         ObjectNode moved = wire.deepCopy();
         moved.put("clientKeyringNotAfter", NOT_AFTER + 1);
-        assertEquals("unsafe", status(Sessions.parseRequest(moved)), "moved");
+        assertEquals("unsafe", status(parse(moved)), "moved");
         ObjectNode dropped = wire.deepCopy();
         dropped.remove("clientKeyringNotAfter");
-        assertEquals("unsafe", status(Sessions.parseRequest(dropped)), "dropped");
+        assertEquals("unsafe", status(parse(dropped)), "dropped");
         ObjectNode byValue = (ObjectNode) JSON.readTree(JSON.writeValueAsString(wire)
                 .replace("\"clientKeyringNotAfter\":" + NOT_AFTER, "\"clientKeyringNotAfter\":1.8302976e12"));
-        assertEquals("attested", status(Sessions.parseRequest(byValue)), "by value");
+        assertEquals("attested", status(parse(byValue)), "by value");
     }
 
     /**
@@ -284,10 +303,10 @@ class SessionsTest {
     void notAfterIsWrittenOnlyForTheNewForm() {
         KeyringFile oldRing = KeyringFile.signOldForm(clientRing, clientKey, clientPolicy.getPrivate());
         SignedRoot oldRoot = SignedRoot.signOldForm(Crypto.sha256("c".getBytes()), "v1", clientPolicy.getPrivate());
-        ObjectNode old = SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson();
+        ObjectNode old = tree(SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson());
         assertFalse(old.has("clientKeyringNotAfter"));
         assertFalse(old.get("clientRoot").has("notAfter"));
-        ObjectNode fresh = request(clientRoot).toJson();
+        ObjectNode fresh = tree(request(clientRoot).toJson());
         assertEquals(NOT_AFTER, fresh.get("clientRoot").get("notAfter").longValue());
         assertFalse(wire(reply(request(clientRoot), serverRoot, "attested")).has("serverKeyringNotAfter"));
 
@@ -303,7 +322,7 @@ class SessionsTest {
         assertNull(oldFormRing.clientKeyringNotAfter());
         String sn = Sessions.newNonce();
         assertEquals(sessionId(newRing, sn), sessionId(oldFormRing, sn));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(wire(reply(newRing, serverRoot, "attested")),
+        assertEquals(ReplyCheck.ATTESTED, check(wire(reply(newRing, serverRoot, "attested")),
                 oldFormRing, serverKey, "pay", NOW), "a reply to one is a reply to the other");
     }
 
@@ -334,9 +353,9 @@ class SessionsTest {
         SignedRoot oldServer = SignedRoot.signOldForm(Crypto.sha256("s".getBytes()), "v1", serverPolicy.getPrivate());
         assertTrue(oldServer.verify(serverPolicy.getPublic()));
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(wire(reply(req, oldServer, "attested")), req, serverKey, "pay", NOW));
+                check(wire(reply(req, oldServer, "attested")), req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(wire(reply(req, oldServer, "unsafe")), req, serverKey, "pay", NOW));
+                check(wire(reply(req, oldServer, "unsafe")), req, serverKey, "pay", NOW));
     }
 
     /**
@@ -368,9 +387,9 @@ class SessionsTest {
                 SessionRequest.of(moved, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "root moved");
 
         KeyringFile expiredRing = KeyringFile.sign(clientRing, clientKey, NOW - 1, clientPolicy.getPrivate());
-        ObjectNode ringMoved = SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson();
+        ObjectNode ringMoved = tree(SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson());
         ringMoved.put("clientKeyringNotAfter", NOT_AFTER);
-        assertEquals("unsafe", status(Sessions.parseRequest(ringMoved)), "keyring moved");
+        assertEquals("unsafe", status(parse(ringMoved)), "keyring moved");
     }
 
     /**
@@ -411,21 +430,21 @@ class SessionsTest {
         byte[] rootBytes = Crypto.sha256("s".getBytes());
         SignedRoot rootUntilNow = SignedRoot.sign(rootBytes, "v1", NOW, serverPolicy.getPrivate());
         JsonNode policyForm = wire(reply(req, rootUntilNow, "attested"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(policyForm, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(policyForm, req, serverKey, "pay", NOW + 1));
+        assertEquals(ReplyCheck.ATTESTED, check(policyForm, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(policyForm, req, serverKey, "pay", NOW + 1));
         JsonNode unsafe = wire(reply(req, rootUntilNow, "unsafe"));
-        assertEquals(ReplyCheck.UNSAFE, Sessions.checkReply(unsafe, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(unsafe, req, serverKey, "pay", NOW + 1));
+        assertEquals(ReplyCheck.UNSAFE, check(unsafe, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(unsafe, req, serverKey, "pay", NOW + 1));
 
         KeyPair entry = Crypto.generateEd25519KeyPair();
         long certNotAfter = NOW + 1000;
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(entryKeyReply(req, entry, certNotAfter, rootUntilNow,
+        assertEquals(ReplyCheck.ATTESTED, check(entryKeyReply(req, entry, certNotAfter, rootUntilNow,
                 NOT_AFTER), req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(entryKeyReply(req, entry, certNotAfter,
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(entryKeyReply(req, entry, certNotAfter,
                 rootUntilNow, NOT_AFTER), req, serverKey, "pay", NOW + 1), "root past, entry-key form");
         JsonNode ringUntilNow = entryKeyReply(req, entry, certNotAfter, serverRoot, NOW);
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(ringUntilNow, req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(ringUntilNow, req, serverKey, "pay", NOW + 1),
+        assertEquals(ReplyCheck.ATTESTED, check(ringUntilNow, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringUntilNow, req, serverKey, "pay", NOW + 1),
                 "keyring past");
 
         SignedRoot expired = SignedRoot.sign(rootBytes, "v1", NOW - 1, serverPolicy.getPrivate());
@@ -434,7 +453,7 @@ class SessionsTest {
         assertFalse(extended.verify(serverPolicy.getPublic()));
         JsonNode byEntry = entryKeyReply(req, entry, certNotAfter, extended, NOT_AFTER);
         assertEquals(NOT_AFTER, byEntry.get("serverRoot").get("notAfter").longValue());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(byEntry, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "pay", NOW));
 
         String pn = Sessions.newNonce();
         String ps = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), pn, clientKey,
@@ -442,11 +461,11 @@ class SessionsTest {
         Map<String, String> ring = Map.of("pay", "server-key");
         JsonNode withoutWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, null,
                 null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(withoutWindow, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(withoutWindow, req, serverKey, "pay", NOW));
         JsonNode withWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, NOT_AFTER,
                 null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
         assertTrue(withWindow.has("serverKeyringNotAfter"));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(withWindow, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(withWindow, req, serverKey, "pay", NOW));
 
         KeyringFile oldRing = KeyringFile.signOldForm(Map.of("pay", key(entry)), serverKey, serverPolicy.getPrivate());
         String nonce = Sessions.newNonce();
@@ -456,7 +475,7 @@ class SessionsTest {
                 oldRing.sig(), null, ReplyCert.issue(serverKey, "pay", key(entry), certNotAfter,
                         serverPolicy.getPrivate()), nonce, sess, "attested", List.of(), null), entry.getPrivate()));
         assertFalse(oldForm.has("serverKeyringNotAfter"));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(oldForm, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(oldForm, req, serverKey, "pay", NOW));
     }
 
     /** An entry-key reply: new-form server root and keyring, the keyring's window beside it as on the request. */
@@ -489,32 +508,32 @@ class SessionsTest {
         JsonNode reply = entryKeyReply(req, Crypto.generateEd25519KeyPair(), NOW + 1000);
         assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(reply, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(reply, req, serverKey, "pay", NOW));
 
         ObjectNode ringMoved = reply.deepCopy();
         ringMoved.put("serverKeyringNotAfter", NOT_AFTER + 1);
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(ringMoved, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringMoved, req, serverKey, "pay", NOW));
         ObjectNode ringDropped = reply.deepCopy();
         ringDropped.remove("serverKeyringNotAfter");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(ringDropped, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringDropped, req, serverKey, "pay", NOW));
         ObjectNode rootMoved = reply.deepCopy();
         ((ObjectNode) rootMoved.get("serverRoot")).put("notAfter", NOT_AFTER + 1);
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(rootMoved, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.BAD_SIGNATURE, check(rootMoved, req, serverKey, "pay", NOW));
 
         for (String bad : new String[] {"1.5", "\"x\"", "-1", String.valueOf(MAX_SAFE + 1), "null", "true", "{}",
                 "[]"}) {
             ObjectNode ring = reply.deepCopy();
             ring.set("serverKeyringNotAfter", JSON.readTree(bad));
-            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(ring, req, serverKey, "pay", NOW), bad);
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(ring, req, serverKey, "pay", NOW), bad);
             ObjectNode root = reply.deepCopy();
             ((ObjectNode) root.get("serverRoot")).set("notAfter", JSON.readTree(bad));
-            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(root, req, serverKey, "pay", NOW), bad);
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(root, req, serverKey, "pay", NOW), bad);
         }
 
         String text = JSON.writeValueAsString(reply);
         assertEquals(2, text.split("otAfter\":" + NOT_AFTER, -1).length - 1);
         JsonNode byValue = JSON.readTree(text.replace("otAfter\":" + NOT_AFTER, "otAfter\":1.8302976e12"));
-        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(byValue, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.ATTESTED, check(byValue, req, serverKey, "pay", NOW));
     }
 
     @Test

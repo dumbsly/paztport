@@ -112,7 +112,7 @@ class KeyringFileTest {
         assertEquals(SERVICES, f.services());
         assertTrue(f.verifies(pub(POLICY)));
         assertFalse(f.verifies(pub(OTHER)));
-        KeyringFile parsed = KeyringFile.parse(JSON.valueToTree(f));
+        KeyringFile parsed = KeyringFile.parse(f.toJson());
         assertEquals(f, parsed);
         assertTrue(parsed.verifies(pub(POLICY)));
         // The readers that still bind the record keep the window.
@@ -149,7 +149,7 @@ class KeyringFileTest {
         assertNull(old.notAfter());
         assertTrue(old.verifies(pub(POLICY)));
         assertFalse(JSON.writeValueAsString(old).contains("notAfter"));
-        KeyringFile parsed = KeyringFile.parse(json(JSON.writeValueAsString(old)));
+        KeyringFile parsed = KeyringFile.parse(JSON.writeValueAsString(old));
         assertEquals(old, parsed);
         assertTrue(parsed.verifies(pub(POLICY)));
     }
@@ -177,33 +177,33 @@ class KeyringFileTest {
         KeyringFile f = newForm();
         String head = "{\"services\":" + JSON.writeValueAsString(SERVICES) + ",\"policy\":\"" + f.policy()
                 + "\",\"sig\":\"" + f.sig() + "\",\"notAfter\":";
-        assertEquals(1_000_000_000_000L, KeyringFile.parse(json(head + "1.0e12}")).notAfter());
-        assertEquals(MAX_SAFE, KeyringFile.parse(json(head + MAX_SAFE + "}")).notAfter());
-        assertEquals(0L, KeyringFile.parse(json(head + "0}")).notAfter());
-        assertTrue(KeyringFile.parse(json(head + "1798761600000.0}")).verifies(pub(POLICY)));
+        assertEquals(1_000_000_000_000L, KeyringFile.parse(head + "1.0e12}").notAfter());
+        assertEquals(MAX_SAFE, KeyringFile.parse(head + MAX_SAFE + "}").notAfter());
+        assertEquals(0L, KeyringFile.parse(head + "0}").notAfter());
+        assertTrue(KeyringFile.parse(head + "1798761600000.0}").verifies(pub(POLICY)));
         for (String bad : new String[] {"1.5", "-1", String.valueOf(MAX_SAFE + 1), "\"1798761600000\"", "null",
                 "true", "{}", "[]"}) {
-            assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(json(head + bad + "}")), bad);
+            assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(head + bad + "}"), bad);
         }
     }
 
     @Test
     void parseRefusesAMalformedKeyring() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(null));
-        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(json("[]")));
-        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(json("{\"policy\":\"p\"}")));
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse("[]"));
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse("{\"policy\":\"p\"}"));
         assertThrows(IllegalArgumentException.class,
-                () -> KeyringFile.parse(json("{\"services\":{\"a\":1},\"policy\":\"p\"}")));
+                () -> KeyringFile.parse("{\"services\":{\"a\":1},\"policy\":\"p\"}"));
         assertThrows(IllegalArgumentException.class,
-                () -> KeyringFile.parse(json("{\"services\":[],\"policy\":\"p\"}")));
-        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(json("{\"services\":{}}")));
+                () -> KeyringFile.parse("{\"services\":[],\"policy\":\"p\"}"));
+        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse("{\"services\":{}}"));
         assertThrows(IllegalArgumentException.class,
-                () -> KeyringFile.parse(json("{\"services\":{},\"policy\":\"p\",\"sig\":7}")));
+                () -> KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"sig\":7}"));
         // An unsigned file has no sig; an unsigned field is ignored.
-        assertNull(KeyringFile.parse(json("{\"services\":{},\"policy\":\"p\"}")).sig());
+        assertNull(KeyringFile.parse("{\"services\":{},\"policy\":\"p\"}").sig());
         ObjectNode extra = JSON.valueToTree(newForm());
         extra.put("note", "unsigned");
-        assertTrue(KeyringFile.parse(extra).verifies(pub(POLICY)));
+        assertTrue(KeyringFile.parse(extra.toString()).verifies(pub(POLICY)));
     }
 
     @Test
