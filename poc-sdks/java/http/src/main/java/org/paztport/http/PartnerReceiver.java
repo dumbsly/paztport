@@ -14,6 +14,7 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.LogSafe;
+import org.paztport.http.internal.VerifyInputs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -95,7 +96,7 @@ public final class PartnerReceiver {
             return PartnerAccepted.unsafe();
         }
 
-        VerifyInputV3 input = HttpV3.request(chain, parsed, request.header(PaztportHeaders.PROOF),
+        VerifyInputV3 input = VerifyInputs.request(chain, parsed, request.header(PaztportHeaders.PROOF),
                 request.header(PaztportHeaders.INFLUENCE), request.method(), request.target(), request.body(),
                 receiver, sender);
         VerifyResult result = session.verifier().verify(input);

@@ -21,6 +21,7 @@ import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.internal.LogSafe;
+import org.paztport.http.internal.VerifyInputs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -231,7 +232,7 @@ public final class HttpReceiver {
         VerifyResult checked = null;
         boolean verified = false;
         if (mode != VerificationMode.OFF) {
-            VerifyInputV3 input = HttpV3.request(chain, parsed, proofHeader, influenceHeader, request.method(),
+            VerifyInputV3 input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
                     request.target(), request.body(), receiver, peer);
             checked = verifier.verify(input);
             // On OK these are the entries the last stamp committed to; otherwise what was received.
@@ -258,8 +259,8 @@ public final class HttpReceiver {
         if (attesting && checked == null) {
             // A hop that does not verify requests, so verified here for attestation alone: never refused, never
             // published. Run at most once per request, since the live order spends the request's nonce.
-            checked = verifier.verify(HttpV3.request(chain, parsed, proofHeader, influenceHeader, request.method(),
-                    request.target(), request.body(), receiver, peer));
+            checked = verifier.verify(VerifyInputs.request(chain, parsed, proofHeader, influenceHeader,
+                    request.method(), request.target(), request.body(), receiver, peer));
             trace(traceLine(rid, checked, receiver, peer, influence));
             verified = checked.ok();
         }

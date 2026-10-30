@@ -29,14 +29,13 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.RecordedStamp;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierV3;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.core.verify.VerifyResult;
+import org.paztport.http.internal.VerifyInputs;
 
 /**
  * Everything a transport needs to carry v3 over HTTP, with no web framework: the header encodings, the request's
@@ -140,28 +139,8 @@ public final class HttpV3 {
     public static VerifyInputV3 request(String chainHeader, String proofHeader, String influenceHeader, String method,
             String target, byte[] body, String receiver, Peer peer) {
         String chain = decodeChain(chainHeader);
-        return request(chain, Chains.parse(chain, false), proofHeader, influenceHeader, method, target, body, receiver,
-                peer);
-    }
-
-    /**
-     * {@link #request(String, String, String, String, String, byte[], String, Peer)} for a receiver that has already
-     * decoded the chain header to {@code chain} ({@link #decodeChain}) and read that to {@code parsed}
-     * ({@code Chains.parse(chain, false)}), so that it reads one request's chain once rather than again here for the
-     * nonce key. The verifier still reads {@code chain} itself, as it must: it trusts no reading but its own.
-     */
-    static VerifyInputV3 request(String chain, ParsedChain parsed, String proofHeader, String influenceHeader,
-            String method, String target, byte[] body, String receiver, Peer peer) {
-        return new VerifyInputV3(chain, RequestBinding.compute(method, target, body), decodeInfluence(influenceHeader),
-                decodeProof(proofHeader), receiver, true, requestNonceKey(parsed), peer);
-    }
-
-    private static String requestNonceKey(ParsedChain parsed) {
-        if (!parsed.ok()) {
-            return "";
-        }
-        List<RecordedStamp> stamps = parsed.stamps();
-        return stamps.get(0).rid() + "|" + stamps.get(stamps.size() - 1).svc() + "|req";
+        return VerifyInputs.request(chain, Chains.parse(chain, false), proofHeader, influenceHeader, method, target,
+                body, receiver, peer);
     }
 
     // --- Responses ---
