@@ -48,7 +48,7 @@ What v3 changed, deliberately:
 | `v1.json` | v1 keys, stamps and their signed bytes, chain headers, HTTP request bindings, Merkle leaves, nodes and proofs, the signed root, and the v1 verify cases. | Java (`paztport-http`) and TypeScript (`@paztport/http`) |
 | `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for all but the result and `tools/call` bindings, which only MCP uses |
 | `v3.json` | v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring and the signed root in both forms (the new form's signed bytes and signature, at its `notAfter` and 1 ms after, the largest `notAfter`, a renewed root, a tampered `notAfter`, `notAfter` dropped from a new-form signature and added to an old-form one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one written `1798761600000.0` and read by value, a root signature offered as a keyring's and the other way round, and an old-form keyring and root whose signatures verify, which only an offline verifier may rely on, and which are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed bodies differ and would fail without them: each case's literal signed bytes do), reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one naming another policy key, an ignored extra field and the largest `notAfter`), session replies (the entry-key and policy-key forms with new-form roots and keyrings on both sides, the certificate's expiry, forged and malformed replies, a server keyring or root `notAfter` moved, dropped or malformed, the server's root and keyring at their `notAfter`, expired and in the old form, an expired root's window moved in a reply the entry key signed again, and a keyring window in a policy-key reply), session status cases (the server's status for a request, against its own root and keyring and its pins: each side's root and keyring at its `notAfter`, expired and in the old form, and a client window moved), live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain) and offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks). | Java (`paztport-core`) and TypeScript (`@paztport/mcp`) |
-| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay), and blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
+| `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay), blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not), and in `rules` the HTTP rules a receiver, a caller, a partner and an egress follow ([below](#the-http-rules-in-http-v3json)). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules` adds keys and material of its own, derived the same way. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 | `events.json` | Responder events: the envelope's signed bytes and signatures, and the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a tampered payload, malformed envelopes and payloads read strictly, with nothing coerced or filled in and nothing but JSON whitespace around them, `ts` read by value, and the check order). Its keys are derived by `v3.json`'s rule. | Written and replayed by Java (`paztport-core`). TypeScript: planned; the TypeScript SDK does not implement events yet. |
 
 | Version | Java SDK | TypeScript SDK |
@@ -79,5 +79,75 @@ null when that `notAfter` is not an integer in [0, 2^53 − 1], which a reader r
 present, gives whether it is valid at each `at`. The file writes one `keyring` and one `root` case's `notAfter`
 as `1798761600000.0`, which a reader must read by value as the integer its signature is over, so a replay must
 read the file's own text.
+
+### The HTTP rules in http-v3.json
+
+`http-v3.json`'s `rules` holds the rules the spec sets for v3 over HTTP that the rest of the file does not reach:
+how a receiver reads a request, who attests, the peer a certificate names, the partner's sessions and handshake
+endpoint, the egress, what a response adds to the caller's influence, refusals and trusted records. Each case is
+replayed through functions that take a request as it arrived, with no web framework, so nothing in the file is a
+framework's choice. Its `about` says how its keys, material, trees and handshake nonces are derived, so the file
+can be rebuilt byte for byte. Bodies and certificates are hex, headers are their values as sent, and every
+expected refusal's `body` is its exact bytes, `{"reason":"<code>"}`.
+
+| Kind | Shape | What it pins |
+|---|---|---|
+| `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `<rid>\|<last svc>\|req`, which other directions' and hops' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and influence (`INFLUENCE_MISMATCH`). |
+| `unreadableInfluence` | receiver | Influence that does not parse is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
+| `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it enforces; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin. |
+| `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
+| `sessionHeader` | partner | `X-Path-Session` ([sessions-and-influence.md](sessions-and-influence.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |
+| `sessionRegistry` | partner | Sessions by id: a handshake replaces none, a peer holds at most N and loses its least recently used, replicas sharing a certificate are one peer, another peer's handshakes evict none, a session idle for the idle period expires and a call starts that period again, and a handshake that opens no session changes none. |
+| `unsafeOperations` | table | An operation is `<METHOD> <route pattern>` by the dispatched handler's pattern, and a `HEAD` is refused wherever its `GET` is. |
+| `handshakeErrors` | partner | The handshake endpoint: `INVALID_PARAMS` for a body that is not JSON or not a readable request (a `null` window included), `NO_SESSION` for one that opens none (a 15-byte nonce, a 63-byte root signature) and for no client certificate or one naming no single service; and a request that opens an attested and an unsafe session. |
+| `egress` | egress | The egress's steps 1 to 7 ([sessions-and-influence.md](sessions-and-influence.md#between-organisations)): nothing sent, the handshake included, unless the chain passed the live order there; one boundary stamp and no internal one; blinded influence and the boundary route's proof; nothing but the session id in an unsafe session; the replacement after a 404 or a reply under another key, unsafe whatever it says; each reply recorded as one `local-untrusted` entry; and a session dropped after `SESSION_UNKNOWN`. |
+| `callerInfluence` | caller | A response at the caller: each label of a response that verifies becomes an entry with `src` `http:<target>` and `h` the result hash, the target the receiver's policy name; any other response adds exactly one `local-untrusted` entry. |
+| `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions-and-influence.md](sessions-and-influence.md#status)). |
+| `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
+| `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, unreadable influence included (a partner has no audit mode), and an unsafe session's switched-off operations refused `UNSAFE_SESSION`, with no session header too. |
+| `trustedRecord` | receiver | Trusted records ([sessions-and-influence.md](sessions-and-influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session. |
+
+A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
+and `inst`, whether it is an `origin`, whether it has a `verifier`, pinned to `material`, and a stamp key
+(`stamps`), and whether it verifies requests under `mode` (`enforce`, `audit` or `off`; null for a service that
+verifies under no mode). Each entry has `peer`, or none, and one nonce cache that already holds the keys in
+`spent`; then the handler reads `read`. `expected` is the last entry's answer: the `refusal`, or null; whether
+the chain `verified` at this hop; the `influence` the handler starts from; whether the answer `attests`; and
+whether a `trustedRecord` may be written from it. A null `request` is work outside any request.
+
+A **partner** case runs `steps` against one partner (`partner`: its `material`, the client policy keys it has
+`pinned`, `clientOrigins`, the operations it has switched off for unsafe sessions, `maxSessionsPerPeer`,
+`sessionIdleMs`, its windows and the clock's `start`), its clock at each step's `at`. A peer is one of `peers`, a
+client `certificate` and the `remoteAddr` it connected from, read as `peerCertificates` reads one, with its issuer
+for the session's binding; null is no client certificate. A `handshake` posts the request `handshakes` names, or
+`body`; `as` names the session it opens, since the partner chooses the id. It expects the `status`, the `error` of
+a `400`, and the reply's `sessionStatus` and `disabled` of a `200`. A `call` names its session as
+`{"of": <as>}`, `{"id": <literal id>}`, or null for no `X-Path-Session`. Its `stamp`, when present, is a
+boundary stamp signed with `key` as the step runs, in the session its `sess` names, binding the call's method,
+its target and the stamp's own `body`, and committing to the stamp's `influence`; `proofHeader` and
+`influenceHeader` go as given. `routePattern` is the pattern of the handler the call reaches, which an unsafe
+session's switched-off operations are matched against. It expects the `refusal`, whether the call is `attested`,
+the `influence` the handler starts from, and `trustedRecord`.
+
+An **egress** case enters `inbound`, a receiver case's inputs, at the egress (null: no request at all), then
+sends each of `posts` to a scripted partner. Each handshake that carries a client root takes the next of
+`partnerScript.handshakes`: `attested` or `unsafe`, a genuine reply in the entry-key form from the `psp`
+material; `notFound`, a `404`; `wrongKey`, a reply in the policy-key form signed by and naming `stranger-policy`.
+One with no client root gets a genuine reply whose status is `replacement`, and each call takes the next of
+`calls`. It expects each post's `outcome` (`answered`, with the partner's `status` and whether the call went out
+`attested`; or `refused`, with nothing sent), everything the partner `received` in order, and the influence the
+request holds afterwards, normalised. A received `handshake` says whether it carried a `clientRoot`. A received
+`call` gives its `session` and `stampSession`, the position in `received` of the handshake whose reply issued
+the id in its `X-Path-Session` and in its stamps' `sess`, then its `stamps` with `sess` and `sig` left out (the
+partner chose the id, and `sig` covers it), and its `proof` and `influence` as decoded; each is null when the
+header is absent.
+
+A **caller** case is a call by `caller` after the chain `inbound`, with `influence` so far, and the `response`
+to it (`status`, `header`, `body`). It expects the sent stamp's `rcv`, the response check's `reason` (null when
+the caller has no verifier and checks nothing) and the `influence` the response adds.
+
+Some rules are the Java SDK's own and are tested in `paztport-http` rather than pinned: the startup checks of a
+partner's and an egress's own material, the 256 KiB limit on a handshake body, clearing a session after
+`POLICY_EXPIRED`, and the egress's own idle period.
 
 Cases may be added at any time. A recorded answer changes only with a protocol change.

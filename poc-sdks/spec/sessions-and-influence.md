@@ -464,7 +464,8 @@ steered it. A request that fails the rule MAY still be served, but the record MU
 | yes | yes | not written |
 | yes | no (no entries, or only `private` and `public` ones, with any owners) | may be written |
 
-No vector pins this rule yet. (The Java SDK applies it as `PublicWrites.shapedOnlyByTrusted()`.)
+`http-v3.json`'s `rules` pins this rule in `trustedRecord`, and for a partner's calls in its partner kinds. (The Java
+SDK applies it as `PublicWrites.shapedOnlyByTrusted()`.)
 
 ## Between organisations
 
