@@ -14,6 +14,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import java.io.IOException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
@@ -339,6 +340,26 @@ class RequestContextTest {
         assertFalse(RequestContext.isOpen(), "neither the leaked scope nor the request's own is left open");
         assertEquals(List.of(), RequestContext.influence());
         assertEquals(1, warnings.list.size());
+    }
+
+    // A checked exception thrown where the compiler cannot see it (a sneaky throw, as some libraries do) is neither
+    // a RuntimeException nor an Error, and must still end the scope, or the pooled thread keeps it.
+    @Test
+    void aReceiverThatThrowsACheckedExceptionLeavesNoScopeBehind() {
+        IOException fault = new IOException("listener failed");
+
+        IOException thrown = assertThrows(IOException.class, () -> RequestContext.accept(
+                orders((chain, proof, influence, method, target, body) -> RequestContextTest.<RuntimeException>sneak(
+                        fault)), request(List.of()), null, VerificationMode.ENFORCE));
+
+        assertSame(fault, thrown);
+        assertFalse(RequestContext.isOpen(), "the request's own scope is not left open");
+    }
+
+    /** Throws {@code t} without the compiler knowing, as a sneaky-throwing library would. */
+    @SuppressWarnings("unchecked")
+    private static <T extends Throwable> void sneak(Throwable t) throws T {
+        throw (T) t;
     }
 
     /**

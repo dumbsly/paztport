@@ -5,6 +5,7 @@ package org.paztport.http;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Supplier;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
@@ -127,8 +128,7 @@ public final class RequestContext {
      */
     public static Entered<Accepted> accept(HttpReceiver receiver, InboundRequest request, Peer peer,
             VerificationMode mode) {
-        Scope scope = openEnded();
-        try {
+        return entered(() -> {
             Accepted accepted = receiver.accept(request, peer, mode, RequestContext::setInboundChain);
             if (accepted.refusal() == null) {
                 if (accepted.verifiedChain() != null) {
@@ -136,11 +136,8 @@ public final class RequestContext {
                 }
                 addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
             }
-            return new Entered<>(scope, accepted);
-        } catch (RuntimeException | Error e) {
-            scope.close();
-            throw e;
-        }
+            return accepted;
+        });
     }
 
     /**
@@ -149,18 +146,29 @@ public final class RequestContext {
      * and in an unsafe one nothing, whatever the request carried.
      */
     public static Entered<PartnerAccepted> accept(PartnerReceiver receiver, InboundRequest request, PeerCert peer) {
-        Scope scope = openEnded();
-        try {
+        return entered(() -> {
             PartnerAccepted accepted = receiver.accept(request, peer);
             if (accepted.attested()) {
                 addInfluence(accepted.influence().toArray(InfluenceEntry[]::new));
                 setInboundChain(accepted.verifiedChain());
                 markVerified(accepted.verifiedChain());
             }
-            return new Entered<>(scope, accepted);
-        } catch (RuntimeException | Error e) {
+            return accepted;
+        });
+    }
+
+    /**
+     * Opens the request's scope ({@link #openEnded}), then decides in it. Whatever {@code decide} throws ends the
+     * scope first: a checked exception thrown where the compiler cannot see it, as some libraries do, as much as a
+     * runtime exception or an error, since a scope left open would stay with the pooled thread.
+     */
+    private static <T> Entered<T> entered(Supplier<T> decide) {
+        Scope scope = openEnded();
+        try {
+            return new Entered<>(scope, decide.get());
+        } catch (Throwable t) {
             scope.close();
-            throw e;
+            throw t;
         }
     }
 
