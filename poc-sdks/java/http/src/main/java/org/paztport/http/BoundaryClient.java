@@ -390,7 +390,9 @@ public final class BoundaryClient implements AutoCloseable {
      * 200, and no whole answer within the timeout, is an {@link IOException}.
      */
     private byte[] handshake(SessionRequest req) throws IOException {
-        // Written as bytes by the SDK's JSON library, as the handshake body always has been.
+        // Written as bytes by the SDK's JSON library, as the handshake body always has been: the text is read back
+        // and written out as bytes, which writes a character outside the Basic Multilingual Plane as an escaped
+        // surrogate pair rather than as its four UTF-8 bytes, so the body keeps exactly the bytes it always had.
         byte[] body = JSON.writeValueAsBytes(JSON.readTree(req.toJson()));
         HttpResponse<byte[]> response = send(HttpRequest.newBuilder(
                         URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + HttpSessions.PATH))
