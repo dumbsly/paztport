@@ -23,7 +23,8 @@ public final class Routes {
      * A well-formed surrogate pair is an ordinary character and is allowed. The policy owner checks this where it
      * builds a policy; a verifier rebuilds routes only from signed stamps and does not use it.
      *
-     * @throws IllegalArgumentException naming the node and the rule it broke
+     * @throws IllegalArgumentException naming the rule the node broke, and the node itself where it can be shown:
+     *     not an empty one, nor one with a lone surrogate, which UTF-8 could not carry intact
      */
     public static void requireValidNode(String node) {
         if (node == null || node.isEmpty()) {
