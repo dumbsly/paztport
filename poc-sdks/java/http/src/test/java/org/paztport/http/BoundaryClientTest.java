@@ -67,6 +67,9 @@ import org.slf4j.LoggerFactory;
  * and nothing else of the internal chain, no chain or influence in an unsafe session, the replacement after a reply
  * it cannot use, and a fresh session after the partner forgets one or this side has left one idle. Above all, nothing
  * at all leaves, the handshake included, unless this hop verified the request's chain.
+ *
+ * <p>It sits in the root package, not {@code boundary}, because it marks chains verified, which only this package
+ * can, and scripts {@code StubPartner}; it reaches the egress's test hooks through {@link BoundaryHooks}.
  */
 class BoundaryClientTest {
 
@@ -150,7 +153,7 @@ class BoundaryClientTest {
      * test to change before building it: payment's material, the listener, both clocks and {@link #IDLE_MS}.
      */
     private BoundaryClient.Builder egress(StubPartner to, HttpClient http) {
-        return BoundaryClient.builder()
+        BoundaryClient.Builder builder = BoundaryClient.builder()
                 .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis))
                 .bundle(built.bundles().get("payment"))
@@ -163,9 +166,8 @@ class BoundaryClientTest {
                 .blindingKey(blindingKey)
                 .listener(this::listen)
                 .http(http)
-                .nanos(nanos::get)
-                .millis(millis::get)
                 .sessionIdleMs(IDLE_MS);
+        return BoundaryHooks.millis(BoundaryHooks.nanos(builder, nanos::get), millis::get);
     }
 
     /**
@@ -611,7 +613,7 @@ class BoundaryClientTest {
         assertFalse(verified("rid-1", this::charge).attested(), "the replacement gives an unsafe session");
         assertEquals(2, partner.handshakes().size());
 
-        nanos.addAndGet(BoundaryClient.FALLBACK_PERIOD.toNanos() - 1);
+        nanos.addAndGet(BoundaryHooks.FALLBACK_PERIOD.toNanos() - 1);
         assertFalse(verified("rid-2", this::charge).attested());
         assertEquals(2, partner.handshakes().size(), "no new handshake within the period");
 
@@ -631,7 +633,7 @@ class BoundaryClientTest {
         partner.status("unsafe");
 
         verified("rid-1", this::charge);
-        nanos.addAndGet(BoundaryClient.FALLBACK_PERIOD.toNanos() * 10);
+        nanos.addAndGet(BoundaryHooks.FALLBACK_PERIOD.toNanos() * 10);
         verified("rid-2", this::charge);
 
         assertEquals(1, partner.handshakes().size());
@@ -842,8 +844,8 @@ class BoundaryClientTest {
     void aHandshakeThePartnerNeverFinishesIsReplacedAtItsTimeout() throws Exception {
         for (SilentPeer.Stall stall : SilentPeer.Stall.values()) {
             try (StubPartner stalling = new StubPartner();
-                    BoundaryClient bounded = egress(stalling, tls()).listener(null)
-                            .handshakeTimeout(Duration.ofMillis(300)).build()) {
+                    BoundaryClient bounded = BoundaryHooks.handshakeTimeout(
+                            egress(stalling, tls()).listener(null), Duration.ofMillis(300)).build()) {
                 stalling.stallNextHandshake(stall);
                 stalling.replacementStatus("attested");
 
@@ -869,6 +871,6 @@ class BoundaryClientTest {
 
     @Test
     void anEgressBuiltWithNoReadTimeoutHasTheDefault() {
-        assertEquals(BoundaryClient.DEFAULT_READ_TIMEOUT, client.readTimeout());
+        assertEquals(BoundaryClient.DEFAULT_READ_TIMEOUT, BoundaryAccess.readTimeout(client));
     }
 }

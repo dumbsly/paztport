@@ -755,7 +755,7 @@ final class VectorsHttpPartner {
         ArrayNode posts = arr();
         ObjectNode e = obj();
         try (ScriptedPartner partner = ScriptedPartner.start(fx, c.get("partnerScript"), shop.keyring());
-                BoundaryClient egress = BoundaryClient.builder()
+                BoundaryClient egress = BoundaryHooks.millis(BoundaryHooks.nanos(BoundaryClient.builder()
                         .stamper(new StamperV3(svc, cfg.get("inst").asText(), fx.privateKey(svc), false,
                                 () -> "unused", () -> now))
                         .bundle(shop.bundle(svc)).ownRoot(shop.root()).ownKeyring(shop.keyring())
@@ -765,7 +765,7 @@ final class VectorsHttpPartner {
                         .http(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
                                 .connectTimeout(Duration.ofSeconds(5))
                                 .sslContext(StubPartner.fixtureContext("payment")).build())
-                        .nanos(() -> 0L).millis(() -> now).sessionIdleMs(cfg.get("sessionIdleMs").asLong())
+                        .sessionIdleMs(cfg.get("sessionIdleMs").asLong()), () -> 0L), () -> now)
                         .build()) {
             List<InfluenceEntry> influence = List.of();
             if (inbound.isNull()) {
@@ -794,7 +794,7 @@ final class VectorsHttpPartner {
                 BoundaryClient.Response r = egress.post(p.get("path").asText(), unhex(p.get("body")));
                 out.add(posted("answered", r.status(), r.attested()));
             } catch (IllegalStateException e) {
-                out.add(posted(BoundaryClient.NO_VERIFIED_CHAIN.equals(e.getMessage()) ? "refused" : "failed", null,
+                out.add(posted(BoundaryHooks.NO_VERIFIED_CHAIN.equals(e.getMessage()) ? "refused" : "failed", null,
                         null));
             }
         }

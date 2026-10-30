@@ -27,9 +27,9 @@ import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
 
 /**
- * The trace lines operators and the demo read, pinned as literals: one request line, one boundary line and one
- * decision line. They are the lines' format, so moving the code that builds them must leave them byte for byte as
- * they are here.
+ * The trace lines operators and the demo read, pinned as literals: one request line and one decision line, the
+ * boundary line being pinned in {@code BoundaryLineTest}. They are the lines' format, so moving the code that builds
+ * them must leave them byte for byte as they are here.
  */
 class TraceLineTest {
 
@@ -65,13 +65,6 @@ class TraceLineTest {
                 + "peer=gateway (mTLS) classes=private,third-party",
                 HttpReceiver.traceLine("rid-7", refused, "payment", new Peer("gateway", "10.0.0.7"),
                         List.of(MINE, WEB)));
-    }
-
-    @Test
-    void boundaryLine() {
-        assertEquals("PAZTPORT_TRACE boundary rid=rid-7 receiver=bank session=attested status=200 "
-                + "classes=private,third-party",
-                BoundaryClient.boundaryLine("rid-7", "bank", true, 200, List.of(MINE, WEB)));
     }
 
     @Test
