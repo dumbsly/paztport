@@ -16,11 +16,10 @@ import java.security.PrivateKey;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
-import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.policy.PolicyOwner;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
@@ -139,16 +138,18 @@ public final class PolicyToolMain {
         } catch (UncheckedIOException | IllegalArgumentException e) {
             throw new IllegalArgumentException(rootFile + " is missing or not a signed root", e);
         }
-        if (!root.verify(Crypto.decodePublicKey(Base64Url.decode(ring.policy())))) {
-            throw new IllegalArgumentException(rootFile + " is not signed by this policy key (policy.key)");
-        }
         ReplyCert cert = replyCertSvc == null ? null
                 : issueReplyCert(keyringFile, ring, replyCertSvc, replyCertNotAfter, policyKey);
 
         // Renewing vouches that every route in the existing tree is still allowed until policyNotAfter. The tool
         // checks only that this policy key signed the tree before; that the owner still allows all of it is the
         // owner's to know. A narrowed policy is a rebuild, never a renewal.
-        SignedRoot renewed = root.renewed(policyNotAfter, policyKey);
+        SignedRoot renewed;
+        try {
+            renewed = PolicyOwner.renewRoot(root, ring.policy(), policyNotAfter, policyKey);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(rootFile + ": " + e.getMessage(), e);
+        }
 
         writeKeyringInPlace(keyringFile, ring);
         MAPPER.writeValue(rootFile.toFile(), renewed);
@@ -158,11 +159,8 @@ public final class PolicyToolMain {
     }
 
     /**
-     * The keyring re-signed until {@code notAfter}, after the checks re-signing it rests on: it verifies, in either
-     * form and expired or not, under the policy key it names, and that key is the one in {@code policy.key} (the
-     * re-signed keyring must verify under it). Re-signing vouches that each listed key is still its service's
-     * current key. The tool can check only that this policy key vouched for them before; that none has been
-     * retired since is the policy owner's to ensure, since a retired key needs a new keyring, not a renewed one.
+     * The keyring read from {@code keyringFile} and re-signed until {@code notAfter} by core's
+     * {@link PolicyOwner#renewKeyring}, which holds the checks re-signing rests on. A refusal names the file.
      */
     private static KeyringFile renewedKeyring(Path keyringFile, long notAfter, PrivateKey policyKey) {
         KeyringFile ring;
@@ -171,14 +169,11 @@ public final class PolicyToolMain {
         } catch (UncheckedIOException | IllegalArgumentException e) {
             throw new IllegalArgumentException(keyringFile + " is missing or not a keyring", e);
         }
-        if (ring.policy() == null || !ring.verifies(ring.policy())) {
-            throw new IllegalArgumentException(keyringFile + " is not signed by its policy key");
+        try {
+            return PolicyOwner.renewKeyring(ring, notAfter, policyKey);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(keyringFile + ": " + e.getMessage(), e);
         }
-        KeyringFile renewed = ring.renewed(notAfter, policyKey);
-        if (!renewed.verifies(ring.policy())) {
-            throw new IllegalArgumentException(keyringFile + " is not signed by this policy key (policy.key)");
-        }
-        return renewed;
     }
 
     /**
@@ -229,17 +224,14 @@ public final class PolicyToolMain {
         }
     }
 
-    /**
-     * The certificate for {@code svc}'s key in {@code ring}, already checked to be this policy key's keyring; the
-     * certificate vouches that the key is {@code svc}'s in it, so a service the keyring lacks is refused.
-     */
+    /** The certificate from core's {@link PolicyOwner#issueReplyCert}; a refusal names the keyring file. */
     private static ReplyCert issueReplyCert(Path keyringFile, KeyringFile ring, String svc, long notAfter,
             PrivateKey policyKey) {
-        String key = ring.services().get(svc);
-        if (key == null) {
-            throw new IllegalArgumentException(keyringFile + " has no key for service " + svc);
+        try {
+            return PolicyOwner.issueReplyCert(ring, svc, notAfter, policyKey);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(keyringFile + ": " + e.getMessage(), e);
         }
-        return ReplyCert.issue(ring.policy(), svc, key, notAfter, policyKey);
     }
 
     /** The reply certificate's {@code notAfter}: see {@link #daysFromNow}. */
