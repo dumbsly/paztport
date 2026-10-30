@@ -3,19 +3,27 @@
 
 package org.paztport.spring.trust;
 
-/** How a verifying service treats a request. */
+/**
+ * How a verifying service treats a request. {@link #AUDIT} and {@link #ENFORCE} are the protocol's two modes;
+ * {@link #OFF} is not a protocol mode but this SDK's deployment switch, kept so that an operator can take Paztport
+ * off a hop and measure against it.
+ */
 public enum VerificationMode {
 
     /**
-     * Paztport off on this hop: no verification and no response attestation; pass everything (the latency
-     * baseline).
+     * Not a protocol mode: this hop is not running Paztport. No verification, no response attestation and no events;
+     * everything passes (the latency baseline). Its callers count its responses as {@code local-untrusted}, so
+     * switching a hop off can only add caution downstream.
      */
     OFF,
 
-    /** Verify and publish events, but always pass the request through. */
+    /**
+     * Run every check, refuse nothing and report the result: publish an event, marked audit, for each failure, and
+     * pass the request through. Influence that cannot be read is still answered 400, since it may not be dropped.
+     */
     AUDIT,
 
-    /** Verify and reject on failure. */
+    /** Verify, publish an event and refuse on failure. */
     ENFORCE;
 
     /** Parses a property value, failing closed to {@link #ENFORCE} on null, blank, or unknown. */

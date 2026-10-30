@@ -103,6 +103,33 @@ the SDK as the bytes or text it arrived in, as the starter's
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
   refused the request first. An origin (`paztport.origin=true`) starts every
   request tree afresh: it ignores the chain and the influence a request brings.
+- **Modes.** `paztport.mode` is `enforce` (the default), `audit` or `off`, and
+  `/admin/mode` switches it at run time. The first two are the protocol's
+  [modes](../spec/verification.md#modes-and-refusals): `enforce` refuses a request
+  that fails, and `audit` runs every check, refuses nothing (influence it can't
+  read aside) and reports each failure as an event with `audit: true`. `off` is not
+  a protocol mode but a deployment switch: the hop is not running Paztport. It
+  verifies nothing, attests nothing and sends no events, though it still carries the
+  chain and influence so its own calls are stamped, and its callers count its
+  responses `local-untrusted`. It is the baseline to measure Paztport against. A
+  value the starter cannot read is `enforce`.
+- **Refusals.** Every refusal, in the mesh and at a partner, is
+  `{"reason":"<code>"}` and nothing else, with `403` (or `400` for unreadable
+  influence). Who is suspected goes to the `PAZTPORT_TRACE request` line and the
+  event, never to the caller, who is usually the suspect.
+- **Unverified paths.** Neither the inbound filter nor the partner filter runs on
+  the control plane: a request whose raw request URI is `/admin`, `/debug` or
+  `/actuator`, or starts with one of them followed by `/`. The match is by whole
+  segment, so `/admin/mode` and `/actuator/health` are skipped but
+  `/administration` and `/debugger` are verified; a path parameter on the segment
+  (`/admin;x`) is verified too, and a context path is part of the URI, so under one
+  nothing is skipped. They are skipped because they are operator endpoints, not
+  steps on a request's path: nothing calls them with a chain, so verifying them
+  would refuse every one in `enforce`. A handler there runs with no request scope:
+  no influence, no verified chain, no attestation, and at a partner it counts as
+  unsafe. So keep data-path handlers off these paths, and protect the endpoints
+  themselves; `/admin/mode` needs `X-Admin-Token` to match `paztport.admin-token`,
+  and is disabled without one.
 - **Response attestation.** A service attests a response only to a request whose
   chain passed the full live order there: its own verifier, itself as receiver, the
   request's proof and influence, and the peer under mutual TLS. That needs a stamp
@@ -121,7 +148,14 @@ the SDK as the bytes or text it arrived in, as the starter's
   until the handler returns. An async response is not attested: its body is sent
   whole when the async work completes, with no `X-Path-Response`.
 - **The outbound interceptor** stamps every `RestClient` call through `StamperV3`,
-  attaches the proof and the influence so far, and reads each response whole.
+  attaches the proof and the influence so far, and reads each response whole. The
+  receiver it stamps, as the last stamp's `rcv`, is the URL's host, so by default a
+  service's policy name is the host its callers reach it by (in the mesh demo,
+  Docker Compose service names): `https://payment:8443/pay` is stamped for
+  `payment`. The same name is the response's `<target>`. The
+  [spec](../spec/verification.md#receivers-the-peer-and-attribution) requires the
+  receiver's policy name, so a destination reached by any other host (an address,
+  a load balancer's name) fails at the receiver (`BINDING_MISMATCH`).
   Wherever there is a keyring, a root and the policy pin, it checks the response's
   attestation: verified labels become influence entries, and any other response
   becomes one `local-untrusted` entry (`src` `http:<target>`, `h` the result
@@ -204,10 +238,15 @@ the SDK as the bytes or text it arrived in, as the starter's
   derived again from the key. Nothing about the originals is logged. A reply
   that fails the client's check, an HTTP or I/O error (a `404` too) or no answer in
   10 s, the handshake's timeout, is followed by a handshake with no root, and the
-  session is unsafe. That session is kept for at most 30 s, so a passing failure
-  does not leave the egress unsafe for the life of the process: the first call after
-  it tries the full handshake again. A genuine unsafe reply to the full handshake
-  (the partner has not pinned this organisation) is kept. Each call has the read
+  session is unsafe. That is the **fallback session**: the egress took it because
+  it got no answer it could check, not because the partner said unsafe, so it is
+  kept for at most 30 s from when it was opened (or less, if no call uses it for the
+  idle period below). In it calls carry only `X-Path-Session`, as in any unsafe
+  session. A passing failure (a partner restarting, a network blip) therefore does
+  not leave the egress unsafe for the life of the process: the first call after the
+  30 s tries the full handshake again. A genuine unsafe reply to the full handshake
+  (the partner has not pinned this organisation) is the partner's answer, not a
+  fallback, and is kept like an attested session. Each call has the read
   timeout, `paztport.read-timeout-ms` (below); one past it throws
   `UncheckedIOException` and keeps the session, as any failed call does, and is not
   retried. A `403 SESSION_UNKNOWN` clears the session, so the next call opens a
@@ -279,9 +318,9 @@ the SDK as the bytes or text it arrived in, as the starter's
   `PartnerGate`, a handler interceptor, refuses with `403 UNSAFE_SESSION` any request
   outside an attested session that matches an `unsafe-disabled` entry, by the
   handler Spring dispatched to, so `/refund;x=1` is `POST /refund`; a `HEAD` is
-  refused where the matching `GET` is. The handshake endpoint and any path starting
-  `/admin`, `/debug` or `/actuator` are not filtered, so a handler there runs with no
-  influence and counts as unsafe.
+  refused where the matching `GET` is. The handshake endpoint and the
+  [unverified paths](#paztport-spring) are not filtered, so a handler there runs
+  with no influence and counts as unsafe.
 - **Trace lines.** Besides the request and response lines, each value passed through
   `LogSafe`:
   - `PAZTPORT_TRACE session partner=<svc> check=<ReplyCheck>|- status=attested|unsafe`,

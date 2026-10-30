@@ -415,15 +415,17 @@ Notes on the ordering:
   mesh CA, and takes the service it names (its common name, when it has exactly
   one) as the sender. The chain's last signer must be that service. It runs last,
   so every other check keeps its code.
-- Every rejection returns a 403 with the reason code and publishes an event for
-  the responder. Influence that can't be read is never dropped: where verification
-  hasn't refused the request first, it is answered `400 INFLUENCE_MISMATCH`.
+- Every rejection returns a 403 whose body is the reason code alone,
+  `{"reason":"<code>"}`, and publishes an event for the responder. Influence that
+  can't be read is never dropped: where verification hasn't refused the request
+  first, it is answered `400 INFLUENCE_MISMATCH`.
 - **Every result names the peer.** The TLS layer authenticated the sender, so each
   result, `OK` included, names the service its certificate names
   (`suspectSvc`) at the address it connected from (`suspectInst`), whatever the
-  chain says. A certificate is issued per service, not per container, so the
-  responder still checks that the container at that address runs that service
-  (see [Response](#response-quarantine-not-deletion)).
+  chain says. That goes to the event and the trace line, never to the caller. A
+  certificate is issued per service, not per container, so the responder still
+  checks that the container at that address runs that service (see
+  [Response](#response-quarantine-not-deletion)).
 - One trace line per verification shows the verdict, for example after scenario 1:
   `PAZTPORT_TRACE request rid=… reason=OK receiver=payment ✓ peer=orders (mTLS) classes=-`.
 
