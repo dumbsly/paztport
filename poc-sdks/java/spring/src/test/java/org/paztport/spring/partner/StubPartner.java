@@ -7,14 +7,24 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
+import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.security.GeneralSecurityException;
+import java.security.KeyFactory;
 import java.security.KeyPair;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateFactory;
+import java.security.spec.PKCS8EncodedKeySpec;
 import java.util.ArrayDeque;
+import java.util.Base64;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +33,9 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.TrustManagerFactory;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
@@ -34,9 +47,6 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.SilentPeer;
-import org.springframework.boot.ssl.SslBundle;
-import org.springframework.boot.ssl.pem.PemSslStoreBundle;
-import org.springframework.boot.ssl.pem.PemSslStoreDetails;
 
 /**
  * A partner organisation reduced to what the egress sees: a JDK server on a loopback port, over plain HTTP or,
@@ -107,10 +117,7 @@ final class StubPartner implements AutoCloseable {
         InetSocketAddress loopback = new InetSocketAddress(InetAddress.getLoopbackAddress(), 0);
         if (tls) {
             HttpsServer https = HttpsServer.create(loopback, 0);
-            https.setHttpsConfigurator(new HttpsConfigurator(SslBundle.of(new PemSslStoreBundle(
-                    PemSslStoreDetails.forCertificate("classpath:tls/payment.crt")
-                            .withPrivateKey("classpath:tls/payment.key"),
-                    PemSslStoreDetails.forCertificate("classpath:tls/ca.crt"))).createSslContext()));
+            https.setHttpsConfigurator(new HttpsConfigurator(fixtureContext("payment")));
             server = https;
         } else {
             server = HttpServer.create(loopback, 0);
@@ -118,6 +125,55 @@ final class StubPartner implements AutoCloseable {
         server.setExecutor(executor);
         server.createContext("/", this::handle);
         server.start();
+    }
+
+    /**
+     * A TLS context from the fixture files, made with the JDK alone: {@code tls/<name>.crt} and its PKCS#8 key
+     * {@code tls/<name>.key} as the certificate it presents, and {@code tls/ca.crt}, the fixture CA, as the only CA
+     * it trusts. Both stores are PKCS#12 key stores held in memory, so no store file is needed beside the PEM ones.
+     */
+    static SSLContext fixtureContext(String name) {
+        try {
+            char[] password = "fixture".toCharArray();
+            KeyStore keys = KeyStore.getInstance("PKCS12");
+            keys.load(null, null);
+            keys.setKeyEntry(name, fixtureKey(name + ".key"), password,
+                    new Certificate[] {fixtureCertificate(name + ".crt")});
+            KeyStore trust = KeyStore.getInstance("PKCS12");
+            trust.load(null, null);
+            trust.setCertificateEntry("ca", fixtureCertificate("ca.crt"));
+            KeyManagerFactory km = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            km.init(keys, password);
+            TrustManagerFactory tm = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
+            tm.init(trust);
+            SSLContext context = SSLContext.getInstance("TLS");
+            context.init(km.getKeyManagers(), tm.getTrustManagers(), null);
+            return context;
+        } catch (GeneralSecurityException | IOException e) {
+            throw new IllegalStateException("the fixture TLS files for " + name + " could not be read", e);
+        }
+    }
+
+    /** A fixture's PEM certificate, which the JDK's X.509 factory reads as it is. */
+    private static Certificate fixtureCertificate(String file) throws IOException, GeneralSecurityException {
+        return CertificateFactory.getInstance("X.509").generateCertificate(new ByteArrayInputStream(fixture(file)));
+    }
+
+    /** A fixture's PKCS#8 PEM key: the base64 between its armour lines. */
+    private static PrivateKey fixtureKey(String file) throws IOException, GeneralSecurityException {
+        String pem = new String(fixture(file), StandardCharsets.US_ASCII);
+        byte[] der = Base64.getMimeDecoder().decode(pem.replaceAll("-----[A-Z ]+-----", ""));
+        return KeyFactory.getInstance("EC").generatePrivate(new PKCS8EncodedKeySpec(der));
+    }
+
+    /** The bytes of {@code tls/<file>} on the test class path. */
+    private static byte[] fixture(String file) throws IOException {
+        try (InputStream in = StubPartner.class.getClassLoader().getResourceAsStream("tls/" + file)) {
+            if (in == null) {
+                throw new IOException("no tls/" + file + " on the class path");
+            }
+            return in.readAllBytes();
+        }
     }
 
     /** {@code http://127.0.0.1:<port>}, or {@code https://} over TLS. */
