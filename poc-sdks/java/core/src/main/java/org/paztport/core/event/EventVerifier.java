@@ -103,17 +103,13 @@ public final class EventVerifier {
         if (!envelope.verifiesWith(key)) {
             return refuse(Refusal.BAD_SIGNATURE, envelope.signer());
         }
-        JsonNode node = payload(envelope.payloadBytes());
-        if (node == null) {
+        ResponderEvent event = event(envelope.payloadBytes());
+        if (event == null) {
             return refuse(Refusal.MALFORMED_EVENT, null);
         }
-        JsonNode id = node.get("eventId");
-        if (id == null || id.isNull() || id.asText().isEmpty()) {
+        if (event.eventId() == null || event.eventId().isEmpty()) {
             return refuse(Refusal.NO_EVENT_ID, null);
         }
-        ResponderEvent event = new ResponderEvent(node.get("reason").asText(), node.get("suspectSvc").asText(),
-                node.get("suspectInst").asText(), node.get("rid").asText(), node.get("audit").asBoolean(),
-                JsonIntegers.safeInteger(node.get("ts")), id.asText());
 
         long now = clock.getAsLong();
         if (!withinWindow(now, event.ts())) {
@@ -151,10 +147,11 @@ public final class EventVerifier {
 
     /**
      * The event in the payload's bytes, or null unless they are strict UTF-8 holding exactly one JSON object with
-     * the event's members, each of its type, and no other. {@code eventId} may be absent or null, which the caller
-     * refuses as a missing id rather than a malformed event; when present otherwise it must be a string.
+     * the event's members, each of its type, and no other. {@code eventId} may be absent or null, and is then null
+     * in the event, which the caller refuses as a missing id rather than a malformed event; when present otherwise
+     * it must be a string.
      */
-    private static JsonNode payload(byte[] bytes) {
+    private static ResponderEvent event(byte[] bytes) {
         if (bytes == null) {
             return null;
         }
@@ -184,11 +181,18 @@ public final class EventVerifier {
             }
         }
         JsonNode audit = node.get("audit");
-        if (audit == null || !audit.isBoolean() || JsonIntegers.safeInteger(node.get("ts")) == null) {
+        Long ts = JsonIntegers.safeInteger(node.get("ts"));
+        if (audit == null || !audit.isBoolean() || ts == null) {
             return null;
         }
         JsonNode id = node.get("eventId");
-        return id == null || id.isNull() || id.isTextual() ? node : null;
+        boolean absent = id == null || id.isNull();
+        if (!absent && !id.isTextual()) {
+            return null;
+        }
+        return new ResponderEvent(node.get("reason").asText(), node.get("suspectSvc").asText(),
+                node.get("suspectInst").asText(), node.get("rid").asText(), audit.asBoolean(), ts,
+                absent ? null : id.asText());
     }
 
     /**
