@@ -5,6 +5,7 @@ package org.paztport.spring.event;
 
 import java.net.http.HttpClient;
 import java.nio.file.Path;
+import java.security.PrivateKey;
 import java.time.Duration;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.http.event.EventPublisher;
@@ -41,20 +42,18 @@ public class EventConfiguration {
                         "paztport.responder-url is set but paztport.event-key-path is not");
             }
             Duration timeout = Durations.positiveMs(props.getEventTimeoutMs(), "paztport.event-timeout-ms");
+            PrivateKey eventKey = KeyFiles.loadPrivateKey(Path.of(eventKeyPath));
             // The bare JDK client, never the shared builder's stamping interceptor: the pooled one over the TLS
             // bundle when there is a TLS client (the bean, not the property, says so, so that
-            // paztport.tls-bundle=false is off here as everywhere), else a plain one of the starter's own.
+            // paztport.tls-bundle=false is off here as everywhere), else a plain one of the starter's own. It is
+            // built last, after every lookup that can throw, so that a failed startup leaves none open: the
+            // publisher's own checks, of a timeout already found positive, cannot fail after it.
             PooledTlsClient pooled = tls.getIfAvailable();
             HttpClient http = pooled != null ? pooled.httpClient() : HttpClient.newBuilder()
                     .version(HttpClient.Version.HTTP_1_1)
                     .connectTimeout(timeout)
                     .build();
-            return new ResponderEventPublisher(
-                    http,
-                    timeout,
-                    responderUrl,
-                    props.getServiceName(),
-                    KeyFiles.loadPrivateKey(Path.of(eventKeyPath)),
+            return new ResponderEventPublisher(http, timeout, responderUrl, props.getServiceName(), eventKey,
                     System::currentTimeMillis);
         }
         return new LoggingEventPublisher();

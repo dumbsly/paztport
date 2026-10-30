@@ -34,13 +34,16 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLPeerUnverifiedException;
 import org.junit.jupiter.api.Test;
@@ -350,6 +353,29 @@ class PaztportAutoConfigurationTest {
                 .withPropertyValues(trust(dir))
                 .withPropertyValues("paztport.responder-url=http://responder:8080")
                 .run(context -> assertThat(context).hasFailed());
+    }
+
+    // The plain client is built only once the key has been read, so a startup that fails on the key starts none:
+    // a JDK HttpClient runs a selector thread from when it is built until it is shut down or collected.
+    @Test
+    void anUnreadableEventKeyFailsAtStartupWithNoClientLeftOpen(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        Set<Thread> before = selectorThreads();
+        runner.withPropertyValues(VERIFIER_PROPS)
+                .withPropertyValues(trust(dir))
+                .withPropertyValues(
+                        "paztport.responder-url=http://responder:8080",
+                        "paztport.event-key-path=" + dir.resolve("missing.key"))
+                .run(context -> assertThat(context).hasFailed());
+        Set<Thread> after = selectorThreads();
+        after.removeAll(before);
+        assertThat(after).isEmpty();
+    }
+
+    private static Set<Thread> selectorThreads() {
+        return Thread.getAllStackTraces().keySet().stream()
+                .filter(t -> t.getName().startsWith("HttpClient-") && t.getName().endsWith("-SelectorManager"))
+                .collect(Collectors.toCollection(HashSet::new));
     }
 
     @Test
