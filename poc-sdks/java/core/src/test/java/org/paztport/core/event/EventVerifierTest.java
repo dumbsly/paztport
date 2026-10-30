@@ -4,6 +4,7 @@
 package org.paztport.core.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -108,22 +109,26 @@ class EventVerifierTest {
     }
 
     @Test
-    void timestampsAtTheExtremesAreRefused() throws Exception {
-        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "a"))).isEmpty());
-        assertTrue(accept(envelope("payment", payment, eventJson(Long.MAX_VALUE, "b"))).isEmpty());
+    void aTimestampPastTwoToTheFiftyThreeIsMalformed() throws Exception {
+        assertEquals(EventVerifier.Refusal.MALFORMED_EVENT,
+                auth.accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "a"))).refusal());
+        assertEquals(EventVerifier.Refusal.MALFORMED_EVENT,
+                auth.accept(envelope("payment", payment, eventJson(Long.MAX_VALUE, "b"))).refusal());
     }
 
     @Test
-    void aTimestampWhoseDifferenceWrapsIsRefused() throws Exception {
-        // NOW - ts is exactly Long.MIN_VALUE, and Math.abs(Long.MIN_VALUE) is negative
-        assertTrue(accept(envelope("payment", payment, eventJson(NOW + Long.MIN_VALUE, "a"))).isEmpty());
-        // either one-sided difference wraps for these clock and ts pairs
+    void aTimestampWhoseDifferenceWrapsIsOutsideTheWindow() throws Exception {
+        // ts is read only within +-(2^53 - 1), but the clock is any long, so either one-sided difference wraps
+        long max = (1L << 53) - 1;
         clock.set(Long.MIN_VALUE);
-        assertTrue(accept(envelope("payment", payment, eventJson(Long.MAX_VALUE, "b"))).isEmpty());
+        assertEquals(EventVerifier.Refusal.OUTSIDE_WINDOW,
+                auth.accept(envelope("payment", payment, eventJson(max, "b"))).refusal());
         clock.set(Long.MAX_VALUE);
-        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "c"))).isEmpty());
-        clock.set(0);
-        assertTrue(accept(envelope("payment", payment, eventJson(Long.MIN_VALUE, "d"))).isEmpty());
+        assertEquals(EventVerifier.Refusal.OUTSIDE_WINDOW,
+                auth.accept(envelope("payment", payment, eventJson(-max, "c"))).refusal());
+        // and the unsigned comparison holds where Math.abs would not: NOW - ts is Long.MIN_VALUE here
+        assertFalse(EventVerifier.withinWindow(NOW, NOW + Long.MIN_VALUE));
+        assertFalse(EventVerifier.withinWindow(Long.MIN_VALUE, Long.MAX_VALUE));
     }
 
     @Test

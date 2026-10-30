@@ -3,13 +3,19 @@
 
 package org.paztport.core.event;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.policy.Keyring;
 
 /**
@@ -26,10 +32,20 @@ import org.paztport.core.policy.Keyring;
  * envelope has passed every other check, for twice the freshness window, so a
  * captured event cannot be replayed while its timestamp is still acceptable.
  * Parsing and the signature check run unlocked; only that memory is guarded.
+ *
+ * <p>The envelope and the event are read strictly, as the spec defines them: exactly one JSON object each, with
+ * exactly their own members, each of its JSON type, and the payload in strict UTF-8. Nothing is coerced or filled
+ * in, so an implementation in any language accepts the same bodies, and whatever acts on an accepted event never
+ * meets a missing field.
  */
 public final class EventVerifier {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
+    /** The event's seven members; any other is malformed. */
+    private static final Set<String> MEMBERS =
+            Set.of("reason", "suspectSvc", "suspectInst", "rid", "audit", "ts", "eventId");
+
+    /** The members that must be present as JSON strings; {@code eventId} is checked apart. */
+    private static final Set<String> STRINGS = Set.of("reason", "suspectSvc", "suspectInst", "rid");
 
     /** An event's {@code ts} may differ from now by at most this much, either way. */
     static final long WINDOW_MS = 30_000;
@@ -73,13 +89,8 @@ public final class EventVerifier {
 
     /** The verified event, or the reason the body must be refused. */
     public Outcome accept(String body) {
-        EventEnvelope envelope;
-        try {
-            envelope = JSON.readValue(body, EventEnvelope.class);
-        } catch (Exception e) {
-            return refuse(Refusal.MALFORMED_ENVELOPE, null);
-        }
-        if (envelope == null || envelope.signer() == null || envelope.payload() == null || envelope.sig() == null) {
+        EventEnvelope envelope = envelope(body);
+        if (envelope == null) {
             return refuse(Refusal.MALFORMED_ENVELOPE, null);
         }
         if (!allowedSigners.contains(envelope.signer())) {
@@ -92,19 +103,17 @@ public final class EventVerifier {
         if (!envelope.verifiesWith(key)) {
             return refuse(Refusal.BAD_SIGNATURE, envelope.signer());
         }
-        byte[] json = envelope.payloadBytes();
-        if (json == null) {
+        JsonNode node = payload(envelope.payloadBytes());
+        if (node == null) {
             return refuse(Refusal.MALFORMED_EVENT, null);
         }
-        ResponderEvent event;
-        try {
-            event = JSON.readValue(new String(json, StandardCharsets.UTF_8), ResponderEvent.class);
-        } catch (Exception e) {
-            return refuse(Refusal.MALFORMED_EVENT, null);
-        }
-        if (event == null || event.eventId() == null || event.eventId().isBlank()) {
+        JsonNode id = node.get("eventId");
+        if (id == null || id.isNull() || id.asText().isEmpty()) {
             return refuse(Refusal.NO_EVENT_ID, null);
         }
+        ResponderEvent event = new ResponderEvent(node.get("reason").asText(), node.get("suspectSvc").asText(),
+                node.get("suspectInst").asText(), node.get("rid").asText(), node.get("audit").asBoolean(),
+                ts(node.get("ts")), id.asText());
 
         long now = clock.getAsLong();
         if (!withinWindow(now, event.ts())) {
@@ -114,6 +123,82 @@ public final class EventVerifier {
             return refuse(Refusal.REPEATED_EVENT_ID, null);
         }
         return new Outcome(event, null, null);
+    }
+
+    /**
+     * The envelope in {@code body}, or null unless it is exactly one JSON object whose {@code signer},
+     * {@code payload} and {@code sig} are strings and which has no other member.
+     */
+    private static EventEnvelope envelope(String body) {
+        JsonNode node;
+        try {
+            node = Json.tree(body);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+        if (!node.isObject() || node.size() != 3) {
+            return null;
+        }
+        JsonNode signer = node.get("signer");
+        JsonNode payload = node.get("payload");
+        JsonNode sig = node.get("sig");
+        if (signer == null || !signer.isTextual() || payload == null || !payload.isTextual()
+                || sig == null || !sig.isTextual()) {
+            return null;
+        }
+        return new EventEnvelope(signer.asText(), payload.asText(), sig.asText());
+    }
+
+    /**
+     * The event in the payload's bytes, or null unless they are strict UTF-8 holding exactly one JSON object with
+     * the event's members, each of its type, and no other. {@code eventId} may be absent or null, which the caller
+     * refuses as a missing id rather than a malformed event; when present otherwise it must be a string.
+     */
+    private static JsonNode payload(byte[] bytes) {
+        if (bytes == null) {
+            return null;
+        }
+        JsonNode node;
+        try {
+            String text = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+            node = Json.tree(text);
+        } catch (CharacterCodingException | IllegalArgumentException e) {
+            return null;
+        }
+        if (!node.isObject()) {
+            return null;
+        }
+        for (Iterator<String> names = node.fieldNames(); names.hasNext();) {
+            if (!MEMBERS.contains(names.next())) {
+                return null;
+            }
+        }
+        for (String name : STRINGS) {
+            JsonNode v = node.get(name);
+            if (v == null || !v.isTextual()) {
+                return null;
+            }
+        }
+        JsonNode audit = node.get("audit");
+        if (audit == null || !audit.isBoolean() || ts(node.get("ts")) == null) {
+            return null;
+        }
+        JsonNode id = node.get("eventId");
+        return id == null || id.isNull() || id.isTextual() ? node : null;
+    }
+
+    /**
+     * The event's {@code ts} when it is an integer within &plusmn;(2^53 &minus; 1), judged by value; else null.
+     * {@link JsonIntegers#safeInteger} lets &minus;2^63 through, since {@code Math.abs(Long.MIN_VALUE)} is
+     * negative, so the range is checked here as well.
+     */
+    private static Long ts(JsonNode n) {
+        Long v = JsonIntegers.safeInteger(n);
+        return v != null && v >= -JsonIntegers.MAX_SAFE && v <= JsonIntegers.MAX_SAFE ? v : null;
     }
 
     /**
