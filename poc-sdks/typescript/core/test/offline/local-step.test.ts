@@ -11,7 +11,7 @@ import { localStepBind, stampLocalStep } from "../../src/influence/local-step.ts
 import { parseLocalRules, rulesHash, type LocalRules } from "../../src/policy/local-rules.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { bindPrompt } from "../../src/stamp/binding.ts";
-import { signStampV2, signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
 import { verifyRecordedLocalStep, type LocalStepClient, type RecordedLocalStep } from "../../src/offline/local-step.ts";
 
 const RUN_TS = 1_000;
@@ -183,17 +183,6 @@ describe("verifyRecordedLocalStep", () => {
     const w = world();
     expect(w.check(w.step({ rulesHash: null }, { proof: null })).reason).toBe("PROOF_MISMATCH");
     expect(w.check(w.step({ rulesHash: null, verdict: "SCOPE_DENIED" })).reason).toBe("RULES_MISMATCH");
-  });
-
-  it("aStepRecordedBeforeStampsNamedAReceiverIsLegacy", () => {
-    const w = world();
-    const s = w.step();
-    const o = signStampV2({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", bind: bindPrompt(PROMPT), infl: "", prev: "" }, w.session.privateKey);
-    const bind = localStepBind({ toolName: s.tool, toolCallId: s.callId, input: s.input, resolved: s.resolved, verdict: s.verdict, listed: s.routeAllowed, rulesHash: s.rulesHash });
-    const hop = signStampV2({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", bind, infl: commitInfluence(INFLUENCE), prev: o.sig }, w.pi.privateKey);
-    expect(w.check({ ...s, chain: [o, hop] })).toEqual({ reason: "OK", verdict: "OK", legacy: true });
-    // a failure is never marked
-    expect(w.check({ ...s, chain: [o, hop] }, w.client({ rootNotAfter: 0 }))).toEqual({ reason: "POLICY_EXPIRED", legacy: false });
   });
 
   it("theRunsTimesAndPromptAreChecked", () => {

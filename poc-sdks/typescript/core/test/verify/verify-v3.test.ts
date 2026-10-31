@@ -8,8 +8,8 @@ import { generateKeyPair, randomBytes, sha256, utf8 } from "../../src/crypto/cry
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
-import { signStampV2, signStampV3, type StampV2, type StampV3 } from "../../src/stamp/stamp.ts";
-import { verifyChainAcceptingLegacy, verifyChainV3, type V3Config, type V3Input } from "../../src/verify/verify-v3.ts";
+import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { verifyChainV3, type V3Config, type V3Input } from "../../src/verify/verify-v3.ts";
 
 const NOW = 10_000_000;
 /** The pinned keyring and root's window: 2100-01-01, past every clock here. */
@@ -51,13 +51,6 @@ function chain(o: ChainOpts = {}): unknown[] {
 /** The same chain whose last stamp names `rcv` as its receiver. */
 const chainEndingAt = (rcv: string) => chain({ s1: { rcv } });
 
-function v2chain(): StampV2[] {
-  const fields = { rid: "rid-1", ts: NOW, sess: SESS, bind: "b0", infl: "", prev: "" };
-  const s0 = signStampV2({ ...fields, svc: "session", inst: "session-1" }, session.privateKey);
-  const s1 = signStampV2({ ...fields, svc: "pi", inst: "pi-1", bind, infl: commitInfluence(infl), prev: s0.sig }, pi.privateKey);
-  return [s0, s1];
-}
-
 const cfg = (over: Partial<V3Config> = {}): V3Config => ({
   keyring: { session: session.publicKey, pi: pi.publicKey },
   root: tree.root,
@@ -77,15 +70,20 @@ function input(stamps: unknown, over: Over = {}): V3Input {
 }
 
 const verify = (stamps: unknown, over: Over = {}, c: V3Config = cfg()) => verifyChainV3(input(stamps, over), c);
-const v2input = () => input(v2chain());
-const v3input = () => input(chain());
 
 describe("verifyChainV3", () => {
   it("ok names the last signer", () => expect(verify(chain())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" }));
   it("a stamp whose rcv is not the next hop", () => expect(verify(chain({ s0rcv: "orders" })).reason).toBe("BINDING_MISMATCH"));
   it("a chain delivered to another receiver", () => expect(verify(chain(), { receiver: "mcp:github.u" }).reason).toBe("BINDING_MISMATCH"));
   it("a bad signature beats a bad rcv", () => expect(verify(chain({ s0rcv: "orders", tamperS1Sig: true })).reason).toBe("BAD_SIGNATURE"));
-  it("v2 stamps are not accepted live", () => expect(verify(v2chain()).reason).toBe("CHAIN_MISSING"));
+  it("a stamp whose v is not 3 is chain missing", () => {
+    const [s0, s1] = chain() as [StampV3, StampV3];
+    for (const v of [1, 2, 4]) {
+      for (const odd of [[{ ...s0, v }, s1], [s0, { ...s1, v }], [{ ...s0, v }, { ...s1, v }]]) {
+        expect(verify(odd).reason).toBe("CHAIN_MISSING");
+      }
+    }
+  });
   it("a v3 stamp with rcv missing or non-string", () => expect(verify(chain({ dropRcv: true })).reason).toBe("CHAIN_MISSING"));
   it("the receiver can sit off the route", () => expect(verify(chainEndingAt("pi"), { receiver: "pi", receiverInRoute: false, proofRoute: "session/pi" }).reason).toBe("OK"));
   it("a matching peer is named with its address", () => expect(verify(chain(), { peer: { svc: "pi", inst: "10.0.0.7" } })).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "10.0.0.7" }));
@@ -99,11 +97,6 @@ describe("verifyChainV3", () => {
   it("a null peer is no peer, and never throws", () => {
     expect(verify(chain(), { peer: null })).toEqual(verify(chain()));
     expect(verify(chain({ tamperS1Sig: true }), { peer: null })).toEqual({ ok: false, reason: "BAD_SIGNATURE", suspectSvc: "", suspectInst: "" });
-    expect(verifyChainAcceptingLegacy(input(v2chain(), { peer: null }), cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1", legacy: true });
-  });
-  it("verifyChainAcceptingLegacy marks a v2 chain legacy and a v3 chain current", () => {
-    expect(verifyChainAcceptingLegacy(v2input(), cfg())).toMatchObject({ reason: "OK", legacy: true });
-    expect(verifyChainAcceptingLegacy(v3input(), cfg())).toMatchObject({ reason: "OK", legacy: false });
   });
 
   it("an rcv that is not a string", () => {
@@ -116,7 +109,6 @@ describe("verifyChainV3", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
     expect(verify([s0, { ...s1, rcv: "a|b" }]).reason).toBe("BAD_SIGNATURE");
     expect(verify([{ ...s0, rcv: "a|b" }, s1]).reason).toBe("BAD_SIGNATURE");
-    expect(verifyChainAcceptingLegacy(input([s0, { ...s1, rcv: "a|b" }]), cfg()).reason).toBe("BAD_SIGNATURE");
   });
   it("a lone surrogate in rcv", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
@@ -125,33 +117,6 @@ describe("verifyChainV3", () => {
   it("rcv is signed: altering it is a bad signature", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
     expect(verify([s0, { ...s1, rcv: "mcp:github.u" }], { receiver: "mcp:github.u" }).reason).toBe("BAD_SIGNATURE");
-  });
-  it("a mixed-version chain is never a partial legacy pass", () => {
-    const [v2s0, v2s1] = v2chain() as [StampV2, StampV2];
-    const [v3s0, v3s1] = chain() as [StampV3, StampV3];
-    for (const mixed of [[v2s0, v3s1], [v3s0, v2s1]]) {
-      expect(verify(mixed).reason).toBe("CHAIN_MISSING");
-      expect(verifyChainAcceptingLegacy(input(mixed), cfg())).toMatchObject({ reason: "CHAIN_MISSING", legacy: false });
-    }
-  });
-  it("a legacy chain has no receiver checks, an rcv on a v2 stamp is ignored, and the route still holds", () => {
-    const [s0, s1] = v2chain() as [StampV2, StampV2];
-    expect(verifyChainAcceptingLegacy(input([s0, { ...s1, rcv: "elsewhere" }]), cfg())).toMatchObject({ reason: "OK", legacy: true });
-    expect(verifyChainAcceptingLegacy(input([s0, s1], { receiver: "mcp:github.u" }), cfg())).toMatchObject({ reason: "PATH_NOT_ALLOWED", legacy: true });
-  });
-  it("verifyChainAcceptingLegacy runs the live checks and names the peer", () => {
-    const c = cfg();
-    expect(verifyChainAcceptingLegacy(v2input(), c).reason).toBe("OK");
-    expect(verifyChainAcceptingLegacy(v2input(), c).reason).toBe("REPLAY");
-    expect(verifyChainAcceptingLegacy(v2input(), cfg({ now: NOW + 5001 })).reason).toBe("EXPIRED");
-    expect(verifyChainAcceptingLegacy(input(chain({ s0rcv: "orders" })), cfg())).toMatchObject({ reason: "BINDING_MISMATCH", legacy: false });
-    expect(verifyChainAcceptingLegacy(input(v2chain(), { peer: { svc: "search", inst: "10.0.0.9" } }), cfg())).toEqual({
-      ok: false,
-      reason: "PEER_MISMATCH",
-      suspectSvc: "search",
-      suspectInst: "10.0.0.9",
-      legacy: true,
-    });
   });
   it("the receiver is appended to the route only when it is on it", () => {
     // a call's receiver ends its route; off the route the same chain's services alone are proven
@@ -330,7 +295,6 @@ describe("the pinned policy's window", () => {
     const c = cfg({ policyNotAfter: NOW - 1 });
     expect(verify("garbage", { peer: { svc: "search", inst: "10.0.0.9" } }, c)).toEqual(expired);
     expect(verify(chain({ tamperS1Sig: true }), { peer: { svc: "pi", inst: "10.0.0.7" } }, c)).toEqual(expired);
-    expect(verifyChainAcceptingLegacy(input(v2chain(), { peer: { svc: "pi", inst: "10.0.0.7" } }), c)).toEqual({ ...expired, legacy: false });
   });
   it("spends no nonce", () => {
     const nonces = new NonceCache(60_000);

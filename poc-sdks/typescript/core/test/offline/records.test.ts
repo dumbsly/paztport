@@ -9,7 +9,7 @@ import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
 import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { signRoot, signRootOldForm } from "../../src/policy/root.ts";
-import { bindResponse, newContentId, recheckResponse } from "../../src/session/attestation.ts";
+import { bindResponse, newContentId, verifyResponse } from "../../src/session/attestation.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
@@ -271,12 +271,12 @@ describe("newRecordSet: replay across a record set", () => {
     expect(callInSession(first, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("OK");
     const respond = response(h);
     const cfg = { ...responseConfig(h, records), policyNotAfter: first.responseNotAfter };
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
     // the same handshake recorded again
     const again = recordedSession(h.recorded);
     expect(again.attested).toBe(true);
     expect(callInSession(again, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("REPLAY");
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, policyNotAfter: again.responseNotAfter }).result.reason).toBe("REPLAY");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, policyNotAfter: again.responseNotAfter }).result.reason).toBe("REPLAY");
   });
 
   // "A recorded response: … one nonce cache that never forgets across the record set."
@@ -285,8 +285,8 @@ describe("newRecordSet: replay across a record set", () => {
     const records = newRecordSet();
     const respond = response(h);
     const cfg = { ...responseConfig(h, records), policyNotAfter: recordedSession(h.recorded).responseNotAfter };
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("REPLAY");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("REPLAY");
     // a live cache forgets a key after its TTL; this one still holds it at the end of time
     expect(records.responseNonces.seenBefore("rid-1|call-1|resp", Number.MAX_SAFE_INTEGER)).toBe(true);
   });
@@ -298,8 +298,8 @@ describe("newRecordSet: replay across a record set", () => {
     const s = recordedSession(h.recorded);
     const respond = response(h);
     const cfg = { ...responseConfig(h, newRecordSet()), policyNotAfter: s.responseNotAfter };
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).result.reason).toBe("POLICY_EXPIRED");
-    expect(recheckResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).result.reason).toBe("POLICY_EXPIRED");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
   });
 });
 

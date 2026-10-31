@@ -10,7 +10,7 @@ import { commitInfluence, parseInfluence, type InfluenceEntry } from "../influen
 import { provesPath } from "../policy/merkle.ts";
 import type { ReasonCode, VerifyResult } from "../verify/reason.ts";
 import { routeOf } from "../policy/routes.ts";
-import { parseRecordedStamps, parseStampsV3, signingBytes, type RecordedStamp, type StampV3 } from "../stamp/stamp.ts";
+import { parseStampsV3, signingBytesV3, type StampV3 } from "../stamp/stamp.ts";
 
 /**
  * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
@@ -27,54 +27,44 @@ export function reject(reason: ReasonCode): VerifyResult {
 export type Signers = { svcs: readonly string[]; inst: string };
 
 /**
- * Which stamps a verifier takes: v3 only (live), or v3 or a legacy v2 chain (a recorded chain). `receiver` is
- * what the last v3 stamp's rcv must name; `rid` the one every stamp must carry, the origin's by default;
- * `signers` the services and instance a one-process chain must come from.
+ * What a verifier takes besides the config. `receiver` is what the last stamp's rcv must name; `rid` the one
+ * every stamp must carry, the origin's by default; `signers` the services and instance a one-process chain must
+ * come from.
  */
-export type StampShape = { accept: "v3" | "v3-or-legacy-v2"; receiver?: string; rid?: string; signers?: Signers };
+export type StampShape = { receiver?: string; rid?: string; signers?: Signers };
 
-function parseShape(value: unknown, accept: StampShape["accept"]): { stamps: RecordedStamp[]; legacy: boolean } {
-  switch (accept) {
-    case "v3":
-      return { stamps: parseStampsV3(value), legacy: false };
-    case "v3-or-legacy-v2":
-      return parseRecordedStamps(value);
-  }
+/** A stamp's signed string fields. */
+function signedFields(s: StampV3): string[] {
+  return [s.svc, s.inst, s.rid, s.sess, s.rcv, s.bind, s.infl, s.prev];
 }
 
-/** A stamp's signed string fields; a v2 stamp has no rcv, and any it carries is unsigned and ignored. */
-function signedFields(s: RecordedStamp): string[] {
-  return s.v === 3 ? [s.svc, s.inst, s.rid, s.sess, s.rcv, s.bind, s.infl, s.prev] : [s.svc, s.inst, s.rid, s.sess, s.bind, s.infl, s.prev];
-}
-
-function signatureValid(publicKey: string, s: RecordedStamp): boolean {
+function signatureValid(publicKey: string, s: StampV3): boolean {
   try {
-    return verify(publicKey, signingBytes(s), decode(s.sig));
+    return verify(publicKey, signingBytesV3(s), decode(s.sig));
   } catch {
     return false;
   }
 }
 
 /**
- * Checks 1 to 6: the stamps parse in an accepted shape, never mixing versions (CHAIN_MISSING), no field holds
- * the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed by its
- * service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each v3 stamp's rcv names the
- * next stamp's service and the last's names `receiver` (BINDING_MISMATCH), every stamp carries the rid
- * (RID_MISMATCH), and the session (SESSION_UNKNOWN). A legacy v2 chain has no receiver checks. With `signers`,
- * a stamp from another service or instance than expected is not one the expected key signed: BAD_ORIGIN for
- * the origin, BAD_SIGNATURE for any other. Returns the stamps and whether they are legacy, or the first failure.
+ * Checks 1 to 6: the stamps parse, all v3 (CHAIN_MISSING), no field holds the delimiter, rcv included
+ * (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed by its service's key and links to
+ * the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next stamp's service and the
+ * last's names `receiver` (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session
+ * (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not one the
+ * expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the first
+ * failure.
  */
 export function checkStamps(
   value: unknown,
   cfg: { keyring: Record<string, string>; allowedOrigins: readonly string[]; sess: string },
   shape: StampShape,
-): { stamps: RecordedStamp[]; legacy: boolean } | ReasonCode {
+): StampV3[] | ReasonCode {
   const { rid, signers } = shape;
   // 1. Parse.
-  let stamps: RecordedStamp[];
-  let legacy: boolean;
+  let stamps: StampV3[];
   try {
-    ({ stamps, legacy } = parseShape(value, shape.accept));
+    stamps = parseStampsV3(value);
   } catch {
     return "CHAIN_MISSING";
   }
@@ -102,11 +92,8 @@ export function checkStamps(
     }
   }
   // Then the receivers: each stamp names the next hop, and the last the chain's receiver.
-  if (!legacy) {
-    const v3 = stamps as StampV3[];
-    if (v3.some((s, i) => s.rcv !== (i + 1 < v3.length ? v3[i + 1]!.svc : shape.receiver))) {
-      return "BINDING_MISMATCH";
-    }
+  if (stamps.some((s, i) => s.rcv !== (i + 1 < stamps.length ? stamps[i + 1]!.svc : shape.receiver))) {
+    return "BINDING_MISMATCH";
   }
 
   // 5. Shared rid.
@@ -119,11 +106,11 @@ export function checkStamps(
   if (stamps.some((s) => s.sess !== cfg.sess)) {
     return "SESSION_UNKNOWN";
   }
-  return { stamps, legacy };
+  return stamps;
 }
 
 /** Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence (INFLUENCE_MISMATCH). */
-export function checkCommitments(last: RecordedStamp, expectedBind: string, influence: InfluenceEntry[]): ReasonCode | undefined {
+export function checkCommitments(last: StampV3, expectedBind: string, influence: InfluenceEntry[]): ReasonCode | undefined {
   // 8. Binding.
   if (last.bind !== expectedBind) {
     return "BINDING_MISMATCH";
@@ -143,7 +130,7 @@ export function checkCommitments(last: RecordedStamp, expectedBind: string, infl
 }
 
 /** Check 11 and the result: the chain's services, then the receiver when given, proven against the root (PATH_NOT_ALLOWED). */
-export function checkRoute(stamps: RecordedStamp[], receiver: string | undefined, proof: unknown, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
+export function checkRoute(stamps: StampV3[], receiver: string | undefined, proof: unknown, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
   const last = stamps[stamps.length - 1]!;
   // 11. Route proven against the root.
   const svcs = stamps.map((s) => s.svc);

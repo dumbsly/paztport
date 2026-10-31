@@ -16,7 +16,7 @@ import {
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
-import { hasRefusalShape, recheckMcpResponse, verifyRecordedCall } from "@paztport/mcp";
+import { hasRefusalShape, verifyMcpResponse, verifyRecordedCall } from "@paztport/mcp";
 import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
@@ -24,7 +24,7 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * of ours: the pinned server key is in the file, and everything else is checked against it.
  *
  * Every signature, link, binding, proof, influence, replay, session and local-step check is the library's: calls
- * are recorded chains (verifyRecordedCall), responses are checked as the client checked them (recheckMcpResponse
+ * are recorded chains (verifyRecordedCall), responses are checked as the client checked them (verifyMcpResponse
  * at the recorded time, ending at the call's caller), sessions are recorded handshakes (recordedSession), judged
  * again at each call's recorded time (callInSession), and local steps are the library's recorded local steps
  * (verifyRecordedLocalStep, through verify-local.ts). What is here is reading the evidence format, matching
@@ -97,7 +97,7 @@ export type VerifyItem = {
     | "DUPLICATE_RESPONSE"
     | "UNBOUND"
     | LocalResult;
-  /** Set only on an item that verified (its result is in NOT_FAILURES) from v2 stamps, or from a session request with no keyring signature. */
+  /** Set only on an item that verified (its result is in NOT_FAILURES) from a session request with no keyring signature. */
   legacy?: true;
 };
 /**
@@ -323,8 +323,7 @@ function verifyFile(path: string, label: string): VerifyReport {
   // when it answers a verified call that comes before it in the file.
   for (const { line, rec } of responses) {
     const callId = isString(rec.callId) ? rec.callId : undefined;
-    const add = (result: VerifyItem["result"], legacy = false) =>
-      items.push({ line, type: "response", ...(callId !== undefined ? { callId } : {}), result, ...(legacy && NOT_FAILURES.includes(result) ? { legacy: true as const } : {}) });
+    const add = (result: VerifyItem["result"]) => items.push({ line, type: "response", ...(callId !== undefined ? { callId } : {}), result });
     if (!isString(rec.server) || !isString(rec.callId) || !isString(rec.rid) || !isObject(rec.result) || typeof rec.now !== "number") {
       add("UNREADABLE");
       continue;
@@ -342,7 +341,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (hasRefusalShape(rec.result)) {
         add("REFUSED");
       } else {
-        const v = recheckMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId, receiver: call.caller }, {
+        const v = verifyMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId, receiver: call.caller }, {
           keyring: call.session.serverKeyring,
           root: call.session.serverRoot,
           rootId: call.session.serverRootId,
@@ -352,7 +351,7 @@ function verifyFile(path: string, label: string): VerifyReport {
           now: rec.now,
           policyNotAfter: call.session.recorded.responseNotAfter,
         });
-        add(v.result.reason, v.legacy);
+        add(v.result.reason);
       }
     }
   }

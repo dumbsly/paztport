@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV3, randomBytes, signStampV2, signStampV3,
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV3, randomBytes, signStampV3,
 } from "@paztport/core";
 import type { InfluenceEntry, V3Config } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
@@ -35,18 +35,17 @@ function world(extraRoutes: string[] = []) {
   });
   /**
    * A tools/call params object whose v3 chain binds (name, callId, args) and names `rcv`, `mcp:github.<name>`
-   * by default; `v2` signs a v2 chain instead; `send` overrides what is sent.
+   * by default; `send` overrides what is sent.
    */
   const params = (
-    signed: { name?: string; callId?: string; args?: Record<string, unknown>; route?: string; rcv?: string; v2?: boolean } = {},
+    signed: { name?: string; callId?: string; args?: Record<string, unknown>; route?: string; rcv?: string } = {},
     send: { name?: string; callId?: unknown; args?: Record<string, unknown> } = {},
   ): Record<string, unknown> => {
     const name = signed.name ?? TOOL;
     const callId = signed.callId ?? "call-1";
     const args = signed.args ?? { title: "t" };
     const mk = (svc: string, rcv: string, bind: string, i: string, prev: string) => {
-      const fields = { svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, bind, infl: i, prev };
-      return signed.v2 ? signStampV2(fields, harness.privateKey) : signStampV3({ ...fields, rcv }, harness.privateKey);
+      return signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: i, prev }, harness.privateKey);
     };
     const s0 = mk("session", "pi", "b0", "", "");
     const s1 = mk("pi", signed.rcv ?? `mcp:github.${name}`, bindMcpCall(name, callId, args), commitInfluence(infl), s0.sig);
@@ -74,13 +73,6 @@ describe("verifyCall", () => {
     expect(r.influence).toEqual(infl);
     expect(r.legacy).toBe(false);
   });
-  it("aV2CallIsChainMissing", () => {
-    const w = world();
-    const r = verifyCall(w.params({ v2: true }), SERVER, w.cfg());
-    expect(r.result.reason).toBe("CHAIN_MISSING");
-    expect(r.legacy).toBe(false);
-    expect(r.influence).toEqual([]);
-  });
   it("aCallStampedForAnotherReceiverIsBindingMismatch", () => {
     const w = world();
     // signed and bound for create_pull_request, but the hop names mcp:github.other as its receiver
@@ -95,12 +87,11 @@ describe("verifyCall", () => {
     const results = [
       verifyCall(p, SERVER, cfg),
       verifyCall(p, SERVER, cfg),
-      verifyCall(w.params({ v2: true }), SERVER, w.cfg()),
       verifyCall(w.params({ rcv: "mcp:github.other" }), SERVER, w.cfg()),
       verifyCall(null, SERVER, w.cfg()),
     ];
-    expect(results.map((r) => r.result.reason)).toEqual(["OK", "REPLAY", "CHAIN_MISSING", "BINDING_MISMATCH", "CHAIN_MISSING"]);
-    expect(results.map((r) => r.legacy)).toEqual([false, false, false, false, false]);
+    expect(results.map((r) => r.result.reason)).toEqual(["OK", "REPLAY", "BINDING_MISMATCH", "CHAIN_MISSING"]);
+    expect(results.map((r) => r.legacy)).toEqual([false, false, false, false]);
   });
   it("replayedCallIsReplay", () => {
     const w = world();

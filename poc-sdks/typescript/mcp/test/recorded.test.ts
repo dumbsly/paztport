@@ -2,12 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV2, signStampV3 } from "@paztport/core";
+import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3 } from "@paztport/core";
 import type { InfluenceEntry, OfflineConfig } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall } from "../src/index.ts";
 
-// Recorded long ago: offline the call is checked against the time recorded with it, not a clock. The world's
-// chains are v2, as calls were recorded before stamps named their receiver: they verify as legacy.
+// Recorded long ago: offline the call is checked against the time recorded with it, not a clock.
 const CALL_TS = 9_000_000;
 const RUN_TS = CALL_TS - 60_000;
 const SESS = "sess-1";
@@ -27,32 +26,24 @@ function world() {
     sess: SESS,
     seen,
   });
-  const params = (callId = "call-1", args: Record<string, unknown> = { title: "t" }, times = { run: RUN_TS, call: CALL_TS }): Record<string, unknown> => {
-    const mk = (svc: string, ts: number, bind: string, i: string, prev: string) =>
-      signStampV2({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, bind, infl: i, prev }, harness.privateKey);
-    const s0 = mk("session", times.run, bindPrompt(PROMPT), "", "");
-    const s1 = mk("pi", times.call, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
+  const params = (
+    callId = "call-1",
+    args: Record<string, unknown> = { title: "t" },
+    times = { run: RUN_TS, call: CALL_TS },
+    rcv = `mcp:github.${TOOL}`,
+  ): Record<string, unknown> => {
+    const mk = (svc: string, r: string, ts: number, bind: string, i: string, prev: string) =>
+      signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, infl: i, prev }, harness.privateKey);
+    const s0 = mk("session", "pi", times.run, bindPrompt(PROMPT), "", "");
+    const s1 = mk("pi", rcv, times.call, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
     return {
       name: TOOL,
       arguments: args,
       _meta: { [META_CHAIN]: [s0, s1], [META_PROOF]: tree.proofFor(ROUTE), [META_INFLUENCE]: infl, [META_CALL_ID]: callId },
     };
   };
-  /** The same call recorded with a v3 chain, its hop naming `rcv`. */
-  const v3params = (rcv = `mcp:github.${TOOL}`): Record<string, unknown> => {
-    const args = { title: "t" };
-    const mk = (svc: string, r: string, ts: number, bind: string, i: string, prev: string) =>
-      signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, infl: i, prev }, harness.privateKey);
-    const s0 = mk("session", "pi", RUN_TS, bindPrompt(PROMPT), "", "");
-    const s1 = mk("pi", rcv, CALL_TS, bindMcpCall(TOOL, "call-1", args), commitInfluence(infl), s0.sig);
-    return {
-      name: TOOL,
-      arguments: args,
-      _meta: { [META_CHAIN]: [s0, s1], [META_PROOF]: tree.proofFor(ROUTE), [META_INFLUENCE]: infl, [META_CALL_ID]: "call-1" },
-    };
-  };
   const call = { serverId: "github", rid: "rid-1", callId: "call-1", stampedAt: CALL_TS, prompt: PROMPT };
-  return { cfg, params, v3params, call };
+  return { cfg, params, call };
 }
 
 describe("verifyRecordedCall", () => {
@@ -61,20 +52,13 @@ describe("verifyRecordedCall", () => {
     const r = verifyRecordedCall(w.params(), w.call, w.cfg());
     expect(r.result).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
     expect([r.rid, r.callId, r.influence]).toEqual(["rid-1", "call-1", infl]);
-    expect(r.legacy).toBe(true);
+    expect(r.legacy).toBe(false);
   });
 
-  it("aV3RecordedCallVerifiesAndIsNotLegacy", () => {
+  it("aRecordedCallMustNameTheRecordsReceiver", () => {
     const w = world();
-    const r = verifyRecordedCall(w.v3params(), w.call, w.cfg());
-    expect(r.result).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
-    expect([r.rid, r.callId, r.influence, r.legacy]).toEqual(["rid-1", "call-1", infl, false]);
-  });
-
-  it("aV3RecordedCallMustNameTheRecordsReceiver", () => {
-    const w = world();
-    expect(verifyRecordedCall(w.v3params("mcp:github.other"), w.call, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
-    expect(verifyRecordedCall(w.v3params(), { ...w.call, serverId: "gitlab" }, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
+    expect(verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, "mcp:github.other"), w.call, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
+    expect(verifyRecordedCall(w.params(), { ...w.call, serverId: "gitlab" }, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
   });
 
   it("theRecordMustAgreeWithTheChain", () => {
@@ -96,7 +80,7 @@ describe("verifyRecordedCall", () => {
     (p.arguments as Record<string, unknown>).title = "other";
     expect(verifyRecordedCall(p, w.call, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
     expect(verifyRecordedCall({ ...w.params(), name: "get_issue" }, w.call, w.cfg()).result.reason).toBe("BINDING_MISMATCH");
-    expect(verifyRecordedCall(w.params(), { ...w.call, serverId: "gitlab" }, w.cfg()).result.reason).toBe("PATH_NOT_ALLOWED");
+    expect(verifyRecordedCall(w.params("call-1", { title: "t" }, undefined, `mcp:gitlab.${TOOL}`), { ...w.call, serverId: "gitlab" }, w.cfg()).result.reason).toBe("PATH_NOT_ALLOWED");
     expect(verifyRecordedCall({}, w.call, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
 

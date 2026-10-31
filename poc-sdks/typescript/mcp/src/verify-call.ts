@@ -4,17 +4,16 @@
 import {
   CALL_MAX_AGE_MS,
   parseInfluence,
-  parseRecordedStamps,
   parseStampsV3,
   RUN_MAX_AGE_MS,
   verifyChainOffline,
   verifyChainV3,
 } from "@paztport/core";
-import type { InfluenceEntry, OfflineConfig, ReasonCode, RecordedStamp, V3Config, V3Input, VerifyResult } from "@paztport/core";
+import type { InfluenceEntry, OfflineConfig, ReasonCode, StampV3, V3Config, V3Input, VerifyResult } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
 
-/** A call's verdict; `legacy` is true only for a recorded call whose chain is v2, and always false live. */
+/** A call's verdict; `legacy` is false. */
 export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[]; legacy: boolean };
 
 /** The receiver a tools/call names at the end of its route: `mcp:<serverId>.<tool>`. */
@@ -27,7 +26,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Reads a call's chain, throwing on one the verifier would not take. */
-type StampParser = (value: unknown) => RecordedStamp[];
+type StampParser = (value: unknown) => StampV3[];
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
 type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult & { legacy: boolean };
@@ -97,7 +96,7 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
 }
 
 /**
- * Server-side check of an MCP tools/call params object, whose chain must be v3: a v2 one is CHAIN_MISSING.
+ * Server-side check of an MCP tools/call params object, whose chain must be v3.
  * Derives the binding, the receiver `mcp:<serverId>.<name>` and the nonce key `rid|callId|req` itself. Never
  * throws; influence is returned only when the call verifies.
  */
@@ -123,15 +122,13 @@ export type RecordedCall = {
 
 /**
  * Offline check of a tools/call params object read back from a record set: the server-side check, with
- * verifyChainOffline in place of the live chain verifier, so a v2 chain verifies as legacy (with no receiver
- * checks) and a mixed one is CHAIN_MISSING. The calling hop recorded the call when it stamped it,
+ * verifyChainOffline in place of the live chain verifier. The calling hop recorded the call when it stamped it,
  * so the live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the
  * origin not after the call by more than the call window (EXPIRED). A chain that verifies but is for another
  * call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
-  const parse = (value: unknown) => parseRecordedStamps(value).stamps;
-  return checkCall(params, call.serverId, parse, (input, nonceKey, callId) => {
+  return checkCall(params, call.serverId, parseStampsV3, (input, nonceKey, callId) => {
     const result = verifyChainOffline(
       { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
       { ...cfg, runMaxAgeMs: cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS, callMaxAgeMs: cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS, nonceKey },

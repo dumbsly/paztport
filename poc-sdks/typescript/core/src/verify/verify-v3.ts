@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkCommitments, checkRoute, checkStamps, reject, type StampShape } from "../internal/chain-checks.ts";
+import { checkCommitments, checkRoute, checkStamps, reject } from "../internal/chain-checks.ts";
 import type { InfluenceEntry } from "../influence/influence.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
@@ -43,8 +43,6 @@ export type V3Config = {
   runMaxAgeMs?: number;
 };
 
-type LegacyResult = VerifyResult & { legacy: boolean };
-
 /** The attribution rule, in one place: with a peer, every result of checks 1 to 12 names it; without one, the chain's own rule stands. */
 function blame<R extends VerifyResult>(result: R, peer: Peer | null | undefined): R {
   return peer == null ? result : { ...result, suspectSvc: peer.svc, suspectInst: peer.inst };
@@ -58,15 +56,13 @@ function policyCurrent(cfg: V3Config): boolean {
 /** Check 0's refusal: about the verifier's own config, not the request, so it names no suspect, not even a peer; expiry is not the sender's fault. */
 const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
 
-/** Checks 1 to 12 in order, for the stamps `accept` allows; the result before attribution. */
-function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): LegacyResult {
+/** Checks 1 to 12 in order; the result before attribution. */
+function check(input: V3Input, cfg: V3Config): VerifyResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, shared rid, session.
-  const checked = checkStamps(input.stamps, cfg, { accept, receiver: input.receiver });
-  if (typeof checked === "string") {
-    return { ...reject(checked), legacy: false };
+  const stamps = checkStamps(input.stamps, cfg, { receiver: input.receiver });
+  if (typeof stamps === "string") {
+    return reject(stamps);
   }
-  const { stamps, legacy } = checked;
-  const done = (result: VerifyResult): LegacyResult => ({ ...result, legacy });
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
 
@@ -74,34 +70,34 @@ function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): Leg
   const callMax = cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS;
   const runMax = cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS;
   if (![cfg.now, callMax, runMax].every(Number.isFinite)) {
-    return done(reject("EXPIRED"));
+    return reject("EXPIRED");
   }
   if (Math.abs(cfg.now - last.ts) > callMax || cfg.now - first.ts > runMax || first.ts - cfg.now > callMax) {
-    return done(reject("EXPIRED"));
+    return reject("EXPIRED");
   }
 
   // 8-9. Binding and influence commitment.
   const commitment = checkCommitments(last, input.expectedBind, input.influence);
   if (commitment !== undefined) {
-    return done(reject(commitment));
+    return reject(commitment);
   }
 
   // 10. Replay. A cache that forgets sooner than 2x the call window fails closed, before spending the nonce.
   if (!(cfg.nonces.ttlMs >= 2 * callMax) || cfg.nonces.seenBefore(cfg.nonceKey, cfg.now)) {
-    return done(reject("REPLAY"));
+    return reject("REPLAY");
   }
 
   // 11. Route proven against the root, ending at the receiver only when it is on the route.
   const routed = checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, cfg);
   if (!routed.ok) {
-    return done(routed);
+    return routed;
   }
 
   // 12. The transport peer is the last signer.
   if (input.peer != null && input.peer.svc !== last.svc) {
-    return done(reject("PEER_MISMATCH"));
+    return reject("PEER_MISMATCH");
   }
-  return done(routed);
+  return routed;
 }
 
 /**
@@ -127,15 +123,5 @@ function check(input: V3Input, cfg: V3Config, accept: StampShape["accept"]): Leg
  */
 export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
-  const { legacy: _legacy, ...result } = check(input, cfg, "v3");
-  return blame(result, input.peer);
-}
-
-/**
- * verifyChainV3's checks in the same order, also taking an all-v2 chain as legacy, with no receiver checks; a
- * mixed chain is CHAIN_MISSING. For re-checking a recorded response at its recorded time.
- */
-export function verifyChainAcceptingLegacy(input: V3Input, cfg: V3Config): VerifyResult & { legacy: boolean } {
-  if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED, legacy: false };
-  return blame(check(input, cfg, "v3-or-legacy-v2"), input.peer);
+  return blame(check(input, cfg), input.peer);
 }

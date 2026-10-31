@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { recheckResponse, verifyResponse } from "@paztport/core";
+import { verifyResponse } from "@paztport/core";
 import type { ContentLabel, V3Config, VerifyResult } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 
@@ -18,8 +18,10 @@ function attestationOf(result: Record<string, unknown>): unknown {
 }
 
 /**
- * Reads the attestation from `result._meta` and hands it to core's live response check, v3 only, its last
- * stamp naming `call.receiver`, the client that made the call; never throws.
+ * Reads the attestation from `result._meta` and hands it to core's response check, its last stamp naming
+ * `call.receiver`, the client that made the call. A client re-checking a recorded response passes the time it
+ * recorded verifying it as `cfg.now`: the receiver records a response, so no stamp time is known to match, unlike
+ * a call, which verifyRecordedCall checks against the time its own hop stamped it. Never throws.
  */
 export function verifyMcpResponse(
   result: Record<string, unknown>,
@@ -27,19 +29,6 @@ export function verifyMcpResponse(
   cfg: Omit<V3Config, "nonceKey">,
 ): { result: VerifyResult; labels: ContentLabel[] } {
   return verifyResponse(attestationOf(result), result, call, cfg);
-}
-
-/**
- * verifyMcpResponse for a recorded response, which may be legacy v2. It is checked with the live window at the
- * time the client recorded verifying it: the receiver records a response, so no stamp time is known to match,
- * unlike a call, which verifyRecordedCall checks against the time its own hop stamped it.
- */
-export function recheckMcpResponse(
-  result: Record<string, unknown>,
-  call: { rid: string; toolCallId: string; receiver: string },
-  cfg: Omit<V3Config, "nonceKey">,
-): { result: VerifyResult; labels: ContentLabel[]; legacy: boolean } {
-  return recheckResponse(attestationOf(result), result, call, cfg);
 }
 
 /**

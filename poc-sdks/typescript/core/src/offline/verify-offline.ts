@@ -39,22 +39,18 @@ export type OfflineConfig = Pick<V3Config, "keyring" | "root" | "rootId" | "allo
   callMaxAgeMs?: number;
 };
 
-/**
- * An offline verdict, and whether the chain was legacy: true once an all-v2 chain passes checks 1 to 6,
- * whatever a later check gives; false for a v3 chain and for any chain rejected at checks 1 to 6.
- */
+/** An offline verdict; `legacy` is false. */
 export type OfflineResult = VerifyResult & { legacy: boolean };
 
 /**
  * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3
- * verifier's checks in the live order. A chain recorded before stamps bound their receiver, all v2, is taken
- * as legacy and has no receiver checks; a chain mixing versions is CHAIN_MISSING. The first failure is the result:
- * 1. the stamps parse, all v3 or all v2 (CHAIN_MISSING);
+ * verifier's checks in the live order. The first failure is the result:
+ * 1. the stamps parse, all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN); with `signers`, it reports their instance too;
  * 4. each stamp is signed by its service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK);
- *    with `signers`, each is by the expected service and instance, or it is BAD_SIGNATURE; then, for v3,
- *    each stamp's rcv is the next stamp's svc and the last's is `receiver` (BINDING_MISMATCH);
+ *    with `signers`, each is by the expected service and instance, or it is BAD_SIGNATURE; then each
+ *    stamp's rcv is the next stamp's svc and the last's is `receiver` (BINDING_MISMATCH);
  * 5. every stamp carries the record's rid (RID_MISMATCH);
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. in place of the live freshness window, which has no clock to be fresh against offline: the last stamp's
@@ -71,13 +67,12 @@ export type OfflineResult = VerifyResult & { legacy: boolean };
  * Omitting `recordedTs` skips the recorded-time check (TIME_MISMATCH), leaving only `cfg`'s age limits on the times.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
+  const done = (result: VerifyResult): OfflineResult => ({ ...result, legacy: false });
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
-  const checked = checkStamps(input.stamps, cfg, { accept: "v3-or-legacy-v2", receiver: input.receiver, rid: input.rid, signers: cfg.signers });
-  if (typeof checked === "string") {
-    return { ...reject(checked), legacy: false };
+  const stamps = checkStamps(input.stamps, cfg, { receiver: input.receiver, rid: input.rid, signers: cfg.signers });
+  if (typeof stamps === "string") {
+    return done(reject(stamps));
   }
-  const { stamps, legacy } = checked;
-  const done = (result: VerifyResult): OfflineResult => ({ ...result, legacy });
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
 

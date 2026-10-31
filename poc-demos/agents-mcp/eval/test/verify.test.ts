@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signSessionReply, signStampV2, signStampV3 } from "@paztport/core";
+import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signSessionReply, signStampV3 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -702,6 +702,33 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     expect(run().stderr).toMatch(/usage/i);
   });
 
+  it("aRecordWithAV2ChainIsChainMissingAndTheOthersAreStillJudged", () => {
+    const old = write(genuine, (rs) => {
+      for (const x of rs.filter((r) => r.type === "call")) {
+        const chain = x.params._meta["paztport/chain"];
+        for (const stamp of chain) {
+          stamp.v = 2;
+          delete stamp.rcv;
+        }
+      }
+    });
+    const dir = join(tmp, `cli-${n++}`);
+    for (const [name, file] of [["on-001", old], ["on-002", write(genuine)]] as const) {
+      mkdirSync(join(dir, "runs", name), { recursive: true });
+      writeFileSync(join(dir, "runs", name, "evidence.jsonl"), readFileSync(file));
+    }
+    const reports = verifyResultsDir(dir);
+    expect(reports.map((r) => r.ok)).toEqual([false, true]);
+    expect(results(reports[0]!.items, "call")).toEqual(["CHAIN_MISSING", "CHAIN_MISSING", "CHAIN_MISSING", "CHAIN_MISSING"]);
+    expect(results(reports[1]!.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    const d = run(dir);
+    expect(d.status).toBe(1);
+    expect(d.stderr).toBe("");
+    const lines = d.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^FAIL runs\/on-001\/evidence\.jsonl.*CHAIN_MISSING/);
+    expect(lines[1]).toMatch(/^OK {2}runs\/on-002\/evidence\.jsonl/);
+  });
+
   it("cliSaysNothingToCheckForAFileWithoutSignedRecords", () => {
     const runOnly = write(genuine.filter((l) => JSON.parse(l).type === "run"));
     const r = run(runOnly);
@@ -1098,17 +1125,21 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const rec = structuredClone(localOf(recs, "l_read"));
     expect(rec.chain.map((x: any) => x.v)).toEqual([3, 3]);
     expect(verifyLocal(rec, client, runOf, new Set())).toEqual({ result: "OK", legacy: false });
-    // the same step as a chain recorded before stamps named their receiver
-    const old = structuredClone(rec);
-    const { sig: _s0, v: _v0, rcv: _r0, ...origin } = old.chain[0];
-    old.chain[0] = signStampV2(origin, local.material.sessionKey);
-    const { sig: _s1, v: _v1, rcv: _r1, ...step } = old.chain[1];
-    old.chain[1] = signStampV2({ ...step, prev: old.chain[0].sig }, local.material.piKey);
-    expect(verifyLocal(old, client, runOf, new Set())).toEqual({ result: "OK", legacy: true });
-    // a v2 origin with a v3 step is not legacy, nor readable
-    const mixed = structuredClone(rec);
-    mixed.chain[0] = old.chain[0];
-    expect(verifyLocal(mixed, client, runOf, new Set())).toEqual({ result: "UNREADABLE", legacy: false });
+  });
+
+  it("aStepWithAStampThatIsNotV3IsUnreadable", () => {
+    const recs: any[] = localLines.map((l) => JSON.parse(l));
+    const client = verifyClient(recs.find((x) => x.type === "client"), []);
+    const run = recs.find((x) => x.type === "run");
+    const runOf = (rid: string) => (rid === run.rid ? { prompt: run.prompt as string, ts: new Set<number>([run.ts]) } : undefined);
+    const rec = structuredClone(localOf(recs, "l_read"));
+    for (const v of [1, 2, 4]) {
+      for (const at of [[0], [1], [0, 1]]) {
+        const odd = structuredClone(rec);
+        for (const i of at) odd.chain[i].v = v;
+        expect(verifyLocal(odd, client, runOf, new Set())).toEqual({ result: "UNREADABLE", legacy: false });
+      }
+    }
   });
 
   it("aRepeatedLocalRecordIsAReplay", () => {

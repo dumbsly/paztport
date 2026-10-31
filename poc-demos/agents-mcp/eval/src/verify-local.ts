@@ -6,8 +6,8 @@ import {
   decode,
   parseInfluence,
   parseLocalRules,
-  parseRecordedStamps,
   parseSignedRoot,
+  parseStampsV3,
   provesPath,
   readNotAfter,
   rulesHash,
@@ -50,7 +50,7 @@ import {
  * it, as on every recorded time, but no edit moves a window.
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
  * checked, unlike the server's. A chain is v3, its stamps naming pi and then `local:<tool>` as their receivers
- * (BINDING_MISMATCH), or one recorded before stamps named a receiver, all v2, which is legacy.
+ * (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
@@ -155,7 +155,6 @@ function isResolved(v: unknown): v is Resolved {
 /**
  * Checks one local record (see the module comment). `seen` is the file's set of spent nonce keys, shared with
  * its calls and updated here; `runOf` gives a rid's run, or undefined when it has none or its prompt is in dispute.
- * `legacy` is true when the step verified from a legacy v2 chain.
  */
 export function verifyLocal(
   r: Rec,
@@ -175,7 +174,7 @@ export function verifyLocal(
   let influence: InfluenceEntry[];
   try {
     influence = parseInfluence(r.influence);
-    if (parseRecordedStamps(r.chain).stamps.length !== 2) {
+    if (parseStampsV3(r.chain).length !== 2) {
       return { result: "UNREADABLE", legacy: false };
     }
   } catch {

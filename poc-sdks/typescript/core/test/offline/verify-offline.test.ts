@@ -7,7 +7,7 @@ import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
-import { signStampV2, signStampV3, type StampV2, type StampV3 } from "../../src/stamp/stamp.ts";
+import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
 import { verifyChainOffline, type OfflineConfig, type OfflineInput } from "../../src/offline/verify-offline.ts";
 import { verifyChainV3 } from "../../src/verify/verify-v3.ts";
 
@@ -57,12 +57,7 @@ function world() {
     prompt: PROMPT,
     ...over,
   });
-  /** The same chain as v2 stamps, as recorded before stamps bound their receiver. */
-  const v2chain = (): StampV2[] => {
-    const o = signStampV2({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", bind: bindPrompt(PROMPT), infl: "", prev: "" }, session.privateKey);
-    return [o, signStampV2({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", bind, infl: commitInfluence(infl), prev: o.sig }, pi.privateKey)];
-  };
-  return { session, pi, other, tree, bind, origin, step, chain, v2chain, cfg, input };
+  return { session, pi, other, tree, bind, origin, step, chain, cfg, input };
 }
 
 const SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
@@ -208,7 +203,7 @@ describe("verifyChainOffline", () => {
       [[o, w.step(o, { prev: "x" })], {}],
       [[{ ...o, rcv: "a|b" }, s], {}],
       [w.chain({}, { rcv: "orders" }), {}],
-      [[w.v2chain()[0], s], {}],
+      [[{ ...o, v: 2 }, s], {}],
       [w.chain({ rid: "rid-2" }), {}],
       [w.chain({ sess: "s" }), {}],
       [w.chain(), { expectedBind: "zz" }],
@@ -223,27 +218,19 @@ describe("verifyChainOffline", () => {
     }
   });
 
-  it("aV2RecordedChainVerifiesAsLegacy", () => {
+  it("aStampThatIsNotV3IsChainMissing", () => {
     const w = world();
-    expect(verifyChainOffline(w.input(w.v2chain()), w.cfg({ signers: SIGNERS }))).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1", legacy: true });
-    // a legacy chain binds no receiver, but its route still ends at the one given
-    expect(verifyChainOffline(w.input(w.v2chain(), { receiver: "local:bash" }), w.cfg())).toMatchObject({ reason: "PATH_NOT_ALLOWED", legacy: true });
-    // a legacy chain that fails after it parses is still marked legacy
-    expect(verifyChainOffline(w.input(w.v2chain(), { influence: [] }), w.cfg())).toMatchObject({ reason: "INFLUENCE_MISMATCH", legacy: true });
-  });
-
-  it("aMixedVersionChainIsChainMissing", () => {
-    const w = world();
-    const [o2, s2] = w.v2chain() as [StampV2, StampV2];
-    const [o3, s3] = w.chain() as [StampV3, StampV3];
-    for (const mixed of [[o2, s3], [o3, s2]]) {
-      expect(verifyChainOffline(w.input(mixed), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING", legacy: false });
-      expect(
-        verifyChainV3(
-          { stamps: mixed, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true },
-          { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
-        ).reason,
-      ).toBe("CHAIN_MISSING");
+    const [o, s] = w.chain() as [StampV3, StampV3];
+    for (const v of [1, 2, 4]) {
+      for (const odd of [[{ ...o, v }, s], [o, { ...s, v }], [{ ...o, v }, { ...s, v }]]) {
+        expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING", legacy: false });
+        expect(
+          verifyChainV3(
+            { stamps: odd, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true },
+            { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
+          ).reason,
+        ).toBe("CHAIN_MISSING");
+      }
     }
   });
 
