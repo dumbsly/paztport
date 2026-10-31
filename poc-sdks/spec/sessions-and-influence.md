@@ -28,7 +28,7 @@ classes, so calls signed for the old session are refused.
 | `clientRoot` | signed root, or `null` | The client's [signed root](wire.md#the-signed-root), whole: in the new form its `notAfter` travels inside it. `null` asks for an unsafe session. |
 | `clientPolicyKey` | string | The client's policy public key. |
 | `clientKeyring` | object | The client's services: name to public key. |
-| `clientKeyringSig` | string | The client policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ notAfter: clientKeyringNotAfter, policy: clientPolicyKey, services: clientKeyring })` when the request has `clientKeyringNotAfter`, and over `"paztport-keyring\n" ‖ JCS({ policy: clientPolicyKey, services: clientKeyring })` (the old form) when it has none. |
+| `clientKeyringSig` | non-empty string | The client policy key's signature over the keyring: the `sig` of its [signed keyring](wire.md#the-signed-keyring), over `"paztport-keyring\n" ‖ JCS({ notAfter: clientKeyringNotAfter, policy: clientPolicyKey, services: clientKeyring })` when the request has `clientKeyringNotAfter`, and over `"paztport-keyring\n" ‖ JCS({ policy: clientPolicyKey, services: clientKeyring })` (the old form) when it has none. |
 | `clientKeyringNotAfter` | integer, new-form keyring only | The keyring's `notAfter`, sent exactly when the client's keyring is in the new form. |
 | `nonce` | string | 16 fresh random bytes, base64url. |
 
@@ -39,7 +39,8 @@ fails its signature.
 
 A server MUST answer a request that is not an object, or whose `clientRoot` is neither `null` nor an object with
 string `rootId`, `root` and `sig` (and, optionally, a `notAfter`), whose `clientKeyring` is not an object of
-strings, whose `clientPolicyKey` or `nonce` is not a string, or which has a `clientKeyringNotAfter` or a
+strings, whose `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is missing, `null`, not a
+string or empty, or which has a `clientKeyringNotAfter` or a
 `clientRoot.notAfter` that is not an integer in [0, 2^53 − 1] (`null` included: a member that is present is never
 read as absent), with JSON-RPC error `-32602` (Invalid params), and open no session.
 It MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer
@@ -47,9 +48,8 @@ that with a JSON-RPC error other than `-32601`, so the client takes its replacem
 ([below](#the-clients-check-of-the-reply)). A request that opens no session leaves the connection's current
 session, if any, in place: the TypeScript server fails before it replaces it.
 
-A request with no `clientKeyringSig` field is unsigned: the server reads it as `""`, which never verifies, so
-the session is unsafe (offline it is legacy; see [Recorded handshakes](#recorded-handshakes)). A
-`clientKeyringSig` that is present but malformed (not a string) or wrong: live, the server reads a non-string as `""`, which never verifies, so the session is unsafe; offline, it is a v3 request whose signature fails, not a legacy one.
+A `clientKeyringSig` that is a string but does not verify is no malformed request: the session is unsafe live, and
+offline it is not attested.
 
 ### The reply
 
@@ -181,7 +181,7 @@ session is the same.
 | Part | Rule |
 |---|---|
 | Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
-| Not JSON, or not a readable request | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
+| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
@@ -281,6 +281,9 @@ in its unsafe list and running the rest as for any unattested caller. Sessions i
 verified against the client's material, and their calls are refused `POLICY_EXPIRED` once that expires
 ([verification.md](verification.md#the-live-order)).
 
+`v3.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
+is missing, `null`, empty or a number, each malformed.
+
 `v3.json` pins this in `sessionStatus`, each case a request, the server's own root and keyring, its policy key, the
 client keys it pinned and `now`: attested; an unpinned client key; the client's root and keyring each at its
 `notAfter`, expired, in the old form, and expired with its window moved past `now`; the server's root and keyring at
@@ -319,9 +322,8 @@ for a call that verified.
 
 Offline, a recorded handshake opened an attested session only when the reply's `status` is `"attested"`, the
 reply passes the client's check against the recorded pin and the server's entry service from the verifier's own
-configuration, both roots verify against their sides' policy keys, and the keyring signature verifies. When the
-request has no `clientKeyringSig` field at all, it is legacy: the keyring check is skipped, and the result is
-marked legacy ([verification.md](verification.md#the-legacy-rule)).
+configuration, both roots verify against their sides' policy keys, and the keyring signature verifies. A recorded
+request that is not a well-formed request, a missing `clientKeyringSig` included, opened no attested session.
 
 The handshake record carries no signed time, so it is judged at each call's recorded time, the call's last stamp's
 `ts`, which the client signed: `now` in the check is the time of the record being judged. One session can therefore
@@ -335,8 +337,7 @@ keyring's: the client's windows and the certificate do not limit it.
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.
 
-Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit, and the
-session is not marked legacy for it (only a request with no `clientKeyringSig` is). A root or keyring in the new
+Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit. A root or keyring in the new
 form is judged at the record's time, on both sides, as above, but only after its own signature has verified: the
 root's under its side's policy key, the client keyring's under the client policy key, and the server keyring's under
 the pin. A window still selects the bytes its signature is checked over, so one moved or dropped in the record fails

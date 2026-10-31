@@ -11,8 +11,7 @@ Contents: [Inputs](#inputs) · [The live order](#the-live-order) · [Freshness a
 [Receivers, the peer and attribution](#receivers-the-peer-and-attribution) ·
 [The MCP server and client](#the-mcp-server-and-client) · [HTTP requests and responses](#http-requests-and-responses) ·
 [Modes and refusals](#modes-and-refusals) · [Offline verification](#offline-verification) ·
-[The legacy rule](#the-legacy-rule) · [Reason codes](#reason-codes) ·
-[Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
+[Reason codes](#reason-codes) · [Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
 
 ## Inputs
 
@@ -412,27 +411,16 @@ Each kind of record is checked this way:
   `rulesHash` the step signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one
   re-derived from those signed rules (`VERDICT_MISMATCH`).
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
-  verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
-  verifies. It is judged at the time of each call that relies on it: a new-form root or keyring, on either side,
-  counts only up to its `notAfter`, as the reply certificate does. An old-form one is accepted, sets no limit,
-  and is not marked legacy for it ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)).
-  A response relies on it too, but only the server's root window and, in the entry-key form, the server
-  keyring's limit a response; the client's windows and the certificate do not.
+  verify against their sides' policy keys, and the client keyring's signature verifies. It is judged at the time of
+  each call that relies on it: a new-form root or keyring, on either side, counts only up to its `notAfter`, as the
+  reply certificate does. An old-form one is accepted and sets no limit
+  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but
+  only the server's root window and, in the entry-key form, the server keyring's limit a response; the client's
+  windows and the certificate do not.
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
 or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it
 relies on every recorded time. No edit to a record moves a `notAfter`, because the policy key's signature covers it.
-
-## The legacy rule
-
-Session requests with no `clientKeyringSig` can't be re-signed, so:
-
-- **A session request with no `clientKeyringSig` field** is legacy offline: the keyring check is skipped. Live,
-  the server treats it as unsigned, so the session is unsafe. A `clientKeyringSig` that is present but malformed (not a string) or wrong: live, the server reads a non-string as `""`, which never verifies, so the session is unsafe; offline, it is a v3 request whose signature fails, not a legacy one.
-- **A verifier MUST report legacy.** Each item that verified from a request with no keyring signature is marked
-  legacy, so a reader can see that it was checked less strictly. A failure is never marked.
-  The agents demo's `verify` writes `"legacy": true` on such items and counts them on its `OK` line
-  ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
 ## Reason codes
 

@@ -9,7 +9,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 | File | What it holds |
 |---|---|
 | [wire.md](wire.md) | Encodings, keys and files, stamps and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
-| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the legacy rule, the reason codes, receiving an event, and guidance for a responder. |
+| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the reason codes, receiving an event, and guidance for a responder. |
 | [sessions-and-influence.md](sessions-and-influence.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, influence entries and their commitment, content labels, the owner-aware rule, trusted records, and the boundary attestation between organisations. |
 | [vectors/](vectors) | The conformance vectors. |
 
@@ -26,16 +26,14 @@ What v3 does, deliberately:
 - **One version.** A verifier, live or offline, takes only stamps whose `v` is 3. A chain holding any other `v`
   is `CHAIN_MISSING`.
 - **The signed keyring.** A keyring is signed by its policy key, and the session request carries that
-  signature as `clientKeyringSig`. A request without the field is legacy offline and unsafe live. One whose
-  signature is present but malformed (not a string) or wrong is unsafe live, and offline is a v3 request whose
-  signature fails, not a legacy one. A server attests a session only for a client
-  policy key it has pinned.
+  signature as `clientKeyringSig`, which is required: a request without it, or with one that is `null`, not a
+  string or empty, is malformed and opens no session (JSON-RPC `-32602` over MCP, `400 INVALID_PARAMS` over
+  HTTP). One whose signature is wrong is unsafe live and not attested offline. A server attests a session only
+  for a client policy key it has pinned.
 - **The transport peer.** A verifier given an authenticated peer checks it is the last signer
   (`PEER_MISMATCH`), and names it in every result but `POLICY_EXPIRED`.
 - **Owners.** An influence entry and a content label may carry an `owner`, and one owner-aware rule decides
   public writes.
-- **Legacy is reported.** An item verified from a session request with no keyring signature is marked legacy in a
-  verifier's report.
 
 ## Conformance
 
@@ -43,7 +41,7 @@ What v3 does, deliberately:
 
 | File | Covers | Replayed by |
 |---|---|---|
-| `v3.json` | the session id, the prompt, result, `tools/call` and response bindings, the influence commitment, the Merkle leaves, nodes and proofs (with the encoded proof headers), v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring and the signed root in both forms (the new form's signed bytes and signature, at its `notAfter` and 1 ms after, the largest `notAfter`, a renewed root, a tampered `notAfter`, `notAfter` dropped from a new-form signature and added to an old-form one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one written `1798761600000.0` and read by value, a root signature offered as a keyring's and the other way round, and an old-form keyring and root whose signatures verify, which only an offline verifier may rely on, and which are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed bodies differ and would fail without them: each case's literal signed bytes do), reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one naming another policy key, an ignored extra field and the largest `notAfter`), session replies (the entry-key and policy-key forms with new-form roots and keyrings on both sides, the certificate's expiry, forged and malformed replies, a server keyring or root `notAfter` moved, dropped or malformed, the server's root and keyring at their `notAfter`, expired and in the old form, an expired root's window moved in a reply the entry key signed again, and a keyring window in a policy-key reply), session status cases (the server's status for a request, against its own root and keyring and its pins: each side's root and keyring at its `notAfter`, expired and in the old form, and a client window moved), live verify cases (each kind of receiver, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain, and a stamp `ts` of −2^63, written exactly), offline cases (a v3 call, a stamp whose `v` is not 3, a broken receiver, the recorded time, age, prompt and replay checks), recorded handshakes (attested at a time, at all, the response limit and legacy, in both reply forms, at each kind of limit, in the old forms, and not attested, a reply the server signed that fails the client's shape check included), recorded calls (the session's limits, a failing call past them, and replay across a record set, a repeated handshake included) and recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps, the client's root and keyring windows, and each re-check). | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for every section but `recordedLocalStep`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile) |
+| `v3.json` | the session id, the prompt, result, `tools/call` and response bindings, the influence commitment, the Merkle leaves, nodes and proofs (with the encoded proof headers), v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring and the signed root in both forms (the new form's signed bytes and signature, at its `notAfter` and 1 ms after, the largest `notAfter`, a renewed root, a tampered `notAfter`, `notAfter` dropped from a new-form signature and added to an old-form one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one written `1798761600000.0` and read by value, a root signature offered as a keyring's and the other way round, and an old-form keyring and root whose signatures verify, which only an offline verifier may rely on, and which are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed bodies differ and would fail without them: each case's literal signed bytes do), reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one naming another policy key, an ignored extra field and the largest `notAfter`), session replies (the entry-key and policy-key forms with new-form roots and keyrings on both sides, the certificate's expiry, forged and malformed replies, a server keyring or root `notAfter` moved, dropped or malformed, the server's root and keyring at their `notAfter`, expired and in the old form, an expired root's window moved in a reply the entry key signed again, and a keyring window in a policy-key reply), session status cases (the server's status for a request, against its own root and keyring and its pins: each side's root and keyring at its `notAfter`, expired and in the old form, and a client window moved), session request cases (a well-formed request, and one with no keyring signature, or a `null`, empty or numeric one, each malformed), live verify cases (each kind of receiver, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain, and a stamp `ts` of −2^63, written exactly), offline cases (a v3 call, a stamp whose `v` is not 3, a broken receiver, the recorded time, age, prompt and replay checks), recorded handshakes (attested at a time, at all and the response limit, in both reply forms, at each kind of limit, in the old forms, and not attested, a reply the server signed that fails the client's shape check included), recorded calls (the session's limits, a failing call past them, and replay across a record set, a repeated handshake included) and recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps, the client's root and keyring windows, and each re-check). | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for every section but `recordedLocalStep`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile) |
 | `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay), blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not), and in `rules` the HTTP rules a receiver, a caller, a partner and an egress follow ([below](#the-http-rules-in-http-v3json)). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules` adds keys and material of its own, derived the same way. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 | `events.json` | Responder events: the envelope's signed bytes and signatures, and the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a tampered payload, malformed envelopes and payloads read strictly, with nothing coerced or filled in and nothing but JSON whitespace around them, `ts` read by value, and the check order), and in `attributable` each allowed reason, the excluded ones, an audit event and an event naming no service or no instance, with whether a responder may act on it. Its keys are derived by `v3.json`'s rule. | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`). |
 
@@ -92,8 +90,7 @@ the spec's objects and times, never from any implementation's record format:
   service from the verifier's own configuration). `expected.attestedAt[i]` is whether it opened an attested session
   judged at `at[i]`, `attested` whether it did at all (judged at the earliest of its limits), `responseNotAfter` the
   `policyNotAfter` a response recorded in it is checked with (2^53 − 1 when neither the server's root nor, in the
-  entry-key form, its keyring has a window), read from the reply's windows whether or not the session is attested,
-  and `legacy` whether it is attested from a request with no `clientKeyringSig`.
+  entry-key form, its keyring has a window), read from the reply's windows whether or not the session is attested.
 - A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked in
   order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was
   made in by its index, `handshake`, and carries an offline case's chain inputs (`chain`, `expectedBind`,
@@ -101,15 +98,15 @@ the spec's objects and times, never from any implementation's record format:
   It is checked by the offline verifier with the case's `allowedOrigins`, `callMaxAgeMs` and `runMaxAgeMs`, the
   client keyring and root of that handshake's request and the session id of its reply; then a call that verifies
   but whose `recordedTs.last` is past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is the
-  `reason` for `calls[i]` and `legacy`, which is false. Every handshake here is
-  attested: the spec gives a call relying on one that is not no result.
+  `reason` for `calls[i]`. Every handshake here is attested: the spec gives a call relying on one that is not no
+  result.
 - A **`recordedLocalStep`** case ([MCP profile](#the-mcp-profile)) is a recorded local step: `step` (`tool`,
   `callId`, `rid`, `now`, `input`, `resolved`, `verdict`, `routeAllowed`, `rulesHash`, `chain`, `proofRoute`,
   `influence`), the `client` it is checked against (`keyring` by name, the root of `policy`, in which `proofRoute`
   names the step's proof, the root's and keyring's windows `rootNotAfter` and `keyringNotAfter` when they are in the
   new form, and `rules`), the `signers` (`svcs`, the origin service then the client hop, and their one `inst`), its
   `run` (`prompt` and start times `ts`), and `seen`, the nonce keys already spent. `expected` is the `reason`, the
-  `verdict` the step signed when the record verifies (null when it does not), and `legacy`.
+  `verdict` the step signed when the record verifies (null when it does not).
 
 ### The MCP profile
 
