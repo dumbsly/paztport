@@ -189,9 +189,9 @@ A single run saved by the demo is a folder with `demo-run.json` and the run's fi
 
 **Legacy records.** Evidence recorded before protocol v3 carries v2 stamps, which name no receiver, and its session requests have no keyring signature. Such records still verify. Each item that verified that way carries `"legacy": true` in the report, and the `OK` line ends with `, <n> legacy (pre-v3 records)`, which counts both the items verified from v2 stamps and the sessions whose request has no keyring signature. A legacy record is checked less strictly than a v3 one, because nothing in it says who the step was meant for. A failed item never carries the marker, and a server refusal, which is unsigned, never does either.
 
-**Session replies.** The mock server signs its session reply with its entry service's key, `mcp-entry`'s, and the reply carries the server keyring's signature and a reply certificate for that key, both from the server policy key; `verify` checks both against the pin. Evidence recorded before then has replies signed by the server policy key itself, which still verify, at any time. The session record carries no signed time, so each call is judged at the time it was recorded, its last stamp's time: a call recorded after the certificate's `notAfter` was not made in an attested session, and is reported `NO_SESSION`.
+**Session replies.** The mock server signs its session reply with its entry service's key, `mcp-entry`'s, and the reply carries the server keyring's signature and a reply certificate for that key, both from the server policy key; `verify` checks both against the pin. Evidence recorded before then has replies signed by the server policy key itself, which still verify, at any time. The session record carries no signed time, so each call is judged at the time it was recorded, its last stamp's time: a call recorded after the certificate's `notAfter` was not made in an attested session, and is reported `OUTSIDE_SESSION`.
 
-**Keyring and root lifetimes.** Keyrings and roots carry a `notAfter` their policy key signs, and `verify` judges each record at its own time, never at the time it runs. A call is judged at its last stamp's time, and a call after the `notAfter` of a root or keyring in its handshake, the client's or the server's, is `NO_SESSION`, as one after the certificate's is. A response is judged at the time the client recorded checking it, as the client did live: past the server's root, or its keyring in the entry-key form, it is `POLICY_EXPIRED`, which the client counted as `local-untrusted` too. A local step is judged at its stamp's time against the client record's root and keyring, and one after either's `notAfter` is `POLICY_EXPIRED`. The gate itself refuses calls past that point without signing them, so such a step was not written by a gate that checked. These times are signed by the client that made the records, so `verify` relies on them; what an edit cannot do is move a `notAfter`, since the policy key's signature covers it. Keyrings and roots from before they carried a `notAfter` set no limit, and are not marked legacy for it: recorded evidence keeps its outcomes.
+**Keyring and root lifetimes.** Keyrings and roots carry a `notAfter` their policy key signs, and `verify` judges each record at its own time, never at the time it runs. A call is judged at its last stamp's time, and a call after the `notAfter` of a root or keyring in its handshake, the client's or the server's, is `OUTSIDE_SESSION`, as one after the certificate's is. A response is judged at the time the client recorded checking it, as the client did live: past the server's root, or its keyring in the entry-key form, it is `POLICY_EXPIRED`, which the client counted as `local-untrusted` too. A local step is judged at its stamp's time against the client record's root and keyring, and one after either's `notAfter` is `POLICY_EXPIRED`. The gate itself refuses calls past that point without signing them, so such a step was not written by a gate that checked. These times are signed by the client that made the records, so `verify` relies on them; what an edit cannot do is move a `notAfter`, since the policy key's signature covers it. Keyrings and roots from before they carried a `notAfter` set no limit, and are not marked legacy for it: recorded evidence keeps its outcomes.
 
 What it does not check, stated plainly:
 
@@ -201,6 +201,66 @@ What it does not check, stated plainly:
 - **Folder mode knows more, but not everything.** Given a folder, `verify` reads each run's outcome log and events log, with or without a `results.json`, and a run whose outcome log shows signed calls, or whose events log shows local tool calls made during a run, must have signed evidence. An outcome log that exists but can't be read (a line that is not a JSON record, or a `sess` that is not a string) fails too, as it would in the eval, and so does an events log that can't be read. With a `results.json` it also requires signed evidence from every run recorded as Paztport-on, except a run that `results.json` records as having ended in error or timed out before anything was recorded. A `results.json` it cannot use is reported as a failure. It does not compare each evidence record with the outcome log, re-score the runs, or check the server key fingerprint. The eval scored each run as it finished and cross-checked the whole folder at the end, and the result is in the "Evidence check" section of `summary.md`; `verify` does not repeat that. The demo page does: opening a folder there re-scores every run from its files, cross-checks its evidence against the outcome log and the server key, and lists any figure in `results.json` that the files do not support (see the demo README).
 - To repeat the fingerprint check by hand, compare the pin that `verify` prints with the "Server policy key fingerprint" line in `summary.md`.
 - Passing means the records are intact and consistent with each other. It does not mean the scoring is right, and it cannot show records that were never written.
+
+### Result codes
+
+Every item in a report has one result. `OK`, `REFUSED`, `NO_RESPONSE` and `UNBOUND` do not make a file fail; any other result does, and the `FAIL` line names the first.
+
+Most results are the protocol's own: the Paztport SDK gives them, as [the spec's offline verification](../../../poc-sdks/spec/verification.md#offline-verification) says, and [its reason codes](../../../poc-sdks/spec/verification.md#reason-codes) say what each means. Session records are [recorded handshakes](../../../poc-sdks/spec/sessions-and-influence.md#recorded-handshakes). The ones `verify` can report:
+
+| Result | Records | What it means here |
+| --- | --- | --- |
+| `OK` | all | Every check held. A local step that verified and was allowed is `OK`. |
+| `CHAIN_MISSING` | call, response, local | No chain, one that does not parse, or one that mixes v2 and v3 stamps. |
+| `BAD_ORIGIN` | call, response, local | The chain starts at a service that is not its origin, or, for a local step, on another instance than `pi-1`. |
+| `BAD_SIGNATURE` | call, response, local | A key is unknown or a signature fails; for a local step, a stamp not by `session` then `pi` on `pi-1`. |
+| `BROKEN_LINK` | call, response, local | A stamp does not follow the one before it. |
+| `EXPIRED` | call, response | A call outside the run's age limits, or a response outside the freshness window at the time the client checked it. |
+| `RID_MISMATCH` | call, response, local | A stamp names another run, or the chain names another call id than the record. |
+| `BINDING_MISMATCH` | call, response, local | A stamp names the wrong next hop, or the chain is not bound to what the record holds. |
+| `REPLAY` | call, response, local | The call, response or step appears earlier in the file. |
+| `PATH_NOT_ALLOWED` | call, response | The route is not proven against the policy root. |
+| `SESSION_UNKNOWN` | call, response, local | A stamp names another session (a local step names none). |
+| `INFLUENCE_MISMATCH` | call, response, local | The recorded influence does not parse, or the chain does not commit to it. |
+| `POLICY_EXPIRED` | response, local | A response checked after the server's root or keyring expired, or a local step after the client's. |
+| `TIME_MISMATCH` | call, local | The last stamp's time is not the record's `now`, or a local step's origin time is not its run's. |
+| `PROMPT_MISMATCH` | call, local, run | The origin does not bind the run's recorded prompt (or the run has no record, or two that disagree); a second run record for a rid with another prompt. |
+| `OUTSIDE_SESSION` | call | A call that verifies, in a verified session, but recorded after one of the session's limits: its reply certificate's `notAfter`, or a new-form root's or keyring's, either side's. |
+| `PROOF_MISMATCH` | local | The recorded route verdict or proof is not what the step's chain proves. |
+| `RULES_MISMATCH` | local | The rules hash the step signed is not the client record's. |
+| `VERDICT_MISMATCH` | local | The decision the step signed is not what the signed rules give for what it recorded. |
+
+The rest are this tool's own, about the evidence file rather than the protocol:
+
+| Result | Records | Fails | What it means |
+| --- | --- | --- | --- |
+| `BAD_SESSION` | session | yes | The session record does not verify against its pin, or was not attested. |
+| `NO_SESSION` | call | yes | The call has no verified session record for its server before it. (A response to such a call is `NO_CALL`.) |
+| `BAD_CLIENT` | client | yes | The client record does not verify: its root against its policy key, its keyring signature, the same root, policy key, keyring and keyring window as every session record names, or its rules and their proof. |
+| `NO_CLIENT` | local | yes | No verified client record comes before the local step. |
+| `NO_CALL` | response | yes | No verified call with the same server, rid and call id comes before the response. |
+| `DUPLICATE_RESPONSE` | response | yes | A second response for a call that already has one. |
+| `UNREADABLE` | any | yes | A line, record, file or folder that cannot be read, or a record without the fields its type needs; in folder mode also a run that needed signed evidence and has none, with the reason beside it. |
+| `REFUSED` | response, local | no | The server refused a verified call (unsigned, so checked only for its shape), or a local step that verified was refused by the gate. |
+| `NO_RESPONSE` | call | no | A call with no response record, for example in a run that was stopped. |
+| `UNBOUND` | run | no | A run record that no verified call or local step refers to. |
+
+`NOTHING TO CHECK` is a line, not a result: a file with no signed records.
+
+### The evidence format
+
+`evidence.jsonl` is written by the pi extension when `evidenceLog` is set (see the [pi extension README](../pi-extension/README.md)). It holds one JSON object per line, appended in order. Every record has `"v": 1` and a `type`; `verify` reports any other line as `UNREADABLE`.
+
+| `type` | Fields | What it is |
+| --- | --- | --- |
+| `run` | `rid`, `ts`, `prompt` | A run's prompt and start time. Unsigned: calls and local steps bind it through their origin stamp. |
+| `session` | `server`, `request`, `reply`, `pin`, `status`, `reason` (optional) | A handshake with an MCP server: the session request and the server's reply as sent and received, the server policy key the client pinned (or null), and what the client concluded (`attested` or `unsafe`, with a `reason` when unsafe). |
+| `call` | `server`, `tool`, `callId`, `rid`, `now`, `params` | A `tools/call` as sent: `params` holds the name, arguments and `_meta` with the chain, proof and influence; `now` is when the client stamped it, its last stamp's `ts`. |
+| `response` | `server`, `tool`, `callId`, `rid`, `now`, `result` | The server's result for a call, `_meta` and attestation included; `now` is when the client checked it. |
+| `client` | `keyring`, `keyringSig`, `keyringNotAfter` (optional), `policyPublicKey`, `signedRoot`, `rules`, `rulesProof` | The client's own material as the session loaded it, written once per session before any local record: its keyring and the policy key's signature over it (over `keyringNotAfter` too when the keyring is in the new form), its signed root whole, its local rules (or null) and the proof for `session/pi/rules:<hash>` (null with no rules). An older record has no `keyringSig`. |
+| `local` | `tool`, `callId`, `rid`, `now`, `input`, `resolved`, `routeAllowed`, `rulesHash`, `chain`, `proof`, `influence`, `verdict` | One gated built-in tool call: what the gate saw and decided, signed as two stamps (the run's origin, then pi's step naming `local:<tool>`), the step bound to the input and the decision. `proof` is the route's proof, null when the route is not listed; `rulesHash` is the hash of the session's rules, null with none. |
+
+A record never holds a private key.
 
 ## Build your own evaluation
 

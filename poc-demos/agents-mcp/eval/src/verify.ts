@@ -43,7 +43,7 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  *
  * Results that are this verifier's own, about the evidence file rather than the protocol:
  * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
- * - NO_SESSION: a call or response whose server has no verified session before it.
+ * - NO_SESSION: a call whose server has no verified session before it (a response to it is NO_CALL).
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
