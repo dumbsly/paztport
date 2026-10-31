@@ -1,13 +1,13 @@
 # Wire format
 
-This file defines the bytes: encodings, keys, stamps, chains, bindings, the Merkle tree, the signed root,
-the signed keyring, the reply certificate, events and the proof bundles. [verification.md](verification.md) says how a
-receiver checks them, and [sessions-and-influence.md](sessions-and-influence.md) covers the handshake and
-influence.
+This file defines the bytes: encodings, how JSON is read and written, keys, stamps, chains, bindings, the Merkle
+tree, the signed root, the signed keyring, the reply certificate, events and the proof bundles.
+[verification.md](verification.md) says how a receiver checks them, and
+[sessions-and-influence.md](sessions-and-influence.md) covers the handshake and influence.
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
-Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
+Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and-files) · [Stamps](#stamps) ·
 [Chains](#chains) · [Bindings](#bindings) · [Carrying a chain](#carrying-a-chain) ·
 [The Merkle tree](#the-merkle-tree) · [Routes](#routes) · [The signed root](#the-signed-root) ·
 [The signed keyring](#the-signed-keyring) · [The reply certificate](#the-reply-certificate) ·
@@ -20,7 +20,7 @@ Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamp
 | Text | Every string that is hashed or signed is encoded as UTF-8. A string that holds a lone surrogate has no UTF-8 form, so it MUST be rejected wherever this spec says so, and MUST NOT be signed. |
 | Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST reject any character outside `A–Z a–z 0–9 - _`, and a length that is 1 more than a multiple of 4. They MAY accept up to two trailing `=`, as both SDKs do. |
 | Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. A stamp's `sig` MUST decode and re-encode to the identical text, or the chain does not parse (see [Stamp field rules](#stamp-field-rules)). |
-| Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as `JSON.stringify` does. JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
+| Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
 | Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
 | Integers | `ts` is an integer number of milliseconds since the Unix epoch. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
@@ -32,6 +32,126 @@ and `\n` is the single byte `0x0A`.
 another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
 `"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
 and stamps `3|`.
+
+## JSON
+
+Paztport's own objects are JSON: stamps and chains, proofs, influence entries, content labels, the attestation,
+keyrings, roots, reply certificates, session requests and replies, verdicts and refusals, events and their
+envelopes, proof bundles and local rules. This section says how they are read and written, so that every
+implementation accepts and refuses the same bytes. An object's **wire bytes** are the bytes it travels as, and a
+**file** is one of the files under [Keys and files](#keys-and-files) or a client's local `rules.json`. Content
+Paztport only hashes, such as a tool's arguments, is not one of its objects ([Hashed content](#hashed-content)).
+
+### Reading
+
+A reader reads an object from bytes in four steps, and refuses it at the first step that fails:
+
+1. **Size.** The bytes are within their [limit](#limits), checked before anything is parsed.
+2. **Parse.** The bytes are one JSON value under [the grammar](#the-grammar), nested no deeper than the depth
+   limit.
+3. **Canonical bytes.** Wire bytes are exactly the [canonical bytes](#canonical-bytes) of the value parsed. A
+   file skips this step.
+4. **Schema.** The value is the object its section defines: every member it requires is present and of its type,
+   every integer is in the range the section gives, and there is no other member. A member whose value is a map by
+   definition, such as a keyring's `services`, holds data, not schema: its names are checked by the rules its
+   section gives, and its values by type.
+
+Steps 1 to 3 are the same for every object, and step 4 is each object's own section. The parse takes a JSON value
+of any type; the schema says which type each object is.
+
+### The grammar
+
+The bytes are JSON text (RFC 8259) within I-JSON (RFC 7493). Anything RFC 8259's grammar does not produce is
+refused, such as a trailing comma, a comment, a single-quoted string, `NaN`, an escape it does not define (`\x`,
+or `\u` with fewer than four hex digits) or a second value after the first. A reader also refuses:
+
+- **Any encoding but strict UTF-8** (RFC 3629): an overlong form, a surrogate code point, a code point above
+  U+10FFFF, a byte that starts no sequence, or a sequence cut short. A byte order mark is refused, and so is text
+  in UTF-16 or UTF-32 (RFC 8259 §8.1).
+- **A repeated member name** (RFC 7493 §2.3). Names are compared after unescaping, so `{"a":1,"\u0061":2}`
+  repeats `a`.
+- **A lone surrogate**, raw or escaped (RFC 7493 §2.1): `"\ud800"`, `"\udc00"` and `"\ud800x"` are refused. An
+  escaped high surrogate followed by an escaped low one is one character: `"\ud83d\ude00"` is U+1F600.
+- **A noncharacter**, raw or escaped (RFC 7493 §2.1): U+FDD0 to U+FDEF, and every code point whose last four hex
+  digits are FFFE or FFFF, from U+FFFE and U+FFFF to U+10FFFE and U+10FFFF. So `"\uffff"` and `"\udbff\udfff"`
+  are refused.
+- **Any number that is not a protocol integer.** A **protocol integer** is `0`, or a digit 1–9 followed by digits,
+  with at most 16 digits and a value of at most 2^53 − 1 (9007199254740991). So `-0`, `-1`, `01`, `+1`, `1.0`,
+  `1e3` and `9007199254740992` are refused. A reader decides this from the number's text and refuses any other
+  number before it builds a value, so no number is rounded, and a long one is refused at its seventeenth digit.
+
+### Canonical bytes
+
+An object's canonical bytes are its JCS text (RFC 8785), in UTF-8. Its wire bytes MUST be exactly those, so one
+signed object has one token: whitespace, member order, an escape or an integer's spelling can't give the same object
+a second form.
+
+- There is no whitespace between tokens.
+- Member names are sorted by their UTF-16 code units, compared as unsigned integers (RFC 8785 §3.2.3). U+1F600 is
+  the code units D83D DE00, so it sorts before U+FB33, though its code point is greater.
+- Strings are escaped exactly as RFC 8785 §3.2.2.2 says: `\"`, `\\`, `\b`, `\f`, `\n`, `\r` and `\t` for the
+  characters they name, every other code point below U+0020 as `\u00xx` with lowercase hex digits, and every other
+  code point as itself. So `\/`, `\u0041`, `\u00e9`, `\u001F`, `\u0008` and `\ud83d\ude00` are never canonical.
+- An integer is its digits, as a protocol integer already is.
+- Array elements keep their order.
+
+### Limits
+
+| Limit | Value |
+|---|---|
+| Wire bytes | At most 262 144 bytes (256 KiB), checked before parsing. |
+| A base64url token | Its text is checked first, at most 349 526 characters (the unpadded length of 262 144 bytes), then its decoded length against the wire limit, so a reader never decodes more than the limit allows. |
+| Depth | At most 32. An array or object is one level, and each array or object inside it is one more: `[]` is one level, and `[[]]` two. |
+| Files | At most 1 048 576 bytes (1 MiB), with the same depth limit. |
+
+A value at a limit is read, and one past it is refused.
+
+### Files
+
+A file is read by steps 1, 2 and 4 of [Reading](#reading), with the file limit: its members may come in any order,
+with any JSON whitespace, and an escape RFC 8259 defines, such as `\/` or `\u0041`, reads as its character. A file
+is written in one form, so that every implementation writes the same bytes:
+
+- members in JCS order, and strings escaped as JCS escapes them;
+- two-space indentation, one member or element per line, and `": "` between a name and its value;
+- an empty object written `{}`, and an empty array `[]`;
+- a newline at the end.
+
+A keyring file, for example:
+
+```json
+{
+  "notAfter": 1798761600000,
+  "policy": "<policy public key>",
+  "services": {
+    "pi": "<public key>",
+    "session": "<public key>"
+  },
+  "sig": "<b64url>"
+}
+```
+
+### Writing
+
+A writer writes canonical bytes, or a file in the form above, and MUST refuse to write anything a reader refuses: a
+string holding a lone surrogate or a noncharacter, a number that is not a protocol integer, or a value nested
+deeper than 32 levels or larger than its limit. It refuses the whole object, and never writes U+FFFD, `?` or an
+escape in place of what it refuses.
+
+### Hashed content
+
+Content Paztport only hashes, such as a tool's arguments and result or a local tool's input, is not Paztport's to
+define, and the [bindings](#bindings) that hash it as JCS belong to [the MCP profile](README.md#the-mcp-profile). Its
+JCS is RFC 8785's in full: each number is read as the nearest IEEE 754 binary64 value and written in ECMAScript's
+shortest form (RFC 8785 §3.2.2.3), so `-0` is written `0` and `1E30` is written `1e+30`. It refuses a lone
+surrogate, which has no UTF-8 form, and a number that is not finite. It allows noncharacters, which belong to the
+content. A binding over hashed content binds the value read, not its text: `9007199254740993` and
+`9007199254740992` read as the same binary64 value and share one binding, though a tool that reads integers
+exactly sees two.
+
+`json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
+one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Its
+`about` says how to replay each section.
 
 ## Keys and files
 
