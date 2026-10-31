@@ -58,6 +58,11 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   refuses the server's root, and in the entry-key form its keyring, when old form or expired, as `BAD_SIGNATURE`.
   `isAttestedSession` checks a recorded handshake offline at the record's time: an old-form root or keyring is
   accepted and sets no limit, and a new-form one, on either side, counts only up to its `notAfter`.
+- **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
+  (at the earliest of its limits), the `policyNotAfter` a response in it is checked with, and legacy.
+  `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
+  spent keys and its response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step
+  ([the MCP profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.
 - **The handshake's pieces are core's.** `parseSessionRequest` reads a request (a missing `clientKeyringSig` stays
   absent, a legacy request, as in the Java SDK), `sessionRequest` and `replacementRequest` write one, and
   `buildSessionReply` answers it in the entry-key form. `checkSessionReply` is the client's check of a raw reply,
