@@ -18,8 +18,8 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 | What | Rule |
 |---|---|
 | Text | Every string that is hashed or signed is encoded as UTF-8. A string that holds a lone surrogate has no UTF-8 form, so it MUST be rejected wherever this spec says so, and MUST NOT be signed. |
-| Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST reject any character outside `A–Z a–z 0–9 - _`, and a length that is 1 more than a multiple of 4. They MAY accept up to two trailing `=`, as both SDKs do. |
-| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. A stamp's `sig` MUST decode and re-encode to the identical text, or the chain does not parse (see [Stamp field rules](#stamp-field-rules)). |
+| Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST accept only the canonical encoding of RFC 4648 §3.5, and so MUST reject `=`, any character outside `A–Z a–z 0–9 - _` (whitespace included), a length that is 1 more than a multiple of 4, and non-zero unused bits in the last character. |
+| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as an influence entry's `h` and `cid` or a stamp's `bind` and `infl`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
 | Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
@@ -232,7 +232,7 @@ that does, with the code in brackets.
   integers 1 and 1000.
 - Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `infl`, `prev`, `sig`) is a JSON
   string (`CHAIN_MISSING`) with no lone surrogate (`CHAIN_MISSING`).
-- `sig` decodes as base64url and re-encodes to the identical text (`CHAIN_MISSING`).
+- `sig` is canonical base64url, as [Encodings](#encodings) requires of every decoded value (`CHAIN_MISSING`).
 - No signed field holds `|` (`BAD_SIGNATURE`). The fields are joined with `|`, so a field holding it would let
   two different stamps share signed bytes.
 - A stamp without `rcv` does not parse (`CHAIN_MISSING`).
