@@ -104,10 +104,34 @@ class OpeningCheckControllerTest {
         }
     }
 
+    /** Only a valid opening is looked up by {@code rid}; an invalid one is answered whatever the rid. */
+    @Test
+    void anInvalidOpeningForAnUnknownRidDoesNotOpen() throws Exception {
+        check("rid-2", "{}").andExpect(status().isOk())
+                .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+        check("rid-2", with(aliceOpening(ORIGINALS), "extra", "member")).andExpect(status().isOk())
+                .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+    }
+
     @Test
     void anArrayIsABadRequest() throws Exception {
         check(RID, "[]").andExpect(status().isBadRequest())
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+    }
+
+    /** With no body at all the framework refuses the request before the check reads it, so there is no reason. */
+    @Test
+    void anEmptyBodyIsABadRequest() throws Exception {
+        check(RID, "").andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void aScalarBodyIsABadRequest() throws Exception {
+        for (String body : List.of("42", "\"text\"", "true", "null")) {
+            check(RID, body).andExpect(status().isBadRequest())
+                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+        }
     }
 
     @Test
