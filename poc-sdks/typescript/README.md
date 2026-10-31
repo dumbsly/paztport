@@ -58,6 +58,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   refuses the server's root, and in the entry-key form its keyring, when old form or expired, as `BAD_SIGNATURE`.
   `isAttestedSession` checks a recorded handshake offline at the record's time: an old-form root or keyring is
   accepted and sets no limit, and a new-form one, on either side, counts only up to its `notAfter`.
+- **The handshake's pieces are core's.** `parseSessionRequest` reads a request (a missing `clientKeyringSig` stays
+  absent, a legacy request, as in the Java SDK), `sessionRequest` and `replacementRequest` write one, and
+  `buildSessionReply` answers it in the entry-key form. `checkSessionReply` is the client's check of a raw reply,
+  returning a `ReplyCheck` (`ATTESTED`, `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service
+  that loads its own keyring and root checks them with `checkOwnMaterial` and warns near their end with
+  `expiryWarnings` (`WARN_WITHIN_MS`, `describeNotAfter`).
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
@@ -72,7 +78,7 @@ speak v3 over HTTP, which only the Java SDK does, and does not replay
 
 MCP transport on top of core: the `tools/call` binding, the `_meta` keys
 (`paztport/chain`, `paztport/proof`, `paztport/influence` and the rest), the client
-side (the session request and its reply, stamping a tool call, reading a tool
+side (the replace decision on a session reply, stamping a tool call, reading a tool
 result's attestation) and the server side (`McpServerSession`, checking a call,
 and the decision on a public write). A call names `mcp:<serverId>.<tool>` as its
 receiver, and a response chain ends at the client that made the call. A server
@@ -80,7 +86,8 @@ opens an attested session only for a client policy key in its `pinnedClientKeys`
 `McpServerSession` holds no policy private key: it answers handshakes in the
 [entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
-Its constructor refuses to start, through the exported `checkServerPolicy`, with a
+Its constructor refuses to start, through the exported `checkServerPolicy` (core's `checkOwnMaterial` for
+the keyring and root, then this server's own checks), with a
 policy that does not hold together at the session's clock, lifetime included: a
 keyring or root in the old form, expired, or not signed by its policy key; a
 `signingKeys[hops[0]]` that is not the entry's keyring key, or a `signingKeys[hops[1]]` that is not
