@@ -1010,9 +1010,9 @@ class PaztportAutoConfigurationTest {
                     List<String> receivers = new ArrayList<>();
                     MockRestServiceServer.bindTo(builder).build()
                             .expect(ExpectedCount.times(3), anything()).andRespond(request -> {
-                                receivers.add(((StampV3) Chains.parse(HttpV3.decodeChain(
-                                        request.getHeaders().getFirst(PaztportHeaders.CHAIN)), false)
-                                        .stamps().get(0)).rcv());
+                                receivers.add(Chains.parse(HttpV3.decodeChain(
+                                        request.getHeaders().getFirst(PaztportHeaders.CHAIN)))
+                                        .stamps().get(0).rcv());
                                 return withSuccess().createResponse(request);
                             });
                     RestClient client = builder.build();

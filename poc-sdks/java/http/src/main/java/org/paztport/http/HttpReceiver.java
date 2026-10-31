@@ -217,7 +217,7 @@ public final class HttpReceiver {
 
         // An origin starts a new request tree, so whatever chain came with the request is not carried.
         String chain = HttpV3.decodeChain(chainHeader);
-        ParsedChain parsed = Chains.parse(chain, false);
+        ParsedChain parsed = Chains.parse(chain);
         List<StampV3> received = stamps(parsed);
         List<StampV3> inbound = origin ? null : received;
         String rid = received != null ? received.get(0).rid() : "";
@@ -278,7 +278,7 @@ public final class HttpReceiver {
 
     /** The received chain as v3 stamps, or null when there is none or it does not parse. */
     static List<StampV3> stamps(ParsedChain parsed) {
-        return parsed.ok() ? parsed.stamps().stream().map(StampV3.class::cast).toList() : null;
+        return parsed.ok() ? parsed.stamps() : null;
     }
 
     /** The entries, or null when the header could not be read as influence. */

@@ -8,7 +8,7 @@ import java.util.Objects;
 import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.RecordedStamp;
+import org.paztport.core.stamp.StampV3;
 
 /**
  * Verifies a v3 chain received live: the checks of the live order, the first failure being the result. Every
@@ -94,9 +94,9 @@ public final class VerifierV3 {
         if (!parsed.ok()) {
             return VerifyResult.reject(parsed.failure());
         }
-        List<RecordedStamp> stamps = parsed.stamps();
-        RecordedStamp first = stamps.get(0);
-        RecordedStamp last = stamps.get(stamps.size() - 1);
+        List<StampV3> stamps = parsed.stamps();
+        StampV3 first = stamps.get(0);
+        StampV3 last = stamps.get(stamps.size() - 1);
 
         // 7. Freshness: the call stamp is recent; the run (origin) is not too old nor from the future.
         if (!fresh(now, first.ts(), last.ts())) {

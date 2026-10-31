@@ -7,17 +7,17 @@ import java.util.List;
 import org.paztport.core.verify.ReasonCode;
 
 /**
- * The outcome of reading a chain off the wire: the stamps and whether they are legacy v2, or the one reason the
- * input was refused. A verifier returns this instead of throwing, so malformed input is a typed rejection.
+ * The outcome of reading a chain off the wire: the stamps, or the one reason the input was refused. A verifier
+ * returns this instead of throwing, so malformed input is a typed rejection.
  */
-public record ParsedChain(List<RecordedStamp> stamps, boolean legacy, ReasonCode failure) {
+public record ParsedChain(List<StampV3> stamps, ReasonCode failure) {
 
     public ParsedChain {
         stamps = List.copyOf(stamps);
     }
 
     static ParsedChain fail(ReasonCode code) {
-        return new ParsedChain(List.of(), false, code);
+        return new ParsedChain(List.of(), code);
     }
 
     public boolean ok() {

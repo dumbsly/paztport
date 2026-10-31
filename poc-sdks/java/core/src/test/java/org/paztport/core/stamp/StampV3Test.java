@@ -51,7 +51,7 @@ class StampV3Test {
     @Test
     void roundTrip() {
         StampV3 s = StampV3.sign("pi", "i", "r", 1767225600000L, "sess", "x", "b", "n", "p", KEY.getPrivate());
-        ParsedChain p = Chains.parse(JsonNodeFactory.instance.arrayNode().add(s.tree()).toString(), false);
+        ParsedChain p = Chains.parse(JsonNodeFactory.instance.arrayNode().add(s.tree()).toString());
         assertTrue(p.ok());
         assertEquals(s, p.stamps().get(0));
     }

@@ -19,7 +19,7 @@ import org.paztport.core.internal.JsonIntegers;
  * surrogate, which has no UTF-8 bytes) would let two stamps share signed bytes; {@link #sign} refuses both.
  */
 public record StampV3(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
-        String infl, String prev, String sig) implements RecordedStamp {
+        String infl, String prev, String sig) {
 
     /** Signs a stamp; throws {@link IllegalArgumentException} if a signed field holds the delimiter or a lone surrogate, or ts is outside the safe-integer range. */
     public static StampV3 sign(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
@@ -32,14 +32,9 @@ public record StampV3(String svc, String inst, String rid, long ts, String sess,
                 Base64Url.encode(Crypto.sign(key, bytes)));
     }
 
-    @Override
+    /** The bytes the stamp's signature covers. */
     public byte[] signingBytes() {
         return join("3", svc, inst, rid, Long.toString(ts), sess, rcv, bind, infl, prev);
-    }
-
-    @Override
-    public String rcvOrNull() {
-        return rcv;
     }
 
     /** The wire form: {@code "v": 3} then the fields in the order the wire format shows. */
@@ -63,7 +58,7 @@ public record StampV3(String svc, String inst, String rid, long ts, String sess,
         return o;
     }
 
-    /** Joins signed values with the delimiter; shared with v2. Null, a delimiter or a lone surrogate throws. */
+    /** Joins signed values with the delimiter; Null, a delimiter or a lone surrogate throws. */
     static byte[] join(String... values) {
         for (String s : values) {
             if (s == null || s.indexOf('|') >= 0 || !Text.isWellFormed(s)) {

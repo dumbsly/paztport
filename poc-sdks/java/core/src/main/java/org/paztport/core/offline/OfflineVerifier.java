@@ -10,14 +10,13 @@ import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.RecordedStamp;
+import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
 /**
  * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3 verifier's
- * checks in the live order. A chain recorded before stamps bound their receiver, all v2, is taken as legacy and
- * has no receiver checks; a chain mixing versions is CHAIN_MISSING. The first failure is the result:
+ * checks in the live order. The first failure is the result:
  *
  * <ul>
  * <li>1 to 6: as the live verifier (CHAIN_MISSING, BAD_SIGNATURE, BAD_ORIGIN, BROKEN_LINK, BINDING_MISMATCH,
@@ -52,47 +51,46 @@ public final class OfflineVerifier {
             return rejected(ReasonCode.CHAIN_MISSING);
         }
         // 1-6.
-        ChainChecks.Shape shape = new ChainChecks.Shape(true, in.receiver(), in.rid(), cfg.signers());
+        ChainChecks.Shape shape = new ChainChecks.Shape(in.receiver(), in.rid(), cfg.signers());
         ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), cfg.keyring(), cfg.allowedOrigins(), cfg.sess(),
                 shape);
         if (!parsed.ok()) {
             return rejected(parsed.failure());
         }
-        boolean legacy = parsed.legacy();
-        List<RecordedStamp> stamps = parsed.stamps();
-        RecordedStamp first = stamps.get(0);
-        RecordedStamp last = stamps.get(stamps.size() - 1);
+        List<StampV3> stamps = parsed.stamps();
+        StampV3 first = stamps.get(0);
+        StampV3 last = stamps.get(stamps.size() - 1);
 
         // 7. Recorded times, the age limits, then the prompt.
         RecordedTimes t = in.recordedTs();
         if (t != null && (last.ts() != t.last() || (t.run() != null && !t.run().contains(first.ts())))) {
-            return result(ReasonCode.TIME_MISMATCH, legacy);
+            return result(ReasonCode.TIME_MISMATCH);
         }
         if ((cfg.runMaxAgeMs() != null || cfg.callMaxAgeMs() != null) && !withinAge(first.ts(), last.ts(), cfg)) {
-            return result(ReasonCode.EXPIRED, legacy);
+            return result(ReasonCode.EXPIRED);
         }
         if (in.prompt() == null || !Text.isWellFormed(in.prompt()) || !first.bind().equals(Bindings.prompt(in.prompt()))) {
-            return result(ReasonCode.PROMPT_MISMATCH, legacy);
+            return result(ReasonCode.PROMPT_MISMATCH);
         }
 
         // 8-9. Binding and influence commitment.
         ReasonCode commitment = ChainChecks.checkCommitments(last, in.expectedBind(),
                 in.influence() == null ? NO_INFLUENCE : in.influence());
         if (commitment != null) {
-            return result(commitment, legacy);
+            return result(commitment);
         }
 
         // 10. Replay across the whole record set. A chain with no nonce key cannot be shown unspent.
         Set<String> seen = cfg.seen();
         if (in.nonceKey() == null || seen.contains(in.nonceKey())) {
-            return result(ReasonCode.REPLAY, legacy);
+            return result(ReasonCode.REPLAY);
         }
         seen.add(in.nonceKey());
 
         // 11. Route proven against the root.
         VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute() ? in.receiver() : null,
                 in.proof(), cfg.root(), cfg.rootId());
-        return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst(), legacy);
+        return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst(), false);
     }
 
     /** Check 7's age limits in exact longs, so an extreme time is EXPIRED rather than a wrapped difference. */
@@ -108,11 +106,11 @@ public final class OfflineVerifier {
         }
     }
 
-    private static OfflineResult result(ReasonCode reason, boolean legacy) {
-        return new OfflineResult(reason, "", "", legacy);
+    private static OfflineResult result(ReasonCode reason) {
+        return new OfflineResult(reason, "", "", false);
     }
 
     private static OfflineResult rejected(ReasonCode reason) {
-        return result(reason, false);
+        return result(reason);
     }
 }

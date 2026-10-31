@@ -139,7 +139,7 @@ public final class HttpV3 {
     public static VerifyInputV3 request(String chainHeader, String proofHeader, String influenceHeader, String method,
             String target, byte[] body, String receiver, Peer peer) {
         String chain = decodeChain(chainHeader);
-        return VerifyInputs.request(chain, Chains.parse(chain, false), proofHeader, influenceHeader, method, target,
+        return VerifyInputs.request(chain, Chains.parse(chain), proofHeader, influenceHeader, method, target,
                 body, receiver, peer);
     }
 

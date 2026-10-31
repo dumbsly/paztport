@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
@@ -24,19 +23,16 @@ import org.paztport.core.verify.ReasonCode;
 public final class Chains {
 
     private static final List<String> V3_STRINGS = List.of("svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev");
-    private static final List<String> V2_STRINGS = List.of("svc", "inst", "rid", "sess", "bind", "infl", "prev");
-    private static final Set<Integer> VERSIONS = Set.of(2, 3);
 
     private Chains() {
     }
 
     /**
-     * Check 1: the field rules (all stamps one version, exact types, no lone surrogate, canonical {@code sig}),
-     * all {@code CHAIN_MISSING}. Check 2: no signed field holds {@code |}, {@code BAD_SIGNATURE}. A v2 chain is
-     * accepted, as legacy, only when {@code acceptLegacy} is set. Null, or text that is not one JSON value, is
-     * {@code CHAIN_MISSING} too.
+     * Check 1: the field rules (every stamp {@code v: 3}, exact types, no lone surrogate, canonical {@code sig}),
+     * all {@code CHAIN_MISSING}. Check 2: no signed field holds {@code |}, {@code BAD_SIGNATURE}. Null, or text
+     * that is not one JSON value, is {@code CHAIN_MISSING} too.
      */
-    public static ParsedChain parse(String json, boolean acceptLegacy) {
+    public static ParsedChain parse(String json) {
         JsonNode stamps;
         try {
             stamps = Json.tree(json);
@@ -46,26 +42,22 @@ public final class Chains {
         if (!stamps.isArray() || stamps.isEmpty()) {
             return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
         }
-        Integer version = version(stamps.get(0));
-        if (version == null || (version == 2 && !acceptLegacy)) {
-            return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
-        }
-        List<RecordedStamp> out = new ArrayList<>();
+        List<StampV3> out = new ArrayList<>();
         for (JsonNode item : stamps) {
-            RecordedStamp s = stamp(item, version);
+            StampV3 s = stamp(item);
             if (s == null) {
                 return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
             }
             out.add(s);
         }
-        for (RecordedStamp s : out) {
+        for (StampV3 s : out) {
             try {
                 s.signingBytes();
             } catch (IllegalArgumentException e) {
                 return ParsedChain.fail(ReasonCode.BAD_SIGNATURE);
             }
         }
-        return new ParsedChain(out, version == 2, null);
+        return new ParsedChain(out, null);
     }
 
     /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link StampV3#toJson()}. */
@@ -75,25 +67,17 @@ public final class Chains {
         return Json.text(a);
     }
 
-    private static Integer version(JsonNode item) {
+    /** One stamp, or null if any field breaks the rules. */
+    private static StampV3 stamp(JsonNode item) {
         if (item == null || !item.isObject()) {
             return null;
         }
         Long v = JsonIntegers.safeInteger(item.get("v"));
-        return v != null && VERSIONS.contains(v.intValue()) && v == v.intValue() ? v.intValue() : null;
-    }
-
-    /** One stamp of the given version, or null if any field breaks the rules. */
-    private static RecordedStamp stamp(JsonNode item, int version) {
-        if (item == null || !item.isObject()) {
-            return null;
-        }
-        Integer v = version(item);
         Long ts = JsonIntegers.safeInteger(item.get("ts"));
-        if (v == null || v != version || ts == null) {
+        if (v == null || v != 3 || ts == null) {
             return null;
         }
-        for (String f : version == 3 ? V3_STRINGS : V2_STRINGS) {
+        for (String f : V3_STRINGS) {
             if (str(item, f) == null) {
                 return null;
             }
@@ -102,12 +86,8 @@ public final class Chains {
         if (sig == null || !canonical(sig)) {
             return null;
         }
-        if (version == 3) {
-            return new StampV3(str(item, "svc"), str(item, "inst"), str(item, "rid"), ts, str(item, "sess"),
-                    str(item, "rcv"), str(item, "bind"), str(item, "infl"), str(item, "prev"), sig);
-        }
-        return new StampV2(str(item, "svc"), str(item, "inst"), str(item, "rid"), ts, str(item, "sess"),
-                str(item, "bind"), str(item, "infl"), str(item, "prev"), sig);
+        return new StampV3(str(item, "svc"), str(item, "inst"), str(item, "rid"), ts, str(item, "sess"),
+                str(item, "rcv"), str(item, "bind"), str(item, "infl"), str(item, "prev"), sig);
     }
 
     /** The field as a well-formed string, or null if absent, not a string, or holding a lone surrogate. */

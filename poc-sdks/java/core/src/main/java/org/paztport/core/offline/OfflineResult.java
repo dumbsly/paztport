@@ -7,9 +7,7 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
 /**
- * An offline verdict, with the suspect as in {@link VerifyResult}, and whether the chain was legacy: true once an
- * all-v2 chain passes checks 1 to 6, whatever a later check gives; false for a v3 chain and for any chain
- * rejected at checks 1 to 6.
+ * An offline verdict, with the suspect as in {@link VerifyResult}; {@code legacy} is false.
  */
 public record OfflineResult(ReasonCode reason, String suspectSvc, String suspectInst, boolean legacy) {
 

@@ -33,7 +33,6 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.RecordedStamp;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.stamp.StamperV3;
 import org.paztport.core.verify.InMemoryNonceCache;
@@ -123,7 +122,7 @@ class HttpCallerTest {
     }
 
     private static List<StampV3> chainOf(Map<String, String> headers) {
-        List<RecordedStamp> stamps = Chains.parse(HttpV3.decodeChain(headers.get(PaztportHeaders.CHAIN)), false)
+        List<StampV3> stamps = Chains.parse(HttpV3.decodeChain(headers.get(PaztportHeaders.CHAIN)))
                 .stamps();
         return stamps.stream().map(StampV3.class::cast).toList();
     }

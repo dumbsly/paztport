@@ -7,10 +7,9 @@ its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and is the
 SDK that carries v3 over HTTP. It replays all of `spec/vectors/v3.json` but the
-recorded local steps, the Java-exported `http-v3.json`, and all of
-`v2.json` but the result and `tools/call` bindings: those belong to the
-[MCP profile](../spec/README.md#the-mcp-profile), which an HTTP-only SDK need not
-implement.
+recorded local steps and the result and `tools/call` bindings, which belong to the
+[MCP profile](../spec/README.md#the-mcp-profile) that an HTTP-only SDK need not
+implement, and the Java-exported `http-v3.json`.
 
 ```bash
 mvn -q install   # build, test, and install into the local Maven repository
@@ -29,13 +28,13 @@ has one, the authenticated peer.
 - **Stamps and chains.** `StampV3` signs and refuses a field holding `|` or a lone
   surrogate, or a `ts` outside ±(2^53 − 1). `Chains` reads a chain off the wire
   strictly, as checks 1 and 2 of the live order, and never throws; `ts` is read by
-  value, so `1.0` is 1. A v2 chain parses only as legacy.
+  value, so `1.0` is 1. A stamp whose `v` is not 3 is `CHAIN_MISSING`.
 - **Verifying.** `VerifierV3` runs the live order: first its own policy's window
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
   either fails, is in the old form or has expired. `OfflineVerifier` re-checks a
-  recorded chain, all v3, or all v2 as legacy.
+  recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
   reply text, the pin and the configured entry: attested at a time, at all (at the
   earliest of its limits), the response limit and legacy. `RecordSet` holds a record

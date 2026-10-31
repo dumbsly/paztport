@@ -193,8 +193,8 @@ class HttpReceiverTest {
     }
 
     private static StampV3 responseStamp(String header) throws Exception {
-        return (StampV3) Chains.parse(new ObjectMapper().createArrayNode()
-                .add(decodeAttestation(header).get("stamp")).toString(), false).stamps().get(0);
+        return Chains.parse(new ObjectMapper().createArrayNode()
+                .add(decodeAttestation(header).get("stamp")).toString()).stamps().get(0);
     }
 
     private List<String> traceLines() {

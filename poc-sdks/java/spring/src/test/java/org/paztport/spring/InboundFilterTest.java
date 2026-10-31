@@ -450,8 +450,8 @@ class InboundFilterTest {
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
-        StampV3 stamp = (StampV3) Chains.parse(
-                new ObjectMapper().createArrayNode().add(attestation.get("stamp")).toString(), false).stamps().get(0);
+        StampV3 stamp = Chains.parse(
+                new ObjectMapper().createArrayNode().add(attestation.get("stamp")).toString()).stamps().get(0);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());

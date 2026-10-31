@@ -77,7 +77,7 @@ public final class PartnerReceiver {
         Peer sender = peer == null ? null : peer.peer();
         // Read once: for the trace line, and then for the call, but nothing is taken from it until it has verified.
         String chain = HttpV3.decodeChain(chainHeader);
-        ParsedChain parsed = Chains.parse(chain, false);
+        ParsedChain parsed = Chains.parse(chain);
         List<StampV3> received = HttpReceiver.stamps(parsed);
         String rid = received != null ? received.get(0).rid() : "";
 

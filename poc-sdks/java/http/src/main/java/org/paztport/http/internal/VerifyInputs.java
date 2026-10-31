@@ -5,7 +5,7 @@ package org.paztport.http.internal;
 
 import java.util.List;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.RecordedStamp;
+import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.VerifyInputV3;
 import org.paztport.http.wire.HttpV3;
@@ -24,7 +24,7 @@ public final class VerifyInputs {
     /**
      * {@link HttpV3#request(String, String, String, String, String, byte[], String, Peer)} for a receiver that has
      * already decoded the chain header to {@code chain} ({@link HttpV3#decodeChain}) and read that to {@code parsed}
-     * ({@code Chains.parse(chain, false)}), so that it reads one request's chain once rather than again here for the
+     * ({@code Chains.parse(chain)}), so that it reads one request's chain once rather than again here for the
      * nonce key. The verifier still reads {@code chain} itself, as it must: it trusts no reading but its own.
      *
      * <p>Not for callers outside the SDK: the nonce key is taken from {@code parsed} without checking that it is the
@@ -41,7 +41,7 @@ public final class VerifyInputs {
         if (!parsed.ok()) {
             return "";
         }
-        List<RecordedStamp> stamps = parsed.stamps();
+        List<StampV3> stamps = parsed.stamps();
         return stamps.get(0).rid() + "|" + stamps.get(stamps.size() - 1).svc() + "|req";
     }
 }

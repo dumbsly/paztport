@@ -8,9 +8,13 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.offline.OfflineConfig;
@@ -48,13 +52,27 @@ class OfflineVerifierTest {
                 i.receiverInRoute(), nonce, i.rid(), t, prompt);
     }
 
-    @Test
-    void mixedNeverLegacy() {
-        JsonNode c = VectorsV3Test.offlineCase("mixed versions");
-        OfflineResult r = run(VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c)),
+    /** The good call's chain with {@code v} set to {@code version} on the stamps at {@code positions}. */
+    private static OfflineResult withVersions(int version, int... positions) throws Exception {
+        JsonNode c = good();
+        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
+        JsonNode chain = new ObjectMapper().readTree(in.stamps());
+        for (int i : positions) {
+            ((ObjectNode) chain.get(i)).put("v", version);
+        }
+        return run(with(in, chain.toString(), in.recordedTs(), in.prompt(), in.nonceKey()),
                 VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c)));
-        assertEquals(ReasonCode.CHAIN_MISSING, r.reason());
-        assertFalse(r.legacy());
+    }
+
+    @Test
+    void aStampThatIsNotV3IsChainMissing() throws Exception {
+        int last = VectorsV3Test.offlineCase("v3 recorded call").get("chain").size() - 1;
+        for (int version : new int[] {1, 2, 4}) {
+            for (int[] positions : new int[][] {{0}, {last}, IntStream.rangeClosed(0, last).toArray()}) {
+                assertEquals(ReasonCode.CHAIN_MISSING, withVersions(version, positions).reason(),
+                        "v " + version + " at " + Arrays.toString(positions));
+            }
+        }
     }
 
     @Test
@@ -65,16 +83,6 @@ class OfflineVerifierTest {
         assertEquals(ReasonCode.CHAIN_MISSING, run(with(in, "\"x\"", in.recordedTs(), in.prompt(),
                 in.nonceKey()), cfg).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, run(null, cfg).reason());
-    }
-
-    @Test
-    void aLegacyChainStaysLegacyWhateverALaterCheckGives() {
-        JsonNode c = VectorsV3Test.offlineCase("legacy v2 recorded call");
-        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        OfflineResult r = run(with(in, in.stamps(), in.recordedTs(), "another prompt", in.nonceKey()),
-                VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c)));
-        assertEquals(ReasonCode.PROMPT_MISMATCH, r.reason());
-        assertTrue(r.legacy());
     }
 
     @Test
