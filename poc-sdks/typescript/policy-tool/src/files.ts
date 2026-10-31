@@ -6,8 +6,6 @@ import { dirname } from "node:path";
 import type { SignedKeyring } from "@paztport/core";
 
 const DAY_MS = 86_400_000;
-/** Date's own limit: `toISOString` throws beyond it. */
-const DATE_MAX_MS = 8.64e15;
 
 /** `sig` is the policy key's signature over the keyring (see signKeyring), and `notAfter` its window, present exactly in the new form. */
 export type Keyring = { services: Record<string, string>; policy: string; sig?: string; notAfter?: number };
@@ -40,11 +38,6 @@ export function notAfterInDays(days: string | undefined, fallback: number): numb
   const d = days === undefined ? fallback : Number(days);
   const notAfter = Date.now() + d * DAY_MS;
   return days !== "" && Number.isSafeInteger(d) && d >= 1 && Number.isSafeInteger(notAfter) ? notAfter : undefined;
-}
-
-/** `notAfter` as printed: the integer, with its ISO time when Date can show it; never throws. */
-export function describeNotAfter(notAfter: number): string {
-  return Math.abs(notAfter) <= DATE_MAX_MS ? `notAfter ${notAfter} (${new Date(notAfter).toISOString()})` : `notAfter ${notAfter}`;
 }
 
 export function writeJson(path: string, value: unknown): void {

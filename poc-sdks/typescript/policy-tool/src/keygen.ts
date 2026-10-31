@@ -3,8 +3,8 @@
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { generateKeyPair, signKeyring } from "@paztport/core";
-import { describeNotAfter, notAfterInDays, writeKeyring, writePrivate } from "./files.ts";
+import { describeNotAfter, generateKeyPair, signKeyring } from "@paztport/core";
+import { notAfterInDays, writeKeyring, writePrivate } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c [--policy-days 7]";
 
@@ -46,7 +46,7 @@ function main(): void {
   writePrivate(join(out, "policy.key"), policy.privateKey);
   // the policy key has just made every listed key, so each is that service's current key
   writeKeyring(join(out, "keyring.json"), signKeyring(keys, policy.publicKey, policy.privateKey, notAfter));
-  console.log(`keygen: wrote ${names.length} service keys, policy key and keyring (${describeNotAfter(notAfter)}) to ${out}`);
+  console.log(`keygen: wrote ${names.length} service keys, policy key and keyring (notAfter ${describeNotAfter(notAfter)}) to ${out}`);
 }
 
 main();

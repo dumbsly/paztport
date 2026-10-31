@@ -5,12 +5,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  buildPolicy, DEFAULT_DEPTH, issueReplyCert, keyPairMatches, parseLocalRules, parseSignedRoot, renewKeyring, renewRoot, rulesHash, rulesRouteNodes,
+  buildPolicy, DEFAULT_DEPTH, describeNotAfter, issueReplyCert, keyPairMatches, parseLocalRules, parseSignedRoot, renewKeyring, renewRoot, rulesHash, rulesRouteNodes,
   verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { parse } from "yaml";
-import { describeNotAfter, notAfterInDays, readJson, readKey, readKeyring, writeJson, writeKeyring } from "./files.ts";
+import { notAfterInDays, readJson, readKey, readKeyring, writeJson, writeKeyring } from "./files.ts";
 
 /** The client chain a `local:` block is pinned under: the agents demo's client mesh, its run origin then pi. */
 const DEFAULT_CLIENT_CHAIN: readonly string[] = ["session", "pi"];
@@ -187,9 +187,9 @@ function main(): void {
     writeJson(join(out, `proofs-${bundle.service}.json`), bundle);
   }
   if (cert !== undefined) writeJson(join(out, "reply-cert.json"), cert);
-  const files = `${join(out, "root.json")} and ${keyringPath}, ${describeNotAfter(policyNotAfter)}`;
+  const files = `${join(out, "root.json")} and ${keyringPath}, notAfter ${describeNotAfter(policyNotAfter)}`;
   console.log(renew ? `policy: renewed ${files}; proof bundles in ${out} unchanged` : `policy: wrote ${files}, and per-service bundles to ${out}`);
-  if (cert !== undefined) console.log(`policy: wrote ${join(out, "reply-cert.json")} for ${cert.svc}, ${describeNotAfter(cert.notAfter)}`);
+  if (cert !== undefined) console.log(`policy: wrote ${join(out, "reply-cert.json")} for ${cert.svc}, notAfter ${describeNotAfter(cert.notAfter)}`);
 }
 
 main();
