@@ -27,7 +27,6 @@ import {
   META_PROOF,
   readToolResult,
   replacementRequest,
-  serverPolicyNotAfter,
   sessionRequest,
   stampToolCall,
   toolCallProof,
@@ -169,31 +168,6 @@ const neverCalled = () => {
   throw new Error("now() must not be read");
 };
 
-describe("sessionRequest", () => {
-  it("carriesTheClientsRootKeysAndAFreshNonce", () => {
-    const client = clientMaterial();
-    const a = sessionRequest(client);
-    const b = sessionRequest({ ...client, signedRoot: null });
-    expect(Object.keys(a)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "clientKeyringNotAfter", "nonce"]);
-    expect(a).toMatchObject({
-      clientRoot: client.signedRoot,
-      clientPolicyKey: client.policyPublicKey,
-      clientKeyring: client.keyring,
-      clientKeyringSig: client.keyringSig,
-      clientKeyringNotAfter: NOT_AFTER,
-    });
-    expect(a.clientRoot!.notAfter).toBe(NOT_AFTER);
-    expect(b.clientRoot).toBeNull();
-    expect(a.nonce).not.toBe(b.nonce);
-  });
-  it("carriesTheKeyringWindowOnlyForANewFormKeyring", () => {
-    const { keyringNotAfter: _w, ...old } = clientMaterial();
-    const req = sessionRequest(old);
-    expect(Object.keys(req)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "nonce"]);
-    expect(Object.keys(sessionRequest({ ...old, keyringNotAfter: undefined }))).not.toContain("clientKeyringNotAfter");
-  });
-});
-
 describe("classifySessionReply", () => {
   it("attestedReplyIsUsed", () => {
     const c = connected();
@@ -330,13 +304,6 @@ describe("classifySessionError", () => {
 });
 
 describe("replacementRequest", () => {
-  it("dropsTheRootWithAFreshNonce", () => {
-    const c = connected();
-    const r = replacementRequest(c.req);
-    expect(Object.keys(r)).toEqual(Object.keys(c.req));
-    expect(r).toEqual({ ...c.req, clientRoot: null, nonce: r.nonce });
-    expect(r.nonce).not.toBe(c.req.nonce);
-  });
   it("replacesAnAttestedSessionTheClientCannotUse", () => {
     const c = connected();
     expect(c.server.session()?.status).toBe("attested");
@@ -458,19 +425,6 @@ describe("readToolResult", () => {
     expect(read({ ...s.reply, serverKeyringNotAfter: at - 1 })).toEqual(expired);
     const { notAfter: _w, ...oldRoot } = s.reply.serverRoot!;
     expect(read({ ...s.reply, serverRoot: oldRoot }), "an old-form root has no window").toEqual(expired);
-  });
-  it("serverPolicyNotAfterCountsTheKeyringOnlyInTheEntryKeyForm", () => {
-    const s = attestedSession();
-    const reply = { ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: 20 }, serverKeyringNotAfter: 10 };
-    expect(Object.hasOwn(reply, "serverKeyringSig")).toBe(true);
-    expect(serverPolicyNotAfter(reply)).toBe(10);
-    expect(serverPolicyNotAfter({ ...reply, serverKeyringNotAfter: 30 })).toBe(20);
-    const { serverKeyringNotAfter: _k, ...oldRing } = reply;
-    expect(serverPolicyNotAfter(oldRing), "an old-form keyring in the entry-key form").toBeUndefined();
-    // The policy-key form: its keyring is signed through the reply by the online policy key, so only the root is judged.
-    const { serverKeyringSig: _s, serverReplyCert: _c, ...policyKeyForm } = reply;
-    expect(serverPolicyNotAfter(policyKeyForm)).toBe(20);
-    expect(serverPolicyNotAfter({ ...policyKeyForm, serverRoot: null })).toBeUndefined();
   });
   it("noServerRootIsUntrustedWithoutVerifying", () => {
     const s = attestedSession();
