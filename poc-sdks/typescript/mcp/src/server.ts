@@ -4,37 +4,34 @@
 import {
   bindResponse,
   bindResult,
+  buildSessionReply,
+  checkOwnMaterial,
   decode,
-  deriveSessionId,
+  describeNotAfter,
+  describeOwnMaterialProblem,
   earliestNotAfter,
-  isCurrent,
+  expiryWarnings,
   keyPairMatches,
   newContentId,
-  newNonce,
   NonceCache,
   NONCE_TTL_MS,
   ORIGIN_SVC,
-  parseSignedRoot,
+  parseSessionRequest,
   provesPath,
   publicWriteRefused,
-  readNotAfter,
-  sessionStatus,
-  signSessionReply,
   signStampV3,
-  verifyKeyring,
   verifyReplyCert,
-  verifyRoot,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
   type InfluenceFact,
+  type LegacySessionRequest,
   type MerkleProof,
   type ReasonCode,
   type ReplyCert,
   type ResponseAttestation,
   type SessionReply,
   type SessionRequest,
-  type SignedKeyring,
   type SignedRoot,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
@@ -71,7 +68,7 @@ export type ServerPolicy = {
 export type Session = {
   sess: string;
   status: "attested" | "unsafe";
-  request: SessionRequest;
+  request: SessionRequest | LegacySessionRequest;
   nonces: NonceCache;
   /** Every class this server has attested in a response in this session (sticky). */
   served: Set<InfluenceClass>;
@@ -89,87 +86,25 @@ export type ServerCallCheck = { reason: ReasonCode; rid: string; callId: string;
 /** Thrown for a malformed request; an MCP server answers it with -32602 Invalid params. The message names the bad field. */
 export class InvalidParams extends Error {}
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function str(v: unknown, what: string): string {
-  if (typeof v !== "string") {
-    throw new Error(`${what} must be a string`);
-  }
-  return v;
-}
-
-/** Copies a string map into an object whose keys (even "__proto__") are ordinary own properties. */
-function stringMap(v: Record<string, unknown>, what: string): Record<string, string> {
-  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
-}
-
-/**
- * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A present
- * `clientKeyringNotAfter` or root `notAfter` that is not an integer in [0, 2^53 − 1] (null included) is malformed,
- * never absent: read as absent, a damaged window would pass for the old form.
- */
-function parseSessionRequest(params: unknown): SessionRequest {
-  if (!isObject(params)) {
-    throw new Error("session request must be an object");
-  }
-  let clientRoot: SignedRoot | null = null;
-  if (params.clientRoot !== null) {
-    if (!isObject(params.clientRoot)) {
-      throw new Error("clientRoot must be an object or null");
-    }
-    clientRoot = parseSignedRoot(params.clientRoot, "clientRoot");
-  }
-  if (!isObject(params.clientKeyring)) {
-    throw new Error("clientKeyring must be an object");
-  }
-  const clientKeyring = stringMap(params.clientKeyring, "clientKeyring");
-  const clientKeyringNotAfter = readNotAfter(params, "clientKeyringNotAfter");
-  return {
-    clientRoot,
-    clientPolicyKey: str(params.clientPolicyKey, "clientPolicyKey"),
-    clientKeyring,
-    // a missing signature is not malformed, only unsigned: the session is then unsafe
-    clientKeyringSig: typeof params.clientKeyringSig === "string" ? params.clientKeyringSig : "",
-    ...(clientKeyringNotAfter !== undefined ? { clientKeyringNotAfter } : {}),
-    nonce: str(params.nonce, "nonce"),
-  };
-}
-
-/** The server's own keyring as signed, over `keyringNotAfter` when the policy has one. */
-function ownKeyring(policy: ServerPolicy): SignedKeyring {
-  const ring: SignedKeyring = { policy: policy.policyPublicKey, services: policy.keyring, sig: policy.keyringSig };
-  return policy.keyringNotAfter !== undefined ? { ...ring, notAfter: policy.keyringNotAfter } : ring;
-}
-
-/** `notAfter` as the integer and, when it is in Date's range, its ISO time; never throws. */
-export function describeNotAfter(notAfter: number): string {
-  return Math.abs(notAfter) <= 8.64e15 ? `${notAfter} (${new Date(notAfter).toISOString()})` : `${notAfter}`;
-}
-
-/** A quarter of the default seven-day lifetime, 42 hours: a server warns at construction when its keyring, root or certificate has no more than this left. */
-export const WARN_WITHIN_MS = (7 * 86_400_000) / 4;
-
 /**
  * Throws an Error naming the fault unless `policy` can serve at `now`: the keyring is in the new form, signed by
  * `policyPublicKey` over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert`
  * verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is in the new form,
  * current and signed by `policyPublicKey`; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
- * it; and `routeProof` proves `hops[0]/hops[1]` against the root. McpServerSession calls it on construction.
+ * it; and `routeProof` proves `hops[0]/hops[1]` against the root. The keyring and root checks are core's
+ * checkOwnMaterial; the rest is this server's. McpServerSession calls it on construction.
  */
 export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   const entry = policy.hops[0];
   const tools = policy.hops[1];
-  if (policy.keyringNotAfter === undefined) {
-    throw new Error("server policy refused: the keyring is in the old form (no notAfter); re-sign it with the policy tool");
-  }
-  if (!verifyKeyring(ownKeyring(policy), policy.policyPublicKey)) {
-    throw new Error("server policy refused: the keyring is not signed by policyPublicKey");
-  }
-  if (!isCurrent({ notAfter: policy.keyringNotAfter }, now)) {
-    throw new Error(`server policy refused: the keyring expired at ${describeNotAfter(policy.keyringNotAfter)}`);
-  }
+  const own = checkOwnMaterial(policy, now);
+  const refuseOwn = (subject: "keyring" | "root"): void => {
+    const problem = own.find((p) => p.subject === subject);
+    if (problem !== undefined) {
+      throw new Error(`server policy refused: ${describeOwnMaterialProblem(problem)}`);
+    }
+  };
+  refuseOwn("keyring");
   if (!Object.hasOwn(policy.keyring, entry)) {
     throw new Error(`server policy refused: the keyring has no key for the entry ${entry}`);
   }
@@ -191,16 +126,8 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   if (now > cert.notAfter) {
     throw new Error(`server policy refused: replyCert expired at ${describeNotAfter(cert.notAfter)}`);
   }
+  refuseOwn("root");
   const root = policy.signedRoot;
-  if (!Object.hasOwn(root, "notAfter")) {
-    throw new Error("server policy refused: the root is in the old form (no notAfter); re-sign it with the policy tool");
-  }
-  if (!verifyRoot(root, policy.policyPublicKey)) {
-    throw new Error("server policy refused: the root is not signed by policyPublicKey");
-  }
-  if (!isCurrent(root, now)) {
-    throw new Error(`server policy refused: the root expired at ${describeNotAfter(root.notAfter!)}`);
-  }
   if (!Object.hasOwn(policy.keyring, tools)) {
     throw new Error(`server policy refused: the keyring has no key for the tools hop ${tools}`);
   }
@@ -217,18 +144,6 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   if (!provesPath(policy.routeProof, `${entry}/${tools}`, rootBytes, root.rootId)) {
     throw new Error(`server policy refused: the route proof for ${entry}/${tools} does not prove against the root`);
   }
-}
-
-/** One warning per item (keyring, root, reply certificate) with no more than WARN_WITHIN_MS left at `now`, naming it and its `notAfter`. */
-export function expiryWarnings(policy: ServerPolicy, now: number): string[] {
-  const items: [string, number | undefined][] = [
-    ["keyring", policy.keyringNotAfter],
-    ["root", policy.signedRoot.notAfter],
-    ["replyCert", policy.replyCert.notAfter],
-  ];
-  return items
-    .filter(([, n]) => n !== undefined && n - now <= WARN_WITHIN_MS)
-    .map(([what, n]) => `paztport: the server's ${what} expires soon (notAfter ${describeNotAfter(n!)}); re-sign it with the policy tool`);
 }
 
 /** The server side of one MCP connection: its paztport/session handshake, call checks and response stamps. */
@@ -260,41 +175,19 @@ export class McpServerSession {
    * sessions rather than stopping. It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
    */
   openSession(params: unknown): SessionReply {
-    let request: SessionRequest;
+    let request: SessionRequest | LegacySessionRequest;
     try {
       request = parseSessionRequest(params);
     } catch (e) {
       throw new InvalidParams((e as Error).message);
     }
-    const status = sessionStatus(
+    const reply = buildSessionReply(
+      { ...this.policy, entryPrivateKey: this.policy.signingKeys[this.policy.hops[0]]! },
       request,
-      this.policy.signedRoot,
-      this.policy.keyringNotAfter,
-      this.policy.policyPublicKey,
-      this.policy.pinnedClientKeys,
+      { pinnedClientKeys: this.policy.pinnedClientKeys, disabledWhenUnsafe: this.rules.disabledWhenUnsafe },
       this.now(),
     );
-    const serverNonce = newNonce();
-    const sess = deriveSessionId(request.clientRoot?.sig ?? null, this.policy.signedRoot.sig, request.nonce, serverNonce, {
-      clientPolicyKey: request.clientPolicyKey,
-      clientKeyring: request.clientKeyring,
-    });
-    const disabled = status === "unsafe" ? [...this.rules.disabledWhenUnsafe] : [];
-    const reply = signSessionReply(
-      {
-        serverRoot: this.policy.signedRoot,
-        serverPolicyKey: this.policy.policyPublicKey,
-        serverKeyring: this.policy.keyring,
-        serverKeyringSig: this.policy.keyringSig,
-        serverKeyringNotAfter: this.policy.keyringNotAfter,
-        serverReplyCert: this.policy.replyCert,
-        nonce: serverNonce,
-        sess,
-        status,
-        disabled,
-      },
-      this.policy.signingKeys[this.policy.hops[0]]!,
-    );
+    const { sess, status } = reply;
     this.current = { sess, status, request, nonces: new NonceCache(NONCE_TTL_MS), served: new Set() };
     return reply;
   }

@@ -15,12 +15,12 @@ import {
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
-  deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  checkSessionReply, deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
 } from "@paztport/core";
 import type {
   InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, SignedKeyring, SignedRoot, StampV3,
 } from "@paztport/core";
-import { bindMcpCall, classifySessionReply, mcpReceiver } from "../src/index.ts";
+import { bindMcpCall, mcpReceiver } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
 const V2_JSON = new URL("../../../spec/vectors/v2.json", import.meta.url);
@@ -533,8 +533,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     const pin = o.pin ?? "server-policy";
     const serverEntry = o.serverEntry ?? "mcp-entry";
     const now = o.now ?? NOW;
-    const outcome = classifySessionReply(raw, request, keys[pin].pub, serverEntry, now);
-    check(`session reply ${name}`, outcome.status === "attested" ? "ATTESTED" : outcome.reason, expected);
+    check(`session reply ${name}`, checkSessionReply(raw, request, keys[pin].pub, serverEntry, now), expected);
     return { name, request, reply: raw, pin, serverEntry, now, expected };
   };
   const attackerRing = { ...serverRing.services, "mcp-entry": keys.orders.pub };

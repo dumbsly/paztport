@@ -7,6 +7,7 @@ import {
   canonicalize,
   decode,
   earliestNotAfter,
+  expiryWarnings,
   generateKeyPair,
   issueReplyCert,
   signKeyring,
@@ -22,7 +23,6 @@ import {
 import {
   checkServerPolicy,
   decideServerCall,
-  expiryWarnings,
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,

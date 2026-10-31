@@ -7,12 +7,11 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, canonicalize, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, canonicalize, checkSessionReply, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
-import { classifySessionReply } from "../src/index.ts";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
 type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "replyCert" | "sessionReply" | "sessionStatus";
@@ -142,8 +141,7 @@ describe("v3 known-answer vectors", () => {
   });
   it.each(committed.sessionReply.map((c: any): [string, any] => [c.name, c]))("session reply %s", (_n, c: any) => {
     const pin = committed.keys[c.pin].pub;
-    const outcome = classifySessionReply(c.reply, c.request, pin, c.serverEntry, c.now);
-    expect(outcome.status === "attested" ? "ATTESTED" : outcome.reason).toBe(c.expected);
+    expect(checkSessionReply(c.reply, c.request, pin, c.serverEntry, c.now)).toBe(c.expected);
     // Offline, judged at the same time, the handshake is attested when the live check says so, and for the old forms.
     expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED" || OFFLINE_ACCEPTS.has(c.name));
   });
@@ -179,9 +177,7 @@ describe("v3 known-answer vectors", () => {
     expect(verifyKeyring(ring, keys["server-policy"].pub)).toBe(true);
     const { sig: _sig, ...body } = good.reply;
     const reply = signSessionReply({ ...body, serverKeyring: inherits, serverReplyCert: cert } as Omit<SessionReply, "sig">, keys["mcp-entry"].priv);
-    expect(classifySessionReply(reply, good.request, keys["server-policy"].pub, entry, good.now)).toEqual({
-      status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true,
-    });
+    expect(checkSessionReply(reply, good.request, keys["server-policy"].pub, entry, good.now)).toBe("BAD_SIGNATURE");
     expect(isAttestedSession(good.request, reply, keys["server-policy"].pub, entry, good.now)).toBe(false);
   });
 

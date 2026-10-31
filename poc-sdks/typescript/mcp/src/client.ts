@@ -3,16 +3,12 @@
 
 import {
   bindResult,
+  checkSessionReply,
   commitInfluence,
   decode,
-  earliestNotAfter,
-  isNotAfter,
-  isReplyCert,
-  newNonce,
-  parseSignedRoot,
   routeOf,
+  serverPolicyNotAfter,
   signStampV3,
-  verifySessionReply,
   type ContentLabel,
   type InfluenceEntry,
   type MerkleProof,
@@ -21,7 +17,6 @@ import {
   type ReasonCode,
   type SessionReply,
   type SessionRequest,
-  type SignedRoot,
   type StampV3,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
@@ -61,65 +56,6 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-function isStringMap(v: unknown): v is Record<string, string> {
-  return isObject(v) && Object.values(v).every((x) => typeof x === "string");
-}
-
-/** Whether `v` reads as a signed root, a root `notAfter` that is not an integer in [0, 2^53 − 1] included. */
-function isSignedRoot(v: unknown): boolean {
-  try {
-    parseSignedRoot(v, "serverRoot");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * The reply's shape; `serverKeyringSig`, `serverKeyringNotAfter` and `serverReplyCert` are optional, but each, when
- * present (even as null), must be well formed: a window, the keyring's or the root's, that is not an integer in
- * [0, 2^53 − 1] makes the reply malformed rather than old form.
- */
-function isSessionReply(v: unknown): v is SessionReply {
-  return (
-    isObject(v) &&
-    (v.serverRoot === null || isSignedRoot(v.serverRoot)) &&
-    typeof v.serverPolicyKey === "string" &&
-    isStringMap(v.serverKeyring) &&
-    (!Object.hasOwn(v, "serverKeyringSig") || typeof v.serverKeyringSig === "string") &&
-    (!Object.hasOwn(v, "serverKeyringNotAfter") || isNotAfter(v.serverKeyringNotAfter)) &&
-    (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
-    typeof v.nonce === "string" &&
-    typeof v.sess === "string" &&
-    (v.status === "attested" || v.status === "unsafe") &&
-    Array.isArray(v.disabled) &&
-    v.disabled.every((d) => typeof d === "string") &&
-    typeof v.sig === "string"
-  );
-}
-
-/**
- * A client's paztport/session request: its signed root (null for none), policy key, keyring, the policy key's
- * signature over that keyring, the keyring's window as `clientKeyringNotAfter` when it has one, and a fresh nonce.
- * `keyringNotAfter` must be the window `keyringSig` was made over, or the server finds the keyring unsigned.
- */
-export function sessionRequest(material: {
-  signedRoot: SignedRoot | null;
-  policyPublicKey: string;
-  keyring: Record<string, string>;
-  keyringSig: string;
-  keyringNotAfter?: number;
-}): SessionRequest {
-  return {
-    clientRoot: material.signedRoot,
-    clientPolicyKey: material.policyPublicKey,
-    clientKeyring: material.keyring,
-    clientKeyringSig: material.keyringSig,
-    ...(material.keyringNotAfter !== undefined ? { clientKeyringNotAfter: material.keyringNotAfter } : {}),
-    nonce: newNonce(),
-  };
-}
-
 /**
  * What a handshake left the client with. `replaceSession` is set when the server may now hold an
  * attested session that this client cannot use, so every unstamped call would be refused. That holds
@@ -137,16 +73,11 @@ const unusable = (reason: string): SessionOutcome => ({ status: "unsafe", reason
  * entry service from the client's own configuration, and the time `now` (ms).
  */
 export function classifySessionReply(raw: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
-  if (!isSessionReply(raw)) {
-    return unusable("MALFORMED_REPLY");
+  const check = checkSessionReply(raw, req, pin, serverEntry, now);
+  if (check === "ATTESTED") {
+    return { status: "attested", reply: raw as SessionReply };
   }
-  if (raw.serverPolicyKey !== pin) {
-    return unusable("PIN_MISMATCH");
-  }
-  if (!verifySessionReply(raw, req, pin, serverEntry, now)) {
-    return unusable("BAD_SIGNATURE");
-  }
-  return raw.status === "attested" ? { status: "attested", reply: raw } : { status: "unsafe", reason: "UNSAFE", replaceSession: false };
+  return check === "UNSAFE" ? { status: "unsafe", reason: "UNSAFE", replaceSession: false } : unusable(check);
 }
 
 /**
@@ -155,14 +86,6 @@ export function classifySessionReply(raw: unknown, req: SessionRequest, pin: str
  */
 export function classifySessionError(rpcCode: number | undefined): SessionOutcome {
   return rpcCode === METHOD_NOT_FOUND ? { status: "unsafe", reason: "METHOD_NOT_FOUND", replaceSession: false } : unusable("HANDSHAKE_ERROR");
-}
-
-/**
- * The request that replaces a session the client cannot use: no client root, so the server opens an
- * unsafe session where reads work and writes are refused UNSAFE_SESSION. Its reply is not trusted either way.
- */
-export function replacementRequest(req: SessionRequest): SessionRequest {
-  return { ...req, clientRoot: null, nonce: newNonce() };
 }
 
 /**
@@ -265,12 +188,6 @@ export type ToolResultReading =
   | { kind: "refused"; verdict: string; influence: { kind: "none" } }
   | { kind: "malformed"; verifiedAt?: number }
   | { kind: "read"; verdict?: string; verification?: string; verifiedAt?: number; influence: ResultInfluence };
-
-/** A response check's policyNotAfter: the server root's window, and the keyring's too in the entry-key form, the only one where the keyring has its own policy-key signature; undefined (fails closed) when either is old form. */
-export function serverPolicyNotAfter(reply: SessionReply): number | undefined {
-  const root = reply.serverRoot?.notAfter;
-  return Object.hasOwn(reply, "serverKeyringSig") ? earliestNotAfter(root, reply.serverKeyringNotAfter) : earliestNotAfter(root);
-}
 
 /** Reads a tools/call result: its verdict, its verification and what it adds to influence. Never throws. */
 export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext): ToolResultReading {

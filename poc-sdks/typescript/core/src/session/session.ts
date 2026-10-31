@@ -105,8 +105,10 @@ function presentedKeyring(msg: object, windowField: string, policy: string, serv
 }
 
 /** Whether the client's keyring signature verifies under its policy key, over `clientKeyringNotAfter` when the request has one. */
-function keyringVerifies(req: SessionRequest): boolean {
-  return verifyKeyring(presentedKeyring(req, "clientKeyringNotAfter", req.clientPolicyKey, req.clientKeyring, req.clientKeyringSig), req.clientPolicyKey);
+function keyringVerifies(req: SessionRequest | LegacySessionRequest): boolean {
+  if (!Object.hasOwn(req, "clientKeyringSig")) return false;
+  const { clientPolicyKey, clientKeyring, clientKeyringSig } = req as SessionRequest;
+  return verifyKeyring(presentedKeyring(req, "clientKeyringNotAfter", clientPolicyKey, clientKeyring, clientKeyringSig), clientPolicyKey);
 }
 
 /** True when `msg` has a valid window of its own in `field` and `at` is no later than it; an absent (old-form) or inherited one never counts. */
@@ -126,7 +128,7 @@ function windowAllows(msg: object, field: string, at: number): boolean {
 
 /**
  * "attested" only when both roots verify against their sides' policy keys, the client's policy key is one the server
- * pinned, the client's keyring is signed by it, and at `now` (ms) the client's root and keyring and the server's own
+ * pinned, the client's keyring is signed by it (a legacy request, with no signature, never is), and at `now` (ms) the client's root and keyring and the server's own
  * root and keyring (`serverKeyringNotAfter`, undefined for an old-form keyring) are all new form and current. No pins
  * means every session is unsafe.
  *
@@ -138,7 +140,7 @@ function windowAllows(msg: object, field: string, at: number): boolean {
  * keeps serving as it would an unattested caller, rather than stopping.
  */
 export function sessionStatus(
-  req: SessionRequest,
+  req: SessionRequest | LegacySessionRequest,
   serverRoot: SignedRoot | null,
   serverKeyringNotAfter: number | undefined,
   serverPolicyKey: string,
@@ -217,7 +219,7 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
  * judged only after the signature over it has verified (the root's under the pin, the keyring's in replySigner), so
  * one moved in transit fails as a signature. Never throws.
  */
-function checkSessionReply(
+function replyHolds(
   reply: SessionReply,
   req: SessionRequest | LegacySessionRequest,
   pinnedServerPolicyKey: string,
@@ -251,7 +253,7 @@ function checkSessionReply(
 }
 
 /**
- * The client's live check of a reply at time `at` (ms, its clock): checkSessionReply, refusing a server root, and in
+ * The client's live check of a reply at time `at` (ms, its clock): replyHolds, refusing a server root, and in
  * the entry-key form a server keyring, that is old form or not current at `at`, in either status. `serverEntry` is
  * the client's own configuration, never the reply's. Never throws.
  */
@@ -262,7 +264,7 @@ export function verifySessionReply(
   serverEntry: string,
   at: number,
 ): boolean {
-  return checkSessionReply(reply, req, pinnedServerPolicyKey, serverEntry, at, "live");
+  return replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "live");
 }
 
 /**
@@ -289,7 +291,7 @@ export function isAttestedSession(
   try {
     return (
       reply.status === "attested" &&
-      checkSessionReply(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
+      replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&
       (isLegacySessionRequest(req) ? !Object.hasOwn(req, "clientKeyringNotAfter") : keyringVerifies(req)) &&
       windowAllows(req.clientRoot!, "notAfter", at) &&
