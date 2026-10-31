@@ -27,7 +27,7 @@ export function signRoot(root: Uint8Array, rootId: string, policyPrivateKey: str
   return signText(rootId, encode(root), policyPrivateKey, notAfter);
 }
 
-/** Signs `root` under `rootId` in the old form, which is never current; the caller must have checked that the tree's routes are the ones it currently allows, as for signRoot. It exists only for v1 and for deliberate old-form cases (recorded evidence, vectors, tests). */
+/** Signs `root` under `rootId` in the old form, which is never current; the caller must have checked that the tree's routes are the ones it currently allows, as for signRoot. It exists only for deliberate old-form cases (recorded evidence, vectors, tests). */
 export function signRootOldForm(root: Uint8Array, rootId: string, policyPrivateKey: string): SignedRoot {
   return signText(rootId, encode(root), policyPrivateKey);
 }

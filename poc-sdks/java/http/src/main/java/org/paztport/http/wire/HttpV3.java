@@ -49,7 +49,7 @@ import org.paztport.http.internal.VerifyInputs;
  * <p>A response is attested by one more stamp on the request chain the responder received, naming the caller as
  * receiver and binding the result hash, the request's {@code rid} and the content labels. The caller already holds
  * the route's proof, so the response carries none. Nonce keys are {@code <rid>|<last svc>|req} for a request and
- * {@code <rid>|<target>|resp} for a response; as in v1, a service calls a given receiver at most once per request
+ * {@code <rid>|<target>|resp} for a response; a service calls a given receiver at most once per request
  * tree.
  */
 public final class HttpV3 {

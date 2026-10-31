@@ -61,8 +61,8 @@ public record SignedRoot(String rootId, String root, String sig, Long notAfter) 
     }
 
     /**
-     * Signs the old form, with no validity window: only for v1, which keeps it, and for tests and vectors that need
-     * an old-form root on purpose. Such a root is never {@linkplain #isCurrent current}, so live verifiers refuse
+     * Signs the old form, with no validity window: only for tests and vectors that need an old-form
+     * root on purpose. Such a root is never {@linkplain #isCurrent current}, so live verifiers refuse
      * it; only offline judgement of recorded evidence accepts it.
      */
     public static SignedRoot signOldForm(byte[] root, String rootId, PrivateKey policyKey) {

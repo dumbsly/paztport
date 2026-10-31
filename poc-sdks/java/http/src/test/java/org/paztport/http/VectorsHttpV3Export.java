@@ -53,10 +53,10 @@ import org.paztport.http.wire.HttpV3;
 import org.paztport.http.wire.RequestBinding;
 
 /**
- * Builds {@code spec/vectors/http-v3.json} and replays it. Unlike the v1 exporter this is deterministic: the
+ * Builds {@code spec/vectors/http-v3.json} and replays it. It is deterministic: the
  * clock, rid and timestamps are fixed, the one new key is derived by {@code v3.json}'s rule, and Ed25519 signs
  * deterministically, so {@link #build} reproduces the committed bytes and {@code VectorsHttpV3Test} pins them.
- * The writer is opt-in so it never runs alongside the v1 exporter. This class is not matched by Surefire's default
+ * The writer is opt-in. This class is not matched by Surefire's default
  * includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl http -am test -Dtest=VectorsHttpV3Export
  * -Dpaztport.exportHttpV3Vectors=true -Dvectors.out=<repo>/poc-sdks/spec/vectors/http-v3.json
  * -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build} replays every case it records, so an export can never record a

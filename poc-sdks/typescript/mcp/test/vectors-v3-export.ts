@@ -55,7 +55,7 @@ const ABOUT =
   "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
   "The sections after sessionStatus pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
   "which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; " +
-  "and merkle, a tree of its own (depth 8, rootId v1) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them. " +
+  "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
 
 /** The deterministic Ed25519 key pair for a name, as base64url SPKI and PKCS#8 DER. */
@@ -156,7 +156,7 @@ const COMMIT_INFLUENCE = {
  * the padding subtree hashes above level 1 (one per level 2 to 7) are recorded as they are, since the padding is not derived.
  */
 const MERKLE = {
-  rootId: "v1",
+  rootId: "merkle-vector",
   depth: 8,
   leaves: [
     { salt: "-72t5JB2o5-0_DBVICoNQg", path: "gateway/orders/payment" },

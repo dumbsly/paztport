@@ -11,9 +11,8 @@ import org.paztport.core.encoding.Base64Url;
 /**
  * Binds a stamp to the request a hop actually sent: {@code bind} is the
  * base64url SHA-256 of {@code METHOD \n PATH \n BODY}. This HTTP extension
- * recomputes it from the request the receiver got ({@link HttpVerifyRequestsV1}),
- * and the core verifier only compares it against the last stamp, so a chain
- * spliced onto a different payload no longer matches.
+ * recomputes it from the request the receiver got, and the core verifier only
+ * compares it against the last stamp, so a chain spliced onto a different payload no longer matches.
  */
 public final class RequestBinding {
 
@@ -24,7 +23,7 @@ public final class RequestBinding {
 
     /**
      * {@code target} is the raw path plus {@code ?} and the raw query when there is one, so a GET's query is bound
-     * too. With no query the bytes are exactly v1's.
+     * too. With no query the bytes are those of the method, path and body alone.
      */
     public static String compute(String method, String target, byte[] body) {
         ByteArrayOutputStream out = new ByteArrayOutputStream();

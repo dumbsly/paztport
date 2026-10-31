@@ -20,7 +20,7 @@ import org.paztport.core.policy.Routes;
  * the binding, and sends whatever comes back.
  *
  * <p>An origin starts a chain; a non-origin appends to the one it received and fails closed without one, because
- * only entry points start chains. Unlike v1, every v3 stamp carries its own time. A response is not a separate
+ * only entry points start chains. Every stamp carries its own time. A response is not a separate
  * structure: it is one more stamp on the request chain, naming the caller as receiver, so every live check applies
  * to it unchanged.
  */
