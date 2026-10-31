@@ -25,7 +25,7 @@ const BIND = "lTDYRIdSYWE9xSD3h0zanGdyXnUEr9sgF_SKBkk_J1Y";
 describe("mintOrigin", () => {
   it("matchesTheRunStatesStamp", () => {
     expect(bindPrompt("Fix the README typo")).toBe(BIND);
-    expect(mintOrigin({ rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toEqual({
+    expect(mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toEqual({
       v: 3,
       svc: "session",
       inst: "pi-1",
@@ -40,12 +40,18 @@ describe("mintOrigin", () => {
     });
   });
 
+  it("signsAsTheServiceItIsGiven", () => {
+    const origin = mintOrigin({ svc: "run-origin", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY);
+    expect(origin.svc).toBe("run-origin");
+    expect(origin.sig).not.toBe(mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY).sig);
+  });
+
   it("verifiesAsTheFirstStampOfAV3Chain", () => {
     const session = generateKeyPair();
     const pi = generateKeyPair();
     const receiver = "mcp:github.t";
     const tree = buildTree([`session/pi/${receiver}`].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
-    const origin = mintOrigin({ rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, session.privateKey);
+    const origin = mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, session.privateKey);
     expect(origin).toMatchObject({ v: 3, rcv: "pi" });
     const hop = signStampV3({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", infl: "", prev: origin.sig }, pi.privateKey);
     const r = verifyChainV3(
@@ -66,7 +72,7 @@ describe("mintOrigin", () => {
   });
 
   it("refusesADelimiterInAField", () => {
-    expect(() => mintOrigin({ rid: RID, ts: 1000, bind: BIND, sess: "a|b", inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toThrow("'|'");
-    expect(() => mintOrigin({ rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "p|i" }, SESSION_KEY)).toThrow("'|'");
+    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: "a|b", inst: "pi-1", rcv: "pi" }, SESSION_KEY)).toThrow("'|'");
+    expect(() => mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "p|i" }, SESSION_KEY)).toThrow("'|'");
   });
 });

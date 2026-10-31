@@ -12,12 +12,9 @@ import type { ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { parse } from "yaml";
 import { notAfterInDays, readJson, readKey, readKeyring, writeJson, writeKeyring } from "./files.ts";
 
-/** The client chain a `local:` block is pinned under: the agents demo's client mesh, its run origin then pi. */
-const DEFAULT_CLIENT_CHAIN: readonly string[] = ["session", "pi"];
-
 const USAGE =
   "Usage: node policy.ts --paths <yaml> --policy-key <file> --keyring <keyring.json> --out <dir> [--depth 8] [--policy-days 7] " +
-  "[--reply-cert-svc <name> [--reply-cert-days 7]]\n" +
+  "[--reply-cert-svc <name> [--reply-cert-days 7]] [--client-chain <svc,svc,...>]\n" +
   "       node policy.ts --renew --policy-key <file> --keyring <keyring.json> --out <dir> [--policy-days 7] " +
   "[--reply-cert-svc <name> [--reply-cert-days 7]]";
 
@@ -78,8 +75,8 @@ function replyCert(ring: SignedKeyring, keyringPath: string, svc: string, notAft
   return cert;
 }
 
-/** The routes in the paths file, plus the rules route when it has a `local:` block; exits 2 on a malformed file. */
-function readRoutes(paths: string): { routes: string[][]; rules?: ReturnType<typeof parseLocalRules> } {
+/** The routes in the paths file, plus the rules route under `clientChain` when it has a `local:` block (which needs one); exits 2 on a malformed file. */
+function readRoutes(paths: string, clientChain: readonly string[] | undefined): { routes: string[][]; rules?: ReturnType<typeof parseLocalRules> } {
   const doc = parse(readFileSync(paths, "utf8")) as { paths?: unknown; local?: unknown };
   const routes = doc?.paths;
   if (
@@ -98,6 +95,10 @@ function readRoutes(paths: string): { routes: string[][]; rules?: ReturnType<typ
     console.error(`policy: ${paths} "local" must be a mapping`);
     process.exit(2);
   }
+  if (clientChain === undefined) {
+    console.error(`policy: ${paths} has a "local" block, which is pinned under the client chain: pass --client-chain <svc,svc,...>`);
+    process.exit(2);
+  }
   let rules: ReturnType<typeof parseLocalRules>;
   try {
     rules = parseLocalRules({ v: 1, ...doc.local });
@@ -105,7 +106,7 @@ function readRoutes(paths: string): { routes: string[][]; rules?: ReturnType<typ
     console.error(`policy: ${paths}: ${(e as Error).message}`);
     process.exit(2);
   }
-  allRoutes.push(rulesRouteNodes(DEFAULT_CLIENT_CHAIN, rulesHash(rules)));
+  allRoutes.push(rulesRouteNodes(clientChain, rulesHash(rules)));
   return { routes: allRoutes, rules };
 }
 
@@ -134,6 +135,7 @@ function main(): void {
     "reply-cert-days"?: string;
     "policy-days"?: string;
     renew?: boolean;
+    "client-chain"?: string;
   };
   try {
     values = parseArgs({
@@ -147,6 +149,7 @@ function main(): void {
         "reply-cert-days": { type: "string" },
         "policy-days": { type: "string" },
         renew: { type: "boolean" },
+        "client-chain": { type: "string" },
       },
       strict: true,
     }).values;
@@ -165,7 +168,9 @@ function main(): void {
   const policyNotAfter = notAfterInDays(values["policy-days"], DEFAULT_POLICY_DAYS);
   if (certNotAfter === undefined || policyNotAfter === undefined) fail();
 
-  const built = renew ? undefined : readRoutes(paths!);
+  const clientChain = values["client-chain"]?.split(",");
+  if (clientChain !== undefined && (renew || clientChain.length === 0 || !clientChain.every(validNode))) fail();
+  const built = renew ? undefined : readRoutes(paths!, clientChain);
   const privateKey = readKey(keyFile);
   // Everything is checked before anything is written, so a refusal leaves no partial output.
   const ring = renewedKeyring(keyringPath, policyNotAfter, privateKey);

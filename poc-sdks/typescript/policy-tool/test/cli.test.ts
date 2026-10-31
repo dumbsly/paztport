@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  decode, isCurrent, renewKeyring, renewRoot, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
+  decode, isCurrent, parseLocalRules, renewKeyring, renewRoot, rulesHash, rulesRoute, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
@@ -164,6 +164,39 @@ describe("policy-tool CLIs", () => {
     const policyArgs = (out: string, ...extra: string[]) => ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--out", out, ...extra];
     return { keys, yamlPath, policyArgs };
   }
+
+  /** A paths.yaml with a `local:` block, for the client chain cases. */
+  function localWorld(): { keys: string; args: (out: string, ...extra: string[]) => string[] } {
+    const keys = tmp();
+    expect(run(keygen, ["--out", keys, "--services", "origin,pi"]).status).toBe(0);
+    const yamlPath = join(keys, "paths.yaml");
+    writeFileSync(yamlPath, "paths:\n  - [origin, pi, \"mcp:github.list_issues\"]\nlocal:\n  folders:\n    - { path: \".\", access: [read] }\n  programs: []\n");
+    return { keys, args: (out, ...extra) => ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--keyring", join(keys, "keyring.json"), "--out", out, ...extra] };
+  }
+
+  it("aLocalBlockNeedsTheClientChain", () => {
+    const { args } = localWorld();
+    const out = tmp();
+    const r = run(policy, args(out));
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("--client-chain");
+    expect(existsSync(join(out, "root.json"))).toBe(false);
+  });
+
+  it("theRulesRouteIsPinnedUnderTheClientChain", () => {
+    const { args } = localWorld();
+    const out = tmp();
+    const r = run(policy, args(out, "--client-chain", "origin,pi"));
+    expect(r.status, r.stderr).toBe(0);
+    const rules = parseLocalRules(readJson<unknown>(join(out, "rules.json")));
+    const bundle = readJson<{ proofs: Record<string, unknown> }>(join(out, "proofs-pi.json"));
+    expect(Object.keys(bundle.proofs)).toContain(rulesRoute(["origin", "pi"], rulesHash(rules)));
+  });
+
+  it("aClientChainWithAnEmptyNodeIsRefused", () => {
+    const { args } = localWorld();
+    expect(run(policy, args(tmp(), "--client-chain", "origin,")).status).toBe(2);
+  });
 
   it("policyIssuesAReplyCertForTheKeyringsKey", () => {
     const { keys, policyArgs } = certWorld();

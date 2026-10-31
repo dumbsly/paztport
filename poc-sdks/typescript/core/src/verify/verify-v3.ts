@@ -32,7 +32,7 @@ export type V3Config = {
   keyring: Record<string, string>;
   root: Uint8Array;
   rootId: string;
-  allowedOrigins: string[];
+  allowedOrigins: readonly string[];
   sess: string;
   nonces: NonceCache;
   nonceKey: string;

@@ -82,6 +82,7 @@ function serverMaterial(
       hops: ["mcp-entry", "github-tools"],
       serverId: "github",
       pinnedClientKeys: [CLIENT_POLICY.publicKey],
+      clientOrigins: ["session"],
     },
     served: certify({ policy, keys: ring.services }),
   };
@@ -151,7 +152,7 @@ function stampedParams(
   if (proof === undefined) {
     throw new Error(`no proof for ${name}`);
   }
-  const origin = mintOrigin({ rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
+  const origin = mintOrigin({ svc: "session", rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
   const _meta = stampToolCall(
     { name, args, callId },
     { origin, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence, proof, serverId: "github" },
@@ -339,7 +340,7 @@ describe("stampToolCall", () => {
   it("theHopNamesTheToolAsItsReceiverAndTheOriginIsUnchanged", () => {
     const s = attestedSession();
     const proof = toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "create_pull_request")!;
-    const origin = mintOrigin({ rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
+    const origin = mintOrigin({ svc: "session", rid: RID, ts: PROMPT_TS, bind: bindPrompt("a prompt"), sess: s.reply.sess, inst: "pi-1", rcv: "pi" }, s.client.sessionKey);
     const before = structuredClone(origin);
     const _meta = stampToolCall(
       { name: "create_pull_request", args: { title: "t" }, callId: "call-1" },

@@ -15,7 +15,6 @@ import {
   newContentId,
   NonceCache,
   NONCE_TTL_MS,
-  ORIGIN_SVC,
   parseSessionRequest,
   provesPath,
   signStampV3,
@@ -61,6 +60,8 @@ export type ServerPolicy = {
   serverId: string;
   /** The client policy keys this server opens attested sessions for; empty means every session is unsafe. */
   pinnedClientKeys: readonly string[];
+  /** The services whose origin stamp a call chain may start with, the client's origin names; required and non-empty, with no default. */
+  clientOrigins: readonly string[];
 };
 
 export type Session = {
@@ -89,12 +90,15 @@ export class InvalidParams extends Error {}
  * `policyPublicKey` over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert`
  * verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is in the new form,
  * current and signed by `policyPublicKey`; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
- * it; and `routeProof` proves `hops[0]/hops[1]` against the root. The keyring and root checks are core's
+ * it; `clientOrigins` is non-empty; and `routeProof` proves `hops[0]/hops[1]` against the root. The keyring and root checks are core's
  * checkOwnMaterial; the rest is this server's. McpServerSession calls it on construction.
  */
 export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   const entry = policy.hops[0];
   const tools = policy.hops[1];
+  if (!Array.isArray(policy.clientOrigins) || policy.clientOrigins.length === 0 || !policy.clientOrigins.every((o) => typeof o === "string" && o !== "")) {
+    throw new Error("server policy refused: clientOrigins must name at least one origin service");
+  }
   const own = checkOwnMaterial(policy, now);
   const refuseOwn = (subject: "keyring" | "root"): void => {
     const problem = own.find((p) => p.subject === subject);
@@ -210,7 +214,7 @@ export class McpServerSession {
       keyring: session.request.clientKeyring,
       root,
       rootId: session.request.clientRoot.rootId,
-      allowedOrigins: [ORIGIN_SVC],
+      allowedOrigins: this.policy.clientOrigins,
       sess: session.sess,
       nonces: session.nonces,
       now: this.now(),

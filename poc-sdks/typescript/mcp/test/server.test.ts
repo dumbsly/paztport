@@ -69,6 +69,7 @@ function serverSetup(
     hops,
     serverId: "github",
     pinnedClientKeys: [CLIENT_POLICY.publicKey],
+    clientOrigins: ["session"],
   };
   return { cfg, policyPrivateKey: policy.privateKey };
 }
@@ -86,6 +87,17 @@ describe("checkServerPolicy", () => {
     expect(() => checkServerPolicy(cfg, Date.now())).not.toThrow();
     expect(() => checkServerPolicy(cfg, cfg.replyCert.notAfter)).not.toThrow();
     expect(() => new McpServerSession(cfg, RULES, Date.now)).not.toThrow();
+  });
+  it("refusesAMissingOrEmptyClientOrigins", () => {
+    const cfg = serverConfig();
+    const { clientOrigins: _omitted, ...without } = cfg;
+    for (const [what, policy] of [["missing", without as ServerPolicy], ["empty", { ...cfg, clientOrigins: [] }], ["blank", { ...cfg, clientOrigins: [""] }]] as const) {
+      expect(() => checkServerPolicy(policy, Date.now()), what).toThrow("clientOrigins must name at least one origin service");
+      expect(() => new McpServerSession(policy, RULES, Date.now), what).toThrow("clientOrigins must name at least one origin service");
+    }
+  });
+  it("refusesAMissingOrEmptyClientOriginsRegardlessOfShape", () => {
+    expect(() => new McpServerSession({ ...serverConfig(), clientOrigins: "session" as unknown as string[] }, RULES, Date.now)).toThrow("clientOrigins");
   });
   it("refusesAKeyringItsPolicyKeyDidNotSign", () => {
     const { cfg } = serverSetup();
@@ -581,6 +593,14 @@ describe("call check", () => {
     srv.session()!.request.clientRoot!.root = "not base64url!";
     const r = srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, []));
     expect(r).toMatchObject({ reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "" });
+  });
+  it("anOriginOutsideClientOriginsIsBadOrigin", () => {
+    const { srv, client } = attested(["list_issues"], { clientOrigins: ["somebody-else"] });
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, []))).toMatchObject({ reason: "BAD_ORIGIN", caller: "" });
+  });
+  it("anyListedOriginIsAccepted", () => {
+    const { srv, client } = attested(["list_issues"], { clientOrigins: ["somebody-else", "session"] });
+    expect(srv.checkCall(client.callParams("list_issues", { owner: "o", repo: "r" }, [])).reason).toBe("OK");
   });
   it("attestSignsThePolicyHops", () => {
     const srv = new McpServerSession(serverSetup(["edge", "tools"]).cfg, RULES, Date.now);

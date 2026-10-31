@@ -66,7 +66,7 @@ function signatureValid(publicKey: string, s: RecordedStamp): boolean {
  */
 export function checkStamps(
   value: unknown,
-  cfg: { keyring: Record<string, string>; allowedOrigins: string[]; sess: string },
+  cfg: { keyring: Record<string, string>; allowedOrigins: readonly string[]; sess: string },
   shape: StampShape,
 ): { stamps: RecordedStamp[]; legacy: boolean } | ReasonCode {
   const { rid, signers } = shape;

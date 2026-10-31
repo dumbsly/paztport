@@ -122,5 +122,8 @@ Re-signing the keyring vouches that each listed key is still its service's curre
 that this policy key signed the keyring before, so retiring a key, which needs a new keyring rather than a
 renewed one, is the policy owner's to ensure. With `--reply-cert-svc <name> [--reply-cert-days 7]` either mode
 also writes `reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's
-key, its lifetime set apart from the policy's, refusing a service the keyring has no key for. `paztport-policy`
+key, its lifetime set apart from the policy's, refusing a service the keyring has no key for. A `paths.yaml` with a
+`local:` block (folder rules, bound into the root as one more route and written to `rules.json`) needs
+`--client-chain <svc,svc,...>`, the client's origin service and then its hops, which the rules route is pinned under;
+there is no default, and a rebuild without it is refused. `paztport-policy`
 prints only file names, their `notAfter` and the certificate's service.
