@@ -42,6 +42,10 @@ implementation accepts and refuses the same bytes. An object's **wire bytes** ar
 **file** is one of the files under [Keys and files](#keys-and-files) or a client's local `rules.json`. Content
 Paztport only hashes, such as a tool's arguments, is not one of its objects ([Hashed content](#hashed-content)).
 
+`json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
+one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Its
+`about` says how to replay each section.
+
 ### Reading
 
 A reader reads an object from bytes in four steps, and refuses it at the first step that fails:
@@ -100,7 +104,7 @@ a second form.
 | Limit | Value |
 |---|---|
 | Wire bytes | At most 262 144 bytes (256 KiB), checked before parsing. |
-| A base64url token | Its text is checked first, at most 349 526 characters (the unpadded length of 262 144 bytes), then its decoded length against the wire limit, so a reader never decodes more than the limit allows. |
+| A base64url token | Its text is checked first, at most 349 526 characters (the unpadded length of 262 144 bytes), then its decoded length against the wire limit, so a reader never decodes more than the limit allows. Text that does not decode is refused at the parse step. |
 | Depth | At most 32. An array or object is one level, and each array or object inside it is one more: `[]` is one level, and `[[]]` two. |
 | Files | At most 1 048 576 bytes (1 MiB), with the same depth limit. |
 
@@ -113,7 +117,7 @@ with any JSON whitespace, and an escape RFC 8259 defines, such as `\/` or `\u004
 is written in one form, so that every implementation writes the same bytes:
 
 - members in JCS order, and strings escaped as JCS escapes them;
-- two-space indentation, one member or element per line, and `": "` between a name and its value;
+- one member or element per line, indented two spaces per level of nesting, and `": "` between a name and its value;
 - an empty object written `{}`, and an empty array `[]`;
 - a newline at the end.
 
@@ -143,15 +147,11 @@ escape in place of what it refuses.
 Content Paztport only hashes, such as a tool's arguments and result or a local tool's input, is not Paztport's to
 define, and the [bindings](#bindings) that hash it as JCS belong to [the MCP profile](README.md#the-mcp-profile). Its
 JCS is RFC 8785's in full: each number is read as the nearest IEEE 754 binary64 value and written in ECMAScript's
-shortest form (RFC 8785 §3.2.2.3), so `-0` is written `0` and `1E30` is written `1e+30`. It refuses a lone
-surrogate, which has no UTF-8 form, and a number that is not finite. It allows noncharacters, which belong to the
+shortest form (RFC 8785 §3.2.2.3), so `-0` is written `0` and `1E30` is written `1e+30`. It refuses what the
+[Encodings](#encodings) table's Canonical JSON row says JCS fails on, and allows noncharacters, which belong to the
 content. A binding over hashed content binds the value read, not its text: `9007199254740993` and
 `9007199254740992` read as the same binary64 value and share one binding, though a tool that reads integers
 exactly sees two.
-
-`json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
-one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Its
-`about` says how to replay each section.
 
 ## Keys and files
 
