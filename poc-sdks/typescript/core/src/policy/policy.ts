@@ -6,7 +6,7 @@ import type { MerkleProof } from "./merkle.ts";
 import { randomInt } from "node:crypto";
 import { randomBytes } from "../crypto/crypto.ts";
 import { signRoot } from "./root.ts";
-import { routeOf } from "./routes.ts";
+import { requireValidNode, routeOf } from "./routes.ts";
 import type { SignedRoot } from "./root.ts";
 
 export const DEFAULT_DEPTH = 8;
@@ -32,13 +32,14 @@ function randomSlots(n: number, depth: number): number[] {
   return all.slice(0, n);
 }
 
-/** A fresh tree over `routes` and its root signed in the new form until `notAfter`, with each service's proof bundle; the caller must currently allow every route, and throws on a route with no caller or a bad `notAfter`. */
+/** A fresh tree over `routes` and its root signed in the new form until `notAfter`, with each service's proof bundle; the caller must currently allow every route, and throws on a route node requireValidNode refuses, a route with no caller or a bad `notAfter`. */
 export function buildPolicy(
   routes: string[][],
   depth: number,
   policyPrivateKey: string,
   notAfter: number,
 ): { signedRoot: SignedRoot; bundles: Record<string, ProofBundle> } {
+  for (const route of routes) for (const node of route) requireValidNode(node);
   const routeStrings = routes.map((r) => routeOf(r));
   const rootId = newRootId();
   const tree = buildTree(

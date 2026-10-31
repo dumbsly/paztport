@@ -62,3 +62,13 @@ export function keyPairMatches(privateKey: string, publicKey: string): boolean {
     return false;
   }
 }
+
+/** True when `publicKey` is a base64url X.509 SPKI Ed25519 public key; false (never throws) for anything else, a non-string included. */
+export function isEd25519PublicKey(publicKey: unknown): boolean {
+  try {
+    if (typeof publicKey !== "string") return false;
+    return createPublicKey({ key: Buffer.from(decode(publicKey)), format: "der", type: "spki" }).asymmetricKeyType === "ed25519";
+  } catch {
+    return false;
+  }
+}

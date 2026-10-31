@@ -60,4 +60,11 @@ describe("policy", () => {
     }
     expect(moved).toBe(true);
   });
+
+  it("refusesARouteNodeTheSpecForbidsBeforeSigningAnything", () => {
+    const { privateKey } = generateKeyPair();
+    for (const node of ["", ".", "..", "a/b", "a\\b", "a|b", "x\ud800"]) {
+      expect(() => buildPolicy([["gateway", node]], 4, privateKey, 4_102_444_800_000), JSON.stringify(node)).toThrow(/route node/);
+    }
+  });
 });

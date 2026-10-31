@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
 import * as core from "../../src/index.ts";
-import { keyringSigningBytes, renewKeyring, signKeyring, signKeyringOldForm, verifyKeyring, type SignedKeyring } from "../../src/policy/keyring.ts";
+import { keyringSigningBytes, signKeyring, signKeyringOldForm, verifyKeyring, type SignedKeyring } from "../../src/policy/keyring.ts";
 import { signRoot, verifyRoot } from "../../src/policy/root.ts";
 import { isCurrent } from "../../src/policy/validity.ts";
 
@@ -39,7 +39,7 @@ describe("keyring", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signKeyring", "signKeyringOldForm", "renewKeyring", "keyringSigningBytes", "verifyKeyring"]) expect(name in core, name).toBe(true);
+    for (const name of ["signKeyring", "signKeyringOldForm", "keyringSigningBytes", "verifyKeyring"]) expect(name in core, name).toBe(true);
   });
 
   it("signKeyring signs only the new form, so a missing window never yields the old form", () => {
@@ -94,13 +94,6 @@ describe("keyring", () => {
     expect(isCurrent(k, NOT_AFTER)).toBe(true);
     expect(isCurrent(k, NOT_AFTER + 1)).toBe(false);
     expect(isCurrent(oldForm(), Number.MIN_SAFE_INTEGER)).toBe(false);
-  });
-
-  it("renewKeepsServices", () => {
-    const renewed = renewKeyring(oldForm(), NOT_AFTER + 5, POLICY.privateKey);
-    expect(renewed).toEqual({ policy: POLICY.publicKey, services: SERVICES, sig: renewed.sig, notAfter: NOT_AFTER + 5 });
-    expect(verifyKeyring(renewed, POLICY.publicKey)).toBe(true);
-    expect(renewKeyring(newForm(), NOT_AFTER + 9, POLICY.privateKey)).toEqual(signKeyring(SERVICES, POLICY.publicKey, POLICY.privateKey, NOT_AFTER + 9));
   });
 
   it("crossPrefix", () => {

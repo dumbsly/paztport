@@ -32,11 +32,6 @@ export function signKeyringOldForm(services: Record<string, string>, policyPubli
   return signForm(services, policyPublicKey, policyPrivateKey);
 }
 
-/** The same services and policy key, signed again in the new form until `notAfter`; the caller must still hold every listed key current, as a retired key needs a new keyring, not a renewal. */
-export function renewKeyring(k: SignedKeyring, notAfter: number, policyPrivateKey: string): SignedKeyring {
-  return signKeyring(k.services, k.policy, policyPrivateKey, notAfter);
-}
-
 /** True only when the keyring names `policyKey` and its signature verifies under it in the keyring's own form, a `notAfter` outside [0, 2^53 − 1] failing rather than read as absent; never throws, and says nothing about time (see isCurrent). */
 export function verifyKeyring(k: SignedKeyring, policyKey: string): boolean {
   try {
