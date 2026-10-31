@@ -6,8 +6,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyKeyring, verifyProof, decode } from "@paztport/core";
-import { WARN_WITHIN_MS } from "@paztport/mcp";
+import { generateKeyPair, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyKeyring, verifyProof, decode, WARN_WITHIN_MS } from "@paztport/core";
 import { loadClientMaterial, readPin } from "../src/keys.ts";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");

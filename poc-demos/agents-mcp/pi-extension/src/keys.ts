@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   decode,
+  describeNotAfter,
   keyPairMatches,
   parseLocalRules,
   parseProof,
@@ -16,11 +17,11 @@ import {
   rulesRoute,
   verifyKeyring,
   verifyRoot,
+  WARN_WITHIN_MS,
   type LocalRules,
   type MerkleProof,
   type SignedRoot,
 } from "@paztport/core";
-import { describeNotAfter, WARN_WITHIN_MS } from "@paztport/mcp";
 
 /** The service pi signs as: every call and local step, and the hop each run's origin names as its receiver. */
 export const PI_SVC = "pi";

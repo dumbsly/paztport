@@ -2,13 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
-import { encode, NonceCache, NONCE_TTL_MS, randomBytes, type InfluenceClass, type SessionReply, type SessionRequest } from "@paztport/core";
+import { encode, NonceCache, NONCE_TTL_MS, randomBytes, replacementRequest, sessionRequest, type InfluenceClass, type SessionReply, type SessionRequest } from "@paztport/core";
 import {
   classifySessionError,
   classifySessionReply,
   readToolResult,
-  replacementRequest,
-  sessionRequest,
   SESSION_METHOD,
   stampToolCall,
   toolCallProof,
