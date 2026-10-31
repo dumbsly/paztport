@@ -45,8 +45,6 @@ The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
   the extension sends it in the session request. The mock server pins the client policy key
   (`.demo/server/client-policy.pub`) and opens attested sessions only for it, as the extension pins the
   server's (`.demo/client/server-policy.pub`).
-- **Older records still verify.** `npm run verify` accepts evidence recorded with v2 stamps, offline only, and
-  marks each such item legacy ([eval](eval/README.md)).
 
 **Upgrading an existing `.demo`.** Keys made before signed keyrings have no keyring `sig` and no
 `client-policy.pub`, and the server and the extension refuse to start with them. Regenerate them:

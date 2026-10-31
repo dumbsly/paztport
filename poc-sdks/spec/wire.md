@@ -19,7 +19,7 @@ Contents: [Encodings](#encodings) · [Keys and files](#keys-and-files) · [Stamp
 |---|---|
 | Text | Every string that is hashed or signed is encoded as UTF-8. A string that holds a lone surrogate has no UTF-8 form, so it MUST be rejected wherever this spec says so, and MUST NOT be signed. |
 | Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST reject any character outside `A–Z a–z 0–9 - _`, and a length that is 1 more than a multiple of 4. They MAY accept up to two trailing `=`, as both SDKs do. |
-| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. A v2 or v3 stamp's `sig` MUST decode and re-encode to the identical text, or the chain does not parse (see [Stamp field rules](#stamp-field-rules)). |
+| Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. A stamp's `sig` MUST decode and re-encode to the identical text, or the chain does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as `JSON.stringify` does. JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
 | Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
@@ -106,43 +106,22 @@ signs the bytes of `3|pi|pi-é|rid-1|1767225600000||local:read|bind-2||prev-2`, 
 
 ### Stamp field rules
 
-These hold for v2 and v3 stamps. A signer MUST NOT sign a stamp that breaks them, and a verifier MUST reject
+These hold for v3 stamps. A signer MUST NOT sign a stamp that breaks them, and a verifier MUST reject
 one that does, with the code in brackets.
 
 - The chain is a non-empty JSON array of objects (`CHAIN_MISSING`).
-- `v` is exactly the stamp's version number, `2` or `3` (`CHAIN_MISSING`).
+- `v` is exactly `3` (`CHAIN_MISSING`).
 - `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1 (`CHAIN_MISSING`), so
   every implementation reads and prints it the same way. It is checked by value: `1.0` and `1e3` are the
   integers 1 and 1000.
-- Every string field (`svc`, `inst`, `rid`, `sess`, `rcv` in v3, `bind`, `infl`, `prev`, `sig`) is a JSON
+- Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `infl`, `prev`, `sig`) is a JSON
   string (`CHAIN_MISSING`) with no lone surrogate (`CHAIN_MISSING`).
 - `sig` decodes as base64url and re-encodes to the identical text (`CHAIN_MISSING`).
 - No signed field holds `|` (`BAD_SIGNATURE`). The fields are joined with `|`, so a field holding it would let
   two different stamps share signed bytes.
-- A v3 stamp without `rcv` does not parse (`CHAIN_MISSING`). A v2 stamp's `rcv`, if it has one, is not signed,
-  so it is ignored.
-- Every stamp in a chain has the same version. A chain that mixes v2 and v3 does not parse (`CHAIN_MISSING`),
-  so a v3 stamp can never lend its receiver check to a v2 chain.
+- A stamp without `rcv` does not parse (`CHAIN_MISSING`).
 
 Unknown fields are ignored; they are not signed.
-
-### v2 (legacy)
-
-```json
-{ "v": 2, "svc": "...", "inst": "...", "rid": "...", "ts": 0, "sess": "...",
-  "bind": "...", "infl": "...", "prev": "...", "sig": "<b64url>" }
-```
-
-The fields mean what they mean in v3. There is no `rcv`, so a v2 stamp does not say who it was meant for. The
-signed bytes are:
-
-```
-utf8( "2|" svc "|" inst "|" rid "|" ts "|" sess "|" bind "|" infl "|" prev )
-```
-
-Implementations MUST NOT produce v2 stamps. A verifier MAY accept a v2 chain read back from a record, and only
-offline, as legacy ([verification.md](verification.md#the-legacy-rule)). `v2.json` pins the layout in
-`signingBytesV2`.
 
 ## Chains
 
@@ -152,9 +131,8 @@ A chain is an array of stamps, **origin first**.
   entry point holds an origin key, so an inner service can't start a chain.
 - **Links.** Stamp *i* (for *i* ≥ 1) has `prev` equal to stamp *i − 1*'s `sig`. Because each signature covers
   `prev`, removing, reordering or inserting a stamp breaks a signature or a link.
-- **Shared values.** Every stamp carries the origin's `rid`. In v2 and v3 every stamp carries the session's
-  `sess`.
-- **Receivers (v3).** Stamp *i*'s `rcv` MUST equal stamp *i + 1*'s `svc`, and the last stamp's `rcv` MUST equal
+- **Shared values.** Every stamp carries the origin's `rid`. Every stamp carries the session's `sess`.
+- **Receivers.** Stamp *i*'s `rcv` MUST equal stamp *i + 1*'s `svc`, and the last stamp's `rcv` MUST equal
   the chain's receiver. So each stamp names the hop it was handed to, and a chain forwarded unchanged to anyone
   else fails.
 - **The last stamp** is the one whose `bind` and `infl` the receiver checks: it describes what was actually

@@ -19,7 +19,7 @@ writes one and names it, so there it always runs.
 ## @paztport/core
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers,
-canonical JSON, v2 and v3 stamps and chains, the salted Merkle tree, signed roots
+canonical JSON, v3 stamps and chains, the salted Merkle tree, signed roots
 and keyrings, reply certificates, policy building, reason codes, the replay cache, prompt
 binding, influence and the owner-aware influence rule, sessions, local tool rules and the
 verdict for a local tool call, local steps, the live v3 chain verifier
@@ -31,9 +31,8 @@ checks with the live verifier; the agents demo's `npm run verify` uses it.
 
 It implements protocol v3, as the [spec](../spec/README.md) defines it:
 
-- **v3 only, live.** The live chain verifier takes v3 stamps only; a v2 chain is `CHAIN_MISSING`. v2 is
-  accepted only offline (`verifyChainOffline`, `recheckResponse`), as legacy, and a chain that mixes the two
-  never verifies.
+- **v3 only.** The live and offline chain verifiers take v3 stamps only; a chain holding any other `v` is
+  `CHAIN_MISSING`.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
   the next stamp and the last against `receiver`. A live call or chain stamped for a different receiver is
   `BINDING_MISMATCH`, not a route failure, so a forwarded chain no longer names its last signer.
@@ -76,8 +75,8 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `labelToEntry` turns a verified response's label into the influence entry a client records, and
   `shapedOnlyByTrusted` says whether influence holds no untrusted content. `mintOrigin` takes the origin name as
   `svc`, which the policy and its receivers' allowed origins must carry too.
-- **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
-  marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
+- **Legacy is reported.** A recorded handshake says whether its request had no keyring signature, and the agents
+  demo's `verify` marks each item verified from one ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
 ## @paztport/mcp
 

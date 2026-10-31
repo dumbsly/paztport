@@ -534,7 +534,7 @@ paztport/
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
 ├── run                       front door: java-mesh, agents-mcp, test
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and shared conformance vectors: v2 and v3, which both SDKs replay (Java all of v2 but its MCP bindings); http-v3, Java's only
+│   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which both SDKs replay (Java all of it but the MCP profile); http-v3, Java's only
 │   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
 │   └── typescript/           @paztport/core, @paztport/mcp, policy-tool

@@ -8,9 +8,9 @@ policy, verification, influence and sessions. The demos in
   `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/mcp`
   extension, and the policy command-line tools.
-- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v2 and
-  v3, which both SDKs replay (the Java SDK all of v2 but its MCP bindings), and v3 over HTTP, which only
-  the Java SDK speaks.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v3,
+  which both SDKs replay (the Java SDK all of it but the MCP profile), and v3 over HTTP, which only the Java SDK
+  speaks.
 - `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
   `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
@@ -38,8 +38,7 @@ Over MCP (the TypeScript SDK), the chain, the route proof, the influence and the
 `tools/call` request's `_meta`, and a result carries the server's response chain and content labels. Over HTTP
 (the Java SDK), the chain, the proof and the influence travel in the `X-Path-Chain`, `X-Path-Proof` and
 `X-Path-Influence` headers, and a response carries one more stamp on the request chain, back to the caller, in
-`X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A live verifier accepts v3 only; v2 records are accepted
-only offline, marked legacy.
+`X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier accepts v3 stamps only.
 
 Binary values are base64url without padding.
 

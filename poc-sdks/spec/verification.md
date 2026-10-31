@@ -46,7 +46,7 @@ the checks differently disagree.
 | # | Check | Fails with |
 |---|---|---|
 | 0 | `now` is at most `policyNotAfter`. A missing `policyNotAfter`, or one that is not an integer in [0, 2<sup>53</sup> − 1], fails. A non-finite `now` is left to check 7. | `POLICY_EXPIRED` |
-| 1 | The stamps parse: a non-empty array of well-formed v3 stamps ([field rules](wire.md#stamp-field-rules)). A v2 stamp, or a mix, does not parse. | `CHAIN_MISSING` |
+| 1 | The stamps parse: a non-empty array of well-formed v3 stamps ([field rules](wire.md#stamp-field-rules)). A stamp whose `v` is not 3 does not parse. | `CHAIN_MISSING` |
 | 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
 | 4 | For each stamp in order: its `svc` has a key in `keyring` and its signature verifies under it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
@@ -384,9 +384,8 @@ The offline verifier runs the live checks in the live order, with these differen
 | # | Offline |
 |---|---|
 | 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a new-form root or keyring counts only for a record no later than its `notAfter`, and an old-form one sets no limit. |
-| 1 | The stamps parse all v3, or all v2 as legacy. A mix is `CHAIN_MISSING`. |
+| 1 | The stamps parse, all v3. A stamp whose `v` is not 3 is `CHAIN_MISSING`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
-| 4 | The receiver checks run for a v3 chain only. |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it, and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). With age limits, the last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`). Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
 | 10 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
@@ -402,10 +401,9 @@ Each kind of record is checked this way:
   ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), is `OUTSIDE_SESSION`.
 - **A recorded response**: the client-side response check, with the live chain verifier at the time the client
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
-  recorded call's verified last signer, the client that made the call. It also accepts a v2 chain as legacy.
-  Check 0 runs at that time, with the `policyNotAfter` the client used: the earliest `notAfter` of the server's
-  root and, in the entry-key form, its keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when
-  neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
+  recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
+  `policyNotAfter` the client used: the earliest `notAfter` of the server's root and, in the entry-key form, its
+  keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
   keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the
@@ -427,17 +425,12 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 
 ## The legacy rule
 
-Records made before v3 carry v2 stamps, which name no receiver, and session requests with no
-`clientKeyringSig`. They can't be re-signed, so:
+Session requests with no `clientKeyringSig` can't be re-signed, so:
 
-- **Live verifiers accept v3 only.** A v2 chain received live is `CHAIN_MISSING`.
-- **Offline, an all-v2 chain is accepted as legacy.** It is checked with the v2 signed bytes and without the
-  receiver checks; everything else is the same. A chain that mixes versions is `CHAIN_MISSING`, never a partial
-  legacy pass.
 - **A session request with no `clientKeyringSig` field** is legacy offline: the keyring check is skipped. Live,
   the server treats it as unsigned, so the session is unsafe. A `clientKeyringSig` that is present but malformed (not a string) or wrong: live, the server reads a non-string as `""`, which never verifies, so the session is unsafe; offline, it is a v3 request whose signature fails, not a legacy one.
-- **A verifier MUST report legacy.** Each item that verified from v2 stamps, or from a request with no keyring
-  signature, is marked legacy, so a reader can see that it was checked less strictly. A failure is never marked.
+- **A verifier MUST report legacy.** Each item that verified from a request with no keyring signature is marked
+  legacy, so a reader can see that it was checked less strictly. A failure is never marked.
   The agents demo's `verify` writes `"legacy": true` on such items and counts them on its `OK` line
   ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
