@@ -131,8 +131,7 @@ owns it and shuts it down when closed) and a read timeout (30 s unless set), and
 its `build()` refuses a setting no partner could use, naming each `Fault`. Its
 `post(path, json)` reads the verified chain from `RequestContext`, below. The
 starter's egress bean builds one from `paztport.boundary.*`; it logs as
-`org.paztport.http.boundary.BoundaryClient`, which used to be
-`org.paztport.spring.partner.BoundaryClient`.
+`org.paztport.http.boundary.BoundaryClient`.
 
 `RequestContext` is the blocking Java binding of the receivers: a thread-local
 scope, for servlet and other thread-per-request code, that the handler, the caller
@@ -273,9 +272,7 @@ hands a session request's body to `HttpSessions.serve`.
   arrives there, refused or not, with a warning from the logger
   `org.paztport.http.RequestContext`; an answer whose rid or labels the response
   binding cannot carry is served unattested, with a warning from
-  `org.paztport.http.HttpReceiver`. Both used to come from
-  `org.paztport.spring.InboundFilter`, so an operator who filters logs by logger
-  name should follow them there.
+  `org.paztport.http.HttpReceiver`.
 - **Mutual TLS.** `paztport.tls-bundle` names the Spring Boot SSL bundle the
   service presents on its calls and its events. Both go out on one
   `PooledTlsClient` per application, a JDK `HttpClient` speaking HTTP/1.1 that
