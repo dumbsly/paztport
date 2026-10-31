@@ -149,16 +149,15 @@ quietly "building the keygen and policy-tool images" \
 # Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
 # services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced;
 # so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it),
-# and keys with no keyring, or one without a notAfter, which the policy tools need to re-sign and
-# refuse as malformed. A keyring past its notAfter is not a reason to regenerate: the policy tools
-# re-sign both keyrings on every run.
+# and keys with no keyring, which the policy tools need to re-sign. A keyring past its notAfter is
+# not a reason to regenerate: the policy tools re-sign both keyrings on every run.
 # A bind-mount source Docker created as an empty directory (see below) would block keygen, or the
 # policy tool's write of the keyring.
 for p in out/keys/policy.pub out/keys/boundary.key out/keys/keyring.json out/keys/tls/* out/psp-keys/policy.pub \
   out/psp-keys/policy.key out/psp-keys/psp.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
-  || [ ! -f out/keys/boundary.key ] || ! grep -q '"notAfter"' out/keys/keyring.json 2>/dev/null \
-  || [ ! -f out/psp-keys/policy.pub ] || ! grep -q '"notAfter"' out/psp-keys/keyring.json 2>/dev/null; then
+  || [ ! -f out/keys/boundary.key ] || [ ! -f out/keys/keyring.json ] \
+  || [ ! -f out/psp-keys/policy.pub ] || [ ! -f out/psp-keys/keyring.json ]; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
   quietly "generating the PSP's keys and certificates (keygen-psp)" docker compose run --rm keygen-psp
 fi

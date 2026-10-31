@@ -760,9 +760,8 @@ output in the old format, for example private keys that aren't owner-only.
 `up --build` rebuilds the mesh services itself. Private key files, the TLS keys
 and the CA's included, are written owner-read/write only (`0600`). `demo.sh`
 regenerates the keys when `policy.pub`, `tls/ca.crt` or `keyring.json` is missing,
-or `keyring.json` has no `notAfter`, so keys from before mutual TLS are replaced. A
-keyring that has expired is not a reason to regenerate: each run's policy tools
-re-sign it.
+so keys from before mutual TLS are replaced. A keyring that has expired is not a
+reason to regenerate: each run's policy tools re-sign it.
 
 ### Lifetimes and renewal
 
