@@ -88,9 +88,26 @@ class OpeningCheckControllerTest {
     }
 
     @Test
-    void aMalformedOpeningIsABadRequest() throws Exception {
-        check(RID, with(aliceOpening(ORIGINALS), "salt", "AAAA")).andExpect(status().isBadRequest());
-        check(RID, "[]").andExpect(status().isBadRequest());
+    void anObjectThatIsNotAnOpeningDoesNotOpen() throws Exception {
+        String json = aliceOpening(ORIGINALS).toJson();
+        String[] notOpenings = {
+            with(aliceOpening(ORIGINALS), "salt", "AAAA"),
+            with(aliceOpening(ORIGINALS), "extra", "member"),
+            ((ObjectNode) JSON.readTree(json)).without("salt").toString(),
+            ((ObjectNode) JSON.readTree(json)).without("originals").toString(),
+            "{}"
+        };
+        for (String body : notOpenings) {
+            check(RID, body).andExpect(status().isOk())
+                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+        }
+    }
+
+    @Test
+    void anArrayIsABadRequest() throws Exception {
+        check(RID, "[]").andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     @Test
@@ -100,36 +117,34 @@ class OpeningCheckControllerTest {
                 .andExpect(status().isUnsupportedMediaType());
     }
 
-    /**
-     * The body is read as it always has been: up to the end of the first JSON value, whatever follows it, and in
-     * whichever Unicode encoding its first bytes show.
-     */
+    /** The body is exactly one JSON object in strict UTF-8, with only whitespace after it. */
     @Test
-    void aBodyIsReadLeniently() throws Exception {
+    void aBodyIsReadStrictly() throws Exception {
         String json = aliceOpening(ORIGINALS).toJson();
-        check(RID, json + " trailing, not JSON")
-                .andExpect(status().isOk())
+        check(RID, json + " \t\r\n").andExpect(status().isOk())
                 .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
-        check(RID, json + " {\"second\":\"value\"}")
-                .andExpect(status().isOk())
-                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+        for (String body : List.of(json + " trailing, not JSON", json + " {\"second\":\"value\"}", json + "}")) {
+            check(RID, body).andExpect(status().isBadRequest())
+                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+        }
         for (Charset charset : List.of(StandardCharsets.UTF_16BE, StandardCharsets.UTF_16LE,
                 Charset.forName("UTF-32BE"))) {
             mvc.perform(post("/debug/check-opening").param("rid", RID)
                             .contentType(MediaType.APPLICATION_JSON).content(json.getBytes(charset)))
-                    .andExpect(status().isOk())
-                    .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+                    .andExpect(status().isBadRequest())
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
         }
         mvc.perform(post("/debug/check-opening").param("rid", RID)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(("\uFEFF" + json).getBytes(StandardCharsets.UTF_8)))
-                .andExpect(status().isOk())
-                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     /**
-     * A number too large for a double, where an opening or one of its originals holds a string, is a bad request,
-     * as it always was: the value reaches the SDK as the number it was sent as, never as the string
+     * A number too large for a double, where an opening or one of its originals holds a string, is not an opening
+     * and does not open: the value reaches the SDK as the number it was sent as, never as the string
      * {@code "Infinity"} a tree written back would make of it.
      */
     @Test
@@ -142,14 +157,9 @@ class OpeningCheckControllerTest {
                 json.replace("\"cid\":\"cid-2\"", "\"cid\":1e9999999999"));
         for (String body : bad) {
             assertNotEquals(json, body);
-            check(RID, body).andExpect(status().isBadRequest())
-                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+            check(RID, body).andExpect(status().isOk())
+                    .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
         }
-        mvc.perform(post("/debug/check-opening").param("rid", RID)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(bad.get(1).getBytes(StandardCharsets.UTF_16BE)))
-                .andExpect(status().isBadRequest())
-                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     @Test

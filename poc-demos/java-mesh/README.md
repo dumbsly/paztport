@@ -240,7 +240,12 @@ received a `private` entry owned by `alice`. `payment` hands out its opening (th
 salt and the originals of that group, `GET /debug/boundary-opening`), and the PSP
 checks it against the entry it received for that `rid`
 (`POST /debug/check-opening`): it opens. The same opening with one original's `h`
-zeroed (`tamper=true`) does not. An opening proves what the shop committed to when
+zeroed (`tamper=true`) does not.
+The check reads the body strictly: exactly one JSON object in UTF-8, with only
+whitespace after it, or it answers `400 {"reason":"MALFORMED_OPENING"}`. An
+object that is not an opening (another member, a missing one, or one the SDK
+refuses) does not open, `200 {"opens": false}`; an unknown `rid`, or no entry of
+the opening's class and owner, is `404`. An opening proves what the shop committed to when
 it sent the entry, not that the originals were true.
 
 The salt, the opening and the check are the SDK's (`BoundaryClient.opening`,
