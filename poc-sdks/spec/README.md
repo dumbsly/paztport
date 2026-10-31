@@ -62,9 +62,9 @@ What v3 changed, deliberately:
 | Responder events | yes | yes |
 
 A new implementation MUST pass `v3.json`, less its `recordedLocalStep` section if it does not implement [the MCP
-profile](#the-mcp-profile). It MUST pass `v2.json` if it reads records made before v3,
-`http-v3.json` if it speaks v3 over HTTP, `events.json` if it sends or receives responder events, and `v1.json`
-if it speaks the v1 HTTP format.
+profile](#the-mcp-profile). It MUST pass `v2.json` if it reads records made before v3, less its `bindMcpCall` and
+`bindResult` cases if it does not implement the MCP profile, `http-v3.json` if it speaks v3 over HTTP, `events.json`
+if it sends or receives responder events, and `v1.json` if it speaks the v1 HTTP format.
 
 Known divergences, with no vector: a lone surrogate in a binding's plain strings ([wire.md](wire.md#bindings)).
 The Java SDK's prompt and response bindings refuse one, as the spec requires, and its HTTP request binding

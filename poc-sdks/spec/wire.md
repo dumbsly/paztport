@@ -220,8 +220,8 @@ Rules:
   See [Conformance](README.md#conformance).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
   `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
-- In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it took (the `tools/call`
-  binding), and the last binds the response.
+- In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it
+  took (the `tools/call` binding), and the last binds the response.
 - The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
   `{ "callId": ..., "resolved": { "paths": [{ "need", "at" }], "programs": [{ "name", "via" }], "parse": "ok" | "error", "readOnly": bool }, "verdict": ..., "routeAllowed": bool, "rulesHash": string | null }`.
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
@@ -362,15 +362,15 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
   surrogate. Node names become route segments and file names (`proofs-<svc>.json`).
 - A call's route ends at its receiver: `gateway/orders/payment`, or
   (the MCP profile) `session/pi/mcp:github.create_pull_request`.
-- An MCP response's route (the MCP profile) is the server's own hops, `mcp-entry/github-tools`. Its receiver, the calling client,
-  is not on it: the server's policy can't list every client.
+- An MCP response's route (the MCP profile) is the server's own hops, `mcp-entry/github-tools`. Its receiver, the
+  calling client, is not on it: the server's policy can't list every client.
 - An HTTP response's route is the request's own, `gateway/orders/payment`, proven by the proof the caller sent.
   Its receiver, the caller, is already on it.
 - A local step's route is `session/pi/local:<tool>`. Local steps belong to
   [the MCP profile](README.md#the-mcp-profile).
 - A client's local folder rules (the MCP profile again) are pinned as one more route,
-  `session/pi/rules:<rulesHash>`, where `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is the parsed rule set
-  `{ "v": 1, "folders": [...], "programs": [...] }` (its format is in the
+  `session/pi/rules:<rulesHash>`, where `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is
+  the parsed rule set `{ "v": 1, "folders": [...], "programs": [...] }` (its format is in the
   [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A client MUST NOT
   apply rules that the signed root does not cover.
 

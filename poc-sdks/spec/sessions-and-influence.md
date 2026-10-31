@@ -434,9 +434,9 @@ attacker writes.
 `v3.json` pins the rule's truth table in `rule`. In the agents demo, neither entries nor destinations have
 owners, so the rule reduces to "untrusted content plus any private data refuses a public write".
 
-The client's local gate ([MCP profile](README.md#the-mcp-profile)) applies the same rule to its own tools' writes into a folder whose destination is
-`public`, over the session's classes plus `private` when the call itself reads a private-labelled folder
-(`INFLUENCE_DENIED`).
+The client's local gate ([MCP profile](README.md#the-mcp-profile)) applies the same rule to its own tools'
+writes into a folder whose destination is `public`, over the session's classes plus `private` when the call
+itself reads a private-labelled folder (`INFLUENCE_DENIED`).
 
 ### Trusted records
 

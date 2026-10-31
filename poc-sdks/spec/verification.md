@@ -408,8 +408,8 @@ Each kind of record is checked this way:
   root and, in the entry-key form, its keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when
   neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
-  (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and keyring, and `nonceKey =
-  <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
+  (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
+  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
   later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route verdict and proof
   the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step
   signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those
@@ -486,7 +486,7 @@ with a matching method and path can reach check 7 and name its innocent last sig
 | `PROOF_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose recorded route verdict or proof disagrees with what its chain proves. |
 | `RULES_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose signed `rulesHash` is not the client's. |
 | `VERDICT_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose decision, re-derived from the signed rules, differs from the one it signed. |
-| `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name for `PATH_NOT_ALLOWED` against the client's policy. |
+| `CLIENT_PATH_NOT_ALLOWED` | server decision | An MCP server's name ([MCP profile](README.md#the-mcp-profile)) for `PATH_NOT_ALLOWED` against the client's policy. |
 | `INFLUENCE_DENIED` | server decision, client local | The influence rule refused a public write. |
 | `UNSAFE_SESSION` | server decision | The tool is disabled in an unsafe session. |
 | `SCOPE_DENIED` | client local ([MCP profile](README.md#the-mcp-profile)) | The local gate: a path or program outside the signed rules. |

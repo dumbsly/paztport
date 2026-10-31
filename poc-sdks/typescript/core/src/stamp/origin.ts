@@ -5,7 +5,7 @@ import { signStampV3, type StampV3 } from "./stamp.ts";
 
 /**
  * A run's origin stamp for one server session, signed as the service `svc` (the client's origin name, which its policy
- * routes and its servers' `clientOrigins` must carry too): bound to the user prompt (`bind`), dated by the run's
+ * routes and its receivers' allowed origins must carry too): bound to the user prompt (`bind`), dated by the run's
  * start, naming the hop it hands to (`rcv`), with no influence and no previous stamp. Throws if a field
  * holds the stamp delimiter.
  */

@@ -102,7 +102,7 @@ describe("contentHash", () => {
     const withMeta = { ...r, _meta: { "paztport/attestation": { x: 1 } } };
     expect(contentHash(withMeta)).toBe(contentHash(r));
     expect(contentHash({ ...r, content: [{ type: "text", text: "ho" }] })).not.toBe(contentHash(r));
-    // Ruling R1: it is the library's domain-separated result binding.
+    // The content hash is the library's domain-separated result binding.
     expect(contentHash(r)).toBe(bindResult(r));
     expect(contentHash(withMeta)).toBe(bindResult(withMeta));
   });

@@ -166,8 +166,8 @@ refused too.
 
 The rules sit in the policy file under a `local:` key, next to the `paths:` list. The route for each
 tool, such as `session/pi/local:bash`, must also be listed there, or the tool is refused. This is the
-policy the local-tools scenario uses (`policies/client-local-tools.paths.yaml`, the `local:` part; `paztport-policy` pins it
-under the client chain you give it with `--client-chain session,pi`):
+policy the local-tools scenario uses (`policies/client-local-tools.paths.yaml`, the `local:` part;
+`paztport-policy` pins it under the client chain you give it with `--client-chain session,pi`):
 
 ```yaml
 local:

@@ -69,6 +69,13 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   returning a `ReplyCheck` (`ATTESTED`, `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service
   that loads its own keyring and root checks them with `checkOwnMaterial` and warns near their end with
   `expiryWarnings` (`WARN_WITHIN_MS`, `describeNotAfter`).
+- **The server's decision is core's.** `decideServerCall` is a server's decision on a tool call once its chain has
+  verified: in an attested session the influence rule decides over the client's influence and every class the
+  server has served (`publicWriteDecision` is the rule for a write), and otherwise the tools disabled when unsafe
+  are refused. `sanitiseVerdictReason` makes a server's refusal reason safe to show, since it reaches the model,
+  `labelToEntry` turns a verified response's label into the influence entry a client records, and
+  `shapedOnlyByTrusted` says whether influence holds no untrusted content. `mintOrigin` takes the origin name as
+  `svc`, which the policy and its receivers' allowed origins must carry too.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
@@ -83,24 +90,29 @@ speak v3 over HTTP, which only the Java SDK does, and does not replay
 
 MCP transport on top of core: the `tools/call` binding, the `_meta` keys
 (`paztport/chain`, `paztport/proof`, `paztport/influence` and the rest), the client
-side (the replace decision on a session reply, stamping a tool call, reading a tool
-result's attestation) and the server side (`McpServerSession`, checking a call,
-and the decision on a public write). A call names `mcp:<serverId>.<tool>` as its
-receiver, and a response chain ends at the client that made the call. A server
-opens an attested session only for a client policy key in its `pinnedClientKeys`.
+side and the server side. A call names `mcp:<serverId>.<tool>` as its
+receiver, and a response chain ends at the client that made the call.
+
+The client side opens a session with `openSession` (which sends the replacement request when the reply warrants
+one), stamps a tool call, and reads a tool result's attestation. The server side is `McpServerSession`, and
+`handleToolCall`, which a server calls for each `tools/call`: it checks the call's chain, has core decide it
+(`decideServerCall`), refuses it with `refusedToolResult` in enforce or notes the verdict on the result in audit,
+runs the tool and attests the result. A `null` session is a deployment with no Paztport material, so every call is
+in an unsafe session. The decision on a public write is core's, so a server in another transport decides the same.
+
+A server opens an attested session only for a client policy key in its `pinnedClientKeys`.
 `McpServerSession` holds no policy private key: it answers handshakes in the
 [entry-key form](../spec/sessions-and-influence.md#the-reply), signed by its entry
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
-Its constructor refuses to start, through the exported `checkServerPolicy` (core's `checkOwnMaterial` for
-the keyring and root, then this server's own checks), with a
-policy that does not hold together at the session's clock, lifetime included: a
-keyring or root in the old form, expired, or not signed by its policy key; a
-`signingKeys[hops[0]]` that is not the entry's keyring key, or a `signingKeys[hops[1]]` that is not
-the tools hop's own keyring key; a route proof for `hops[0]/hops[1]` that does not prove against the
-root; or a certificate that does not verify under its policy key, names another service or key, or
-has expired. Material that is current but has 42 hours (a quarter of the default lifetime) or less
-left is warned about once per item (keyring, root, certificate) at construction, naming its `notAfter`,
-through the constructor's `warn` argument, `console.error` by default.
+Its constructor refuses to start, through the exported `checkServerPolicy` (core's `checkOwnMaterial` for the
+keyring and root, then this server's own checks), with a policy that does not hold together at the session's
+clock, lifetime included: no `clientOrigins`, an empty list or a blank name in it; a keyring or root in the old
+form, expired, or not signed by its policy key; a `signingKeys[hops[0]]` that is not the entry's keyring key, or a
+`signingKeys[hops[1]]` that is not the tools hop's own keyring key; a route proof for `hops[0]/hops[1]` that does
+not prove against the root; or a certificate that does not verify under its policy key, names another service or
+key, or has expired. Material that is current but has 42 hours (a quarter of the default lifetime) or less left is
+warned about once per item (keyring, root, certificate) at construction, naming its `notAfter`, through the
+constructor's `warn` argument, `console.error` by default.
 
 ## policy-tool
 
@@ -121,17 +133,17 @@ keypair per service, a policy keypair and a keyring signed by the policy key, va
 
 Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
 not, and that that key is the `--policy-key`; renewing also checks the root verifies under it. Any failure is
-refused, exit 2, with nothing written, in a message that leads with the file at fault; the checks are core's `renewKeyring`,
-`renewRoot` and `issueReplyCert`, which no tool can sign around. A rebuild refuses a route node that is empty, `.` or `..`, or holds
-`/`, `\`, `|` or a lone surrogate (core's `requireValidNode`, also called by `buildPolicy`), naming the `paths.yaml` and the node.
-A rebuild vouches that the routes in the `paths.yaml` are the ones
-allowed now; a renewal, that the existing tree's routes all still are, since narrowing a policy is a rebuild.
+refused, exit 2, with nothing written, in a message that leads with the file at fault; the checks are core's
+`renewKeyring`, `renewRoot` and `issueReplyCert`. A rebuild refuses a route node that is empty, `.` or `..`, or
+holds `/`, `\`, `|` or a lone surrogate (core's `requireValidNode`, also called by `buildPolicy`), naming the
+`paths.yaml` and the node. A rebuild vouches that the routes in the `paths.yaml` are the ones allowed now; a
+renewal, that the existing tree's routes all still are, since narrowing a policy is a rebuild.
 Re-signing the keyring vouches that each listed key is still its service's current key: the tool can check only
 that this policy key signed the keyring before, so retiring a key, which needs a new keyring rather than a
 renewed one, is the policy owner's to ensure. With `--reply-cert-svc <name> [--reply-cert-days 7]` either mode
 also writes `reply-cert.json`, a [reply certificate](../spec/wire.md#the-reply-certificate) for that service's
-key, its lifetime set apart from the policy's, refusing a service the keyring has no key for. A `paths.yaml` with a
-`local:` block (folder rules, bound into the root as one more route and written to `rules.json`) needs
-`--client-chain <svc,svc,...>`, the client's origin service and then its hops, which the rules route is pinned under;
-there is no default, and a rebuild without it is refused. `paztport-policy`
-prints only file names, their `notAfter` and the certificate's service.
+key, its lifetime set apart from the policy's, refusing a service the keyring has no key for. A `paths.yaml` with
+a `local:` block (folder rules, bound into the root as one more route and written to `rules.json`) needs
+`--client-chain <svc,svc,...>`, the client's origin service and then its hops, which the rules route is pinned
+under; there is no default, and a rebuild without it is refused. `paztport-policy` prints only file names, their
+`notAfter` and the certificate's service.
