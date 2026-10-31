@@ -128,8 +128,9 @@ export class InvalidParams extends Error {}
  * `policyPublicKey` over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert`
  * verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is in the new form,
  * current and signed by `policyPublicKey`; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
- * it; `clientOrigins` is non-empty; and `routeProof` proves `hops[0]/hops[1]` against the root. The keyring and root checks are core's
- * checkOwnMaterial; the rest is this server's. McpServerSession calls it on construction.
+ * it; `clientOrigins` names at least one origin service, each a non-empty string; and `routeProof` proves
+ * `hops[0]/hops[1]` against the root. The keyring and root checks are core's checkOwnMaterial; the rest is this
+ * server's. McpServerSession calls it on construction.
  */
 export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   const entry = policy.hops[0];
