@@ -216,11 +216,13 @@ A result carries the server's attestation in `result._meta["paztport/attestation
 `resultHash` is the result binding of the result it rides on. A refusal carries `result._meta["paztport/verdict"]`
 instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }` when an audit-mode server ran the
 call anyway. A verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The
-handshake is the JSON-RPC method `paztport/session` ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
+handshake is the JSON-RPC method `paztport/session`
+([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
 
 ### HTTP (v3)
 
-A request carries Paztport in three headers, each the base64url of UTF-8 JSON, and names its session in a fourth, which is plain text:
+A request carries Paztport in three headers, each the base64url of UTF-8 JSON, and names its session in a
+fourth, which is plain text:
 
 | Header | Value |
 |---|---|
@@ -355,8 +357,9 @@ key before using the root. Any other field is ignored and not signed.
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
 vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
 `notAfter` (the policy tools use the run's time plus the lifetime, which may be earlier than the old one), so
-proof bundles stay valid and holders can pick up the renewed root one at a time. A renewed root keeps its `rootId`, and two validly signed roots for one tree
-differ only in `notAfter`. Narrowing a policy is not renewing: it needs a new tree, a new `rootId` and new proof bundles.
+proof bundles stay valid and holders can pick up the renewed root one at a time. A renewed root keeps its
+`rootId`, and two validly signed roots for one tree differ only in `notAfter`. Narrowing a policy is not
+renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
 `v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
 pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a

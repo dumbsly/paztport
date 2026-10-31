@@ -7,8 +7,8 @@ organisation to another. The bytes of stamps, roots and keyrings are in [wire.md
 
 The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as described in RFC 2119.
 
-Contents: [The handshake](#the-handshake) · [Over HTTP](#over-http) · [The session id](#the-session-id) · [Status](#status) ·
-[Unsafe sessions](#unsafe-sessions) · [The server decision](#the-server-decision) ·
+Contents: [The handshake](#the-handshake) · [Over HTTP](#over-http) · [The session id](#the-session-id) ·
+[Status](#status) · [Unsafe sessions](#unsafe-sessions) · [The server decision](#the-server-decision) ·
 [Recorded handshakes](#recorded-handshakes) · [Influence](#influence) · [Entries](#entries) ·
 [Normalisation and commitment](#normalisation-and-commitment) · [Content labels](#content-labels) ·
 [The owner-aware rule](#the-owner-aware-rule) · [Trusted records](#trusted-records) ·
@@ -524,8 +524,8 @@ session**, not a refusal: the partner serves what it allows to unattested caller
 
 The partner verifies the boundary chain in the live order against the sender's root and keyring from the
 session, with the egress service as an allowed origin, `receiver` = its own entry service and
-`receiverInRoute = true`, and the authenticated peer. It then applies [the owner-aware rule](#the-owner-aware-rule) to the carried
-influence, taking the destination owner from its own records.
+`receiverInRoute = true`, and the authenticated peer. It then applies [the owner-aware rule](#the-owner-aware-rule)
+to the carried influence, taking the destination owner from its own records.
 
 The partner signs its handshake replies in either form ([above](#the-reply)). The Java SDK's partner sends the
 entry-key form: it holds its entry service's key and a current reply certificate for it, and its policy key stays

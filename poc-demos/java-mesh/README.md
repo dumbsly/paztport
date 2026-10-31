@@ -476,7 +476,7 @@ the policy key or the CA key. Its goal is to get `payment` to act on a request.
 
 | Attack | What stops it | Demo scenario |
 |---|---|---|
-| Call `payment` with no attestation | Fail closed: missing chain is invalid, never "legacy traffic" | 2: `CHAIN_MISSING` |
+| Call `payment` with no attestation | Fail closed: missing chain is invalid, never "unprotected traffic" | 2: `CHAIN_MISSING` |
 | Forge a stamp claiming to be `gateway` | Verified against gateway's public key, which the attacker can't sign for | 3: `BAD_SIGNATURE` |
 | Extend a real chain it legitimately received, with its own stamp, to `payment` | Route rebuilt from stamps (`gateway/search/payment`) is not a leaf | 4: `PATH_NOT_ALLOWED` |
 | Forward that chain unchanged | `gateway`'s stamp names `search` as its receiver, not `payment` | `BINDING_MISMATCH` (the receiver rule the spec's `wrong receiver` vector pins) |

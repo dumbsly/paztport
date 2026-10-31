@@ -60,18 +60,18 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * - BAD_CLIENT: a client record that does not verify (see verify-local.ts).
  * - NO_CLIENT: a local record with no verified client record before it.
  *
- * Local steps: `client` and `local` records are checked by verify-local.ts, whose comment lists
- * the checks. A verified local step is OK when it was allowed and REFUSED when it was refused; local
- * refusals are signed and checked, unlike the server's. Verify does not look at the disk.
+ * Local steps: `client` and `local` records are checked by verify-local.ts, whose comment lists the checks. A
+ * verified local step is OK when it was allowed and REFUSED when it was refused; local refusals are signed and
+ * checked, unlike the server's. Verify does not look at the disk.
  *
  * Replay is checked over the whole file, not over a 15 second window: the file is one record set (newRecordSet),
  * whose calls and local steps share one set of spent nonce keys, and whose responses share one nonce cache that
  * never forgets; a repeated session record resets neither.
  *
- * Calls are checked with serverId = the record's server id. The mock server checks calls with the
- * serverId "github", which is the record's server id in every shipped configuration. Calls have no freshness
- * window offline: each is checked against the time recorded with it. Responses keep the library's window,
- * at the time the client recorded verifying them.
+ * Calls are checked with serverId = the record's server id. The mock server checks calls with the serverId
+ * "github", which is the record's server id in every shipped configuration. Calls have no freshness window offline:
+ * each is checked against the time recorded with it. Responses keep the library's window, at the time the client
+ * recorded verifying them.
  *
  * Lifetimes are judged at each record's own time, as the client signed it, never at the time verify runs: a call at
  * its last stamp's `ts` (the record's `now`, which must equal it, else TIME_MISMATCH), a local step likewise, and a

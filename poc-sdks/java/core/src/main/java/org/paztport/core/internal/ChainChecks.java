@@ -32,9 +32,9 @@ public final class ChainChecks {
     }
 
     /**
-     * What a verifier takes. {@code receiver} is what the last v3 stamp's {@code rcv} must name; {@code rid} the one every stamp must
-     * carry, the origin's when null; {@code signers}, when non-null, the services and instance a one-process
-     * chain must come from.
+     * What a verifier takes. {@code receiver} is what the last v3 stamp's {@code rcv} must name; {@code rid} the one
+     * every stamp must carry, the origin's when null; {@code signers}, when non-null, the services and instance a
+     * one-process chain must come from.
      */
     public record Shape(String receiver, String rid, Signers signers) {
 

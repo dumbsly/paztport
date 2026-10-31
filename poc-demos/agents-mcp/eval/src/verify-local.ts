@@ -35,9 +35,8 @@ import {
  * `keyringNotAfter`; a record without a `keyringSig`, or with an empty or non-string one, fails like any other
  * malformed client record. The root is checked whole; a window, the root's or the keyring's, that is missing or not
  * an integer in [0, 2^53 − 1] fails the record. Each session record must name the same root, policy key, keyring
- * and keyring window. The client policy key is trusted on first
- * use from the file, as it is in session records (where the server's signed reply binds it); verify pins no
- * client key of its own.
+ * and keyring window. The client policy key is trusted on first use from the file, as it is in session records
+ * (where the server's signed reply binds it); verify pins no client key of its own.
  *
  * A local record is checked against the latest client record before it, the first failure being its result: its
  * fields are well formed, and its chain is an origin and a step (UNREADABLE); there is a verified client record
@@ -46,11 +45,10 @@ import {
  * inst "pi-1". That check's order is in its own comment: the binding of the call and the decision
  * (BINDING_MISMATCH), the chain with every offline check (the run's recorded prompt and start times, and the
  * file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
- * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on
- * it, as on every recorded time, but no edit moves a window.
- * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
- * checked, unlike the server's. A chain is v3, its stamps naming pi and then `local:<tool>` as their receivers
- * (BINDING_MISMATCH).
+ * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
+ * as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and REFUSED when
+ * it was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its stamps naming pi
+ * and then `local:<tool>` as their receivers (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against

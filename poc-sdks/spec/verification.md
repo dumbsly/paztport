@@ -9,9 +9,10 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 Contents: [Inputs](#inputs) · [The live order](#the-live-order) · [Freshness and replay](#freshness-and-replay) ·
 [Receivers, the peer and attribution](#receivers-the-peer-and-attribution) ·
-[The MCP server and client](#the-mcp-server-and-client) · [HTTP requests and responses](#http-requests-and-responses) ·
-[Modes and refusals](#modes-and-refusals) · [Offline verification](#offline-verification) ·
-[Reason codes](#reason-codes) · [Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
+[The MCP server and client](#the-mcp-server-and-client) ·
+[HTTP requests and responses](#http-requests-and-responses) · [Modes and refusals](#modes-and-refusals) ·
+[Offline verification](#offline-verification) · [Reason codes](#reason-codes) ·
+[Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
 
 ## Inputs
 
@@ -413,9 +414,9 @@ Each kind of record is checked this way:
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and the client keyring's signature verifies. It is judged at the time of
   each call that relies on it: a root or keyring, on either side, counts only up to its `notAfter`, as the reply
-  certificate does ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but
-  only the server's root window and, in the entry-key form, the server keyring's limit a response; the client's
-  windows and the certificate do not.
+  certificate does ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on
+  it too, but only the server's root window and, in the entry-key form, the server keyring's limit a response; the
+  client's windows and the certificate do not.
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
 or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it

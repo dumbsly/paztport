@@ -148,13 +148,17 @@ flowchart LR
 
 | Field | Meaning |
 |---|---|
+| `v` | Version, always `3`. |
 | `svc` | Service name. The route is rebuilt from these. |
 | `inst` | Instance (container hostname), so a response targets one replica, not a whole service. |
 | `rid` | Request ID, minted by the origin and carried unchanged. |
-| `ts` | Origin timestamp, carried unchanged. Stamps older than 5 s are rejected. |
+| `ts` | When this stamp was signed. Stamps older than 5 s are rejected. |
+| `sess` | The session id, or empty for a chain with no session. |
+| `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. |
 | `bind` | `SHA-256(METHOD \n PATH \n BODY)` of the request *this hop sent*. |
+| `infl` | The influence commitment, empty for no influence. |
 | `prev` | The previous stamp's `sig`; empty at the origin. |
-| `sig` | Ed25519 signature over the canonical bytes `svc\|inst\|rid\|ts\|bind\|prev`. |
+| `sig` | Ed25519 signature over the canonical bytes `3\|svc\|inst\|rid\|ts\|sess\|rcv\|bind\|infl\|prev`. |
 
 Why it's built this way:
 
@@ -171,18 +175,13 @@ Why it's built this way:
   accepted once, and the 5 s freshness window bounds how long anything needs to be
   remembered.
 
-The table is the v1 stamp, the first mesh format, now kept only for the conformance vectors. The
-current version, v3, which the Java mesh signs over HTTP and the TypeScript SDK and the agents demo
-sign over MCP, adds four fields: a version `v`, the session `sess`, an influence commitment `infl`,
-and the receiver `rcv`, the hop each stamp was handed to. A v3 stamp's `ts` is also its own signing
-time, not the origin's carried unchanged as in v1. Binding the
-receiver changes who a rejection names. A chain forwarded unchanged to another service now fails
-`BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last
-signer. And when the transport authenticates the sender, as mTLS does in the Java mesh, the
-verifier checks that the sender is the last signer and names that authenticated sender in every
-result. Without one, as before, only an allowed request or a `PATH_NOT_ALLOWED` names a suspect:
-the last signer. Over HTTP, v3 also binds a request's query string, and a response comes back with
-a stamp of its own that its caller checks.
+The Java mesh signs these stamps over HTTP, and the TypeScript SDK and the agents demo sign them over MCP.
+Binding the receiver changes who a rejection names. A chain forwarded unchanged to another service fails
+`BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last signer. And
+when the transport authenticates the sender, as mTLS does in the Java mesh, the verifier checks that the
+sender is the last signer and names that authenticated sender in every result. Without one, only an allowed
+request or a `PATH_NOT_ALLOWED` names a suspect: the last signer. Over HTTP, v3 also binds a request's query
+string, and a response comes back with a stamp of its own that its caller checks.
 
 ### 2.2 Proof of legitimacy: the salted Merkle tree
 
@@ -398,8 +397,8 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   incomplete or empty, and the rule passes what it cannot see. A partner must
   therefore list its public writes in `paztport.partner.unsafe-disabled`.
 
-In v1 a forwarded chain could blame its last signer. v3 binds the receiver, so
-this no longer applies to anything the demos send.
+A forwarded chain cannot blame its last signer: v3 binds the receiver, so the
+chain fails `BINDING_MISMATCH` and names no one.
 
 ### 5.2 Limits of the concept
 

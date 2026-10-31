@@ -58,7 +58,7 @@ public record StampV3(String svc, String inst, String rid, long ts, String sess,
         return o;
     }
 
-    /** Joins signed values with the delimiter; Null, a delimiter or a lone surrogate throws. */
+    /** Joins signed values with the delimiter; null, a delimiter or a lone surrogate throws. */
     static byte[] join(String... values) {
         for (String s : values) {
             if (s == null || s.indexOf('|') >= 0 || !Text.isWellFormed(s)) {
