@@ -7,6 +7,7 @@ import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.encoding.Text;
 
 /**
  * Binds a stamp to the request a hop actually sent: {@code bind} is the
@@ -23,9 +24,14 @@ public final class RequestBinding {
 
     /**
      * {@code target} is the raw path plus {@code ?} and the raw query when there is one, so a GET's query is bound
-     * too. With no query the bytes are those of the method, path and body alone.
+     * too. With no query the bytes are those of the method, path and body alone. A method or target with a lone
+     * surrogate has no UTF-8 form, and encoding it would turn it into {@code ?}, so it is refused with
+     * {@link IllegalArgumentException}.
      */
     public static String compute(String method, String target, byte[] body) {
+        if (!Text.isWellFormed(method) || !Text.isWellFormed(target)) {
+            throw new IllegalArgumentException("request: not well-formed Unicode");
+        }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         writeBytes(out, method.getBytes(StandardCharsets.UTF_8));
         out.write(NL);

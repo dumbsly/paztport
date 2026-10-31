@@ -1,5 +1,5 @@
 {
-  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read; its members are the value's own, a name such as __proto__ among them, and an object's names are in the order the input gives them. step, given for every REFUSED case, is the reader step the spec defines (Reading, steps 1 to 3: size, parse, canonical) at which the input is first refused. It is not an error code: every step answers the same code for an object. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read; its members are the value's own, a name such as __proto__ among them, and an object's names are in the order the input gives them. step, given for every REFUSED case, is the reader step the spec defines (Reading, steps 1 to 3: size, parse, canonical) at which the input is first refused. It is not an error code: every step answers the same code for an object. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. A binding case names one of the bindings (spec wire.md, Bindings) and gives its inputs, each a JSON value: prompt {text}; response {resultHash, toolCallId, labels}; toolsCall {tool, toolCallId, arguments}; result {result}; localTool {tool, input, resolved}; merkleLeaf {salt, route}, the salt in hex; http {method, target, body}, the body in hex. Each case puts the lone surrogate U+D800, written as an escape in this file, into one string the binding hashes, so the binding refuses it: expected is null, as for a jcs case, and a verifier that cannot compute a binding answers as it does for a mismatch. A replay reads this file's own structure with any JSON reader, as for a jcs case. Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
   "limits": {
     "wireBytes": 262144,
     "tokenText": 349526,
@@ -1438,6 +1438,144 @@
     {
       "name": "a string holding a lone surrogate",
       "value": "\ud800",
+      "expected": null
+    }
+  ],
+  "bindings": [
+    {
+      "name": "a prompt holding a lone surrogate",
+      "binding": "prompt",
+      "inputs": {
+        "text": "fix the \ud800typo"
+      },
+      "expected": null
+    },
+    {
+      "name": "a response whose result hash holds a lone surrogate",
+      "binding": "response",
+      "inputs": {
+        "resultHash": "h\ud800",
+        "toolCallId": "call-1",
+        "labels": []
+      },
+      "expected": null
+    },
+    {
+      "name": "a response whose call id holds a lone surrogate",
+      "binding": "response",
+      "inputs": {
+        "resultHash": "h1",
+        "toolCallId": "call-\ud800",
+        "labels": []
+      },
+      "expected": null
+    },
+    {
+      "name": "a tools/call whose tool holds a lone surrogate",
+      "binding": "toolsCall",
+      "inputs": {
+        "tool": "create_\ud800issue",
+        "toolCallId": "call-1",
+        "arguments": {
+          "title": "t"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a tools/call whose call id holds a lone surrogate",
+      "binding": "toolsCall",
+      "inputs": {
+        "tool": "create_issue",
+        "toolCallId": "call-\ud800",
+        "arguments": {
+          "title": "t"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a tools/call whose argument holds a lone surrogate",
+      "binding": "toolsCall",
+      "inputs": {
+        "tool": "create_issue",
+        "toolCallId": "call-1",
+        "arguments": {
+          "title": "t\ud800"
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a result whose text holds a lone surrogate",
+      "binding": "result",
+      "inputs": {
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "hello \ud800"
+            }
+          ]
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a local tool whose name holds a lone surrogate",
+      "binding": "localTool",
+      "inputs": {
+        "tool": "re\ud800ad",
+        "input": {
+          "path": "a"
+        },
+        "resolved": {
+          "paths": []
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a local tool whose input holds a lone surrogate",
+      "binding": "localTool",
+      "inputs": {
+        "tool": "read",
+        "input": {
+          "path": "a\ud800"
+        },
+        "resolved": {
+          "paths": []
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "a Merkle leaf whose route holds a lone surrogate",
+      "binding": "merkleLeaf",
+      "inputs": {
+        "salt": "000102030405060708090a0b0c0d0e0f",
+        "route": "session/pi/local:\ud800read"
+      },
+      "expected": null
+    },
+    {
+      "name": "an HTTP request whose method holds a lone surrogate",
+      "binding": "http",
+      "inputs": {
+        "method": "GE\ud800T",
+        "target": "/a",
+        "body": ""
+      },
+      "expected": null
+    },
+    {
+      "name": "an HTTP request whose target holds a lone surrogate",
+      "binding": "http",
+      "inputs": {
+        "method": "GET",
+        "target": "/a\ud800",
+        "body": ""
+      },
       "expected": null
     }
   ]

@@ -9,6 +9,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
 
 /**
@@ -53,6 +54,9 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
             return false;
         }
         if (salt.length != SALT_BYTES) {
+            return false;
+        }
+        if (!Text.isWellFormed(path)) {
             return false;
         }
         byte[] working = MerkleHash.leaf(salt, path);

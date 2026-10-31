@@ -41,6 +41,19 @@ class MerkleTreeTest {
     }
 
     @Test
+    void aLeafOverALoneSurrogateRefuses() {
+        byte[] salt = Crypto.randomBytes(16);
+        assertThrows(IllegalArgumentException.class, () -> MerkleHash.leaf(salt, "a/\ud800"));
+        assertEquals(32, MerkleHash.leaf(salt, "a/\ud83d\ude00").length);
+    }
+
+    @Test
+    void aLoneSurrogateRouteDoesNotVerifyAndDoesNotThrow() {
+        MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
+        assertFalse(tree.proofFor(ROUTES.get(0)).verify("gateway/\ud800", tree.root()));
+    }
+
+    @Test
     void explicitSlotsProveAndPlace() {
         List<MerkleLeaf> leaves = saltedLeaves().subList(0, 2);
         MerkleTree tree = MerkleTree.build(leaves, DEPTH, "v1", new int[] {5, 200});

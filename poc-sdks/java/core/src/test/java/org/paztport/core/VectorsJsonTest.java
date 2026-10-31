@@ -28,11 +28,15 @@ import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.policy.MerkleHash;
+import org.paztport.core.stamp.Bindings;
 
 /**
  * Replays {@code spec/vectors/json.json}, which the TypeScript SDK also reads: one test per case of {@code wire},
- * {@code file}, {@code fileFormat} and {@code base64url}. The {@code jcs} section is not replayed: it is hashed
- * content, which belongs to the MCP profile, and this SDK does not implement it. The file's own structure is read
+ * {@code file}, {@code fileFormat} and {@code base64url}, and the {@code prompt}, {@code response} and
+ * {@code merkleLeaf} cases of {@code bindings}; the {@code http} cases are replayed in the http module. The
+ * {@code jcs} section is not replayed: it is hashed content, which belongs to the MCP profile, and this SDK does not
+ * implement it, nor the {@code bindings} that hash it. The file's own structure is read
  * with Jackson, only to find each case and build its expected value; every input reaches the SDK as bytes.
  */
 class VectorsJsonTest {
@@ -175,5 +179,29 @@ class VectorsJsonTest {
                 assertArrayEquals(HexFormat.of().parseHex(c.get("expected").textValue()), Base64Url.decode(text));
             }
         });
+    }
+
+    /** Each binding of the cases this module owns refuses the string that holds a lone surrogate. */
+    @TestFactory
+    Stream<DynamicTest> bindings() {
+        List<DynamicTest> tests = new ArrayList<>();
+        for (JsonNode c : vectors.get("bindings")) {
+            JsonNode in = c.get("inputs");
+            Executable compute = switch (c.get("binding").textValue()) {
+                case "prompt" -> () -> Bindings.prompt(in.get("text").textValue());
+                case "response" -> () -> Bindings.response(in.get("resultHash").textValue(),
+                        in.get("toolCallId").textValue(), List.of());
+                case "merkleLeaf" -> () -> MerkleHash.leaf(HexFormat.of().parseHex(in.get("salt").textValue()),
+                        in.get("route").textValue());
+                default -> null;
+            };
+            if (compute != null) {
+                assertTrue(c.get("expected").isNull());
+                tests.add(DynamicTest.dynamicTest("bindings: " + c.get("name").textValue(),
+                        () -> assertThrows(IllegalArgumentException.class, compute)));
+            }
+        }
+        assertFalse(tests.isEmpty(), "bindings has its cases");
+        return tests.stream();
     }
 }

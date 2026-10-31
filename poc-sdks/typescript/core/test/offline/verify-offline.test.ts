@@ -139,6 +139,13 @@ describe("verifyChainOffline", () => {
     expect(verifyChainOffline(w.input(w.chain({}, { bind: bindPrompt("other") })), w.cfg()).reason).toBe("PROMPT_MISMATCH");
   });
 
+  it("aRecordedPromptWithALoneSurrogateIsPromptMismatch", () => {
+    const w = world();
+    const bad = "fix the \ud800typo";
+    expect(() => verifyChainOffline(w.input(w.chain(), { prompt: bad }), w.cfg())).not.toThrow();
+    expect(verifyChainOffline(w.input(w.chain(), { prompt: bad }), w.cfg()).reason).toBe("PROMPT_MISMATCH");
+  });
+
   it("everyStampCarriesTheRecordsRid", () => {
     const w = world();
     expect(verifyChainOffline(w.input(w.chain(), { rid: "rid-2" }), w.cfg()).reason).toBe("RID_MISMATCH");

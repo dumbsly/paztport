@@ -62,6 +62,13 @@ describe("verifyResponse", () => {
     expect(r.result.reason).toBe("CHAIN_MISSING");
     expect(r.labels).toEqual([]);
   });
+  it("aCallIdWithALoneSurrogateIsBindingMismatchAndDoesNotThrow", () => {
+    const w = world();
+    const { body, att } = w.response();
+    const r = verifyResponse(att, body, { ...CALL, toolCallId: "call-1\ud800" }, w.cfg());
+    expect(r.result.reason).toBe("BINDING_MISMATCH");
+    expect(r.labels).toEqual([]);
+  });
   it("malformedAttestationIsChainMissing", () => {
     const w = world();
     for (const v of [null, "x", [], { chain: {} }]) {

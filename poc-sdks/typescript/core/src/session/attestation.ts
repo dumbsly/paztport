@@ -84,10 +84,16 @@ export function verifyResponse(
     if (att.resultHash !== bindResult(result)) {
       return fail("BINDING_MISMATCH");
     }
+    let expectedBind: string;
+    try {
+      expectedBind = bindResponse(att.resultHash, call.toolCallId, att.labels);
+    } catch {
+      return fail("BINDING_MISMATCH");
+    }
     const r = verifyChainV3(
       {
         stamps: att.chain,
-        expectedBind: bindResponse(att.resultHash, call.toolCallId, att.labels),
+        expectedBind,
         influence: [],
         proof: att.proof,
         receiver: call.receiver,

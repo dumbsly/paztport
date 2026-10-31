@@ -440,7 +440,12 @@ export default function paztport(pi: ExtensionAPI): void {
   pi.on("before_agent_start", (event) => {
     if (event.messageType === "user") {
       const ts = Date.now();
-      runs.start(event.prompt, ts);
+      try {
+        runs.start(event.prompt, ts);
+      } catch {
+        // A prompt with a lone surrogate has no binding: no run starts, and the turn's signed calls fail as with no run.
+        runs.clear();
+      }
       const run = runs.current();
       if (run !== undefined) {
         evidence.write({ v: 1, type: "run", rid: run.rid, ts, prompt: event.prompt });

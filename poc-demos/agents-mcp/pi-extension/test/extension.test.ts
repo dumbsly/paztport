@@ -322,6 +322,24 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(records(outcome).map((r) => r.rid)).toEqual([rid, rid, c.details.rid]);
   });
 
+  it("aPromptWithALoneSurrogateStartsNoRun", async () => {
+    const outcome = join(tmp, `outcome-${n++}.jsonl`);
+    const evidenceLog = join(tmp, `evidence-${n++}.jsonl`);
+    const raw = JSON.stringify({ mode: "enforce", clientDir: join(demo, "client"), servers: [github(outcome)], evidenceLog });
+    const { pi } = setup([], { raw });
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    expect((await pi.execute("mcp__github__list_issues", LIST, id())).isError).toBe(false);
+    // the broken prompt ends the run before it, and starts none
+    await expect(pi.prompt("fix the \ud800typo")).resolves.toBeUndefined();
+    const after = await pi.execute("mcp__github__list_issues", LIST, id());
+    expect(after.isError).toBe(true);
+    expect(after.content).toEqual([{ type: "text", text: expect.stringMatching(/no active run/) }]);
+    expect(after.details.refused).toBe(true);
+    expect(records(evidenceLog).filter((r) => r.type === "run")).toHaveLength(1);
+    expect(records(outcome)).toHaveLength(1);
+  });
+
   it("executeReturnsTextOnlyContent", async () => {
     const { pi } = setup([github()]);
     await pi.emit("session_start", { reason: "startup" });

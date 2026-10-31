@@ -11,6 +11,9 @@ import { describe, expect, it } from "vitest";
 import { decode } from "../src/encoding/b64url.ts";
 import { canonicalize, writeWire } from "../src/encoding/jcs.ts";
 import { printFile } from "../src/encoding/json-file.ts";
+import { leafHash } from "../src/policy/merkle.ts";
+import { bindResponse } from "../src/session/attestation.ts";
+import { bindLocalTool, bindPrompt, bindResult } from "../src/stamp/binding.ts";
 import { JSON_LIMITS, MalformedJson, readFile, readToken, type JsonValue } from "../src/encoding/json.ts";
 import { vectorsJsonText } from "./vectors-json-export.ts";
 
@@ -19,6 +22,7 @@ type Input = { utf8: string } | { hex: string } | { build: Build };
 type ReadCase = { name: string } & Input & { expected: "OK" | "REFUSED"; value?: unknown; step?: string };
 type FileFormatCase = { name: string; kind: string | null; value: unknown; file: string };
 type Base64UrlCase = { name: string; text: string; expected: string | null };
+type BindingCase = { name: string; binding: string; inputs: Record<string, any>; expected: null };
 type JcsCase = { name: string } & ({ binary64: string } | { value: unknown }) & { expected: string | null };
 
 const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/json.json", import.meta.url), "utf8"));
@@ -124,6 +128,29 @@ describe("json.json", () => {
       const value = "binary64" in c ? binary64(c.binary64) : c.value;
       if (c.expected === null) expect(() => canonicalize(value)).toThrow();
       else expect(canonicalize(value)).toBe(c.expected);
+    });
+  });
+
+  describe("bindings", () => {
+    // @paztport/mcp's tests replay toolsCall; http is Java's.
+    const refusals: Record<string, (i: Record<string, any>) => unknown> = {
+      prompt: (i) => bindPrompt(i.text),
+      response: (i) => bindResponse(i.resultHash, i.toolCallId, i.labels),
+      result: (i) => bindResult(i.result),
+      localTool: (i) => bindLocalTool(i.tool, i.input, i.resolved),
+      merkleLeaf: (i) => leafHash(new Uint8Array(Buffer.from(i.salt, "hex")), i.route),
+    };
+    const own = (v.bindings as BindingCase[]).filter((c) => c.binding in refusals);
+
+    it("everyBindingIsPinned", () => {
+      const names = new Set((v.bindings as BindingCase[]).map((c) => c.binding));
+      expect([...names].sort()).toEqual(["http", "localTool", "merkleLeaf", "prompt", "response", "result", "toolsCall"]);
+    });
+
+    it.each(own)("$name", (c) => {
+      expect(c.expected).toBeNull();
+      expect(JSON.stringify(c.inputs)).toContain("\\ud800");
+      expect(() => refusals[c.binding]!(c.inputs)).toThrow();
     });
   });
 });

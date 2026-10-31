@@ -6,6 +6,7 @@ package org.paztport.core.policy;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.encoding.Text;
 
 /**
  * The two hash operations of the tree, with mandatory domain separation:
@@ -20,8 +21,14 @@ public final class MerkleHash {
     private MerkleHash() {
     }
 
-    /** {@code SHA-256(0x00 || salt || path)}. */
+    /**
+     * {@code SHA-256(0x00 || salt || path)}. A path with a lone surrogate has no UTF-8 form, and encoding it would
+     * turn it into {@code ?}, so it is refused with {@link IllegalArgumentException}.
+     */
     public static byte[] leaf(byte[] salt, String path) {
+        if (!Text.isWellFormed(path)) {
+            throw new IllegalArgumentException("leaf: not well-formed Unicode");
+        }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         out.write(LEAF);
         out.write(salt, 0, salt.length);

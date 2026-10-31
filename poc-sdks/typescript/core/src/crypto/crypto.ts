@@ -20,7 +20,16 @@ export function randomBytes(n: number): Uint8Array {
   return new Uint8Array(nodeRandomBytes(n));
 }
 
+/** False when `text` holds a surrogate that is not half of a valid pair; with the `u` flag a valid pair is one code point. */
+export function isWellFormed(text: string): boolean {
+  return !/\p{Surrogate}/u.test(text);
+}
+
+/** The UTF-8 bytes of `text`. Throws TypeError on a lone surrogate, which has none and would otherwise encode as U+FFFD. */
 export function utf8(text: string): Uint8Array {
+  if (!isWellFormed(text)) {
+    throw new TypeError("not well-formed Unicode");
+  }
   return new Uint8Array(Buffer.from(text, "utf8"));
 }
 

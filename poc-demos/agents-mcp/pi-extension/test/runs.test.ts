@@ -20,6 +20,15 @@ describe("RunState", () => {
     expect(a).toEqual({ rid: a.rid, ts: 1000, bind: bindPrompt("hello") });
   });
 
+  it("clearDropsTheRunAndItsOrigins", () => {
+    const r = new RunState();
+    r.start("p", 5);
+    r.origin("S1", key.privateKey, "inst");
+    r.clear();
+    expect(r.current()).toBeUndefined();
+    expect(() => r.origin("S1", key.privateKey, "inst")).toThrow("no active run");
+  });
+
   it("originCachedPerRidAndSess", () => {
     const r = new RunState();
     r.start("p", 5);

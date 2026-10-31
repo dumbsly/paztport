@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { isWellFormed } from "../crypto/crypto.ts";
 import { bindPrompt } from "../stamp/binding.ts";
 import { checkCommitments, checkRoute, checkStamps, reject, type Signers } from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
@@ -87,7 +88,7 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
       return reject("EXPIRED");
     }
   }
-  if (input.prompt === undefined || first.bind !== bindPrompt(input.prompt)) {
+  if (input.prompt === undefined || !isWellFormed(input.prompt) || first.bind !== bindPrompt(input.prompt)) {
     return reject("PROMPT_MISMATCH");
   }
 

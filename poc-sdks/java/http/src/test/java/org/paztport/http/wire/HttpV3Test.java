@@ -110,6 +110,15 @@ class HttpV3Test {
     }
 
     @Test
+    void aTargetWithALoneSurrogateIsBindingMismatchAndDoesNotThrow() {
+        byte[] none = new byte[0];
+        StamperV3.Stamped s = sent(List.of(), RequestBinding.compute("GET", "/search", none));
+        assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
+                HttpV3.request(HttpV3.encodeChain(s.chain()), HttpV3.encodeProof(s.proof()), null, "GET", "/search\ud800",
+                        none, "payment", null)).reason());
+    }
+
+    @Test
     void malformedHeaders() {
         StamperV3.Stamped s = sent(List.of());
         String chain = HttpV3.encodeChain(s.chain());

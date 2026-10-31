@@ -10,6 +10,14 @@ const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
 
 describe("merkle", () => {
+  it("leafHashRefusesALoneSurrogate", () => {
+    expect(() => leafHash(randomBytes(16), "a/\ud800")).toThrow(TypeError);
+    expect(leafHash(randomBytes(16), "a/\ud83d\ude00")).toHaveLength(32);
+  });
+  it("aLoneSurrogateRouteDoesNotVerifyAndDoesNotThrow", () => {
+    const t = buildTree(leaves(), 8, "v1");
+    expect(verifyProof(t.proofFor("a/b"), "a/\ud800", t.root)).toBe(false);
+  });
   it("explicitSlotsProveAndPlace", () => {
     const two = leaves().slice(0, 2);
     const t = buildTree(two, 8, "v1", [5, 200]);

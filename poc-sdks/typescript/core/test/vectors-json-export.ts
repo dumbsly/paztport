@@ -26,6 +26,7 @@ class Ordered {
 
 type FileFormatCase = { name: string; kind: string | null; value: unknown; file: string };
 type Base64UrlCase = { name: string; text: string; expected: string | null };
+type BindingCase = { name: string; binding: string; inputs: Record<string, unknown>; expected: null };
 type JcsCase = { name: string } & ({ binary64: string } | { value: unknown }) & { expected: string | null };
 
 const ABOUT =
@@ -47,6 +48,12 @@ const ABOUT =
   "so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. " +
   "A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. " +
   "The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. " +
+  "A binding case names one of the bindings (spec wire.md, Bindings) and gives its inputs, each a JSON value: " +
+  "prompt {text}; response {resultHash, toolCallId, labels}; toolsCall {tool, toolCallId, arguments}; result {result}; " +
+  "localTool {tool, input, resolved}; merkleLeaf {salt, route}, the salt in hex; http {method, target, body}, the body in hex. " +
+  "Each case puts the lone surrogate U+D800, written as an escape in this file, into one string the binding hashes, " +
+  "so the binding refuses it: expected is null, as for a jcs case, and a verifier that cannot compute a binding answers as it does for a mismatch. " +
+  "A replay reads this file's own structure with any JSON reader, as for a jcs case. " +
   "Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; " +
   "the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
@@ -521,8 +528,79 @@ const BASE64URL: Base64UrlCase[] = [
   { name: "a trailing newline", text: "AA\n", expected: null },
 ];
 
+/** Each string a binding hashes, holding U+D800 alone; every binding refuses it, so each answer is null. */
+const BINDINGS: BindingCase[] = [
+  { name: "a prompt holding a lone surrogate", binding: "prompt", inputs: { text: "fix the \ud800typo" }, expected: null },
+  {
+    name: "a response whose result hash holds a lone surrogate",
+    binding: "response",
+    inputs: { resultHash: "h\ud800", toolCallId: "call-1", labels: [] },
+    expected: null,
+  },
+  {
+    name: "a response whose call id holds a lone surrogate",
+    binding: "response",
+    inputs: { resultHash: "h1", toolCallId: "call-\ud800", labels: [] },
+    expected: null,
+  },
+  {
+    name: "a tools/call whose tool holds a lone surrogate",
+    binding: "toolsCall",
+    inputs: { tool: "create_\ud800issue", toolCallId: "call-1", arguments: { title: "t" } },
+    expected: null,
+  },
+  {
+    name: "a tools/call whose call id holds a lone surrogate",
+    binding: "toolsCall",
+    inputs: { tool: "create_issue", toolCallId: "call-\ud800", arguments: { title: "t" } },
+    expected: null,
+  },
+  {
+    name: "a tools/call whose argument holds a lone surrogate",
+    binding: "toolsCall",
+    inputs: { tool: "create_issue", toolCallId: "call-1", arguments: { title: "t\ud800" } },
+    expected: null,
+  },
+  {
+    name: "a result whose text holds a lone surrogate",
+    binding: "result",
+    inputs: { result: { content: [{ type: "text", text: "hello \ud800" }] } },
+    expected: null,
+  },
+  {
+    name: "a local tool whose name holds a lone surrogate",
+    binding: "localTool",
+    inputs: { tool: "re\ud800ad", input: { path: "a" }, resolved: { paths: [] } },
+    expected: null,
+  },
+  {
+    name: "a local tool whose input holds a lone surrogate",
+    binding: "localTool",
+    inputs: { tool: "read", input: { path: "a\ud800" }, resolved: { paths: [] } },
+    expected: null,
+  },
+  {
+    name: "a Merkle leaf whose route holds a lone surrogate",
+    binding: "merkleLeaf",
+    inputs: { salt: "000102030405060708090a0b0c0d0e0f", route: "session/pi/local:\ud800read" },
+    expected: null,
+  },
+  {
+    name: "an HTTP request whose method holds a lone surrogate",
+    binding: "http",
+    inputs: { method: "GE\ud800T", target: "/a", body: "" },
+    expected: null,
+  },
+  {
+    name: "an HTTP request whose target holds a lone surrogate",
+    binding: "http",
+    inputs: { method: "GET", target: "/a\ud800", body: "" },
+    expected: null,
+  },
+];
+
 export function buildVectorsJson(): Record<string, unknown> {
-  return { about: ABOUT, limits: LIMITS, wire: WIRE, file: FILE, fileFormat: FILE_FORMAT, base64url: BASE64URL, jcs: JCS };
+  return { about: ABOUT, limits: LIMITS, wire: WIRE, file: FILE, fileFormat: FILE_FORMAT, base64url: BASE64URL, jcs: JCS, bindings: BINDINGS };
 }
 
 /** JSON.stringify(value, null, 2), except that an Ordered object keeps its members in the order given. */

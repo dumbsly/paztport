@@ -32,9 +32,18 @@ public final class VerifyInputs {
      */
     public static VerifyInputV3 request(String chain, ParsedChain parsed, String proofHeader, String influenceHeader,
             String method, String target, byte[] body, String receiver, Peer peer) {
-        return new VerifyInputV3(chain, RequestBinding.compute(method, target, body),
+        return new VerifyInputV3(chain, expectedBind(method, target, body),
                 HttpV3.decodeInfluence(influenceHeader), HttpV3.decodeProof(proofHeader), receiver, true,
                 requestNonceKey(parsed), peer);
+    }
+
+    /** The request's binding, or null when it has none: a method or target with a lone surrogate binds nothing. */
+    private static String expectedBind(String method, String target, byte[] body) {
+        try {
+            return RequestBinding.compute(method, target, body);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     private static String requestNonceKey(ParsedChain parsed) {

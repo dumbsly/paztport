@@ -17,6 +17,12 @@ export class RunState {
     this.origins.clear();
   }
 
+  /** Ends the current run, so that no call is signed until the next one starts. */
+  clear(): void {
+    this.run = undefined;
+    this.origins.clear();
+  }
+
   current(): { rid: string; ts: number; bind: string } | undefined {
     return this.run === undefined ? undefined : { ...this.run };
   }
