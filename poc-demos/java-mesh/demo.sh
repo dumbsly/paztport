@@ -318,10 +318,11 @@ fi
 
 # 14 — a caller with no root to show (the operator) opens a session at the PSP itself: it is unsafe,
 # so the PSP refuses refunds in it, and takes charges but registers no card from them. Its keyring signature
-# is any non-empty string: nothing verifies it, since the session is unsafe for want of a root.
-nonce=$(head -c16 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=')
+# is well formed (64 zero bytes) but signed by nobody: the session is unsafe only because it has no root.
+zero_sig=$(head -c64 /dev/zero | base64 | tr '+/' '-_' | tr -d '=\n')
+nonce=$(head -c16 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
 preq POST "https://psp:8080/paztport/session" -H 'Content-Type: application/json' \
-  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"clientKeyringSig\":\"unsigned\",\"nonce\":\"$nonce\"}"
+  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"clientKeyringSig\":\"$zero_sig\",\"nonce\":\"$nonce\"}"
 sess=$(printf '%s' "$BODY" | sed -n 's/.*"sess":"\([A-Za-z0-9_-]*\)".*/\1/p')
 unsafe=false
 printf '%s' "$BODY" | grep -q '"status":"unsafe"' && unsafe=true
