@@ -39,15 +39,15 @@ final class Handshake {
 
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** How to build one: each window's {@code notAfter}, where null signs that root or keyring in the old form. */
+    /** How to build one: each window's {@code notAfter}. */
     static final class Options {
         boolean policyKeyForm;
         String status = "attested";
         long cert = FAR;
-        Long clientRoot = FAR;
-        Long clientKeyring = FAR;
-        Long serverRoot = FAR;
-        Long serverKeyring = FAR;
+        long clientRoot = FAR;
+        long clientKeyring = FAR;
+        long serverRoot = FAR;
+        long serverKeyring = FAR;
     }
 
     final KeyPair clientPolicy = Crypto.generateEd25519KeyPair();
@@ -66,23 +66,16 @@ final class Handshake {
 
     private Handshake(Options o) {
         String clientKey = key(clientPolicy);
-        SignedRoot clientRoot = o.clientRoot == null
-                ? SignedRoot.signOldForm(clientTree.root(), "c1", clientPolicy.getPrivate())
-                : SignedRoot.sign(clientTree.root(), "c1", o.clientRoot, clientPolicy.getPrivate());
+        SignedRoot clientRoot = SignedRoot.sign(clientTree.root(), "c1", o.clientRoot, clientPolicy.getPrivate());
         Map<String, String> clientServices = Map.of("session", key(session), "pi", key(pi));
-        KeyringFile clientRing = o.clientKeyring == null
-                ? KeyringFile.signOldForm(clientServices, clientKey, clientPolicy.getPrivate())
-                : KeyringFile.sign(clientServices, clientKey, o.clientKeyring, clientPolicy.getPrivate());
+        KeyringFile clientRing = KeyringFile.sign(clientServices, clientKey, o.clientKeyring,
+                clientPolicy.getPrivate());
         SessionRequest req = SessionRequest.of(clientRoot, clientKey, clientRing, Sessions.newNonce());
         request = tree(req.toJson());
 
-        SignedRoot serverRoot = o.serverRoot == null
-                ? SignedRoot.signOldForm(serverTree.root(), "s1", serverPolicy.getPrivate())
-                : SignedRoot.sign(serverTree.root(), "s1", o.serverRoot, serverPolicy.getPrivate());
+        SignedRoot serverRoot = SignedRoot.sign(serverTree.root(), "s1", o.serverRoot, serverPolicy.getPrivate());
         Map<String, String> serverServices = Map.of(ENTRY, key(entry), "tools", key(entry));
-        KeyringFile serverRing = o.serverKeyring == null
-                ? KeyringFile.signOldForm(serverServices, pin, serverPolicy.getPrivate())
-                : KeyringFile.sign(serverServices, pin, o.serverKeyring, serverPolicy.getPrivate());
+        KeyringFile serverRing = KeyringFile.sign(serverServices, pin, o.serverKeyring, serverPolicy.getPrivate());
         String nonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
                 clientServices);

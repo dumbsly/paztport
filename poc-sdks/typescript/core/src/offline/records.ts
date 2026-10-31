@@ -24,11 +24,11 @@ export type RecordedSession = {
   attestedAt: (at: number) => boolean;
   /** Attested at all: judged at the earliest of its limits, since each is an upper bound. */
   attested: boolean;
-  /** The `policyNotAfter` a recorded response in the session is checked with: the server root's window and, in the entry-key form, the server keyring's; 2^53 − 1 when neither has one. */
+  /** The `policyNotAfter` a recorded response in the session is checked with: the server root's window and, in the entry-key form, the server keyring's; 2^53 − 1 when the reply holds neither (it then opens no attested session). */
   responseNotAfter: number;
 };
 
-/** `o`'s own `field` when it is a valid notAfter, else undefined: offline an old-form root or keyring sets no limit. */
+/** `o`'s own `field` when it is a valid notAfter, else undefined: a limit the record lacks. */
 function ownWindow(o: unknown, field: string): number | undefined {
   if (typeof o !== "object" || o === null || !Object.hasOwn(o, field)) return undefined;
   const n = (o as Record<string, unknown>)[field];
@@ -43,9 +43,8 @@ function earliest(windows: (number | undefined)[], none: number): number {
 
 /**
  * Reads a recorded handshake. Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each
- * root and keyring in the new form, both sides; it is attested at all when attested at the earliest of them, or at
- * any time when it has none (a policy-key reply over old-form material). The windows are read before the signatures
- * over them are checked, but none counts unless the session is attested at it, which checks each signature. A
+ * root and keyring, both sides; it is attested at all when attested at the earliest of them. The windows are read
+ * before the signatures over them are checked, but none counts unless the session is attested at it, which checks each signature. A
  * response is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and the
  * certificate do not limit it. Never throws.
  */

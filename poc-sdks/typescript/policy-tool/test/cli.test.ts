@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  decode, isCurrent, parseLocalRules, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
+  canonicalize, decode, encode, isCurrent, parseLocalRules, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
@@ -56,7 +56,7 @@ describe("policy-tool CLIs", () => {
     const after = Date.now();
     const ring = readKeyring(join(out, "keyring.json"));
     expect(typeof ring.sig).toBe("string");
-    // the new form, valid for seven days
+    // signed with a window, valid for seven days
     expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["services", "policy", "sig", "notAfter"]);
     expect(ring.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
     expect(ring.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
@@ -130,7 +130,7 @@ describe("policy-tool CLIs", () => {
     const ring = readKeyring(join(keys, "keyring.json"));
     const root = readJson<SignedRoot>(join(out, "root.json"));
     expect(verifyRoot(root, ring.policy)).toBe(true);
-    // the new form, valid for seven days, and the window is printed
+    // signed with a window, valid for seven days, and the window is printed
     expect(Object.keys(root)).toEqual(["rootId", "root", "sig", "notAfter"]);
     expect(root.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
     expect(root.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
@@ -247,7 +247,7 @@ describe("policy-tool CLIs", () => {
       tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
       unsigned: { services: ring.services, policy: ring.policy },
       "bad signature": { ...ring, sig: "!" },
-      "window moved": { ...ring, notAfter: ring.notAfter! + 1 },
+      "window moved": { ...ring, notAfter: ring.notAfter + 1 },
       "window dropped": { services: ring.services, policy: ring.policy, sig: ring.sig },
       "window not an integer": { ...ring, notAfter: 1.5 },
     };
@@ -262,16 +262,19 @@ describe("policy-tool CLIs", () => {
     }
   });
 
-  it("policyStillCertifiesFromAnOldFormKeyring", () => {
-    // nothing is refused for being in the old form yet
+  it("policyRefusesAKeyringWithoutNotAfter", () => {
+    // signed over its services and policy key alone, so only the missing window refuses it
     const { keys, policyArgs } = certWorld();
     const ring = readKeyring(join(keys, "keyring.json"));
+    const body = canonicalize({ policy: ring.policy, services: ring.services });
+    const sig = encode(sign(readKey(join(keys, "policy.key")), utf8("paztport-keyring\n" + body)));
     const path = join(tmp(), "keyring.json");
-    writeFileSync(path, JSON.stringify(signKeyringOldForm(ring.services, ring.policy, readKey(join(keys, "policy.key")))));
+    writeFileSync(path, JSON.stringify({ services: ring.services, policy: ring.policy, sig }));
     const out = tmp();
     const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", path));
-    expect(r.status, r.stderr).toBe(0);
-    expect(verifyReplyCert(readJson<ReplyCert>(join(out, "reply-cert.json")), ring.policy)).toBe(true);
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain(`${path} is missing or not a keyring`);
+    expect(readdirSync(out)).toEqual([]);
   });
 
   it("policyRefusesAKeyringOfAnotherPolicyKey", () => {
@@ -330,7 +333,7 @@ describe("policy-tool CLIs", () => {
     return files;
   }
 
-  it("keygenWritesNewFormKeyring", () => {
+  it("keygenWritesAKeyringWithAWindow", () => {
     const out = tmp();
     const before = Date.now();
     const r = run(keygen, ["--out", out, "--services", "a,b", "--policy-days", "30"]);
@@ -361,7 +364,7 @@ describe("policy-tool CLIs", () => {
     expect(r.status, r.stderr).toBe(0);
     const root = readJson<SignedRoot>(join(out, "root.json"));
     const ring = readKeyring(join(keys, "keyring.json"));
-    // both signed in the new form until the one notAfter
+    // both signed until the one notAfter
     expect(root.notAfter).toBeGreaterThanOrEqual(start + 30 * DAY_MS);
     expect(root.notAfter).toBeLessThanOrEqual(end + 30 * DAY_MS);
     expect(ring.notAfter).toBe(root.notAfter);
@@ -430,7 +433,7 @@ describe("policy-tool CLIs", () => {
     const renewed = readJson<SignedRoot>(join(out, "root.json"));
     expect(renewed.rootId).toBe(built.rootId);
     expect(renewed.root).toBe(built.root);
-    expect(renewed.notAfter).toBeGreaterThan(built.notAfter!);
+    expect(renewed.notAfter).toBeGreaterThan(built.notAfter);
     expect(Object.keys(renewed)).toEqual(["rootId", "root", "sig", "notAfter"]);
     expect(verifyRoot(renewed, ringBefore.policy)).toBe(true);
     // the bundles are untouched and still prove against the renewed root
@@ -462,7 +465,7 @@ describe("policy-tool CLIs", () => {
     const built = readJson<SignedRoot>(join(out, "root.json"));
     const cases: Record<string, unknown> = {
       "another policy key's": readJson<SignedRoot>(join(otherOut, "root.json")),
-      "window moved": { ...built, notAfter: built.notAfter! + 1 },
+      "window moved": { ...built, notAfter: built.notAfter + 1 },
       "not a root": { rootId: built.rootId },
     };
     for (const [name, bad] of Object.entries(cases)) {
@@ -483,7 +486,7 @@ describe("policy-tool CLIs", () => {
     const cases: Record<string, unknown> = {
       "another policy key's": readKeyring(join(otherKeys, "keyring.json")),
       tampered: { ...ring, services: { ...ring.services, orders: ring.services.gateway } },
-      "window moved": { ...ring, notAfter: ring.notAfter! + 1 },
+      "window moved": { ...ring, notAfter: ring.notAfter + 1 },
     };
     for (const [name, bad] of Object.entries(cases)) {
       writeFileSync(join(keys, "keyring.json"), JSON.stringify(bad));
@@ -496,30 +499,48 @@ describe("policy-tool CLIs", () => {
     }
   });
 
-  it("renewAcceptsExpiredAndOldForm", () => {
+  it("renewRefusesMaterialWithoutNotAfterAndWritesNothing", () => {
+    // each signed over its other fields alone, so only the missing window refuses it
     const { keys, out, renewArgs } = builtWorld();
     const built = readJson<SignedRoot>(join(out, "root.json"));
     const ring = readKeyring(join(keys, "keyring.json"));
     const priv = readKey(join(keys, "policy.key"));
-    const expiredRoot = signRenewedRoot(built, 1000, priv);
-    const oldRoot = signRootOldForm(decode(built.root), built.rootId, priv);
-    const expiredRing = renewKeyring(ring as SignedKeyring, 1000, priv);
-    const oldRing = signKeyringOldForm(ring.services, ring.policy, priv);
-    for (const [name, root, keyring] of [["old root, expired keyring", oldRoot, expiredRing], ["expired root, old keyring", expiredRoot, oldRing]] as const) {
-      writeFileSync(join(out, "root.json"), JSON.stringify(root));
-      writeFileSync(join(keys, "keyring.json"), JSON.stringify(keyring));
+    const rootFile = readFileSync(join(out, "root.json"), "utf8");
+    const noRootWindow = { rootId: built.rootId, root: built.root, sig: encode(sign(priv, utf8(`${built.rootId}|${built.root}`))) };
+    const ringBody = canonicalize({ policy: ring.policy, services: ring.services });
+    const noRingWindow = { services: ring.services, policy: ring.policy, sig: encode(sign(priv, utf8("paztport-keyring\n" + ringBody))) };
+    for (const [name, file, bad, why] of [
+      ["root", join(out, "root.json"), noRootWindow, "is missing or not a signed root"],
+      ["keyring", join(keys, "keyring.json"), noRingWindow, "is missing or not a keyring"],
+    ] as const) {
+      writeFileSync(join(out, "root.json"), rootFile);
+      writeFileSync(file, JSON.stringify(bad));
+      const before = snapshot(keys, out);
       const r = run(policy, renewArgs());
-      expect(r.status, `${name}: ${r.stderr}`).toBe(0);
-      const now = Date.now();
-      const renewed = readJson<SignedRoot>(join(out, "root.json"));
-      expect(isCurrent(renewed, now), name).toBe(true);
-      expect(renewed.rootId).toBe(built.rootId);
-      expect(renewed.root).toBe(built.root);
-      expect(verifyRoot(renewed, ring.policy), name).toBe(true);
-      const renewedRing = readKeyring(join(keys, "keyring.json"));
-      expect(isCurrent(renewedRing, now), name).toBe(true);
-      expect(verifyKeyring(renewedRing as SignedKeyring, ring.policy), name).toBe(true);
+      expect(r.status, name).toBe(2);
+      expect(r.stderr, name).toContain(`${file} ${why}`);
+      expect(snapshot(keys, out), name).toEqual(before);
     }
+  });
+
+  it("renewAcceptsExpired", () => {
+    const { keys, out, renewArgs } = builtWorld();
+    const built = readJson<SignedRoot>(join(out, "root.json"));
+    const ring = readKeyring(join(keys, "keyring.json"));
+    const priv = readKey(join(keys, "policy.key"));
+    writeFileSync(join(out, "root.json"), JSON.stringify(signRenewedRoot(built, 1000, priv)));
+    writeFileSync(join(keys, "keyring.json"), JSON.stringify(renewKeyring(ring as SignedKeyring, 1000, priv)));
+    const r = run(policy, renewArgs());
+    expect(r.status, r.stderr).toBe(0);
+    const now = Date.now();
+    const renewed = readJson<SignedRoot>(join(out, "root.json"));
+    expect(isCurrent(renewed, now)).toBe(true);
+    expect(renewed.rootId).toBe(built.rootId);
+    expect(renewed.root).toBe(built.root);
+    expect(verifyRoot(renewed, ring.policy)).toBe(true);
+    const renewedRing = readKeyring(join(keys, "keyring.json"));
+    expect(isCurrent(renewedRing, now)).toBe(true);
+    expect(verifyKeyring(renewedRing as SignedKeyring, ring.policy)).toBe(true);
   });
 
   it("policyLifetimeAndModeBadArgsExitNonZero", () => {

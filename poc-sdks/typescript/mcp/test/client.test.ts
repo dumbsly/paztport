@@ -76,7 +76,7 @@ function serverMaterial(
       signingKeys: { "mcp-entry": entry.privateKey, "github-tools": tools.privateKey },
       keyring: ring.services,
       keyringSig: ring.sig,
-      keyringNotAfter: ring.notAfter!,
+      keyringNotAfter: ring.notAfter,
       replyCert: CERTIFY_ENTRY({ policy, keys: ring.services }),
       signedRoot,
       routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
@@ -184,11 +184,14 @@ describe("classifySessionReply", () => {
   it("malformedReplyIsReplaced", () => {
     const c = connected();
     const { sig: _sig, ...unsigned } = c.raw as SessionReply;
+    const { serverKeyringNotAfter: _k, ...noRingWindow } = c.raw as SessionReply;
+    const { notAfter: _n, ...rootWithoutWindow } = (c.raw as SessionReply).serverRoot!;
     const bad = [
       undefined, null, "reply", {}, unsigned, { ...(c.raw as SessionReply), status: "open" },
       // a new field present (even null) must be well formed
       { ...(c.raw as SessionReply), serverKeyringSig: null }, { ...(c.raw as SessionReply), serverReplyCert: {} },
-      // so must a window, the keyring's or the root's: present but not an integer in range is never the old form
+      // so must a window, the keyring's or the root's, which neither may leave out
+      noRingWindow, { ...(c.raw as SessionReply), serverRoot: rootWithoutWindow },
       ...[1.5, -1, 2 ** 53, "x", null, true, {}, []].flatMap((bad) => [
         { ...(c.raw as SessionReply), serverKeyringNotAfter: bad },
         { ...(c.raw as SessionReply), serverRoot: { ...(c.raw as SessionReply).serverRoot, notAfter: bad } },
@@ -251,17 +254,17 @@ describe("classifySessionReply", () => {
       }
     }
   });
-  it("aMovedOrDroppedServerKeyringNotAfterIsABadSignature", () => {
+  it("aMovedServerKeyringNotAfterIsABadSignatureAndADroppedOneMalformed", () => {
     const c = connected();
     const { sig: _sig, ...body } = c.raw as SessionReply;
     const entryKey = c.policy.signingKeys["mcp-entry"]!;
-    // re-signed by the entry key, so only the policy key's keyring signature can catch it
+    // re-signed by the entry key, so only the policy key's keyring signature can catch the move
     const moved = signSessionReply({ ...body, serverKeyringNotAfter: NOT_AFTER + 1 }, entryKey);
+    expect(classifySessionReply(moved, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    // a keyring signature without its window is malformed, however it is signed
     const { serverKeyringNotAfter: _w, ...noWindow } = body;
     const dropped = signSessionReply(noWindow, entryKey);
-    for (const raw of [moved, dropped]) {
-      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
-    }
+    expect(classifySessionReply(dropped, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
     // and changed in transit, the reply's own signature fails
     const tampered = { ...(c.raw as SessionReply), serverKeyringNotAfter: NOT_AFTER - 1 };
     expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()).status).toBe("unsafe");
@@ -426,8 +429,8 @@ describe("readToolResult", () => {
     expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at }, serverKeyringNotAfter: at })).toMatchObject({ verification: "OK" });
     expect(read({ ...s.reply, serverRoot: { ...s.reply.serverRoot!, notAfter: at - 1 } })).toEqual(expired);
     expect(read({ ...s.reply, serverKeyringNotAfter: at - 1 })).toEqual(expired);
-    const { notAfter: _w, ...oldRoot } = s.reply.serverRoot!;
-    expect(read({ ...s.reply, serverRoot: oldRoot }), "an old-form root has no window").toEqual(expired);
+    const { notAfter: _w, ...noWindow } = s.reply.serverRoot!;
+    expect(read({ ...s.reply, serverRoot: noWindow as typeof s.reply.serverRoot }), "a root without a window fails closed").toEqual(expired);
   });
   it("noServerRootIsUntrustedWithoutVerifying", () => {
     const s = attestedSession();

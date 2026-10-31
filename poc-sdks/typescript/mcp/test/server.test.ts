@@ -8,11 +8,12 @@ import {
   decideServerCall,
   decode,
   earliestNotAfter,
+  encode,
   expiryWarnings,
   generateKeyPair,
   signReplyCert,
   signKeyring,
-  signKeyringOldForm,
+  sign,
   utf8,
   verify,
   verifyRoot,
@@ -44,7 +45,7 @@ const DAY_MS = 86_400_000;
 const NOT_AFTER = 4_102_444_800_000;
 
 /**
- * A consistent server policy for `hops`, in the new form, with the policy key that signed it so a test can forge
+ * A consistent server policy for `hops`, with the policy key that signed it so a test can forge
  * parts; `windows` replaces NOT_AFTER as the root's or the keyring's.
  */
 function serverSetup(
@@ -149,12 +150,14 @@ describe("checkServerPolicy", () => {
       expect(() => new McpServerSession({ ...cfg, replyCert }, RULES, Date.now), name).toThrow(why);
     }
   });
-  it("refusesAnOldFormKeyringWithNoWindow", () => {
+  it("refusesAKeyringWithoutAWindowAsItRefusesOneThatIsNotAnInteger", () => {
+    // signed over its services and policy key alone, so only the missing window refuses it
     const { cfg, policyPrivateKey } = serverSetup();
     const { keyringNotAfter: _w, ...rest } = cfg;
-    const old = { ...rest, keyringSig: signKeyringOldForm(cfg.keyring, cfg.policyPublicKey, policyPrivateKey).sig } as ServerPolicy;
-    expect(() => checkServerPolicy(old, Date.now())).toThrow("the keyring is in the old form");
-    expect(() => new McpServerSession(old, RULES, Date.now)).toThrow("the keyring is in the old form");
+    const keyringSig = encode(sign(policyPrivateKey, utf8("paztport-keyring\n" + canonicalize({ policy: cfg.policyPublicKey, services: cfg.keyring }))));
+    const noWindow = { ...rest, keyringSig } as ServerPolicy;
+    expect(() => checkServerPolicy(noWindow, Date.now())).toThrow("the keyring is not signed by policyPublicKey");
+    expect(() => new McpServerSession(noWindow, RULES, Date.now)).toThrow("the keyring is not signed by policyPublicKey");
   });
   it("expiredKeyring", () => {
     const { cfg } = serverSetup(undefined, { keyringNotAfter: 5_000 });
@@ -165,10 +168,13 @@ describe("checkServerPolicy", () => {
     const { cfg } = serverSetup(undefined, { rootNotAfter: 5_000 });
     expect(() => checkServerPolicy(cfg, 5_001)).toThrow("the root expired at 5000");
   });
-  it("oldFormRoot", () => {
-    const { cfg } = serverSetup();
-    const { notAfter: _n, ...old } = cfg.signedRoot;
-    expect(() => checkServerPolicy({ ...cfg, signedRoot: old }, Date.now())).toThrow("the root is in the old form");
+  it("refusesARootWithoutAWindowAsItRefusesOneThatIsNotAnInteger", () => {
+    const { cfg, policyPrivateKey } = serverSetup();
+    const { notAfter: _n, ...root } = cfg.signedRoot;
+    const noWindow = { ...root, sig: encode(sign(policyPrivateKey, utf8(`${root.rootId}|${root.root}`))) } as typeof cfg.signedRoot;
+    for (const signedRoot of [noWindow, { ...cfg.signedRoot, notAfter: 1.5 }]) {
+      expect(() => checkServerPolicy({ ...cfg, signedRoot }, Date.now())).toThrow("the root is not signed by policyPublicKey");
+    }
   });
   it("rootNotSignedByPolicyKey", () => {
     const { cfg } = serverSetup();
@@ -256,7 +262,7 @@ describe("session handshake", () => {
     expect(srv.session()?.sess).toBe(reply.sess);
     expect(srv.session()?.status).toBe("attested");
   });
-  it("aNewFormClientRootAndKeyringWindowSurviveParsing", () => {
+  it("aClientRootAndKeyringWindowSurviveParsing", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = makeClient().request();
     expect(req.clientRoot!.notAfter).toBe(CLIENT_NOT_AFTER);
@@ -269,12 +275,10 @@ describe("session handshake", () => {
     expect(text).toContain(".0");
     expect(srv.openSession(JSON.parse(text)).status).toBe("attested");
   });
-  it("aTamperedOrDroppedClientKeyringNotAfterIsUnsafe", () => {
+  it("aTamperedClientKeyringNotAfterIsUnsafe", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = makeClient().request();
     expect(srv.openSession({ ...req, clientKeyringNotAfter: CLIENT_NOT_AFTER + 1 }).status).toBe("unsafe");
-    const { clientKeyringNotAfter: _w, ...dropped } = req;
-    expect(srv.openSession(dropped).status).toBe("unsafe");
     expect(srv.openSession({ ...req, clientRoot: { ...req.clientRoot!, notAfter: CLIENT_NOT_AFTER + 1 } }).status).toBe("unsafe");
   });
   it("aMalformedNotAfterOpensNoSession", () => {
@@ -290,16 +294,18 @@ describe("session handshake", () => {
     // a request that opens no session leaves the current one in place
     expect(srv.session()).toBe(current);
   });
-  it("anOldFormClientIsUnsafeAtTheHandshake", () => {
-    // as at a Java partner: material with no window opens no attested session, so no call is ever verified against it
+  it("clientMaterialWithoutNotAfterOpensNoSession", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
-    const req = makeClient({ oldForm: true }).request();
-    expect(Object.hasOwn(req, "clientKeyringNotAfter")).toBe(false);
-    expect(Object.hasOwn(req.clientRoot!, "notAfter")).toBe(false);
-    const reply = srv.openSession(req);
-    expect(reply.status).toBe("unsafe");
-    expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
-    expect(srv.session()?.status).toBe("unsafe");
+    const good = makeClient().request();
+    expect(srv.openSession(good).status).toBe("attested");
+    const current = srv.session();
+    const { clientKeyringNotAfter: _w, ...noRingWindow } = good;
+    const { notAfter: _n, ...root } = good.clientRoot!;
+    expect(() => srv.openSession(noRingWindow)).toThrow(InvalidParams);
+    expect(() => srv.openSession(noRingWindow)).toThrow("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow(InvalidParams);
+    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
+    expect(srv.session()).toBe(current);
   });
   it("anExpiredClientRootOrKeyringIsUnsafeAtTheHandshake", () => {
     const T = Date.now() + 60_000;

@@ -506,8 +506,6 @@ public final class BoundaryClient implements AutoCloseable {
         NOT_AN_ORIGIN,
         /** This side's root or keyring does not verify under its policy key. */
         OWN_UNVERIFIED,
-        /** This side's root or keyring is in the old form, with no {@code notAfter}. */
-        OWN_OLD_FORM,
         /** This side's root or keyring has passed its {@code notAfter}. */
         OWN_EXPIRED
     }
@@ -666,12 +664,12 @@ public final class BoundaryClient implements AutoCloseable {
         }
 
         /**
-         * The client, once its settings are checked, in this order: the partner URL is {@code https}, since the
-         * calls carry the boundary stamp and the influence's owners; the boundary key is
-         * {@value BoundaryInfluence#KEY_LENGTH} bytes; the read timeout is positive; the partner and this service
-         * are named; the idle period is positive; the partner URL is a scheme and an authority only; and this
-         * side's root and keyring verify under its policy key and are in the new form and current by the time of
-         * day. Each refusal is an {@link InvalidSetting} naming its {@link Fault}.
+         * The client, once its settings are checked, in this order: the partner URL is {@code https}, since the calls
+         * carry the boundary stamp and the influence's owners; the boundary key is
+         * {@value BoundaryInfluence#KEY_LENGTH} bytes; the read timeout is positive; the partner and this service are
+         * named; the idle period is positive; the partner URL is a scheme and an authority only; and this side's root
+         * and keyring verify under its policy key and are current by the time of day. Each refusal is an
+         * {@link InvalidSetting} naming its {@link Fault}.
          *
          * @throws NullPointerException if a required setting is missing
          * @throws InvalidSetting if a setting is refused
@@ -727,10 +725,6 @@ public final class BoundaryClient implements AutoCloseable {
             // The partner would judge them unsafe, and so would every reply, so a service holding them is
             // misconfigured.
             long now = millis.getAsLong();
-            if (!ownRoot.isNewForm() || !ownKeyring.isNewForm()) {
-                throw new InvalidSetting(Fault.OWN_OLD_FORM,
-                        "the root and keyring must both be in the new form, with a notAfter");
-            }
             if (!ownRoot.isCurrent(now) || !ownKeyring.isCurrent(now)) {
                 throw new InvalidSetting(Fault.OWN_EXPIRED, "the root and keyring must both be current: "
                         + (ownRoot.isCurrent(now) ? "the keyring" : "the root") + " has expired");

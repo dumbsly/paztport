@@ -70,4 +70,28 @@ class SessionRequestTest {
             assertThrows(IllegalArgumentException.class, () -> SessionRequest.parse(o.toString()), bad.toString());
         }
     }
+
+    /**
+     * Client material without {@code notAfter} is malformed: a request whose keyring window or client root window is
+     * missing is refused at parse, as one whose window is not an integer is, and so opens no session at all.
+     */
+    @Test
+    void clientMaterialWithoutNotAfterIsMalformed() throws Exception {
+        KeyPair policy = Crypto.generateEd25519KeyPair();
+        String pin = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
+        ObjectNode wire = (ObjectNode) new ObjectMapper().readTree(SessionRequest.of(
+                SignedRoot.sign(Crypto.sha256("r".getBytes(StandardCharsets.UTF_8)), "v1", NOT_AFTER,
+                        policy.getPrivate()),
+                pin, KeyringFile.sign(Map.of("payment", "payment-key"), pin, NOT_AFTER, policy.getPrivate()),
+                Sessions.newNonce()).toJson());
+
+        ObjectNode noRingWindow = wire.deepCopy();
+        noRingWindow.remove("clientKeyringNotAfter");
+        assertEquals("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]", assertThrows(
+                IllegalArgumentException.class, () -> SessionRequest.parse(noRingWindow.toString())).getMessage());
+        ObjectNode noRootWindow = wire.deepCopy();
+        ((ObjectNode) noRootWindow.get("clientRoot")).remove("notAfter");
+        assertEquals("signed root notAfter must be an integer in [0, 2^53 - 1]", assertThrows(
+                IllegalArgumentException.class, () -> SessionRequest.parse(noRootWindow.toString())).getMessage());
+    }
 }

@@ -85,7 +85,7 @@ class PartnerSessionsBuilderTest {
         assertEquals(PartnerSessions.Fault.OWN_MATERIAL, fault(sound().ownKeyring(
                 KeyringFile.sign(Map.of("psp", pub(key)), pub(policy), now - 1, policy.getPrivate()))));
         assertEquals(PartnerSessions.Fault.OWN_MATERIAL, fault(sound().ownRoot(
-                SignedRoot.signOldForm(root.rootBytes(), root.rootId(), policy.getPrivate()))));
+                SignedRoot.sign(root.rootBytes(), root.rootId(), now - 1, policy.getPrivate()))));
     }
 
     @Test

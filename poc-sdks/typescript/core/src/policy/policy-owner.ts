@@ -12,7 +12,7 @@ import { isNotAfter } from "./validity.ts";
 
 /*
  * The checks a policy owner makes before it signs, in one place so that no tool can sign without them. Each routine signs only what it first
- * confirmed was signed by this same policy key, and returns the new form only. Every one throws an Error, having signed nothing the caller can
+ * confirmed was signed by this same policy key. Every one throws an Error, having signed nothing the caller can
  * use, when a check fails; reading and writing files, and naming them in a message, are the caller's. Every message names the thing refused
  * ("keyring ...", "root ..."), for the caller to put a file name before.
  *
@@ -22,7 +22,7 @@ import { isNotAfter } from "./validity.ts";
 
 const NOT_AFTER = "notAfter must be an integer in [0, 2^53 - 1]";
 
-/** The keyring is verified, in its own form and expired or not, under the policy key it names. */
+/** The keyring is verified, expired or not, under the policy key it names. */
 function requireSelfSigned(ring: SignedKeyring): void {
   if (typeof ring?.policy !== "string" || !verifyKeyring(ring, ring.policy)) throw new Error("keyring is not signed by its policy key");
 }
@@ -37,7 +37,7 @@ function signedBy<T>(refusal: string, sign: () => T): T {
 }
 
 /**
- * The keyring signed again until `notAfter`. It must verify, in either form and expired or not, under the policy key it names, and that key must
+ * The keyring signed again until `notAfter`. It must verify, expired or not, under the policy key it names, and that key must
  * be `policyPrivateKey`'s: otherwise the re-signed keyring would not verify under the key it names. Re-signing vouches that each listed key is
  * still its service's current key; a retired key needs a new keyring, not a renewed one.
  */
@@ -51,8 +51,8 @@ export function renewKeyring(ring: SignedKeyring, notAfter: number, policyPrivat
 }
 
 /**
- * The root signed again until `notAfter`, with the same `root` and `rootId` so existing proof bundles stay valid. It must verify, in either form
- * and expired or not, under `policyPublicKey`, the base64url key of the policy key that will sign the renewal (a keyring's `policy`, once
+ * The root signed again until `notAfter`, with the same `root` and `rootId` so existing proof bundles stay valid. It must verify, expired or
+ * not, under `policyPublicKey`, the base64url key of the policy key that will sign the renewal (a keyring's `policy`, once
  * renewKeyring has accepted it), and `policyPrivateKey` must be that key's private half: otherwise the renewed root would not verify under the
  * key it was checked against. Renewing vouches that every route in the tree is still allowed; a narrowed policy is a new tree, never a renewal.
  */

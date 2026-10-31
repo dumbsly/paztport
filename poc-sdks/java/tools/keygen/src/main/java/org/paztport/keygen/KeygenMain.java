@@ -26,9 +26,9 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 
 /**
- * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The
- * keyring is signed in the new form and vouches for its keys for {@code PAZTPORT_POLICY_DAYS} days from the run
- * (default 7), the setting the policy tool reads for the roots and keyrings it signs.
+ * One-shot CLI: generate per-service keypairs, the signed keyring, the policy pin, and TLS certificates. The keyring
+ * is signed and vouches for its keys for {@code PAZTPORT_POLICY_DAYS} days from the run (default 7), the setting the
+ * policy tool reads for the roots and keyrings it signs.
  *
  * <pre>keygen [outDir] [service...] [--tls-only name...] [--org name]</pre>
  *

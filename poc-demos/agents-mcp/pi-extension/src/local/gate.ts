@@ -130,9 +130,8 @@ export class LocalGate {
       return { block: true, reason: localRefusalText("SCOPE_DENIED") };
     }
     const now = this.deps.now();
-    // undefined (an old-form root or keyring) is never current: fail closed
     const notAfter = earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter);
-    if (notAfter === undefined || !(now <= notAfter)) {
+    if (!(now <= notAfter)) {
       emit("POLICY_EXPIRED");
       return { block: true, reason: POLICY_EXPIRED_TEXT };
     }

@@ -213,22 +213,17 @@ class VectorsV3Test {
             try {
                 file = KeyringFile.parse(Vectors.json(signed));
             } catch (IllegalArgumentException e) {
-                // A notAfter that is not an integer in range: nothing signs it, and the reader refuses it.
-                assertTrue(c.get("signingBytes").isNull(), name);
-                assertFalse(c.get("verifies").asBoolean(), name);
+                refused(c);
                 continue;
             }
-            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(file.isNewForm()
-                    ? KeyringFile.signingBytes(file.policy(), file.services(), file.notAfter())
-                    : KeyringFile.signingBytes(file.policy(), file.services())), name);
+            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
+                    KeyringFile.signingBytes(file.policy(), file.services(), file.notAfter())), name);
             assertEquals(c.get("verifies").asBoolean(), file.verifies(pin), name);
             current(c, file::isCurrent);
-            // Every keyring that verifies is reproduced byte for byte by signing it in its own form.
+            // Every keyring that verifies is reproduced byte for byte by signing it.
             if (c.get("verifies").asBoolean()) {
-                PrivateKey priv = priv(c.get("policyKey").asText());
-                assertEquals(c.get("sig").asText(), (file.isNewForm()
-                        ? KeyringFile.sign(file.services(), file.policy(), file.notAfter(), priv)
-                        : KeyringFile.signOldForm(file.services(), file.policy(), priv)).sig(), name);
+                assertEquals(c.get("sig").asText(), KeyringFile.sign(file.services(), file.policy(), file.notAfter(),
+                        priv(c.get("policyKey").asText())).sig(), name);
             }
         }
     }
@@ -245,25 +240,32 @@ class VectorsV3Test {
             try {
                 root = SignedRoot.parse(Vectors.json(c.get("signed")));
             } catch (IllegalArgumentException e) {
-                assertTrue(c.get("signingBytes").isNull(), name);
-                assertFalse(c.get("verifies").asBoolean(), name);
+                refused(c);
                 continue;
             }
             JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
             assertEquals(policy.get("root").asText(), root.root(), name);
             assertEquals(policy.get("rootId").asText(), root.rootId(), name);
-            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(root.isNewForm()
-                    ? SignedRoot.signingBytes(root.rootId(), root.root(), root.notAfter())
-                    : SignedRoot.signingBytes(root.rootId(), root.root())), name);
+            assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
+                    SignedRoot.signingBytes(root.rootId(), root.root(), root.notAfter())), name);
             assertEquals(c.get("verifies").asBoolean(), root.verify(pin), name);
             current(c, root::isCurrent);
             if (c.get("verifies").asBoolean()) {
-                PrivateKey priv = priv(c.get("policyKey").asText());
-                assertEquals(root.sig(), (root.isNewForm()
-                        ? SignedRoot.sign(root.rootBytes(), root.rootId(), root.notAfter(), priv)
-                        : SignedRoot.signOldForm(root.rootBytes(), root.rootId(), priv)).sig(), name);
+                assertEquals(root.sig(), SignedRoot.sign(root.rootBytes(), root.rootId(), root.notAfter(),
+                        priv(c.get("policyKey").asText())).sig(), name);
             }
         }
+    }
+
+    /**
+     * A keyring or root the reader refused: its {@code notAfter} is missing or not an integer in range, so nothing
+     * signs it, it never verifies and it is current at no time, its signature never consulted.
+     */
+    private static void refused(JsonNode c) {
+        String name = c.get("name").asText();
+        assertTrue(c.get("signingBytes").isNull(), name);
+        assertFalse(c.get("verifies").asBoolean(), name);
+        current(c, at -> false);
     }
 
     /** The case named {@code name} in {@code section}. */
@@ -296,7 +298,7 @@ class VectorsV3Test {
         KeyringFile ring = KeyringFile.parse(Vectors.json(ringWritten));
         assertEquals(1_798_761_600_000L, ring.notAfter());
         assertTrue(ring.verifies(pinText));
-        assertEquals(named("keyring", "new form").get("sig").asText(), ring.sig());
+        assertEquals(named("keyring", "signed").get("sig").asText(), ring.sig());
 
         JsonNode rootWritten = named("root", "notAfter written 1798761600000.0").get("signed");
         assertTrue(rootWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
@@ -336,21 +338,10 @@ class VectorsV3Test {
         }
     }
 
-    /**
-     * The cases the live check refuses only for the server's root or keyring being in the old form: offline, a
-     * recorded handshake is accepted in the old forms. A new-form window is judged offline too, at the record's
-     * time ({@code now}), so the expired cases are refused there as well.
-     */
-    private static final Set<String> OFFLINE_ACCEPTS =
-            Set.of("server root old form", "server root old form, policy-key form", "server keyring old form");
-
     @Test
     void sessionReply() {
         JsonNode cases = vectors.get("sessionReply");
         assertTrue(cases != null && cases.size() > 0, "sessionReply section");
-        for (String name : OFFLINE_ACCEPTS) {
-            assertEquals("BAD_SIGNATURE", named("sessionReply", name).get("expected").asText(), name);
-        }
         for (JsonNode c : cases) {
             String name = c.get("name").asText();
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
@@ -360,9 +351,8 @@ class VectorsV3Test {
             long now = c.get("now").asLong();
             assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(reply, req, pin, entry,
                     now), name);
-            // Offline, judged at the same time, the handshake is attested when the live check says so, and for the
-            // old forms.
-            assertEquals(c.get("expected").asText().equals("ATTESTED") || OFFLINE_ACCEPTS.contains(name),
+            // Offline, judged at the same time, the handshake is attested exactly when the live check says so.
+            assertEquals(c.get("expected").asText().equals("ATTESTED"),
                     Sessions.attestedOffline(reply, req, pin, entry, now), name + " offline");
         }
     }
@@ -441,7 +431,7 @@ class VectorsV3Test {
             c.get("pinned").forEach(n -> pinned.add(vectors.get("keys").get(n.asText()).get("pub").asText()));
             String serverKey = vectors.get("keys").get(c.get("serverPolicyKey").asText()).get("pub").asText();
             KeyringFile serverKeyring = KeyringFile.parse(Vectors.json(c.get("serverKeyring")));
-            // the server's own keyring is the one it signed, in its own form
+            // the server's own keyring is the one it signed
             assertTrue(serverKeyring.verifies(serverKey), name);
             assertEquals(c.get("expected").asText(), Sessions.status(
                     SessionRequest.parse(Vectors.json(c.get("request"))),

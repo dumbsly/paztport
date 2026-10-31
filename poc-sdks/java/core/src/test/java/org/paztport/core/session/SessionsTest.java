@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -31,7 +30,7 @@ class SessionsTest {
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final long NOW = 1_767_225_600_000L;
-    /** The new-form roots' and keyrings' window, 2028-01-01: unlike any certificate's, so a test can rewrite one. */
+    /** The roots' and keyrings' window, 2028-01-01: unlike any certificate's, so a test can rewrite one. */
     private static final long NOT_AFTER = 1_830_297_600_000L;
     private static final long MAX_SAFE = (1L << 53) - 1;
 
@@ -234,11 +233,11 @@ class SessionsTest {
     }
 
     /**
-     * A new-form client root keeps its {@code notAfter} through the request's wire form, so its signature still
+     * A client root keeps its {@code notAfter} through the request's wire form, so its signature still
      * verifies on the server and the session is attested. Rebuilt from three fields, it would fail and go unsafe.
      */
     @Test
-    void newFormClientRootSurvivesParsing() {
+    void aClientRootSurvivesParsing() {
         SessionRequest parsed = SessionRequest.parse(request(clientRoot).toJson());
 
         assertEquals(clientRoot, parsed.clientRoot());
@@ -246,9 +245,8 @@ class SessionsTest {
     }
 
     /**
-     * A present {@code clientKeyringNotAfter} or client root {@code notAfter} that is not a safe integer in
-     * [0, 2^53 &minus; 1] is a shape error, so the request opens no session; it is never read as absent, which would
-     * turn a damaged window into the old form.
+     * A {@code clientKeyringNotAfter} or client root {@code notAfter} that is missing or not a safe integer in
+     * [0, 2^53 &minus; 1] is a shape error, so the request opens no session.
      */
     @Test
     void malformedNotAfterOpensNoSession() throws Exception {
@@ -262,12 +260,18 @@ class SessionsTest {
             ((ObjectNode) root.get("clientRoot")).set("notAfter", JSON.readTree(bad));
             assertThrows(IllegalArgumentException.class, () -> parse(root), "root " + bad);
         }
+        ObjectNode noRing = ok.deepCopy();
+        noRing.remove("clientKeyringNotAfter");
+        assertThrows(IllegalArgumentException.class, () -> parse(noRing), "keyring missing");
+        ObjectNode noRoot = ok.deepCopy();
+        ((ObjectNode) noRoot.get("clientRoot")).remove("notAfter");
+        assertThrows(IllegalArgumentException.class, () -> parse(noRoot), "root missing");
     }
 
     /**
-     * The client keyring's signature is checked over the bytes its {@code clientKeyringNotAfter} selects. Forged:
-     * the window moved by a millisecond, or dropped so the keyring reads as the old form; either way the signature
-     * fails and the session is unsafe. The same integer written {@code 1.83e12} is the same window, read by value.
+     * The client keyring's signature is checked over its {@code clientKeyringNotAfter}. Forged: the window moved by
+     * a millisecond fails the signature and the session is unsafe. The same integer written {@code 1.83e12} is the
+     * same window, read by value.
      */
     @Test
     void clientKeyringNotAfterIsCoveredByTheKeyringSignature() throws Exception {
@@ -278,76 +282,42 @@ class SessionsTest {
         ObjectNode moved = wire.deepCopy();
         moved.put("clientKeyringNotAfter", NOT_AFTER + 1);
         assertEquals("unsafe", status(parse(moved)), "moved");
-        ObjectNode dropped = wire.deepCopy();
-        dropped.remove("clientKeyringNotAfter");
-        assertEquals("unsafe", status(parse(dropped)), "dropped");
         ObjectNode byValue = (ObjectNode) JSON.readTree(JSON.writeValueAsString(wire)
                 .replace("\"clientKeyringNotAfter\":" + NOT_AFTER, "\"clientKeyringNotAfter\":1.8302976e12"));
         assertEquals("attested", status(parse(byValue)), "by value");
     }
 
     /**
-     * {@code clientKeyringNotAfter} and {@code serverKeyringNotAfter} are written only for a new-form keyring, and a
-     * root's {@code notAfter} only for a new-form root, inside the root object. The session id is the same for
-     * either form: it binds root signatures and keyring services, not the keyring's signature or window.
+     * {@code clientKeyringNotAfter} is written with every request and a root's {@code notAfter} inside the root
+     * object; {@code serverKeyringNotAfter} only beside the entry-key form's keyring signature. The session id binds
+     * root signatures and keyring services, not the keyring's signature or window.
      */
     @Test
-    void notAfterIsWrittenOnlyForTheNewForm() {
-        KeyringFile oldRing = KeyringFile.signOldForm(clientRing, clientKey, clientPolicy.getPrivate());
-        SignedRoot oldRoot = SignedRoot.signOldForm(Crypto.sha256("c".getBytes()), "v1", clientPolicy.getPrivate());
-        ObjectNode old = tree(SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson());
-        assertFalse(old.has("clientKeyringNotAfter"));
-        assertFalse(old.get("clientRoot").has("notAfter"));
+    void notAfterIsWrittenWithEveryRootAndKeyring() {
         ObjectNode fresh = tree(request(clientRoot).toJson());
+        assertEquals(NOT_AFTER, fresh.get("clientKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, fresh.get("clientRoot").get("notAfter").longValue());
         assertFalse(wire(reply(request(clientRoot), serverRoot, "attested")).has("serverKeyringNotAfter"));
 
-        // The same root and nonce with the keyring in either form, each as the server parses it off the wire: the
-        // two differ in the keyring's signature and window, and in nothing the session id binds.
+        // The same root and nonce with the keyring signed until two windows, each as the server parses it off the
+        // wire: the two differ in the keyring's signature and window, and in nothing the session id binds.
+        KeyringFile laterRing = KeyringFile.sign(clientRing, clientKey, NOT_AFTER + 1, clientPolicy.getPrivate());
         String cn = Sessions.newNonce();
-        SessionRequest newRing = SessionRequest.parse(
+        SessionRequest one = SessionRequest.parse(
                 SessionRequest.of(clientRoot, clientKey, clientKeyring, cn).toJson());
-        SessionRequest oldFormRing = SessionRequest.parse(
-                SessionRequest.of(clientRoot, clientKey, oldRing, cn).toJson());
-        assertNotEquals(newRing.clientKeyringSig(), oldFormRing.clientKeyringSig());
-        assertEquals(NOT_AFTER, newRing.clientKeyringNotAfter());
-        assertNull(oldFormRing.clientKeyringNotAfter());
+        SessionRequest other = SessionRequest.parse(SessionRequest.of(clientRoot, clientKey, laterRing, cn).toJson());
+        assertNotEquals(one.clientKeyringSig(), other.clientKeyringSig());
+        assertEquals(NOT_AFTER + 1, other.clientKeyringNotAfter());
         String sn = Sessions.newNonce();
-        assertEquals(sessionId(newRing, sn), sessionId(oldFormRing, sn));
-        assertEquals(ReplyCheck.ATTESTED, check(wire(reply(newRing, serverRoot, "attested")),
-                oldFormRing, serverKey, "pay", NOW), "a reply to one is a reply to the other");
+        assertEquals(sessionId(one, sn), sessionId(other, sn));
+        assertEquals(ReplyCheck.ATTESTED, check(wire(reply(one, serverRoot, "attested")), other, serverKey, "pay",
+                NOW), "a reply to one is a reply to the other");
     }
 
     /** The session id the server derives for {@code req} with its own root and nonce {@code serverNonce}. */
     private String sessionId(SessionRequest req, String serverNonce) {
         return Sessions.deriveSessionId(req.clientRoot().sig(), serverRoot.sig(), req.nonce(), serverNonce,
                 req.clientPolicyKey(), req.clientKeyring());
-    }
-
-    /**
-     * Old-form material still verifies, in either message: the form decides only which bytes are checked. But a live
-     * handshake refuses it: an old-form client root or keyring makes the session unsafe, and an old-form server root
-     * makes the reply {@code BAD_SIGNATURE}, since the policy owner never said how long it vouches for either.
-     */
-    @Test
-    void oldFormMaterialVerifiesButIsRefusedLive() {
-        KeyringFile oldRing = KeyringFile.signOldForm(clientRing, clientKey, clientPolicy.getPrivate());
-        SignedRoot oldRoot = SignedRoot.signOldForm(Crypto.sha256("c".getBytes()), "v1", clientPolicy.getPrivate());
-        assertTrue(oldRing.verifies(clientKey));
-        assertTrue(oldRoot.verify(clientPolicy.getPublic()));
-        assertEquals("unsafe", status(SessionRequest.parse(
-                SessionRequest.of(oldRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "both old form");
-        assertEquals("unsafe", status(SessionRequest.parse(
-                SessionRequest.of(oldRoot, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "old root");
-        assertEquals("unsafe", status(SessionRequest.parse(
-                SessionRequest.of(clientRoot, clientKey, oldRing, Sessions.newNonce()).toJson())), "old keyring");
-        SessionRequest req = request(clientRoot);
-        SignedRoot oldServer = SignedRoot.signOldForm(Crypto.sha256("s".getBytes()), "v1", serverPolicy.getPrivate());
-        assertTrue(oldServer.verify(serverPolicy.getPublic()));
-        assertEquals(ReplyCheck.BAD_SIGNATURE,
-                check(wire(reply(req, oldServer, "attested")), req, serverKey, "pay", NOW));
-        assertEquals(ReplyCheck.BAD_SIGNATURE,
-                check(wire(reply(req, oldServer, "unsafe")), req, serverKey, "pay", NOW));
     }
 
     /**
@@ -386,7 +356,7 @@ class SessionsTest {
     }
 
     /**
-     * A server whose own root or keyring is old form or past its {@code notAfter} opens every session unsafe, however
+     * A server whose own root or keyring is past its {@code notAfter} opens every session unsafe, however
      * good the client's material: it degrades to serving unattested callers rather than stopping. A missing keyring
      * is unsafe too.
      */
@@ -402,10 +372,6 @@ class SessionsTest {
         assertEquals("attested", Sessions.status(req, rootUntilNow, ringUntilNow, own, pinned, NOW));
         assertEquals("unsafe", Sessions.status(req, rootUntilNow, serverKeyring, own, pinned, NOW + 1), "root past");
         assertEquals("unsafe", Sessions.status(req, serverRoot, ringUntilNow, own, pinned, NOW + 1), "keyring past");
-        SignedRoot oldRoot = SignedRoot.signOldForm(rootBytes, "v1", serverPolicy.getPrivate());
-        KeyringFile oldRing = KeyringFile.signOldForm(serverKeyring.services(), serverKey, serverPolicy.getPrivate());
-        assertEquals("unsafe", Sessions.status(req, oldRoot, serverKeyring, own, pinned, NOW), "old root");
-        assertEquals("unsafe", Sessions.status(req, serverRoot, oldRing, own, pinned, NOW), "old keyring");
         assertEquals("unsafe", Sessions.status(req, serverRoot, null, own, pinned, NOW), "no keyring");
     }
 
@@ -415,7 +381,8 @@ class SessionsTest {
      * the client takes its replacement path. Forged: an expired root with its window moved past now, the reply signed
      * again by the entry key so its own signature holds; only the root's signature refuses it. A
      * {@code serverKeyringNotAfter} in a policy-key reply is a keyring window with no keyring signature, refused as
-     * either form field without the other is. An old-form keyring in the entry-key form is refused.
+     * either form field without the other is. A server root without its {@code notAfter}, or an entry-key reply
+     * without {@code serverKeyringNotAfter}, is malformed.
      */
     @Test
     void theServersRootAndKeyringAreJudgedInTheReply() {
@@ -460,23 +427,21 @@ class SessionsTest {
         assertTrue(withWindow.has("serverKeyringNotAfter"));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(withWindow, req, serverKey, "pay", NOW));
 
-        KeyringFile oldRing = KeyringFile.signOldForm(Map.of("pay", key(entry)), serverKey, serverPolicy.getPrivate());
-        String nonce = Sessions.newNonce();
-        String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
-                clientRing);
-        JsonNode oldForm = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, oldRing.services(),
-                oldRing.sig(), null, ReplyCert.issue(serverKey, "pay", key(entry), certNotAfter,
-                        serverPolicy.getPrivate()), nonce, sess, "attested", List.of(), null), entry.getPrivate()));
-        assertFalse(oldForm.has("serverKeyringNotAfter"));
-        assertEquals(ReplyCheck.BAD_SIGNATURE, check(oldForm, req, serverKey, "pay", NOW));
+        ObjectNode rootWindowDropped = (ObjectNode) policyForm.deepCopy();
+        ((ObjectNode) rootWindowDropped.get("serverRoot")).remove("notAfter");
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(rootWindowDropped, req, serverKey, "pay", NOW));
+        ObjectNode ringWindowDropped = (ObjectNode) entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER)
+                .deepCopy();
+        ringWindowDropped.remove("serverKeyringNotAfter");
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(ringWindowDropped, req, serverKey, "pay", NOW));
     }
 
-    /** An entry-key reply: new-form server root and keyring, the keyring's window beside it as on the request. */
+    /** An entry-key reply: server root and keyring, the keyring's window beside it as on the request. */
     private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter) {
         return entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER);
     }
 
-    /** An entry-key reply carrying {@code root} and a keyring signed in the new form until {@code ringNotAfter}. */
+    /** An entry-key reply carrying {@code root} and a keyring signed until {@code ringNotAfter}. */
     private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter, SignedRoot root,
             long ringNotAfter) {
         Map<String, String> ring = Map.of("pay", key(entry));
@@ -491,8 +456,8 @@ class SessionsTest {
 
     /**
      * A reply's {@code serverKeyringNotAfter} and its root's {@code notAfter} are carried and checked. Forged: either
-     * moved by a millisecond, or the keyring's dropped, fails the signature; a value that is not a safe integer in
-     * [0, 2^53 &minus; 1] is malformed. Written {@code 1.8302976e12}, each is the same integer, and since the reply's
+     * moved by a millisecond fails the signature; one dropped, or a value that is not a safe integer in
+     * [0, 2^53 &minus; 1], is malformed. Written {@code 1.8302976e12}, each is the same integer, and since the reply's
      * signature covers its parsed value, the verdict is the plain digits' one, as in TypeScript.
      */
     @Test
@@ -508,7 +473,7 @@ class SessionsTest {
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringMoved, req, serverKey, "pay", NOW));
         ObjectNode ringDropped = reply.deepCopy();
         ringDropped.remove("serverKeyringNotAfter");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringDropped, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(ringDropped, req, serverKey, "pay", NOW));
         ObjectNode rootMoved = reply.deepCopy();
         ((ObjectNode) rootMoved.get("serverRoot")).put("notAfter", NOT_AFTER + 1);
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(rootMoved, req, serverKey, "pay", NOW));

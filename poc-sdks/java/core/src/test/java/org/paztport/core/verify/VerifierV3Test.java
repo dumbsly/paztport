@@ -106,7 +106,7 @@ class VerifierV3Test {
         String pin = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
         byte[] root = new byte[32];
         SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
-        KeyringFile unsigned = new KeyringFile(Map.of(), pin, null);
+        KeyringFile unsigned = new KeyringFile(Map.of(), pin, null, NOT_AFTER);
         assertThrows(IllegalArgumentException.class, () -> VerifierConfigV3.pinned(unsigned, signed, pin,
                 Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
         KeyringFile good = KeyringFile.sign(Map.of(), pin, NOT_AFTER, policy.getPrivate());

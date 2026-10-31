@@ -58,7 +58,7 @@ describe("setup-demo", () => {
     expect(loadServerConfig(join(out, "server")).replyCert).toEqual(cert);
   });
 
-  it("setupWritesThirtyDayNewFormMaterialForBothSides", () => {
+  it("setupWritesThirtyDayMaterialForBothSides", () => {
     const out = join(tmp, "thirty");
     const before = Date.now();
     const r = setup("--out", out);

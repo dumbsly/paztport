@@ -33,6 +33,8 @@ function world() {
     keyring: { session: session.publicKey, pi: pi.publicKey },
     root: tree.root,
     rootId: tree.rootId,
+    rootNotAfter: Number.MAX_SAFE_INTEGER,
+    keyringNotAfter: Number.MAX_SAFE_INTEGER,
     rules: RULES,
     ...over,
   });
@@ -126,15 +128,13 @@ describe("verifyRecordedLocalStep", () => {
     expect(w.check({ ...w.step(), tool: "re\nad" }).reason).toBe("BINDING_MISMATCH");
   });
 
-  // "Then, at the step's ts, the client's root and keyring, each in the new form, are no later than their notAfter
-  // (POLICY_EXPIRED; an old-form one sets no limit)."
+  // "Then, at the step's ts, the client's root and keyring are no later than their notAfter (POLICY_EXPIRED)."
   it("aStepPastTheClientsRootOrKeyringIsPolicyExpired", () => {
     const w = world();
     expect(w.check(w.step(), w.client({ rootNotAfter: STEP_TS })).reason).toBe("OK");
     expect(w.check(w.step(), w.client({ rootNotAfter: STEP_TS - 1 })).reason).toBe("POLICY_EXPIRED");
     expect(w.check(w.step(), w.client({ keyringNotAfter: STEP_TS })).reason).toBe("OK");
     expect(w.check(w.step(), w.client({ keyringNotAfter: STEP_TS - 1 })).reason).toBe("POLICY_EXPIRED");
-    expect(w.check(w.step(), w.client({ rootNotAfter: undefined, keyringNotAfter: undefined })).reason).toBe("OK");
   });
 
   it("policyExpiredComesAfterTheChainAndBeforeTheProof", () => {

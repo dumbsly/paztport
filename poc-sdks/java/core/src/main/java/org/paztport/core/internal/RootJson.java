@@ -21,12 +21,9 @@ public final class RootJson {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException("a signed root must be a JSON object");
         }
-        Long notAfter = null;
-        if (node.has("notAfter")) {
-            notAfter = JsonIntegers.notAfter(node.get("notAfter"));
-            if (notAfter == null) {
-                throw new IllegalArgumentException("signed root notAfter must be an integer in [0, 2^53 - 1]");
-            }
+        Long notAfter = JsonIntegers.notAfter(node.get("notAfter"));
+        if (notAfter == null) {
+            throw new IllegalArgumentException("signed root notAfter must be an integer in [0, 2^53 - 1]");
         }
         return new SignedRoot(text(node, "rootId"), text(node, "root"), text(node, "sig"), notAfter);
     }

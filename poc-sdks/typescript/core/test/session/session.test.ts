@@ -5,9 +5,9 @@ import { describe, expect, it } from "vitest";
 import { decode, encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, randomBytes, sign, utf8, verify } from "../../src/crypto/crypto.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
-import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
+import { signKeyring } from "../../src/policy/keyring.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
-import { signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
+import { signRoot, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { isCurrent } from "../../src/policy/validity.ts";
 import { checkSessionReply } from "../../src/session/reply-check.ts";
 import {
@@ -23,27 +23,29 @@ import {
 
 const ENTRY = "mcp-entry";
 const NOW = 1_767_225_600_000;
-/** Every live root and keyring here is in the new form, valid until 2100-01-01. */
+/** Every live root and keyring here is valid until 2100-01-01. */
 const NOT_AFTER = 4_102_444_800_000;
 
-/** New-form roots and keyring on both sides; `oldForm` signs them all in the old form instead, as recorded evidence holds. */
-function world(oldForm = false) {
+/** A root with no notAfter, signed by `key` over `id|root`: what a reader that took a missing window for none would accept. */
+function unwindowedRoot(bytes: Uint8Array, id: string, key: string): SignedRoot {
+  return { rootId: id, root: encode(bytes), sig: encode(sign(key, utf8(`${id}|${encode(bytes)}`))) } as unknown as SignedRoot;
+}
+
+/** Roots and a keyring on both sides, valid until NOT_AFTER. */
+function world() {
   const clientPolicy = generateKeyPair();
   const serverPolicy = generateKeyPair();
   const clientRootBytes = randomBytes(32);
   const serverRootBytes = randomBytes(32);
-  const root = (bytes: Uint8Array, id: string, key: string) => (oldForm ? signRootOldForm(bytes, id, key) : signRoot(bytes, id, key, NOT_AFTER));
-  const clientRoot = root(clientRootBytes, "v1", clientPolicy.privateKey);
-  const serverRoot = root(serverRootBytes, "v2", serverPolicy.privateKey);
-  const ring = oldForm
-    ? signKeyringOldForm({ session: "k" }, clientPolicy.publicKey, clientPolicy.privateKey)
-    : signKeyring({ session: "k" }, clientPolicy.publicKey, clientPolicy.privateKey, NOT_AFTER);
+  const clientRoot = signRoot(clientRootBytes, "v1", clientPolicy.privateKey, NOT_AFTER);
+  const serverRoot = signRoot(serverRootBytes, "v2", serverPolicy.privateKey, NOT_AFTER);
+  const ring = signKeyring({ session: "k" }, clientPolicy.publicKey, clientPolicy.privateKey, NOT_AFTER);
   const req: SessionRequest = {
     clientRoot,
     clientPolicyKey: clientPolicy.publicKey,
     clientKeyring: ring.services,
     clientKeyringSig: ring.sig,
-    ...(oldForm ? {} : { clientKeyringNotAfter: NOT_AFTER }),
+    clientKeyringNotAfter: NOT_AFTER,
     nonce: newNonce(),
   };
   const body = (): Omit<SessionReply, "sig"> => {
@@ -68,12 +70,12 @@ describe("sessionStatus", () => {
   const status = (
     w: World,
     req: SessionRequest = w.req,
-    o: { serverRoot?: SignedRoot | null; serverKeyringNotAfter?: number | undefined; pinned?: string[]; now?: number } = {},
+    o: { serverRoot?: SignedRoot | null; serverKeyringNotAfter?: number; pinned?: string[]; now?: number } = {},
   ) =>
     sessionStatus(
       req,
       Object.hasOwn(o, "serverRoot") ? o.serverRoot! : w.serverRoot,
-      Object.hasOwn(o, "serverKeyringNotAfter") ? o.serverKeyringNotAfter : NOT_AFTER,
+      Object.hasOwn(o, "serverKeyringNotAfter") ? o.serverKeyringNotAfter! : NOT_AFTER,
       w.serverPolicy.publicKey,
       o.pinned ?? w.pinned,
       o.now ?? NOW,
@@ -126,11 +128,11 @@ describe("sessionStatus", () => {
     const w = world();
     expect(w.req.clientKeyringNotAfter).toBe(NOT_AFTER);
     expect(status(w)).toBe("attested");
-    // moved or dropped in transit, the keyring signature fails in the form the request now claims
+    // moved or dropped in transit, the keyring signature fails (a request without one is malformed, so no server
+    // reaches this; parseSessionRequest refuses it)
     expect(status(w, { ...w.req, clientKeyringNotAfter: NOT_AFTER + 1 })).toBe("unsafe");
     const { clientKeyringNotAfter: _window, ...dropped } = w.req;
-    expect(status(w, dropped)).toBe("unsafe");
-    // a present value that is not an integer in range never reads as the old form
+    expect(status(w, dropped as SessionRequest)).toBe("unsafe");
     for (const bad of [1.5, -1, 2 ** 53, "x", null, true, {}, []]) {
       expect(status(w, { ...w.req, clientKeyringNotAfter: bad } as unknown as SessionRequest), String(bad)).toBe("unsafe");
     }
@@ -145,27 +147,13 @@ describe("sessionStatus", () => {
     // a clock that is not a number never makes either current
     expect(status(w, w.req, { now: Number.NaN })).toBe("unsafe");
   });
-  it("anOldFormClientRootOrKeyringIsUnsafe", () => {
+  it("aClientRootOrKeyringWithoutAWindowIsUnsafe", () => {
+    // each signed over its other fields alone, so only the missing window refuses it
     const w = world();
-    const oldRoot = signRootOldForm(w.clientRootBytes, "v1", w.clientPolicy.privateKey);
-    expect(status(w, { ...w.req, clientRoot: oldRoot })).toBe("unsafe");
-    const oldRing = signKeyringOldForm(w.req.clientKeyring, w.clientPolicy.publicKey, w.clientPolicy.privateKey);
+    expect(status(w, { ...w.req, clientRoot: unwindowedRoot(w.clientRootBytes, "v1", w.clientPolicy.privateKey) })).toBe("unsafe");
     const { clientKeyringNotAfter: _window, ...rest } = w.req;
-    expect(status(w, { ...rest, clientKeyringSig: oldRing.sig })).toBe("unsafe");
-    // a request whose material is all in the old form, as the TypeScript and Java servers both now refuse to attest
-    // (the server's root is its own, in the new form, so the client's old form is the only reason)
-    const old = world(true);
-    expect(Object.hasOwn(old.req, "clientKeyringNotAfter")).toBe(false);
-    const serverRoot = signRoot(old.serverRootBytes, "v2", old.serverPolicy.privateKey, NOT_AFTER);
-    expect(status(old, old.req, { serverRoot })).toBe("unsafe");
-    const ring = signKeyring(old.req.clientKeyring, old.clientPolicy.publicKey, old.clientPolicy.privateKey, NOT_AFTER);
-    const renewed: SessionRequest = {
-      ...old.req,
-      clientRoot: signRoot(old.clientRootBytes, "v1", old.clientPolicy.privateKey, NOT_AFTER),
-      clientKeyringSig: ring.sig,
-      clientKeyringNotAfter: NOT_AFTER,
-    };
-    expect(status(old, renewed, { serverRoot }), "the same material in the new form").toBe("attested");
+    const ringSig = encode(sign(w.clientPolicy.privateKey, utf8("paztport-keyring\n" + canonicalize({ policy: w.clientPolicy.publicKey, services: w.req.clientKeyring }))));
+    expect(status(w, { ...rest, clientKeyringSig: ringSig } as SessionRequest)).toBe("unsafe");
   });
   it("aClientRootWhoseWindowWasMovedIsUnsafeByItsOwnSignature", () => {
     // an expired root with its window moved on: current by the moved value, so only the root's signature stops it
@@ -183,11 +171,10 @@ describe("sessionStatus", () => {
     expect(status(w, w.req, { serverRoot: serverRootUntil(NOW), now: NOW + 1 })).toBe("unsafe");
     expect(status(w, w.req, { serverKeyringNotAfter: NOW })).toBe("attested");
     expect(status(w, w.req, { serverKeyringNotAfter: NOW, now: NOW + 1 })).toBe("unsafe");
-    // the old form: a root with no window, and a keyring with none
-    expect(status(w, w.req, { serverRoot: signRootOldForm(w.serverRootBytes, "v2", w.serverPolicy.privateKey) })).toBe("unsafe");
-    expect(status(w, w.req, { serverKeyringNotAfter: undefined })).toBe("unsafe");
-    for (const bad of [1.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
-      expect(status(w, w.req, { serverKeyringNotAfter: bad }), String(bad)).toBe("unsafe");
+    // a root with no window, and a keyring with none
+    expect(status(w, w.req, { serverRoot: unwindowedRoot(w.serverRootBytes, "v2", w.serverPolicy.privateKey) })).toBe("unsafe");
+    for (const bad of [undefined, 1.5, -1, 2 ** 53, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(status(w, w.req, { serverKeyringNotAfter: bad as number }), String(bad)).toBe("unsafe");
     }
   });
   it("anInheritedClientKeyringNotAfterNeverCounts", () => {
@@ -195,15 +182,11 @@ describe("sessionStatus", () => {
     const { clientKeyringNotAfter: _window, ...dropped } = w.req;
     const inheriting = (req: object) => Object.assign(Object.create({ clientKeyringNotAfter: NOT_AFTER }), req) as SessionRequest;
     expect(status(w, inheriting(dropped))).toBe("unsafe");
-    // offline, the own-member rule stops it before any window is judged: an inherited window would make the new-form
+    // offline, the own-member rule stops it before any window is judged: an inherited window would make the keyring
     // signature verify
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
     expect(isAttestedSession(inheriting(dropped), reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    // an old-form keyring is checked in the old form, whatever its prototype offers
-    const old = world(true);
-    const oldReply = signSessionReply(old.body(), old.serverPolicy.privateKey);
-    expect(isAttestedSession(inheriting(old.req), oldReply, old.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
 });
 
@@ -237,10 +220,10 @@ describe("deriveSessionId", () => {
   });
   it("theKeyringWindowIsNotInTheSessionId", () => {
     const w = world();
-    const { clientKeyringNotAfter: _window, ...old } = w.req;
-    const sess = (req: SessionRequest) => deriveSessionId(w.clientRoot.sig, w.serverRoot.sig, n1, n2, req);
-    expect(sess(w.req)).toBe(sess(old));
-    expect(sess({ ...w.req, clientKeyringNotAfter: NOT_AFTER + 1 })).toBe(sess(old));
+    const { clientKeyringNotAfter: _window, ...keys } = w.req;
+    const sess = (req: SessionRequest | typeof keys) => deriveSessionId(w.clientRoot.sig, w.serverRoot.sig, n1, n2, req);
+    expect(sess(w.req)).toBe(sess(keys));
+    expect(sess({ ...w.req, clientKeyringNotAfter: NOT_AFTER + 1 })).toBe(sess(keys));
   });
   it("nonceIs16Bytes", () => {
     expect(newNonce().length).toBe(22);
@@ -333,15 +316,13 @@ describe("session reply", () => {
     expect(verifySessionReply(untilNow, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
     expect(verifySessionReply(untilNow, w.req, w.serverPolicy.publicKey, ENTRY, NOW + 1)).toBe(false);
     expect(verifySessionReply(untilNow, w.req, w.serverPolicy.publicKey, ENTRY, Number.NaN)).toBe(false);
-    const oldRoot = at(signRootOldForm(w.serverRootBytes, "v2", w.serverPolicy.privateKey));
-    expect(verifySessionReply(oldRoot, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    // offline, old forms are accepted and a new-form lifetime is judged at the record's time
+    const unwindowed = at(unwindowedRoot(w.serverRootBytes, "v2", w.serverPolicy.privateKey));
+    expect(checkSessionReply(unwindowed, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
+    expect(verifySessionReply(unwindowed, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    // offline the lifetime is judged at the record's time, and a root without one is never attested
     expect(isAttestedSession(w.req, untilNow, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
     expect(isAttestedSession(w.req, untilNow, w.serverPolicy.publicKey, ENTRY, NOW + 1)).toBe(false);
-    expect(isAttestedSession(w.req, oldRoot, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
-    // the old-form server root sets no limit: only the client's windows (NOT_AFTER) do
-    expect(isAttestedSession(w.req, oldRoot, w.serverPolicy.publicKey, ENTRY, NOT_AFTER)).toBe(true);
-    expect(isAttestedSession(w.req, oldRoot, w.serverPolicy.publicKey, ENTRY, NOT_AFTER + 1)).toBe(false);
+    expect(isAttestedSession(w.req, unwindowed, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("anUnsafeReplyIsJudgedTheSame", () => {
     // a degraded server says "unsafe" over its expired root; the client takes its replacement path either way
@@ -412,14 +393,7 @@ describe("isAttestedSession", () => {
     // the session id does not bind the window, so only the keyring signature catches it
     expect(isAttestedSession({ ...w.req, clientKeyringNotAfter: NOT_AFTER + 1 }, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     const { clientKeyringNotAfter: _window, ...dropped } = w.req;
-    expect(isAttestedSession(dropped, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-  });
-  it("recordedOldFormMaterialIsStillAttested", () => {
-    // old forms fail live and are accepted offline: live and offline do not share the refusal
-    const w = world(true);
-    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
+    expect(isAttestedSession(dropped as SessionRequest, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
   it("aKeyringSignatureThatIsNotAStringIsNotAttested", () => {
     const w = world();
@@ -434,21 +408,17 @@ describe("isAttestedSession", () => {
 describe("the entry key form", () => {
   /**
    * A reply signed by mcp-entry's key, with the server keyring's signature and window (until `keyringNotAfter`,
-   * NOT_AFTER by default) and a certificate valid until NOW + 1000. `oldForm` signs every root and keyring in the
-   * old form; `oldFormKeyring` only the server keyring, with no `serverKeyringNotAfter`.
+   * NOT_AFTER by default) and a certificate valid until NOW + 1000.
    */
-  function entryWorld(o: { oldForm?: boolean; oldFormKeyring?: boolean; keyringNotAfter?: number } = {}) {
-    const w = world(o.oldForm ?? false);
-    const oldRing = (o.oldForm ?? false) || (o.oldFormKeyring ?? false);
+  function entryWorld(o: { keyringNotAfter?: number } = {}) {
+    const w = world();
     const ringNotAfter = o.keyringNotAfter ?? NOT_AFTER;
     const entry = generateKeyPair();
     const services = { "mcp-entry": entry.publicKey, "github-tools": generateKeyPair().publicKey };
-    const ring = oldRing
-      ? signKeyringOldForm(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey)
-      : signKeyring(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey, ringNotAfter);
+    const ring = signKeyring(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey, ringNotAfter);
     const cert = signReplyCert(w.serverPolicy.publicKey, ENTRY, entry.publicKey, NOW + 1000, w.serverPolicy.privateKey);
     const body: Omit<SessionReply, "sig"> = {
-      ...w.body(), serverKeyring: services, serverKeyringSig: ring.sig, ...(oldRing ? {} : { serverKeyringNotAfter: ringNotAfter }), serverReplyCert: cert,
+      ...w.body(), serverKeyring: services, serverKeyringSig: ring.sig, serverKeyringNotAfter: ringNotAfter, serverReplyCert: cert,
     };
     return { ...w, entry, body, reply: signSessionReply(body, entry.privateKey) };
   }
@@ -463,8 +433,10 @@ describe("the entry key form", () => {
     expect(verifies(w.body)).toBe(true);
     // the entry key signs the reply whatever window it names; only the policy key's keyring signature binds it
     expect(verifies({ ...w.body, serverKeyringNotAfter: NOT_AFTER + 1 })).toBe(false);
+    // dropped, the reply is malformed: a keyring signature always travels with its window
     const { serverKeyringNotAfter: _window, ...dropped } = w.body;
     expect(verifies(dropped)).toBe(false);
+    expect(checkSessionReply(signSessionReply(dropped, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
     for (const bad of [1.5, -1, 2 ** 53, "x", null]) {
       expect(verifies({ ...w.body, serverKeyringNotAfter: bad } as unknown as Omit<SessionReply, "sig">), String(bad)).toBe(false);
     }
@@ -483,16 +455,6 @@ describe("the entry key form", () => {
     // offline too, an inherited window does not select the keyring's signed bytes
     expect(isAttestedSession(w.req, inheriting, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
-  });
-  it("anOldFormEntryKeyReplyFailsLiveAndIsAcceptedOffline", () => {
-    // only the server keyring is in the old form, so its form is the one reason the live check refuses
-    const w = entryWorld({ oldFormKeyring: true });
-    expect(Object.hasOwn(w.reply, "serverKeyringNotAfter")).toBe(false);
-    expect(verifySessionReply(w.reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
-    const all = entryWorld({ oldForm: true });
-    expect(verifySessionReply(all.reply, all.req, all.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    expect(isAttestedSession(all.req, all.reply, all.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
   it("anExpiredServerKeyringFailsLive", () => {
     const w = entryWorld({ keyringNotAfter: NOW });
@@ -527,7 +489,7 @@ describe("the entry key form", () => {
     const w = entryWorld();
     expect(verifySessionReply(signSessionReply(w.body, w.serverPolicy.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
   });
-  it("anEntryKeyReplyStrippedToTheOldFormFails", () => {
+  it("anEntryKeyReplyStrippedToThePolicyKeyFormFails", () => {
     const w = entryWorld();
     const { serverKeyringSig: _s, serverKeyringNotAfter: _w, serverReplyCert: _c, ...stripped } = w.body;
     expect(verifySessionReply(signSessionReply(stripped, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
@@ -542,18 +504,14 @@ describe("the entry key form", () => {
     expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1001)).toBe(false);
     expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, Number.NaN)).toBe(false);
   });
-  it("oldFormIgnoresTheTime", () => {
-    // a policy-key reply over old-form material has no window anywhere: it is attested at any time
-    const old = world(true);
-    const reply = signSessionReply(old.body(), old.serverPolicy.privateKey);
-    expect(isAttestedSession(old.req, reply, old.serverPolicy.publicKey, ENTRY, Number.MAX_SAFE_INTEGER)).toBe(true);
-    // new-form material has windows, so the same reply form is attested only up to the earliest of them
+  it("aPolicyKeyReplyIsAttestedUpToTheEarliestWindow", () => {
+    // the policy-key form has no certificate: its roots and keyrings are its only limits
     const w = world();
     const newReply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     expect(isAttestedSession(w.req, newReply, w.serverPolicy.publicKey, ENTRY, NOT_AFTER)).toBe(true);
     expect(isAttestedSession(w.req, newReply, w.serverPolicy.publicKey, ENTRY, NOT_AFTER + 1)).toBe(false);
   });
-  it("offlineJudgesEachNewFormWindowAtTheRecordsTime", () => {
+  it("offlineJudgesEachWindowAtTheRecordsTime", () => {
     // one window at T, before the certificate's NOW + 1000 and the rest far off: the record at T counts, 1 ms after it
     // does not; each side's root and keyring
     const T = NOW + 500;
@@ -585,15 +543,6 @@ describe("the entry key form", () => {
       expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, T + 1), what).toBe(false);
       expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, Number.NaN), what).toBe(false);
     }
-  });
-  it("oldFormMaterialSetsNoLimitOffline", () => {
-    // the certificate is the only window left: an old-form root or keyring, on either side, adds none
-    const w = entryWorld({ oldForm: true });
-    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1000)).toBe(true);
-    expect(isAttestedSession(w.req, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1001)).toBe(false);
-    // an inherited window on old-form material is not a window either
-    const inheriting = Object.assign(Object.create({ clientKeyringNotAfter: NOW }), w.req) as SessionRequest;
-    expect(isAttestedSession(inheriting, w.reply, w.serverPolicy.publicKey, ENTRY, NOW + 1000)).toBe(true);
   });
   it("malformedNewFieldsFailWithoutThrowing", () => {
     const w = entryWorld();

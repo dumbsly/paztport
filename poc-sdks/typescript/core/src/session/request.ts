@@ -22,10 +22,9 @@ function stringMap(v: Record<string, unknown>, what: string): Record<string, str
 }
 
 /**
- * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A present
- * `clientKeyringNotAfter` or root `notAfter` that is not an integer in [0, 2^53 − 1] (null included) is malformed,
- * never absent: read as absent, a damaged window would pass for the old form. A `clientKeyringSig` that is
- * missing, null, not a string or empty is malformed too.
+ * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A
+ * `clientKeyringNotAfter` or root `notAfter` that is missing or not an integer in [0, 2^53 − 1] (null included) is
+ * malformed, and so is a `clientKeyringSig` that is missing, null, not a string or empty.
  */
 export function parseSessionRequest(json: unknown): SessionRequest {
   if (!isObject(json)) {
@@ -52,14 +51,14 @@ export function parseSessionRequest(json: unknown): SessionRequest {
     clientPolicyKey: str(json.clientPolicyKey, "clientPolicyKey"),
     clientKeyring,
     clientKeyringSig,
-    ...(clientKeyringNotAfter !== undefined ? { clientKeyringNotAfter } : {}),
+    clientKeyringNotAfter,
     nonce: str(json.nonce, "nonce"),
   };
 }
 
 /**
  * A client's session handshake request: its signed root (null for none), policy key, keyring, the policy key's
- * signature over that keyring, the keyring's window as `clientKeyringNotAfter` when it has one, and a fresh nonce.
+ * signature over that keyring, the keyring's window as `clientKeyringNotAfter`, and a fresh nonce.
  * `keyringNotAfter` must be the window `keyringSig` was made over, or the server finds the keyring unsigned.
  */
 export function sessionRequest(material: {
@@ -67,14 +66,14 @@ export function sessionRequest(material: {
   policyPublicKey: string;
   keyring: Record<string, string>;
   keyringSig: string;
-  keyringNotAfter?: number;
+  keyringNotAfter: number;
 }): SessionRequest {
   return {
     clientRoot: material.signedRoot,
     clientPolicyKey: material.policyPublicKey,
     clientKeyring: material.keyring,
     clientKeyringSig: material.keyringSig,
-    ...(material.keyringNotAfter !== undefined ? { clientKeyringNotAfter: material.keyringNotAfter } : {}),
+    clientKeyringNotAfter: material.keyringNotAfter,
     nonce: newNonce(),
   };
 }

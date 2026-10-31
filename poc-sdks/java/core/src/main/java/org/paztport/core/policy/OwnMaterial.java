@@ -12,7 +12,7 @@ import org.paztport.core.encoding.Base64Url;
 
 /**
  * What a service that loads its own keyring and root may start with. A service whose own material is already
- * old-form or expired is misconfigured: nothing about it improves while it runs, and the operator is at the
+ * expired is misconfigured: nothing about it improves while it runs, and the operator is at the
  * keyboard to re-sign it. So a caller refuses to start on any {@link Problem} rather than degrading. Material that
  * is still current but close to its end is another matter, reported by {@link #expiringSoon}: a service is
  * restarted far more rarely than a week goes by, and start-up is the last moment the operator is certain to be
@@ -42,8 +42,6 @@ public final class OwnMaterial {
     public enum Kind {
         /** It does not verify under the pinned policy key. */
         DOES_NOT_VERIFY,
-        /** It is in the old form, with no {@code notAfter}, so no window limits it. */
-        OLD_FORM,
         /** Its {@code notAfter} is before now. */
         EXPIRED
     }
@@ -59,7 +57,7 @@ public final class OwnMaterial {
     /**
      * Everything wrong with {@code keyring} and {@code root}, in the order a caller should report them: the
      * keyring's signature, the root's, then the keyring's window and the root's. Empty when both verify under
-     * {@code policyPin}, are in the new form and are current at {@code nowMs}. The windows are judged even for a
+     * {@code policyPin} and are current at {@code nowMs}. The windows are judged even for a
      * file that does not verify, so a caller reports only the first.
      */
     public static List<Problem> check(KeyringFile keyring, SignedRoot root, String policyPin, long nowMs) {
@@ -77,7 +75,7 @@ public final class OwnMaterial {
 
     /**
      * The files that are current at {@code nowMs} with {@link #WARN_WITHIN_MS} or less left, keyring first. A file
-     * that is old-form or already expired is a {@link Problem}, not a warning.
+     * that has already expired is a {@link Problem}, not a warning.
      */
     public static List<Subject> expiringSoon(KeyringFile keyring, SignedRoot root, long nowMs) {
         List<Subject> soon = new ArrayList<>();
@@ -99,8 +97,8 @@ public final class OwnMaterial {
         }
     }
 
-    private static boolean endsSoon(Long notAfter, long nowMs) {
-        return notAfter != null && nowMs <= notAfter && notAfter - nowMs <= WARN_WITHIN_MS;
+    private static boolean endsSoon(long notAfter, long nowMs) {
+        return nowMs <= notAfter && notAfter - nowMs <= WARN_WITHIN_MS;
     }
 
     private static boolean rootVerifies(SignedRoot root, String policyPin) {
@@ -111,10 +109,8 @@ public final class OwnMaterial {
         }
     }
 
-    private static void window(Subject subject, Long notAfter, long nowMs, List<Problem> problems) {
-        if (notAfter == null) {
-            problems.add(new Problem(subject, Kind.OLD_FORM, null));
-        } else if (nowMs > notAfter) {
+    private static void window(Subject subject, long notAfter, long nowMs, List<Problem> problems) {
+        if (nowMs > notAfter) {
             problems.add(new Problem(subject, Kind.EXPIRED, notAfter));
         }
     }

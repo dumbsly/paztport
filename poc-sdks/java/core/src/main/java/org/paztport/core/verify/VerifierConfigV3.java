@@ -67,11 +67,10 @@ public record VerifierConfigV3(
 
     /**
      * Pins the policy key, a base64url SPKI string (the {@code policy.pub} text): the keyring file must name it
-     * and verify under it, and so must the signed root. Both must also be in the new form and current by
-     * {@code clock}: an old-form keyring or root carries no window, so the policy owner never said how long it
-     * vouches for it, and an expired one it no longer vouches for. Throws {@link IllegalArgumentException}
-     * otherwise, naming the keyring or the root, so a verifier is never built on material the pin does not vouch
-     * for now. The earlier of the two windows is recorded as {@code policyNotAfter}.
+     * and verify under it, and so must the signed root. Both must also be current by {@code clock}: the policy owner
+     * no longer vouches for an expired one. Throws {@link IllegalArgumentException} otherwise, naming the keyring
+     * or the root, so a verifier is never built on material the pin does not vouch for now. The earlier of the two
+     * windows is recorded as {@code policyNotAfter}.
      */
     public static VerifierConfigV3 pinned(
             KeyringFile keyring,
@@ -87,9 +86,6 @@ public record VerifierConfigV3(
             throw new IllegalArgumentException("keyring does not verify under the pinned policy key");
         }
         long now = clock.getAsLong();
-        if (!keyring.isNewForm()) {
-            throw new IllegalArgumentException("keyring is in the old form, with no notAfter; sign it in the new form");
-        }
         if (!keyring.isCurrent(now)) {
             throw new IllegalArgumentException("keyring expired: " + window(keyring.notAfter(), now));
         }
@@ -102,9 +98,6 @@ public record VerifierConfigV3(
         }
         if (!rootOk) {
             throw new IllegalArgumentException("root does not verify under the pinned policy key");
-        }
-        if (!root.isNewForm()) {
-            throw new IllegalArgumentException("root is in the old form, with no notAfter; sign it in the new form");
         }
         if (!root.isCurrent(now)) {
             throw new IllegalArgumentException("root expired: " + window(root.notAfter(), now));

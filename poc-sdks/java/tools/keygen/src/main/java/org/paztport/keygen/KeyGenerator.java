@@ -45,9 +45,9 @@ public final class KeyGenerator {
     }
 
     /**
-     * The keyring, signed by the policy key in the new form so that a verifier holding the pin need not trust the
-     * file's origin, and stops trusting it after {@code notAfter} (milliseconds since the epoch, inclusive). What the
-     * signature vouches for holds by construction: every listed key is the one just generated for its service.
+     * The keyring, signed by the policy key so that a verifier holding the pin need not trust the file's origin, and
+     * stops trusting it after {@code notAfter} (milliseconds since the epoch, inclusive). What the signature vouches
+     * for holds by construction: every listed key is the one just generated for its service.
      */
     public static KeyringFile toKeyring(Result result, long notAfter) {
         Map<String, String> services = new LinkedHashMap<>();

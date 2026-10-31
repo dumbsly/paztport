@@ -11,9 +11,9 @@ import org.paztport.core.session.ReplyCert;
 
 /**
  * The checks a policy owner makes before it signs, in one place so that no tool can sign without them. Each
- * method signs only what it first confirmed was signed by this same policy key, and returns the new form only;
- * the old form is never written. Every one throws {@link IllegalArgumentException}, having signed nothing the
- * caller can use, when a check fails. Reading and writing files, and naming them in a message, are the caller's.
+ * method signs only what it first confirmed was signed by this same policy key. Every one throws
+ * {@link IllegalArgumentException}, having signed nothing the caller can use, when a check fails. Reading and
+ * writing files, and naming them in a message, are the caller's.
  *
  * <p>Every message names the thing refused ("keyring ...", "root ..."), for the caller to put a file name before.
  *
@@ -26,8 +26,8 @@ public final class PolicyOwner {
     }
 
     /**
-     * The keyring signed again until {@code notAfter}. It must verify, in either form and expired or not, under the
-     * policy key it names, and that key must be {@code policyKey}'s: otherwise the re-signed keyring would not
+     * The keyring signed again until {@code notAfter}. It must verify, expired or not, under the policy key it
+     * names, and that key must be {@code policyKey}'s: otherwise the re-signed keyring would not
      * verify under the key it names. Re-signing vouches that each listed key is still its service's current key; a
      * retired key needs a new keyring, not a renewed one.
      */
@@ -44,7 +44,7 @@ public final class PolicyOwner {
 
     /**
      * The root signed again until {@code notAfter}, with the same {@code root} and {@code rootId} so existing proof
-     * bundles stay valid. It must verify, in either form and expired or not, under {@code policyPublicKey}, the
+     * bundles stay valid. It must verify, expired or not, under {@code policyPublicKey}, the
      * base64url key of the policy key that will sign the renewal (a keyring's {@code policy}, once
      * {@link #renewKeyring} has accepted it), and {@code policyKey} must be that key's private half: otherwise the
      * renewed root would not verify under the key it was checked against. Renewing vouches that every route in the

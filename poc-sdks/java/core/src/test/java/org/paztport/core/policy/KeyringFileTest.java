@@ -32,7 +32,7 @@ class KeyringFileTest {
     private static final long MAX_SAFE = (1L << 53) - 1;
     private static final Map<String, String> SERVICES = Map.of("pi", pub(Crypto.generateEd25519KeyPair()));
 
-    private static KeyringFile newForm() {
+    private static KeyringFile signedRing() {
         return KeyringFile.sign(SERVICES, pub(POLICY), NOT_AFTER, POLICY.getPrivate());
     }
 
@@ -68,12 +68,12 @@ class KeyringFileTest {
 
     @Test
     void unsignedNeverVerifies() {
-        assertFalse(new KeyringFile(Map.of("pi", pub(OTHER)), pub(POLICY), null).verifies(pub(POLICY)));
+        assertFalse(new KeyringFile(Map.of("pi", pub(OTHER)), pub(POLICY), null, NOT_AFTER).verifies(pub(POLICY)));
     }
 
     @Test
     void garbageSigDoesNotThrow() {
-        assertFalse(new KeyringFile(Map.of(), pub(POLICY), "!!").verifies(pub(POLICY)));
+        assertFalse(new KeyringFile(Map.of(), pub(POLICY), "!!", NOT_AFTER).verifies(pub(POLICY)));
     }
 
     @Test
@@ -81,7 +81,7 @@ class KeyringFileTest {
         ObjectMapper m = new ObjectMapper();
         KeyringFile f = signed();
         assertEquals(f, m.readValue(m.writeValueAsBytes(f), KeyringFile.class));
-        KeyringFile bare = m.readValue("{\"services\":{},\"policy\":\"p\"}", KeyringFile.class);
+        KeyringFile bare = m.readValue("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}", KeyringFile.class);
         assertNull(bare.sig());
         assertFalse(m.writeValueAsString(bare).contains("sig"));
     }
@@ -93,21 +93,18 @@ class KeyringFileTest {
     }
 
     @Test
-    void newFormSignsTheWindowUnderTheSamePrefix() {
+    void signsTheWindowUnderTheDomainPrefix() {
         assertEquals("paztport-keyring\n{\"notAfter\":1798761600000,\"policy\":\"P\",\"services\":{\"a\":\"K\"}}",
                 new String(KeyringFile.signingBytes("P", Map.of("a", "K"), NOT_AFTER), StandardCharsets.UTF_8));
         assertEquals("paztport-keyring\n{\"notAfter\":9007199254740991,\"policy\":\"P\",\"services\":{}}",
                 new String(KeyringFile.signingBytes("P", Map.of(), MAX_SAFE), StandardCharsets.UTF_8));
-        assertEquals("paztport-keyring\n{\"policy\":\"P\",\"services\":{\"a\":\"K\"}}",
-                new String(KeyringFile.signingBytes("P", Map.of("a", "K")), StandardCharsets.UTF_8));
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.signingBytes("P", Map.of(), -1));
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.signingBytes("P", Map.of(), MAX_SAFE + 1));
     }
 
     @Test
-    void newFormRoundTrip() throws Exception {
-        KeyringFile f = newForm();
-        assertTrue(f.isNewForm());
+    void roundTrip() throws Exception {
+        KeyringFile f = signedRing();
         assertEquals(NOT_AFTER, f.notAfter());
         assertEquals(SERVICES, f.services());
         assertTrue(f.verifies(pub(POLICY)));
@@ -120,51 +117,37 @@ class KeyringFileTest {
     }
 
     @Test
-    void newFormTamperedNotAfterFails() {
-        KeyringFile f = newForm();
+    void tamperedNotAfterFails() {
+        KeyringFile f = signedRing();
         assertFalse(new KeyringFile(f.services(), f.policy(), f.sig(), NOT_AFTER + 1).verifies(pub(POLICY)));
     }
 
     @Test
-    void newFormTamperedServiceFails() {
-        KeyringFile f = newForm();
+    void tamperedServiceFails() {
+        KeyringFile f = signedRing();
         assertFalse(new KeyringFile(Map.of("pi", pub(OTHER)), f.policy(), f.sig(), f.notAfter())
                 .verifies(pub(POLICY)));
     }
 
     @Test
-    void neitherFormPassesForTheOther() {
-        KeyringFile f = newForm();
-        assertFalse(new KeyringFile(f.services(), f.policy(), f.sig()).verifies(pub(POLICY)),
-                "dropping notAfter must not turn a new-form signature into an old-form one");
-        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
-        assertFalse(new KeyringFile(old.services(), old.policy(), old.sig(), NOT_AFTER).verifies(pub(POLICY)),
-                "adding notAfter must not lend an old-form signature a window it never signed");
-    }
-
-    @Test
-    void oldFormStillVerifies() throws Exception {
-        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
-        assertFalse(old.isNewForm());
-        assertNull(old.notAfter());
-        assertTrue(old.verifies(pub(POLICY)));
-        assertFalse(JSON.writeValueAsString(old).contains("notAfter"));
-        KeyringFile parsed = KeyringFile.parse(JSON.writeValueAsString(old));
-        assertEquals(old, parsed);
-        assertTrue(parsed.verifies(pub(POLICY)));
+    void aSignatureOverTheServicesAndPolicyKeyAloneFails() {
+        String body = "{\"policy\":\"" + pub(POLICY) + "\",\"services\":{\"pi\":\"" + SERVICES.get("pi") + "\"}}";
+        String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
+                ("paztport-keyring\n" + body).getBytes(StandardCharsets.UTF_8)));
+        assertFalse(new KeyringFile(SERVICES, pub(POLICY), sig, NOT_AFTER).verifies(pub(POLICY)),
+                "a window must not be lent to a signature that never covered one");
     }
 
     @Test
     void currentAtNotAfterNotAfter() {
-        KeyringFile f = newForm();
+        KeyringFile f = signedRing();
         assertTrue(f.isCurrent(NOT_AFTER));
         assertFalse(f.isCurrent(NOT_AFTER + 1));
-        assertFalse(KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate()).isCurrent(0));
     }
 
     @Test
     void renewedKeepsServicesAndPolicy() {
-        KeyringFile old = KeyringFile.signOldForm(SERVICES, pub(POLICY), POLICY.getPrivate());
+        KeyringFile old = KeyringFile.sign(SERVICES, pub(POLICY), 1000, POLICY.getPrivate());
         KeyringFile renewed = old.renewed(NOT_AFTER + 5, POLICY.getPrivate());
         assertEquals(old.services(), renewed.services());
         assertEquals(old.policy(), renewed.policy());
@@ -174,7 +157,7 @@ class KeyringFileTest {
 
     @Test
     void notAfterByValue() throws Exception {
-        KeyringFile f = newForm();
+        KeyringFile f = signedRing();
         String head = "{\"services\":" + JSON.writeValueAsString(SERVICES) + ",\"policy\":\"" + f.policy()
                 + "\",\"sig\":\"" + f.sig() + "\",\"notAfter\":";
         assertEquals(1_000_000_000_000L, KeyringFile.parse(head + "1.0e12}").notAfter());
@@ -200,15 +183,15 @@ class KeyringFileTest {
         assertThrows(IllegalArgumentException.class,
                 () -> KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"sig\":7}"));
         // An unsigned file has no sig; an unsigned field is ignored.
-        assertNull(KeyringFile.parse("{\"services\":{},\"policy\":\"p\"}").sig());
-        ObjectNode extra = JSON.valueToTree(newForm());
+        assertNull(KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}").sig());
+        ObjectNode extra = JSON.valueToTree(signedRing());
         extra.put("note", "unsigned");
         assertTrue(KeyringFile.parse(extra.toString()).verifies(pub(POLICY)));
     }
 
     @Test
     void loadReadsTheFileStrictly(@TempDir Path dir) throws Exception {
-        KeyringFile f = newForm();
+        KeyringFile f = signedRing();
         Path file = dir.resolve("keyring.json");
         Files.write(file, JSON.writeValueAsBytes(f));
         assertEquals(f, KeyringFile.load(file));
@@ -218,9 +201,28 @@ class KeyringFileTest {
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(file));
     }
 
+    /**
+     * A keyring without {@code notAfter} is malformed, read from text or from a file, with the answer a
+     * {@code notAfter} that is not an integer gets. Its signature is over the services and policy key alone, so it
+     * would verify were the reader to take the missing window for none.
+     */
     @Test
-    void newFormGarbageNeverThrows() {
+    void aKeyringWithoutNotAfterIsRefused(@TempDir Path dir) throws Exception {
+        String body = "{\"policy\":\"" + pub(POLICY) + "\",\"services\":{\"pi\":\"" + SERVICES.get("pi") + "\"}}";
+        String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
+                ("paztport-keyring\n" + body).getBytes(StandardCharsets.UTF_8)));
+        String text = body.substring(0, body.length() - 1) + ",\"sig\":\"" + sig + "\"}";
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text));
+        assertEquals("keyring notAfter must be an integer in [0, 2^53 - 1]", e.getMessage());
+        Path file = dir.resolve("keyring.json");
+        Files.writeString(file, text);
+        e = assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(file));
+        assertEquals("keyring notAfter must be an integer in [0, 2^53 - 1]", e.getMessage());
+    }
+
+    @Test
+    void garbageNeverThrows() {
         assertFalse(new KeyringFile(SERVICES, pub(POLICY), "!!", NOT_AFTER).verifies(pub(POLICY)));
-        assertFalse(new KeyringFile(SERVICES, pub(POLICY), newForm().sig(), -1L).verifies(pub(POLICY)));
+        assertFalse(new KeyringFile(SERVICES, pub(POLICY), signedRing().sig(), -1L).verifies(pub(POLICY)));
     }
 }

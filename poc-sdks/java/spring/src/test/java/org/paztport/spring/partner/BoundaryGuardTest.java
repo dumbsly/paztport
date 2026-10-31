@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -324,27 +325,33 @@ class BoundaryGuardTest {
                 });
     }
 
-    // The egress's own keyring is the partner's to judge at every handshake, so one past its notAfter, or in the old
-    // form, fails the startup naming the property and the fix.
+    // The egress's own keyring is the partner's to judge at every handshake, so one past its notAfter fails the
+    // startup naming the property and the fix, and one without a notAfter is refused as malformed when read.
     @Test
-    void ownKeyringPastItsWindowOrOldFormFailsStartup() throws IOException {
+    void ownKeyringPastItsWindowOrWithoutOneFailsStartup() throws IOException {
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(POLICY.getPublic()));
         Map<String, String> services = Map.of(
                 "payment", Base64Url.encode(Crypto.encodePublicKey(PAYMENT.getPublic())));
         Path expired = trust.resolve("expired-keyring.json");
         JSON.writeValue(expired.toFile(),
                 KeyringFile.sign(services, policyPub, System.currentTimeMillis() - 1, POLICY.getPrivate()));
-        Path old = trust.resolve("old-keyring.json");
-        JSON.writeValue(old.toFile(), KeyringFile.signOldForm(services, policyPub, POLICY.getPrivate()));
-        for (Path ring : List.of(expired, old)) {
-            runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
-                    .withPropertyValues("paztport.keyring-path=" + ring).run(context -> {
-                        assertThat(context).hasFailed();
-                        assertThat(context.getStartupFailure()).rootCause()
-                                .hasMessageContaining("paztport.keyring-path")
-                                .hasMessageContaining("re-sign with the policy tool");
-                    });
-        }
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withPropertyValues("paztport.keyring-path=" + expired).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessageContaining("paztport.keyring-path")
+                            .hasMessageContaining("re-sign with the policy tool");
+                });
+        Path windowless = trust.resolve("windowless-keyring.json");
+        ObjectNode ring = JSON.valueToTree(KeyringFile.sign(services, policyPub, NOT_AFTER, POLICY.getPrivate()));
+        ring.remove("notAfter");
+        JSON.writeValue(windowless.toFile(), ring);
+        runner.withPropertyValues(allProperties(trust, partner).toArray(String[]::new))
+                .withPropertyValues("paztport.keyring-path=" + windowless).run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause()
+                            .hasMessage("keyring notAfter must be an integer in [0, 2^53 - 1]");
+                });
     }
 
     // The egress reads its bundle when the context starts, so a partner certificate that is not mounted fails the

@@ -66,8 +66,8 @@ class RecordedSessionTest {
 
     // "The handshake record carries no signed time, so it is judged at each call's recorded time … One session can
     // therefore be attested for the calls recorded up to its limits and not for those after them."
-    // "Its limits are the certificate's notAfter (entry-key form) and the notAfter of each root and keyring in the
-    // new form, the client's and the server's."
+    // "Its limits are the certificate's notAfter (entry-key form) and the notAfter of each root and keyring, the
+    // client's and the server's."
     @ParameterizedTest
     @ValueSource(strings = {"cert", "clientRoot", "clientKeyring", "serverRoot", "serverKeyring"})
     void attestedUpToTheWindow(String which) {
@@ -110,21 +110,6 @@ class RecordedSessionTest {
                 .attested());
     }
 
-    // "A policy-key reply over old-form material has no limit, and is judged the same at any time."
-    @Test
-    void aPolicyKeyReplyOverOldFormMaterialHasNoLimit() {
-        RecordedSession s = Handshake.with(o -> {
-            o.policyKeyForm = true;
-            o.clientRoot = null;
-            o.clientKeyring = null;
-            o.serverRoot = null;
-            o.serverKeyring = null;
-        }).recorded();
-        assertTrue(s.attested());
-        assertTrue(s.attestedAt(0));
-        assertTrue(s.attestedAt(MAX_SAFE));
-    }
-
     // "A recorded response is limited only by the server's root window and, in the entry-key form, the server
     // keyring's: the client's windows and the certificate do not limit it."
     @Test
@@ -147,15 +132,12 @@ class RecordedSessionTest {
             o.policyKeyForm = true;
             o.serverRoot = NOW + 2;
         }).recorded().responseNotAfter());
-        // an old-form root or keyring sets no limit: 2^53 - 1 when neither has a window
-        assertEquals(MAX_SAFE, Handshake.with(o -> {
-            o.serverRoot = null;
-            o.serverKeyring = null;
-        }).recorded().responseNotAfter());
-        assertEquals(NOW, Handshake.with(o -> {
-            o.serverRoot = null;
-            o.serverKeyring = NOW;
-        }).recorded().responseNotAfter());
+        // 2^53 - 1 when the reply holds neither window, as a policy-key reply with no root does
+        Handshake p = Handshake.with(o -> o.policyKeyForm = true);
+        RecordedSession rootless = Handshake.recorded(p.request, p.reply.deepCopy().putNull("serverRoot"), p.pin,
+                ENTRY);
+        assertFalse(rootless.attested());
+        assertEquals(MAX_SAFE, rootless.responseNotAfter());
     }
 
     // The response limit is read from the reply's windows whether or not the session is attested, as the vectors
@@ -184,23 +166,8 @@ class RecordedSessionTest {
         assertTrue(RecordedSession.of(h.request.toString(), h.reply.toString(), h.pin, ENTRY).attested());
     }
 
-    // "Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit."
-    @Test
-    void oldFormMaterialIsAcceptedAndSetsNoLimit() {
-        RecordedSession s = Handshake.with(o -> {
-            o.clientRoot = null;
-            o.clientKeyring = null;
-            o.serverRoot = null;
-            o.serverKeyring = null;
-        }).recorded();
-        assertTrue(s.attested());
-        // only the certificate limits it
-        assertTrue(s.attestedAt(FAR));
-        assertFalse(s.attestedAt(FAR + 1));
-    }
-
-    // "A root or keyring in the new form is judged at the record's time, on both sides, as above, but only after its
-    // own signature has verified … so one moved or dropped in the record fails offline too."
+    // "A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature
+    // has verified … so one moved or dropped in the record fails offline too."
     @Test
     void aMovedOrDroppedWindowFailsItsSignature() {
         Handshake h = Handshake.with(o -> o.clientRoot = NOW);

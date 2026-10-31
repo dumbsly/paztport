@@ -713,7 +713,8 @@ describe("composed github server", () => {
       [{ ...good, nonce: undefined }, /nonce/],
       [{ ...good, clientKeyring: [] }, /clientKeyring/],
       [{ ...good, clientRoot: { rootId: "v" } }, /clientRoot\.root/],
-      // a window present but not an integer is malformed, never read as the old form
+      // a window that is missing or not an integer is malformed
+      [{ ...good, clientKeyringNotAfter: undefined }, /clientKeyringNotAfter must be an integer/],
       [{ ...good, clientKeyringNotAfter: 1.5 }, /clientKeyringNotAfter must be an integer/],
       [{ ...good, clientKeyringNotAfter: null }, /clientKeyringNotAfter must be an integer/],
       [{ ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } }, /clientRoot\.notAfter must be an integer/],

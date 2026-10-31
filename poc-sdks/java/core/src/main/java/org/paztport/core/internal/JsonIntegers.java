@@ -66,8 +66,8 @@ public final class JsonIntegers {
 
     /**
      * A {@code notAfter}'s value when {@code n} is an integer in [0, 2^53 &minus; 1], judged by value as
-     * {@link #safeInteger} judges it; else null, never throwing. A caller refuses null for a member that is present,
-     * rather than reading it as absent, which would turn a damaged window into the old form.
+     * {@link #safeInteger} judges it; else null, never throwing, an absent member ({@code n} null) included. A
+     * caller refuses null: every root and keyring carries a window.
      */
     public static Long notAfter(JsonNode n) {
         Long v = safeInteger(n);

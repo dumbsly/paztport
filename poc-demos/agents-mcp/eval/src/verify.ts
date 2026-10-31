@@ -35,7 +35,7 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
  *   record, or two that disagree); also a second run record for a rid with another prompt.
  * - OUTSIDE_SESSION: a call that verifies, in a verified session, but recorded after its session's reply
- *   certificate, or a root or keyring of its handshake in the new form (either side's), expired.
+ *   certificate, or a root or keyring of its handshake (either side's), expired.
  * - PROOF_MISMATCH: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
  *   root, or whose signed `routeAllowed` does not match whether it has a proof.
  * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
@@ -77,8 +77,10 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * its last stamp's `ts` (the record's `now`, which must equal it, else TIME_MISMATCH), a local step likewise, and a
  * response at the time the client recorded checking it, which the library's freshness window ties to the server's
  * signed stamps. The client signs those times itself, so a client that lies about them can make its own records count
- * longer than they should; what it cannot do is move a window, which the policy key signed. Old-form roots and
- * keyrings in a record set no limit: records made before keyrings and roots expired keep their outcomes. A response past the server's new-form root or keyring window is POLICY_EXPIRED.
+ * longer than they should; what it cannot do is move a window, which the policy key signed. Records made before
+ * keyrings and roots expired keep their outcomes. A response past the server's root or keyring window is
+ * POLICY_EXPIRED. A record whose root or keyring has no window does not verify: a client record so is BAD_CLIENT,
+ * and a session record so opened no attested session, so no call in it is judged.
  */
 export type VerifyItem = {
   line: number;

@@ -37,12 +37,6 @@ describe("sessionRequest", () => {
     expect(b.clientRoot).toBeNull();
     expect(a.nonce).not.toBe(b.nonce);
   });
-  it("carriesTheKeyringWindowOnlyForANewFormKeyring", () => {
-    const { keyringNotAfter: _w, ...old } = clientMaterial();
-    const req = sessionRequest(old);
-    expect(Object.keys(req)).toEqual(["clientRoot", "clientPolicyKey", "clientKeyring", "clientKeyringSig", "nonce"]);
-    expect(Object.keys(sessionRequest({ ...old, keyringNotAfter: undefined }))).not.toContain("clientKeyringNotAfter");
-  });
 });
 
 describe("replacementRequest", () => {
@@ -67,6 +61,13 @@ describe("parseSessionRequest", () => {
     for (const bad of [null, "", 7, ["x"], {}]) {
       expect(() => parseSessionRequest({ ...missing, clientKeyringSig: bad }), JSON.stringify(bad)).toThrow("clientKeyringSig must be a non-empty string");
     }
+  });
+  it("refusesClientMaterialWithoutNotAfter", () => {
+    const wire = JSON.parse(JSON.stringify(sessionRequest(clientMaterial()))) as Record<string, unknown>;
+    const { clientKeyringNotAfter: _w, ...noRingWindow } = wire;
+    const { notAfter: _r, ...root } = wire.clientRoot as Record<string, unknown>;
+    expect(() => parseSessionRequest(noRingWindow)).toThrow("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => parseSessionRequest({ ...wire, clientRoot: root })).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
   });
   it("keepsTheClientRootWholeAndTheKeyringWindow", () => {
     const req = sessionRequest(clientMaterial());

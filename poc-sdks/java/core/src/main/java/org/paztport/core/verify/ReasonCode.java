@@ -23,8 +23,8 @@ public enum ReasonCode {
     INFLUENCE_DENIED,
     UNSAFE_SESSION,
     /**
-     * The policy key's keyring or root is past its {@code notAfter}, or carries none, so the policy owner no longer
-     * vouches for it. It is about the verifier's own configuration, not the request, so it is not attributable.
+     * The policy key's keyring or root is past its {@code notAfter}, so the policy owner no longer vouches for it. It
+     * is about the verifier's own configuration, not the request, so it is not attributable.
      */
     POLICY_EXPIRED,
     /**

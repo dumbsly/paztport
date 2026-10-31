@@ -35,10 +35,10 @@ export type LocalStepClient = {
   keyring: Record<string, string>;
   root: Uint8Array;
   rootId: string;
-  /** The root's `notAfter`; undefined in the old form, which sets no limit. */
-  rootNotAfter?: number;
-  /** The keyring's `notAfter`; undefined in the old form, which sets no limit. */
-  keyringNotAfter?: number;
+  /** The root's `notAfter`. */
+  rootNotAfter: number;
+  /** The keyring's `notAfter`. */
+  keyringNotAfter: number;
   rules: LocalRules | null;
 };
 
@@ -51,9 +51,9 @@ export type RecordedRun = { prompt: string; ts: ReadonlySet<number> };
  */
 export type LocalStepResult = { reason: ReasonCode; verdict?: LocalVerdict };
 
-/** True when `window`, a new-form `notAfter` or undefined for the old form, still holds at `at`; a malformed one never does. */
-function within(window: number | undefined, at: number): boolean {
-  return window === undefined || (isNotAfter(window) && at <= window);
+/** True when `window`, a `notAfter`, still holds at `at`; a malformed one never does. */
+function within(window: number, at: number): boolean {
+  return isNotAfter(window) && at <= window;
 }
 
 /**
@@ -64,8 +64,7 @@ function within(window: number | undefined, at: number): boolean {
  *    client's one instance), `sess = ""`, the client's root and keyring, the receiver `local:<tool>` in the route and
  *    the nonce key `<rid>|<callId>|local`, spent in `seen`; an unproven route is how the gate's refusal of an unlisted
  *    tool verifies, so PATH_NOT_ALLOWED goes on;
- * 3. at the step's `ts`, the client's root and keyring, each in the new form, are no later than their `notAfter`
- *    (POLICY_EXPIRED; an old-form one sets no limit);
+ * 3. at the step's `ts`, the client's root and keyring are no later than their `notAfter` (POLICY_EXPIRED);
  * 4. the route verdict and proof it recorded are what its chain proves (PROOF_MISMATCH);
  * 5. the rules hash it signed is the client's (RULES_MISMATCH);
  * 6. the decision it signed, what was resolved and the verdict, is the one the signed rules give for what it recorded

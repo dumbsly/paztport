@@ -46,7 +46,7 @@ export type ServerPolicy = {
   keyring: Record<string, string>;
   /** The policy key's signature over `keyring` and `keyringNotAfter`. */
   keyringSig: string;
-  /** The keyring's window, which checkServerPolicy requires (a policy without one is the old form); replies carry it as `serverKeyringNotAfter`. */
+  /** The keyring's window, which the keyring's signature covers; replies carry it as `serverKeyringNotAfter`. */
   keyringNotAfter: number;
   /** The policy key's certificate for the entry's key; checkServerPolicy refuses one that is not for `hops[0]`'s keyring key or has expired. */
   replyCert: ReplyCert;
@@ -123,10 +123,10 @@ export function refusedToolResult(reason: string): RefusedToolResult {
 export class InvalidParams extends Error {}
 
 /**
- * Throws an Error naming the fault unless `policy` can serve at `now`: the keyring is in the new form, signed by
- * `policyPublicKey` over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert`
- * verifies under `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is in the new form,
- * current and signed by `policyPublicKey`; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
+ * Throws an Error naming the fault unless `policy` can serve at `now`: the keyring is signed by `policyPublicKey`
+ * over `keyringNotAfter`, and current; `signingKeys[hops[0]]` is the entry's keyring key; `replyCert` verifies under
+ * `policyPublicKey`, is for `hops[0]` and that key, and has not expired; the root is signed by `policyPublicKey` over
+ * its `notAfter`, and current; the keyring has its own key for `hops[1]` and `signingKeys[hops[1]]` matches
  * it; `clientOrigins` names at least one origin service, each a non-empty string; and `routeProof` proves
  * `hops[0]/hops[1]` against the root. The keyring and root checks are core's checkOwnMaterial; the rest is this
  * server's. McpServerSession calls it on construction.
@@ -262,9 +262,10 @@ export class McpServerSession {
    * replaces the current session (its keyring, nonces and served classes), so calls signed for the
    * old session are refused afterwards. A malformed request throws InvalidParams. The reply is in the entry-key
    * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks, at
-   * `now()`: an old-form or expired client root or keyring makes the session unsafe, and so does this server's own
-   * root or keyring once it has expired, so a server left running past its material degrades to unattested
-   * sessions rather than stopping. It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
+   * `now()`: an expired client root or keyring makes the session unsafe, and so does this server's own root or
+   * keyring once it has expired, so a server left running past its material degrades to unattested sessions rather
+   * than stopping. A request whose client root or keyring has no `notAfter` is malformed. The reply carries the
+   * keyring's window as `serverKeyringNotAfter`.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
@@ -288,7 +289,7 @@ export class McpServerSession {
     return this.current;
   }
 
-  /** Verifies a tools/call params object against the current attested session's client policy, until the earlier of the client root's and keyring's windows (POLICY_EXPIRED after it, and always for old-form material). */
+  /** Verifies a tools/call params object against the current attested session's client policy, until the earlier of the client root's and keyring's windows (POLICY_EXPIRED after it). */
   checkCall(params: Record<string, unknown>): ServerCallCheck {
     const session = this.current;
     if (session === undefined || session.status !== "attested" || session.request.clientRoot === null) {

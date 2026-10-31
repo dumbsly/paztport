@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
@@ -81,9 +82,9 @@ class PolicyToolMainTest {
         assertTrue(root.verify(policy.getPublic()));
     }
 
-    /** The root is signed in the new form, vouching for its routes for seven days from the run. */
+    /** The root is signed vouching for its routes for seven days from the run. */
     @Test
-    void rootJsonIsNewFormForSevenDays(@TempDir Path dir) throws Exception {
+    void rootJsonIsSignedForSevenDays(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
         Path pathsYaml = dir.resolve("paths.yaml");
         Path out = dir.resolve("out");
@@ -94,7 +95,6 @@ class PolicyToolMainTest {
         long after = System.currentTimeMillis();
 
         SignedRoot root = SignedRoot.load(out.resolve("root.json"));
-        assertTrue(root.isNewForm());
         assertTrue(root.notAfter() >= before + 7 * DAY_MS && root.notAfter() <= after + 7 * DAY_MS,
                 String.valueOf(root.notAfter()));
         assertTrue(root.verify(policy.getPublic()));
@@ -180,7 +180,8 @@ class PolicyToolMainTest {
         assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
         assertFalse(Files.exists(out));
 
-        JSON.writeValue(keys.resolve("keyring.json").toFile(), new KeyringFile(signed.services(), signed.policy(), null));
+        JSON.writeValue(keys.resolve("keyring.json").toFile(),
+                new KeyringFile(signed.services(), signed.policy(), null, signed.notAfter()));
         assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
         assertFalse(Files.exists(out));
     }
@@ -265,11 +266,9 @@ class PolicyToolMainTest {
         PolicyToolMain.run(pathsYaml, keys, out, 8, notAfter, null, 0);
 
         SignedRoot root = SignedRoot.load(out.resolve("root.json"));
-        assertTrue(root.isNewForm());
         assertEquals(notAfter, root.notAfter());
         assertTrue(root.verify(policy.getPublic()));
         KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
-        assertTrue(ring.isNewForm());
         assertEquals(notAfter, ring.notAfter());
         assertTrue(ring.verifies(pub(policy)));
         assertEquals(before.services(), ring.services());
@@ -416,9 +415,9 @@ class PolicyToolMainTest {
         assertEquals(before, snapshot(keys, out));
     }
 
-    /** Lapsed and old-form material is renewed all the same, into the new form: renewal is how it comes back. */
+    /** Lapsed material is renewed all the same: renewal is how it comes back. */
     @Test
-    void renewAcceptsExpiredAndOldForm(@TempDir Path dir) throws Exception {
+    void renewAcceptsExpired(@TempDir Path dir) throws Exception {
         Path keys = dir.resolve("keys");
         Path pathsYaml = dir.resolve("paths.yaml");
         Path out = dir.resolve("out");
@@ -428,29 +427,60 @@ class PolicyToolMainTest {
         KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
         long later = System.currentTimeMillis() + 30 * DAY_MS;
 
-        // An old-form root with an expired keyring, then an expired root with an old-form keyring.
-        JSON.writeValue(out.resolve("root.json").toFile(),
-                SignedRoot.signOldForm(built.rootBytes(), built.rootId(), policy.getPrivate()));
+        JSON.writeValue(out.resolve("root.json").toFile(), built.renewed(1000, policy.getPrivate()));
         JSON.writeValue(keys.resolve("keyring.json").toFile(), ring.renewed(1000, policy.getPrivate()));
         PolicyToolMain.renew(keys, out, later, null, 0);
         assertRenewed(keys, out, built, policy, later);
+    }
 
-        JSON.writeValue(out.resolve("root.json").toFile(), built.renewed(1000, policy.getPrivate()));
-        JSON.writeValue(keys.resolve("keyring.json").toFile(),
-                KeyringFile.signOldForm(ring.services(), ring.policy(), policy.getPrivate()));
-        PolicyToolMain.renew(keys, out, later + 1, null, 0);
-        assertRenewed(keys, out, built, policy, later + 1);
+    /**
+     * A root or keyring without {@code notAfter} is malformed, so it is refused (the tool exits 2) and nothing is
+     * written, though its signature is the policy key's over the same fields without a window.
+     */
+    @Test
+    void renewRefusesMaterialWithoutNotAfterAndWritesNothing(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        KeyPair policy = writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        SignedRoot built = SignedRoot.load(out.resolve("root.json"));
+        KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
+        String rootFile = Files.readString(out.resolve("root.json"));
+
+        Files.writeString(out.resolve("root.json"), "{\"rootId\":\"" + built.rootId() + "\",\"root\":\""
+                + built.root() + "\",\"sig\":\"" + sign(policy, built.rootId() + "|" + built.root()) + "\"}");
+        Map<Path, String> before = snapshot(keys, out);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(out.resolve("root.json") + " is missing or not a signed root", e.getMessage());
+        assertEquals(before, snapshot(keys, out));
+
+        Files.writeString(out.resolve("root.json"), rootFile);
+        String services = JSON.writeValueAsString(new TreeMap<>(ring.services()));
+        String body = "{\"policy\":\"" + ring.policy() + "\",\"services\":" + services + "}";
+        Files.writeString(keys.resolve("keyring.json"), "{\"services\":" + services + ",\"policy\":\"" + ring.policy()
+                + "\",\"sig\":\"" + sign(policy, "paztport-keyring\n" + body) + "\"}");
+        before = snapshot(keys, out);
+        e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring", e.getMessage());
+        assertEquals(before, snapshot(keys, out));
+    }
+
+    private static String sign(KeyPair policy, String text) {
+        return Base64Url.encode(Crypto.sign(policy.getPrivate(), text.getBytes(StandardCharsets.UTF_8)));
     }
 
     private static void assertRenewed(Path keys, Path out, SignedRoot built, KeyPair policy, long notAfter) {
         SignedRoot root = SignedRoot.load(out.resolve("root.json"));
-        assertTrue(root.isNewForm() && root.isCurrent(System.currentTimeMillis()));
+        assertTrue(root.isCurrent(System.currentTimeMillis()));
         assertEquals(notAfter, root.notAfter());
         assertEquals(built.rootId(), root.rootId());
         assertEquals(built.root(), root.root());
         assertTrue(root.verify(policy.getPublic()));
         KeyringFile ring = KeyringFile.load(keys.resolve("keyring.json"));
-        assertTrue(ring.isNewForm() && ring.isCurrent(System.currentTimeMillis()));
+        assertTrue(ring.isCurrent(System.currentTimeMillis()));
         assertEquals(notAfter, ring.notAfter());
         assertTrue(ring.verifies(pub(policy)));
     }

@@ -702,15 +702,6 @@ class BoundaryClientTest {
     }
 
     @Test
-    void egressRefusesOldFormOwnMaterial() {
-        SignedRoot old = SignedRoot.signOldForm(new byte[32], "old-root", policy.getPrivate());
-        assertThrows(IllegalArgumentException.class, () -> egressWith(old, keyring));
-        KeyringFile oldRing = KeyringFile.signOldForm(Map.of("payment", pub(payment)), policyPub,
-                policy.getPrivate());
-        assertThrows(IllegalArgumentException.class, () -> egressWith(built.signedRoot(), oldRing));
-    }
-
-    @Test
     void idlePeriodMustBePositive() {
         try (HttpClient tls = tls()) {
             assertThrows(IllegalArgumentException.class,

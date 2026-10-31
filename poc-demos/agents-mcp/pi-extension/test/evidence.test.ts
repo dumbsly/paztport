@@ -106,7 +106,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
       clientKeyringSig: material.keyringSig,
       clientKeyringNotAfter: material.keyringNotAfter,
     });
-    // a fresh setup is in the new form on both sides, and each window travels with what it covers
+    // a fresh setup has a window on both sides, and each window travels with what it covers
     expect(s.request.clientRoot!.notAfter).toEqual(expect.any(Number));
     expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
     expect(typeof s.request.nonce).toBe("string");

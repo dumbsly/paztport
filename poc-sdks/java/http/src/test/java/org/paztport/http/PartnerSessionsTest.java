@@ -82,12 +82,6 @@ class PartnerSessionsTest {
                             rootNotAfter, policy.getPrivate()).signedRoot());
         }
 
-        /** The same organisation with its root and keyring signed again in the old form, with no window. */
-        Org oldForm() {
-            return new Org(policy, KeyringFile.signOldForm(keyring.services(), pin(), policy.getPrivate()), key, cert,
-                    SignedRoot.signOldForm(root.rootBytes(), root.rootId(), policy.getPrivate()));
-        }
-
         String pin() {
             return pub(policy);
         }
@@ -163,15 +157,14 @@ class PartnerSessionsTest {
     }
 
     /**
-     * As with an unpinned key: client material in the old form, or past its window at the handshake, opens an unsafe
-     * session with no verifier, so no call is ever checked against material its owner no longer vouches for.
+     * As with an unpinned key: client material past its window at the handshake opens an unsafe session with no
+     * verifier, so no call is ever checked against material its owner no longer vouches for.
      */
     @Test
-    void oldFormOrExpiredClientMaterialIsUnsafe() {
-        Org old = shop.oldForm();
+    void expiredClientMaterialIsUnsafe() {
         Org expiredRoot = Org.of("payment", shop.policy(), now.get() - 1, NOT_AFTER);
         Org expiredRing = Org.of("payment", shop.policy(), NOT_AFTER, now.get() - 1);
-        for (Org client : List.of(old, expiredRoot, expiredRing)) {
+        for (Org client : List.of(expiredRoot, expiredRing)) {
             SessionRequest req = request(client, client.root());
             SessionReply reply = partner.open(req, SHOP_CA, "orders");
             assertEquals("unsafe", reply.status());

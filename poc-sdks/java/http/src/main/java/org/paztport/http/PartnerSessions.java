@@ -62,14 +62,14 @@ import org.slf4j.LoggerFactory;
  * be given a fresh certificate before the one it holds expires.
  *
  * <p>A session is attested only when {@link Sessions#status} says so: the client's root and keyring verify under a
- * policy key this side has pinned out of band, and they and this side's own root and keyring are in the new form and
- * current. So a partner left running past its own material degrades to unsafe sessions, disabled operations refused
- * and the rest served as for any unattested caller, rather than stopping. An attested session gets its own verifier,
- * pinned to the client's keyring and root from the handshake, with the session id as its {@code sess}, so a stamp
- * made in one session never verifies in another, and with their earlier window, so every call in it is refused
- * {@code POLICY_EXPIRED} once either has passed. Should that verifier not be buildable, the session is unsafe
- * rather than the handshake failing, because the client still has to be told. An unsafe session has no verifier,
- * and its reply lists the operations this side has switched off for it.
+ * policy key this side has pinned out of band, and they and this side's own root and keyring are current. So a
+ * partner left running past its own material degrades to unsafe sessions, disabled operations refused and the rest
+ * served as for any unattested caller, rather than stopping. An attested session gets its own verifier, pinned to the
+ * client's keyring and root from the handshake, with the session id as its {@code sess}, so a stamp made in one
+ * session never verifies in another, and with their earlier window, so every call in it is refused
+ * {@code POLICY_EXPIRED} once either has passed. Should that verifier not be buildable, the session is unsafe rather
+ * than the handshake failing, because the client still has to be told. An unsafe session has no verifier, and its
+ * reply lists the operations this side has switched off for it.
  */
 public final class PartnerSessions {
 
@@ -197,8 +197,8 @@ public final class PartnerSessions {
             throw new IllegalArgumentException("request does not open a session");
         }
         VerifierV3 verifier = null;
-        // Judged now: client material that is old form or past its window, or this side's own once it has expired,
-        // opens an unsafe session.
+        // Judged now: client material past its window, or this side's own once it has expired, opens an unsafe
+        // session.
         if (Sessions.status(req, ownRoot, ownKeyring, ownPolicyPublic, pinnedClientKeys, clock.getAsLong())
                 .equals("attested")) {
             try {
@@ -347,7 +347,7 @@ public final class PartnerSessions {
 
     /** What {@link Builder#build} found wrong with a partner's own material, in the order it checks. */
     public enum Fault {
-        /** The keyring or the root does not verify under the pin, is in the old form, or has expired. */
+        /** The keyring or the root does not verify under the pin, or has expired. */
         OWN_MATERIAL,
         /** The keyring holds no key for the entry service. */
         NO_ENTRY_KEY,
@@ -502,13 +502,13 @@ public final class PartnerSessions {
         }
 
         /**
-         * The registry, once this side's material is fit to sign replies: in this order, its keyring and root
-         * verify under its pin and are in the new form and current; the keyring holds the entry service; that entry
-         * is the service key; the reply certificate verifies under the pin, names that service and that key, and
-         * has not expired by the clock. Each would otherwise sign replies no client could accept, so each is an
-         * {@link InvalidMaterial} naming its {@link Fault}. A certificate that expires later is not caught here:
-         * replies then fail at the client, which falls back to an unsafe session. The partner's own keyring and
-         * root are the other case: once either expires, the registry opens only unsafe sessions.
+         * The registry, once this side's material is fit to sign replies: in this order, its keyring and root verify
+         * under its pin and are current; the keyring holds the entry service; that entry is the service key; the
+         * reply certificate verifies under the pin, names that service and that key, and has not expired by the
+         * clock. Each would otherwise sign replies no client could accept, so each is an {@link InvalidMaterial}
+         * naming its {@link Fault}. A certificate that expires later is not caught here: replies then fail at the
+         * client, which falls back to an unsafe session. The partner's own keyring and root are the other case: once
+         * either expires, the registry opens only unsafe sessions.
          *
          * @throws NullPointerException if any of this side's material is missing
          * @throws IllegalArgumentException if no client key is pinned, no client origin allowed, or the session

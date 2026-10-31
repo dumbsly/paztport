@@ -39,9 +39,9 @@ export type ClientMaterial = {
   keyring: Record<string, string>;
   /** The policy key's signature over the keyring, sent in the session request. */
   keyringSig: string;
-  /** The keyring's window, sent as `clientKeyringNotAfter`; present exactly when the keyring is in the new form. */
-  keyringNotAfter?: number;
-  /** The root whole, its own `notAfter` included when it is in the new form. */
+  /** The keyring's window, sent as `clientKeyringNotAfter`. */
+  keyringNotAfter: number;
+  /** The root whole, its own `notAfter` included. */
   signedRoot: SignedRoot;
   /** Keyed by route, "session/pi/mcp:<serverId>.<tool>". */
   proofs: Record<string, MerkleProof>;
@@ -49,18 +49,14 @@ export type ClientMaterial = {
   rules?: LocalRules;
 };
 
-/** The fix for a keyring.json or root.json that is unsigned, malformed, in the old form, expired or not signed as it should be. */
+/** The fix for a keyring.json or root.json that is unsigned, malformed, expired or not signed as it should be. */
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
 
 /**
- * Throws unless the window `notAfter` (undefined: the old form) of the file at `path` is current at `now`: an old-form
- * keyring or root is never current, and at `notAfter` it still is. Called only once the signature over the window has
- * verified, so the window read is the one the policy key signed.
+ * Throws unless the window `notAfter` of the file at `path` is current at `now`: at `notAfter` it still is. Called only
+ * once the signature over the window has verified, so the window read is the one the policy key signed.
  */
-function requireCurrent(path: string, notAfter: number | undefined, now: number): void {
-  if (notAfter === undefined) {
-    throw new Error(`${path} is in the old form (no notAfter): ${REGENERATE}`);
-  }
+function requireCurrent(path: string, notAfter: number, now: number): void {
   if (!(now <= notAfter)) {
     throw new Error(`${path} expired at ${describeNotAfter(notAfter)}: ${REGENERATE}`);
   }
@@ -109,9 +105,9 @@ export function readPin(path: string): string {
  * Keys and keyring come from `dir`; root.json, proofs-pi.json and rules.json come from `policyDir` (the client root,
  * or the local-tools root that also binds the folder rules). The keyring must be signed by its policy key over its
  * notAfter, and a rules.json covered by a verifying proof for its hash, or loading fails. The root is read whole; a
- * window that is not an integer is refused. At `now` the keyring and the root must each be in the new form and
- * current (at their notAfter they still are), each judged only after its signature verified; otherwise loading
- * fails naming the file and the fix. Each with no more than WARN_WITHIN_MS left is passed to `warn` as one line
+ * window that is missing or not an integer is refused. At `now` the keyring and the root must each be current (at
+ * their notAfter they still are), each judged only after its signature verified; otherwise loading fails naming the
+ * file and the fix. Each with no more than WARN_WITHIN_MS left is passed to `warn` as one line
  * naming the file and its notAfter. The windows are what later checks rely on: the local gate re-reads them per call.
  */
 export function loadClientMaterial(dir: string, policyDir: string = dir, now: number = Date.now(), warn: (message: string) => void = console.error): ClientMaterial {
@@ -128,7 +124,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
     throw new Error(`keyring.json sig must be a string: ${REGENERATE}`);
   }
   const keyringSig = ring.sig;
-  let keyringNotAfter: number | undefined;
+  let keyringNotAfter: number;
   try {
     keyringNotAfter = readNotAfter(ring, "notAfter");
   } catch (e) {
@@ -162,8 +158,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
       throw new Error(`${svc}.key does not match its keyring.json entry`);
     }
   }
-  const signedRing = { policy: policyPublicKey, services: keyring, sig: keyringSig };
-  if (!verifyKeyring(keyringNotAfter === undefined ? signedRing : { ...signedRing, notAfter: keyringNotAfter }, policyPublicKey)) {
+  if (!verifyKeyring({ policy: policyPublicKey, services: keyring, sig: keyringSig, notAfter: keyringNotAfter }, policyPublicKey)) {
     throw new Error(`keyring.json is not signed by its policy key: ${REGENERATE}`);
   }
   const ringPath = join(dir, "keyring.json");
@@ -192,7 +187,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
     }
     Object.defineProperty(proofs, route, { value: proof, enumerable: true, writable: true, configurable: true });
   }
-  const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}), signedRoot, proofs };
+  const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, keyringNotAfter, signedRoot, proofs };
   if (existsSync(join(policyDir, "rules.json"))) {
     let rules: LocalRules;
     try {

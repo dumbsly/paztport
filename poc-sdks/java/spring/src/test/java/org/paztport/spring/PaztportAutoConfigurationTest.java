@@ -13,6 +13,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import com.sun.net.httpserver.HttpsConfigurator;
@@ -194,7 +195,7 @@ class PaztportAutoConfigurationTest {
     void anUnsignedKeyringFailsAtStartup(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                new KeyringFile(Map.of("gateway", pub(gateway)), pub(policy), null));
+                new KeyringFile(Map.of("gateway", pub(gateway)), pub(policy), null, NOT_AFTER));
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .run(context -> assertThat(context).hasFailed());
@@ -241,20 +242,32 @@ class PaztportAutoConfigurationTest {
         verifierFails(dir, "paztport.root-path", "expired");
     }
 
+    /**
+     * A root or keyring without {@code notAfter} is malformed: neither a verifier nor a partner starts on it, and
+     * the refusal is the reader's, the one a {@code notAfter} that is not an integer gets, with no key in it.
+     */
     @Test
-    void verifierRefusesOldFormRoot(@TempDir Path dir) throws Exception {
-        writeWorld(dir);
-        JSON.writeValue(dir.resolve("root.json").toFile(),
-                SignedRoot.signOldForm(new byte[32], "old-root", policy.getPrivate()));
-        verifierFails(dir, "paztport.root-path", "old form");
+    void materialWithoutNotAfterFailsAtStartup(@TempDir Path dir) throws Exception {
+        for (String file : List.of("root.json", "keyring.json")) {
+            String message = (file.equals("root.json") ? "signed root" : "keyring")
+                    + " notAfter must be an integer in [0, 2^53 - 1]";
+            writeWorld(dir);
+            dropNotAfter(dir.resolve(file));
+            runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir)).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(context.getStartupFailure()).rootCause().hasMessage(message);
+                assertThat(stackTrace(context.getStartupFailure())).doesNotContain(pub(policy));
+            });
+            writePartner(dir);
+            dropNotAfter(dir.resolve(file));
+            partnerFails(dir, message);
+        }
     }
 
-    @Test
-    void verifierRefusesOldFormKeyring(@TempDir Path dir) throws Exception {
-        writeWorld(dir);
-        JSON.writeValue(dir.resolve("keyring.json").toFile(),
-                KeyringFile.signOldForm(Map.of("gateway", pub(gateway)), pub(policy), policy.getPrivate()));
-        verifierFails(dir, "paztport.keyring-path", "old form");
+    private static void dropNotAfter(Path file) throws IOException {
+        ObjectNode o = (ObjectNode) JSON.readTree(file.toFile());
+        o.remove("notAfter");
+        JSON.writeValue(file.toFile(), o);
     }
 
     /** The warning's lines, with the file and the notAfter each names, while {@code run} runs. */
@@ -540,11 +553,6 @@ class PaztportAutoConfigurationTest {
                 System.currentTimeMillis() - 1, policy.getPrivate()).signedRoot());
         partnerFails(dir, "paztport.root-path has expired");
         partnerFails(dir, "re-sign with the policy tool");
-
-        writePartner(dir);
-        JSON.writeValue(dir.resolve("keyring.json").toFile(), KeyringFile.signOldForm(
-                Map.of("psp", pub(psp), "ledger", pub(ledger)), pub(policy), policy.getPrivate()));
-        partnerFails(dir, "paztport.keyring-path is in the old form");
     }
 
     @Test

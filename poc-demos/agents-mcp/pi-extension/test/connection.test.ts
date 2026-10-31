@@ -130,7 +130,7 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
   });
 
   it("theHandshakeSendsTheKeyringWindowAndGetsTheServers", async () => {
-    // a fresh setup: new-form material on both sides, each window carried with what it covers
+    // a fresh setup: material with a window on both sides, each window carried with what it covers
     const evidencePath = join(tmp, `evidence-${n++}.jsonl`);
     const c = ctx();
     const conn = new ServerConnection(

@@ -73,13 +73,13 @@ export const CLIENT_POLICY = generateKeyPair();
 /** When a generated test client's root and keyring stop being valid: 2100-01-01. */
 export const CLIENT_NOT_AFTER = 4_102_444_800_000;
 
-/** `keyringSig` is the policy key's signature over the session and pi keys, and `keyringNotAfter` over its window, when it has one. */
+/** `keyringSig` is the policy key's signature over the session and pi keys and `keyringNotAfter`, the keyring's window. */
 type ClientMaterial = {
   policyPublicKey: string;
   session: { privateKey: string; publicKey: string };
   pi: { privateKey: string; publicKey: string };
   keyringSig: string;
-  keyringNotAfter?: number;
+  keyringNotAfter: number;
   signedRoot: SignedRoot;
   proofFor(tool: string): MerkleProof;
 };
@@ -116,7 +116,7 @@ function loadMaterial(dir: string): ClientMaterial {
     session: { privateKey: text("session.key"), publicKey: ring.services.session },
     pi: { privateKey: text("pi.key"), publicKey: ring.services.pi },
     keyringSig: ring.sig,
-    ...(Object.hasOwn(ring, "notAfter") ? { keyringNotAfter: ring.notAfter } : {}),
+    keyringNotAfter: ring.notAfter,
     signedRoot: json("root.json"),
     proofFor: (tool) => parseProof(bundle.proofs[`session/pi/mcp:github.${tool}`]),
   };
@@ -143,7 +143,7 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       clientPolicyKey: policy.publicKey,
       clientKeyring: { session: session.publicKey, pi: pi.publicKey },
       clientKeyringSig: m.keyringSig,
-      ...(m.keyringNotAfter !== undefined ? { clientKeyringNotAfter: m.keyringNotAfter } : {}),
+      clientKeyringNotAfter: m.keyringNotAfter,
       nonce: newNonce(),
     };
     return req;

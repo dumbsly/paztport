@@ -3,12 +3,12 @@
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { SignedKeyring } from "@paztport/core";
+import { readNotAfter, type SignedKeyring } from "@paztport/core";
 
 const DAY_MS = 86_400_000;
 
-/** `sig` is the policy key's signature over the keyring (see signKeyring), and `notAfter` its window, present exactly in the new form. */
-export type Keyring = { services: Record<string, string>; policy: string; sig?: string; notAfter?: number };
+/** `sig` is the policy key's signature over the keyring (see signKeyring), and `notAfter` its window. */
+export type Keyring = { services: Record<string, string>; policy: string; sig?: string; notAfter: number };
 
 /** Reads a base64url PKCS#8 key file, trimming surrounding whitespace. */
 export function readKey(path: string): string {
@@ -19,15 +19,17 @@ export function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, "utf8")) as T;
 }
 
+/** Reads a keyring file; throws when it is not an object with a string `policy`, a `services` object and a `notAfter` in [0, 2^53 − 1]. */
 export function readKeyring(path: string): Keyring {
   const ring = readJson<Keyring>(path);
-  if (typeof ring.policy !== "string" || typeof ring.services !== "object" || ring.services === null) {
+  if (typeof ring !== "object" || ring === null || typeof ring.policy !== "string" || typeof ring.services !== "object" || ring.services === null) {
     throw new Error(`malformed keyring: ${path}`);
   }
+  readNotAfter(ring, "notAfter");
   return ring;
 }
 
-/** Writes a new-form keyring over `path` in place, its fields in the order the keygen has always written them. */
+/** Writes a keyring over `path` in place, its fields in the order the keygen has always written them. */
 export function writeKeyring(path: string, k: SignedKeyring): void {
   const ring: Keyring = { services: k.services, policy: k.policy, sig: k.sig, notAfter: k.notAfter };
   writeJson(path, ring);

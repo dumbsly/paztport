@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { earliestNotAfter } from "../policy/validity.ts";
+import { isNotAfter } from "../policy/validity.ts";
 import { isSessionReply, verifySessionReply, type SessionReply, type SessionRequest } from "./session.ts";
 
 /** What a client concludes from a handshake reply: the vocabulary of the spec's session-reply vectors. */
@@ -26,8 +26,12 @@ export function checkSessionReply(raw: unknown, req: SessionRequest, pin: string
   return raw.status === "attested" ? "ATTESTED" : "UNSAFE";
 }
 
-/** A response check's policyNotAfter: the server root's window, and the keyring's too in the entry-key form, the only one where the keyring has its own policy-key signature; undefined (fails closed) when either is old form. */
-export function serverPolicyNotAfter(reply: SessionReply): number | undefined {
-  const root = reply.serverRoot?.notAfter;
-  return Object.hasOwn(reply, "serverKeyringSig") ? earliestNotAfter(root, reply.serverKeyringNotAfter) : earliestNotAfter(root);
+/**
+ * A response check's policyNotAfter: the server root's window, and the keyring's too in the entry-key form, the only
+ * one where the keyring has its own policy-key signature. A reply the client's check accepted with a root holds each;
+ * for one that lacks either it is NaN, which every response check refuses as POLICY_EXPIRED.
+ */
+export function serverPolicyNotAfter(reply: SessionReply): number {
+  const windows = [reply.serverRoot?.notAfter, ...(Object.hasOwn(reply, "serverKeyringSig") ? [reply.serverKeyringNotAfter] : [])];
+  return windows.every(isNotAfter) ? Math.min(...windows) : Number.NaN;
 }

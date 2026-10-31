@@ -220,12 +220,12 @@ class PartnerHandshakeTest {
     }
 
     /**
-     * New-form material on both sides: the request carries the shop keyring's window and its root's, the partner
+     * Material on both sides: the request carries the shop keyring's window and its root's, the partner
      * keeps them, so its session is attested, and the reply carries the partner keyring's window and its root's, so
      * the client's check attests it too. A side that dropped a window would fail the other's signature check.
      */
     @Test
-    void newFormMaterialOnBothSidesIsAttested() throws Exception {
+    void materialOnBothSidesIsAttested() throws Exception {
         SessionRequest req = request(Sessions.newNonce());
         assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientKeyringNotAfter").longValue());
         assertEquals(NOT_AFTER, JSON.readTree(req.toJson()).get("clientRoot").get("notAfter").longValue());

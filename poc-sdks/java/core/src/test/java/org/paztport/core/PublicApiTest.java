@@ -27,9 +27,7 @@ class PublicApiTest {
      */
     private static final Set<String> ANNOTATIONS_KEPT = Set.of(
             "org.paztport.core.policy.KeyringFile: @com.fasterxml.jackson.annotation.JsonInclude",
-            "org.paztport.core.policy.KeyringFile.isNewForm: @com.fasterxml.jackson.annotation.JsonIgnore",
-            "org.paztport.core.policy.SignedRoot: @com.fasterxml.jackson.annotation.JsonInclude",
-            "org.paztport.core.policy.SignedRoot.isNewForm: @com.fasterxml.jackson.annotation.JsonIgnore");
+            "org.paztport.core.policy.SignedRoot: @com.fasterxml.jackson.annotation.JsonInclude");
 
     @Test
     void namesNoJsonLibrary() throws Exception {

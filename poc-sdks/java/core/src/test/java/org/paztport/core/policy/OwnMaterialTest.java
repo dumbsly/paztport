@@ -40,13 +40,15 @@ class OwnMaterialTest {
 
     @Test
     void reportsEachProblemInTheOrderACallerShouldRaiseThem() {
-        KeyringFile forged = KeyringFile.sign(SERVICES, PIN, NOW - 1, Crypto.generateEd25519KeyPair().getPrivate());
-        SignedRoot oldForm = SignedRoot.signOldForm(new byte[32], "v1", POLICY.getPrivate());
+        KeyPair stranger = Crypto.generateEd25519KeyPair();
+        KeyringFile forged = KeyringFile.sign(SERVICES, PIN, NOW - 1, stranger.getPrivate());
+        SignedRoot forgedRoot = SignedRoot.sign(new byte[32], "v1", NOW - 2, stranger.getPrivate());
         assertEquals(List.of(
                 new Problem(Subject.KEYRING, Kind.DOES_NOT_VERIFY, null),
+                new Problem(Subject.ROOT, Kind.DOES_NOT_VERIFY, null),
                 new Problem(Subject.KEYRING, Kind.EXPIRED, NOW - 1),
-                new Problem(Subject.ROOT, Kind.OLD_FORM, null)),
-                OwnMaterial.check(forged, oldForm, PIN, NOW));
+                new Problem(Subject.ROOT, Kind.EXPIRED, NOW - 2)),
+                OwnMaterial.check(forged, forgedRoot, PIN, NOW));
     }
 
     @Test
@@ -64,9 +66,8 @@ class OwnMaterialTest {
         assertEquals(List.of(Subject.KEYRING), OwnMaterial.expiringSoon(
                 ring(NOW + OwnMaterial.WARN_WITHIN_MS), root(NOW + OwnMaterial.WARN_WITHIN_MS + 1), NOW));
         assertEquals(List.of(Subject.KEYRING, Subject.ROOT), OwnMaterial.expiringSoon(ring(NOW), root(NOW), NOW));
-        // Already over, or in the old form: a problem, not a warning.
-        assertEquals(List.of(), OwnMaterial.expiringSoon(ring(NOW - 1),
-                SignedRoot.signOldForm(new byte[32], "v1", POLICY.getPrivate()), NOW));
+        // Already over: a problem, not a warning.
+        assertEquals(List.of(), OwnMaterial.expiringSoon(ring(NOW - 1), root(NOW - 1), NOW));
     }
 
     @Test

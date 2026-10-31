@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, signReplyCert, signKeyring, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
+import { buildPolicy, canonicalize, decode, encode, generateKeyPair, sign, signReplyCert, signKeyring, signRoot, utf8, verifyRoot, verifySessionReply } from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
@@ -72,7 +72,7 @@ describe("loadServerConfig", () => {
     expect(Object.keys(cfg.keyring).sort()).toEqual(["github-tools", "mcp-entry"]);
     expect(verifyRoot(cfg.signedRoot, cfg.policyPublicKey)).toBe(true);
     expect(cfg.routeProof.rootId).toBe(cfg.signedRoot.rootId);
-    // the tools write the new form, and both windows are kept
+    // the tools write a window into each, and both windows are kept
     expect(cfg.signedRoot.notAfter).toEqual(expect.any(Number));
     expect(cfg.keyringNotAfter).toEqual(expect.any(Number));
     // the loaded config drives a full handshake and a verifiable response
@@ -93,7 +93,7 @@ describe("loadServerConfig", () => {
     dirs.push(dir);
     const files: Record<string, unknown> = {
       "keyring.json": {
-        services: { ...cfg.keyring }, policy: cfg.policyPublicKey, sig: cfg.keyringSig, ...(cfg.keyringNotAfter !== undefined ? { notAfter: cfg.keyringNotAfter } : {}),
+        services: { ...cfg.keyring }, policy: cfg.policyPublicKey, sig: cfg.keyringSig, notAfter: cfg.keyringNotAfter,
       },
       "reply-cert.json": cfg.replyCert,
       "mcp-entry.key": cfg.signingKeys["mcp-entry"],
@@ -143,10 +143,6 @@ describe("loadServerConfig", () => {
       (f["keyring.json"] as { notAfter: number }).notAfter = NOT_AFTER + 1;
     });
     expect(() => loadServerConfig(moved)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${moved}): ${REGENERATE}`);
-    const dropped = writeDir(cfg, (f) => {
-      delete (f["keyring.json"] as { notAfter?: number }).notAfter;
-    });
-    expect(() => loadServerConfig(dropped)).toThrow(`server policy refused: the keyring is in the old form (no notAfter); re-sign it with the policy tool (loaded from ${dropped}): ${REGENERATE}`);
   });
   it.each([1.5, -1, 2 ** 53, "x", null, true])("loadServerConfigRefusesAWindowThatIsNotAnInteger %j", (bad) => {
     const ring = writeDir(serverConfig(), (f) => {
@@ -165,12 +161,20 @@ describe("loadServerConfig", () => {
     }
     expect(source).toContain("checkServerPolicy(cfg, now)");
   });
-  it("loadServerConfigRefusesOldFormFilesThroughTheSdkCheck", () => {
+  it("loadServerConfigRefusesFilesWithoutAWindowAsMalformed", () => {
+    // each signed over its other fields alone, so only the missing window refuses it
     const { cfg, policyPrivateKey } = serverSetup();
-    const { signedRoot: _r, ...rest } = cfg;
-    const oldRoot = signRootOldForm(decode(cfg.signedRoot.root), cfg.signedRoot.rootId, policyPrivateKey);
-    const dir = writeDir({ ...rest, signedRoot: oldRoot });
-    expect(() => loadServerConfig(dir)).toThrow(`server policy refused: the root is in the old form (no notAfter); re-sign it with the policy tool (loaded from ${dir}): ${REGENERATE}`);
+    const { rootId, root } = cfg.signedRoot;
+    const ring = writeDir(cfg, (f) => {
+      const k = f["keyring.json"] as { notAfter?: number; sig: string };
+      delete k.notAfter;
+      k.sig = encode(sign(policyPrivateKey, utf8("paztport-keyring\n" + canonicalize({ policy: cfg.policyPublicKey, services: cfg.keyring }))));
+    });
+    expect(() => loadServerConfig(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    const rootDir = writeDir(cfg, (f) => {
+      f["root.json"] = { rootId, root, sig: encode(sign(policyPrivateKey, utf8(`${rootId}|${root}`))) };
+    });
+    expect(() => loadServerConfig(rootDir)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
   });
   it("loadServerConfigRefusesAnExpiredRootWithTheFix", () => {
     const { cfg, policyPrivateKey } = serverSetup();

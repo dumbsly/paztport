@@ -6,7 +6,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, verifyKeyring, verifyProof, decode, WARN_WITHIN_MS } from "@paztport/core";
+import { canonicalize, encode, generateKeyPair, sign, signKeyring, signRoot, utf8, verifyKeyring, verifyProof, decode, WARN_WITHIN_MS } from "@paztport/core";
 import { loadClientMaterial, readPin } from "../src/keys.ts";
 
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -66,10 +66,6 @@ describe("loadClientMaterial", () => {
     const ring = json(join(ringDir, "keyring.json"));
     writeFileSync(join(ringDir, "keyring.json"), JSON.stringify({ ...ring, notAfter: ring.notAfter + 1 }));
     expect(() => loadClientMaterial(ringDir)).toThrow("keyring.json is not signed by its policy key");
-    const droppedDir = copy();
-    const { notAfter: _w, ...dropped } = ring;
-    writeFileSync(join(droppedDir, "keyring.json"), JSON.stringify(dropped));
-    expect(() => loadClientMaterial(droppedDir)).toThrow("keyring.json is not signed by its policy key");
     const rootDir = copy();
     const root = json(join(rootDir, "root.json"));
     writeFileSync(join(rootDir, "root.json"), JSON.stringify({ ...root, notAfter: root.notAfter + 1 }));
@@ -88,18 +84,22 @@ describe("loadClientMaterial", () => {
 
   /**
    * Signs the client keyring, root.json and local-tools/root.json again under a fresh policy key, each with the given
-   * window (or the old form for "old"), the rest until 2100; returns the copy's directory.
+   * window (or, for "none", with no window and signed over its other fields alone), the rest until 2100; returns the
+   * copy's directory.
    */
-  function resigned(w: { ring?: number | "old"; root?: number | "old"; localRoot?: number | "old" }): string {
+  function resigned(w: { ring?: number | "none"; root?: number | "none"; localRoot?: number | "none" }): string {
     const dir = copy();
     const policy = generateKeyPair();
     const ring = json(join(dir, "keyring.json"));
     const ringAt = w.ring ?? FAR;
-    writeFileSync(join(dir, "keyring.json"), JSON.stringify(ringAt === "old" ? signKeyringOldForm(ring.services, policy.publicKey, policy.privateKey) : signKeyring(ring.services, policy.publicKey, policy.privateKey, ringAt)));
+    const windowless = { services: ring.services, policy: policy.publicKey };
+    const ringSig = () => encode(sign(policy.privateKey, utf8("paztport-keyring\n" + canonicalize(windowless))));
+    writeFileSync(join(dir, "keyring.json"), JSON.stringify(ringAt === "none" ? { ...windowless, sig: ringSig() } : signKeyring(ring.services, policy.publicKey, policy.privateKey, ringAt)));
     for (const [path, at] of [["root.json", w.root], ["local-tools/root.json", w.localRoot]] as const) {
       const root = json(join(dir, path));
       const rootAt = at ?? FAR;
-      writeFileSync(join(dir, path), JSON.stringify(rootAt === "old" ? signRootOldForm(decode(root.root), root.rootId, policy.privateKey) : signRoot(decode(root.root), root.rootId, policy.privateKey, rootAt)));
+      const unwindowed = () => ({ rootId: root.rootId, root: root.root, sig: encode(sign(policy.privateKey, utf8(`${root.rootId}|${root.root}`))) });
+      writeFileSync(join(dir, path), JSON.stringify(rootAt === "none" ? unwindowed() : signRoot(decode(root.root), root.rootId, policy.privateKey, rootAt)));
     }
     return dir;
   }
@@ -113,17 +113,17 @@ describe("loadClientMaterial", () => {
     return warnings;
   };
 
-  it("clientRefusesOldFormMaterial", () => {
-    // an old-form keyring or root has no window, so it is never current: refused at startup, naming the file and the fix
-    const ring = resigned({ ring: "old" });
-    expect(() => loadClientMaterial(ring)).toThrow(`${join(ring, "keyring.json")} is in the old form (no notAfter): regenerate`);
+  it("clientRefusesMaterialWithoutAWindowAsMalformed", () => {
+    // a keyring or root with no notAfter is refused at startup as one whose window is not an integer is, with the fix
+    const ring = resigned({ ring: "none" });
+    expect(() => loadClientMaterial(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
     expect(() => loadClientMaterial(ring)).toThrow(FIX);
-    const root = resigned({ root: "old" });
-    expect(() => loadClientMaterial(root)).toThrow(`${join(root, "root.json")} is in the old form (no notAfter): regenerate`);
+    const root = resigned({ root: "none" });
+    expect(() => loadClientMaterial(root)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
     expect(() => loadClientMaterial(root)).toThrow(FIX);
-    const local = resigned({ localRoot: "old" });
+    const local = resigned({ localRoot: "none" });
     expect(() => loadClientMaterial(local)).not.toThrow();
-    expect(() => loadClientMaterial(local, join(local, "local-tools"))).toThrow(`${join(local, "local-tools/root.json")} is in the old form`);
+    expect(() => loadClientMaterial(local, join(local, "local-tools"))).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
   });
 
   it("clientRefusesExpiredOwnRoot", () => {

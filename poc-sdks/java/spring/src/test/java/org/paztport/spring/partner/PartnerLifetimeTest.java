@@ -12,6 +12,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.http.HttpServletRequest;
 import java.io.IOException;
 import java.net.URI;
@@ -333,16 +334,22 @@ class PartnerLifetimeTest {
         assertThat(warnings()).as("the partner's own material is current").isEmpty();
     }
 
+    // Client material without a notAfter is malformed: the handshake is answered 400 INVALID_PARAMS, and no
+    // session is opened.
     @Test
-    void clientMaterialInTheOldFormOpensAnUnsafeSession() throws Exception {
+    void clientMaterialWithoutNotAfterIsInvalidParams() throws Exception {
         RestClient orders = client();
-        PolicyBuilder.Result lasting = built(START + 30 * DAY_MS);
-        SignedRoot oldRoot = SignedRoot.signOldForm(new byte[32], "old-root", SHOP_POLICY.getPrivate());
-        KeyringFile oldRing = KeyringFile.signOldForm(Map.of("orders", pub(SHOP_KEY)), SHOP_PIN,
-                SHOP_POLICY.getPrivate());
-
-        assertUnsafeSession(orders, handshake(orders, oldRoot, ring(START + 30 * DAY_MS)), lasting);
-        assertUnsafeSession(orders, handshake(orders, lasting.signedRoot(), oldRing), lasting);
+        ObjectNode req = (ObjectNode) JSON.readTree(SessionRequest.of(built(START + 30 * DAY_MS).signedRoot(),
+                SHOP_PIN, ring(START + 30 * DAY_MS), Sessions.newNonce()).toJson());
+        ObjectNode noRingWindow = req.deepCopy();
+        noRingWindow.remove("clientKeyringNotAfter");
+        ObjectNode noRootWindow = req.deepCopy();
+        ((ObjectNode) noRootWindow.get("clientRoot")).remove("notAfter");
+        for (ObjectNode body : List.of(noRingWindow, noRootWindow)) {
+            Answer answer = call(orders, "POST", HttpSessions.PATH, Map.of(),
+                    body.toString().getBytes(StandardCharsets.UTF_8));
+            assertEquals(new Answer(400, "{\"error\":\"INVALID_PARAMS\"}"), answer);
+        }
     }
 
     // The verifier made for an attested session carries its client's earlier window, so the moment either lapses

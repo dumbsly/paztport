@@ -11,21 +11,21 @@ import { isCurrent, isNotAfter } from "../policy/validity.ts";
 
 /**
  * `clientKeyringSig` is the client policy key's signature over its keyring (see signKeyring), and
- * `clientKeyringNotAfter` that keyring's window, present exactly when the keyring is in the new form.
+ * `clientKeyringNotAfter` that keyring's window.
  */
 export type SessionRequest = {
   clientRoot: SignedRoot | null;
   clientPolicyKey: string;
   clientKeyring: Record<string, string>;
   clientKeyringSig: string;
-  clientKeyringNotAfter?: number;
+  clientKeyringNotAfter: number;
   nonce: string;
 };
 
 /**
  * A reply carrying `serverKeyringSig` and `serverReplyCert` is signed by the entry service's certified key; one
  * with neither is signed by the server policy key. Which form it is depends only on which fields are present.
- * `serverKeyringNotAfter` is the window `serverKeyringSig` was made over, present exactly when that keyring is in the new form.
+ * `serverKeyringNotAfter` is the window `serverKeyringSig` was made over, present exactly when `serverKeyringSig` is.
  */
 export type SessionReply = {
   serverRoot: SignedRoot | null;
@@ -62,7 +62,8 @@ function isSignedRoot(v: unknown): boolean {
 /**
  * The reply's shape; `serverKeyringSig`, `serverKeyringNotAfter` and `serverReplyCert` are optional, but each, when
  * present (even as null), must be well formed: a window, the keyring's or the root's, that is not an integer in
- * [0, 2^53 − 1] makes the reply malformed rather than old form.
+ * [0, 2^53 − 1] makes the reply malformed, and so does a missing one: a root has its own, and a reply with
+ * `serverKeyringSig` carries the window that signature was made over.
  */
 export function isSessionReply(v: unknown): v is SessionReply {
   return (
@@ -70,7 +71,7 @@ export function isSessionReply(v: unknown): v is SessionReply {
     (v.serverRoot === null || isSignedRoot(v.serverRoot)) &&
     typeof v.serverPolicyKey === "string" &&
     isStringMap(v.serverKeyring) &&
-    (!Object.hasOwn(v, "serverKeyringSig") || typeof v.serverKeyringSig === "string") &&
+    (!Object.hasOwn(v, "serverKeyringSig") || (typeof v.serverKeyringSig === "string" && Object.hasOwn(v, "serverKeyringNotAfter"))) &&
     (!Object.hasOwn(v, "serverKeyringNotAfter") || isNotAfter(v.serverKeyringNotAfter)) &&
     (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
     typeof v.nonce === "string" &&
@@ -126,21 +127,21 @@ function rootsVerify(req: SessionRequest, serverRoot: SignedRoot | null, serverP
 }
 
 /**
- * The keyring a message presents, rebuilt whole: its window is the message's own `windowField` member when it has
- * one (an inherited one never counts), so a window moved, dropped or added in transit fails the signature.
+ * The keyring a message presents, rebuilt whole: its window is the message's own `windowField` member (an inherited
+ * one never counts, and a missing one fails), so a window moved in transit fails the signature.
  */
 function presentedKeyring(msg: object, windowField: string, policy: string, services: Record<string, string>, sig: string): SignedKeyring {
-  const ring: SignedKeyring = { policy, services, sig };
-  return Object.hasOwn(msg, windowField) ? { ...ring, notAfter: (msg as Record<string, unknown>)[windowField] as number } : ring;
+  const ring = { policy, services, sig };
+  return (Object.hasOwn(msg, windowField) ? { ...ring, notAfter: (msg as Record<string, unknown>)[windowField] } : ring) as SignedKeyring;
 }
 
-/** Whether the client's keyring signature verifies under its policy key, over `clientKeyringNotAfter` when the request has one. */
+/** Whether the client's keyring signature verifies under its policy key, over `clientKeyringNotAfter`. */
 function keyringVerifies(req: SessionRequest): boolean {
   const { clientPolicyKey, clientKeyring, clientKeyringSig } = req;
   return verifyKeyring(presentedKeyring(req, "clientKeyringNotAfter", clientPolicyKey, clientKeyring, clientKeyringSig), clientPolicyKey);
 }
 
-/** True when `msg` has a valid window of its own in `field` and `at` is no later than it; an absent (old-form) or inherited one never counts. */
+/** True when `msg` has a valid window of its own in `field` and `at` is no later than it; a missing or inherited one never counts. */
 function windowCurrent(msg: object, field: string, at: number): boolean {
   if (!Object.hasOwn(msg, field)) return false;
   const n = (msg as Record<string, unknown>)[field];
@@ -148,20 +149,11 @@ function windowCurrent(msg: object, field: string, at: number): boolean {
 }
 
 /**
- * The offline judgement of one window: a recorded old-form root or keyring (no own `field`) sets no limit, a new-form
- * one counts only for a record no later than its window. Read only after the signature over the window has verified.
- */
-function windowAllows(msg: object, field: string, at: number): boolean {
-  return !Object.hasOwn(msg, field) || windowCurrent(msg, field, at);
-}
-
-/**
  * "attested" only when both roots verify against their sides' policy keys, the client's policy key is one the server
  * pinned, the client's keyring is signed by it, and at `now` (ms) the client's root and keyring and the server's own
- * root and keyring (`serverKeyringNotAfter`, undefined for an old-form keyring) are all new form and current. No pins
- * means every session is unsafe.
+ * root and keyring (`serverKeyringNotAfter`) are all current. No pins means every session is unsafe.
  *
- * Each signature is checked in its object's own form (a root over its own `notAfter`, the keyring over
+ * Each signature is checked over its object's window (a root over its own `notAfter`, the keyring over
  * `clientKeyringNotAfter`), so a window is judged only once the signature that covers it has verified: a client
  * window moved in transit fails that signature, and the root's own signature is the only guard on the root's.
  * The server's own windows are not re-verified here: they are the ones the server checked its keyring and root
@@ -171,7 +163,7 @@ function windowAllows(msg: object, field: string, at: number): boolean {
 export function sessionStatus(
   req: SessionRequest,
   serverRoot: SignedRoot | null,
-  serverKeyringNotAfter: number | undefined,
+  serverKeyringNotAfter: number,
   serverPolicyKey: string,
   pinnedClientKeys: readonly string[],
   now: number,
@@ -204,21 +196,13 @@ export function signSessionReply(reply: Omit<SessionReply, "sig">, signingPrivat
 }
 
 /**
- * How a reply is judged: "live" by a client at its handshake, refusing a server root or keyring that is old form or
- * not current at `at`; "offline" for a recorded handshake, which accepts the old forms as recorded evidence holds
- * them and judges a new-form window at `at`, the time of the record judged.
- */
-type ReplyMode = "live" | "offline";
-
-/**
  * The key the reply's `sig` must verify under, or undefined when none may. The policy-key form (none of the
  * keyring-signature fields) names the pin; a `serverKeyringNotAfter` there is a keyring window with no keyring
  * signature, so no key. The entry-key form names the certified key of `serverEntry`, only if the keyring (over
- * `serverKeyringNotAfter` when the reply has one) and certificate verify under the pin, the certificate names
- * `serverEntry` and the keyring's key for it, `at` is no later than its `notAfter`, and the keyring is current at
- * `at`: live it must be new form, offline an old-form one sets no limit.
+ * `serverKeyringNotAfter`) and certificate verify under the pin, the certificate names `serverEntry` and the
+ * keyring's key for it, `at` is no later than its `notAfter`, and the keyring is current at `at`.
  */
-function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: number, mode: ReplyMode): string | undefined {
+function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: number): string | undefined {
   const hasRingSig = Object.hasOwn(reply, "serverKeyringSig");
   const hasCert = Object.hasOwn(reply, "serverReplyCert");
   if (!hasRingSig && !hasCert) {
@@ -237,30 +221,23 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
     ring[serverEntry] === cert.key &&
     typeof at === "number" &&
     at <= cert.notAfter &&
-    (mode === "offline" ? windowAllows(reply, "serverKeyringNotAfter", at) : windowCurrent(reply, "serverKeyringNotAfter", at));
+    windowCurrent(reply, "serverKeyringNotAfter", at);
   return ok ? cert.key : undefined;
 }
 
 /**
- * The one reply check behind the live and offline verdicts (see ReplyMode): after the pin, `sig` under the key the
- * reply's form names (see replySigner), then the roots and the session id, the server root verifying under the pin
- * in its own form and current at `at` (live it must be new form; offline an old-form one sets no limit). A window is
- * judged only after the signature over it has verified (the root's under the pin, the keyring's in replySigner), so
- * one moved in transit fails as a signature. Never throws.
+ * The one reply check behind the live and offline verdicts, judged at `at`, the client's clock live and the time of
+ * the record judged offline: after the pin, `sig` under the key the reply's form names (see replySigner), then the
+ * roots and the session id, the server root verifying under the pin over its own `notAfter` and current at `at`. A
+ * window is judged only after the signature over it has verified (the root's under the pin, the keyring's in
+ * replySigner), so one moved in transit fails as a signature. Never throws.
  */
-function replyHolds(
-  reply: SessionReply,
-  req: SessionRequest,
-  pinnedServerPolicyKey: string,
-  serverEntry: string,
-  at: number,
-  mode: ReplyMode,
-): boolean {
+function replyHolds(reply: SessionReply, req: SessionRequest, pinnedServerPolicyKey: string, serverEntry: string, at: number): boolean {
   try {
     if (reply.serverPolicyKey !== pinnedServerPolicyKey) {
       return false;
     }
-    const signer = replySigner(reply, pinnedServerPolicyKey, serverEntry, at, mode);
+    const signer = replySigner(reply, pinnedServerPolicyKey, serverEntry, at);
     const { sig, ...body } = reply;
     if (signer === undefined || !verify(signer, replySigningBytes(body), decode(sig))) {
       return false;
@@ -275,7 +252,7 @@ function replyHolds(
     if (reply.serverRoot === null) {
       return true;
     }
-    return verifyRoot(reply.serverRoot, pinnedServerPolicyKey) && (mode === "offline" ? windowAllows(reply.serverRoot, "notAfter", at) : isCurrent(reply.serverRoot, at));
+    return verifyRoot(reply.serverRoot, pinnedServerPolicyKey) && isCurrent(reply.serverRoot, at);
   } catch {
     return false;
   }
@@ -283,7 +260,7 @@ function replyHolds(
 
 /**
  * The client's live check of a reply at time `at` (ms, its clock): replyHolds, refusing a server root, and in
- * the entry-key form a server keyring, that is old form or not current at `at`, in either status. `serverEntry` is
+ * the entry-key form a server keyring, that is not current at `at`, in either status. `serverEntry` is
  * the client's own configuration, never the reply's. Never throws.
  */
 export function verifySessionReply(
@@ -293,7 +270,7 @@ export function verifySessionReply(
   serverEntry: string,
   at: number,
 ): boolean {
-  return replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "live");
+  return replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at);
 }
 
 /**
@@ -305,10 +282,9 @@ export function verifySessionReply(
  * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
  * of the record judged, since the handshake record carries no signed time: the caller passes a time the client signed
  * (a call's last stamp `ts`). The session is attested only for records no later than its certificate's `notAfter`
- * (entry-key form) and the `notAfter` of each root and keyring in the new form, on both sides, each read only after
- * its own signature verified. Old-form roots and keyrings are accepted as recorded evidence holds them and set no
- * limit, so a policy-key reply over old-form material is attested at any time. The caller must not take `at` from
- * the handshake record, which anyone holding the file can edit. Never throws.
+ * (entry-key form) and the `notAfter` of each root and keyring, on both sides, each read only after its own
+ * signature verified. The caller must not take `at` from the handshake record, which anyone holding the file can
+ * edit. Never throws.
  */
 export function isAttestedSession(
   req: SessionRequest,
@@ -321,11 +297,11 @@ export function isAttestedSession(
     return (
       isSessionReply(reply) &&
       reply.status === "attested" &&
-      replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
+      replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at) &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&
       keyringVerifies(req) &&
-      windowAllows(req.clientRoot!, "notAfter", at) &&
-      windowAllows(req, "clientKeyringNotAfter", at)
+      isCurrent(req.clientRoot!, at) &&
+      windowCurrent(req, "clientKeyringNotAfter", at)
     );
   } catch {
     return false;

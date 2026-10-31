@@ -6,7 +6,6 @@ package org.paztport.core.policy;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -32,7 +31,7 @@ class SignedRootTest {
     private static final long MAX_SAFE = (1L << 53) - 1;
     private static final byte[] ROOT = Crypto.sha256("root".getBytes(StandardCharsets.UTF_8));
 
-    private static SignedRoot newForm() {
+    private static SignedRoot signedRoot() {
         return SignedRoot.sign(ROOT, "v1", NOT_AFTER, POLICY.getPrivate());
     }
 
@@ -95,20 +94,18 @@ class SignedRootTest {
     }
 
     @Test
-    void newFormSignsUnderItsOwnDomainPrefix() {
+    void signsUnderItsOwnDomainPrefix() {
         assertEquals("paztport-root\n{\"notAfter\":1798761600000,\"root\":\"R\",\"rootId\":\"v1\"}",
                 new String(SignedRoot.signingBytes("v1", "R", NOT_AFTER), StandardCharsets.UTF_8));
         assertEquals("paztport-root\n{\"notAfter\":9007199254740991,\"root\":\"R\",\"rootId\":\"v1\"}",
                 new String(SignedRoot.signingBytes("v1", "R", MAX_SAFE), StandardCharsets.UTF_8));
-        assertEquals("v1|R", new String(SignedRoot.signingBytes("v1", "R"), StandardCharsets.UTF_8));
         assertThrows(IllegalArgumentException.class, () -> SignedRoot.signingBytes("v1", "R", -1));
         assertThrows(IllegalArgumentException.class, () -> SignedRoot.signingBytes("v1", "R", MAX_SAFE + 1));
     }
 
     @Test
-    void newFormRoundTrip() throws Exception {
-        SignedRoot r = newForm();
-        assertTrue(r.isNewForm());
+    void roundTrip() throws Exception {
+        SignedRoot r = signedRoot();
         assertEquals(NOT_AFTER, r.notAfter());
         assertEquals("v1", r.rootId());
         assertArrayEquals(ROOT, r.rootBytes());
@@ -125,69 +122,50 @@ class SignedRootTest {
 
     @Test
     void tamperedNotAfterFails() {
-        SignedRoot r = newForm();
+        SignedRoot r = signedRoot();
         assertFalse(new SignedRoot(r.rootId(), r.root(), r.sig(), NOT_AFTER + 1).verify(POLICY.getPublic()));
     }
 
     @Test
-    void neitherFormPassesForTheOther() {
-        SignedRoot r = newForm();
-        assertFalse(new SignedRoot(r.rootId(), r.root(), r.sig()).verify(POLICY.getPublic()),
-                "dropping notAfter must not turn a new-form signature into an old-form one");
-        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
-        assertFalse(new SignedRoot(old.rootId(), old.root(), old.sig(), NOT_AFTER).verify(POLICY.getPublic()),
-                "adding notAfter must not lend an old-form signature a window it never signed");
+    void aSignatureOverRootIdAndRootAloneFails() {
+        String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
+                ("v1|" + Base64Url.encode(ROOT)).getBytes(StandardCharsets.UTF_8)));
+        assertFalse(new SignedRoot("v1", Base64Url.encode(ROOT), sig, NOT_AFTER).verify(POLICY.getPublic()),
+                "a window must not be lent to a signature that never covered one");
     }
 
     @Test
-    void newFormTamperedRootOrRootIdFails() {
-        SignedRoot r = newForm();
+    void tamperedRootOrRootIdFails() {
+        SignedRoot r = signedRoot();
         assertFalse(new SignedRoot("v2", r.root(), r.sig(), r.notAfter()).verify(POLICY.getPublic()));
         assertFalse(new SignedRoot(r.rootId(), Base64Url.encode(Crypto.sha256("evil".getBytes())), r.sig(),
                 r.notAfter()).verify(POLICY.getPublic()));
     }
 
     @Test
-    void oldFormStillVerifies() throws Exception {
-        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
-        assertFalse(old.isNewForm());
-        assertNull(old.notAfter());
-        assertTrue(old.verify(POLICY.getPublic()));
-        // An old-form root written today carries no notAfter at all, not a null one.
-        assertFalse(JSON.writeValueAsString(old).contains("notAfter"));
-        SignedRoot parsed = SignedRoot.parse(JSON.writeValueAsString(old));
-        assertEquals(old, parsed);
-        assertTrue(parsed.verify(POLICY.getPublic()));
-    }
-
-    @Test
     void currentAtNotAfterNotAfter() {
-        SignedRoot r = newForm();
+        SignedRoot r = signedRoot();
         assertTrue(r.isCurrent(NOT_AFTER - 1));
         assertTrue(r.isCurrent(NOT_AFTER));
         assertFalse(r.isCurrent(NOT_AFTER + 1));
-        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
-        assertFalse(old.isCurrent(0));
-        assertFalse(old.isCurrent(Long.MIN_VALUE));
     }
 
     @Test
     void renewedKeepsRootAndRootId() {
-        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
+        SignedRoot old = SignedRoot.sign(ROOT, "v1", 1000, POLICY.getPrivate());
         SignedRoot renewed = old.renewed(NOT_AFTER + 5, POLICY.getPrivate());
         assertEquals(old.rootId(), renewed.rootId());
         assertEquals(old.root(), renewed.root());
         assertEquals(NOT_AFTER + 5, renewed.notAfter());
-        assertTrue(renewed.isNewForm());
         assertTrue(renewed.verify(POLICY.getPublic()));
-        SignedRoot again = newForm().renewed(NOT_AFTER + 9, POLICY.getPrivate());
+        SignedRoot again = signedRoot().renewed(NOT_AFTER + 9, POLICY.getPrivate());
         assertEquals(NOT_AFTER + 9, again.notAfter());
         assertTrue(again.verify(POLICY.getPublic()));
     }
 
     @Test
     void notAfterByValue() throws Exception {
-        SignedRoot r = newForm();
+        SignedRoot r = signedRoot();
         String head = "{\"rootId\":\"v1\",\"root\":\"" + r.root() + "\",\"sig\":\"" + r.sig() + "\",\"notAfter\":";
         assertEquals(1_000_000_000_000L, SignedRoot.parse(head + "1.0e12}").notAfter());
         assertEquals(MAX_SAFE, SignedRoot.parse(head + MAX_SAFE + "}").notAfter());
@@ -210,7 +188,7 @@ class SignedRootTest {
         assertThrows(IllegalArgumentException.class,
                 () -> SignedRoot.parse("{\"rootId\":\"v1\",\"root\":\"R\"}"));
         // An unsigned field is ignored, as on a reply certificate.
-        SignedRoot r = newForm();
+        SignedRoot r = signedRoot();
         ObjectNode extra = JSON.valueToTree(r);
         extra.put("note", "unsigned");
         assertTrue(SignedRoot.parse(extra.toString()).verify(POLICY.getPublic()));
@@ -218,7 +196,7 @@ class SignedRootTest {
 
     @Test
     void loadReadsTheFileStrictly(@TempDir Path dir) throws Exception {
-        SignedRoot r = newForm();
+        SignedRoot r = signedRoot();
         Path file = dir.resolve("root.json");
         Files.write(file, JSON.writeValueAsBytes(r));
         assertEquals(r, SignedRoot.load(file));
@@ -228,19 +206,38 @@ class SignedRootTest {
         assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(file));
     }
 
+    /**
+     * A root without {@code notAfter} is malformed, read from text, from a file or from its encoding, with the answer
+     * a {@code notAfter} that is not an integer gets. Its signature is over {@code rootId|root}, so it would verify
+     * were the reader to take the missing window for none.
+     */
+    @Test
+    void aRootWithoutNotAfterIsRefused(@TempDir Path dir) throws Exception {
+        String root = Base64Url.encode(ROOT);
+        String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
+                ("v1|" + root).getBytes(StandardCharsets.UTF_8)));
+        String text = "{\"rootId\":\"v1\",\"root\":\"" + root + "\",\"sig\":\"" + sig + "\"}";
+        String message = "signed root notAfter must be an integer in [0, 2^53 - 1]";
+        assertEquals(message, assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(text)).getMessage());
+        assertEquals(message, assertThrows(IllegalArgumentException.class,
+                () -> SignedRoot.decode(Base64Url.encode(text.getBytes(StandardCharsets.UTF_8)))).getMessage());
+        Path file = dir.resolve("root.json");
+        Files.writeString(file, text);
+        assertEquals(message, assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(file)).getMessage());
+    }
+
     @Test
     void verifyNeverThrows() {
-        assertFalse(new SignedRoot("v1", "R", "!!").verify(POLICY.getPublic()));
         assertFalse(new SignedRoot("v1", "R", "!!", NOT_AFTER).verify(POLICY.getPublic()));
-        assertFalse(new SignedRoot(null, null, newForm().sig(), NOT_AFTER).verify(POLICY.getPublic()));
-        assertFalse(new SignedRoot("v1", newForm().root(), newForm().sig(), -1L).verify(POLICY.getPublic()));
-        assertFalse(new SignedRoot("v1", newForm().root(), null, NOT_AFTER).verify(POLICY.getPublic()));
+        assertFalse(new SignedRoot(null, null, signedRoot().sig(), NOT_AFTER).verify(POLICY.getPublic()));
+        assertFalse(new SignedRoot("v1", signedRoot().root(), signedRoot().sig(), -1L).verify(POLICY.getPublic()));
+        assertFalse(new SignedRoot("v1", signedRoot().root(), null, NOT_AFTER).verify(POLICY.getPublic()));
     }
 
     @Test
     void rootSignatureIsNotAKeyringSignature() {
         Map<String, String> services = Map.of("pi", pub(Crypto.generateEd25519KeyPair()));
-        SignedRoot root = newForm();
+        SignedRoot root = signedRoot();
         assertFalse(new KeyringFile(services, pub(POLICY), root.sig(), root.notAfter()).verifies(pub(POLICY)),
                 "a root signature offered with a keyring's fields");
         KeyringFile ring = KeyringFile.sign(services, pub(POLICY), NOT_AFTER, POLICY.getPrivate());
@@ -252,7 +249,7 @@ class SignedRootTest {
     // prefixes.
     @Test
     void rootSignatureIsNotAReplyCertificateSignature() {
-        SignedRoot root = newForm();
+        SignedRoot root = signedRoot();
         ReplyCert cert = ReplyCert.issue(pub(POLICY), "partner", pub(Crypto.generateEd25519KeyPair()), NOT_AFTER,
                 POLICY.getPrivate());
         assertTrue(root.verify(POLICY.getPublic()) && cert.verifies(pub(POLICY)));

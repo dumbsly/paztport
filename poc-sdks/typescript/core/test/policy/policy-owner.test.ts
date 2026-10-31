@@ -2,13 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair } from "../../src/crypto/crypto.ts";
+import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { encode } from "../../src/encoding/b64url.ts";
-import { signKeyring, signKeyringOldForm, verifyKeyring } from "../../src/policy/keyring.ts";
+import { canonicalize } from "../../src/encoding/jcs.ts";
+import { signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
 import type { SignedKeyring } from "../../src/policy/keyring.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { issueReplyCert, renewKeyring, renewRoot } from "../../src/policy/policy-owner.ts";
-import { signRoot, signRootOldForm, verifyRoot } from "../../src/policy/root.ts";
+import { signRoot, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { verifyReplyCert } from "../../src/session/reply-cert.ts";
 
 const OLD = 1_000;
@@ -22,15 +23,12 @@ const ring = (named: { publicKey: string }, signer: { publicKey: string; private
   signKeyring(services(), named.publicKey, signer.privateKey, notAfter);
 
 describe("policy owner", () => {
-  it("renewsAKeyringInTheNewFormEvenWhenOldFormOrExpired", () => {
+  it("renewsAKeyringEvenWhenExpired", () => {
     const expired = ring(policy, policy, OLD);
-    const oldForm = signKeyringOldForm(services(), policy.publicKey, policy.privateKey);
-    for (const k of [expired, oldForm]) {
-      const renewed = renewKeyring(k, NEW, policy.privateKey);
-      expect(renewed.notAfter).toBe(NEW);
-      expect(renewed.services).toEqual(k.services);
-      expect(verifyKeyring(renewed, policy.publicKey)).toBe(true);
-    }
+    const renewed = renewKeyring(expired, NEW, policy.privateKey);
+    expect(renewed.notAfter).toBe(NEW);
+    expect(renewed.services).toEqual(expired.services);
+    expect(verifyKeyring(renewed, policy.publicKey)).toBe(true);
   });
 
   it("refusesAKeyringThatDoesNotVerifyUnderTheKeyItNames", () => {
@@ -52,13 +50,14 @@ describe("policy owner", () => {
     expect(() => renewRoot(built, other.publicKey, NEW, other.privateKey)).toThrow("root is not signed by this policy key");
   });
 
-  it("renewsAnOldFormRootInTheNewForm", () => {
-    const oldForm = signRootOldForm(new Uint8Array(32), "root-1", policy.privateKey);
-    const renewed = renewRoot(oldForm, policy.publicKey, NEW, policy.privateKey);
-    expect(renewed.notAfter).toBe(NEW);
-    expect(renewed.rootId).toBe(oldForm.rootId);
-    expect(renewed.root).toBe(oldForm.root);
-    expect(verifyRoot(renewed, policy.publicKey)).toBe(true);
+  it("refusesAKeyringOrRootWithoutNotAfter", () => {
+    // each signed by this policy key over its other fields alone, so only the missing window refuses it
+    const ringFields = { policy: policy.publicKey, services: services() };
+    const ring = { ...ringFields, sig: encode(sign(policy.privateKey, utf8("paztport-keyring\n" + canonicalize(ringFields)))) } as unknown as SignedKeyring;
+    expect(() => renewKeyring(ring, NEW, policy.privateKey)).toThrow("keyring is not signed by its policy key");
+    const root = { rootId: "root-1", root: encode(new Uint8Array(32)) };
+    const unwindowed = { ...root, sig: encode(sign(policy.privateKey, utf8(`${root.rootId}|${root.root}`))) } as unknown as SignedRoot;
+    expect(() => renewRoot(unwindowed, policy.publicKey, NEW, policy.privateKey)).toThrow("root is not signed by this policy key");
   });
 
   it("refusesToRenewARootWithAPrivateKeyThatIsNotThePolicyKeysOwn", () => {

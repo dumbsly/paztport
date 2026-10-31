@@ -118,17 +118,13 @@ class BoundaryClientBuilderTest {
                 fault(sound().partnerUrl(URI.create("http://psp")).sessionIdleMs(0).blindingKey(null)));
     }
 
-    // The partner would judge a root or keyring in the old form, or expired, unsafe, so none is taken that could
-    // only ever open unsafe sessions.
+    // The partner would judge an expired root or keyring unsafe, so none is taken that could only ever open unsafe
+    // sessions.
     @Test
-    void ownMaterialInTheOldFormOrExpiredIsRefused() {
+    void expiredOwnMaterialIsRefused() {
         SignedRoot root = built.signedRoot();
         Map<String, String> services = Map.of("payment", pub(payment));
 
-        assertEquals(BoundaryClient.Fault.OWN_OLD_FORM, fault(sound().ownRoot(
-                SignedRoot.signOldForm(root.rootBytes(), root.rootId(), policy.getPrivate()))));
-        assertEquals(BoundaryClient.Fault.OWN_OLD_FORM, fault(sound().ownKeyring(
-                KeyringFile.signOldForm(services, pub(policy), policy.getPrivate()))));
         assertEquals(BoundaryClient.Fault.OWN_EXPIRED, fault(sound().ownRoot(
                 SignedRoot.sign(root.rootBytes(), root.rootId(), EXPIRED, policy.getPrivate()))));
         assertEquals(BoundaryClient.Fault.OWN_EXPIRED, fault(sound().ownKeyring(

@@ -59,7 +59,7 @@ const WINDOWED_FILES = [
 /** How long each keyring, root and the reply certificate must still have to run, so evidence a run saves still verifies afterwards. */
 const POLICY_MARGIN_MS = 86_400_000;
 
-/** Whether `file` in `dir` names a `notAfter` at least POLICY_MARGIN_MS from now: the mock server refuses expired material, and old-form material has none. */
+/** Whether `file` in `dir` names a `notAfter` at least POLICY_MARGIN_MS from now: the mock server refuses expired material, and material without one. */
 function windowCurrent(dir: string, file: string): boolean {
   try {
     const x: unknown = JSON.parse(readFileSync(join(dir, file), "utf8"));

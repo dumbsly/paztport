@@ -272,7 +272,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     ]);
   });
 
-  it("aNewFormHandshakeVerifies", () => {
+  it("anEntryKeyHandshakeVerifies", () => {
     const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
     // the mock server signs its reply with mcp-entry's key, under its keyring's signature and its certificate
     expect(s.reply).toMatchObject({ serverKeyringSig: expect.any(String), serverReplyCert: { svc: "mcp-entry", key: s.reply.serverKeyring["mcp-entry"] } });
@@ -283,7 +283,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(results(stripped.items, "session")).toEqual(["BAD_SESSION"]);
   });
 
-  it("aFreshSetupsHandshakeIsNewFormOnBothSidesAndVerifies", () => {
+  it("aFreshSetupsHandshakeHasWindowsOnBothSidesAndVerifies", () => {
     const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
     expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
     expect(s.request.clientRoot.notAfter).toEqual(expect.any(Number));
@@ -722,6 +722,35 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     expect(lines[1]).toMatch(/^OK {2}runs\/on-002\/evidence\.jsonl/);
   });
 
+  it("aRecordWhoseServerRootHasNoNotAfterIsRefusedAndTheOthersAreStillJudged", () => {
+    // the reply is signed again by the entry key, so its own signature holds and only the missing window refuses it
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const windowless = write(genuine, (rs) => {
+      for (const x of rs.filter((r) => r.type === "session")) {
+        const { sig: _sig, ...body } = x.reply;
+        delete body.serverRoot.notAfter;
+        x.reply = signSessionReply(body, entryKey);
+      }
+    });
+    const dir = join(tmp, `cli-${n++}`);
+    for (const [name, file] of [["on-001", windowless], ["on-002", write(genuine)]] as const) {
+      mkdirSync(join(dir, "runs", name), { recursive: true });
+      writeFileSync(join(dir, "runs", name, "evidence.jsonl"), readFileSync(file));
+    }
+    const reports = verifyResultsDir(dir);
+    expect(reports.map((r) => r.ok)).toEqual([false, true]);
+    // no attested session, so no call in it is judged, and no response is matched to a call
+    expect(results(reports[0]!.items, "session")).toEqual(["BAD_SESSION"]);
+    expect(results(reports[0]!.items, "call")).toEqual(["NO_SESSION", "NO_SESSION", "NO_SESSION", "NO_SESSION"]);
+    expect(results(reports[1]!.items, "call")).toEqual(["OK", "OK", "OK", "OK"]);
+    const d = run(dir);
+    expect(d.status).toBe(1);
+    expect(d.stderr).toBe("");
+    const lines = d.stdout.trim().split("\n");
+    expect(lines[0]).toMatch(/^FAIL runs\/on-001\/evidence\.jsonl line 1 session: BAD_SESSION$/);
+    expect(lines[1]).toMatch(/^OK {2}runs\/on-002\/evidence\.jsonl/);
+  });
+
   it("cliSaysNothingToCheckForAFileWithoutSignedRecords", () => {
     const runOnly = write(genuine.filter((l) => JSON.parse(l).type === "run"));
     const r = run(runOnly);
@@ -1013,7 +1042,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     }
   });
 
-  it("aNewFormClientRecordVerifiesAndItsWindowsAreSigned", () => {
+  it("aClientRecordVerifiesAndItsWindowsAreSigned", () => {
     const client = (rs: any[]) => rs.find((x) => x.type === "client");
     const rec = client(localLines.map((l) => JSON.parse(l)));
     expect(rec.keyringNotAfter).toEqual(expect.any(Number));

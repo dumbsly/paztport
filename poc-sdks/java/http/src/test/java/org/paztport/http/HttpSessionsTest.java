@@ -147,4 +147,27 @@ class HttpSessionsTest {
         assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
         assertNotNull(one.find("CN=shop CA", "orders", kept), "the refused request opened no session");
     }
+
+    /** A request whose keyring or root has no {@code notAfter} is malformed, and opens no session. */
+    @Test
+    void clientMaterialWithoutNotAfterIsInvalidParams() throws IOException {
+        PartnerSessions one = partner(1);
+        ObjectMapper json = new ObjectMapper();
+        String kept = json.readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one).json())
+                .get("sess").asText();
+        ObjectNode noRingWindow = (ObjectNode) json.readTree(request(Sessions.newNonce()));
+        noRingWindow.remove("clientKeyringNotAfter");
+        ObjectNode noRootWindow = (ObjectNode) json.readTree(SessionRequest.of(
+                PolicyBuilder.build(List.of(List.of("orders", "psp")), 4, NOT_AFTER, shopPolicy.getPrivate())
+                        .signedRoot(), pub(shopPolicy), shopKeyring, Sessions.newNonce()).toJson());
+        ((ObjectNode) noRootWindow.get("clientRoot")).remove("notAfter");
+
+        for (ObjectNode bad : List.of(noRingWindow, noRootWindow)) {
+            HttpAnswer answer = HttpSessions.serve(body(bad.toString().getBytes(StandardCharsets.UTF_8)), orders, one);
+
+            assertEquals(400, answer.status());
+            assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
+        }
+        assertNotNull(one.find("CN=shop CA", "orders", kept), "the refused requests opened no session");
+    }
 }

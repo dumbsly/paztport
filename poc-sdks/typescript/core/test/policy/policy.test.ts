@@ -29,7 +29,7 @@ describe("policy", () => {
   it("signedRootVerifies", () => {
     const kp = generateKeyPair();
     const { signedRoot } = buildPolicy(demo, 8, kp.privateKey, NOT_AFTER);
-    // the new form, until the given notAfter, with nothing else to fill in
+    // signed until the given notAfter, with nothing else to fill in
     expect(Object.keys(signedRoot)).toEqual(["rootId", "root", "sig", "notAfter"]);
     expect(signedRoot.notAfter).toBe(NOT_AFTER);
     expect(verifyRoot(signedRoot, kp.publicKey)).toBe(true);

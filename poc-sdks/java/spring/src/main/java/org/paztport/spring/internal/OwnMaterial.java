@@ -19,13 +19,12 @@ import org.slf4j.LoggerFactory;
  * the fix. The checks themselves are core's, {@link org.paztport.core.policy.OwnMaterial}; this words their findings
  * in terms of the {@code paztport.*} properties.
  *
- * <p>It refuses, rather than degrades, because a service that loads its own material already old-form or expired
- * is misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard
- * to re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to
- * unsafe sessions ({@link org.paztport.http.PartnerSessions}), because stopping would cut off the callers
- * it serves without attestation too. The same refusal is what lets
- * {@link org.paztport.core.session.Sessions#status} judge only the windows of the partner's own keyring and root:
- * this check has already made sure both verify under the policy pin.
+ * <p>It refuses, rather than degrades, because a service that loads its own material already expired is
+ * misconfigured: nothing about it can be trusted to improve while it runs, and the operator is at the keyboard to
+ * re-sign it. A partner whose material expires <em>while running</em> is the other case and does degrade, to unsafe
+ * sessions ({@link org.paztport.http.PartnerSessions}), because stopping would cut off the callers it serves without
+ * attestation too. The same refusal is what lets {@link org.paztport.core.session.Sessions#status} judge only the
+ * windows of the partner's own keyring and root: this check has already made sure both verify under the policy pin.
  *
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is
  * restarted far more rarely than a week goes by and this is the last moment the operator is certain to be looking.
@@ -46,9 +45,9 @@ public final class OwnMaterial {
     }
 
     /**
-     * Refuses unless {@code keyring} and {@code root} both verify under {@code policyPin}, are in the new form and
-     * are current at {@code nowMs}, throwing {@link IllegalStateException} that names the property and the fix;
-     * then warns once for each that has {@link #WARN_WITHIN_MS} or less left. Never prints key material.
+     * Refuses unless {@code keyring} and {@code root} both verify under {@code policyPin} and are current at
+     * {@code nowMs}, throwing {@link IllegalStateException} that names the property and the fix; then warns once for
+     * each that has {@link #WARN_WITHIN_MS} or less left. Never prints key material.
      */
     public static void require(KeyringFile keyring, Path keyringFile, SignedRoot root, Path rootFile, String policyPin,
             long nowMs) {
@@ -59,7 +58,7 @@ public final class OwnMaterial {
         for (Subject subject : soon) {
             if (problems.isEmpty() || rank(problems.get(0)) > windowRank(subject)) {
                 boolean isKeyring = subject == Subject.KEYRING;
-                Long notAfter = isKeyring ? keyring.notAfter() : root.notAfter();
+                long notAfter = isKeyring ? keyring.notAfter() : root.notAfter();
                 LOG.warn("{} {} expires soon, its notAfter {}; {} before then", isKeyring ? KEYRING : ROOT,
                         isKeyring ? keyringFile : rootFile, describe(notAfter), FIX);
             }
@@ -80,7 +79,6 @@ public final class OwnMaterial {
         Path file = isKeyring ? keyringFile : rootFile;
         return switch (problem.kind()) {
             case DOES_NOT_VERIFY -> property + " does not verify under paztport.policy-key-path";
-            case OLD_FORM -> property + " is in the old form, with no notAfter: " + FIX + ": " + file;
             case EXPIRED -> property + " has expired, its notAfter " + describe(problem.notAfter())
                     + " being past now: " + FIX + ": " + file;
         };

@@ -30,9 +30,8 @@ import org.paztport.core.session.ReplyCert;
  *
  * <pre>policy-tool [--renew] [paths.yaml] [keysDir] [outDir]</pre>
  *
- * Reads the policy private key from {@code keysDir/policy.key} and the keyring from {@code keysDir/keyring.json}.
- * The root and the keyring are signed in the new form and vouch for {@code PAZTPORT_POLICY_DAYS} days from the run
- * (default 7). Two modes:
+ * Reads the policy private key from {@code keysDir/policy.key} and the keyring from {@code keysDir/keyring.json}. The
+ * root and the keyring are signed to vouch for {@code PAZTPORT_POLICY_DAYS} days from the run (default 7). Two modes:
  *
  * <ul>
  *   <li>Rebuild, the default: a new salted tree from {@code paths.yaml} (depth from {@code PAZTPORT_PROOF_DEPTH},
@@ -121,10 +120,11 @@ public final class PolicyToolMain {
      * Renews: {@code outDir/root.json} and {@code keysDir/keyring.json} signed again until {@code policyNotAfter},
      * each keeping what it lists (the root its {@code root} and {@code rootId}, so the bundles in {@code outDir}
      * still prove against it and are left alone), and, when {@code replyCertSvc} is not null, the certificate
-     * reissued until {@code replyCertNotAfter}. Either file may be in the old form or expired: renewing is how
-     * lapsed material comes back. Throws {@link IllegalArgumentException}, having written nothing, when either is
-     * missing or malformed, the keyring does not verify under the key it names or that key is not this policy key,
-     * the root does not verify under it, or a requested certificate's service is not in the keyring.
+     * reissued until {@code replyCertNotAfter}. Either file may have expired: renewing is how lapsed material comes
+     * back. Throws {@link IllegalArgumentException}, having written nothing, when either is missing or malformed (a
+     * root or keyring without {@code notAfter} included), the keyring does not verify under the key it names or that
+     * key is not this policy key, the root does not verify under it, or a requested certificate's service is not in
+     * the keyring.
      */
     public static void renew(Path keysDir, Path outDir, long policyNotAfter, String replyCertSvc,
             long replyCertNotAfter) throws IOException {

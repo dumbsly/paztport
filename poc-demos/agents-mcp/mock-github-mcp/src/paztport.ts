@@ -95,8 +95,8 @@ function withFix<T>(read: () => T, prefix = ""): T {
  * Loads and validates the files the policy-tool keygen and policy CLIs write into one directory, including the
  * reply certificate, and the client policy key the server pins (client-policy.pub, written by setup-demo). It reads
  * no policy private key, and leaves every judgement of the material, its signatures, lifetime and agreement, to the
- * SDK's checkServerPolicy at `now`. The root is read whole and the keyring's window kept; a window that is not an
- * integer is refused.
+ * SDK's checkServerPolicy at `now`. The root is read whole and the keyring's window kept; a window that is missing or
+ * not an integer is refused.
  */
 export function loadServerConfig(dir: string, now: number = Date.now()): ServerPolicy {
   const ring = readJson(join(dir, "keyring.json"));
@@ -137,8 +137,7 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     keyring,
     // an unsigned keyring reads as "", which never verifies
     keyringSig: typeof ring.sig === "string" ? ring.sig : "",
-    // an old-form keyring has none; checkServerPolicy refuses that with the fix
-    keyringNotAfter: keyringNotAfter as number,
+    keyringNotAfter,
     replyCert,
     signedRoot,
     routeProof,

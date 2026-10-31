@@ -42,8 +42,8 @@ function checked<T>(file: string, step: () => T): T {
 }
 
 /**
- * The keyring at `keyringPath` re-signed until `notAfter`, through core's checks (it verifies under the policy key it names, in either form and
- * expired or not, and that key is the one in `privateKey`). Re-signing vouches that each listed key is still its service's current key; that none
+ * The keyring at `keyringPath` re-signed until `notAfter`, through core's checks (it verifies under the policy key it names, expired or not,
+ * and that key is the one in `privateKey`). Re-signing vouches that each listed key is still its service's current key; that none
  * has been retired since is the policy owner's to ensure. Refuses, writing nothing, when any check fails.
  */
 function renewedKeyring(keyringPath: string, notAfter: number, privateKey: string): SignedKeyring {
@@ -53,7 +53,7 @@ function renewedKeyring(keyringPath: string, notAfter: number, privateKey: strin
   } catch {
     return refuse(`${keyringPath} is missing or not a keyring`);
   }
-  // read whole, so the signature is checked in the keyring's own form, over its notAfter when it has one
+  // read whole, so the signature is checked over its notAfter
   return checked(keyringPath, () => renewKeyring(ring as SignedKeyring, notAfter, privateKey));
 }
 
@@ -90,7 +90,7 @@ function readRoutes(paths: string, clientChain: readonly string[] | undefined): 
   return { routes: allRoutes, rules };
 }
 
-/** The root in `out`, re-signed until `notAfter` with its `root` and `rootId` kept, through core's check that it verifies under `ring`'s policy key in either form, expired or not. */
+/** The root in `out`, re-signed until `notAfter` with its `root` and `rootId` kept, through core's check that it verifies under `ring`'s policy key, expired or not. */
 function renewedRoot(out: string, ring: SignedKeyring, notAfter: number, privateKey: string): SignedRoot {
   const rootPath = join(out, "root.json");
   let root: SignedRoot;

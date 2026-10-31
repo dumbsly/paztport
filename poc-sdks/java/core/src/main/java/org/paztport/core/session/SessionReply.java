@@ -21,9 +21,9 @@ import org.paztport.core.policy.SignedRoot;
  * key's short-lived certificate for the entry service's key) are both set and {@code sig} is the entry service's,
  * so the policy key can stay offline. In the policy-key form both are null and {@code sig} is the policy key's.
  *
- * <p>{@code serverKeyringNotAfter} is the validity window of the keyring {@code serverKeyringSig} signs, null for
- * an old-form keyring, so it belongs to the entry-key form only. As on the request, its presence decides which
- * bytes that signature is checked over. A server root's own {@code notAfter} travels inside the root object.
+ * <p>{@code serverKeyringNotAfter} is the validity window of the keyring {@code serverKeyringSig} signs, so it
+ * belongs to the entry-key form only, and is null in the policy-key form. As on the request, that signature is
+ * checked over it. A server root's own {@code notAfter} travels inside the root object.
  */
 public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<String, String> serverKeyring,
         String serverKeyringSig, Long serverKeyringNotAfter, ReplyCert serverReplyCert, String nonce, String sess,

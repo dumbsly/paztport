@@ -37,8 +37,8 @@ export type V3Config = {
   nonces: NonceCache;
   nonceKey: string;
   now: number;
-  /** The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; required, and undefined (old-form material, with no window) or anything but an integer in [0, 2^53 − 1] fails closed. */
-  policyNotAfter: number | undefined;
+  /** The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; anything but an integer in [0, 2^53 − 1] fails closed. */
+  policyNotAfter: number;
   callMaxAgeMs?: number;
   runMaxAgeMs?: number;
 };

@@ -50,18 +50,23 @@ class JsonTextRoundTripTest {
 
     /** The objects the readers refuse, by case. */
     private static final Set<String> REFUSED = Set.of(
+            "keyring/no notAfter",
             "keyring/notAfter 2^53",
             "keyring/notAfter not an integer",
+            "root/no notAfter",
             "root/notAfter 2^53",
             "root/notAfter not an integer",
             // The whole replies refused are exactly the vectors' MALFORMED_REPLY cases.
             "sessionReply/notAfter not an integer/reply",
+            "sessionReply/server root notAfter dropped/reply",
             "sessionReply/server root notAfter not an integer/reply",
+            "sessionReply/serverKeyringNotAfter dropped/reply",
             "sessionReply/serverKeyringNotAfter not an integer/reply",
             "sessionReply/serverKeyringNotAfter null/reply",
             "sessionReply/serverKeyringSig null/reply",
             "sessionReply/serverReplyCert null/reply",
             "sessionReply/notAfter not an integer/reply/serverReplyCert",
+            "sessionReply/server root notAfter dropped/reply/serverRoot",
             "sessionReply/server root notAfter not an integer/reply/serverRoot",
             "sessionReply/serverReplyCert null/reply/serverReplyCert",
             "verify/non-string rcv/1",
@@ -77,8 +82,8 @@ class JsonTextRoundTripTest {
             "sessionReply/entry named in the reply is ignored/reply");
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
-    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 29, Kind.PROOF, 5,
-            Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
+    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 26, Kind.PROOF, 5,
+            Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 12, Kind.REPLY, 36);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
@@ -235,12 +240,15 @@ class JsonTextRoundTripTest {
     /**
      * A session reply built from its wire form, for the round trip only. The SDK has no reply reader, since the
      * client checks a reply as received, so the fields are read here; a root and a certificate go through their
-     * own readers, and anything not shaped like a reply is refused.
+     * own readers, and anything not shaped like a reply is refused, a keyring signature without its window included.
      */
     private static SessionReply reply(String json) {
         JsonNode r = exact(json);
         if (!r.isObject()) {
             throw new IllegalArgumentException("not an object");
+        }
+        if (r.has("serverKeyringSig") && !r.has("serverKeyringNotAfter")) {
+            throw new IllegalArgumentException("a keyring signature without its window");
         }
         JsonNode root = r.path("serverRoot");
         Map<String, String> ring = new LinkedHashMap<>();

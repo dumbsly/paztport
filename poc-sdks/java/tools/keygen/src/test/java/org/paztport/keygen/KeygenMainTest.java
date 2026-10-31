@@ -93,17 +93,16 @@ class KeygenMainTest {
     }
 
     /**
-     * The keyring is signed in the new form, vouching for its keys for seven days from the run unless
+     * The keyring is signed with a window, vouching for its keys for seven days from the run unless
      * {@code PAZTPORT_POLICY_DAYS} says otherwise.
      */
     @Test
-    void keygenWritesNewFormKeyring(@TempDir Path dir) throws Exception {
+    void keygenWritesAKeyringForSevenDays(@TempDir Path dir) throws Exception {
         long before = System.currentTimeMillis();
         KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
         long after = System.currentTimeMillis();
 
         KeyringFile keyring = KeyringFile.load(dir.resolve("keyring.json"));
-        assertTrue(keyring.isNewForm());
         assertTrue(keyring.notAfter() >= before + 7 * DAY_MS && keyring.notAfter() <= after + 7 * DAY_MS,
                 String.valueOf(keyring.notAfter()));
         assertTrue(keyring.verifies(Files.readString(dir.resolve("policy.pub")).trim()));

@@ -255,15 +255,11 @@ describe("LocalGate modes", () => {
 
   it("gateRefusesWhenLocalRootExpired", () => {
     // the gate reads the windows startup verified: at notAfter the rules still apply, one ms after none do
-    const at = (signedRoot: number | undefined, keyringNotAfter: number | undefined): ClientMaterial => {
-      const { notAfter: _r, ...root } = material.signedRoot;
-      const { keyringNotAfter: _k, ...rest } = material;
-      return {
-        ...rest,
-        signedRoot: signedRoot === undefined ? root : { ...root, notAfter: signedRoot },
-        ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}),
-      };
-    };
+    const at = (rootNotAfter: number, keyringNotAfter: number): ClientMaterial => ({
+      ...material,
+      signedRoot: { ...material.signedRoot, notAfter: rootNotAfter },
+      keyringNotAfter,
+    });
     const write = { path: "website/README.md", content: "x" };
     const onTime = rig("enforce", { material: at(2_000, 9_000), now: 2_000 });
     expect(onTime.gate.check("write", write, "c1")).toEqual({ block: false });
@@ -271,8 +267,6 @@ describe("LocalGate modes", () => {
     for (const [what, m] of [
       ["root", at(1_999, 9_000)],
       ["keyring", at(9_000, 1_999)],
-      ["old-form root", at(undefined, 9_000)],
-      ["old-form keyring", at(9_000, undefined)],
     ] as const) {
       const { gate, eventsPath, evidencePath } = rig("enforce", { material: m, now: 2_000 });
       // fail closed: rules no current root covers are not applied, so reads are refused too

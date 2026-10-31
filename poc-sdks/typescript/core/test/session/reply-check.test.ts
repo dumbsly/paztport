@@ -38,12 +38,13 @@ describe("serverPolicyNotAfter", () => {
     expect(Object.hasOwn(r, "serverKeyringSig")).toBe(true);
     expect(serverPolicyNotAfter(r)).toBe(10);
     expect(serverPolicyNotAfter({ ...r, serverKeyringNotAfter: 30 })).toBe(20);
-    const { serverKeyringNotAfter: _k, ...oldRing } = r;
-    expect(serverPolicyNotAfter(oldRing), "an old-form keyring in the entry-key form").toBeUndefined();
+    // a reply the client's check refuses for a missing window fails every response check closed
+    const { serverKeyringNotAfter: _k, ...noRingWindow } = r;
+    expect(serverPolicyNotAfter(noRingWindow)).toBeNaN();
     // The policy-key form: its keyring is signed through the reply by the online policy key, so only the root is judged.
     const { serverKeyringSig: _s, serverReplyCert: _c, ...policyKeyForm } = r;
     expect(serverPolicyNotAfter(policyKeyForm)).toBe(20);
-    expect(serverPolicyNotAfter({ ...policyKeyForm, serverRoot: null })).toBeUndefined();
+    expect(serverPolicyNotAfter({ ...policyKeyForm, serverRoot: null })).toBeNaN();
   });
 });
 
@@ -62,6 +63,7 @@ describe("checkSessionReply", () => {
       clientPolicyKey: client.publicKey,
       clientKeyring: {},
       clientKeyringSig: "x",
+      clientKeyringNotAfter: 20,
       nonce: newNonce(),
     };
     const serverNonce = newNonce();

@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair } from "../../src/crypto/crypto.ts";
-import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
+import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
+import { canonicalize } from "../../src/encoding/jcs.ts";
+import { signKeyring } from "../../src/policy/keyring.ts";
 import {
   checkOwnMaterial,
   describeNotAfter,
@@ -13,9 +14,8 @@ import {
   type OwnMaterial,
 } from "../../src/policy/own-material.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
-import { signRootOldForm } from "../../src/policy/root.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
-import { decode } from "../../src/encoding/b64url.ts";
+import { encode } from "../../src/encoding/b64url.ts";
 
 /** Valid until 2100-01-01. */
 const FAR = 4_102_444_800_000;
@@ -53,7 +53,7 @@ describe("WARN_WITHIN_MS", () => {
 
 describe("checkOwnMaterial", () => {
   const messages = (m: OwnMaterial, now: number) => checkOwnMaterial(m, now).map(describeOwnMaterialProblem);
-  it("findsNothingWrongWithCurrentNewFormMaterial", () => {
+  it("findsNothingWrongWithCurrentMaterial", () => {
     const { m } = material();
     expect(checkOwnMaterial(m, Date.now())).toEqual([]);
     expect(checkOwnMaterial(material({ root: 5, keyring: 5 }).m, 5)).toEqual([]);
@@ -70,15 +70,19 @@ describe("checkOwnMaterial", () => {
       "the root is not signed by policyPublicKey",
     ]);
   });
-  it("namesTheOldForms", () => {
+  it("refusesMaterialWithoutNotAfterAsItRefusesAWindowThatIsNotAnInteger", () => {
     const { m, policyPrivateKey } = material();
-    const ring = signKeyringOldForm(m.keyring, m.policyPublicKey, policyPrivateKey);
-    const { notAfter: _w, ...rest } = m.signedRoot;
-    const old = signRootOldForm(decode(m.signedRoot.root), m.signedRoot.rootId, policyPrivateKey);
-    expect(rest.rootId).toBe(old.rootId);
-    expect(messages({ ...m, keyringSig: ring.sig, keyringNotAfter: undefined, signedRoot: old }, 1)).toEqual([
-      "the keyring is in the old form (no notAfter); re-sign it with the policy tool",
-      "the root is in the old form (no notAfter); re-sign it with the policy tool",
+    // each signed over its other fields alone, so only the missing window refuses it
+    const keyringSig = encode(sign(policyPrivateKey, utf8("paztport-keyring\n" + canonicalize({ policy: m.policyPublicKey, services: m.keyring }))));
+    const { keyringNotAfter: _k, ...noRingWindow } = { ...m, keyringSig };
+    const { notAfter: _r, ...root } = m.signedRoot;
+    const noRootWindow = { ...m, signedRoot: { ...root, sig: encode(sign(policyPrivateKey, utf8(`${root.rootId}|${root.root}`))) } };
+    const notAnInteger = { ...m, keyringNotAfter: 1.5, signedRoot: { ...m.signedRoot, notAfter: 1.5 } };
+    expect(checkOwnMaterial(noRingWindow as unknown as OwnMaterial, 1)).toEqual([{ subject: "keyring", kind: "DOES_NOT_VERIFY" }]);
+    expect(checkOwnMaterial(noRootWindow as unknown as OwnMaterial, 1)).toEqual([{ subject: "root", kind: "DOES_NOT_VERIFY" }]);
+    expect(checkOwnMaterial(notAnInteger, 1)).toEqual([
+      { subject: "keyring", kind: "DOES_NOT_VERIFY" },
+      { subject: "root", kind: "DOES_NOT_VERIFY" },
     ]);
   });
   it("reportsTheSubjectAndKind", () => {
@@ -101,7 +105,7 @@ describe("expiryWarnings", () => {
   });
   it("leavesOutWhatTheMaterialDoesNotHave", () => {
     const { m } = material({ keyring: 1, root: 1 });
-    const { replyCert: _c, keyringNotAfter: _k, ...bare } = m;
-    expect(expiryWarnings(bare, 1)).toHaveLength(1);
+    const { replyCert: _c, ...bare } = m;
+    expect(expiryWarnings(bare, 1)).toHaveLength(2);
   });
 });

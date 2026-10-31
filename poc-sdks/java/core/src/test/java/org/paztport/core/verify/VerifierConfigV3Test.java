@@ -16,7 +16,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
-/** What {@link VerifierConfigV3#pinned} refuses at build time: a keyring or root in the old form or past its window. */
+/** What {@link VerifierConfigV3#pinned} refuses at build time: a keyring or root past its window. */
 class VerifierConfigV3Test {
 
     private static final long NOW = 1_800_000_000_000L;
@@ -44,18 +44,6 @@ class VerifierConfigV3Test {
         for (String w : words) {
             assertTrue(e.getMessage().contains(w), e.getMessage() + " should name " + w);
         }
-    }
-
-    @Test
-    void oldFormKeyringRefusedAtBuild() {
-        KeyringFile old = KeyringFile.signOldForm(SERVICES, PIN, POLICY.getPrivate());
-        refused(old, root(NOW + 1000), "keyring", "old form");
-    }
-
-    @Test
-    void oldFormRootRefusedAtBuild() {
-        SignedRoot old = SignedRoot.signOldForm(ROOT, "v1", POLICY.getPrivate());
-        refused(ring(NOW + 1000), old, "root", "old form");
     }
 
     @Test

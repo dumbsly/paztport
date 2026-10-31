@@ -149,15 +149,16 @@ quietly "building the keygen and policy-tool images" \
 # Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
 # services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced;
 # so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it),
-# and keys with no keyring, which the policy tools need to re-sign. A keyring past its notAfter, or
-# in the old form, is not a reason to regenerate: the policy tools re-sign both keyrings on every run.
+# and keys with no keyring, or one without a notAfter, which the policy tools need to re-sign and
+# refuse as malformed. A keyring past its notAfter is not a reason to regenerate: the policy tools
+# re-sign both keyrings on every run.
 # A bind-mount source Docker created as an empty directory (see below) would block keygen, or the
 # policy tool's write of the keyring.
 for p in out/keys/policy.pub out/keys/boundary.key out/keys/keyring.json out/keys/tls/* out/psp-keys/policy.pub \
   out/psp-keys/policy.key out/psp-keys/psp.key out/psp-keys/keyring.json out/psp-keys/tls/*; do [ -d "$p" ] && rmdir "$p" 2>/dev/null; done
 if [ ! -f out/keys/policy.pub ] || [ ! -f out/keys/tls/ca.crt ] || [ ! -f out/keys/mailer.key ] \
-  || [ ! -f out/keys/boundary.key ] || [ ! -f out/keys/keyring.json ] \
-  || [ ! -f out/psp-keys/policy.pub ] || [ ! -f out/psp-keys/keyring.json ]; then
+  || [ ! -f out/keys/boundary.key ] || ! grep -q '"notAfter"' out/keys/keyring.json 2>/dev/null \
+  || [ ! -f out/psp-keys/policy.pub ] || ! grep -q '"notAfter"' out/psp-keys/keyring.json 2>/dev/null; then
   quietly "generating keys and certificates (keygen)" docker compose run --rm keygen
   quietly "generating the PSP's keys and certificates (keygen-psp)" docker compose run --rm keygen-psp
 fi
@@ -318,11 +319,12 @@ fi
 
 # 14 — a caller with no root to show (the operator) opens a session at the PSP itself: it is unsafe,
 # so the PSP refuses refunds in it, and takes charges but registers no card from them. Its keyring signature
-# is well formed (64 zero bytes) but signed by nobody: the session is unsafe only because it has no root.
+# (64 zero bytes) and window (2100-01-01) are well formed but signed by nobody: the session is unsafe only
+# because it has no root.
 zero_sig=$(head -c64 /dev/zero | base64 | tr '+/' '-_' | tr -d '=\n')
 nonce=$(head -c16 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
 preq POST "https://psp:8080/paztport/session" -H 'Content-Type: application/json' \
-  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"clientKeyringSig\":\"$zero_sig\",\"nonce\":\"$nonce\"}"
+  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"clientKeyringSig\":\"$zero_sig\",\"clientKeyringNotAfter\":4102444800000,\"nonce\":\"$nonce\"}"
 sess=$(printf '%s' "$BODY" | sed -n 's/.*"sess":"\([A-Za-z0-9_-]*\)".*/\1/p')
 unsafe=false
 printf '%s' "$BODY" | grep -q '"status":"unsafe"' && unsafe=true

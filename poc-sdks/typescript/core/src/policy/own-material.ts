@@ -4,7 +4,7 @@
 import type { ReplyCert } from "../session/reply-cert.ts";
 import { verifyKeyring, type SignedKeyring } from "./keyring.ts";
 import { verifyRoot, type SignedRoot } from "./root.ts";
-import { isCurrent } from "./validity.ts";
+import { isNotAfter } from "./validity.ts";
 
 /** A quarter of the default seven-day lifetime, 42 hours: a service warns at start-up when its keyring, root or certificate has no more than this left. */
 export const WARN_WITHIN_MS = (7 * 86_400_000) / 4;
@@ -20,43 +20,35 @@ export type OwnMaterial = {
   keyring: Record<string, string>;
   /** The policy key's signature over `keyring` and `keyringNotAfter`. */
   keyringSig: string;
-  /** Absent for a keyring in the old form. */
-  keyringNotAfter?: number;
+  keyringNotAfter: number;
   signedRoot: SignedRoot;
   replyCert?: ReplyCert;
 };
 
 /** One reason not to start: which file, how it fails, and for EXPIRED its `notAfter`. */
-export type OwnMaterialProblem = {
-  subject: "keyring" | "root";
-  kind: "OLD_FORM" | "DOES_NOT_VERIFY" | "EXPIRED";
-  notAfter?: number;
-};
+export type OwnMaterialProblem =
+  | { subject: "keyring" | "root"; kind: "DOES_NOT_VERIFY" }
+  | { subject: "keyring" | "root"; kind: "EXPIRED"; notAfter: number };
 
 /**
- * Everything wrong with the keyring and the root at `now`, the keyring's first and each in the order old form,
- * signature under `policyPublicKey`, window: a service whose own material is bad refuses to start rather than degrade.
+ * Everything wrong with the keyring and the root at `now`, the keyring's first and each in the order signature under
+ * `policyPublicKey`, window: a service whose own material is bad refuses to start rather than degrade. A window that is
+ * missing or not an integer in [0, 2^53 − 1] fails the signature, which is over it, and so is never judged as a time.
  */
 export function checkOwnMaterial(m: OwnMaterial, now: number): OwnMaterialProblem[] {
   const problems: OwnMaterialProblem[] = [];
-  if (m.keyringNotAfter === undefined) {
-    problems.push({ subject: "keyring", kind: "OLD_FORM" });
-  }
-  const ring: SignedKeyring = { policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig };
-  if (!verifyKeyring(m.keyringNotAfter !== undefined ? { ...ring, notAfter: m.keyringNotAfter } : ring, m.policyPublicKey)) {
+  const ring: SignedKeyring = { policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig, notAfter: m.keyringNotAfter };
+  if (!Object.hasOwn(m, "keyringNotAfter") || !verifyKeyring(ring, m.policyPublicKey)) {
     problems.push({ subject: "keyring", kind: "DOES_NOT_VERIFY" });
   }
-  if (m.keyringNotAfter !== undefined && !isCurrent({ notAfter: m.keyringNotAfter }, now)) {
+  if (isNotAfter(m.keyringNotAfter) && now > m.keyringNotAfter) {
     problems.push({ subject: "keyring", kind: "EXPIRED", notAfter: m.keyringNotAfter });
   }
   const root = m.signedRoot;
-  if (!Object.hasOwn(root, "notAfter")) {
-    problems.push({ subject: "root", kind: "OLD_FORM" });
-  }
   if (!verifyRoot(root, m.policyPublicKey)) {
     problems.push({ subject: "root", kind: "DOES_NOT_VERIFY" });
   }
-  if (Object.hasOwn(root, "notAfter") && !isCurrent(root, now)) {
+  if (Object.hasOwn(root, "notAfter") && isNotAfter(root.notAfter) && now > root.notAfter) {
     problems.push({ subject: "root", kind: "EXPIRED", notAfter: root.notAfter });
   }
   return problems;
@@ -65,12 +57,10 @@ export function checkOwnMaterial(m: OwnMaterial, now: number): OwnMaterialProble
 /** A problem as an operator reads it, naming the file and the fix. */
 export function describeOwnMaterialProblem(p: OwnMaterialProblem): string {
   switch (p.kind) {
-    case "OLD_FORM":
-      return `the ${p.subject} is in the old form (no notAfter); re-sign it with the policy tool`;
     case "DOES_NOT_VERIFY":
       return `the ${p.subject} is not signed by policyPublicKey`;
     case "EXPIRED":
-      return `the ${p.subject} expired at ${describeNotAfter(p.notAfter!)}`;
+      return `the ${p.subject} expired at ${describeNotAfter(p.notAfter)}`;
   }
 }
 
@@ -82,6 +72,6 @@ export function expiryWarnings(m: OwnMaterial, now: number): string[] {
     ["replyCert", m.replyCert?.notAfter],
   ];
   return items
-    .filter(([, n]) => n !== undefined && n - now <= WARN_WITHIN_MS)
-    .map(([what, n]) => `paztport: the server's ${what} expires soon (notAfter ${describeNotAfter(n!)}); re-sign it with the policy tool`);
+    .filter((item): item is [string, number] => item[1] !== undefined && item[1] - now <= WARN_WITHIN_MS)
+    .map(([what, n]) => `paztport: the server's ${what} expires soon (notAfter ${describeNotAfter(n)}); re-sign it with the policy tool`);
 }

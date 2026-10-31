@@ -37,24 +37,20 @@ class PolicyOwnerTest {
     }
 
     @Test
-    void renewsAKeyringInTheNewFormEvenWhenOldFormOrExpired() {
+    void renewsAKeyringEvenWhenExpired() {
         KeyringFile expired = ring(policy, policy, OLD);
-        KeyringFile oldForm = KeyringFile.signOldForm(services(), pub(policy), policy.getPrivate());
 
-        for (KeyringFile ring : List.of(expired, oldForm)) {
-            KeyringFile renewed = PolicyOwner.renewKeyring(ring, NEW, policy.getPrivate());
-            assertTrue(renewed.isNewForm());
-            assertEquals(NEW, renewed.notAfter());
-            assertEquals(ring.services(), renewed.services());
-            assertTrue(renewed.verifies(pub(policy)));
-        }
+        KeyringFile renewed = PolicyOwner.renewKeyring(expired, NEW, policy.getPrivate());
+        assertEquals(NEW, renewed.notAfter());
+        assertEquals(expired.services(), renewed.services());
+        assertTrue(renewed.verifies(pub(policy)));
     }
 
     @Test
     void refusesAKeyringThatDoesNotVerifyUnderTheKeyItNames() {
         KeyringFile signed = ring(policy, policy, NEW);
         KeyringFile tampered = new KeyringFile(services(), signed.policy(), signed.sig(), signed.notAfter());
-        KeyringFile unsigned = new KeyringFile(signed.services(), signed.policy(), null);
+        KeyringFile unsigned = new KeyringFile(signed.services(), signed.policy(), null, signed.notAfter());
 
         assertThrows(IllegalArgumentException.class,
                 () -> PolicyOwner.renewKeyring(tampered, NEW, policy.getPrivate()));
@@ -77,19 +73,6 @@ class PolicyOwnerTest {
         assertTrue(renewed.verify(policy.getPublic()));
         assertThrows(IllegalArgumentException.class,
                 () -> PolicyOwner.renewRoot(built.signedRoot(), pub(other), NEW, other.getPrivate()));
-    }
-
-    @Test
-    void renewsAnOldFormRootInTheNewForm() {
-        SignedRoot oldForm = SignedRoot.signOldForm(new byte[32], "root-1", policy.getPrivate());
-
-        SignedRoot renewed = PolicyOwner.renewRoot(oldForm, pub(policy), NEW, policy.getPrivate());
-
-        assertTrue(renewed.isNewForm());
-        assertEquals(oldForm.rootId(), renewed.rootId());
-        assertEquals(oldForm.root(), renewed.root());
-        assertEquals(NEW, renewed.notAfter());
-        assertTrue(renewed.verify(policy.getPublic()));
     }
 
     @Test

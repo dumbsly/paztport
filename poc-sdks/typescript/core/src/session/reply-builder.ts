@@ -29,7 +29,7 @@ export type ReplyRules = {
 
 /**
  * The reply to a handshake, in the entry-key form and signed by the entry's key. "attested" is said only after
- * sessionStatus's checks at `now`: an old-form or expired client root or keyring makes the session unsafe, and so does
+ * sessionStatus's checks at `now`: an expired client root or keyring makes the session unsafe, and so does
  * this server's own root or keyring once it has expired, so a server left running past its material degrades to
  * unattested sessions rather than stopping. The session id binds both nonces; the server's is fresh.
  */

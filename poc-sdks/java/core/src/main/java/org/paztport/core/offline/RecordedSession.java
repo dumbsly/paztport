@@ -22,11 +22,10 @@ import org.paztport.core.session.Sessions;
  * configuration, never the record's.
  *
  * <p>Its limits are the certificate's {@code notAfter} (entry-key form) and the {@code notAfter} of each root and
- * keyring in the new form, both sides. It is attested at all when attested at the earliest of them, or at any time
- * when it has none (a policy-key reply over old-form material). The windows are read before the signatures over
- * them are checked, but none counts unless the session is attested at it, which checks each signature. A response
- * is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and the
- * certificate do not limit it. Nothing here throws on what the record holds.
+ * keyring, both sides. It is attested at all when attested at the earliest of them. The windows are read before
+ * the signatures over them are checked, but none counts unless the session is attested at it, which checks each
+ * signature. A response is limited only by the server's root and, in the entry-key form, its keyring: the client's
+ * windows and the certificate do not limit it. Nothing here throws on what the record holds.
  */
 public final class RecordedSession {
 
@@ -88,7 +87,8 @@ public final class RecordedSession {
 
     /**
      * The {@code policyNotAfter} a response recorded in the session is checked with: the earlier of the server
-     * root's window and, in the entry-key form, the server keyring's; 2^53 &minus; 1 when neither has one. It is read
+     * root's window and, in the entry-key form, the server keyring's; 2^53 &minus; 1 when the reply holds neither
+     * (it then opens no attested session). It is read
      * from the reply's windows whether or not the session is attested: a reader gives a response in a session that
      * is not attested no result.
      */
@@ -111,7 +111,7 @@ public final class RecordedSession {
         return read == null ? null : read.notAfter();
     }
 
-    /** {@code o}'s own {@code field} when it is a valid {@code notAfter}, else null: an old form sets no limit. */
+    /** {@code o}'s own {@code field} when it is a valid {@code notAfter}, else null, a limit the record lacks. */
     private static Long window(JsonNode o, String field) {
         return o != null && o.isObject() && o.has(field) ? JsonIntegers.notAfter(o.get(field)) : null;
     }

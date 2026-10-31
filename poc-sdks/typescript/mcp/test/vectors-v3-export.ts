@@ -12,10 +12,10 @@ import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
-  commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
-  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV3, signingBytesV3,
+  canonicalize, commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
+  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, decodeProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  checkSessionReply, decodeProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signSessionReply, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
@@ -489,20 +489,11 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { name, influence, destinationOwner, refused };
   });
 
-  // The client keyring in the old form, signed by its policy key, and a copy with pi's key swapped.
-  const keyringCase = (name: string, services: Record<string, KeyName>, sig: string | undefined, verifies: boolean) => {
-    const resolved = resolveKeyring(services);
-    const signed = sig === undefined ? signKeyringOldForm(resolved, keys["client-policy"].pub, keys["client-policy"].priv) : { policy: keys["client-policy"].pub, services: resolved, sig };
-    check(`keyring ${name}`, verifyKeyring(signed, keys["client-policy"].pub), verifies);
-    return { name, policyKey: "client-policy", services, signingBytes: encode(keyringSigningBytes(signed.policy, signed.services)), sig: signed.sig, signed, verifies };
-  };
-  const signedKeyring = keyringCase("signed", { session: "session", pi: "pi" }, undefined, true);
-  const keyring: Record<string, unknown>[] = [signedKeyring, keyringCase("tampered", { session: "session", pi: "gateway" }, signedKeyring.sig, false)];
-
-  // The two forms of what the policy key signs offline. The new form carries notAfter, and its signed bytes
-  // include it; the old form has none, still verifies for recorded evidence, and is never current. A case's
-  // form is decided by whether `signed` has a notAfter member. signingBytes is null when that notAfter is not
-  // an integer in [0, 2^53 - 1], which nothing signs; `current` gives isCurrent's answer at each `at`.
+  // What the policy key signs offline, a keyring and a root, each carrying notAfter, which its signed bytes include.
+  // signingBytes is null when `signed` has no notAfter, or one that is not an integer in [0, 2^53 - 1]: nothing
+  // signs either, and a reader refuses both, so their signature is never consulted; `current` gives isCurrent's
+  // answer at each `at`. The case without notAfter is signed over the bytes the other fields alone would give, so a
+  // reader that took the missing window for none would find it verifies.
   //
   // The cross-prefix cases (a root signature offered as a keyring signature, and the other way round) are not the
   // domain-separation guarantee: the two signed bodies differ, so those signatures would fail even without the
@@ -517,58 +508,53 @@ export function buildVectorsV3(): Record<string, unknown> {
   const ringServices = { session: "session", pi: "pi" } as const;
   const ringPolicy = keys["client-policy"].pub;
   const newRing = (notAfter: number) => signKeyring(resolveKeyring(ringServices), ringPolicy, keys["client-policy"].priv, notAfter);
-  const oldRing = signKeyringOldForm(resolveKeyring(ringServices), ringPolicy, keys["client-policy"].priv);
   const rootPolicy = policies.client;
   const newRoot = (notAfter: number, signer: KeyName = "client-policy") => signRoot(decode(rootPolicy.root), rootPolicy.rootId, keys[signer].priv, notAfter);
-  const oldRoot = signRootOldForm(decode(rootPolicy.root), rootPolicy.rootId, keys["client-policy"].priv);
-  const keyringFormCase = (name: string, signed: SignedKeyring, verifies: boolean, ats?: number[]) => {
+  // Signed by the client policy key over each object's other fields alone, the bytes a keyring or root with no window would have.
+  const unwindowedRing = { policy: ringPolicy, services: resolveKeyring(ringServices), sig: encode(sign(keys["client-policy"].priv, utf8("paztport-keyring\n" + canonicalize({ policy: ringPolicy, services: resolveKeyring(ringServices) })))) };
+  const unwindowedRoot = { rootId: rootPolicy.rootId, root: rootPolicy.root, sig: encode(sign(keys["client-policy"].priv, utf8(`${rootPolicy.rootId}|${rootPolicy.root}`))) };
+  const keyringFormCase = (name: string, signed: SignedKeyring, verifies: boolean, ats?: number[], services: Record<string, KeyName> = ringServices) => {
     check(`keyring ${name}`, verifyKeyring(signed, ringPolicy), verifies);
-    const w = hasWindow(signed);
-    const bytes = !w ? keyringSigningBytes(signed.policy, signed.services) : isNotAfter(signed.notAfter) ? keyringSigningBytes(signed.policy, signed.services, signed.notAfter) : null;
-    const priv = keys["client-policy"].priv;
-    if (verifies) check(`keyring ${name} re-signed`, (w ? signKeyring(signed.services, signed.policy, priv, signed.notAfter as number) : signKeyringOldForm(signed.services, signed.policy, priv)).sig, signed.sig);
+    const bytes = hasWindow(signed) && isNotAfter(signed.notAfter) ? keyringSigningBytes(signed.policy, signed.services, signed.notAfter) : null;
+    if (verifies) check(`keyring ${name} re-signed`, signKeyring(signed.services, signed.policy, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
     const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
-    return { name, policyKey: "client-policy", services: ringServices, signingBytes: bytes === null ? null : encode(bytes), sig: signed.sig, signed, verifies, ...current };
+    return { name, policyKey: "client-policy", services, signingBytes: bytes === null ? null : encode(bytes), sig: signed.sig, signed, verifies, ...current };
   };
-  const { notAfter: _ringWindow, ...ringWindowDropped } = newRing(POLICY_NOT_AFTER);
-  keyring.push(
-    keyringFormCase("new form", newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
-    keyringFormCase("new form, largest notAfter", newRing(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
-    keyringFormCase("new form, tampered notAfter", { ...newRing(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
-    keyringFormCase("new form, notAfter dropped", ringWindowDropped, false),
-    keyringFormCase("old form, notAfter added", { ...oldRing, notAfter: POLICY_NOT_AFTER }, false),
+  const tamperedServices = { session: "session", pi: "gateway" } as const;
+  const keyring = [
+    keyringFormCase("signed", newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    keyringFormCase("tampered service key", { ...newRing(POLICY_NOT_AFTER), services: resolveKeyring(tamperedServices) }, false, undefined, tamperedServices),
+    keyringFormCase("largest notAfter", newRing(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
+    keyringFormCase("tampered notAfter", { ...newRing(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
+    keyringFormCase("no notAfter", unwindowedRing as unknown as SignedKeyring, false, [0, POLICY_NOT_AFTER]),
+    keyringFormCase("notAfter added to a signature made without one", { ...unwindowedRing, notAfter: POLICY_NOT_AFTER }, false),
     keyringFormCase("notAfter not an integer", { ...newRing(POLICY_NOT_AFTER), notAfter: 1.5 }, false),
     keyringFormCase("root signature as a keyring signature", { ...newRing(POLICY_NOT_AFTER), sig: newRoot(POLICY_NOT_AFTER).sig }, false),
-    keyringFormCase("old form, offline only", oldRing, true, [0, POLICY_NOT_AFTER]),
     keyringFormCase("notAfter 2^53", { ...newRing(POLICY_NOT_AFTER), notAfter: 2 ** 53 }, false),
     keyringFormCase(BY_VALUE.keyring, newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
-  );
+  ];
 
-  // The client policy's signed root in both forms, under the client-policy pin; `policy` names the tree.
+  // The client policy's signed root, under the client-policy pin; `policy` names the tree.
   const rootCase = (name: string, signed: SignedRoot, verifies: boolean, ats?: number[]) => {
     check(`root ${name}`, verifyRoot(signed, keys["client-policy"].pub), verifies);
-    const w = hasWindow(signed);
-    const bytes = !w ? rootSigningBytes(signed.rootId, signed.root) : isNotAfter(signed.notAfter) ? rootSigningBytes(signed.rootId, signed.root, signed.notAfter) : null;
-    const priv = keys["client-policy"].priv;
-    if (verifies) check(`root ${name} re-signed`, (w ? signRoot(decode(signed.root), signed.rootId, priv, signed.notAfter as number) : signRootOldForm(decode(signed.root), signed.rootId, priv)).sig, signed.sig);
+    const bytes = hasWindow(signed) && isNotAfter(signed.notAfter) ? rootSigningBytes(signed.rootId, signed.root, signed.notAfter) : null;
+    if (verifies) check(`root ${name} re-signed`, signRoot(decode(signed.root), signed.rootId, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
     const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
     return { name, policyKey: "client-policy", policy: "client", signingBytes: bytes === null ? null : encode(bytes), signed, verifies, ...current };
   };
-  const renewed = signRenewedRoot(oldRoot, POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
-  check("root renewed keeps the tree", [renewed.rootId, renewed.root], [oldRoot.rootId, oldRoot.root]);
+  const renewed = signRenewedRoot(newRoot(POLICY_NOT_AFTER), POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
+  check("root renewed keeps the tree", [renewed.rootId, renewed.root], [rootPolicy.rootId, rootPolicy.root]);
   check("root renewed is the tree signed afresh", renewed, newRoot(POLICY_NOT_AFTER + DAY_MS));
-  const { notAfter: _rootWindow, ...rootWindowDropped } = newRoot(POLICY_NOT_AFTER);
   const signedRoots = [
-    rootCase("new form", newRoot(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
-    rootCase("new form, largest notAfter", newRoot(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
+    rootCase("signed", newRoot(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    rootCase("largest notAfter", newRoot(Number.MAX_SAFE_INTEGER), true, [Number.MAX_SAFE_INTEGER]),
     rootCase("renewed", renewed, true, [POLICY_NOT_AFTER + DAY_MS, POLICY_NOT_AFTER + DAY_MS + 1]),
-    rootCase("new form, tampered notAfter", { ...newRoot(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
-    rootCase("new form, notAfter dropped", rootWindowDropped, false),
-    rootCase("old form, notAfter added", { ...oldRoot, notAfter: POLICY_NOT_AFTER }, false),
+    rootCase("tampered notAfter", { ...newRoot(POLICY_NOT_AFTER), notAfter: POLICY_NOT_AFTER + 1 }, false),
+    rootCase("no notAfter", unwindowedRoot as unknown as SignedRoot, false, [0, POLICY_NOT_AFTER]),
+    rootCase("notAfter added to a signature made without one", { ...unwindowedRoot, notAfter: POLICY_NOT_AFTER }, false),
     rootCase("notAfter not an integer", { ...newRoot(POLICY_NOT_AFTER), notAfter: 1.5 }, false),
     rootCase("signed by another policy key", newRoot(POLICY_NOT_AFTER, "server-policy"), false),
     rootCase("keyring signature as a root signature", { ...newRoot(POLICY_NOT_AFTER), sig: newRing(POLICY_NOT_AFTER).sig }, false),
-    rootCase("old form, offline only", oldRoot, true, [0, POLICY_NOT_AFTER]),
     rootCase("notAfter 2^53", { ...newRoot(POLICY_NOT_AFTER), notAfter: 2 ** 53 }, false),
     rootCase(BY_VALUE.root, newRoot(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
   ];
@@ -593,9 +579,9 @@ export function buildVectorsV3(): Record<string, unknown> {
     certCase("largest notAfter", "server-policy", issueCert("server-policy", Number.MAX_SAFE_INTEGER, "server-policy"), true),
   ];
 
-  // Session replies under the server pin: the entry-key ("new") form, signed by mcp-entry's key under its
-  // certificate and the signed server keyring, the policy-key ("old") form, and forms that must fail. Both sides'
-  // roots and keyrings are in the new form, valid until LIVE_NOT_AFTER, far past every case's `now`; the request
+  // Session replies under the server pin: the entry-key form, signed by mcp-entry's key under its certificate and
+  // the signed server keyring, the policy-key form, and replies that must fail. Both sides' roots and keyrings are
+  // valid until LIVE_NOT_AFTER, far past every case's `now`; the request
   // carries the client keyring's window as clientKeyringNotAfter, and an entry-key reply the server's as
   // serverKeyringNotAfter.
   const LIVE_NOT_AFTER = 4_102_444_800_000;
@@ -614,8 +600,6 @@ export function buildVectorsV3(): Record<string, unknown> {
   const serverRingServices = resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" });
   const serverRootUntil = (notAfter: number) => signRoot(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv, notAfter);
   const serverRingUntil = (notAfter: number) => signKeyring(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv, notAfter);
-  const oldServerRoot = signRootOldForm(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv);
-  const oldServerRing = signKeyringOldForm(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv);
   const certFor = (svc: string, key: KeyName, signer: KeyName = "server-policy") =>
     signReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
   const entryCert = certFor("mcp-entry", "mcp-entry");
@@ -632,7 +616,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   };
   // The keyring's signature and its window travel together: neither is in the policy-key form.
   const NO_RING_SIG = ["serverKeyringSig", "serverKeyringNotAfter"];
-  const OLD = [...NO_RING_SIG, "serverReplyCert"];
+  const POLICY_KEY_FORM = [...NO_RING_SIG, "serverReplyCert"];
   const sessionReplyCase = (name: string, raw: Record<string, unknown>, expected: string, o: { pin?: KeyName; serverEntry?: string; now?: number } = {}) => {
     const pin = o.pin ?? "server-policy";
     const serverEntry = o.serverEntry ?? "mcp-entry";
@@ -641,10 +625,11 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { name, request, reply: raw, pin, serverEntry, now, expected };
   };
   const attackerRing = { ...serverRing.services, "mcp-entry": keys.orders.pub };
+  const { notAfter: _serverRootWindow, ...serverRootWindowDropped } = serverRoot;
   const sessionReply = [
-    sessionReplyCase("new form attested", reply("mcp-entry"), "ATTESTED"),
-    sessionReplyCase("new form unsafe", reply("mcp-entry", { status: "unsafe", disabled: [TOOL] }), "UNSAFE"),
-    sessionReplyCase("old form attested", reply("server-policy", {}, OLD), "ATTESTED"),
+    sessionReplyCase("entry-key form attested", reply("mcp-entry"), "ATTESTED"),
+    sessionReplyCase("entry-key form unsafe", reply("mcp-entry", { status: "unsafe", disabled: [TOOL] }), "UNSAFE"),
+    sessionReplyCase("policy-key form attested", reply("server-policy", {}, POLICY_KEY_FORM), "ATTESTED"),
     sessionReplyCase("at notAfter", reply("mcp-entry"), "ATTESTED", { now: CERT_NOT_AFTER }),
     sessionReplyCase("one ms after notAfter", reply("mcp-entry"), "BAD_SIGNATURE", { now: CERT_NOT_AFTER + 1 }),
     sessionReplyCase("certificate for another service", reply("github-tools", { serverReplyCert: certFor("github-tools", "github-tools") }), "BAD_SIGNATURE"),
@@ -670,7 +655,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     // The form is decided by which fields are present, never by which key verifies.
     sessionReplyCase("keyring signature without certificate, signed by the policy key", reply("server-policy", {}, ["serverReplyCert"]), "BAD_SIGNATURE"),
     sessionReplyCase("certificate without keyring signature, signed by the policy key", reply("server-policy", {}, NO_RING_SIG), "BAD_SIGNATURE"),
-    sessionReplyCase("neither field, signed by the keyring's entry key", reply("orders", { serverKeyring: attackerRing }, OLD), "BAD_SIGNATURE"),
+    sessionReplyCase("neither field, signed by the keyring's entry key", reply("orders", { serverKeyring: attackerRing }, POLICY_KEY_FORM), "BAD_SIGNATURE"),
     sessionReplyCase(
       "server root signed by the entry key",
       reply("mcp-entry", { serverRoot: signRoot(decode(policies.server.root), policies.server.rootId, keys["mcp-entry"].priv, LIVE_NOT_AFTER) }),
@@ -688,19 +673,18 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionReplyCase("pin mismatch", reply("mcp-entry"), "PIN_MISMATCH", { pin: "client-policy" }),
     // The server keyring's window is covered by the policy key's keyring signature, not by the entry key's.
     sessionReplyCase("serverKeyringNotAfter moved", reply("mcp-entry", { serverKeyringNotAfter: LIVE_NOT_AFTER + 1 }), "BAD_SIGNATURE"),
-    sessionReplyCase("serverKeyringNotAfter dropped", reply("mcp-entry", {}, ["serverKeyringNotAfter"]), "BAD_SIGNATURE"),
+    sessionReplyCase("serverKeyringNotAfter dropped", reply("mcp-entry", {}, ["serverKeyringNotAfter"]), "MALFORMED_REPLY"),
     sessionReplyCase("serverKeyringNotAfter not an integer", reply("mcp-entry", { serverKeyringNotAfter: "x" }), "MALFORMED_REPLY"),
     sessionReplyCase("serverKeyringNotAfter null", reply("mcp-entry", { serverKeyringNotAfter: null }), "MALFORMED_REPLY"),
     sessionReplyCase("server root notAfter moved", reply("mcp-entry", { serverRoot: { ...serverRoot, notAfter: LIVE_NOT_AFTER + 1 } }), "BAD_SIGNATURE"),
     sessionReplyCase("server root notAfter not an integer", reply("mcp-entry", { serverRoot: { ...serverRoot, notAfter: 1.5 } }), "MALFORMED_REPLY"),
+    sessionReplyCase("server root notAfter dropped", reply("mcp-entry", { serverRoot: serverRootWindowDropped }), "MALFORMED_REPLY"),
     // The client judges the server's root, in either form and either status, and in the entry-key form its keyring:
-    // each must be in the new form and current at `now`.
+    // each must be current at `now`.
     sessionReplyCase("server root at notAfter", reply("mcp-entry", { serverRoot: serverRootUntil(NOW) }), "ATTESTED"),
     sessionReplyCase("server root expired", reply("mcp-entry", { serverRoot: serverRootUntil(NOW - 1) }), "BAD_SIGNATURE"),
-    sessionReplyCase("server root expired, policy-key form", reply("server-policy", { serverRoot: serverRootUntil(NOW - 1) }, OLD), "BAD_SIGNATURE"),
+    sessionReplyCase("server root expired, policy-key form", reply("server-policy", { serverRoot: serverRootUntil(NOW - 1) }, POLICY_KEY_FORM), "BAD_SIGNATURE"),
     sessionReplyCase("server root expired, unsafe", reply("mcp-entry", { serverRoot: serverRootUntil(NOW - 1), status: "unsafe", disabled: [TOOL] }), "BAD_SIGNATURE"),
-    sessionReplyCase("server root old form", reply("mcp-entry", { serverRoot: oldServerRoot }), "BAD_SIGNATURE"),
-    sessionReplyCase("server root old form, policy-key form", reply("server-policy", { serverRoot: oldServerRoot }, OLD), "BAD_SIGNATURE"),
     // Current by its moved window and re-signed by the entry key, so only the root's own signature refuses it.
     sessionReplyCase(
       "expired server root's notAfter moved past now, re-signed by the entry key",
@@ -709,18 +693,17 @@ export function buildVectorsV3(): Record<string, unknown> {
     ),
     sessionReplyCase("server keyring at notAfter", reply("mcp-entry", { serverKeyringSig: serverRingUntil(NOW).sig, serverKeyringNotAfter: NOW }), "ATTESTED"),
     sessionReplyCase("server keyring expired", reply("mcp-entry", { serverKeyringSig: serverRingUntil(NOW - 1).sig, serverKeyringNotAfter: NOW - 1 }), "BAD_SIGNATURE"),
-    sessionReplyCase("server keyring old form", reply("mcp-entry", { serverKeyringSig: oldServerRing.sig }, ["serverKeyringNotAfter"]), "BAD_SIGNATURE"),
     // A keyring window with no keyring signature: the policy-key form's keyring is signed only through the reply.
     sessionReplyCase("serverKeyringNotAfter in the policy-key form", reply("server-policy", {}, ["serverKeyringSig", "serverReplyCert"]), "BAD_SIGNATURE"),
   ];
 
   // The server's status for a request, against its own root and keyring and the client keys it pinned, at `now`:
-  // attested only when every root and keyring on both sides is in the new form and current. The client's material
+  // attested only when every root and keyring on both sides is current. The client's material
   // is judged only once its signature verifies, so a moved window fails as a signature.
   const clientRootUntil = (notAfter: number) => signRoot(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv, notAfter);
   const withClientRing = (ring: SignedKeyring): SessionRequest => {
     const { clientKeyringNotAfter: _window, ...rest } = request;
-    return { ...rest, clientKeyringSig: ring.sig, ...(ring.notAfter === undefined ? {} : { clientKeyringNotAfter: ring.notAfter }) };
+    return { ...rest, clientKeyringSig: ring.sig, clientKeyringNotAfter: ring.notAfter };
   };
   const statusCase = (
     name: string,
@@ -732,7 +715,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     const ring = o.serverKeyring ?? serverRing;
     const pinned = o.pinned ?? ["client-policy"];
     const now = o.now ?? NOW;
-    const got = sessionStatus(req, root, Object.hasOwn(ring, "notAfter") ? ring.notAfter : undefined, keys["server-policy"].pub, pinned.map((n) => keys[n].pub), now);
+    const got = sessionStatus(req, root, ring.notAfter, keys["server-policy"].pub, pinned.map((n) => keys[n].pub), now);
     check(`session status ${name}`, got, expected);
     return { name, request: req, serverRoot: root, serverKeyring: ring, serverPolicyKey: "server-policy", pinned, now, expected };
   };
@@ -741,23 +724,21 @@ export function buildVectorsV3(): Record<string, unknown> {
     statusCase("client key not pinned", { pinned: ["server-policy"] }, "unsafe"),
     statusCase("client root at notAfter", { request: { ...request, clientRoot: clientRootUntil(NOW) } }, "attested"),
     statusCase("client root expired", { request: { ...request, clientRoot: clientRootUntil(NOW - 1) } }, "unsafe"),
-    statusCase("client root old form", { request: { ...request, clientRoot: signRootOldForm(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv) } }, "unsafe"),
     statusCase("expired client root's notAfter moved past now", { request: { ...request, clientRoot: { ...clientRootUntil(NOW - 1), notAfter: LIVE_NOT_AFTER } } }, "unsafe"),
     statusCase("client keyring at notAfter", { request: withClientRing(newRing(NOW)) }, "attested"),
     statusCase("client keyring expired", { request: withClientRing(newRing(NOW - 1)) }, "unsafe"),
-    statusCase("client keyring old form", { request: withClientRing(oldRing) }, "unsafe"),
     statusCase("expired client keyring's clientKeyringNotAfter moved past now", { request: { ...withClientRing(newRing(NOW - 1)), clientKeyringNotAfter: LIVE_NOT_AFTER } }, "unsafe"),
     statusCase("server root and keyring at notAfter", { serverRoot: serverRootUntil(NOW), serverKeyring: serverRingUntil(NOW) }, "attested"),
     statusCase("server root expired", { serverRoot: serverRootUntil(NOW - 1) }, "unsafe"),
-    statusCase("server root old form", { serverRoot: oldServerRoot }, "unsafe"),
     statusCase("server keyring expired", { serverKeyring: serverRingUntil(NOW - 1) }, "unsafe"),
-    statusCase("server keyring old form", { serverKeyring: oldServerRing }, "unsafe"),
   ];
 
-  // The server's reading of a request body: a request without a usable `clientKeyringSig` is malformed (JSON-RPC
-  // -32602, HTTP 400 INVALID_PARAMS), never an unsafe session.
+  // The server's reading of a request body: a request without a usable `clientKeyringSig`, or whose keyring or root
+  // has no notAfter, is malformed (JSON-RPC -32602, HTTP 400 INVALID_PARAMS), never an unsafe session.
   const wireRequest = JSON.parse(JSON.stringify(request)) as Record<string, unknown>;
   const { clientKeyringSig: _unsigned, ...withoutSig } = wireRequest;
+  const { clientKeyringNotAfter: _ringWindow, ...withoutRingWindow } = wireRequest;
+  const { notAfter: _rootWindow, ...unwindowedClientRoot } = wireRequest.clientRoot as Record<string, unknown>;
   const sessionRequestCase = (name: string, body: Record<string, unknown>, expected: "OK" | "MALFORMED") => {
     let got: "OK" | "MALFORMED" = "OK";
     try {
@@ -774,6 +755,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionRequestCase("keyring signature null", { ...withoutSig, clientKeyringSig: null }, "MALFORMED"),
     sessionRequestCase("keyring signature empty", { ...withoutSig, clientKeyringSig: "" }, "MALFORMED"),
     sessionRequestCase("keyring signature a number", { ...withoutSig, clientKeyringSig: 7 }, "MALFORMED"),
+    sessionRequestCase("no keyring notAfter", withoutRingWindow, "MALFORMED"),
+    sessionRequestCase("client root without notAfter", { ...wireRequest, clientRoot: unwindowedClientRoot }, "MALFORMED"),
   ];
 
 
@@ -790,7 +773,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     for (const f of drop) delete body[f];
     return signSessionReply(body as unknown as Omit<SessionReply, "sig">, keys[signer].priv);
   };
-  const oldRequest: SessionRequest = { ...withClientRing(oldRing), clientRoot: signRootOldForm(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv) };
   const handshakeCase = (name: string, request: SessionRequest, reply: SessionReply, at: number[], o: { pin?: KeyName; serverEntry?: string } = {}) => {
     const pin = o.pin ?? "server-policy";
     const serverEntry = o.serverEntry ?? "mcp-entry";
@@ -801,7 +783,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   const clientRootAt = (t: number): SessionRequest => ({ ...request, clientRoot: clientRootUntil(t) });
   const recordedHandshake = [
     handshakeCase("entry-key form, limited by the certificate", request, replyTo(request, "mcp-entry"), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
-    handshakeCase("policy-key form, limited by the roots and keyrings", request, replyTo(request, "server-policy", {}, OLD), [LIVE_NOT_AFTER, LIVE_NOT_AFTER + 1]),
+    handshakeCase("policy-key form, limited by the roots and keyrings", request, replyTo(request, "server-policy", {}, POLICY_KEY_FORM), [LIVE_NOT_AFTER, LIVE_NOT_AFTER + 1]),
     handshakeCase("client root's notAfter", clientRootAt(NOW), replyTo(clientRootAt(NOW), "mcp-entry"), [NOW, NOW + 1]),
     handshakeCase("client keyring's notAfter", withClientRing(newRing(NOW)), replyTo(withClientRing(newRing(NOW)), "mcp-entry"), [NOW, NOW + 1]),
     handshakeCase("server root's notAfter", request, replyTo(request, "mcp-entry", { serverRoot: serverRootUntil(NOW) }), [NOW, NOW + 1]),
@@ -816,14 +798,6 @@ export function buildVectorsV3(): Record<string, unknown> {
       clientRootAt(NOW + 3),
       replyTo(clientRootAt(NOW + 3), "mcp-entry", { serverKeyringSig: serverRingUntil(NOW + 2).sig, serverKeyringNotAfter: NOW + 2 }),
       [NOW + 2, NOW + 3],
-    ),
-    handshakeCase("old form throughout, policy-key form", oldRequest, replyTo(oldRequest, "server-policy", { serverRoot: oldServerRoot }, OLD), [0, Number.MAX_SAFE_INTEGER]),
-    handshakeCase("server root old form, entry-key form", request, replyTo(request, "mcp-entry", { serverRoot: oldServerRoot }), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
-    handshakeCase(
-      "server keyring old form, entry-key form",
-      request,
-      replyTo(request, "mcp-entry", { serverKeyringSig: oldServerRing.sig }, ["serverKeyringNotAfter"]),
-      [CERT_NOT_AFTER, CERT_NOT_AFTER + 1],
     ),
     handshakeCase("unsafe", request, replyTo(request, "mcp-entry", { status: "unsafe", disabled: [TOOL] }), [NOW]),
     handshakeCase("a signed reply the client's shape check refuses", request, replyTo(request, "mcp-entry", {}, ["disabled"]), [NOW]),
@@ -841,9 +815,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["server root's notAfter", true, [true, false]],
     ["server keyring's notAfter", true, [true, false]],
     ["attested at all at the earliest limit", true, [true, false]],
-    ["old form throughout, policy-key form", true, [true, true]],
-    ["server root old form, entry-key form", true, [true, false]],
-    ["server keyring old form, entry-key form", true, [true, false]],
     ["unsafe", false, [false]],
     ["a signed reply the client's shape check refuses", false, [false]],
     ["another pin", false, [false]],
@@ -858,8 +829,8 @@ export function buildVectorsV3(): Record<string, unknown> {
   check("the shape-refused reply's response limit", shapeRefused.expected.responseNotAfter, LIVE_NOT_AFTER);
   check(
     "recorded handshake response limits",
-    recordedHandshake.slice(0, 10).map((c) => c.expected.responseNotAfter),
-    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, NOW, NOW, NOW + 2, Number.MAX_SAFE_INTEGER, LIVE_NOT_AFTER, LIVE_NOT_AFTER],
+    recordedHandshake.slice(0, 7).map((c) => c.expected.responseNotAfter),
+    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, NOW, NOW, NOW + 2],
   );
 
   // Recorded calls (verification.md §Offline verification): each call is checked by the offline verifier in the
@@ -933,14 +904,14 @@ export function buildVectorsV3(): Record<string, unknown> {
   const LOCAL_SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
   const STEP_TS = NOW - 1000;
   type LocalDecision = { tool: string; callId: string; input: Record<string, unknown>; resolved: Resolved; verdict: LocalVerdict; routeAllowed: boolean; rulesHash: string | null };
-  type LocalClient = { keyring: Record<string, KeyName>; policy: "client"; rootNotAfter?: number; keyringNotAfter?: number; rules: LocalRules | null };
+  type LocalClient = { keyring: Record<string, KeyName>; policy: "client"; rootNotAfter: number; keyringNotAfter: number; rules: LocalRules | null };
   const localStepCase = (
     name: string,
     d: Partial<LocalDecision> = {},
     o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[] } = {},
   ) => {
     const decision: LocalDecision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ_NOTES, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(LOCAL_RULES), ...d };
-    const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rules: LOCAL_RULES, ...o.client };
+    const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rootNotAfter: LIVE_NOT_AFTER, keyringNotAfter: LIVE_NOT_AFTER, rules: LOCAL_RULES, ...o.client };
     const first = localOrigin;
     const chain = [
       first,
@@ -961,9 +932,7 @@ export function buildVectorsV3(): Record<string, unknown> {
       {
         client: {
           keyring: resolveKeyring(client.keyring), root: rootOf(client.policy), rootId: policies[client.policy].rootId,
-          ...(client.rootNotAfter === undefined ? {} : { rootNotAfter: client.rootNotAfter }),
-          ...(client.keyringNotAfter === undefined ? {} : { keyringNotAfter: client.keyringNotAfter }),
-          rules: client.rules,
+          rootNotAfter: client.rootNotAfter, keyringNotAfter: client.keyringNotAfter, rules: client.rules,
         },
         signers: LOCAL_SIGNERS,
         run: { prompt: run.prompt, ts: new Set(run.ts) },

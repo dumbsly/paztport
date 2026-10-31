@@ -125,7 +125,7 @@ class RecordSetTest {
     }
 
     // "Check 0 runs at that time, with the policyNotAfter the client used … So a response recorded after the
-    // server's new-form material expired is POLICY_EXPIRED."
+    // server's material expired is POLICY_EXPIRED."
     @Test
     void aResponsePastTheServersMaterialIsPolicyExpired() {
         Handshake h = Handshake.with(o -> o.serverRoot = NOW + 10);
