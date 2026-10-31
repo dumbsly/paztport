@@ -7,14 +7,16 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, canonicalize, checkSessionReply, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
-type Sections = "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "replyCert" | "sessionReply" | "sessionStatus";
+type Sections =
+  | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
+  | "replyCert" | "sessionReply" | "sessionStatus";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
 
@@ -52,6 +54,54 @@ function replayOffline(v: any, c: any) {
   const full: OfflineInput = { ...input, rid: c.rid, recordedTs, prompt: c.prompt };
   const result = verifyChainOffline(full, offline);
   return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst, legacy: result.legacy };
+}
+
+/** A recorded handshake case's session, as the library reads it: at each `at`, at all, the response limit and legacy. */
+function replayHandshake(v: any, c: any) {
+  const s = recordedSession({ request: c.request, reply: c.reply, pin: v.keys[c.pin].pub, serverEntry: c.serverEntry });
+  return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter, legacy: s.legacy };
+}
+
+/**
+ * A recorded call case: its calls in order, as one record set, each by the offline verifier in the session of the
+ * handshake it names (that request's client keyring and root, that reply's session id) and then limited to it.
+ */
+function replayRecordedCalls(v: any, c: any) {
+  const sessions = c.handshakes.map((h: any) => recordedSession({ request: h.request, reply: h.reply, pin: v.keys[h.pin].pub, serverEntry: h.serverEntry }));
+  const records = newRecordSet();
+  return c.calls.map((call: any) => {
+    const h = c.handshakes[call.handshake];
+    const policy = v.policies[call.policy];
+    const result = verifyChainOffline(
+      {
+        stamps: call.chain, expectedBind: call.expectedBind, influence: call.influence, proof: call.proofRoute === null ? null : policy.proofs[call.proofRoute],
+        receiver: call.receiver, receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
+      },
+      {
+        keyring: h.request.clientKeyring, root: decode(h.request.clientRoot.root), rootId: h.request.clientRoot.rootId, allowedOrigins: c.allowedOrigins,
+        sess: h.reply.sess, nonceKey: call.nonceKey, seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs,
+      },
+    );
+    const reason = callInSession(sessions[call.handshake], result.reason, call.recordedTs.last);
+    return { reason, legacy: reason === "OK" && result.legacy };
+  });
+}
+
+/** A recorded local step case (MCP profile), against its client's keyring and root and its signed rules. */
+function replayLocalStep(v: any, c: any) {
+  const { proofRoute, ...step } = c.step;
+  const policy = v.policies[c.client.policy];
+  const keyring = Object.fromEntries(Object.entries(c.client.keyring as Record<string, string>).map(([svc, name]) => [svc, v.keys[name].pub as string]));
+  const client = {
+    keyring, root: decode(policy.root), rootId: policy.rootId as string, rules: c.client.rules,
+    ...(c.client.rootNotAfter === undefined ? {} : { rootNotAfter: c.client.rootNotAfter }),
+    ...(c.client.keyringNotAfter === undefined ? {} : { keyringNotAfter: c.client.keyringNotAfter }),
+  };
+  const result = verifyRecordedLocalStep(
+    { ...step, proof: proofRoute === null ? null : policy.proofs[proofRoute] },
+    { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
+  );
+  return { reason: result.reason, verdict: result.verdict ?? null, legacy: result.legacy };
 }
 
 describe("v3 known-answer vectors", () => {
@@ -119,6 +169,24 @@ describe("v3 known-answer vectors", () => {
   });
   it.each(committed.verify.map((c: any): [string, any] => [c.name, c]))("verify %s", (_n, c: any) => expect(replayLive(committed, c)).toEqual(c.expected));
   it.each(committed.offline.map((c: any): [string, any] => [c.name, c]))("offline %s", (_n, c: any) => expect(replayOffline(committed, c)).toEqual(c.expected));
+
+  // −2^63 is not a safe integer, and the file spells it exactly, so a reader that takes a ts as a 64-bit long meets it.
+  it("a stamp ts of -2^63 is written exactly", () => {
+    const c = committed.verify.find((x: any) => x.name === "stamp ts of -2^63");
+    expect(c.expected.reason).toBe("CHAIN_MISSING");
+    const at = committedText.indexOf('"name": "stamp ts of -2^63"');
+    expect(committedText.slice(at, committedText.indexOf('"expectedBind"', at))).toContain('"ts": -9223372036854775808,\n');
+  });
+
+  it.each(["recordedHandshake", "recordedCall", "recordedLocalStep"] as const)("%s section", (section) => expect(committed[section].length).toBeGreaterThan(0));
+  it.each(committed.recordedHandshake.map((c: any): [string, any] => [c.name, c]))("recorded handshake %s", (_n, c: any) => expect(replayHandshake(committed, c)).toEqual(c.expected));
+  it.each(committed.recordedCall.map((c: any): [string, any] => [c.name, c]))("recorded call %s", (_n, c: any) => expect(replayRecordedCalls(committed, c)).toEqual(c.expected));
+  it.each(committed.recordedLocalStep.map((c: any): [string, any] => [c.name, c]))("recorded local step %s", (_n, c: any) => expect(replayLocalStep(committed, c)).toEqual(c.expected));
+  it("each offline-only code a local step can give has a case", () => {
+    const codes = new Set(committed.recordedLocalStep.map((c: any) => c.expected.reason));
+    for (const code of ["POLICY_EXPIRED", "PROOF_MISMATCH", "RULES_MISMATCH", "VERDICT_MISMATCH"]) expect(codes.has(code), code).toBe(true);
+    expect(committed.recordedCall.some((c: any) => c.expected.some((e: any) => e.reason === "OUTSIDE_SESSION"))).toBe(true);
+  });
 
   it.each(committed.replyCert.map((c: any): [string, any] => [c.name, c]))("reply certificate %s", (_n, c: any) => {
     const { policy, svc, key, notAfter, sig } = c.cert;

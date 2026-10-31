@@ -16,9 +16,11 @@ import {
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, InfluenceFact, MerkleProof, Peer, RecordedStamp, ReplyCert, SessionReply, SessionRequest, SignedKeyring, SignedRoot, StampV3,
+  InfluenceEntry, InfluenceFact, LegacySessionRequest, LocalRules, LocalVerdict, MerkleProof, Peer, RecordedStamp, ReplyCert, Resolved, SessionReply, SessionRequest,
+  SignedKeyring, SignedRoot, StampV3,
 } from "@paztport/core";
 import { bindMcpCall, mcpReceiver } from "../src/index.ts";
 
@@ -33,6 +35,9 @@ const POLICY_NOT_AFTER = 1_798_761_600_000;
 /** The keyring and root cases whose notAfter the file writes as `1798761600000.0` (see vectorsV3Text). */
 const BY_VALUE = { keyring: "notAfter written 1798761600000.0", root: "notAfter written 1798761600000.0" } as const;
 const DEPTH = 8;
+/** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsV3Text). */
+const TS_MIN_CASE = "stamp ts of -2^63";
+const TS_MIN_TEXT = "-9223372036854775808";
 
 const ABOUT =
   "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. " +
@@ -285,6 +290,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     live(callCase("v3 stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
     live(callCase("rcv holding the delimiter", { chain: malformed({ ...hop, rcv: "a|b" }) }), no("BAD_SIGNATURE")),
     live(callCase("non-string rcv", { chain: malformed({ ...hop, rcv: 7 }) }), no("CHAIN_MISSING")),
+    // A ts out of the safe-integer range, at the low end a 64-bit reader could take for a long.
+    live(callCase(TS_MIN_CASE, { chain: malformed({ ...hop, ts: -(2 ** 63) }) }), no("CHAIN_MISSING")),
     // The verifier's own pinned policy: checked before the stamps, and naming no one, not even a peer.
     live(callCase("at policy notAfter", { policyNotAfter: NOW }), ok("pi", "pi-1")),
     live(callCase("policy expired", { policyNotAfter: NOW - 1 }), no("POLICY_EXPIRED")),
@@ -650,6 +657,257 @@ export function buildVectorsV3(): Record<string, unknown> {
     statusCase("server keyring old form", { serverKeyring: oldServerRing }, "unsafe"),
   ];
 
+
+  // Recorded handshakes (sessions-and-influence.md §Recorded handshakes): the session a recorded request and reply
+  // opened, judged offline at each `at`, at all (at the earliest of its limits), the policyNotAfter a response in it
+  // is checked with, and whether it is legacy. The reply's session id is bound to the request it answers.
+  type AnyRequest = SessionRequest | LegacySessionRequest;
+  const replyTo = (req: AnyRequest, signer: KeyName, o: Record<string, unknown> = {}, drop: string[] = []): SessionReply => {
+    const root = (Object.hasOwn(o, "serverRoot") ? o.serverRoot : serverRoot) as { sig: string };
+    const body: Record<string, unknown> = {
+      serverRoot: root, serverPolicyKey: keys["server-policy"].pub, serverKeyring: serverRing.services, serverKeyringSig: serverRing.sig,
+      serverKeyringNotAfter: LIVE_NOT_AFTER, serverReplyCert: entryCert, nonce: SERVER_NONCE,
+      sess: deriveSessionId(req.clientRoot?.sig ?? null, root.sig, req.nonce, SERVER_NONCE, req), status: "attested", disabled: [], ...o,
+    };
+    for (const f of drop) delete body[f];
+    return signSessionReply(body as unknown as Omit<SessionReply, "sig">, keys[signer].priv);
+  };
+  const { clientKeyringSig: _legacySig, clientKeyringNotAfter: _legacyWindow, ...legacyRequest } = withClientRing(oldRing) as SessionRequest;
+  const oldRequest: SessionRequest = { ...withClientRing(oldRing), clientRoot: signRootOldForm(decode(policies.client.root), policies.client.rootId, keys["client-policy"].priv) };
+  const handshakeCase = (name: string, request: AnyRequest, reply: SessionReply, at: number[], o: { pin?: KeyName; serverEntry?: string } = {}) => {
+    const pin = o.pin ?? "server-policy";
+    const serverEntry = o.serverEntry ?? "mcp-entry";
+    const s = recordedSession({ request, reply, pin: keys[pin].pub, serverEntry });
+    const expected = { attested: s.attested, attestedAt: at.map((t) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter, legacy: s.legacy };
+    return { name, request, reply, pin, serverEntry, at, expected };
+  };
+  const clientRootAt = (t: number): SessionRequest => ({ ...request, clientRoot: clientRootUntil(t) });
+  const recordedHandshake = [
+    handshakeCase("entry-key form, limited by the certificate", request, replyTo(request, "mcp-entry"), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
+    handshakeCase("policy-key form, limited by the roots and keyrings", request, replyTo(request, "server-policy", {}, OLD), [LIVE_NOT_AFTER, LIVE_NOT_AFTER + 1]),
+    handshakeCase("client root's notAfter", clientRootAt(NOW), replyTo(clientRootAt(NOW), "mcp-entry"), [NOW, NOW + 1]),
+    handshakeCase("client keyring's notAfter", withClientRing(newRing(NOW)), replyTo(withClientRing(newRing(NOW)), "mcp-entry"), [NOW, NOW + 1]),
+    handshakeCase("server root's notAfter", request, replyTo(request, "mcp-entry", { serverRoot: serverRootUntil(NOW) }), [NOW, NOW + 1]),
+    handshakeCase(
+      "server keyring's notAfter",
+      request,
+      replyTo(request, "mcp-entry", { serverKeyringSig: serverRingUntil(NOW).sig, serverKeyringNotAfter: NOW }),
+      [NOW, NOW + 1],
+    ),
+    handshakeCase(
+      "attested at all at the earliest limit",
+      clientRootAt(NOW + 3),
+      replyTo(clientRootAt(NOW + 3), "mcp-entry", { serverKeyringSig: serverRingUntil(NOW + 2).sig, serverKeyringNotAfter: NOW + 2 }),
+      [NOW + 2, NOW + 3],
+    ),
+    handshakeCase("old form throughout, policy-key form", oldRequest, replyTo(oldRequest, "server-policy", { serverRoot: oldServerRoot }, OLD), [0, Number.MAX_SAFE_INTEGER]),
+    handshakeCase("server root old form, entry-key form", request, replyTo(request, "mcp-entry", { serverRoot: oldServerRoot }), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
+    handshakeCase(
+      "server keyring old form, entry-key form",
+      request,
+      replyTo(request, "mcp-entry", { serverKeyringSig: oldServerRing.sig }, ["serverKeyringNotAfter"]),
+      [CERT_NOT_AFTER, CERT_NOT_AFTER + 1],
+    ),
+    handshakeCase("legacy request", legacyRequest, replyTo(legacyRequest, "server-policy", {}, OLD), [NOW]),
+    handshakeCase("legacy request with a keyring window", { ...legacyRequest, clientKeyringNotAfter: LIVE_NOT_AFTER }, replyTo({ ...legacyRequest, clientKeyringNotAfter: LIVE_NOT_AFTER }, "server-policy", {}, OLD), [NOW]),
+    handshakeCase("unsafe", request, replyTo(request, "mcp-entry", { status: "unsafe", disabled: [TOOL] }), [NOW]),
+    handshakeCase("another pin", request, replyTo(request, "mcp-entry"), [NOW], { pin: "client-policy" }),
+    handshakeCase("the configured entry, not the reply's", request, replyTo(request, "github-tools", { serverReplyCert: certFor("github-tools", "github-tools") }), [NOW], { serverEntry: "mcp-entry" }),
+    handshakeCase("configured for another entry", request, replyTo(request, "mcp-entry"), [NOW], { serverEntry: "github-tools" }),
+    handshakeCase("client keyring window moved", { ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, replyTo({ ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, "mcp-entry"), [NOW]),
+    handshakeCase("client root signed by another key", { ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, replyTo({ ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, "mcp-entry"), [NOW]),
+  ];
+  check("recorded handshake answers", recordedHandshake.map((c) => [c.name, c.expected.attested, c.expected.attestedAt, c.expected.legacy]), [
+    ["entry-key form, limited by the certificate", true, [true, false], false],
+    ["policy-key form, limited by the roots and keyrings", true, [true, false], false],
+    ["client root's notAfter", true, [true, false], false],
+    ["client keyring's notAfter", true, [true, false], false],
+    ["server root's notAfter", true, [true, false], false],
+    ["server keyring's notAfter", true, [true, false], false],
+    ["attested at all at the earliest limit", true, [true, false], false],
+    ["old form throughout, policy-key form", true, [true, true], false],
+    ["server root old form, entry-key form", true, [true, false], false],
+    ["server keyring old form, entry-key form", true, [true, false], false],
+    ["legacy request", true, [true], true],
+    ["legacy request with a keyring window", false, [false], false],
+    ["unsafe", false, [false], false],
+    ["another pin", false, [false], false],
+    ["the configured entry, not the reply's", false, [false], false],
+    ["configured for another entry", false, [false], false],
+    ["client keyring window moved", false, [false], false],
+    ["client root signed by another key", false, [false], false],
+  ]);
+  check(
+    "recorded handshake response limits",
+    recordedHandshake.slice(0, 10).map((c) => c.expected.responseNotAfter),
+    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, NOW, NOW, NOW + 2, Number.MAX_SAFE_INTEGER, LIVE_NOT_AFTER, LIVE_NOT_AFTER],
+  );
+
+  // Recorded calls (verification.md §Offline verification): each call is checked by the offline verifier in the
+  // session of the handshake it names, against the client keyring and root of that handshake's request and its reply's
+  // session id, then limited to the session (OUTSIDE_SESSION). The calls are one record set, in order: one set of spent
+  // nonce keys for them all, whatever handshakes the set holds.
+  type RecordedCallInput = Omit<CaseInputs, "name" | "keyring" | "sess" | "allowedOrigins"> & {
+    handshake: number;
+    rid: string;
+    recordedTs: { last: number };
+    prompt: string;
+  };
+  const callIn = (reply: SessionReply, ts: number, callId: string, o: { forged?: boolean; v2?: boolean } = {}): RecordedCallInput => {
+    const bind = bindMcpCall(TOOL, callId, ARGS);
+    const sess = reply.sess;
+    let chain: RecordedStamp[];
+    if (o.v2 === true) {
+      const first = signStampV2({ svc: "session", inst: "pi-1", rid: RID, ts: ts - 1000, sess, bind: bindPrompt(PROMPT), infl: "", prev: "" }, keys.session.priv);
+      chain = [first, signStampV2({ svc: "pi", inst: "pi-1", rid: RID, ts, sess, bind, infl: commitInfluence(v2Influence), prev: first.sig }, keys.pi.priv)];
+    } else {
+      const first = v3({ ...originFields, ts: ts - 1000, sess }, "session");
+      chain = [first, v3({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
+    }
+    return {
+      handshake: 0, chain, expectedBind: bind, influence: o.v2 === true ? v2Influence : INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV, receiverInRoute: true,
+      nonceKey: `${RID}|${callId}|req`, rid: RID, recordedTs: { last: ts }, prompt: PROMPT,
+    };
+  };
+  const recordedCallCase = (name: string, handshakes: { request: AnyRequest; reply: SessionReply }[], calls: RecordedCallInput[]) => {
+    const recorded = handshakes.map((h) => ({ request: h.request, reply: h.reply, pin: "server-policy" as KeyName, serverEntry: "mcp-entry" }));
+    const sessions = recorded.map((h) => recordedSession({ ...h, pin: keys[h.pin].pub }));
+    const records = newRecordSet();
+    const expected = calls.map((c) => {
+      const h = recorded[c.handshake]!;
+      const clientRoot = h.request.clientRoot!;
+      const v = verifyChainOffline(
+        { stamps: c.chain, expectedBind: c.expectedBind, influence: c.influence, proof: c.proofRoute === null ? null : policies[c.policy].proofs[c.proofRoute]!, receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: c.rid, recordedTs: c.recordedTs, prompt: c.prompt },
+        {
+          keyring: h.request.clientKeyring, root: decode(clientRoot.root), rootId: clientRoot.rootId, allowedOrigins: ["session"], sess: h.reply.sess,
+          nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
+        },
+      );
+      const reason = callInSession(sessions[c.handshake]!, v.reason, c.recordedTs.last);
+      if (reason === undefined) throw new Error(`recorded call ${name}: its session is not attested`);
+      return { reason, legacy: reason === "OK" && v.legacy };
+    });
+    return { name, handshakes: recorded, allowedOrigins: ["session"], callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, calls, expected };
+  };
+  const entryKeyReply = replyTo(request, "mcp-entry");
+  const shortRoot = clientRootAt(NOW);
+  const shortRootReply = replyTo(shortRoot, "mcp-entry");
+  const legacyReply = replyTo(legacyRequest, "server-policy", {}, OLD);
+  const inSession = { request, reply: entryKeyReply };
+  const recordedCall = [
+    recordedCallCase("at the certificate's notAfter", [inSession], [callIn(entryKeyReply, CERT_NOT_AFTER, "call-1")]),
+    recordedCallCase("past the certificate's notAfter", [inSession], [callIn(entryKeyReply, CERT_NOT_AFTER + 1, "call-1")]),
+    recordedCallCase("past the client root's notAfter", [{ request: shortRoot, reply: shortRootReply }], [callIn(shortRootReply, NOW, "call-1"), callIn(shortRootReply, NOW + 1, "call-2")]),
+    recordedCallCase("a failing call keeps its result past the limit", [{ request: shortRoot, reply: shortRootReply }], [callIn(shortRootReply, NOW + 1, "call-1", { forged: true })]),
+    recordedCallCase("replay in the record set", [inSession], [callIn(entryKeyReply, NOW, "call-1"), callIn(entryKeyReply, NOW + 60_000, "call-1")]),
+    recordedCallCase("a repeated handshake resets no spent key", [inSession, inSession], [callIn(entryKeyReply, NOW, "call-1"), { ...callIn(entryKeyReply, NOW, "call-1"), handshake: 1 }]),
+    recordedCallCase("legacy v2 call in a legacy session", [{ request: legacyRequest, reply: legacyReply }], [callIn(legacyReply, NOW, "call-1", { v2: true })]),
+  ];
+  check("recorded call answers", recordedCall.map((c) => [c.name, c.expected]), [
+    ["at the certificate's notAfter", [{ reason: "OK", legacy: false }]],
+    ["past the certificate's notAfter", [{ reason: "OUTSIDE_SESSION", legacy: false }]],
+    ["past the client root's notAfter", [{ reason: "OK", legacy: false }, { reason: "OUTSIDE_SESSION", legacy: false }]],
+    ["a failing call keeps its result past the limit", [{ reason: "BAD_SIGNATURE", legacy: false }]],
+    ["replay in the record set", [{ reason: "OK", legacy: false }, { reason: "REPLAY", legacy: false }]],
+    ["a repeated handshake resets no spent key", [{ reason: "OK", legacy: false }, { reason: "REPLAY", legacy: false }]],
+    ["legacy v2 call in a legacy session", [{ reason: "OK", legacy: true }]],
+  ]);
+
+  // Recorded local steps (MCP profile): the client's own steps, checked against its keyring and root and its signed
+  // local rules, then POLICY_EXPIRED, PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH.
+  const LOCAL_RULES: LocalRules = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }], programs: [] });
+  const OTHER_RULES: LocalRules = parseLocalRules({ v: 1, folders: [{ path: ".", access: ["read"] }, { path: "out", access: ["write"], destination: "public" }], programs: [] });
+  const READ_NOTES: Resolved = { paths: [{ need: "read", at: "notes.md" }], programs: [], parse: "ok", readOnly: true };
+  const READ_OUTSIDE: Resolved = { paths: [{ need: "read", at: "outside" }], programs: [], parse: "ok", readOnly: true };
+  const NOTHING: Resolved = { paths: [], programs: [], parse: "ok", readOnly: false };
+  const LOCAL_SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
+  const STEP_TS = NOW - 1000;
+  type LocalDecision = { tool: string; callId: string; input: Record<string, unknown>; resolved: Resolved; verdict: LocalVerdict; routeAllowed: boolean; rulesHash: string | null };
+  type LocalClient = { keyring: Record<string, KeyName>; policy: "client"; rootNotAfter?: number; keyringNotAfter?: number; rules: LocalRules | null };
+  const localStepCase = (
+    name: string,
+    d: Partial<LocalDecision> = {},
+    o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[]; v2?: boolean } = {},
+  ) => {
+    const decision: LocalDecision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ_NOTES, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(LOCAL_RULES), ...d };
+    const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rules: LOCAL_RULES, ...o.client };
+    let chain: RecordedStamp[];
+    if (o.v2 === true) {
+      const first = signStampV2({ svc: "session", inst: "pi-1", rid: RID, ts: NOW - 2000, sess: "", bind: bindPrompt(PROMPT), infl: "", prev: "" }, keys.session.priv);
+      const bind = localStepBind({ toolName: decision.tool, toolCallId: decision.callId, input: decision.input, resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash });
+      chain = [first, signStampV2({ svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, sess: "", bind, infl: commitInfluence(INFLUENCE), prev: first.sig }, keys.pi.priv)];
+    } else {
+      const first = localOrigin;
+      chain = [
+        first,
+        stampLocalStep(
+          {
+            svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+            resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: INFLUENCE,
+          },
+          keys.pi.priv,
+        ),
+      ];
+    }
+    const proofRoute = Object.hasOwn(o, "proofRoute") ? o.proofRoute! : decision.routeAllowed ? routeOf(["session", "pi", localReceiver(decision.tool)]) : null;
+    const step = { ...decision, rid: RID, now: STEP_TS, chain, proofRoute, influence: INFLUENCE };
+    const run = { prompt: PROMPT, ts: [localOrigin.ts] };
+    const seen = o.seen ?? [];
+    const result = verifyRecordedLocalStep(
+      { ...step, proof: proofRoute === null ? null : policies.client.proofs[proofRoute]! },
+      {
+        client: {
+          keyring: resolveKeyring(client.keyring), root: rootOf(client.policy), rootId: policies[client.policy].rootId,
+          ...(client.rootNotAfter === undefined ? {} : { rootNotAfter: client.rootNotAfter }),
+          ...(client.keyringNotAfter === undefined ? {} : { keyringNotAfter: client.keyringNotAfter }),
+          rules: client.rules,
+        },
+        signers: LOCAL_SIGNERS,
+        run: { prompt: run.prompt, ts: new Set(run.ts) },
+        seen: new Set(seen),
+      },
+    );
+    return { name, client, signers: LOCAL_SIGNERS, step, run, seen, expected: { reason: result.reason, verdict: result.verdict ?? null, legacy: result.legacy } };
+  };
+  const recordedLocalStep = [
+    localStepCase("allowed"),
+    localStepCase("refused by the rules", { input: { path: "/etc/passwd" }, resolved: READ_OUTSIDE, verdict: "SCOPE_DENIED" }),
+    localStepCase("unlisted tool", { tool: "bash", input: { command: "ls" }, resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }),
+    localStepCase("no rules", { resolved: NOTHING, verdict: "SCOPE_DENIED", rulesHash: null }, { client: { rules: null } }),
+    localStepCase("at the client root's notAfter", {}, { client: { rootNotAfter: STEP_TS } }),
+    localStepCase("client root expired", {}, { client: { rootNotAfter: STEP_TS - 1 } }),
+    localStepCase("client keyring expired", {}, { client: { keyringNotAfter: STEP_TS - 1 } }),
+    localStepCase("client root expired, bad signature first", {}, { client: { rootNotAfter: STEP_TS - 1, keyring: { session: "session", pi: "gateway" } } }),
+    localStepCase("listed but not proven", {}, { proofRoute: CALL_ROUTE }),
+    localStepCase("proven but recorded as not listed", { resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }, { proofRoute: LOCAL_ROUTE }),
+    localStepCase("expired before the proof", { resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }, { proofRoute: LOCAL_ROUTE, client: { rootNotAfter: STEP_TS - 1 } }),
+    localStepCase("rules hash not the client's", { rulesHash: rulesHash(OTHER_RULES) }),
+    localStepCase("verdict not the rules'", { input: { path: "/etc/passwd" }, resolved: READ_OUTSIDE, verdict: "OK" }),
+    localStepCase("verdict not the rules', unlisted tool resolving something", { tool: "bash", input: { command: "cat notes.md" }, resolved: READ_NOTES, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }),
+    localStepCase("rules mismatch before verdict mismatch", { rulesHash: null, verdict: "SCOPE_DENIED" }),
+    localStepCase("replay in the record set", {}, { seen: [`${RID}|tc-1|local`] }),
+    localStepCase("legacy v2 step", {}, { v2: true }),
+  ];
+  check("recorded local step answers", recordedLocalStep.map((c) => [c.name, c.expected.reason, c.expected.verdict, c.expected.legacy]), [
+    ["allowed", "OK", "OK", false],
+    ["refused by the rules", "OK", "SCOPE_DENIED", false],
+    ["unlisted tool", "OK", "PATH_NOT_ALLOWED", false],
+    ["no rules", "OK", "SCOPE_DENIED", false],
+    ["at the client root's notAfter", "OK", "OK", false],
+    ["client root expired", "POLICY_EXPIRED", null, false],
+    ["client keyring expired", "POLICY_EXPIRED", null, false],
+    ["client root expired, bad signature first", "BAD_SIGNATURE", null, false],
+    ["listed but not proven", "PROOF_MISMATCH", null, false],
+    ["proven but recorded as not listed", "PROOF_MISMATCH", null, false],
+    ["expired before the proof", "POLICY_EXPIRED", null, false],
+    ["rules hash not the client's", "RULES_MISMATCH", null, false],
+    ["verdict not the rules'", "VERDICT_MISMATCH", null, false],
+    ["verdict not the rules', unlisted tool resolving something", "VERDICT_MISMATCH", null, false],
+    ["rules mismatch before verdict mismatch", "RULES_MISMATCH", null, false],
+    ["replay in the record set", "REPLAY", null, false],
+    ["legacy v2 step", "OK", "OK", true],
+  ]);
+
   return {
     about: ABOUT,
     keys,
@@ -662,6 +920,9 @@ export function buildVectorsV3(): Record<string, unknown> {
     root: signedRoots,
     verify,
     offline,
+    recordedHandshake,
+    recordedCall,
+    recordedLocalStep,
     replyCert,
     sessionReply,
     sessionStatus: sessionStatusCases,
@@ -684,6 +945,14 @@ export function vectorsV3Text(): string {
     if (at < 0 || window < 0 || (next >= 0 && next < window)) throw new Error(`no notAfter in the ${section} case ${name}`);
     text = text.slice(0, window) + `"notAfter": ${POLICY_NOT_AFTER}.0\n` + text.slice(window + from.length);
   }
+  // JSON.stringify prints −2^63 as -9223372036854776000; the file spells it exactly, so a 64-bit reader meets the long
+  // it could take it for
+  const at = text.indexOf(`"name": ${JSON.stringify(TS_MIN_CASE)}`);
+  const printed = `"ts": ${JSON.stringify(-(2 ** 63))},`;
+  const ts = text.indexOf(printed, at);
+  const next = text.indexOf('"name": ', at + 1);
+  if (at < 0 || ts < 0 || (next >= 0 && next < ts)) throw new Error(`no ts in the verify case ${TS_MIN_CASE}`);
+  text = text.slice(0, ts) + `"ts": ${TS_MIN_TEXT},` + text.slice(ts + printed.length);
   check("v3.json text", JSON.parse(text), vectors);
   return text;
 }

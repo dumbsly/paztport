@@ -67,6 +67,7 @@ class JsonTextRoundTripTest {
             "sessionReply/serverReplyCert null/reply/serverReplyCert",
             "verify/non-string rcv/1",
             "verify/rcv holding the delimiter/1",
+            "verify/stamp ts of -2^63/1",
             "verify/v3 stamp with no rcv/1");
 
     /** The objects that come back normalised, by case. */
@@ -78,7 +79,7 @@ class JsonTextRoundTripTest {
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 29, Kind.PROOF, 5,
-            Kind.STAMP, 18, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
+            Kind.STAMP, 19, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
