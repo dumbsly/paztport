@@ -66,9 +66,9 @@ class EventVectorsExport {
             + " envelope and the event are read strictly, so a replay hands each body over unchanged. The window is"
             + " 30000 ms either way, and an accepted id is remembered for 60000 ms. Each `attributable` case gives an"
             + " `event` (its seven fields) and whether a responder may act on it, `expected`: the spec's allow-list of"
-            + " reasons, with an audit event and an event naming no service or no instance excluded. Ed25519 is deterministic, so the"
-            + " file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol"
-            + " change.";
+            + " reasons, with an audit event and an event naming no service or no instance excluded. Ed25519 is"
+            + " deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes"
+            + " only with a protocol change.";
 
     private static final long NOW = 1_767_225_600_000L;
     private static final long WINDOW_MS = 30_000;
