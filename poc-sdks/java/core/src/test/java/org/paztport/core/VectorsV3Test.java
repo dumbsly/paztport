@@ -34,6 +34,8 @@ import org.paztport.core.offline.OfflineConfig;
 import org.paztport.core.offline.OfflineInput;
 import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.OfflineVerifier;
+import org.paztport.core.offline.RecordSet;
+import org.paztport.core.offline.RecordedSession;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
@@ -53,7 +55,8 @@ import org.paztport.core.verify.VerifyResult;
 
 /**
  * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads. One
- * test method per section, so a failure names the section.
+ * test method per section, so a failure names the section. The {@code recordedLocalStep} section is not replayed:
+ * local steps belong to the MCP profile, which this SDK, speaking v3 over HTTP only, does not implement.
  */
 class VectorsV3Test {
 
@@ -254,17 +257,102 @@ class VectorsV3Test {
         }
     }
 
+    /**
+     * The cases the live check refuses only for the server's root or keyring being in the old form: offline, a
+     * recorded handshake is accepted in the old forms. A new-form window is judged offline too, at the record's
+     * time ({@code now}), so the expired cases are refused there as well.
+     */
+    private static final Set<String> OFFLINE_ACCEPTS =
+            Set.of("server root old form", "server root old form, policy-key form", "server keyring old form");
+
     @Test
     void sessionReply() {
         JsonNode cases = vectors.get("sessionReply");
         assertTrue(cases != null && cases.size() > 0, "sessionReply section");
+        for (String name : OFFLINE_ACCEPTS) {
+            assertEquals("BAD_SIGNATURE", named("sessionReply", name).get("expected").asText(), name);
+        }
         for (JsonNode c : cases) {
+            String name = c.get("name").asText();
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
             SessionRequest req = SessionRequest.parse(Vectors.json(c.get("request")));
-            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()),
-                    Sessions.checkReply(Vectors.json(c.get("reply")), req, pin, c.get("serverEntry").asText(),
-                            c.get("now").asLong()), c.get("name").asText());
+            String reply = Vectors.json(c.get("reply"));
+            String entry = c.get("serverEntry").asText();
+            long now = c.get("now").asLong();
+            assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(reply, req, pin, entry,
+                    now), name);
+            // Offline, judged at the same time, the handshake is attested when the live check says so, and for the
+            // old forms.
+            assertEquals(c.get("expected").asText().equals("ATTESTED") || OFFLINE_ACCEPTS.contains(name),
+                    Sessions.attestedOffline(reply, req, pin, entry, now), name + " offline");
         }
+    }
+
+    /** A recorded handshake case's session: from its request, reply, pin and the verifier's configured entry. */
+    private static RecordedSession recordedSession(JsonNode h) {
+        return RecordedSession.of(Vectors.json(h.get("request")), Vectors.json(h.get("reply")),
+                vectors.get("keys").get(h.get("pin").asText()).get("pub").asText(), h.get("serverEntry").asText());
+    }
+
+    @Test
+    void recordedHandshake() {
+        JsonNode cases = vectors.get("recordedHandshake");
+        assertTrue(cases != null && cases.size() > 0, "recordedHandshake section");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            RecordedSession s = recordedSession(c);
+            JsonNode want = c.get("expected");
+            assertEquals(want.get("attested").asBoolean(), s.attested(), name + ": attested");
+            for (int i = 0; i < c.get("at").size(); i++) {
+                long at = c.get("at").get(i).asLong();
+                assertEquals(want.get("attestedAt").get(i).asBoolean(), s.attestedAt(at), name + ": at " + at);
+            }
+            assertEquals(want.get("responseNotAfter").asLong(), s.responseNotAfter(), name + ": responseNotAfter");
+            assertEquals(want.get("legacy").asBoolean(), s.legacy(), name + ": legacy");
+        }
+    }
+
+    /**
+     * Each case is one record set: its calls in order against one set of spent nonce keys, each by the offline
+     * verifier in the session of the handshake it names (that request's client keyring and root, that reply's
+     * session id), then limited to that session.
+     */
+    @Test
+    void recordedCall() {
+        JsonNode cases = vectors.get("recordedCall");
+        assertTrue(cases != null && cases.size() > 0, "recordedCall section");
+        boolean outsideSession = false;
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            List<RecordedSession> sessions = new ArrayList<>();
+            c.get("handshakes").forEach(h -> sessions.add(recordedSession(h)));
+            RecordSet records = new RecordSet();
+            Set<String> origins = new LinkedHashSet<>();
+            c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
+            assertEquals(c.get("calls").size(), c.get("expected").size(), name);
+            for (int i = 0; i < c.get("calls").size(); i++) {
+                JsonNode call = c.get("calls").get(i);
+                int index = call.get("handshake").asInt();
+                JsonNode request = c.get("handshakes").get(index).get("request");
+                JsonNode clientRoot = request.get("clientRoot");
+                Map<String, PublicKey> ring = new LinkedHashMap<>();
+                request.get("clientKeyring").properties().forEach(e -> ring.put(e.getKey(),
+                        Crypto.decodePublicKey(Base64Url.decode(e.getValue().asText()))));
+                OfflineConfig cfg = new OfflineConfig(Keyring.of(ring),
+                        Base64Url.decode(clientRoot.get("root").asText()), clientRoot.get("rootId").asText(), origins,
+                        c.get("handshakes").get(index).get("reply").get("sess").asText(), records.spent(), null,
+                        c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
+                OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
+                ReasonCode reason = RecordSet.callInSession(sessions.get(index), result.reason(),
+                        call.get("recordedTs").get("last").asLong());
+                JsonNode want = c.get("expected").get(i);
+                assertEquals(ReasonCode.valueOf(want.get("reason").asText()), reason, name + " call " + i);
+                assertEquals(want.get("legacy").asBoolean(), reason == ReasonCode.OK && result.legacy(),
+                        name + " call " + i + " legacy");
+                outsideSession |= reason == ReasonCode.OUTSIDE_SESSION;
+            }
+        }
+        assertTrue(outsideSession, "a case gives OUTSIDE_SESSION");
     }
 
     @Test

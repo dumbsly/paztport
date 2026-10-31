@@ -258,12 +258,12 @@ public final class Sessions {
      * the client takes its replacement path. Each window is relied on only after the policy key's signature over it
      * has verified (the root's under the pin, the keyring's in {@link #replySigner}): the entry key signs the reply,
      * window included, so the reply's own signature cannot vouch for either. A degraded server, its own material
-     * expired, therefore ends up unsafe at the client too. There is no offline reading here: recorded handshakes are
-     * judged by the TypeScript SDK, which accepts the old forms there.
+     * expired, therefore ends up unsafe at the client too. A recorded handshake is read offline instead, by
+     * {@link #attestedOffline}, which accepts the old forms.
      */
     public static ReplyCheck checkReply(String reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
+        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs, false);
     }
 
     /**
@@ -272,7 +272,53 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(byte[] reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
+        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs, false);
+    }
+
+    /**
+     * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions-and-influence.md
+     * &sect;Recorded handshakes): the reply, as recorded, is attested and passes the client's check against the
+     * recorded pin and the server's entry service from the verifier's own configuration, both roots verify under
+     * their sides' policy keys, and the client keyring's signature verifies, unless the request is legacy (has no
+     * {@code clientKeyringSig}), when that check is skipped. A legacy request that carries a
+     * {@code clientKeyringNotAfter} is not attested, since no signature covers that window. Never throws.
+     *
+     * <p>It is the live check with two differences. There is no clock: {@code at} is the time of the record being
+     * judged, a call's last stamp's {@code ts}, which the client signed, never a time read from the handshake
+     * record, which anyone holding it can edit. And a root or keyring in the old form is accepted, as recorded
+     * evidence holds it, and sets no limit; one in the new form, on either side, counts only for a record no later
+     * than its {@code notAfter}, as the certificate does, and only after its own signature has verified. There is
+     * no client pin offline: the server's signed {@code "attested"} reply, whose session id binds the client's
+     * policy key and keyring, is its statement that it pinned them.
+     */
+    public static boolean attestedOffline(String reply, SessionRequest req, String pinnedServerPolicyKey,
+            String serverEntry, long at) {
+        if (req == null) {
+            return false;
+        }
+        try {
+            if (checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, at, true)
+                    != ReplyCheck.ATTESTED) {
+                return false;
+            }
+            // An attested reply has passed with both roots present, and the server's verified under the pin.
+            PublicKey clientKey = Crypto.decodePublicKey(Base64Url.decode(req.clientPolicyKey()));
+            boolean keyring = req.legacy()
+                    ? req.clientKeyringNotAfter() == null
+                    : req.clientKeyringFile().verifies(req.clientPolicyKey());
+            return keyring && req.clientRoot().verify(clientKey) && allows(req.clientRoot().notAfter(), at)
+                    && allows(req.clientKeyringNotAfter(), at);
+        } catch (RuntimeException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The offline judgement of one window, read only after the signature over it has verified: an old-form root or
+     * keyring (no window) sets no limit, and a new-form one counts only for a record no later than its window.
+     */
+    private static boolean allows(Long notAfter, long at) {
+        return notAfter == null || at <= notAfter;
     }
 
     /** The reply as a tree, or null when it is not one JSON value, which the shape check then refuses. */
@@ -284,8 +330,13 @@ public final class Sessions {
         }
     }
 
+    /**
+     * The one reply check behind the live and the offline reading. Live, a server root, and in the entry-key form
+     * a server keyring, must be in the new form and current at {@code nowMs}; offline, an old-form one sets no limit
+     * and a new-form one is judged at {@code nowMs}, the time of the record judged.
+     */
     private static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey,
-            String serverEntry, long nowMs) {
+            String serverEntry, long nowMs, boolean offline) {
         if (!wellShaped(reply)) {
             return ReplyCheck.MALFORMED_REPLY;
         }
@@ -295,7 +346,7 @@ public final class Sessions {
         }
         try {
             PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
-            PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs);
+            PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs, offline);
             if (signer == null || !Crypto.verify(signer, receivedSigningBytes(reply),
                     Base64Url.decode(reply.get("sig").textValue()))) {
                 return ReplyCheck.BAD_SIGNATURE;
@@ -313,7 +364,8 @@ public final class Sessions {
             }
             if (!root.isNull()) {
                 SignedRoot serverRoot = RootJson.read(root);
-                if (!serverRoot.verify(pin) || !serverRoot.isCurrent(nowMs)) {
+                if (!serverRoot.verify(pin)
+                        || !(offline ? allows(serverRoot.notAfter(), nowMs) : serverRoot.isCurrent(nowMs))) {
                     return ReplyCheck.BAD_SIGNATURE;
                 }
             }
@@ -329,14 +381,14 @@ public final class Sessions {
      * keyring signature beside it, which nothing vouches for, so no key, as for either form field without the other.
      * The entry-key form names the certificate's key, and only when both fields are present, the keyring and the
      * certificate verify under the pin, the certificate is for {@code serverEntry} and names the key the keyring
-     * holds for it, {@code nowMs} is no later than its {@code notAfter}, and the keyring is new form and current at
-     * {@code nowMs}: the keyring alone is the reply's own claim until the policy key's signature covers it, and the
-     * certificate is what says the key is still current. The keyring's signature is checked in its own form, over
-     * {@code serverKeyringNotAfter} when the reply has one, so a window moved or dropped in transit fails it before
-     * the window is judged. Assumes {@link #wellShaped}.
+     * holds for it, {@code nowMs} is no later than its {@code notAfter}, and the keyring is current at {@code nowMs}
+     * (live it must be new form; offline an old-form one sets no limit): the keyring alone is the reply's own claim
+     * until the policy key's signature covers it, and the certificate is what says the key is still current. The
+     * keyring's signature is checked in its own form, over {@code serverKeyringNotAfter} when the reply has one, so a
+     * window moved or dropped in transit fails it before the window is judged. Assumes {@link #wellShaped}.
      */
     private static PublicKey replySigner(JsonNode reply, PublicKey pin, String pinText, String serverEntry,
-            long nowMs) {
+            long nowMs, boolean offline) {
         boolean hasRingSig = reply.has("serverKeyringSig");
         boolean hasCert = reply.has("serverReplyCert");
         if (!hasRingSig && !hasCert) {
@@ -352,7 +404,7 @@ public final class Sessions {
         ReplyCert cert = ReplyCert.fromTree(reply.get("serverReplyCert"));
         if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
                 || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()
-                || !ring.isCurrent(nowMs)) {
+                || !(offline ? allows(ring.notAfter(), nowMs) : ring.isCurrent(nowMs))) {
             return null;
         }
         return Crypto.decodePublicKey(Base64Url.decode(cert.key()));

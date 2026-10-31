@@ -6,9 +6,11 @@ primitive comes from the standard JDK; `keygen` uses Bouncy Castle only to build
 its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and is the
-SDK that carries v3 over HTTP. It replays `spec/vectors/v3.json`, the Java-exported
-`http-v3.json`, `v1.json`, and all of `v2.json` but the result and `tools/call`
-bindings, which only MCP uses.
+SDK that carries v3 over HTTP. It replays all of `spec/vectors/v3.json` but the
+recorded local steps, the Java-exported `http-v3.json`, `v1.json`, and all of
+`v2.json` but the result and `tools/call` bindings: those belong to the
+[MCP profile](../spec/README.md#the-mcp-profile), which an HTTP-only SDK need not
+implement.
 
 ```bash
 mvn -q install   # build, test, and install into the local Maven repository
@@ -35,6 +37,11 @@ has one, the authenticated peer.
   keyring and the root against the pinned policy key, and refuses to build a config if
   either fails, is in the old form or has expired. `OfflineVerifier` re-checks a
   recorded chain, all v3, or all v2 as legacy.
+- **Record sets.** `RecordedSession` reads a recorded handshake from its request and
+  reply text, the pin and the configured entry: attested at a time, at all (at the
+  earliest of its limits), the response limit and legacy. `RecordSet` holds a record
+  set's spent nonce keys and a response cache that never forgets, and
+  `RecordSet.callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`).
 - **Stamping.** `StamperV3` stamps a hop's outbound call, starting a chain only at
   an origin, and stamps a response as one more stamp on the request chain, back to
   the caller.
@@ -45,6 +52,8 @@ has one, the authenticated peer.
   and `checkReply` judge both sides' roots and keyrings at the handshake: old form or
   past `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a
   partner whose own material has expired opens every session unsafe.
+  `attestedOffline` reads a recorded handshake instead, at the time of the record
+  judged, accepting the old forms.
 - **JSON in and out.** No public signature names a JSON library. Each value type
   writes its wire form with `toJson()` and reads it with a static `parse(String)` on
   the type, such as `KeyringFile.parse` or `SessionRequest.parse`, which throws
@@ -52,10 +61,10 @@ has one, the authenticated peer.
   included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
   list is read and written by the class that owns it (`Influence.parse`,
   `ContentLabel.parseAll`, `Chains.parse`). A session reply is judged as received, so
-  it has no reader: `Sessions.checkReply` takes its text or bytes. The verifiers take
-  the stamps, influence and proof as the JSON text received and read it themselves,
-  so text that is not JSON is a typed rejection at the check that reads it. `Jcs`
-  canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
+  it has no reader: `Sessions.checkReply` takes its text or bytes, and
+  `RecordedSession.of` its text. The verifiers take the stamps, influence and proof
+  as the JSON text received and read it themselves, so text that is not JSON is a
+  typed rejection at the check that reads it. `Jcs` canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks before the policy owner signs), `Routes`,
