@@ -18,16 +18,14 @@ writes one and names it, so there it always runs.
 
 ## @paztport/core
 
-The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers,
-canonical JSON, v3 stamps and chains, the salted Merkle tree, signed roots
-and keyrings, reply certificates, policy building, reason codes, the replay cache, prompt
-binding, influence and the owner-aware influence rule, sessions, local tool rules and the
-verdict for a local tool call, local steps, the live v3 chain verifier
-(`verifyChainV3`).
-For responders, `signEvent` signs an event, `createEventVerifier` checks a received body (strictly, with `ts`
-read by value) and `isAttributable` says whether the responder may act on it.
-Offline verification of a recorded run (`verifyChainOffline`) is here too, and shares its
-checks with the live verifier; the agents demo's `npm run verify` uses it.
+The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonical JSON, v3 stamps and chains,
+the salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay
+cache, prompt binding, influence and the owner-aware influence rule, sessions, local tool rules and the verdict
+for a local tool call, local steps, the live v3 chain verifier (`verifyChainV3`). For responders, `signEvent`
+signs an event, `createEventVerifier` checks a received body (strictly, with `ts` read by value) and
+`isAttributable` says whether the responder may act on it. Offline verification of a recorded run
+(`verifyChainOffline`) is here too, and shares its checks with the live verifier; the agents demo's
+`npm run verify` uses it.
 
 It implements protocol v3, as the [spec](../spec/README.md) defines it:
 
@@ -35,7 +33,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `CHAIN_MISSING`.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
   the next stamp and the last against `receiver`. A live call or chain stamped for a different receiver is
-  `BINDING_MISMATCH`, not a route failure, so a forwarded chain no longer names its last signer.
+  `BINDING_MISMATCH`, not a route failure, so a forwarded chain does not blame its last signer.
 - **The peer.** `peer` (`{ svc, inst }`) is the sender a transport authenticated. Given one, the verifier
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
   result but `POLICY_EXPIRED`. No transport here supplies one yet: the MCP wrappers (`verifyCall`,

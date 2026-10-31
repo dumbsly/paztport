@@ -39,9 +39,9 @@ request.
 
 ## The live order
 
-A live verifier accepts **v3 only**. It runs these checks in this order, and the first that fails is the result.
-The order is part of the protocol: the vectors pin the code each case gives, so two implementations that order
-the checks differently disagree.
+A live verifier runs these checks in this order, and the first that fails is the result. The order is part of the
+protocol: the vectors pin the code each case gives, so two implementations that order the checks differently
+disagree.
 
 | # | Check | Fails with |
 |---|---|---|
@@ -219,15 +219,15 @@ verify: dropping it could hide `private` content from the rule. It is answered
 ([Modes and refusals](#modes-and-refusals)). An origin starts a new request tree, so it carries neither the chain
 nor the influence a request brings, and has nothing to drop.
 
-**At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root the
-client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the session
-id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root past its
-`notAfter` at the handshake makes the session unsafe
+**At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
+the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
+session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root past
+its `notAfter` at the handshake makes the session unsafe
 ([sessions-and-influence.md](sessions-and-influence.md#status)), so no verifier is built on it; and once the
 session's material expires, every call in it is `POLICY_EXPIRED`. The inputs are the same as above, with
-`receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated client, who MUST be the
-boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and `influence` are of the
-request and the entries received. The session is the one `X-Path-Session` names, and only when the peer it was
+`receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated client, who MUST
+be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and `influence` are of
+the request and the entries received. The session is the one `X-Path-Session` names, and only when the peer it was
 opened by, the certificate's issuer and name, is this call's
 ([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and
 nothing is verified. All sessions share one nonce cache, keyed as above.
@@ -384,7 +384,6 @@ The offline verifier runs the live checks in the live order, with these differen
 | # | Offline |
 |---|---|
 | 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. |
-| 1 | The stamps parse, all v3. A stamp whose `v` is not 3 is `CHAIN_MISSING`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it, and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). With age limits, the last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`). Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
@@ -415,8 +414,8 @@ Each kind of record is checked this way:
   verify against their sides' policy keys, and the client keyring's signature verifies. It is judged at the time of
   each call that relies on it: a root or keyring, on either side, counts only up to its `notAfter`, as the reply
   certificate does ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on
-  it too, but only the server's root window and, in the entry-key form, the server keyring's limit a response; the
-  client's windows and the certificate do not.
+  it too, but is limited only by the server's root window and, in the entry-key form, the server keyring's; the
+  client's windows and the certificate do not limit it.
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
 or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it

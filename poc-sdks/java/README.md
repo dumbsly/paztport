@@ -33,8 +33,7 @@ has one, the authenticated peer.
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
-  either fails or has expired. `OfflineVerifier` re-checks a
-  recorded chain.
+  either fails or has expired. `OfflineVerifier` re-checks a recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
   reply text, the pin and the configured entry: attested at a time, at all (at the
   earliest of its limits) and the response limit. `RecordSet` holds a record
@@ -397,16 +396,16 @@ hands a session request's body to `HttpSessions.serve`.
   | `paztport.partner.max-sessions-per-peer` | How many sessions one client certificate (issuer and common name) may hold; its least recently used is evicted when it opens one more. Default `16`. |
   | `paztport.partner.session-idle-ms` | How long a session no call has used is kept, in milliseconds. Default `900000` (15 minutes). |
 
-  **Lifetimes.** Every service that loads `paztport.keyring-path` and `paztport.root-path`
-  (the mesh verifier, the egress `BoundaryClient`, the partner) refuses to start if
-  either has no `notAfter` (its reader refuses it as malformed) or is past it, the latter
-  with a message naming the property and saying to re-sign with the policy tool
-  (`PAZTPORT_RENEW=true` renews without rebuilding),
-  and logs one warning naming the file and its `notAfter` when 42 hours (a quarter of the
-  default week) or less remain. A partner whose own root or keyring expires *while
-  running* does not stop, since that would cut off callers it serves without attestation
-  too: it opens only unsafe sessions, as it would for any unattested caller, and logs the
-  reason once. Renew the files and restart it.
+  **Lifetimes.** Every service that loads `paztport.keyring-path` and
+  `paztport.root-path` (the mesh verifier, the egress `BoundaryClient`, the partner)
+  refuses to start if either has no `notAfter` (its reader refuses it as malformed) or
+  is past it, the latter with a message naming the property and saying to re-sign with
+  the policy tool (`PAZTPORT_RENEW=true` renews without rebuilding), and logs one
+  warning naming the file and its `notAfter` when 42 hours (a quarter of the default
+  week) or less remain. A partner whose own root or keyring expires *while running* does
+  not stop, since that would cut off callers it serves without attestation too: it opens
+  only unsafe sessions, as it would for any unattested caller, and logs the reason once.
+  Renew the files and restart it.
 
   The policy private key is not configured anywhere: a reply carries the policy
   key's signature over the keyring and the certificate, and is signed with the

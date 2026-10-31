@@ -13,7 +13,7 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 | [sessions-and-influence.md](sessions-and-influence.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, influence entries and their commitment, content labels, the owner-aware rule, trusted records, and the boundary attestation between organisations. |
 | [vectors/](vectors) | The conformance vectors. |
 
-## Versions
+## The protocol
 
 The protocol is v3: a stamp carries `"v": 3`, and its signed bytes begin with `3|`. It travels over MCP (the
 TypeScript SDK) and over HTTP (the Java SDK).
@@ -45,7 +45,7 @@ What v3 does, deliberately:
 | `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay), blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not), and in `rules` the HTTP rules a receiver, a caller, a partner and an egress follow ([below](#the-http-rules-in-http-v3json)). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules` adds keys and material of its own, derived the same way. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
 | `events.json` | Responder events: the envelope's signed bytes and signatures, and the responder's checks (an accepted event, each refusal, `ts` at the window and 1 ms past it on both sides, replays with `uses` and across the window, refusals that spend no id, a wrong signer, a tampered payload, malformed envelopes and payloads read strictly, with nothing coerced or filled in and nothing but JSON whitespace around them, `ts` read by value, and the check order), and in `attributable` each allowed reason, the excluded ones, an audit event and an event naming no service or no instance, with whether a responder may act on it. Its keys are derived by `v3.json`'s rule. | Written and replayed by Java (`paztport-core`), and replayed by TypeScript (`@paztport/core`). |
 
-| Version | Java SDK | TypeScript SDK |
+| Part | Java SDK | TypeScript SDK |
 |---|---|---|
 | v3: stamps, the live and offline verifiers, influence and sessions | yes | yes |
 | v3 over MCP ([the MCP profile](#the-mcp-profile)) | no | yes |
@@ -92,15 +92,14 @@ the spec's objects and times, never from any implementation's record format:
   the earlier of it and `serverKeyringNotAfter`), read from the reply's windows whether or not the session is attested.
   A recorded `request` may hold material a reader refuses as malformed (no `clientKeyringSig`, no
   `clientKeyringNotAfter`, or a client root without `notAfter`): the session it opened is never attested.
-- A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked in
-  order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was
+- A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked
+  in order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was
   made in by its index, `handshake`, and carries an offline case's chain inputs (`chain`, `expectedBind`,
   `influence`, `proofRoute` in `policy`, `receiver`, `receiverInRoute`, `nonceKey`, `rid`, `recordedTs`, `prompt`).
   It is checked by the offline verifier with the case's `allowedOrigins`, `callMaxAgeMs` and `runMaxAgeMs`, the
-  client keyring and root of that handshake's request and the session id of its reply; then a call that verifies
-  but whose `recordedTs.last` is past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is the
-  `reason` for `calls[i]`. Every handshake here is attested: the spec gives a call relying on one that is not no
-  result.
+  client keyring and root of that handshake's request and the session id of its reply; then a call that verifies but
+  whose `recordedTs.last` is past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is the `reason` for
+  `calls[i]`. Every handshake here is attested: the spec gives a call relying on one that is not no result.
 - A **`recordedLocalStep`** case ([MCP profile](#the-mcp-profile)) is a recorded local step: `step` (`tool`,
   `callId`, `rid`, `now`, `input`, `resolved`, `verdict`, `routeAllowed`, `rulesHash`, `chain`, `proofRoute`,
   `influence`), the `client` it is checked against (`keyring` by name, the root of `policy`, in which `proofRoute`

@@ -40,14 +40,18 @@ A server MUST answer a request that is not an object, or whose `clientRoot` is n
 string `rootId`, `root` and `sig` and a `notAfter`, whose `clientKeyring` is not an object of strings, whose
 `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is missing, `null`, not a string or empty,
 or whose `clientKeyringNotAfter` or `clientRoot.notAfter` is missing or not an integer in [0, 2^53 − 1] (`null`
-included), with JSON-RPC error `-32602` (Invalid params), and open no session.
-It MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer
-that with a JSON-RPC error other than `-32601`, so the client takes its replacement path
-([below](#the-clients-check-of-the-reply)). A request that opens no session leaves the connection's current
-session, if any, in place: the TypeScript server fails before it replaces it.
+included), with JSON-RPC error `-32602` (Invalid params), and open no session. It MUST also open none when the
+nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a JSON-RPC error other than
+`-32601`, so the client takes its replacement path ([below](#the-clients-check-of-the-reply)). A request that
+opens no session leaves the connection's current session, if any, in place: the TypeScript server fails before it
+replaces it.
 
 A `clientKeyringSig` that is a string but does not verify is no malformed request: the session is unsafe live, and
 offline it is not attested.
+
+`v3.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
+is missing, `null`, empty or a number, one with no `clientKeyringNotAfter` and one whose client root has no
+`notAfter`, each malformed.
 
 ### The reply
 
@@ -70,8 +74,7 @@ A reply is in one of two forms, told apart only by which fields are present:
 - **The entry-key form** carries both `serverKeyringSig` and `serverReplyCert`, and `sig` is made with the key the
   certificate names, the server's entry service's own key. The policy key signs the keyring and the certificate
   offline, so it need not be online to answer handshakes.
-- **The policy-key form** carries neither, and `sig` is made with the server policy key. Replies recorded before
-  the entry-key form are in this form.
+- **The policy-key form** carries neither, and `sig` is made with the server policy key.
 
 A reply with one of the two fields and not the other is in neither form, and fails the check. A server SHOULD send
 the entry-key form, so that its policy private key can stay offline. Either way the server MUST say
@@ -83,10 +86,10 @@ The reply's signed bytes are:
 utf8( "paztport-session-reply\n" ‖ JCS(reply without its "sig" field) )
 ```
 
-That is the reply as parsed, every field but `sig`: the new fields and any field the client does not know
-included. A certificate in the reply is covered as its parsed JSON value, like any other field, never as the raw
-text it arrived in; so are `serverKeyringNotAfter` and the root's `notAfter`, so a value written `4.1024448e12` is
-covered as the integer `4102444800000`.
+That is the reply as parsed, every field but `sig`: `serverKeyringSig`, `serverReplyCert` and any field the client
+does not know included. A certificate in the reply is covered as its parsed JSON value, like any other field,
+never as the raw text it arrived in; so are `serverKeyringNotAfter` and the root's `notAfter`, so a value written
+`4.1024448e12` is covered as the integer `4102444800000`.
 
 That one signature covers the server's root, keyring, nonce, session id, status and disabled list. In the
 policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form the
@@ -134,14 +137,13 @@ key when the certificate's key fails, or the other way round: a reply stripped o
 would then pass under whichever key signed it. A lookup of `serverEntry` in `serverKeyring` MUST find only the
 object's own members, so that a name such as `constructor` finds nothing in a keyring that does not list it.
 
-**What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can
-forge a reply's nonce, session id, status and disabled list, and can present any root or keyring the policy key
-signed that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings, windows
-included, are verified under the pinned key, and a client refuses an expired one live. That key
-already signs every response stamp the server attests, so a server that attests its responses trusts it no
-further than before. Once
-its certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's
-lifetime ([wire.md](wire.md#the-reply-certificate)).
+**What the entry key can do.** A compromised entry-service key, while a certificate for it is unexpired, can forge
+a reply's nonce, session id, status and disabled list, and can present any root or keyring the policy key signed
+that has not yet expired, but can make none, and can't revive an expired one: roots and keyrings, windows
+included, are verified under the pinned key, and a client refuses an expired one live. That key already signs
+every response stamp the server attests, so a server that attests its responses already relies on it. Once its
+certificates have expired it signs nothing a client accepts, so the revocation delay is the certificate's lifetime
+([wire.md](wire.md#the-reply-certificate)).
 
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
@@ -151,17 +153,18 @@ roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"p
 `v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
 a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
 other than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring
-altered after signing or signed by another policy key; an entry absent from the keyring; either new field without
-the other, whichever key signed the reply; neither field, signed by a key the reply's own keyring names for the
-entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a `null`
-`serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply, which is ignored; a pin
-mismatch; a `serverKeyringNotAfter` moved after signing, which fails the signature, and one dropped, one that is
-not an integer and one that is `null`, which are malformed; and a server root `notAfter` moved after signing, and
-one dropped and one that is not an integer, which are malformed. It pins the judging of the server's material too:
-a server root at its `notAfter`, and expired (in the entry-key form, in the policy-key form and in an unsafe
-reply), and expired with its `notAfter` moved past `now` in a reply signed again by the entry key; a server keyring
-at its `notAfter` and expired; and a `serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in
-these cases is valid until long after every case's `now`.
+altered after signing or signed by another policy key; an entry absent from the keyring; either of
+`serverKeyringSig` and `serverReplyCert` without the other, whichever key signed the reply; neither field, signed
+by a key the reply's own keyring names for the entry; a server root signed by the entry key; an empty and a `null`
+`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply,
+which is ignored; a pin mismatch; a `serverKeyringNotAfter` moved after signing, which fails the signature, and
+one dropped, one that is not an integer and one that is `null`, which are malformed; and a server root `notAfter`
+moved after signing, which fails the signature, and one dropped and one that is not an integer, which are
+malformed. It pins the judging of the server's material too: a server root at its `notAfter`, and expired (in the
+entry-key form, in the policy-key form and in an unsafe reply), and expired with its `notAfter` moved past `now`
+in a reply signed again by the entry key; a server keyring at its `notAfter` and expired; and a
+`serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is valid until long
+after every case's `now`.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same
@@ -176,7 +179,7 @@ session is the same.
 | Part | Rule |
 |---|---|
 | Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
-| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer, included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
+| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
@@ -243,9 +246,9 @@ sess = b64url( H( 0x02 ‖ flags ‖ clientRootSig ‖ serverRootSig ‖ clientN
 | `keysHash` | 32 | `H(utf8(JCS({ "clientPolicyKey": clientPolicyKey, "clientKeyring": clientKeyring })))` |
 
 Each decoded value MUST have exactly the length shown, or there is no session id. `flags` says which roots are
-present, so input without a root can't be read as input with one. `v3.json` pins the layout in
-`deriveSessionId`. It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds
-the keyring itself, and the server checks the signature, over that window, before it attests.
+present, so input without a root can't be read as input with one. `v3.json` pins the layout in `deriveSessionId`.
+It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds the keyring itself, and the server
+checks the signature, over that window, before it attests.
 
 Every v3 stamp in the session carries `sess`, so a chain made for one session fails in any other.
 
@@ -274,10 +277,6 @@ server whose own root or keyring has expired while it runs degrades rather than 
 unsafe, refusing the tools in its unsafe list and running the rest as for any unattested caller. Sessions it
 attested earlier are still verified against the client's material, and their calls are refused `POLICY_EXPIRED`
 once that expires ([verification.md](verification.md#the-live-order)).
-
-`v3.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
-is missing, `null`, empty or a number, one with no `clientKeyringNotAfter` and one whose client root has no
-`notAfter`, each malformed.
 
 `v3.json` pins this in `sessionStatus`, each case a request, the server's own root and keyring, its policy key, the
 client keys it pinned and `now`: attested; an unpinned client key; the client's root and keyring each at its
@@ -387,10 +386,9 @@ The commitment is `""` when there are no entries, and otherwise:
 infl = b64url( H( utf8( JCS( normalise(entries) ) ) ) )
 ```
 
-Normalising first means the order a client happened to record things in doesn't change the commitment. Entries
-without `owner` commit exactly as they did before owners existed, so their commitment is unchanged: the first
-case of `v3.json`'s `influence` gives the commitment its `commitInfluence` pins. `v3.json` pins the
-owner's sort position and the with-and-without case.
+Normalising first means the order a client happened to record things in doesn't change the commitment. `v3.json`
+pins the commitment in `commitInfluence` (the same entries as the first case of `influence`), and in `influence`
+the owner's sort position and the with-and-without case.
 
 ## Content labels
 

@@ -58,17 +58,17 @@ side writes (in the agents demo, its setup script). Each holds one value, and re
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
 lapse. Each therefore carries `notAfter`, the time after which the policy owner no longer vouches for it, and its
 signature covers that value. `notAfter` follows the reply certificate's rule: an integer number of milliseconds
-since the Unix epoch, in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST refuse
-a keyring or root without a `notAfter` integer of its own, one that is missing and one that is present but is not
-such an integer alike, as malformed. A root or keyring is valid at time `t` when `t <= notAfter`; verifying its
-signature says nothing about time, so whoever relies on it MUST check both.
+since the Unix epoch, in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST
+refuse, as malformed, a keyring or root whose own `notAfter` is missing or is not such an integer. A root or
+keyring is valid at time `t` when `t <= notAfter`; verifying its signature says nothing about time, so whoever
+relies on it MUST check both.
 
 ## Stamps
 
 A stamp is a JSON object. Field order in the JSON is not significant; encoders SHOULD write the fields in the
 order shown.
 
-### v3 (current)
+### Fields and signed bytes
 
 ```json
 { "v": 3, "svc": "...", "inst": "...", "rid": "...", "ts": 0, "sess": "...", "rcv": "...",
@@ -102,8 +102,8 @@ signs the bytes of `3|pi|pi-é|rid-1|1767225600000||local:read|bind-2||prev-2`, 
 
 ### Stamp field rules
 
-These hold for v3 stamps. A signer MUST NOT sign a stamp that breaks them, and a verifier MUST reject
-one that does, with the code in brackets.
+These hold for every stamp. A signer MUST NOT sign a stamp that breaks them, and a verifier MUST reject one
+that does, with the code in brackets.
 
 - The chain is a non-empty JSON array of objects (`CHAIN_MISSING`).
 - `v` is exactly `3` (`CHAIN_MISSING`).
@@ -186,10 +186,9 @@ Rules:
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
   are all covered by the stamp.
 
-`v3.json` pins the prompt, `tools/call`, result and response
-bindings in `bindPrompt`, `bindMcpCall`, `bindResult` and `bindResponse`, and a local-tool binding through the
-`local step ok` case. `http-v3.json` pins the HTTP binding with and without a query in `requestBinding`, and the
-HTTP result hash in `resultHash`.
+`v3.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
+and `bindResponse`, and a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
+binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`.
 
 ## Carrying a chain
 
@@ -399,8 +398,7 @@ that is not an integer and a root signature offered as a keyring signature, whic
 same bytes; and one written `1798761600000.0`, which a reader reads by value.
 
 Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
-default valid for seven days. The policy tools also re-sign the keyring on every
-rebuild and renew.
+default valid for seven days. The policy tools also re-sign the keyring on every rebuild and renew.
 
 ## The reply certificate
 

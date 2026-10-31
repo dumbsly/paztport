@@ -155,7 +155,7 @@ flowchart LR
 | `ts` | When this stamp was signed. Stamps older than 5 s are rejected. |
 | `sess` | The session id, or empty for a chain with no session. |
 | `rcv` | The receiver this stamp was signed for: the next stamp's `svc`, or the chain's receiver. |
-| `bind` | `SHA-256(METHOD \n PATH \n BODY)` of the request *this hop sent*. |
+| `bind` | `SHA-256(METHOD \n PATH \n BODY)` of the request *this hop sent* (`PATH` with its query). |
 | `infl` | The influence commitment, empty for no influence. |
 | `prev` | The previous stamp's `sig`; empty at the origin. |
 | `sig` | Ed25519 signature over the canonical bytes `3\|svc\|inst\|rid\|ts\|sess\|rcv\|bind\|infl\|prev`. |
@@ -180,8 +180,8 @@ Binding the receiver changes who a rejection names. A chain forwarded unchanged 
 `BINDING_MISMATCH` and names no one, instead of reaching the route check and naming its last signer. And
 when the transport authenticates the sender, as mTLS does in the Java mesh, the verifier checks that the
 sender is the last signer and names that authenticated sender in every result. Without one, only an allowed
-request or a `PATH_NOT_ALLOWED` names a suspect: the last signer. Over HTTP, v3 also binds a request's query
-string, and a response comes back with a stamp of its own that its caller checks.
+request or a `PATH_NOT_ALLOWED` names a suspect: the last signer. Over HTTP a response comes back with a
+stamp of its own that its caller checks.
 
 ### 2.2 Proof of legitimacy: the salted Merkle tree
 
@@ -396,9 +396,6 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   mode, after an audit-mode failure, or in an unsafe partner session it may be
   incomplete or empty, and the rule passes what it cannot see. A partner must
   therefore list its public writes in `paztport.partner.unsafe-disabled`.
-
-A forwarded chain cannot blame its last signer: v3 binds the receiver, so the
-chain fails `BINDING_MISMATCH` and names no one.
 
 ### 5.2 Limits of the concept
 
