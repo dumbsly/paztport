@@ -16,6 +16,8 @@ export * from "./verify/verify-v1.ts";
 export * from "./influence/influence.ts";
 export * from "./verify/verify-v3.ts";
 export * from "./offline/verify-offline.ts";
+export * from "./offline/records.ts";
+export * from "./offline/local-step.ts";
 export * from "./policy/keyring.ts";
 export * from "./session/reply-cert.ts";
 export * from "./policy/validity.ts";
