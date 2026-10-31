@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import type { InfluenceClass } from "../../src/influence/influence.ts";
-import { publicWriteRefused, type InfluenceFact } from "../../src/influence/influence-rule.ts";
+import { publicWriteRefused, shapedOnlyByTrusted, type InfluenceFact } from "../../src/influence/influence-rule.ts";
 import { decideLocal } from "../../src/influence/local-decision.ts";
 import { parseLocalRules } from "../../src/policy/local-rules.ts";
 
@@ -81,5 +81,29 @@ describe("publicWriteRefused", () => {
   ];
   it.each(OWNED)("%s", (_name, influence, destinationOwner, refused) => {
     expect(publicWriteRefused(influence, destinationOwner)).toBe(refused);
+  });
+});
+
+describe("shapedOnlyByTrusted", () => {
+  const f = (cls: InfluenceClass, owner?: string): InfluenceFact => (owner === undefined ? { cls } : { cls, owner });
+  it("noEntriesAtAll", () => {
+    expect(shapedOnlyByTrusted([])).toBe(true);
+  });
+  it("onlyPrivateAndPublicEntriesWithAnyOwners", () => {
+    expect(shapedOnlyByTrusted([f("private"), f("private", "alice"), f("private", "bob"), f("public"), f("public", "carol")])).toBe(true);
+  });
+  it("aThirdPartyEntryRefuses", () => {
+    expect(shapedOnlyByTrusted([f("third-party")])).toBe(false);
+    expect(shapedOnlyByTrusted([f("private", "alice"), f("third-party")])).toBe(false);
+  });
+  it("aLocalUntrustedEntryRefuses", () => {
+    expect(shapedOnlyByTrusted([f("local-untrusted")])).toBe(false);
+    expect(shapedOnlyByTrusted([f("public"), f("local-untrusted")])).toBe(false);
+  });
+  it("agreesWithTheTableOverEverySubset", () => {
+    for (const [classes] of TABLE) {
+      const set = new Set(classes);
+      expect(shapedOnlyByTrusted(classes.map((cls) => ({ cls })))).toBe(!set.has("third-party") && !set.has("local-untrusted"));
+    }
   });
 });

@@ -20,3 +20,12 @@ export function publicWriteRefused(influence: readonly InfluenceFact[], destinat
     (f) => f.cls === "private" && (f.owner === undefined || f.owner === "" || destinationOwner === undefined || destinationOwner === "" || f.owner !== destinationOwner),
   );
 }
+
+/**
+ * Whether the influence holds no untrusted content, the condition for writing a trusted record from a request (the
+ * other is that its chain passed the live order at this hop, which the caller knows and this does not): no
+ * `third-party` and no `local-untrusted` fact. `private` and `public` facts, and owners, do not count either way.
+ */
+export function shapedOnlyByTrusted(facts: readonly InfluenceFact[]): boolean {
+  return !facts.some((f) => f.cls === "third-party" || f.cls === "local-untrusted");
+}
