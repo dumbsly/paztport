@@ -121,7 +121,10 @@ keypair per service, a policy keypair and a keyring signed by the policy key, va
 
 Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
 not, and that that key is the `--policy-key`; renewing also checks the root verifies under it. Any failure is
-refused, exit 2, with nothing written. A rebuild vouches that the routes in the `paths.yaml` are the ones
+refused, exit 2, with nothing written, in a message that leads with the file at fault; the checks are core's `renewKeyring`,
+`renewRoot` and `issueReplyCert`, which no tool can sign around. A rebuild refuses a route node that is empty, `.` or `..`, or holds
+`/`, `\`, `|` or a lone surrogate (core's `requireValidNode`, also called by `buildPolicy`), naming the `paths.yaml` and the node.
+A rebuild vouches that the routes in the `paths.yaml` are the ones
 allowed now; a renewal, that the existing tree's routes all still are, since narrowing a policy is a rebuild.
 Re-signing the keyring vouches that each listed key is still its service's current key: the tool can check only
 that this policy key signed the keyring before, so retiring a key, which needs a new keyring rather than a

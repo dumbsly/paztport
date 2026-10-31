@@ -109,7 +109,7 @@ describe("policy-tool CLIs", () => {
       writeFileSync(yamlPath, `paths:\n  - [gateway, ${node}]\n`);
       const r = run(policy, ["--paths", yamlPath, "--policy-key", join(keys, "policy.key"), "--keyring", join(keys, "keyring.json"), "--out", out]);
       expect(r.status, node).toBe(2);
-      expect(r.stderr, node).toContain("Usage");
+      expect(r.stderr, node).toContain(`${yamlPath}: route node`);
       expect(readdirSync(out), node).toEqual([]);
     }
   });

@@ -5,10 +5,10 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  buildPolicy, DEFAULT_DEPTH, describeNotAfter, signReplyCert, keyPairMatches, parseLocalRules, parseSignedRoot, renewKeyring, signRenewedRoot, rulesHash, rulesRouteNodes,
-  verifyKeyring, verifyReplyCert, verifyRoot,
+  buildPolicy, DEFAULT_DEPTH, describeNotAfter, issueReplyCert, parseLocalRules, parseSignedRoot, renewKeyring, renewRoot, requireValidNode, rulesHash,
+  rulesRouteNodes,
 } from "@paztport/core";
-import type { ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
+import type { SignedKeyring, SignedRoot } from "@paztport/core";
 import { parse } from "yaml";
 import { notAfterInDays, readJson, readKey, readKeyring, writeJson, writeKeyring } from "./files.ts";
 
@@ -22,19 +22,6 @@ const DEFAULT_REPLY_CERT_DAYS = 7;
 /** How long a root and keyring this tool signs stay valid unless `--policy-days` says otherwise: seven days. */
 const DEFAULT_POLICY_DAYS = 7;
 
-/** Route node names become path segments, file names and "/"-joined routes: keep them unambiguous. */
-function validNode(n: string): boolean {
-  return (
-    n.length > 0 &&
-    n !== "." &&
-    n !== ".." &&
-    !n.includes("/") &&
-    !n.includes("\\") &&
-    !n.includes("|") &&
-    !/\p{Surrogate}/u.test(n)
-  );
-}
-
 function fail(): never {
   console.error(USAGE);
   process.exit(2);
@@ -45,11 +32,19 @@ function refuse(message: string): never {
   process.exit(2);
 }
 
+/** What `step` returns, or a refusal that names `file` before core's message, as the Java tool's do; core's routines sign only what they first checked. */
+function checked<T>(file: string, step: () => T): T {
+  try {
+    return step();
+  } catch (e) {
+    return refuse(`${file}: ${(e as Error).message}`);
+  }
+}
+
 /**
- * The keyring at `keyringPath` re-signed until `notAfter`, after the checks re-signing rests on: it verifies under the policy key it names,
- * in either form and expired or not, and that key is the one in `privateKey`. Re-signing vouches that each listed key is still its
- * service's current key; the tool can check only that this policy key vouched for them before, so that none has been retired since is
- * the policy owner's to ensure. Refuses, writing nothing, when any check fails.
+ * The keyring at `keyringPath` re-signed until `notAfter`, through core's checks (it verifies under the policy key it names, in either form and
+ * expired or not, and that key is the one in `privateKey`). Re-signing vouches that each listed key is still its service's current key; that none
+ * has been retired since is the policy owner's to ensure. Refuses, writing nothing, when any check fails.
  */
 function renewedKeyring(keyringPath: string, notAfter: number, privateKey: string): SignedKeyring {
   let ring: ReturnType<typeof readKeyring>;
@@ -59,20 +54,7 @@ function renewedKeyring(keyringPath: string, notAfter: number, privateKey: strin
     return refuse(`${keyringPath} is missing or not a keyring`);
   }
   // read whole, so the signature is checked in the keyring's own form, over its notAfter when it has one
-  if (typeof ring.sig !== "string" || !verifyKeyring(ring as SignedKeyring, ring.policy)) {
-    return refuse(`${keyringPath} is not signed by its policy key`);
-  }
-  if (!keyPairMatches(privateKey, ring.policy)) return refuse(`${keyringPath} is not signed by this policy key (--policy-key)`);
-  return renewKeyring(ring as SignedKeyring, notAfter, privateKey);
-}
-
-/** A reply certificate for `svc`'s key in `ring`, already checked to be this policy key's keyring; refuses a service the keyring lacks. */
-function replyCert(ring: SignedKeyring, keyringPath: string, svc: string, notAfter: number, privateKey: string): ReplyCert {
-  const key = Object.hasOwn(ring.services, svc) ? ring.services[svc] : undefined;
-  if (typeof key !== "string") return refuse(`${keyringPath} has no key for service ${svc}`);
-  const cert = signReplyCert(ring.policy, svc, key, notAfter, privateKey);
-  if (!verifyReplyCert(cert, ring.policy)) return refuse(`the certificate for ${svc} does not verify`);
-  return cert;
+  return checked(keyringPath, () => renewKeyring(ring as SignedKeyring, notAfter, privateKey));
 }
 
 /** The routes in the paths file, plus the rules route under `clientChain` when it has a `local:` block (which needs one); exits 2 on a malformed file. */
@@ -86,8 +68,6 @@ function readRoutes(paths: string, clientChain: readonly string[] | undefined): 
     console.error(`policy: ${paths} must contain "paths: [[svc, ...], ...]"`);
     process.exit(2);
   }
-  if (!(routes as string[][]).every((r) => r.every(validNode))) fail();
-
   // A top-level `local:` block is parsed into the folder rules and bound into the root as one more route.
   const allRoutes = [...(routes as string[][])];
   if (doc.local === undefined) return { routes: allRoutes };
@@ -110,7 +90,7 @@ function readRoutes(paths: string, clientChain: readonly string[] | undefined): 
   return { routes: allRoutes, rules };
 }
 
-/** The root in `out`, re-signed until `notAfter` with its `root` and `rootId` kept, after checking it verifies under `ring`'s policy key in either form, expired or not. */
+/** The root in `out`, re-signed until `notAfter` with its `root` and `rootId` kept, through core's check that it verifies under `ring`'s policy key in either form, expired or not. */
 function renewedRoot(out: string, ring: SignedKeyring, notAfter: number, privateKey: string): SignedRoot {
   const rootPath = join(out, "root.json");
   let root: SignedRoot;
@@ -119,9 +99,8 @@ function renewedRoot(out: string, ring: SignedKeyring, notAfter: number, private
   } catch {
     return refuse(`${rootPath} is missing or not a signed root`);
   }
-  if (!verifyRoot(root, ring.policy)) return refuse(`${rootPath} is not signed by this policy key (--policy-key)`);
   // renewing vouches that every route in the existing tree is still allowed: a narrowed policy is a rebuild, never a renewal
-  return signRenewedRoot(root, notAfter, privateKey);
+  return checked(rootPath, () => renewRoot(root, ring.policy, notAfter, privateKey));
 }
 
 function main(): void {
@@ -169,19 +148,20 @@ function main(): void {
   if (certNotAfter === undefined || policyNotAfter === undefined) fail();
 
   const clientChain = values["client-chain"]?.split(",");
-  if (clientChain !== undefined && (renew || clientChain.length === 0 || !clientChain.every(validNode))) fail();
+  if (clientChain !== undefined && renew) fail();
+  if (clientChain !== undefined) checked("--client-chain", () => clientChain.forEach((n) => requireValidNode(n)));
   const built = renew ? undefined : readRoutes(paths!, clientChain);
   const privateKey = readKey(keyFile);
   // Everything is checked before anything is written, so a refusal leaves no partial output.
   const ring = renewedKeyring(keyringPath, policyNotAfter, privateKey);
-  const cert = certSvc === undefined ? undefined : replyCert(ring, keyringPath, certSvc, certNotAfter, privateKey);
+  const cert = certSvc === undefined ? undefined : checked(keyringPath, () => issueReplyCert(ring, certSvc, certNotAfter, privateKey));
   let signedRoot: SignedRoot;
   let bundles: ReturnType<typeof buildPolicy>["bundles"] = {};
   if (built === undefined) {
     signedRoot = renewedRoot(out, ring, policyNotAfter, privateKey);
   } else {
     // the routes are the ones the paths file allows now
-    ({ signedRoot, bundles } = buildPolicy(built.routes, depth, privateKey, policyNotAfter));
+    ({ signedRoot, bundles } = checked(paths!, () => buildPolicy(built.routes, depth, privateKey, policyNotAfter)));
   }
 
   // the keyring first: of all the writes, it is the one a read-only file would refuse, and renewing it alone harms nothing
