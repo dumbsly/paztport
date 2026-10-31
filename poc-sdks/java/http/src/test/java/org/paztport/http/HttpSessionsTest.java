@@ -6,7 +6,6 @@ package org.paztport.http;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -40,7 +39,11 @@ class HttpSessionsTest {
             pub(Crypto.generateEd25519KeyPair())), pub(shopPolicy), NOT_AFTER, shopPolicy.getPrivate());
     private final KeyPair pspPolicy = Crypto.generateEd25519KeyPair();
     private final KeyPair pspKey = Crypto.generateEd25519KeyPair();
-    private final PartnerSessions sessions = PartnerSessions.builder()
+    private final PartnerSessions sessions = partner(PartnerSessions.DEFAULT_MAX_SESSIONS_PER_PEER);
+    private final PeerCert orders = new PeerCert(new Peer("orders", "10.0.0.8"), "CN=shop CA");
+
+    private PartnerSessions partner(int maxSessionsPerPeer) {
+        return PartnerSessions.builder()
             .ownRoot(PolicyBuilder.build(List.of(List.of("psp", "ledger")), 4, NOT_AFTER, pspPolicy.getPrivate())
                     .signedRoot())
             .ownKeyring(KeyringFile.sign(Map.of("psp", pub(pspKey)), pub(pspPolicy), NOT_AFTER,
@@ -53,8 +56,9 @@ class HttpSessionsTest {
             .pinnedClientKeys(Set.of(pub(shopPolicy)))
             .clientOrigins(Set.of("orders"))
             .callMaxAgeMs(5000)
+            .maxSessionsPerPeer(maxSessionsPerPeer)
             .build();
-    private final PeerCert orders = new PeerCert(new Peer("orders", "10.0.0.8"), "CN=shop CA");
+    }
 
     private static String pub(KeyPair k) {
         return Base64Url.encode(Crypto.encodePublicKey(k.getPublic()));
@@ -128,19 +132,19 @@ class HttpSessionsTest {
 
     @Test
     void aRequestWithNoKeyringSignatureIsInvalidParams() throws IOException {
-        ObjectNode missing = (ObjectNode) new ObjectMapper().readTree(request(Sessions.newNonce()));
+        // a peer holds one session, so a refused request that opened another would evict the first
+        PartnerSessions one = partner(1);
+        ObjectMapper json = new ObjectMapper();
+        String kept = json.readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one).json())
+                .get("sess").asText();
+        ObjectNode missing = (ObjectNode) json.readTree(request(Sessions.newNonce()));
         missing.remove("clientKeyringSig");
 
         HttpAnswer answer = HttpSessions.serve(body(missing.toString().getBytes(StandardCharsets.UTF_8)), orders,
-                sessions);
+                one);
 
         assertEquals(400, answer.status());
         assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
-        // nothing was opened: the answer names no session, and the signed request's own session id is not kept
-        assertNull(new ObjectMapper().readTree(answer.json()).get("sess"));
-        String signed = new ObjectMapper().readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders,
-                sessions).json()).get("sess").asText();
-        assertNotNull(sessions.find("CN=shop CA", "orders", signed), "a signed request opens one");
-        assertNull(sessions.find("CN=shop CA", "orders", ""), "the refused one opened none");
+        assertNotNull(one.find("CN=shop CA", "orders", kept), "the refused request opened no session");
     }
 }
