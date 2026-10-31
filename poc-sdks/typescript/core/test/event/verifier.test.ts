@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { eventSigningBytes, signEvent, type EventEnvelope } from "../../src/event/envelope.ts";
@@ -210,5 +210,19 @@ describe("event verifier", () => {
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([0xef, 0xbb, 0xbf, ...json]))))).toBe("MALFORMED_EVENT");
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([...json.slice(0, 20), 0xff, ...json.slice(20)]))))).toBe("MALFORMED_EVENT");
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([...json.slice(0, 20), 0xed, 0xa0, 0x80, ...json.slice(20)]))))).toBe("MALFORMED_EVENT");
+  });
+
+  it("refusesAnEventWhenTheRuntimeGivesNoSourceTextForANumber", () => {
+    const real = JSON.parse;
+    // A runtime without source-text access calls the reviver with two arguments only.
+    const spy = vi.spyOn(JSON, "parse").mockImplementation((text: string, reviver?: (k: string, v: unknown) => unknown) =>
+      reviver === undefined ? real(text) : real(text, (k, v) => reviver(k, v)),
+    );
+    try {
+      const { auth } = setup();
+      expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(NOW, "a"))))).toBe("MALFORMED_EVENT");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

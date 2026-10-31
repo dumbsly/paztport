@@ -64,7 +64,9 @@ class EventVectorsExport {
             + " last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a"
             + " refused one the refusal's name and a null `event`. Bodies are the exact text received, and the"
             + " envelope and the event are read strictly, so a replay hands each body over unchanged. The window is"
-            + " 30000 ms either way, and an accepted id is remembered for 60000 ms. Ed25519 is deterministic, so the"
+            + " 30000 ms either way, and an accepted id is remembered for 60000 ms. Each `attributable` case gives an"
+            + " `event` (its seven fields) and whether a responder may act on it, `expected`: the spec's allow-list of"
+            + " reasons, with an audit event and an event naming no service or no instance excluded. Ed25519 is deterministic, so the"
             + " file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol"
             + " change.";
 
@@ -328,9 +330,38 @@ class EventVectorsExport {
         verify.add(verifyCase("sig as a number", responder, List.of(),
                 "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\",\"sig\":1}", NOW, 1));
 
+        ArrayNode attributable = out.putArray("attributable");
+        for (String reason : List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",
+                "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
+                "CLIENT_PATH_NOT_ALLOWED", "INFLUENCE_MISMATCH", "PEER_MISMATCH")) {
+            attributable.add(attributableCase(reason, reason, "search", "search-1", false, true));
+        }
+        for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED", "SCOPE_DENIED",
+                "UNCHECKABLE", "TIME_MISMATCH", "NOT_A_CODE", "")) {
+            attributable.add(attributableCase("excluded: " + (reason.isEmpty() ? "empty reason" : reason), reason,
+                    "search", "search-1", false, false));
+        }
+        attributable.add(attributableCase("excluded: reason in lower case", "path_not_allowed", "search",
+                "search-1", false, false));
+        attributable.add(attributableCase("excluded: an audit event", "PATH_NOT_ALLOWED", "search", "search-1", true,
+                false));
+        attributable.add(attributableCase("excluded: no suspectSvc", "PATH_NOT_ALLOWED", "", "search-1", false,
+                false));
+        attributable.add(attributableCase("excluded: no suspectInst", "PATH_NOT_ALLOWED", "search", "", false,
+                false));
+
         // Replay what was just built, read back from the text it is written as.
         assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)));
         return out;
+    }
+
+    private static ObjectNode attributableCase(String name, String reason, String svc, String inst, boolean audit,
+            boolean expected) {
+        ObjectNode c = JsonNodeFactory.instance.objectNode();
+        c.put("name", name);
+        c.set("event", tree(new ResponderEvent(reason, svc, inst, "rid-event-1", audit, NOW, "event-1").toJson()));
+        c.put("expected", expected);
+        return c;
     }
 
     private record Earlier(String body, long now) {
@@ -425,6 +456,13 @@ class EventVectorsExport {
             assertEquals(c.get("signingBytes").asText(), Base64Url.encode(signing), name);
             assertEquals(DOMAIN + env.payload(), new String(signing, StandardCharsets.UTF_8), name);
             assertEquals(c.get("sig").asText(), env.sig(), name);
+        }
+        for (JsonNode c : vectors.get("attributable")) {
+            JsonNode e = c.get("event");
+            ResponderEvent event = new ResponderEvent(e.get("reason").asText(), e.get("suspectSvc").asText(),
+                    e.get("suspectInst").asText(), e.get("rid").asText(), e.get("audit").asBoolean(),
+                    e.get("ts").asLong(), e.get("eventId").asText());
+            assertEquals(c.get("expected").asBoolean(), event.attributable(), c.get("name").asText());
         }
         for (JsonNode c : vectors.get("verify")) {
             String name = c.get("name").asText();

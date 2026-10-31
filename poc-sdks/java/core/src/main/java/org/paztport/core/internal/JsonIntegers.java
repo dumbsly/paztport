@@ -34,9 +34,10 @@ public final class JsonIntegers {
         }
         try {
             BigDecimal d = n.isIntegralNumber() ? new BigDecimal(n.bigIntegerValue()) : n.decimalValue();
-            // Judged before any integer is built, so that an exponent such as 1e999999999 costs nothing.
-            d = d.signum() == 0 ? BigDecimal.ZERO : d.stripTrailingZeros();
-            if (d.scale() > 0 || d.precision() - d.scale() > 16) {
+            // Judged before any integer is built, so that an exponent such as 1e999999999 costs nothing. The
+            // digit count is a long, since precision minus a very negative scale overflows an int.
+            d = d.stripTrailingZeros();
+            if (d.scale() > 0 || (long) d.precision() - d.scale() > 16) {
                 return null;
             }
             long v = d.toBigIntegerExact().longValueExact();

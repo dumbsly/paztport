@@ -46,4 +46,11 @@ class ResponderEventTest {
         assertFalse(of("PATH_NOT_ALLOWED", "", "search-1", false).attributable());
         assertFalse(of("PATH_NOT_ALLOWED", "search", "", false).attributable());
     }
+
+    @Test
+    void attributableIsFalseForAMissingField() {
+        assertFalse(of(null, "search", "search-1", false).attributable());
+        assertFalse(of("PATH_NOT_ALLOWED", null, "search-1", false).attributable());
+        assertFalse(of("PATH_NOT_ALLOWED", "search", null, false).attributable());
+    }
 }

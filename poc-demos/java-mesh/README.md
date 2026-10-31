@@ -548,11 +548,15 @@ Why each piece is there:
   events can't build up a count against another's container. A suspect that is
   not an address, as from a verifier given no peer, is looked up as a container
   name; an event with no suspect takes the "ignore: can't attribute" branch.
-- **Only attributable refusals count.** The responder acts on an event only when the SDK says it is
-  [attributable](../../poc-sdks/spec/wire.md#the-event) (its "Attributable events" paragraph): not an audit event, naming both a service and an
-  instance, with a reason from the spec's allow-list. `INFLUENCE_DENIED` and `UNSAFE_SESSION` are policy refusals of
-  a sound chain, which an honest service misled by its input can earn, so they never count. Nor does
-  `POLICY_EXPIRED`: the verifier's own pinned policy ran out, which no caller caused.
+- **Only attributable refusals count.** The responder acts on an event only
+  when the SDK says it is
+  [attributable](../../poc-sdks/spec/wire.md#the-event) (its "Attributable
+  events" paragraph): not an audit event, naming both a service and an
+  instance, with a reason from the spec's allow-list. `INFLUENCE_DENIED` and
+  `UNSAFE_SESSION` are policy refusals of a sound chain, which an honest
+  service misled by its input can earn, so they never count. Nor does
+  `POLICY_EXPIRED`: the verifier's own pinned policy ran out, which no caller
+  caused.
 - **Require a threshold** (3 in 60 s). One bad event doesn't trigger action, and
   audit-mode events never do.
 - **Circuit breaker** (by default at most 2 quarantines per service per 10 min).

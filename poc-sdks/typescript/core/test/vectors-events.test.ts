@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import { encode } from "../src/encoding/b64url.ts";
 import { utf8 } from "../src/crypto/crypto.ts";
 import { eventSigningBytes, signEvent } from "../src/event/envelope.ts";
+import { isAttributable } from "../src/event/attributable.ts";
 import { createEventVerifier, type EventOutcome, type EventRefusal } from "../src/event/verifier.ts";
 
 type VerifyCase = {
@@ -52,6 +53,10 @@ describe("event vectors", () => {
       expect(got.refusal).toBe(c.expected.refusal);
       expect(c.expected.event).toBeNull();
     }
+  });
+
+  it.each(v.attributable as { name: string; event: any; expected: boolean }[])("attributable: $name", (c) => {
+    expect(isAttributable(c.event)).toBe(c.expected);
   });
 
   it("every refusal and an acceptance each have a case", () => {

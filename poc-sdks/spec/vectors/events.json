@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport event conformance vectors: the signed events a verifying service sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An envelope case signs `eventJson`, the text a sender writes for `event`, as `signer` with that signer's key: `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event are read strictly, so a replay hands each body over unchanged. The window is 30000 ms either way, and an accepted id is remembered for 60000 ms. Ed25519 is deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about" : "Paztport event conformance vectors: the signed events a verifying service sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An envelope case signs `eventJson`, the text a sender writes for `event`, as `signer` with that signer's key: `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event are read strictly, so a replay hands each body over unchanged. The window is 30000 ms either way, and an accepted id is remembered for 60000 ms. Each `attributable` case gives an `event` (its seven fields) and whether a responder may act on it, `expected`: the spec's allow-list of reasons, with an audit event and an event naming no service or no instance excluded. Ed25519 is deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -949,5 +949,318 @@
       "refusal" : "MALFORMED_ENVELOPE",
       "event" : null
     }
+  } ],
+  "attributable" : [ {
+    "name" : "CHAIN_MISSING",
+    "event" : {
+      "reason" : "CHAIN_MISSING",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "BAD_ORIGIN",
+    "event" : {
+      "reason" : "BAD_ORIGIN",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "BAD_SIGNATURE",
+    "event" : {
+      "reason" : "BAD_SIGNATURE",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "BROKEN_LINK",
+    "event" : {
+      "reason" : "BROKEN_LINK",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "EXPIRED",
+    "event" : {
+      "reason" : "EXPIRED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "RID_MISMATCH",
+    "event" : {
+      "reason" : "RID_MISMATCH",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "BINDING_MISMATCH",
+    "event" : {
+      "reason" : "BINDING_MISMATCH",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "REPLAY",
+    "event" : {
+      "reason" : "REPLAY",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "PATH_NOT_ALLOWED",
+    "event" : {
+      "reason" : "PATH_NOT_ALLOWED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "SESSION_UNKNOWN",
+    "event" : {
+      "reason" : "SESSION_UNKNOWN",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "CLIENT_PATH_NOT_ALLOWED",
+    "event" : {
+      "reason" : "CLIENT_PATH_NOT_ALLOWED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "INFLUENCE_MISMATCH",
+    "event" : {
+      "reason" : "INFLUENCE_MISMATCH",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "PEER_MISMATCH",
+    "event" : {
+      "reason" : "PEER_MISMATCH",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : true
+  }, {
+    "name" : "excluded: OK",
+    "event" : {
+      "reason" : "OK",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: INFLUENCE_DENIED",
+    "event" : {
+      "reason" : "INFLUENCE_DENIED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: UNSAFE_SESSION",
+    "event" : {
+      "reason" : "UNSAFE_SESSION",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: POLICY_EXPIRED",
+    "event" : {
+      "reason" : "POLICY_EXPIRED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: SCOPE_DENIED",
+    "event" : {
+      "reason" : "SCOPE_DENIED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: UNCHECKABLE",
+    "event" : {
+      "reason" : "UNCHECKABLE",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: TIME_MISMATCH",
+    "event" : {
+      "reason" : "TIME_MISMATCH",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: NOT_A_CODE",
+    "event" : {
+      "reason" : "NOT_A_CODE",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: empty reason",
+    "event" : {
+      "reason" : "",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: reason in lower case",
+    "event" : {
+      "reason" : "path_not_allowed",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: an audit event",
+    "event" : {
+      "reason" : "PATH_NOT_ALLOWED",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : true,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: no suspectSvc",
+    "event" : {
+      "reason" : "PATH_NOT_ALLOWED",
+      "suspectSvc" : "",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
+    "name" : "excluded: no suspectInst",
+    "event" : {
+      "reason" : "PATH_NOT_ALLOWED",
+      "suspectSvc" : "search",
+      "suspectInst" : "",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
   } ]
 }

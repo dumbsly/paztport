@@ -24,8 +24,8 @@ and keyrings, reply certificates, policy building, reason codes, the replay cach
 binding, influence and the owner-aware influence rule, sessions, local tool rules and the
 verdict for a local tool call, local steps, the live v1 verifier and the live v3 chain
 verifier (`verifyChainV3`).
-Responder events are here too: `signEvent` signs one, `createEventVerifier` is the responder's check of a body
-(strict, with `ts` read by value), and `isAttributable` says whether the responder may act on it.
+For responders, `signEvent` signs an event, `createEventVerifier` checks a received body (strictly, with `ts`
+read by value) and `isAttributable` says whether the responder may act on it.
 Offline verification of a recorded run (`verifyChainOffline`) is here too, and shares its
 checks with the live verifier; the agents demo's `npm run verify` uses it.
 

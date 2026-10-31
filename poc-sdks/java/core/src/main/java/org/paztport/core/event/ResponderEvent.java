@@ -25,10 +25,12 @@ public record ResponderEvent(
 
     /**
      * Whether a responder may act against the suspect: the event is not an audit measurement, it names both a
-     * service and an instance, and its reason is on the fail-closed allow-list of the spec's attributable events.
+     * service and an instance, and its reason is on the fail-closed allow-list of the spec's attributable events. A
+     * missing field is not attributable.
      */
     public boolean attributable() {
-        return !audit && !suspectSvc.isEmpty() && !suspectInst.isEmpty() && ATTRIBUTABLE_REASONS.contains(reason);
+        return !audit && suspectSvc != null && !suspectSvc.isEmpty() && suspectInst != null && !suspectInst.isEmpty()
+                && reason != null && ATTRIBUTABLE_REASONS.contains(reason);
     }
 
     /**

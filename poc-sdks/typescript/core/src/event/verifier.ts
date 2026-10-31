@@ -79,10 +79,13 @@ function readEvent(bytes: Uint8Array): ResponderEvent | null {
   let node: unknown;
   try {
     const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    // Every number is kept as its text: a double has already rounded `9007199254740991.4` to an integer.
-    node = JSON.parse(text, (_key, value, context?: { source?: string }) =>
-      typeof value === "number" ? new NumberText(context?.source ?? String(value)) : value,
-    );
+    // Every number is kept as its text: a double has already rounded `9007199254740991.4` to an integer. A
+    // runtime that gives no text cannot judge by value, so it refuses (the throw is caught below).
+    node = JSON.parse(text, (_key, value, context?: { source?: string }) => {
+      if (typeof value !== "number") return value;
+      if (context?.source === undefined) throw new Error("no source text for a number");
+      return new NumberText(context.source);
+    });
   } catch {
     return null;
   }
