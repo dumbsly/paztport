@@ -8,6 +8,7 @@
 import { readFileSync } from "node:fs";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
+import { decode } from "../src/encoding/b64url.ts";
 import { canonicalize, writeWire } from "../src/encoding/jcs.ts";
 import { printFile } from "../src/encoding/json-file.ts";
 import { JSON_LIMITS, MalformedJson, readFile, readToken, type JsonValue } from "../src/encoding/json.ts";
@@ -17,6 +18,7 @@ type Build = { head: string; repeat: string; times: number; tail: string };
 type Input = { utf8: string } | { hex: string } | { build: Build };
 type ReadCase = { name: string } & Input & { expected: "OK" | "REFUSED"; value?: unknown; step?: string };
 type FileFormatCase = { name: string; kind: string | null; value: unknown; file: string };
+type Base64UrlCase = { name: string; text: string; expected: string | null };
 type JcsCase = { name: string } & ({ binary64: string } | { value: unknown }) & { expected: string | null };
 
 const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/json.json", import.meta.url), "utf8"));
@@ -107,6 +109,13 @@ describe("json.json", () => {
     it.each(v.fileFormat as FileFormatCase[])("$name", (c) => {
       expect(printFile(c.value as JsonValue)).toBe(c.file);
       expect(readFile(new Uint8Array(Buffer.from(c.file, "utf8")))).toEqual(c.value);
+    });
+  });
+
+  describe("base64url", () => {
+    it.each(v.base64url as Base64UrlCase[])("$name", (c) => {
+      if (c.expected === null) expect(() => decode(c.text)).toThrow();
+      else expect(Buffer.from(decode(c.text)).toString("hex")).toBe(c.expected);
     });
   });
 

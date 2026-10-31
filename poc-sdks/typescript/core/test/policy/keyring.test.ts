@@ -35,6 +35,11 @@ describe("keyring", () => {
     expect(verifyKeyring({ ...k, sig: "!" }, p.publicKey)).toBe(false);
   });
 
+  it("verifies only a canonical signature text", () => {
+    const k = signed();
+    expect(verifyKeyring({ ...k, sig: k.sig + "==" }, POLICY.publicKey)).toBe(false);
+  });
+
   it("signs the window, the policy key and services under a domain prefix", () => {
     expect(text(keyringSigningBytes("P", { a: "K" }, NOT_AFTER))).toBe('paztport-keyring\n{"notAfter":1798761600000,"policy":"P","services":{"a":"K"}}');
     expect(text(keyringSigningBytes("P", {}, MAX_SAFE))).toBe('paztport-keyring\n{"notAfter":9007199254740991,"policy":"P","services":{}}');

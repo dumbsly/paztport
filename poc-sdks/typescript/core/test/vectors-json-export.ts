@@ -25,6 +25,7 @@ class Ordered {
 }
 
 type FileFormatCase = { name: string; kind: string | null; value: unknown; file: string };
+type Base64UrlCase = { name: string; text: string; expected: string | null };
 type JcsCase = { name: string } & ({ binary64: string } | { value: unknown }) & { expected: string | null };
 
 const ABOUT =
@@ -44,6 +45,8 @@ const ABOUT =
   "A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; " +
   "expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, " +
   "so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. " +
+  "A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. " +
+  "The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. " +
   "Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; " +
   "the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
@@ -499,8 +502,27 @@ const JCS: JcsCase[] = [
   { name: "a string holding a lone surrogate", value: "\ud800", expected: null },
 ];
 
+/** Texts for the base64url decoder; each answer is worked out from RFC 4648 §3.5 and §5 by hand. */
+const BASE64URL: Base64UrlCase[] = [
+  { name: "the empty text", text: "", expected: "" },
+  { name: "AA, one zero byte", text: "AA", expected: "00" },
+  { name: "AAA, two zero bytes", text: "AAA", expected: "0000" },
+  { name: "AAAA, three zero bytes", text: "AAAA", expected: "000000" },
+  { name: "-_-_, the bytes the standard alphabet writes as +/+/", text: "-_-_", expected: "fbffbf" },
+  { name: "AB, non-zero unused bits after one byte", text: "AB", expected: null },
+  { name: "AAB, non-zero unused bits after two bytes", text: "AAB", expected: null },
+  { name: "A, a length one more than a multiple of 4", text: "A", expected: null },
+  { name: "AA==, padded", text: "AA==", expected: null },
+  { name: "AA=, padded once", text: "AA=", expected: null },
+  { name: "AAAA=, padding after a whole group", text: "AAAA=", expected: null },
+  { name: "A+A, a character of the standard alphabet", text: "A+A", expected: null },
+  { name: "A/A, a character of the standard alphabet", text: "A/A", expected: null },
+  { name: "a leading space", text: " AA", expected: null },
+  { name: "a trailing newline", text: "AA\n", expected: null },
+];
+
 export function buildVectorsJson(): Record<string, unknown> {
-  return { about: ABOUT, limits: LIMITS, wire: WIRE, file: FILE, fileFormat: FILE_FORMAT, jcs: JCS };
+  return { about: ABOUT, limits: LIMITS, wire: WIRE, file: FILE, fileFormat: FILE_FORMAT, base64url: BASE64URL, jcs: JCS };
 }
 
 /** JSON.stringify(value, null, 2), except that an Ordered object keeps its members in the order given. */

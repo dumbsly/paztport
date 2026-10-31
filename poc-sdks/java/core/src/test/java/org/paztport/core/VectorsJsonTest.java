@@ -31,9 +31,9 @@ import org.paztport.core.internal.JsonWriter;
 
 /**
  * Replays {@code spec/vectors/json.json}, which the TypeScript SDK also reads: one test per case of {@code wire},
- * {@code file} and {@code fileFormat}. The {@code jcs} section is not replayed: it is hashed content, which belongs
- * to the MCP profile, and this SDK does not implement it. The file's own structure is read with Jackson, only to
- * find each case and build its expected value; every input reaches the SDK as bytes.
+ * {@code file}, {@code fileFormat} and {@code base64url}. The {@code jcs} section is not replayed: it is hashed
+ * content, which belongs to the MCP profile, and this SDK does not implement it. The file's own structure is read
+ * with Jackson, only to find each case and build its expected value; every input reaches the SDK as bytes.
  */
 class VectorsJsonTest {
 
@@ -161,6 +161,19 @@ class VectorsJsonTest {
             String file = c.get("file").textValue();
             assertEquals(file, JsonWriter.file(value));
             assertEquals(value, JsonReader.file(utf8(file)));
+        });
+    }
+
+    /** Each text given to the decoder reads as the bytes the case gives in hex, or is refused. */
+    @TestFactory
+    Stream<DynamicTest> base64url() {
+        return cases("base64url", c -> {
+            String text = c.get("text").textValue();
+            if (c.get("expected").isNull()) {
+                assertThrows(IllegalArgumentException.class, () -> Base64Url.decode(text));
+            } else {
+                assertArrayEquals(HexFormat.of().parseHex(c.get("expected").textValue()), Base64Url.decode(text));
+            }
         });
     }
 }

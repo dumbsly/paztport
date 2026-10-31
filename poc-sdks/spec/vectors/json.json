@@ -1,5 +1,5 @@
 {
-  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read; its members are the value's own, a name such as __proto__ among them, and an object's names are in the order the input gives them. step, given for every REFUSED case, is the reader step the spec defines (Reading, steps 1 to 3: size, parse, canonical) at which the input is first refused. It is not an error code: every step answers the same code for an object. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read; its members are the value's own, a name such as __proto__ among them, and an object's names are in the order the input gives them. step, given for every REFUSED case, is the reader step the spec defines (Reading, steps 1 to 3: size, parse, canonical) at which the input is first refused. It is not an error code: every step answers the same code for an object. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. A base64url case is a text given to the base64url decoder, not to the JSON reader, so it has no step: expected is the decoded bytes in hex, or null when the text is refused. The decoder accepts the one canonical unpadded encoding of RFC 4648 §3.5, written with the url-safe alphabet of §5. Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
   "limits": {
     "wireBytes": 262144,
     "tokenText": 349526,
@@ -1183,6 +1183,83 @@
         "b": []
       },
       "file": "{\n  \"a\": {},\n  \"b\": []\n}\n"
+    }
+  ],
+  "base64url": [
+    {
+      "name": "the empty text",
+      "text": "",
+      "expected": ""
+    },
+    {
+      "name": "AA, one zero byte",
+      "text": "AA",
+      "expected": "00"
+    },
+    {
+      "name": "AAA, two zero bytes",
+      "text": "AAA",
+      "expected": "0000"
+    },
+    {
+      "name": "AAAA, three zero bytes",
+      "text": "AAAA",
+      "expected": "000000"
+    },
+    {
+      "name": "-_-_, the bytes the standard alphabet writes as +/+/",
+      "text": "-_-_",
+      "expected": "fbffbf"
+    },
+    {
+      "name": "AB, non-zero unused bits after one byte",
+      "text": "AB",
+      "expected": null
+    },
+    {
+      "name": "AAB, non-zero unused bits after two bytes",
+      "text": "AAB",
+      "expected": null
+    },
+    {
+      "name": "A, a length one more than a multiple of 4",
+      "text": "A",
+      "expected": null
+    },
+    {
+      "name": "AA==, padded",
+      "text": "AA==",
+      "expected": null
+    },
+    {
+      "name": "AA=, padded once",
+      "text": "AA=",
+      "expected": null
+    },
+    {
+      "name": "AAAA=, padding after a whole group",
+      "text": "AAAA=",
+      "expected": null
+    },
+    {
+      "name": "A+A, a character of the standard alphabet",
+      "text": "A+A",
+      "expected": null
+    },
+    {
+      "name": "A/A, a character of the standard alphabet",
+      "text": "A/A",
+      "expected": null
+    },
+    {
+      "name": "a leading space",
+      "text": " AA",
+      "expected": null
+    },
+    {
+      "name": "a trailing newline",
+      "text": "AA\n",
+      "expected": null
     }
   ],
   "jcs": [

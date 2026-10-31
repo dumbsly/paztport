@@ -93,9 +93,8 @@ public record KeyringFile(Map<String, String> services, String policy, String si
 
     /**
      * True only when this file names the pinned policy key and its signature verifies under it, over its
-     * {@code notAfter}; never throws. Says nothing about time: see {@link #isCurrent}. The signature text is not
-     * held to the canonical-encoding rule (that covers stamp signatures), matching the TypeScript SDK: the pin and
-     * the signature are what vouch for the file.
+     * {@code notAfter}; never throws. Says nothing about time: see {@link #isCurrent}. The signature text must be
+     * the canonical base64url encoding, as every decoded value must.
      */
     public boolean verifies(String pinnedPolicyKey) {
         if (sig == null || policy == null || pinnedPolicyKey == null || !policy.equals(pinnedPolicyKey)) {

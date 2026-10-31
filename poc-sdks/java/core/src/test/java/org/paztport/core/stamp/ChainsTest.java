@@ -5,6 +5,7 @@ package org.paztport.core.stamp;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -103,18 +104,17 @@ class ChainsTest {
         ObjectNode padded = v3();
         padded.put("sig", padded.get("sig").asText() + "=");
         rejects(ReasonCode.CHAIN_MISSING, chain(padded));
-        // Java's decoder accepts "==" padding on a 64-byte signature, and non-zero trailing bits in the last
-        // character; both decode to the same bytes, so only the re-encode comparison refuses them.
+        // The decoder reads only the canonical unpadded encoding (RFC 4648 §3.5), so padding and non-zero trailing
+        // bits in the last character are refused wherever the text is decoded.
         String canonical = padded.get("sig").asText().substring(0, padded.get("sig").asText().length() - 1);
         ObjectNode doublePadded = v3();
         doublePadded.put("sig", canonical + "==");
-        assertEquals(Base64Url.decode(canonical).length, Base64Url.decode(canonical + "==").length);
         rejects(ReasonCode.CHAIN_MISSING, chain(doublePadded));
         String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         int last = alphabet.indexOf(canonical.charAt(canonical.length() - 1));
         char twin = alphabet.charAt(last ^ 1);
         String tweaked = canonical.substring(0, canonical.length() - 1) + twin;
-        assertTrue(java.util.Arrays.equals(Base64Url.decode(canonical), Base64Url.decode(tweaked)));
+        assertThrows(IllegalArgumentException.class, () -> Base64Url.decode(tweaked));
         ObjectNode trailing = v3();
         trailing.put("sig", tweaked);
         rejects(ReasonCode.CHAIN_MISSING, chain(trailing));

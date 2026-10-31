@@ -42,9 +42,12 @@ class Base64UrlTest {
     }
 
     @Test
-    void toleratesUpToTwoPaddingCharactersLikeTheTypeScriptSdk() {
-        assertEquals(16, Base64Url.decode("A".repeat(22) + "=").length);
-        assertEquals(32, Base64Url.decode("A".repeat(43) + "==").length);
+    void refusesWhatPeoplePaste() {
+        for (String pasted : new String[] {"AA==", "AA\n", " AA", "A+A", "AB"}) {
+            assertThrows(IllegalArgumentException.class, () -> Base64Url.decode(pasted), pasted);
+        }
+        assertArrayEquals(new byte[] {0}, Base64Url.decode("AA"));
+        assertArrayEquals(new byte[] {(byte) 0xFB, (byte) 0xFF, (byte) 0xBF}, Base64Url.decode("-_-_"));
     }
 
     @Test

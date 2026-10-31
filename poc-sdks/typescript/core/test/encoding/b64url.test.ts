@@ -23,7 +23,11 @@ describe("b64url", () => {
       expect(() => decode(bad)).toThrow();
     }
   });
-  it("acceptsTrailingPadding", () => {
-    expect(decode("aGk_Pg==")).toEqual(decode("aGk_Pg"));
+  it("refusesWhatPeoplePaste", () => {
+    for (const pasted of ["AA==", "AA\n", " AA", "A+A", "AB"]) {
+      expect(() => decode(pasted)).toThrow();
+    }
+    expect(decode("AA")).toEqual(new Uint8Array([0]));
+    expect(decode("-_-_")).toEqual(new Uint8Array([0xfb, 0xff, 0xbf]));
   });
 });

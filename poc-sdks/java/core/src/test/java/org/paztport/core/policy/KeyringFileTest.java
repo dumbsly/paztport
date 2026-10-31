@@ -87,9 +87,9 @@ class KeyringFileTest {
     }
 
     @Test
-    void sigTextIsNotHeldToCanonicalEncoding() {
+    void sigTextMustBeCanonicalEncoding() {
         KeyringFile f = signed();
-        assertTrue(new KeyringFile(f.services(), f.policy(), f.sig() + "==", f.notAfter()).verifies(pub(POLICY)));
+        assertFalse(new KeyringFile(f.services(), f.policy(), f.sig() + "==", f.notAfter()).verifies(pub(POLICY)));
     }
 
     @Test

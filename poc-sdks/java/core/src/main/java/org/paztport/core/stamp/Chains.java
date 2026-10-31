@@ -99,10 +99,11 @@ public final class Chains {
         return n.textValue();
     }
 
-    /** True when the text decodes as base64url and encodes back to itself. */
+    /** True when the text is the canonical base64url encoding of some bytes. */
     private static boolean canonical(String sig) {
         try {
-            return Base64Url.encode(Base64Url.decode(sig)).equals(sig);
+            Base64Url.decode(sig);
+            return true;
         } catch (IllegalArgumentException e) {
             return false;
         }

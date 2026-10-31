@@ -23,9 +23,7 @@ function checkStamp(item: unknown): Record<string, unknown> {
       throw new Error(`lone surrogate in stamp field ${f}`);
     }
   }
-  if (encode(decode(o.sig as string)) !== o.sig) {
-    throw new Error("non-canonical signature encoding");
-  }
+  decode(o.sig as string);
   return o;
 }
 
