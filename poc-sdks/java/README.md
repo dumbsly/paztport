@@ -7,7 +7,7 @@ its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and is the
 SDK that carries v3 over HTTP. It replays all of `spec/vectors/v3.json` but the
-recorded local steps, the Java-exported `http-v3.json`, `v1.json`, and all of
+recorded local steps, the Java-exported `http-v3.json`, and all of
 `v2.json` but the result and `tools/call` bindings: those belong to the
 [MCP profile](../spec/README.md#the-mcp-profile), which an HTTP-only SDK need not
 implement.
@@ -29,8 +29,7 @@ has one, the authenticated peer.
 - **Stamps and chains.** `StampV3` signs and refuses a field holding `|` or a lone
   surrogate, or a `ts` outside ±(2^53 − 1). `Chains` reads a chain off the wire
   strictly, as checks 1 and 2 of the live order, and never throws; `ts` is read by
-  value, so `1.0` is 1. A v2 chain parses only as legacy, and a v1 chain, which has
-  no `v`, not at all.
+  value, so `1.0` is 1. A v2 chain parses only as legacy.
 - **Verifying.** `VerifierV3` runs the live order: first its own policy's window
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
@@ -74,8 +73,6 @@ has one, the authenticated peer.
   `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin` and
   `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say what it
   may start with and when to warn that it is ending.
-- **v1**, kept for `v1.json` only: `StampV1`, `PathChainV1`, `VerifierV1` and the
-  rest carry a `V1` suffix.
 
 ## paztport-http
 
@@ -93,7 +90,6 @@ once per request tree. `HttpSessions` fixes the handshake's names (`PATH`,
 writes `{"error":"<code>"}`; core reads the bodies, a request with
 `SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],
 ...)`, as strictly as `HttpV3` reads a header (trailing tokens are refused).
-`HttpVerifyRequestsV1` is the v1 equivalent, kept for `v1.json`.
 
 The receivers decide a request with no framework and keep no per-request state.
 `HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request

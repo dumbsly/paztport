@@ -31,7 +31,7 @@ and `\n` is the single byte `0x0A`.
 **Domain prefixes.** Each kind of signed message opens with its own prefix, so that no signature can be read as
 another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
 `"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
-and stamps `2|` or `3|`. v1 stamps and old-form roots have no prefix, and neither is accepted live.
+and stamps `2|` or `3|`. Old-form roots have no prefix and are not accepted live.
 
 ## Keys and files
 
@@ -144,21 +144,6 @@ Implementations MUST NOT produce v2 stamps. A verifier MAY accept a v2 chain rea
 offline, as legacy ([verification.md](verification.md#the-legacy-rule)). `v2.json` pins the layout in
 `signingBytesV2`.
 
-### v1 (the HTTP mesh format)
-
-```json
-{ "svc": "...", "inst": "...", "rid": "...", "ts": 0, "bind": "...", "prev": "...", "sig": "<b64url>" }
-```
-
-v1 has no `v`, `sess`, `rcv` or `infl`. Its `ts` is the origin's time, carried unchanged. The signed bytes are:
-
-```
-utf8( svc "|" inst "|" rid "|" ts "|" bind "|" prev )
-```
-
-v1 has no delimiter rule, so its fields are not checked for `|`. v1 is kept for `v1.json` only: both SDKs replay
-it, and neither demo sends it. A v1 stamp has no `v`, so a live v3 verifier reads a v1 chain as `CHAIN_MISSING`.
-
 ## Chains
 
 A chain is an array of stamps, **origin first**.
@@ -200,7 +185,7 @@ is `b64url(H(bytes))`, over these bytes:
 
 | Binding | Used for | Bytes |
 |---|---|---|
-| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when the query is non-empty, with nothing decoded, so `/pay?` binds as `/pay`. With no query the bytes are v1's. |
+| HTTP | An HTTP hop's request | `utf8(METHOD) ‖ \n ‖ utf8(PATH) ‖ \n ‖ BODY`, the body as raw bytes. There is no prefix. `PATH` is the request target as sent: the raw path, plus `?` and the raw query when the query is non-empty, with nothing decoded, so `/pay?` binds as `/pay`. With no query the bytes are `METHOD \n PATH \n BODY` alone. |
 | HTTP result | An HTTP response's `resultHash` | `utf8("http-response\n" ‖ status ‖ "\n") ‖ BODY`, with `status` the response's status code in decimal and the body as raw bytes, so a response can't pass under another status. |
 | Prompt | A run's origin stamp | `utf8("prompt\n" ‖ text)` |
 | `tools/call` ([MCP profile](README.md#the-mcp-profile)) | An MCP call's stamp | `utf8("tools/call\n" ‖ tool ‖ "\n" ‖ callId ‖ "\n" ‖ JCS(arguments))`. Absent or `null` arguments hash as `{}`. |
@@ -227,7 +212,7 @@ Rules:
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
   are all covered by the stamp.
 
-`v1.json` pins the HTTP binding in `bindings`. `v3.json` pins the prompt, `tools/call`, result and response
+`v3.json` pins the prompt, `tools/call`, result and response
 bindings in `bindPrompt`, `bindMcpCall`, `bindResult` and `bindResponse`, and a local-tool binding through the
 `local step ok` case. `http-v3.json` pins the HTTP binding with and without a query in `requestBinding`, and the
 HTTP result hash in `resultHash`.

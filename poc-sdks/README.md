@@ -6,9 +6,9 @@ policy, verification, influence and sessions. The demos in
 
 - [java](java/README.md): `paztport-core`, the `paztport-http` and
   `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
-- [typescript](typescript/README.md): `@paztport/core`, the `@paztport/http` and
-  `@paztport/mcp` extensions, and the policy command-line tools.
-- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v1, v2 and
+- [typescript](typescript/README.md): `@paztport/core`, the `@paztport/mcp`
+  extension, and the policy command-line tools.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v2 and
   v3, which both SDKs replay (the Java SDK all of v2 but its MCP bindings), and v3 over HTTP, which only
   the Java SDK speaks.
 - `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
@@ -41,9 +41,7 @@ Over MCP (the TypeScript SDK), the chain, the route proof, the influence and the
 `X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A live verifier accepts v3 only; v2 records are accepted
 only offline, marked legacy.
 
-v1, the first HTTP mesh format, is kept for its conformance vectors only. Its stamps sign
-`svc|inst|rid|ts|bind|prev`, with no receiver ([wire.md](spec/wire.md#v1-the-http-mesh-format)). Binary values
-are base64url without padding, in every version.
+Binary values are base64url without padding.
 
 The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig", "notAfter" }`, where `sig` is the
 policy key's Ed25519 signature over the root, its `rootId` and `notAfter`, the time after which the policy owner no

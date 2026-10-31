@@ -718,7 +718,7 @@ Caveats:
   percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to
   35.19 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks from an earlier
-  measurement**, made when the mesh still ran v1 over plain HTTP, and not repeated
+  measurement**, made on an earlier mesh that ran over plain HTTP, and not repeated
   for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
   Ed25519) are the same. Cold starts pay JIT and class-loading costs that aren't
   reflected here.

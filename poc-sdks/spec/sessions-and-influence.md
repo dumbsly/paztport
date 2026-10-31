@@ -149,8 +149,8 @@ lifetime ([wire.md](wire.md#the-reply-certificate)).
 **Domain separation.** Each kind of signed message starts with its own prefix, so that no signature can be read
 as another kind: session replies `"paztport-session-reply\n"`, reply certificates `"paztport-reply-cert\n"`,
 roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps `2|`
-or `3|`. v1 stamps and old-form roots have no prefix, and neither is accepted live
-([v1 stamps](wire.md#v1-the-http-mesh-format), [old-form roots](wire.md#the-signed-root)).
+or `3|`. Old-form roots have no prefix and are not accepted live
+([old-form roots](wire.md#the-signed-root)).
 
 `v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
 a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key

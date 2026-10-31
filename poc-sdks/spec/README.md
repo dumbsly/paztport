@@ -8,8 +8,8 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 | File | What it holds |
 |---|---|
-| [wire.md](wire.md) | Encodings, keys and files, stamps (v1, v2, v3) and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
-| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the legacy rule, v1, the reason codes, receiving an event, and guidance for a responder. |
+| [wire.md](wire.md) | Encodings, keys and files, stamps (v2, v3) and their signed bytes, chains and receivers, every binding, how a chain is carried, the Merkle tree, routes, the signed root, the signed keyring, the reply certificate, events, proof bundles and who holds what. |
+| [verification.md](verification.md) | The live order of checks, freshness and nonce keys, the receiver and peer checks, attribution, the MCP wrappers, HTTP requests and responses, the two modes and what a refusal carries, offline verification, the legacy rule, the reason codes, receiving an event, and guidance for a responder. |
 | [sessions-and-influence.md](sessions-and-influence.md) | The session handshake, the session id, status and unsafe sessions, the server's decision, influence entries and their commitment, content labels, the owner-aware rule, trusted records, and the boundary attestation between organisations. |
 | [vectors/](vectors) | The conformance vectors. |
 
@@ -17,7 +17,6 @@ The key words MUST, MUST NOT, SHOULD, SHOULD NOT and MAY are to be read as descr
 
 | Version | Status | What it is |
 |---|---|---|
-| v1 | Kept for `v1.json` | The first HTTP mesh format: stamps in the `X-Path-Chain` header and the proof in `X-Path-Proof`. No session, receiver or influence. Both SDKs replay `v1.json`; neither demo sends v1. |
 | v2 | Legacy | Stamps with a session and an influence commitment, but no receiver. Implementations MUST NOT produce it. It is accepted only offline, for records made before v3, and marked legacy. |
 | v3 | Current | v2 plus `rcv`: every stamp names the hop it was handed to. Live verifiers accept only v3. It travels over MCP (the TypeScript SDK) and over HTTP (the Java SDK). |
 
@@ -45,7 +44,6 @@ What v3 changed, deliberately:
 
 | File | Covers | Replayed by |
 |---|---|---|
-| `v1.json` | v1 keys, stamps and their signed bytes, chain headers, HTTP request bindings, Merkle leaves, nodes and proofs, the signed root, and the v1 verify cases. | Java (`paztport-http`) and TypeScript (`@paztport/http`) |
 | `v2.json` | The session id, the prompt, result, `tools/call` and response bindings, the influence commitment, and the v2 signed bytes. | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for all but the result and `tools/call` bindings, which only MCP uses |
 | `v3.json` | the session id, the prompt, result, `tools/call` and response bindings, the influence commitment, the Merkle leaves, nodes and proofs (with the encoded proof headers), v3 signed bytes and signatures, influence with owners and its commitment, the owner-aware rule's truth table, the signed keyring and the signed root in both forms (the new form's signed bytes and signature, at its `notAfter` and 1 ms after, the largest `notAfter`, a renewed root, a tampered `notAfter`, `notAfter` dropped from a new-form signature and added to an old-form one, a `notAfter` that is not an integer, a `notAfter` of 2^53, one written `1798761600000.0` and read by value, a root signature offered as a keyring's and the other way round, and an old-form keyring and root whose signatures verify, which only an offline verifier may rely on, and which are never valid; the root-as-keyring and keyring-as-root cases do not pin the domain prefixes, since their signed bodies differ and would fail without them: each case's literal signed bytes do), reply certificates (the signed bytes and signature, a tampered `notAfter`, one signed by and one naming another policy key, an ignored extra field and the largest `notAfter`), session replies (the entry-key and policy-key forms with new-form roots and keyrings on both sides, the certificate's expiry, forged and malformed replies, a server keyring or root `notAfter` moved, dropped or malformed, the server's root and keyring at their `notAfter`, expired and in the old form, an expired root's window moved in a reply the entry key signed again, and a keyring window in a policy-key reply), session status cases (the server's status for a request, against its own root and keyring and its pins: each side's root and keyring at its `notAfter`, expired and in the old form, and a client window moved), live verify cases (each kind of receiver, a v2 chain live, malformed `rcv` fields, the check order, the peer and attribution, replay, an altered owner, and the pinned policy's window: at it, past it, out of range, and past it before a bad signature or a malformed chain, and a stamp `ts` of −2^63, written exactly), offline cases (a legacy v2 call, with and without a stray `rcv`, a v3 call, a mixed chain, a broken receiver, the recorded time, age, prompt and replay checks), recorded handshakes (attested at a time, at all, the response limit and legacy, in both reply forms, at each kind of limit, in the old forms, and not attested, a reply the server signed that fails the client's shape check included), recorded calls (the session's limits, a failing call past them, and replay across a record set, a repeated handshake included) and recorded local steps ([MCP profile](#the-mcp-profile): allowed, refused and unlisted steps, the client's root and keyring windows, and each re-check). | TypeScript (`@paztport/core`, `@paztport/mcp`), and Java (`paztport-core`) for every section but `recordedLocalStep`, `bindMcpCall` and `bindResult`, which belong to the [MCP profile](#the-mcp-profile) |
 | `http-v3.json` | v3 over HTTP: the HTTP result hash, the request binding with and without a query, and response checks (a good response, one sent to the wrong receiver, altered labels, an altered status and a replay), blinded boundary influence (the salts, the sent entries, and an opening that opens and one with an extra original that does not), and in `rules` the HTTP rules a receiver, a caller, a partner and an egress follow ([below](#the-http-rules-in-http-v3json)). It reuses `v3.json`'s keys and mesh policy by name, and adds a `payment` key derived by `v3.json`'s rule; `rules` adds keys and material of its own, derived the same way. | Java (`paztport-http`) only. The TypeScript SDK does not speak v3 over HTTP and does not replay it. |
@@ -53,7 +51,6 @@ What v3 changed, deliberately:
 
 | Version | Java SDK | TypeScript SDK |
 |---|---|---|
-| v1 | yes, for `v1.json` | yes, for `v1.json` |
 | v2 (offline, legacy) | yes | yes |
 | v3: stamps, the live and offline verifiers, influence and sessions | yes | yes |
 | v3 over MCP ([the MCP profile](#the-mcp-profile)) | no | yes |
@@ -63,12 +60,12 @@ What v3 changed, deliberately:
 
 A new implementation MUST pass `v3.json`, less its `recordedLocalStep`, `bindMcpCall` and `bindResult` sections if it
 does not implement [the MCP profile](#the-mcp-profile). It MUST pass `v2.json` if it reads records made before v3, less its `bindMcpCall` and
-`bindResult` cases if it does not implement the MCP profile, `http-v3.json` if it speaks v3 over HTTP, `events.json`
-if it sends or receives responder events, and `v1.json` if it speaks the v1 HTTP format.
+`bindResult` cases if it does not implement the MCP profile, `http-v3.json` if it speaks v3 over HTTP, and `events.json`
+if it sends or receives responder events.
 
 Known divergences, with no vector: a lone surrogate in a binding's plain strings ([wire.md](wire.md#bindings)).
 The Java SDK's prompt and response bindings refuse one, as the spec requires, and its HTTP request binding
-encodes it as `?`. The TypeScript SDK's bindings (prompt, response, `tools/call`, local tool and HTTP) encode it
+encodes it as `?`. The TypeScript SDK's bindings (prompt, response, `tools/call` and local tool) encode it
 as U+FFFD, so its prompt and response bindings break the rule.
 
 Known divergences in reading an event, with no vector (all to be settled by a later pass over how every JSON number

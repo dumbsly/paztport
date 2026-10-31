@@ -11,7 +11,7 @@ Contents: [Inputs](#inputs) · [The live order](#the-live-order) · [Freshness a
 [Receivers, the peer and attribution](#receivers-the-peer-and-attribution) ·
 [The MCP server and client](#the-mcp-server-and-client) · [HTTP requests and responses](#http-requests-and-responses) ·
 [Modes and refusals](#modes-and-refusals) · [Offline verification](#offline-verification) ·
-[The legacy rule](#the-legacy-rule) · [v1](#v1) · [Reason codes](#reason-codes) ·
+[The legacy rule](#the-legacy-rule) · [Reason codes](#reason-codes) ·
 [Receiving an event](#receiving-an-event) · [Guidance for a responder](#guidance-for-a-responder)
 
 ## Inputs
@@ -98,7 +98,6 @@ can't spend each other's keys:
 | Local step ([MCP profile](README.md#the-mcp-profile)) | `<rid>\|<callId>\|local` |
 | HTTP request (receiver side) | `<rid>\|<last svc>\|req` |
 | HTTP response (caller side) | `<rid>\|<target>\|resp` |
-| v1 HTTP hop (`v1.json` only) | `<rid>\|<last svc>` |
 
 `<rid>` is the origin's `rid` and `<callId>` the call's `paztport/callId` (for a local step, the tool call id).
 `<last svc>` is the request chain's last signer, and `<target>` the service the caller sent the request to.
@@ -441,26 +440,6 @@ Records made before v3 carry v2 stamps, which name no receiver, and session requ
   signature, is marked legacy, so a reader can see that it was checked less strictly. A failure is never marked.
   The agents demo's `verify` writes `"legacy": true` on such items and counts them on its `OK` line
   ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
-
-## v1
-
-v1 is kept for `v1.json` only; no demo sends it. Its verifier, which both SDKs keep to replay the vectors
-(`VerifierV1` in the Java SDK's `paztport-core`, and `verifyV1` in `@paztport/core` with `@paztport/http` for
-the binding), runs:
-
-| # | Check | Fails with |
-|---|---|---|
-| 1 | `X-Path-Chain` is present, decodes and parses as a non-empty array of v1 stamps. | `CHAIN_MISSING` |
-| 2 | The origin's `svc` is an allowed origin. | `BAD_ORIGIN` |
-| 3 | Every signature verifies, and every `prev` links. | `BAD_SIGNATURE`, `BROKEN_LINK` |
-| 4 | Every stamp carries the origin's `rid`; the origin's `ts` is at most the maximum age before `now`. | `RID_MISMATCH`, `EXPIRED` |
-| 5 | The last stamp's `bind` equals the HTTP binding of the request received. | `BINDING_MISMATCH` |
-| 6 | `<rid>\|<last svc>` is new to the nonce cache. | `REPLAY` |
-| 7 | The stamps' `svc` values then the receiver are proven against the root by `X-Path-Proof`. | `PATH_NOT_ALLOWED` |
-
-v1 has no receiver, session, influence or peer. `OK` and `PATH_NOT_ALLOWED` name the last stamp; every other
-rejection names no one. A v1 stamp does not bind its receiver, so a chain forwarded unchanged to another service
-with a matching method and path can reach check 7 and name its innocent last signer.
 
 ## Reason codes
 
