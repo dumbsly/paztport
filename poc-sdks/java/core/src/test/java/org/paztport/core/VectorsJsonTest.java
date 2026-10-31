@@ -5,6 +5,7 @@ package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -14,11 +15,13 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DynamicTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestFactory;
+import org.junit.jupiter.api.function.Executable;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.MalformedJsonException;
 import org.paztport.core.encoding.Text;
@@ -71,8 +74,36 @@ class VectorsJsonTest {
         for (JsonNode c : vectors.get(section)) {
             tests.add(DynamicTest.dynamicTest(section + ": " + c.get("name").textValue(), () -> check.run(c)));
         }
-        assertTrue(!tests.isEmpty(), section + " has its cases");
+        assertFalse(tests.isEmpty(), section + " has its cases");
         return tests.stream();
+    }
+
+    /** A value as plain data that keeps an object's names in the order it holds them, which {@code equals} ignores. */
+    private static Object ordered(JsonValue v) {
+        return switch (v) {
+            case JsonValue.Obj o -> {
+                List<Object> members = new ArrayList<>();
+                for (String name : List.copyOf(o.names())) {
+                    members.add(List.of(name, ordered(o.get(name))));
+                }
+                yield members;
+            }
+            case JsonValue.Arr a -> a.items().stream().map(VectorsJsonTest::ordered).toList();
+            default -> v;
+        };
+    }
+
+    private static void assertSameValue(JsonNode expected, JsonValue read) {
+        JsonValue want = Vectors.value(expected);
+        assertEquals(want, read);
+        assertEquals(ordered(want), ordered(read), "names in source order");
+    }
+
+    /** The step a refused case names, and the step the reader's exception gives. */
+    private static void assertRefused(JsonNode c, Executable read) {
+        assertEquals("REFUSED", c.get("expected").textValue());
+        MalformedJsonException e = assertThrows(MalformedJsonException.class, read);
+        assertEquals(c.get("step").textValue(), e.step().name().toLowerCase(Locale.ROOT));
     }
 
     private interface Case {
@@ -97,12 +128,11 @@ class VectorsJsonTest {
             if (c.get("expected").textValue().equals("OK")) {
                 JsonValue read = JsonReader.token(token);
                 if (c.has("value")) {
-                    assertEquals(Vectors.value(c.get("value")), read);
+                    assertSameValue(c.get("value"), read);
                 }
                 assertArrayEquals(bytes, JsonWriter.wire(read));
             } else {
-                assertEquals("REFUSED", c.get("expected").textValue());
-                assertThrows(MalformedJsonException.class, () -> JsonReader.token(token));
+                assertRefused(c, () -> JsonReader.token(token));
             }
         });
     }
@@ -115,11 +145,10 @@ class VectorsJsonTest {
             if (c.get("expected").textValue().equals("OK")) {
                 JsonValue read = JsonReader.file(bytes);
                 if (c.has("value")) {
-                    assertEquals(Vectors.value(c.get("value")), read);
+                    assertSameValue(c.get("value"), read);
                 }
             } else {
-                assertEquals("REFUSED", c.get("expected").textValue());
-                assertThrows(MalformedJsonException.class, () -> JsonReader.file(bytes));
+                assertRefused(c, () -> JsonReader.file(bytes));
             }
         });
     }

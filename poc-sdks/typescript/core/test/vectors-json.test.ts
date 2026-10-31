@@ -15,7 +15,7 @@ import { vectorsJsonText } from "./vectors-json-export.ts";
 
 type Build = { head: string; repeat: string; times: number; tail: string };
 type Input = { utf8: string } | { hex: string } | { build: Build };
-type ReadCase = { name: string } & Input & { expected: "OK" | "REFUSED"; value?: unknown };
+type ReadCase = { name: string } & Input & { expected: "OK" | "REFUSED"; value?: unknown; step?: string };
 type FileFormatCase = { name: string; kind: string | null; value: unknown; file: string };
 type JcsCase = { name: string } & ({ binary64: string } | { value: unknown }) & { expected: string | null };
 
@@ -28,11 +28,33 @@ function bytesOf(input: Input): Uint8Array {
   return new Uint8Array(Buffer.from(head + repeat.repeat(times) + tail, "utf8"));
 }
 
+/** A value as plain data that keeps an object's own members, a name such as __proto__ among them. */
+function own(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(own);
+  if (typeof value !== "object" || value === null) return value;
+  return {
+    object: Object.getOwnPropertyNames(value)
+      .sort()
+      .map((name) => [name, own(Object.getOwnPropertyDescriptor(value, name)?.value)]),
+  };
+}
+
 /** The double whose IEEE 754 bits are `hex`, most significant first. */
 function binary64(hex: string): number {
   const view = new DataView(new ArrayBuffer(8));
   view.setBigUint64(0, BigInt("0x" + hex));
   return view.getFloat64(0);
+}
+
+/** The reader step that refused, from what `read` throws. */
+function refusal(read: () => unknown): string {
+  try {
+    read();
+  } catch (e) {
+    if (e instanceof MalformedJson) return e.step;
+    throw e;
+  }
+  throw new Error("read without a refusal");
 }
 
 describe("json.json", () => {
@@ -58,11 +80,12 @@ describe("json.json", () => {
       const bytes = bytesOf(c);
       const token = Buffer.from(bytes).toString("base64url");
       if (c.expected === "REFUSED") {
-        expect(() => readToken(token)).toThrow(MalformedJson);
+        expect(c.step).toBeDefined();
+        expect(refusal(() => readToken(token))).toBe(c.step);
         return;
       }
       const value = readToken(token);
-      if ("value" in c) expect(value).toEqual(c.value);
+      if ("value" in c) expect(own(value)).toEqual(own(c.value));
       expect(writeWire(value)).toEqual(bytes);
     });
   });
@@ -71,11 +94,12 @@ describe("json.json", () => {
     it.each(v.file as ReadCase[])("$name", (c) => {
       const bytes = bytesOf(c);
       if (c.expected === "REFUSED") {
-        expect(() => readFile(bytes)).toThrow(MalformedJson);
+        expect(c.step).toBeDefined();
+        expect(refusal(() => readFile(bytes))).toBe(c.step);
         return;
       }
       const value = readFile(bytes);
-      if ("value" in c) expect(value).toEqual(c.value);
+      if ("value" in c) expect(own(value)).toEqual(own(c.value));
     });
   });
 

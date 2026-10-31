@@ -89,8 +89,8 @@ describe("json", () => {
     const refused: [string, unknown][] = [
       ["a lone surrogate", "a\ud800b"],
       ["a lone surrogate as a name", { "\ud800": 1 }],
-      ["the noncharacter U+FFFF", "a￿b"],
-      ["the noncharacter U+10FFFF as a pair", "􏿿"],
+      ["the noncharacter U+FFFF", "a\uffffb"],
+      ["the noncharacter U+10FFFF as a pair", "\u{10ffff}"],
       ["1.5", 1.5],
       ["-1", -1],
       ["-0", -0],

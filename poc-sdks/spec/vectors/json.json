@@ -1,5 +1,5 @@
 {
-  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. Every answer was written by hand from the spec, and the Appendix B and §3.2.3 rows are copied from RFC 8785; none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read; its members are the value's own, a name such as __proto__ among them, and an object's names are in the order the input gives them. step, given for every REFUSED case, is the reader step the spec defines (Reading, steps 1 to 3: size, parse, canonical) at which the input is first refused. It is not an error code: every step answers the same code for an object. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. Every answer was written by hand from the spec; the Appendix B rows and the §3.2.2 sample are copied from RFC 8785, the §3.2.3 text follows the order the RFC states; the §3.2.2 sample's value holds its numbers as binary64 reads them (the RFC's input spellings such as 1E30 give the same doubles); none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
   "limits": {
     "wireBytes": 262144,
     "tokenText": 349526,
@@ -71,6 +71,38 @@
       "hex": "227fe280a822",
       "expected": "OK",
       "value": " "
+    },
+    {
+      "name": "the raw U+FDCF, just below the noncharacters",
+      "hex": "22efb78f22",
+      "expected": "OK",
+      "value": "﷏"
+    },
+    {
+      "name": "the raw U+FDF0, just above the noncharacters",
+      "hex": "22efb7b022",
+      "expected": "OK",
+      "value": "ﷰ"
+    },
+    {
+      "name": "the name __proto__, an ordinary member",
+      "hex": "7b225f5f70726f746f5f5f223a7b2261223a317d7d",
+      "expected": "OK",
+      "value": {
+        "__proto__": {
+          "a": 1
+        }
+      }
+    },
+    {
+      "name": "integer-like names in UTF-16 code unit order, 1 before 10 before 2",
+      "hex": "7b2231223a332c223130223a312c2232223a327d",
+      "expected": "OK",
+      "value": {
+        "1": 3,
+        "10": 1,
+        "2": 2
+      }
     },
     {
       "name": "the integer 0",
@@ -181,257 +213,314 @@
     {
       "name": "a space before the value",
       "utf8": " {}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "a newline after the value",
       "utf8": "{}\n",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "a space inside an object",
       "utf8": "{\"a\": 1}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "members out of order",
       "utf8": "{\"b\":1,\"a\":2}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "names in code point order, U+FB33 before U+1F600",
       "utf8": "{\"דּ\":1,\"😀\":0}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "a repeated name",
       "utf8": "{\"a\":1,\"a\":2}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the escape \\/ for /",
       "utf8": "\"\\/\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "the escape \\u0041 for A",
       "utf8": "\"\\u0041\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "the escape \\u00e9 for U+00E9",
       "utf8": "\"\\u00e9\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "the escape \\u001F, in uppercase hex",
       "utf8": "\"\\u001F\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "the escape \\u0008 in place of \\b",
       "utf8": "\"\\u0008\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "the escaped surrogate pair \\ud83d\\ude00 for U+1F600",
       "utf8": "\"\\ud83d\\ude00\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "canonical"
     },
     {
       "name": "a lone high surrogate escaped as \\ud800",
       "utf8": "\"\\ud800\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a lone low surrogate escaped as \\udc00",
       "utf8": "\"\\udc00\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a lone surrogate escaped as \\ud800, then x",
       "utf8": "\"\\ud800x\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a raw lone surrogate, ed a0 80",
       "hex": "22eda08022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the raw noncharacter U+FDD0",
       "hex": "22efb79022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "the raw noncharacter U+FDEF",
+      "hex": "22efb7af22",
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the raw noncharacter U+FFFE",
       "hex": "22efbfbe22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the raw noncharacter U+1FFFF",
       "hex": "22f09fbfbf22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the raw noncharacter U+10FFFF",
       "hex": "22f48fbfbf22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a byte order mark before {}",
       "hex": "efbbbf7b7d",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "{} in UTF-16LE",
       "hex": "7b007d00",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "{} in UTF-16BE with its byte order mark",
       "hex": "feff007b007d",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "{} in UTF-32BE",
       "hex": "0000007b0000007d",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a lone continuation byte, 80",
       "hex": "228022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form c0 80 of U+0000",
       "hex": "22c08022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form c1 bf of U+007F",
       "hex": "22c1bf22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form e0 80 80 of U+0000",
       "hex": "22e0808022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form e0 9f bf of U+07FF",
       "hex": "22e09fbf22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form f0 80 80 80 of U+0000",
       "hex": "22f080808022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form f0 8f bf bf of U+FFFF",
       "hex": "22f08fbfbf22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "f4 90 80 80, above U+10FFFF",
       "hex": "22f490808022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the byte f5",
       "hex": "22f522",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the byte ff",
       "hex": "22ff22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a sequence cut short, e2 82",
       "hex": "22e28222",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a raw U+0000 in a string",
       "hex": "220022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a raw U+001F in a string",
       "hex": "221f22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -0",
       "utf8": "-0",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 01, with a leading zero",
       "utf8": "01",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 00",
       "utf8": "00",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number +1",
       "utf8": "+1",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1.0",
       "utf8": "1.0",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e3",
       "utf8": "1e3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1E3",
       "utf8": "1E3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e+3",
       "utf8": "1e+3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -1",
       "utf8": "-1",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1.5",
       "utf8": "1.5",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -0.5",
       "utf8": "-0.5",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e-7",
       "utf8": "1e-7",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 9007199254740992, 2^53",
       "utf8": "9007199254740992",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 10000000000000000, 17 digits",
       "utf8": "10000000000000000",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a 400-digit integer",
@@ -441,87 +530,104 @@
         "times": 400,
         "tail": ""
       },
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -9223372036854775808, -2^63",
       "utf8": "-9223372036854775808",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a trailing comma in an array",
       "utf8": "[1,]",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a trailing comma in an object",
       "utf8": "{\"a\":1,}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a string in single quotes",
       "utf8": "['a']",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "an unquoted name",
       "utf8": "{a:1}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a comment",
       "utf8": "[/*c*/1]",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "NaN",
       "utf8": "NaN",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "Infinity",
       "utf8": "Infinity",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "an unterminated array",
       "utf8": "[1",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "an unterminated string",
       "utf8": "\"abc",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "an empty input",
       "utf8": "",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "two values",
       "utf8": "{}{}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the invalid escape \\x",
       "utf8": "\"\\x\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the escape \\u12, with two hex digits",
       "utf8": "\"\\u12\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "tru",
       "utf8": "tru",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "33 nested arrays",
       "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "33 nested objects",
@@ -531,7 +637,8 @@
         "times": 32,
         "tail": "{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
       },
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a string of 262145 bytes, its quotes included",
@@ -541,7 +648,19 @@
         "times": 262143,
         "tail": "\""
       },
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "size"
+    },
+    {
+      "name": "262145 bytes of [",
+      "build": {
+        "head": "",
+        "repeat": "[",
+        "times": 262145,
+        "tail": ""
+      },
+      "expected": "REFUSED",
+      "step": "size"
     }
   ],
   "file": [
@@ -677,137 +796,212 @@
     {
       "name": "a repeated name",
       "utf8": "{\"a\":1,\"a\":2}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a name repeated through an escape, \\u0061 for a",
       "utf8": "{\"a\":1,\"\\u0061\":2}",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a lone surrogate escaped as \\ud800",
       "utf8": "\"\\ud800\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the noncharacter U+FFFF escaped as \\uffff",
       "utf8": "\"\\uffff\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the noncharacter U+FDD0 escaped as \\ufdd0",
       "utf8": "\"\\ufdd0\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the noncharacter U+10FFFF escaped as the pair \\udbff\\udfff",
       "utf8": "\"\\udbff\\udfff\"",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a lone low surrogate escaped as \\udc00",
+      "hex": "225c756463303022",
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a lone surrogate escaped as \\ud800, in a member name",
+      "hex": "7b225c7564383030223a317d",
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a high surrogate escaped as \\ud800, then the escape A",
+      "hex": "225c75643830305c753030343122",
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a repeated name that is not adjacent",
+      "hex": "7b2261223a312c2262223a322c2261223a337d",
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a lone continuation byte, 80",
       "hex": "228022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the overlong form c0 80 of U+0000",
       "hex": "22c08022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "the overlong form e0 80 80 of U+0000",
+      "hex": "22e0808022",
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "the overlong form f0 80 80 80 of U+0000",
+      "hex": "22f080808022",
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a raw lone surrogate, ed a0 80",
       "hex": "22eda08022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "f4 90 80 80, above U+10FFFF",
       "hex": "22f490808022",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a sequence cut short, e2 82",
       "hex": "22e28222",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a raw U+0000 in a string",
+      "hex": "220022",
+      "expected": "REFUSED",
+      "step": "parse"
+    },
+    {
+      "name": "a raw U+001F in a string",
+      "hex": "221f22",
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the raw noncharacter U+FFFE",
       "hex": "22efbfbe22",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a byte order mark before {}",
       "hex": "efbbbf7b7d",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -0",
       "utf8": "-0",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 01, with a leading zero",
       "utf8": "01",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 00",
       "utf8": "00",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number +1",
       "utf8": "+1",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1.0",
       "utf8": "1.0",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e3",
       "utf8": "1e3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1E3",
       "utf8": "1E3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e+3",
       "utf8": "1e+3",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -1",
       "utf8": "-1",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1.5",
       "utf8": "1.5",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -0.5",
       "utf8": "-0.5",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 1e-7",
       "utf8": "1e-7",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 9007199254740992, 2^53",
       "utf8": "9007199254740992",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number 10000000000000000, 17 digits",
       "utf8": "10000000000000000",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "a 400-digit integer",
@@ -817,12 +1011,14 @@
         "times": 400,
         "tail": ""
       },
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "the number -9223372036854775808, -2^63",
       "utf8": "-9223372036854775808",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     },
     {
       "name": "1048577 bytes",
@@ -832,12 +1028,25 @@
         "times": 1048575,
         "tail": "\""
       },
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "size"
+    },
+    {
+      "name": "1048577 bytes of [",
+      "build": {
+        "head": "",
+        "repeat": "[",
+        "times": 1048577,
+        "tail": ""
+      },
+      "expected": "REFUSED",
+      "step": "size"
     },
     {
       "name": "33 nested arrays",
       "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
-      "expected": "REFUSED"
+      "expected": "REFUSED",
+      "step": "parse"
     }
   ],
   "fileFormat": [
@@ -955,6 +1164,16 @@
         "v": 1
       },
       "file": "{\n  \"folders\": [\n    {\n      \"access\": [\n        \"read\"\n      ],\n      \"path\": \".\"\n    },\n    {\n      \"access\": [\n        \"read\",\n        \"write\"\n      ],\n      \"destination\": \"public\",\n      \"label\": \"public\",\n      \"path\": \"website\"\n    },\n    {\n      \"access\": [\n        \"read\",\n        \"write\"\n      ],\n      \"destination\": \"private\",\n      \"path\": \"notes\"\n    }\n  ],\n  \"programs\": [\n    \"cat\",\n    \"ls\"\n  ],\n  \"v\": 1\n}\n"
+    },
+    {
+      "name": "integer-like names, written in JCS order",
+      "kind": null,
+      "value": {
+        "1": 3,
+        "10": 1,
+        "2": 2
+      },
+      "file": "{\n  \"1\": 3,\n  \"10\": 1,\n  \"2\": 2\n}\n"
     },
     {
       "name": "an empty object and an empty array",
