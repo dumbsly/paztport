@@ -3,11 +3,7 @@
 
 import {
   canonicalize,
-  decideLocalCall,
   decode,
-  influenceClasses,
-  localReceiver,
-  localStepBind,
   parseInfluence,
   parseLocalRules,
   parseRecordedStamps,
@@ -16,11 +12,12 @@ import {
   readNotAfter,
   rulesHash,
   rulesRoute,
-  verifyChainOffline,
   verifyKeyring,
+  verifyRecordedLocalStep,
   verifyRoot,
   type InfluenceEntry,
   type LocalRules,
+  type LocalStepClient,
   type LocalVerdict,
   type ReasonCode,
   type Resolved,
@@ -42,27 +39,15 @@ import {
  * use from the file, as it is in session records (where the server's signed reply binds it); verify pins no
  * client key of its own.
  *
- * A local record is checked against the latest client record before it, in this order (the first failure is
- * its result):
- * 1. its fields are well formed, and its chain is an origin and a step (UNREADABLE); there is a verified client
- *    record (NO_CLIENT); the step's binding can be computed (BINDING_MISMATCH);
- * 2. the chain, by verifyChainOffline in the library's order: the origin is svc "session", inst "pi-1"
- *    (BAD_ORIGIN), the step is svc "pi", inst "pi-1", and the keyring's session and pi keys sign them
- *    (BAD_SIGNATURE), the step follows the origin (BROKEN_LINK), both carry the record's rid (RID_MISMATCH) and
- *    an empty `sess` (SESSION_UNKNOWN); the step's time is the record's `now`, and the origin's time is the time
- *    of a run record for the rid (TIME_MISMATCH); the origin binds that run's prompt (PROMPT_MISMATCH); the step
- *    binds localStepBind (the call, its id and the decision: what was resolved, the verdict, routeAllowed and
- *    rulesHash), so none of them can be changed after signing (BINDING_MISMATCH), and commits to the recorded
- *    influence (INFLUENCE_MISMATCH); its (rid, call id) is new in the file (REPLAY); and the route
- *    `session/pi/local:<tool>` is proven against the client root, or not;
- * 3. the step's time (the record's `now`, tied to the pi stamp's signed `ts` above) is no later than the `notAfter` of
- *    the client record's root and keyring, each in the new form; an old-form one sets no limit (POLICY_EXPIRED). The
- *    client signs that time itself: verify relies on it, as on every recorded time, but no edit moves a window;
- * 4. `routeAllowed` is true exactly when the route is proven, and a route that is not has no proof (BAD_PROOF);
- *    `rulesHash` is the client record's rules hash, or null when it has no rules (RULES_MISMATCH);
- * 5. `resolved` and the verdict are what the gate's own rule (decideLocalCall) gives for the recorded
- *    resolution and influence under the signed rules: with the route not listed or no rules nothing is
- *    resolved, and with no rules every call is SCOPE_DENIED (VERDICT_MISMATCH).
+ * A local record is checked against the latest client record before it, the first failure being its result: its
+ * fields are well formed, and its chain is an origin and a step (UNREADABLE); there is a verified client record
+ * (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep (verification.md §Offline
+ * verification, MCP profile), with this demo's signers: the origin is svc "session" and the step svc "pi", both on
+ * inst "pi-1". That check's order is in its own comment: the binding of the call and the decision
+ * (BINDING_MISMATCH), the chain with every offline check (the run's recorded prompt and start times, and the
+ * file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
+ * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on
+ * it, as on every recorded time, but no edit moves a window.
  * A verified step is OK when it was allowed and REFUSED when it was refused: local refusals are signed and
  * checked, unlike the server's. A chain is v3, its stamps naming pi and then `local:<tool>` as their receivers
  * (BINDING_MISMATCH), or one recorded before stamps named a receiver, all v2, which is legacy.
@@ -71,19 +56,10 @@ import {
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
  * the times recorded with it.
  */
-export type LocalResult =
-  | "OK"
-  | "REFUSED"
-  | "UNREADABLE"
-  | ReasonCode
-  | "BAD_CLIENT"
-  | "NO_CLIENT"
-  | "BAD_PROOF"
-  | "RULES_MISMATCH"
-  | "VERDICT_MISMATCH";
+export type LocalResult = "OK" | "REFUSED" | "UNREADABLE" | ReasonCode | "BAD_CLIENT" | "NO_CLIENT";
 
-/** What a verified client record gives the local records that follow it; `notAfter` is the earliest new-form window of its root and keyring, undefined when both are old form. */
-export type Client = { keyring: Record<string, string>; root: Uint8Array; rootId: string; rules: LocalRules | null; rulesHash: string | null; notAfter: number | undefined };
+/** What a verified client record gives the local records that follow it: the client material the library checks a step against. */
+export type Client = LocalStepClient;
 
 /** A client root, policy key, keyring and keyring window that a session record in the file names. */
 export type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown; keyringNotAfter: unknown };
@@ -151,9 +127,14 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     } else if (r.rulesProof !== null) {
       return undefined;
     }
-    const windows = [signedRoot.notAfter, keyringNotAfter].filter((w): w is number => w !== undefined);
-    const notAfter = windows.length === 0 ? undefined : Math.min(...windows);
-    return { keyring: keyring as Record<string, string>, root, rootId: signedRoot.rootId, rules, rulesHash: hash, notAfter };
+    return {
+      keyring: keyring as Record<string, string>,
+      root,
+      rootId: signedRoot.rootId,
+      ...(signedRoot.notAfter !== undefined ? { rootNotAfter: signedRoot.notAfter } : {}),
+      ...(keyringNotAfter !== undefined ? { keyringNotAfter } : {}),
+      rules,
+    };
   } catch {
     return undefined;
   }
@@ -174,7 +155,7 @@ function isResolved(v: unknown): v is Resolved {
 /**
  * Checks one local record (see the module comment). `seen` is the file's set of spent nonce keys, shared with
  * its calls and updated here; `runOf` gives a rid's run, or undefined when it has none or its prompt is in dispute.
- * `legacy` is true when the record's chain parses as a legacy v2 one, and false when it is v3 or does not parse.
+ * `legacy` is true when the step verified from a legacy v2 chain.
  */
 export function verifyLocal(
   r: Rec,
@@ -182,79 +163,35 @@ export function verifyLocal(
   runOf: (rid: string) => RunInfo | undefined,
   seen: Set<string>,
 ): { result: LocalResult; legacy: boolean } {
-  let legacy = false;
-  try {
-    legacy = parseRecordedStamps(r.chain).legacy;
-  } catch {
-    // a chain that does not parse is not legacy, and checkLocal finds it UNREADABLE
-  }
-  return { result: checkLocal(r, client, runOf, seen), legacy };
-}
-
-function checkLocal(r: Rec, client: Client | undefined, runOf: (rid: string) => RunInfo | undefined, seen: Set<string>): LocalResult {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
-    return "UNREADABLE";
+    return { result: "UNREADABLE", legacy: false };
   }
   if (!isString(r.verdict) || !VERDICTS.includes(r.verdict) || !(r.proof === null || isObject(r.proof))) {
-    return "UNREADABLE";
+    return { result: "UNREADABLE", legacy: false };
   }
   if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
-    return "UNREADABLE";
+    return { result: "UNREADABLE", legacy: false };
   }
   let influence: InfluenceEntry[];
   try {
     influence = parseInfluence(r.influence);
     if (parseRecordedStamps(r.chain).stamps.length !== 2) {
-      return "UNREADABLE";
+      return { result: "UNREADABLE", legacy: false };
     }
   } catch {
-    return "UNREADABLE";
+    return { result: "UNREADABLE", legacy: false };
   }
   if (client === undefined) {
-    return "NO_CLIENT";
+    return { result: "NO_CLIENT", legacy: false };
   }
-  const verdict = r.verdict as LocalVerdict;
-  let bind: string;
-  try {
-    bind = localStepBind({ toolName: r.tool, toolCallId: r.callId, input: r.input, resolved: r.resolved, verdict, listed: r.routeAllowed, rulesHash: r.rulesHash });
-  } catch {
-    return "BINDING_MISMATCH";
-  }
+  const step = {
+    tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, resolved: r.resolved, verdict: r.verdict as LocalVerdict,
+    routeAllowed: r.routeAllowed, rulesHash: r.rulesHash, chain: r.chain, proof: r.proof, influence,
+  };
   const run = runOf(r.rid);
-  const v = verifyChainOffline(
-    {
-      stamps: r.chain,
-      expectedBind: bind,
-      influence,
-      proof: r.proof,
-      receiver: localReceiver(r.tool),
-      receiverInRoute: true,
-      rid: r.rid,
-      recordedTs: { last: r.now, ...(run !== undefined ? { run: run.ts } : {}) },
-      ...(run !== undefined ? { prompt: run.prompt } : {}),
-    },
-    { keyring: client.keyring, root: client.root, rootId: client.rootId, allowedOrigins: [ORIGIN_SVC], sess: "", seen, nonceKey: `${r.rid}|${r.callId}|local`, signers: SIGNERS },
-  );
-  // an unproven route is how a refusal for an unlisted tool verifies; anything else is the record's failure
-  if (v.reason !== "OK" && v.reason !== "PATH_NOT_ALLOWED") {
-    return v.reason;
+  const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });
+  if (v.reason !== "OK") {
+    return { result: v.reason, legacy: false };
   }
-  // judged at the step's own signed time, now that the chain check has tied the record's `now` to it
-  if (client.notAfter !== undefined && !(r.now <= client.notAfter)) {
-    return "POLICY_EXPIRED";
-  }
-  const proven = v.reason === "OK";
-  if (proven !== r.routeAllowed || (!proven && r.proof !== null)) {
-    return "BAD_PROOF";
-  }
-  if (r.rulesHash !== client.rulesHash) {
-    return "RULES_MISMATCH";
-  }
-  // the gate's own rule, applied to what it recorded: with the route not listed or no rules it resolves nothing
-  const resolved = r.resolved;
-  const expected = decideLocalCall({ routeAllowed: r.routeAllowed, rules: client.rules, classes: influenceClasses(influence), resolve: () => resolved });
-  if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== verdict) {
-    return "VERDICT_MISMATCH";
-  }
-  return verdict === "OK" ? "OK" : "REFUSED";
+  return { result: v.verdict === "OK" ? "OK" : "REFUSED", legacy: v.legacy };
 }

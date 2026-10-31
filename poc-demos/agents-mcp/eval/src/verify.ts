@@ -4,16 +4,15 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import {
+  callInSession,
   decode,
   encode,
-  isAttestedSession,
-  isLegacySessionRequest,
-  isNotAfter,
-  isReplyCert,
-  NonceCache,
+  newRecordSet,
+  recordedSession,
   sha256,
   utf8,
   type ReasonCode,
+  type RecordedSession,
   type SessionReply,
   type SessionRequest,
 } from "@paztport/core";
@@ -24,21 +23,27 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
  * of ours: the pinned server key is in the file, and everything else is checked against it.
  *
- * Every signature, link, binding, proof, influence, replay and session check is the library's: calls and local
- * steps are recorded chains (verifyRecordedCall, verifyChainOffline), responses are checked as the client checked
- * them (recheckMcpResponse at the recorded time, ending at the call's caller), and sessions with
- * isAttestedSession, judged again at each call's recorded time. What is here is reading the evidence format,
- * matching records to each other, and the report.
- * Of the library's codes, two are given only offline:
+ * Every signature, link, binding, proof, influence, replay, session and local-step check is the library's: calls
+ * are recorded chains (verifyRecordedCall), responses are checked as the client checked them (recheckMcpResponse
+ * at the recorded time, ending at the call's caller), sessions are recorded handshakes (recordedSession), judged
+ * again at each call's recorded time (callInSession), and local steps are the library's recorded local steps
+ * (verifyRecordedLocalStep, through verify-local.ts). What is here is reading the evidence format, matching
+ * records to each other, the client record, and the report.
+ * Of the library's codes, these are given only offline:
  * - TIME_MISMATCH: a call or local step whose stamp time is not the record's `now`, or a local step whose origin
  *   time is not its run's.
  * - PROMPT_MISMATCH: a call or local step whose origin does not bind its run's recorded prompt (or its run has no
  *   record, or two that disagree); also a second run record for a rid with another prompt.
+ * - OUTSIDE_SESSION: a call that verifies, in a verified session, but recorded after its session's reply
+ *   certificate, or a root or keyring of its handshake in the new form (either side's), expired.
+ * - PROOF_MISMATCH: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
+ *   root, or whose signed `routeAllowed` does not match whether it has a proof.
+ * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
+ * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
- * Results beyond the library's reason codes:
+ * Results that are this verifier's own, about the evidence file rather than the protocol:
  * - BAD_SESSION: the session record does not verify against its pin, or was not attested.
- * - NO_SESSION: a call or response whose server has no verified session before it, or a call recorded after its
- *   session's reply certificate, or a root or keyring of its handshake in the new form (either side's), expired.
+ * - NO_SESSION: a call or response whose server has no verified session before it.
  * - UNREADABLE: a line, record or file that cannot be read.
  * - NO_CALL: a response with no verified call before it (same server, rid and call id).
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
@@ -46,27 +51,22 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  *   attestation by design, so verify cannot check it: it checks only that the response has the
  *   server's refusal shape (isError, and a `_meta` holding only the verdict) and answers a verified
  *   call. It is reported, not counted as a failure. A refusal-looking response that carries an
- *   attestation, or any other `_meta`, is verified as an ordinary response.
+ *   attestation, or any other `_meta`, is verified as an ordinary response. A local step that verified but was
+ *   refused is REFUSED too.
  * - NO_RESPONSE: a call with no response record (for example a run that was stopped). Reported, not
  *   counted as a failure.
  * - UNBOUND: a run record that no verified call or local step refers to, so its prompt is not tied to
  *   anything in this file. Reported, not counted as a failure.
- * - BAD_CLIENT: a client record that does not verify (see below).
+ * - BAD_CLIENT: a client record that does not verify (see verify-local.ts).
  * - NO_CLIENT: a local record with no verified client record before it.
- * - BAD_PROOF: a local record whose route proof does not prove `session/pi/local:<tool>` against the client
- *   root, or whose signed `routeAllowed` does not match whether it has a proof.
- * - RULES_MISMATCH: a local record whose signed rules hash is not the client record's.
- * - VERDICT_MISMATCH: a local record whose verdict does not follow from the signed rules applied to what it records.
  *
  * Local steps: `client` and `local` records are checked by verify-local.ts, whose comment lists
  * the checks. A verified local step is OK when it was allowed and REFUSED when it was refused; local
  * refusals are signed and checked, unlike the server's. Verify does not look at the disk.
  *
- * Replay is checked over the whole file, not over a 15 second window: a live nonce cache forgets keys older
- * than its TTL, which suits a live server but would let a copy of a call pass once any later record is more
- * than 15 seconds on. Offline there is nothing to forget, so calls and local steps share one set of spent
- * nonce keys for the whole file, and responses one nonce cache that never forgets; a repeated session record
- * resets neither.
+ * Replay is checked over the whole file, not over a 15 second window: the file is one record set (newRecordSet),
+ * whose calls and local steps share one set of spent nonce keys, and whose responses share one nonce cache that
+ * never forgets; a repeated session record resets neither.
  *
  * Calls are checked with serverId = the record's server id. The mock server checks calls with the
  * serverId "github", which is the record's server id in every shipped configuration. Calls have no freshness
@@ -127,13 +127,9 @@ const isString = (v: unknown): v is string => typeof v === "string";
 /** The mock server's entry service, from this verifier's own configuration: its responses start there, and its reply certificate names it. */
 const SERVER_ENTRY = "mcp-entry";
 
-/**
- * What a verified session gives the checks that follow it; `attestedAt` judges it at a call's recorded time, and
- * `serverNotAfter` limits the responses checked against the server's material.
- */
+/** What a verified session gives the checks that follow it: the recorded handshake as the library reads it, and the material its records are checked against. */
 type Session = {
-  attestedAt: (at: number) => boolean;
-  serverNotAfter: number;
+  recorded: RecordedSession;
   clientKeyring: Record<string, string>;
   clientRoot: Uint8Array;
   clientRootId: string;
@@ -148,30 +144,6 @@ export function pinFingerprint(pin: string): string {
   return encode(sha256(utf8(pin))).slice(0, 16);
 }
 
-/** `o`'s own `field` when it is a valid notAfter (a new-form window), else undefined: the old form sets no limit offline. */
-function ownWindow(o: unknown, field: string): number | undefined {
-  if (!isObject(o) || !Object.hasOwn(o, field)) return undefined;
-  const n = o[field];
-  return isNotAfter(n) ? n : undefined;
-}
-
-/** The earliest of `windows`, or `none` when no item has one. */
-function earliest(windows: (number | undefined)[], none: number): number {
-  const set = windows.filter((w): w is number => w !== undefined);
-  return set.length === 0 ? none : Math.min(...set);
-}
-
-/**
- * A recorded response's policyNotAfter: as the client's live check, the server root's window and, in the entry-key form
- * (the only one whose keyring the policy key signs), the keyring's. Old-form items set no limit, so all-old-form
- * material gives 2^53 − 1. The windows are read here before the session's signatures are checked, but only a session
- * that verified (each window under its signature) reaches a response.
- */
-function serverWindow(reply: SessionReply): number {
-  const ring = Object.hasOwn(reply, "serverKeyringSig") ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
-  return earliest([ownWindow(reply.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER);
-}
-
 function verifySession(r: Rec): Session | undefined {
   try {
     const request = r.request as SessionRequest;
@@ -179,28 +151,14 @@ function verifySession(r: Rec): Session | undefined {
     if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
       return undefined;
     }
-    // The record carries no signed time, so the session itself is judged at the latest time it can be attested: the
-    // earliest of its certificate's window and those of its new-form roots and keyrings, both sides (old-form items
-    // set none; with none at all the time is ignored). Each is an upper bound, so a session attested at none of them
-    // is attested at no time. Each call is then judged again at its own recorded time.
-    const pin = r.pin;
-    const attestedAt = (at: number) => isAttestedSession(request, reply, pin, SERVER_ENTRY, at);
-    const latest = earliest(
-      [
-        isReplyCert(reply.serverReplyCert) ? reply.serverReplyCert.notAfter : undefined,
-        ownWindow(request.clientRoot, "notAfter"),
-        ownWindow(request, "clientKeyringNotAfter"),
-        ownWindow(reply.serverRoot, "notAfter"),
-        ownWindow(reply, "serverKeyringNotAfter"),
-      ],
-      0,
-    );
-    if (!attestedAt(latest)) {
+    // The record carries no signed time, so the library judges the session itself at the earliest of its limits, and
+    // each call again at its own recorded time.
+    const recorded = recordedSession({ request, reply, pin: r.pin, serverEntry: SERVER_ENTRY });
+    if (!recorded.attested) {
       return undefined;
     }
     return {
-      attestedAt,
-      serverNotAfter: serverWindow(reply),
+      recorded,
       clientKeyring: request.clientKeyring,
       clientRoot: decode(request.clientRoot!.root),
       clientRootId: request.clientRoot!.rootId,
@@ -279,9 +237,8 @@ function verifyFile(path: string, label: string): VerifyReport {
 
   /** `caller` is the verified call's last signer, the client its response must end at; "" when it did not verify. */
   type CallEntry = { line: number; callId: string; ok: boolean; caller: string; session: Session; responded: boolean };
-  // Spent nonce keys for the whole file: a repeated session record must not reset replay protection.
-  const spent = new Set<string>(); // calls and local steps
-  const nonces = new NonceCache(Number.POSITIVE_INFINITY); // responses
+  // The whole file is one record set: a repeated session record must not reset replay protection.
+  const records = newRecordSet();
   const sessions = new Map<string, Session | undefined>(); // the latest session record per server id
   const pins = new Set<string>();
   const calls = new Map<string, CallEntry>();
@@ -318,12 +275,12 @@ function verifyFile(path: string, label: string): VerifyReport {
         pins.add(pinFingerprint(rec.pin as string));
       }
       const sItem = add(s !== undefined ? "OK" : "BAD_SESSION");
-      if (s !== undefined && isLegacySessionRequest(rec.request as SessionRequest)) sItem.legacy = true;
+      if (s?.recorded.legacy === true) sItem.legacy = true;
     } else if (type === "client") {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const { result, legacy } = verifyLocal(rec, client, runOf, spent);
+      const { result, legacy } = verifyLocal(rec, client, runOf, records.spent);
       const lItem = add(result);
       if (legacy && NOT_FAILURES.includes(result)) lItem.legacy = true;
       if (result === "OK" || result === "REFUSED") {
@@ -341,11 +298,11 @@ function verifyFile(path: string, label: string): VerifyReport {
         const v = verifyRecordedCall(
           params,
           { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
-          { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: spent },
+          { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: records.spent },
         );
         // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
-        // TIME_MISMATCH): a call recorded after its session's certificate expired is not in an attested session.
-        const result = v.result.reason === "OK" && !session.attestedAt(rec.now) ? "NO_SESSION" : v.result.reason;
+        // TIME_MISMATCH): a call recorded past one of its session's limits is OUTSIDE_SESSION. The session is attested.
+        const result = callInSession(session.recorded, v.result.reason, rec.now)!;
         const cItem = add(result);
         if (v.legacy && NOT_FAILURES.includes(result)) cItem.legacy = true;
         // the first record of a call is the one its response answers
@@ -391,9 +348,9 @@ function verifyFile(path: string, label: string): VerifyReport {
           rootId: call.session.serverRootId,
           allowedOrigins: [SERVER_ENTRY],
           sess: call.session.sess,
-          nonces,
+          nonces: records.responseNonces,
           now: rec.now,
-          policyNotAfter: call.session.serverNotAfter,
+          policyNotAfter: call.session.recorded.responseNotAfter,
         });
         add(v.result.reason, v.legacy);
       }

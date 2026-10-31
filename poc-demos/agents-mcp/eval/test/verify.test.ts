@@ -347,7 +347,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(calls).toEqual([
       ["toolu_a", "OK"],
       ["toolu_on_time", "OK"],
-      ["toolu_late", "NO_SESSION"],
+      ["toolu_late", "OUTSIDE_SESSION"],
       ["toolu_b", "OK"],
       ["toolu_c", "OK"],
       ["toolu_d", "OK"],
@@ -752,7 +752,7 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
     }));
     return { session: results(r.items, "session"), calls: r.items.filter((x) => x.type === "call").map((x) => [x.callId!, x.result]) };
   }
-  const AROUND = [["toolu_a", "OK"], ["toolu_on_time", "OK"], ["toolu_late", "NO_SESSION"], ["toolu_b", "OK"], ["toolu_c", "OK"], ["toolu_d", "OK"]];
+  const AROUND = [["toolu_a", "OK"], ["toolu_on_time", "OK"], ["toolu_late", "OUTSIDE_SESSION"], ["toolu_b", "OK"], ["toolu_c", "OK"], ["toolu_d", "OK"]];
 
   it("callAfterClientKeyringNotAfterNotAttested", async () => {
     const t = Date.now() + 600_000;
@@ -1034,16 +1034,16 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("proofsAreCheckedAgainstTheClientRoot", () => {
     // an allowed call whose proof is removed no longer matches its signed routeAllowed
     const dropped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = null; }));
-    expect(localResult(dropped, "l_read")).toBe("BAD_PROOF");
+    expect(localResult(dropped, "l_read")).toBe("PROOF_MISMATCH");
     // a signed "route not listed" that carries a proof
     const listed = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.routeAllowed = false; resign(x); }));
-    expect(localResult(listed, "l_read")).toBe("BAD_PROOF");
+    expect(localResult(listed, "l_read")).toBe("PROOF_MISMATCH");
     // another route's proof does not prove this one
     const swapped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = localOf(rs, "l_note").proof; }));
-    expect(localResult(swapped, "l_read")).toBe("BAD_PROOF");
+    expect(localResult(swapped, "l_read")).toBe("PROOF_MISMATCH");
     // a refusal for an unlisted route can't borrow a proof either
     const borrowed = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_route").proof = localOf(rs, "l_read").proof; }));
-    expect(localResult(borrowed, "l_route")).toBe("BAD_PROOF");
+    expect(localResult(borrowed, "l_route")).toBe("PROOF_MISMATCH");
   });
 
   it("stampTimeAndRunMustMatch", () => {
