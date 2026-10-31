@@ -340,7 +340,7 @@ class VectorsV3Test {
                         Crypto.decodePublicKey(Base64Url.decode(e.getValue().asText()))));
                 OfflineConfig cfg = new OfflineConfig(Keyring.of(ring),
                         Base64Url.decode(clientRoot.get("root").asText()), clientRoot.get("rootId").asText(), origins,
-                        c.get("handshakes").get(index).get("reply").get("sess").asText(), records.spent(), null,
+                        sessions.get(index).sess(), records.spent(), null,
                         c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
                 OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
                 ReasonCode reason = RecordSet.callInSession(sessions.get(index), result.reason(),

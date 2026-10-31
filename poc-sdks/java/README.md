@@ -64,7 +64,8 @@ has one, the authenticated peer.
   it has no reader: `Sessions.checkReply` takes its text or bytes, and
   `RecordedSession.of` its text. The verifiers take the stamps, influence and proof
   as the JSON text received and read it themselves, so text that is not JSON is a
-  typed rejection at the check that reads it. `Jcs` canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
+  typed rejection at the check that reads it. `Jcs` canonicalises JSON text. The
+  `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks before the policy owner signs), `Routes`,

@@ -34,6 +34,7 @@ public final class RecordedSession {
     private final SessionRequest request;
     private final String pin;
     private final String serverEntry;
+    private final String sess;
     private final boolean attested;
     private final long responseNotAfter;
     private final boolean legacy;
@@ -44,6 +45,8 @@ public final class RecordedSession {
         this.pin = pin;
         this.serverEntry = serverEntry;
         JsonNode tree = readOrNull(() -> Json.tree(replyJson));
+        JsonNode id = tree == null ? null : tree.get("sess");
+        this.sess = id != null && id.isTextual() ? id.textValue() : null;
         SignedRoot clientRoot = request == null ? null : request.clientRoot();
         Long serverRoot = window(tree == null ? null : tree.get("serverRoot"), "notAfter");
         Long serverKeyring = window(tree, "serverKeyringNotAfter");
@@ -69,6 +72,15 @@ public final class RecordedSession {
      */
     public boolean attestedAt(long t) {
         return Sessions.attestedOffline(reply, request, pin, serverEntry, t);
+    }
+
+    /**
+     * The session id the reply names, which a call recorded in the session is checked against
+     * ({@link OfflineConfig#sess}), so it is the id of the reply this session judged; null when the reply holds no
+     * text there. A reader relies on it only for a session that is {@link #attested}.
+     */
+    public String sess() {
+        return sess;
     }
 
     /** Attested at all: judged at the earliest of its limits, since each is an upper bound. */

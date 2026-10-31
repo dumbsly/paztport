@@ -5,6 +5,7 @@ package org.paztport.core.offline;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.paztport.core.offline.Handshake.ENTRY;
 import static org.paztport.core.offline.Handshake.FAR;
@@ -226,6 +227,19 @@ class RecordedSessionTest {
                 ENTRY).attested());
         ObjectNode ringDropped = g.request(r -> r.remove("clientKeyringNotAfter"));
         assertFalse(Handshake.recorded(ringDropped, g.reply, g.pin, ENTRY).attested());
+    }
+
+    // The session id calls are checked against is the one in the reply this session judged.
+    @Test
+    void theSessionIdIsTheJudgedReplys() {
+        Handshake h = Handshake.attested();
+        assertEquals(h.reply.get("sess").textValue(), h.recorded().sess());
+        // read whether or not the session is attested; the reader relies on it only when it is
+        Handshake unsafe = Handshake.with(o -> o.status = "unsafe");
+        assertEquals(unsafe.sess(), unsafe.recorded().sess());
+        assertNull(Handshake.recorded(h.request, h.resigned(r -> r.put("sess", 7)), h.pin, ENTRY).sess());
+        assertNull(Handshake.recorded(h.request, h.resigned(r -> r.remove("sess")), h.pin, ENTRY).sess());
+        assertNull(RecordedSession.of(h.request.toString(), "{", h.pin, ENTRY).sess());
     }
 
     @Test
