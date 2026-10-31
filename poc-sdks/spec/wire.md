@@ -292,11 +292,10 @@ Rules:
 - `tool`, `callId`, `toolCallId` and `toolName` MUST NOT contain `\n`, so the parts can't run into each other.
   A verifier that cannot compute the binding for a call MUST reject it (`BINDING_MISMATCH`).
 - A string with a lone surrogate has no UTF-8 form. A part hashed as JCS fails on one ([Encodings](#encodings)).
-  The prompt and response bindings MUST refuse one in their other strings (the text, `resultHash` and
-  `toolCallId`), never compute a binding over it. The other bindings' plain strings (the HTTP method and path,
-  the `tools/call` tool and call id, the local tool's name) have no such rule yet, and the SDKs replace a lone
-  surrogate there. The TypeScript SDK also replaces it in the prompt and response bindings, against the rule.
-  See [Conformance](README.md#conformance).
+  Every binding MUST refuse one in every string it hashes, such as the prompt text, `resultHash`, the HTTP method
+  and path, the `tools/call` tool and call id, and the local tool's name, and never compute a binding over it. A
+  verifier that cannot compute a binding answers as the rule above says. A binding over hashed content binds the
+  value read, not its text ([Hashed content](#hashed-content)).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
   `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
 - In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it
@@ -308,7 +307,8 @@ Rules:
 
 `v3.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
 and `bindResponse`, and a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
-binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`.
+binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`. `json.json` pins the
+refusals in `bindings`: each binding, given a lone surrogate in one string it hashes.
 
 ## Carrying a chain
 

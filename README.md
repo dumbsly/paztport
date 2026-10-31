@@ -421,6 +421,11 @@ What any design of this kind meets, and what this one has not yet tackled.
   request, so a partner can count and cluster requests by route. It sees one
   route, `<egress>/<partner entry>`, never the internal one. Hiding a request's
   own route from its verifier is not what the proof is for.
+- **A binding binds the value read, not its text.** A tool's arguments and
+  result are hashed as RFC 8785 JCS, which reads every number as a 64-bit float.
+  So `9007199254740993` and `9007199254740992` share one binding, though a tool
+  that reads integers exactly sees two (see
+  [Hashed content](poc-sdks/spec/wire.md#hashed-content)).
 - **What a partner must learn.** To apply the owner-aware rule, a partner must
   learn each influence entry's class and owner, and match those against the
   destination's owner, which it takes from its own records. Those owners are
