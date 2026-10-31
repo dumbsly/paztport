@@ -42,7 +42,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
   stdio the live order ends at check 11, and the peer check is core's (`verifyChainV3`).
 - **The policy's window.** A live config requires `policyNotAfter`, the earliest `notAfter` of the keyring and
-  root it pins (`earliestNotAfter`); past it, or with none (old-form material), every chain is `POLICY_EXPIRED`,
+  root it pins (`earliestNotAfter`); past it every chain is `POLICY_EXPIRED`,
   before the live order's checks. Every live verifier here is per session: the server's call check takes the client
   root's and `clientKeyringNotAfter`, and the client's response check the server root's and, in the entry-key
   form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
@@ -52,11 +52,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   session (`InvalidParams`, JSON-RPC `-32602`). One whose signature is wrong is unsafe live and not attested
   offline.
 - **Handshakes judge the windows, live.** `sessionStatus` takes the server's own keyring window and `now`, and
-  opens a session unsafe when either side's root or keyring is in the old form or past its `notAfter`, so a server
-  whose own material has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check)
-  refuses the server's root, and in the entry-key form its keyring, when old form or expired, as `BAD_SIGNATURE`.
-  `isAttestedSession` checks a recorded handshake offline at the record's time: an old-form root or keyring is
-  accepted and sets no limit, and a new-form one, on either side, counts only up to its `notAfter`.
+  opens a session unsafe when either side's root or keyring is past its `notAfter`, so a server whose own material
+  has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check) refuses the server's
+  root, and in the entry-key form its keyring, when expired, as `BAD_SIGNATURE`. `isAttestedSession` checks a
+  recorded handshake offline at the record's time: each root and keyring, on either side, counts only up to its
+  `notAfter`. A root or keyring without a `notAfter` is malformed: `parseSignedRoot` and `parseSessionRequest`
+  refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
 - **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
   (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with.
   `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
@@ -108,7 +109,7 @@ constructor's `warn` argument, `console.error` by default.
 
 `@paztport/policy-tool`: two command-line tools. `paztport-keygen` writes a
 keypair per service, a policy keypair and a keyring signed by the policy key, valid for `--policy-days` days
-(default 7). `paztport-policy` signs roots and re-signs the keyring, both in the new form and valid for
+(default 7). `paztport-policy` signs roots and re-signs the keyring, both valid for
 `--policy-days` days (default 7), in one of two modes:
 
 - **Rebuild**, `--paths <yaml> --policy-key <file> --keyring <keyring.json> --out <dir> [--depth 8]`: a new tree
@@ -118,10 +119,10 @@ keypair per service, a policy keypair and a keyring signed by the policy key, va
   the keyring signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof bundles
   (and any `rules.json`) stay valid and are not touched, and holders can pick up the renewed files one at a time.
   The new `notAfter` is the run's time plus `--policy-days`, so a renewal can shorten a longer existing window.
-  It takes no `--paths` or `--depth`. Renewal is the routine operation, run well before `notAfter`; old-form
-  and expired files are renewed into the new form all the same.
+  It takes no `--paths` or `--depth`. Renewal is the routine operation, run well before `notAfter`; expired
+  files are renewed all the same.
 
-Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
+Either mode first checks that the keyring has a `notAfter` and verifies under the policy key it names, expired or
 not, and that that key is the `--policy-key`; renewing also checks the root verifies under it. Any failure is
 refused, exit 2, with nothing written, in a message that leads with the file at fault; the checks are core's
 `renewKeyring`, `renewRoot` and `issueReplyCert`. A rebuild refuses a route node that is empty, `.` or `..`, or

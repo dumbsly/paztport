@@ -223,7 +223,7 @@ Most results are the protocol's own: the Paztport SDK gives them, as [the spec's
 | `POLICY_EXPIRED` | response, local | A response checked after the server's root or keyring expired, or a local step after the client's. |
 | `TIME_MISMATCH` | call, local | The last stamp's time is not the record's `now`, or a local step's origin time is not its run's. |
 | `PROMPT_MISMATCH` | call, local, run | The origin does not bind the run's recorded prompt (or the run has no record, or two that disagree); a second run record for a rid with another prompt. |
-| `OUTSIDE_SESSION` | call | A call that verifies, in a verified session, but recorded after one of the session's limits: its reply certificate's `notAfter`, or a new-form root's or keyring's, either side's. |
+| `OUTSIDE_SESSION` | call | A call that verifies, in a verified session, but recorded after one of the session's limits: its reply certificate's `notAfter`, or a root's or keyring's, either side's. |
 | `PROOF_MISMATCH` | local | The recorded route verdict or proof is not what the step's chain proves. |
 | `RULES_MISMATCH` | local | The rules hash the step signed is not the client record's. |
 | `VERDICT_MISMATCH` | local | The decision the step signed is not what the signed rules give for what it recorded. |
@@ -255,7 +255,7 @@ The rest are this tool's own, about the evidence file rather than the protocol:
 | `session` | `server`, `request`, `reply`, `pin`, `status`, `reason` (optional) | A handshake with an MCP server: the session request and the server's reply as sent and received, the server policy key the client pinned (or null), and what the client concluded (`attested` or `unsafe`, with a `reason` when unsafe). |
 | `call` | `server`, `tool`, `callId`, `rid`, `now`, `params` | A `tools/call` as sent: `params` holds the name, arguments and `_meta` with the chain, proof and influence; `now` is when the client stamped it, its last stamp's `ts`. |
 | `response` | `server`, `tool`, `callId`, `rid`, `now`, `result` | The server's result for a call, `_meta` and attestation included; `now` is when the client checked it. |
-| `client` | `keyring`, `keyringSig`, `keyringNotAfter` (optional), `policyPublicKey`, `signedRoot`, `rules`, `rulesProof` | The client's own material as the session loaded it, written once per session before any local record: its keyring and the policy key's signature over it (over `keyringNotAfter` too when the keyring is in the new form), its signed root whole, its local rules (or null) and the proof for `session/pi/rules:<hash>` (null with no rules). An older record has no `keyringSig`. |
+| `client` | `keyring`, `keyringSig`, `keyringNotAfter`, `policyPublicKey`, `signedRoot`, `rules`, `rulesProof` | The client's own material as the session loaded it, written once per session before any local record: its keyring and the policy key's signature over it and `keyringNotAfter`, its signed root whole, its local rules (or null) and the proof for `session/pi/rules:<hash>` (null with no rules). An older record has no `keyringSig`. |
 | `local` | `tool`, `callId`, `rid`, `now`, `input`, `resolved`, `routeAllowed`, `rulesHash`, `chain`, `proof`, `influence`, `verdict` | One gated built-in tool call: what the gate saw and decided, signed as two stamps (the run's origin, then pi's step naming `local:<tool>`), the step bound to the input and the decision. `proof` is the route's proof, null when the route is not listed; `rulesHash` is the hash of the session's rules, null with none. |
 
 A record never holds a private key.

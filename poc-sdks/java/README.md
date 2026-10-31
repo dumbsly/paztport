@@ -33,7 +33,7 @@ has one, the authenticated peer.
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
-  either fails, is in the old form or has expired. `OfflineVerifier` re-checks a
+  either fails or has expired. `OfflineVerifier` re-checks a
   recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
   reply text, the pin and the configured entry: attested at a time, at all (at the
@@ -47,11 +47,11 @@ has one, the authenticated peer.
   bindings, which refuse a lone surrogate), `Influence`, `InfluenceRule` (the one
   owner-aware rule) and `ContentLabel`.
 - **Sessions.** `Sessions`: the handshake as messages, with no transport. `status`
-  and `checkReply` judge both sides' roots and keyrings at the handshake: old form or
-  past `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a
-  partner whose own material has expired opens every session unsafe.
-  `attestedOffline` reads a recorded handshake instead, at the time of the record
-  judged, accepting the old forms.
+  and `checkReply` judge both sides' roots and keyrings at the handshake: past
+  `notAfter` makes the session unsafe, or the reply `BAD_SIGNATURE`, and a partner
+  whose own material has expired opens every session unsafe. `attestedOffline`
+  reads a recorded handshake instead, at the time of the record judged. A root or
+  keyring without a `notAfter` is malformed, refused by its reader.
 - **JSON in and out.** No public signature names a JSON library. Each value type
   writes its wire form with `toJson()` and reads it with a static `parse(String)` on
   the type, such as `KeyringFile.parse` or `SessionRequest.parse`, which throws
@@ -402,8 +402,9 @@ hands a session request's body to `HttpSessions.serve`.
 
   **Lifetimes.** Every service that loads `paztport.keyring-path` and `paztport.root-path`
   (the mesh verifier, the egress `BoundaryClient`, the partner) refuses to start if
-  either is in the old form or past its `notAfter`, with a message naming the property and
-  saying to re-sign with the policy tool (`PAZTPORT_RENEW=true` renews without rebuilding),
+  either has no `notAfter` (its reader refuses it as malformed) or is past it, the latter
+  with a message naming the property and saying to re-sign with the policy tool
+  (`PAZTPORT_RENEW=true` renews without rebuilding),
   and logs one warning naming the file and its `notAfter` when 42 hours (a quarter of the
   default week) or less remain. A partner whose own root or keyring expires *while
   running* does not stop, since that would cut off callers it serves without attestation
@@ -467,7 +468,7 @@ hands a session request's body to `HttpSessions.serve`.
 One-shot job, `keygen [outDir] [service...] [--tls-only name...] [--org name]`:
 
 - a per-service Ed25519 stamp key (`<svc>.key`) and a policy key (`policy.key`);
-- `keyring.json`, signed by the policy key in the new form, valid for `PAZTPORT_POLICY_DAYS` days (default 7),
+- `keyring.json`, signed by the policy key, valid for `PAZTPORT_POLICY_DAYS` days (default 7),
   and `policy.pub`, the pin;
 - one CA per run, named by `--org` (default `shop`), whose key is written alone to
   `ca/ca.key`, outside `tls/`, so it sits apart from the certificates and keys that
@@ -489,7 +490,7 @@ Private keys and the boundary key are written owner-read/write only.
 
 One-shot job, `policy-tool [--renew] [paths.yaml] [keysDir] [outDir]` (defaults `policy/paths.yaml`,
 `out/keys`, `out/policy`). It reads `keysDir/policy.key` and `keysDir/keyring.json`, and signs the root and the
-keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7). It has two modes:
+keyring, both valid for `PAZTPORT_POLICY_DAYS` days (default 7). It has two modes:
 
 - **Rebuild**, the default: `paths.yaml` → salted tree → signed `outDir/root.json` plus one proof bundle per
   service (depth `PAZTPORT_PROOF_DEPTH`, default 8), and `keyring.json` re-signed beside it. The tree is new, so
@@ -499,10 +500,10 @@ keyring in the new form, both valid for `PAZTPORT_POLICY_DAYS` days (default 7).
   and `keyring.json` signed again with a new `notAfter`, keeping the root's `root` and `rootId`, so the proof
   bundles stay valid and are not touched, and holders can pick up the renewed files one at a time. The new
   `notAfter` is the run's time plus `PAZTPORT_POLICY_DAYS`, so a renewal can shorten a longer existing window.
-  `paths.yaml` is not read. Renewal is the routine operation, run well before `notAfter`; old-form and expired
-  files are renewed into the new form all the same.
+  `paths.yaml` is not read. Renewal is the routine operation, run well before `notAfter`; expired files are
+  renewed all the same.
 
-Either mode first checks that the keyring verifies under the policy key it names, in either form and expired or
+Either mode first checks that the keyring has a `notAfter` and verifies under the policy key it names, expired or
 not, and that that key is the one in `policy.key`; renewing also checks the root verifies under it. Rebuilding also
 refuses a route node the [spec](../spec/wire.md#routes) forbids (empty, `.`, `..`, or holding `/`, `\`, `|` or a
 lone surrogate). The checks are core's `PolicyOwner` and `Routes`;

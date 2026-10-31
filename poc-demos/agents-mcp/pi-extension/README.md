@@ -63,9 +63,9 @@ then classify the run from the outcome log as the
   `policy.key` once it has signed the root and keyring, and both are checked with the policy public
   key from `keyring.json`. A `keyring.json` with no `sig` is refused with a message naming
   `npm run setup-demo -- --force`. The keyring and the root (from `clientPolicyDir`: the client root,
-  or the local-tools root that also binds the folder rules) must each be in the new form, with a
-  `notAfter` its signature covers, and not past it. An old-form or expired one stops the extension
-  at startup with a message naming the file, its `notAfter` and the same fix. One with 42 hours or
+  or the local-tools root that also binds the folder rules) must each have a `notAfter` its
+  signature covers, and not be past it. One without a `notAfter`, or expired, stops the extension
+  at startup with a message naming the file (and, when expired, its `notAfter`) and the same fix. One with 42 hours or
   less left starts with one warning line naming the file and its `notAfter`, shown in pi's UI (on
   stderr when pi has none). setup-demo issues them for 30 days.
 - `servers[]`: `id` (`[A-Za-z0-9_-]+`), `command`, optional `args` and `env`, and `attested`. An

@@ -760,9 +760,9 @@ output in the old format, for example private keys that aren't owner-only.
 `up --build` rebuilds the mesh services itself. Private key files, the TLS keys
 and the CA's included, are written owner-read/write only (`0600`). `demo.sh`
 regenerates the keys when `policy.pub`, `tls/ca.crt` or `keyring.json` is missing,
-so keys from before mutual TLS are replaced. A keyring that has expired, or is in
-the old form with no `notAfter`, is not a reason to regenerate: each run's policy
-tools re-sign it.
+or `keyring.json` has no `notAfter`, so keys from before mutual TLS are replaced. A
+keyring that has expired is not a reason to regenerate: each run's policy tools
+re-sign it.
 
 ### Lifetimes and renewal
 
@@ -773,9 +773,10 @@ change them per run, for example `docker compose run --rm -e PAZTPORT_POLICY_DAY
 policy-tool`. Every service but the responder, which holds no root or pin, checks its
 own keyring and root against the pin at startup:
 
-- It **refuses to start** if either is in the old form or past its `notAfter`, with
-  a message naming the property (`paztport.keyring-path` or `paztport.root-path`)
-  and the fix: re-sign with the policy tool.
+- It **refuses to start** if either is past its `notAfter`, with a message naming
+  the property (`paztport.keyring-path` or `paztport.root-path`) and the fix:
+  re-sign with the policy tool. One with no `notAfter` is malformed, and refused as
+  it is read.
 - It **logs one warning** naming the file and its `notAfter` when 42 hours (a
   quarter of the default week) or less remain.
 - A verifying service that keeps running past its own `notAfter` answers every
@@ -798,7 +799,8 @@ A rebuild (the plain `policy-tool` run) is for changing the routes: it draws a n
 tree, so every holder must reload together. `demo.sh` rebuilds on every run, which
 also re-signs both keyrings, so the demo never needs renewing first, however old
 its keys are. The tools refuse, exit 2, with nothing written, a keyring or root
-the policy key did not sign; expired and old-form files are renewed all the same.
+the policy key did not sign, or one with no `notAfter`; expired files are renewed
+all the same.
 
 Every hop is mutual TLS, so every call is `https` and presents a certificate from
 the mesh CA. `demo.sh` and `measure.sh` make their calls from throwaway containers

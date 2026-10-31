@@ -28,9 +28,9 @@ request.
 | `receiver` | What the last stamp's `rcv` must name: the receiver's own name, or for a response, the calling client's `svc`. |
 | `receiverInRoute` | Whether the route ends at `receiver`: true for a call, false for a response. |
 | `peer` | Optional; null is the same as absent. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
-| `keyring` | Service name to public key, from a keyring verified against its policy key, in the new form ([wire.md](wire.md#the-signed-keyring)) and current. A key is looked up by own name only: inherited or default entries MUST NOT match. |
-| `root`, `rootId` | The pinned signed root: verified against its policy key, in the new form ([wire.md](wire.md#the-signed-root)) and current. |
-| `policyNotAfter` | The earliest `notAfter` of that keyring and root, in ms since the Unix epoch: the last moment the policy owner vouches for both. Material in the old form has none, and a verifier MUST NOT be built on it. |
+| `keyring` | Service name to public key, from a keyring verified against its policy key ([wire.md](wire.md#the-signed-keyring)) and current. A key is looked up by own name only: inherited or default entries MUST NOT match. |
+| `root`, `rootId` | The pinned signed root: verified against its policy key ([wire.md](wire.md#the-signed-root)) and current. |
+| `policyNotAfter` | The earliest `notAfter` of that keyring and root, in ms since the Unix epoch: the last moment the policy owner vouches for both. |
 | `allowedOrigins` | The services that may sign an origin stamp. |
 | `sess` | The session id every stamp must carry. |
 | `nonces`, `nonceKey` | The replay cache and this chain's key in it. |
@@ -218,18 +218,18 @@ verify: dropping it could hide `private` content from the rule. It is answered
 ([Modes and refusals](#modes-and-refusals)). An origin starts a new request tree, so it carries neither the chain
 nor the influence a request brings, and has nothing to drop.
 
-**At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root
-the client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the
-session id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root in the
-old form or past its `notAfter` at the handshake makes the session unsafe
+**At a partner, in an attested session.** The verifier is the session's own: its config is the keyring and root the
+client presented in the handshake, pinned under the client policy key the partner pinned, with `sess` = the session
+id, the client's allowed origins, and the partner's own windows and nonce cache. A keyring or root past its
+`notAfter` at the handshake makes the session unsafe
 ([sessions-and-influence.md](sessions-and-influence.md#status)), so no verifier is built on it; and once the
-session's material expires, every call in it is `POLICY_EXPIRED`. The inputs are the same
-as above, with `receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated
-client, who MUST be the boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and
-`influence` are of the request and the entries received. The session is the one `X-Path-Session` names, and only
-when the peer it was opened by, the certificate's issuer and name, is this call's
-([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and nothing is verified. All sessions share one nonce cache,
-keyed as above.
+session's material expires, every call in it is `POLICY_EXPIRED`. The inputs are the same as above, with
+`receiver` = the partner's entry service, `receiverInRoute = true` and `peer` the authenticated client, who MUST be the
+boundary stamp's signer. The chain is one stamp, `prev` is `""`, and `expectedBind` and `influence` are of the
+request and the entries received. The session is the one `X-Path-Session` names, and only when the peer it was
+opened by, the certificate's issuer and name, is this call's
+([sessions-and-influence.md](sessions-and-influence.md#over-http)). In an unsafe session there is no verifier and
+nothing is verified. All sessions share one nonce cache, keyed as above.
 
 **The peer under mTLS.** When the request came with a client certificate the TLS layer verified, the receiver
 passes it as `peer`: `peer.svc` is the certificate subject's common name when it has exactly one, and `""`
@@ -382,7 +382,7 @@ The offline verifier runs the live checks in the live order, with these differen
 
 | # | Offline |
 |---|---|
-| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a new-form root or keyring counts only for a record no later than its `notAfter`, and an old-form one sets no limit. |
+| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. |
 | 1 | The stamps parse, all v3. A stamp whose `v` is not 3 is `CHAIN_MISSING`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
@@ -402,19 +402,18 @@ Each kind of record is checked this way:
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
   `policyNotAfter` the client used: the earliest `notAfter` of the server's root and, in the entry-key form, its
-  keyring. An old-form root or keyring sets no limit (2<sup>53</sup> − 1 when neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
+  keyring. So a response recorded after the server's material expired is `POLICY_EXPIRED`.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
-  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the
-  new form, are no later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route
-  verdict and proof the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the
-  `rulesHash` the step signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one
-  re-derived from those signed rules (`VERDICT_MISMATCH`).
+  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring are no
+  later than their `notAfter` (`POLICY_EXPIRED`). Then the route verdict and proof the client recorded for the step
+  MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step signed MUST be the client's
+  (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those signed rules
+  (`VERDICT_MISMATCH`).
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and the client keyring's signature verifies. It is judged at the time of
-  each call that relies on it: a new-form root or keyring, on either side, counts only up to its `notAfter`, as the
-  reply certificate does. An old-form one is accepted and sets no limit
-  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but
+  each call that relies on it: a root or keyring, on either side, counts only up to its `notAfter`, as the reply
+  certificate does ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but
   only the server's root window and, in the entry-key form, the server keyring's limit a response; the client's
   windows and the certificate do not.
 
@@ -439,7 +438,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
-| `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`, or there is none. Offline: the record's own time is past the `notAfter` of a new-form root or keyring it relies on (an old-form one sets no limit). Names no one. |
+| `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
 | `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |

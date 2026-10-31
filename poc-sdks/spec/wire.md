@@ -31,7 +31,7 @@ and `\n` is the single byte `0x0A`.
 **Domain prefixes.** Each kind of signed message opens with its own prefix, so that no signature can be read as
 another kind: roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, reply certificates
 `"paztport-reply-cert\n"`, session replies `"paztport-session-reply\n"`, responder events `"paztport-event\n"`,
-and stamps `2|` or `3|`. Old-form roots have no prefix and are not accepted live.
+and stamps `3|`.
 
 ## Keys and files
 
@@ -56,16 +56,12 @@ side writes (in the agents demo, its setup script). Each holds one value, and re
 | `<side>-policy.pub` | A pinned policy public key (`server-policy.pub`, `client-policy.pub`) | no |
 
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
-lapse. Each therefore has two forms. The new form carries `notAfter`, the time after which the policy owner no
-longer vouches for it, and its signature covers that value. The old form has no `notAfter`. Which form a root or
-keyring is in is decided only by whether its JSON object has a `notAfter` member of its own, never by which bytes
-verify. `notAfter` follows the reply certificate's rule: an integer number of milliseconds since the Unix epoch,
-in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST refuse a `notAfter` that
-is present but is not such an integer, rather than read the object as the old form. A new-form root or keyring
-is valid at time `t` when `t <= notAfter`; verifying its signature says nothing about time, so whoever relies on
-it MUST check both. An old-form root or keyring is never valid at any time. Its signature still verifies anywhere,
-but only an offline verifier, judging records made before the new form, may rely on it; a live verifier MUST NOT.
-A writer MUST write the new form.
+lapse. Each therefore carries `notAfter`, the time after which the policy owner no longer vouches for it, and its
+signature covers that value. `notAfter` follows the reply certificate's rule: an integer number of milliseconds
+since the Unix epoch, in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST refuse
+a keyring or root without a `notAfter` integer of its own, one that is missing and one that is present but is not
+such an integer alike, as malformed. A root or keyring is valid at time `t` when `t <= notAfter`; verifying its
+signature says nothing about time, so whoever relies on it MUST check both.
 
 ## Stamps
 
@@ -340,7 +336,7 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 
 ## The signed root
 
-`root.json`, the value verifiers pin, in the new form:
+`root.json`, the value verifiers pin:
 
 ```json
 { "rootId": "...", "root": "<b64url, 32 bytes>", "sig": "<b64url>", "notAfter": <integer> }
@@ -352,10 +348,9 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
 utf8( "paztport-root\n" ‖ JCS({ "notAfter": notAfter, "root": root, "rootId": rootId }) )
 ```
 
-with `root` as its base64url text. The old form has no `notAfter`, and `sig` covers `utf8(rootId ‖ "|" ‖ root)`.
-Which form applies, and when each is valid, is set out under [Expiry](#keys-and-files). A widened policy can't
-be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy key,
-in the root's own form, before using the root. Any other field is ignored and not signed.
+with `root` as its base64url text. When it is valid is set out under [Expiry](#keys-and-files). A widened policy
+can't be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy
+key before using the root. Any other field is ignored and not signed.
 
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
 vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
@@ -364,17 +359,16 @@ proof bundles stay valid and holders can pick up the renewed root one at a time.
 differ only in `notAfter`. Narrowing a policy is not renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
 `v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
-pin: the new form, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
-tampered `notAfter`, a new-form signature with `notAfter` dropped, an old-form signature with one added, a
-`notAfter` that is not an integer, a root signed by another policy key and a keyring signature offered as a root
-signature, which fail; a `notAfter` of 2^53, which a reader refuses; one written `1798761600000.0`, which a
-reader reads by value, as the integer its signature is over; and an old-form root, whose signature verifies but
-which only an offline verifier may rely on, and which is never valid.
+pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
+tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a `notAfter` that is
+not an integer, a root signed by another policy key and a keyring signature offered as a root signature, which
+fail; a root with no `notAfter` and one of 2^53, which a reader refuses, the first though its signature is the
+policy key's over `utf8(rootId ‖ "|" ‖ root)`; and one written `1798761600000.0`, which a reader reads by value,
+as the integer its signature is over.
 
 ## The signed keyring
 
-`keyring.json` names the policy key and every service's public key, and is signed by the policy key. In the new
-form:
+`keyring.json` names the policy key and every service's public key, and is signed by the policy key:
 
 ```json
 { "services": { "<svc>": "<public key>", ... }, "policy": "<policy public key>", "sig": "<b64url>", "notAfter": <integer> }
@@ -386,27 +380,23 @@ form:
 utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "services": services }) )
 ```
 
-The old form has no `notAfter`, and `sig` covers `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy,
-"services": services }))`. Which form applies, and when each is valid, is set out under
-[Expiry](#keys-and-files). Adding or dropping `notAfter` changes the signed object's members, so neither form's
-signature verifies as the other's.
+When it is valid is set out under [Expiry](#keys-and-files).
 
-A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it,
-in the keyring's own form. The prefix keeps a keyring signature from being read as any other message the policy
-key signs. Without the signature, a session's keyring would be the client's own claim, and anyone who could open a
-session could name their own keys. The policy owner MUST sign a keyring only after checking that each listed key
-is that service's current key; `notAfter` is when it stops vouching for them. A retired key needs a new keyring,
-not a renewed one.
+A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
+The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the
+signature, a session's keyring would be the client's own claim, and anyone who could open a session could name
+their own keys. The policy owner MUST sign a keyring only after checking that each listed key is that service's
+current key; `notAfter` is when it stops vouching for them. A retired key needs a new keyring, not a renewed one.
 
-`v3.json` pins the signed bytes and signatures in `keyring`: an old-form keyring and a tampered one, as before;
-the new form, at its `notAfter` and 1 ms after, and the largest `notAfter`, which verify; a tampered `notAfter`, a
-new-form signature with `notAfter` dropped, an old-form signature with one added, a `notAfter` that is not an
-integer and a root signature offered as a keyring signature, which fail; a `notAfter` of 2^53, which a reader
-refuses; one written `1798761600000.0`, which a reader reads by value; and an old-form keyring, whose signature
-verifies but which only an offline verifier may rely on, and which is never valid.
+`v3.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
+and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
+signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))`, a `notAfter`
+that is not an integer and a root signature offered as a keyring signature, which fail; a keyring with no
+`notAfter` and one of 2^53, which a reader refuses, the first though its signature is the policy key's over those
+same bytes; and one written `1798761600000.0`, which a reader reads by value.
 
-Both SDKs' keygens write signed keyrings in the new form, by default valid for seven days, and both policy tools
-sign roots in the new form, by default valid for seven days. The policy tools also re-sign the keyring on every
+Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
+default valid for seven days. The policy tools also re-sign the keyring on every
 rebuild and renew.
 
 ## The reply certificate
