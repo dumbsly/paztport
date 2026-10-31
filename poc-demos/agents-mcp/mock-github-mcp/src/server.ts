@@ -1,12 +1,13 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { decideServerCall, type ReasonCode } from "@paztport/core";
+import { decideServerCall, type InfluenceClass, type ReasonCode } from "@paztport/core";
 import {
   McpServerSession,
   META_VERDICT,
+  refusedToolResult,
   SESSION_METHOD,
-  type ServerCallCheck,
+  type ToolCallOutcome,
   type ServerPolicy,
   type SessionRules,
 } from "@paztport/mcp";
@@ -74,27 +75,20 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
   async function callTool(name: string, params: Record<string, unknown>): Promise<CallToolResult> {
     const tool = tools.get(name)!;
     const args = isObject(params.arguments) ? params.arguments : {};
-    let verdict: ReasonCode = "OK";
-    let call: ServerCallCheck | null = null;
+    const facts = { isWrite: tool.kind === "write", publicDestination: isPublic(state, args) };
     const sess = mode !== "off" ? server?.session() : undefined;
-    if (mode !== "off") {
-      if (server !== null && sess?.status === "attested") {
-        call = server.checkCall(params);
-        verdict = call.reason;
-      }
-      if (verdict === "OK") {
-        verdict = decideServerCall({
-          tool: tool.name,
-          isWrite: tool.kind === "write",
-          publicDestination: isPublic(state, args),
-          attested: sess?.status === "attested",
-          served: sess?.served ?? [],
-          clientInfluence: call?.influence ?? [],
-          disabledWhenUnsafe: rules.disabledWhenUnsafe,
-        });
-      }
-    }
-    const verified = call !== null && call.reason === "OK" ? call : null;
+    let ranResult: ReturnType<GithubTool["run"]> | undefined;
+    const run = (): { result: CallToolResult; cls: InfluenceClass } => {
+      const result = tool.run(state, args);
+      ranResult = result;
+      return { result: { content: [{ type: "text", text: result.text }], isError: result.isError ?? false }, cls: labelFor(result) };
+    };
+    // Off is a deployment switch, not a protocol mode; a server with no policy gates by the unsafe-session rule alone.
+    const decided: ToolCallOutcome<CallToolResult> =
+      mode !== "off" && server !== null
+        ? await server.handleToolCall(params, facts, mode, run)
+        : await ungated(name, facts, mode, run);
+    const { verdict, verified } = decided;
     const record = {
       ts: now(),
       mode,
@@ -102,21 +96,17 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
       kind: tool.kind,
       owner: text(args.owner),
       repo: text(args.repo),
-      publicDestination: tool.kind === "write" && isPublic(state, args),
+      publicDestination: tool.kind === "write" && facts.publicDestination,
       ...(verified !== null && sess !== undefined ? { rid: verified.rid, callId: verified.callId, sess: sess.sess } : {}),
     };
 
-    if (verdict !== "OK" && mode === "enforce") {
+    if (!decided.ran) {
       const privateRead = tool.kind === "read" && isPrivate(state, args);
       outcome.record({ ...record, privateRead, privateFileRead: isPrivateFile(tool, state, args), isError: false, verdict, audit: false }, tool.textsFromArgs(args));
-      return {
-        content: [{ type: "text", text: `Paztport refused this call: ${verdict}` }],
-        isError: true,
-        _meta: { [META_VERDICT]: { reason: verdict } },
-      };
+      return decided.result;
     }
 
-    const result = tool.run(state, args);
+    const result = ranResult!;
     const label = labelFor(result);
     const privateRead = result.read?.includesPrivate ?? false;
     const pr = result.write && tool.name === "create_pull_request" ? state.pulls().at(-1) : undefined;
@@ -134,13 +124,30 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
       },
       result.write?.texts ?? [],
     );
-    const mcpResult: CallToolResult = { content: [{ type: "text", text: result.text }], isError: result.isError ?? false };
-    if (mode === "audit" && verdict !== "OK") mcpResult._meta = { [META_VERDICT]: { reason: verdict, audit: true } };
-    if (server !== null && verified !== null) {
-      return server.attest(verified.session, mcpResult, { rid: verified.rid, callId: verified.callId, name, args: params.arguments ?? {}, caller: verified.caller }, label);
+    return decided.result;
+  }
+
+  /** The off mode, and a server with no policy: no session, so only the unsafe-session rule decides, and nothing is attested. */
+  async function ungated(
+    name: string,
+    facts: { isWrite: boolean; publicDestination: boolean },
+    callMode: Mode,
+    run: () => { result: CallToolResult; cls: InfluenceClass },
+  ): Promise<ToolCallOutcome<CallToolResult>> {
+    const verdict: ReasonCode =
+      callMode === "off"
+        ? "OK"
+        : decideServerCall({ tool: name, ...facts, attested: false, served: [], clientInfluence: [], disabledWhenUnsafe: rules.disabledWhenUnsafe });
+    if (verdict !== "OK" && callMode === "enforce") {
+      return { result: refusedToolResult(verdict), verdict, ran: false, verified: null };
     }
-    // unsafe sessions, off mode and failed checks: unattested
-    return mcpResult;
+    const { result } = run();
+    return {
+      result: callMode === "audit" && verdict !== "OK" ? { ...result, _meta: { [META_VERDICT]: { reason: verdict, audit: true } } } : result,
+      verdict,
+      ran: true,
+      verified: null,
+    };
   }
 
   const methods: Record<string, (params: unknown) => Promise<unknown>> = {};

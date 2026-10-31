@@ -2,16 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
-import { encode, NonceCache, NONCE_TTL_MS, randomBytes, replacementRequest, sessionRequest, type InfluenceClass, type SessionReply, type SessionRequest } from "@paztport/core";
+import { encode, NonceCache, NONCE_TTL_MS, randomBytes, sessionRequest, type InfluenceClass, type SessionReply } from "@paztport/core";
 import {
-  classifySessionError,
-  classifySessionReply,
   readToolResult,
+  openSession,
   SESSION_METHOD,
   stampToolCall,
   toolCallProof,
   type ResultContext,
-  type SessionOutcome,
 } from "@paztport/mcp";
 import type { ExtensionMode, ServerSpec } from "./config.ts";
 import type { EventLog } from "./events.ts";
@@ -192,44 +190,34 @@ export class ServerConnection {
       keyringSig: this.material.keyringSig,
       keyringNotAfter: this.material.keyringNotAfter,
     });
+    const opened = await openSession({
+      request: req,
+      pin,
+      serverEntry: SERVER_ENTRY,
+      now: () => this.now(),
+      send: (r) => client.request(SESSION_METHOD, r as unknown as Record<string, unknown>),
+      rpcCode: (e) => (e instanceof McpError ? e.code : undefined),
+    });
+    const { outcome } = opened;
     // Each request that was sent is written to the evidence file, with the raw reply (null when
     // there was none) and the state it left this connection in.
-    const record = (request: SessionRequest, raw: unknown, status: "attested" | "unsafe", reason?: string) =>
+    opened.exchanges.forEach((x, i) => {
+      const status = i === 0 && outcome.status === "attested" ? "attested" : "unsafe";
       this.evidence.write({
         v: 1,
         type: "session",
         server: this.spec.id,
-        request,
-        reply: raw ?? null,
+        request: x.request,
+        reply: x.reply,
         pin,
         status,
-        ...(reason !== undefined ? { reason } : {}),
+        ...(outcome.status === "unsafe" ? { reason: outcome.reason } : {}),
       });
-    let raw: unknown;
-    let outcome: SessionOutcome | undefined;
-    try {
-      raw = await client.request(SESSION_METHOD, req as unknown as Record<string, unknown>);
-    } catch (e) {
-      outcome = classifySessionError(e instanceof McpError ? e.code : undefined);
-    }
-    outcome ??= classifySessionReply(raw, req, pin, SERVER_ENTRY, this.now());
+    });
     if (outcome.status === "attested") {
       this.reply = outcome.reply;
       this.state = "attested";
-      record(req, raw, "attested");
       return;
-    }
-    record(req, raw, "unsafe", outcome.reason);
-    if (outcome.replaceSession) {
-      // The server may hold an attested session this client cannot use; replace it, best effort.
-      const replacement = replacementRequest(req);
-      let second: unknown;
-      try {
-        second = await client.request(SESSION_METHOD, replacement as unknown as Record<string, unknown>);
-      } catch {
-        // stays unsafe
-      }
-      record(replacement, second, "unsafe", outcome.reason);
     }
     return unsafe(outcome.reason);
   }
