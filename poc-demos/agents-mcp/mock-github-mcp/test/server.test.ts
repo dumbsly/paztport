@@ -51,6 +51,7 @@ function serverConfig(): ServerPolicy {
     hops: ["mcp-entry", "github-tools"],
     serverId: "github",
     pinnedClientKeys: [CLIENT_POLICY.publicKey],
+    clientOrigins: ["session"],
   };
 }
 

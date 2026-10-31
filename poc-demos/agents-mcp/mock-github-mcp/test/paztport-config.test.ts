@@ -41,6 +41,7 @@ function serverSetup(): { cfg: ServerPolicy; policyPrivateKey: string } {
     hops: ["mcp-entry", "github-tools"],
     serverId: "github",
     pinnedClientKeys: [CLIENT_POLICY.publicKey],
+    clientOrigins: ["session"],
   };
   return { cfg, policyPrivateKey: policy.privateKey };
 }

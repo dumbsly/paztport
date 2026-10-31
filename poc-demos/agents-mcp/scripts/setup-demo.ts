@@ -69,6 +69,7 @@ run(POLICY, [
   "--keyring", join(out, "client/keyring.json"),
   "--out", join(out, "client/local-tools"),
   "--policy-days", POLICY_DAYS,
+  "--client-chain", "session,pi",
 ]);
 // the server opens attested sessions only for the client policy key it pins
 const clientRing = JSON.parse(readFileSync(join(out, "client/keyring.json"), "utf8")) as { policy: string };

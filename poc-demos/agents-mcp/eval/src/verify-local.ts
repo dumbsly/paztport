@@ -8,7 +8,6 @@ import {
   influenceClasses,
   localReceiver,
   localStepBind,
-  ORIGIN_SVC,
   parseInfluence,
   parseLocalRules,
   parseRecordedStamps,
@@ -96,6 +95,9 @@ type Rec = Record<string, unknown>;
 
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
+
+/** The service the agents demo's run origin signs as; its client policy and servers name it too. */
+export const ORIGIN_SVC = "session";
 
 const INST = "pi-1";
 /** A local step's chain: the run's origin, then the pi stamp, both from the one pi instance. */

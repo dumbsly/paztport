@@ -146,6 +146,8 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     hops: HOPS,
     serverId: "github",
     pinnedClientKeys: [clientPin],
+    // the demo client's run origin signs as "session" (setup-demo names it in the client chain)
+    clientOrigins: ["session"],
   };
   validateServerConfig(cfg, dir, now);
   return cfg;

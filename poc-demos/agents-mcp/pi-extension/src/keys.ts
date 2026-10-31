@@ -10,7 +10,6 @@ import {
   parseLocalRules,
   parseProof,
   parseSignedRoot,
-  ORIGIN_SVC,
   provesPath,
   readNotAfter,
   rulesHash,
@@ -25,6 +24,9 @@ import {
 
 /** The service pi signs as: every call and local step, and the hop each run's origin names as its receiver. */
 export const PI_SVC = "pi";
+
+/** The service the demo's run origin signs as: the first in every client chain, and the origin its servers accept. */
+export const ORIGIN_SVC = "session";
 
 /** The client chain on every stamped call: the run's origin, then pi. Local rules are pinned under it too. */
 export const CLIENT_CHAIN: readonly string[] = [ORIGIN_SVC, PI_SVC];
@@ -152,7 +154,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
   }
   const rootPath = join(policyDir, "root.json");
   requireCurrent(rootPath, signedRoot.notAfter, now);
-  for (const [svc, key] of [["session", m.sessionKey], ["pi", m.piKey]] as const) {
+  for (const [svc, key] of [[ORIGIN_SVC, m.sessionKey], ["pi", m.piKey]] as const) {
     if (!Object.hasOwn(keyring, svc)) {
       throw new Error(`keyring.json has no entry for ${svc}`);
     }

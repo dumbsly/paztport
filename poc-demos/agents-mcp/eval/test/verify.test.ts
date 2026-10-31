@@ -1232,7 +1232,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(yaml).toContain('"priv"');
     writeFileSync(join(dir, "paths.yaml"), yaml);
     tool("keygen.ts", ["--out", join(dir, "client"), "--services", "session,pi"]);
-    tool("policy.ts", ["--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "client/policy.key"), "--keyring", join(dir, "client/keyring.json"), "--out", join(dir, "client/local-tools")]);
+    tool("policy.ts", ["--paths", join(dir, "paths.yaml"), "--policy-key", join(dir, "client/policy.key"), "--keyring", join(dir, "client/keyring.json"), "--out", join(dir, "client/local-tools"), "--client-chain", "session,pi"]);
     return loadClientMaterial(join(dir, "client"), join(dir, "client/local-tools"));
   }
 

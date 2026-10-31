@@ -11,7 +11,6 @@ import {
   isNotAfter,
   isReplyCert,
   NonceCache,
-  ORIGIN_SVC,
   sha256,
   utf8,
   type ReasonCode,
@@ -19,7 +18,7 @@ import {
   type SessionRequest,
 } from "@paztport/core";
 import { hasRefusalShape, recheckMcpResponse, verifyRecordedCall } from "@paztport/mcp";
-import { verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
+import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
 
 /**
  * Offline re-check of a run's evidence file (the `evidenceLog` of the pi extension). It needs no keys
