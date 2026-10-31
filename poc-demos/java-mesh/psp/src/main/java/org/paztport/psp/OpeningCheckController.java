@@ -61,7 +61,11 @@ public class OpeningCheckController {
      * the opening's class and owner. Only JSON is taken: any other content type is answered {@code 415}.
      */
     @PostMapping(path = "/debug/check-opening", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
+    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid,
+            @RequestBody(required = false) byte[] body) {
+        if (body == null || body.length == 0) {
+            return malformed();
+        }
         String text;
         JsonNode tree;
         try {

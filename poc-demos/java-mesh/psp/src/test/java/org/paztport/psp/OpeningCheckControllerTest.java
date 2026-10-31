@@ -119,10 +119,17 @@ class OpeningCheckControllerTest {
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
-    /** With no body at all the framework refuses the request before the check reads it, so there is no reason. */
+    /** An empty body, a whitespace-only one, and no body at all are malformed, not a framework refusal. */
     @Test
     void anEmptyBodyIsABadRequest() throws Exception {
-        check(RID, "").andExpect(status().isBadRequest());
+        for (String body : List.of("", " \n")) {
+            check(RID, body).andExpect(status().isBadRequest())
+                    .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+        }
+        mvc.perform(post("/debug/check-opening").param("rid", RID).contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     @Test
