@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
@@ -39,11 +40,14 @@ import org.paztport.core.offline.RecordedSession;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
+import org.paztport.core.policy.MerkleHash;
+import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
+import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.StampV3;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
@@ -56,7 +60,8 @@ import org.paztport.core.verify.VerifyResult;
 /**
  * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads. One
  * test method per section, so a failure names the section. The {@code recordedLocalStep} section is not replayed:
- * local steps belong to the MCP profile, which this SDK, speaking v3 over HTTP only, does not implement.
+ * local steps belong to the MCP profile, which this SDK, speaking v3 over HTTP only, does not implement; nor are
+ * {@code bindMcpCall} and {@code bindResult}, which only that profile uses.
  */
 class VectorsV3Test {
 
@@ -104,6 +109,80 @@ class VectorsV3Test {
 
     private static PrivateKey priv(String name) {
         return Crypto.decodePrivateKey(Base64Url.decode(vectors.get("keys").get(name).get("priv").asText()));
+    }
+
+    @Test
+    void commitInfluence() {
+        JsonNode c = vectors.get("commitInfluence");
+        assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(Vectors.json(c.get("entries")))));
+    }
+
+    @Test
+    void bindPrompt() {
+        JsonNode c = vectors.get("bindPrompt");
+        assertEquals(c.get("expected").asText(), Bindings.prompt(c.get("prompt").asText()));
+    }
+
+    @Test
+    void bindResponse() {
+        JsonNode c = vectors.get("bindResponse");
+        assertEquals(c.get("expected").asText(), Bindings.response(c.get("resultHash").asText(),
+                c.get("callId").asText(), ContentLabel.parseAll(Vectors.json(c.get("labels")))));
+    }
+
+    @Test
+    void deriveSessionId() {
+        JsonNode d = vectors.get("deriveSessionId");
+        JsonNode keys = d.get("keys");
+        Map<String, String> keyring = new LinkedHashMap<>();
+        keys.get("clientKeyring").properties().forEach(e -> keyring.put(e.getKey(), e.getValue().asText()));
+        for (JsonNode c : d.get("cases")) {
+            assertEquals(c.get("expected").asText(),
+                    Sessions.deriveSessionId(fixed(c.get("clientRootSig")), fixed(c.get("serverRootSig")),
+                            fixed("clientNonce"), fixed("serverNonce"), keys.get("clientPolicyKey").asText(), keyring),
+                    c.get("name").asText());
+        }
+    }
+
+    private static String fixed(JsonNode nameOrNull) {
+        return nameOrNull.isNull() ? null : fixed(nameOrNull.asText());
+    }
+
+    /** The named fixed input: {@code length} consecutive bytes from {@code start}, base64url. */
+    private static String fixed(String name) {
+        JsonNode f = vectors.get("fixedInputs").get(name);
+        byte[] bytes = new byte[f.get("length").asInt()];
+        for (int i = 0; i < bytes.length; i++) {
+            bytes[i] = (byte) (f.get("start").asInt() + i);
+        }
+        String encoded = Base64Url.encode(bytes);
+        assertEquals(f.get("encoded").asText(), encoded);
+        return encoded;
+    }
+
+    @Test
+    void merkle() {
+        JsonNode m = vectors.get("merkle");
+        for (JsonNode l : m.get("leaves")) {
+            assertEquals(l.get("hash").asText(),
+                    Base64Url.encode(MerkleHash.leaf(Base64Url.decode(l.get("salt").asText()), l.get("path").asText())));
+        }
+        for (JsonNode n : m.get("nodes")) {
+            assertEquals(n.get("hash").asText(), Base64Url.encode(
+                    MerkleHash.node(Base64Url.decode(n.get("left").asText()), Base64Url.decode(n.get("right").asText()))));
+        }
+        byte[] root = Base64Url.decode(m.get("root").asText());
+        int proofs = 0;
+        for (var e : m.get("proofs").properties()) {
+            String path = e.getKey();
+            MerkleProof proof = MerkleProof.parse(Vectors.json(e.getValue()));
+            assertTrue(proof.verify(path, root), path);
+            String header = m.get("proofHeaders").get(path).asText();
+            assertEquals(proof, MerkleProof.decode(header), path);
+            assertEquals(header, proof.encode(), path);
+            proofs++;
+        }
+        assertEquals(m.get("proofHeaders").size(), proofs);
     }
 
     @Test

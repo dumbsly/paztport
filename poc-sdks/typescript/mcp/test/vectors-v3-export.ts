@@ -6,7 +6,7 @@
 // the export throws on any mismatch, so it can never record a wrong answer.
 
 import { createPrivateKey, createPublicKey } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
@@ -15,7 +15,7 @@ import {
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, deriveSessionId, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  checkSessionReply, decodeProof, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
@@ -25,7 +25,6 @@ import type {
 import { bindMcpCall, mcpReceiver } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
-const V2_JSON = new URL("../../../spec/vectors/v2.json", import.meta.url);
 
 const KEY_NAMES = ["session", "pi", "mcp-entry", "github-tools", "gateway", "orders", "client-policy", "server-policy"] as const;
 type KeyName = (typeof KEY_NAMES)[number];
@@ -54,6 +53,9 @@ const ABOUT =
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), " +
   "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
+  "The sections after sessionStatus pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
+  "which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; " +
+  "and merkle, a tree of its own (depth 8, rootId v1) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
 
 /** The deterministic Ed25519 key pair for a name, as base64url SPKI and PKCS#8 DER. */
@@ -118,6 +120,111 @@ function check(what: string, got: unknown, want: unknown): void {
   if (!isDeepStrictEqual(got, want)) {
     throw new Error(`${what}: the library gives ${JSON.stringify(got)}, the vector says ${JSON.stringify(want)}`);
   }
+}
+
+const fixedBytes = (start: number, length: number) => Uint8Array.from({ length }, (_, i) => start + i);
+
+/** The inputs of the sections that bind no keys: the session id, the prompt, result, response and `tools/call` bindings, and the influence commitment. */
+const FIXED_INPUTS = {
+  clientRootSig: { start: 1, length: 64 },
+  serverRootSig: { start: 65, length: 64 },
+  clientNonce: { start: 160, length: 16 },
+  serverNonce: { start: 176, length: 16 },
+};
+const SESSION_ID_KEYS = { clientPolicyKey: "client-policy-key", clientKeyring: { session: "harness-key", pi: "harness-key" } };
+const SESSION_ID_CASES = [
+  { name: "both roots", clientRootSig: "clientRootSig", serverRootSig: "serverRootSig" },
+  { name: "client root null", clientRootSig: null, serverRootSig: "serverRootSig" },
+  { name: "server root null", clientRootSig: "clientRootSig", serverRootSig: null },
+] as const;
+const PROMPT = "open a PR for issue #42";
+const RESPONSE = {
+  resultHash: "result-hash", callId: "call-1", labels: [{ cls: "third-party", cid: "cid-1" }, { cls: "private", cid: "cid-2" }],
+};
+const RESULT = { content: [{ type: "text", text: "hi" }], isError: false, _meta: { x: 1 } };
+const MCP_CALL = { tool: "create_pull_request", callId: "call-1", args: { title: "t", body: "b", draft: false, n: [1, 2.5] } };
+const COMMIT_INFLUENCE = {
+  entries: [
+    { cls: "third-party", src: "web:example.com", h: "h2" },
+    { cls: "private", src: "file:notes.md", h: "h1", cid: "cid-1" },
+    { cls: "public", src: "web:docs.example.org", h: "h3" },
+  ],
+};
+
+/**
+ * The Merkle section's tree: depth 8, three leaves in slots 0 to 2 and opaque padding elsewhere. Slot 3's padding hash and
+ * the padding subtree hashes above level 1 (one per level 2 to 7) are recorded as they are, since the padding is not derived.
+ */
+const MERKLE = {
+  rootId: "v1",
+  depth: 8,
+  leaves: [
+    { salt: "-72t5JB2o5-0_DBVICoNQg", path: "gateway/orders/payment" },
+    { salt: "ujLZXNGXFps4j4nU0wX2Yw", path: "gateway/orders" },
+    { salt: "izKXq4MjEbVHm7fWohfcuA", path: "gateway/search" },
+  ],
+  padSlot3: "WNvdj6tvsMs2Jb8wPRXSqllJVXM5Zze7N1X_flvMOaY",
+  paddingAbove: [
+    "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M", "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs", "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+    "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA", "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw", "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0",
+  ],
+};
+
+/** The sections every implementation of the session and binding primitives replays, each output computed by the library. */
+function sharedPrimitives() {
+  const fixedInputs = Object.fromEntries(
+    Object.entries(FIXED_INPUTS).map(([name, f]) => [name, { ...f, encoded: encode(fixedBytes(f.start, f.length)) }]),
+  );
+  const input = (name: string | null) => (name === null ? null : (fixedInputs[name] as { encoded: string }).encoded);
+  const deriveSessionIdSection = {
+    keys: SESSION_ID_KEYS,
+    cases: SESSION_ID_CASES.map((c) => ({
+      ...c,
+      expected: deriveSessionId(input(c.clientRootSig), input(c.serverRootSig), fixedInputs.clientNonce.encoded, fixedInputs.serverNonce.encoded, SESSION_ID_KEYS),
+    })),
+  };
+  const bindResponseSection = { ...RESPONSE, expected: bindResponse(RESPONSE.resultHash, RESPONSE.callId, RESPONSE.labels as Parameters<typeof bindResponse>[2]) };
+  const bindPromptSection = { prompt: PROMPT, expected: bindPrompt(PROMPT) };
+  const bindResultSection = { result: RESULT, expected: bindResult(RESULT) };
+  const bindMcpCallSection = { ...MCP_CALL, expected: bindMcpCall(MCP_CALL.tool, MCP_CALL.callId, MCP_CALL.args) };
+  const commitInfluenceSection = { ...COMMIT_INFLUENCE, expected: commitInfluence(COMMIT_INFLUENCE.entries as InfluenceEntry[]) };
+
+  const leafHashes = MERKLE.leaves.map((l) => leafHash(decode(l.salt), l.path));
+  const level0 = [...leafHashes, decode(MERKLE.padSlot3)];
+  const level1 = [nodeHash(level0[0]!, level0[1]!), nodeHash(level0[2]!, level0[3]!)];
+  let root = nodeHash(level1[0]!, level1[1]!);
+  for (const pad of MERKLE.paddingAbove) root = nodeHash(root, decode(pad));
+  const siblingsOf = (slot: number): string[] => [
+    encode(level0[slot ^ 1]!), encode(level1[(slot >> 1) ^ 1]!), ...MERKLE.paddingAbove,
+  ];
+  const dirsOf = (slot: number) => Array.from({ length: MERKLE.depth }, (_, level) => ((slot >> level) & 1 ? "R" : "L")).join("");
+  const proofs: Record<string, MerkleProof> = {};
+  const proofHeaders: Record<string, string> = {};
+  MERKLE.leaves.forEach((l, slot) => {
+    proofs[l.path] = { leafSalt: l.salt, siblings: siblingsOf(slot), dirs: dirsOf(slot), rootId: MERKLE.rootId };
+    if (!provesPath(proofs[l.path], l.path, root, MERKLE.rootId)) {
+      throw new Error(`merkle proof for ${l.path} does not verify`);
+    }
+    proofHeaders[l.path] = encodeProof(proofs[l.path]!);
+    check(`merkle proof header for ${l.path}`, decodeProof(proofHeaders[l.path]!), proofs[l.path]);
+  });
+  const merkle = {
+    leaves: MERKLE.leaves.map((l, i) => ({ ...l, hash: encode(leafHashes[i]!) })),
+    nodes: [{ left: encode(level0[0]!), right: encode(level0[1]!), hash: encode(level1[0]!) }],
+    root: encode(root),
+    proofs,
+    proofHeaders,
+  };
+  return {
+    fixedInputs,
+    deriveSessionId: deriveSessionIdSection,
+    bindPrompt: bindPromptSection,
+    bindResult: bindResultSection,
+    bindResponse: bindResponseSection,
+    bindMcpCall: bindMcpCallSection,
+    commitInfluence: commitInfluenceSection,
+    merkle,
+  };
 }
 
 type Expected = { reason: string; suspectSvc: string; suspectInst: string };
@@ -345,13 +452,13 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { ...c, sig };
   });
 
-  // Influence: normalised forms written by hand; the "no owners" commitment is v2's.
-  const v2 = JSON.parse(readFileSync(V2_JSON, "utf8"));
+  // Influence: normalised forms written by hand; the "no owners" commitment is the shared one.
+  const primitives = sharedPrimitives();
   const notes = (cid?: string, owner?: string): InfluenceEntry => ({
     cls: "private", src: "file:notes.md", h: "h1", ...(cid === undefined ? {} : { cid }), ...(owner === undefined ? {} : { owner }),
   });
   const influenceCases = [
-    { name: "no owners", entries: v2.commitInfluence.entries as InfluenceEntry[], normalized: [
+    { name: "no owners", entries: COMMIT_INFLUENCE.entries as InfluenceEntry[], normalized: [
       { cls: "private", src: "file:notes.md", h: "h1", cid: "cid-1" },
       { cls: "third-party", src: "web:example.com", h: "h2" },
       { cls: "public", src: "web:docs.example.org", h: "h3" },
@@ -366,7 +473,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     check(`influence ${c.name}`, normalizeInfluence(c.entries), c.normalized);
     return { ...c, commitment: commitInfluence(c.entries) };
   });
-  check("no owners commitment", influenceCases[0]!.commitment, v2.commitInfluence.expected);
+  check("no owners commitment", influenceCases[0]!.commitment, primitives.commitInfluence.expected);
 
   // The standing rule's truth table, by hand.
   const TP = { cls: "third-party" } as const;
@@ -932,6 +1039,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     replyCert,
     sessionReply,
     sessionStatus: sessionStatusCases,
+    ...primitives,
   };
 }
 

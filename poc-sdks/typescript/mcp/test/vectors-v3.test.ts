@@ -7,11 +7,12 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
+import { bindMcpCall } from "../src/index.ts";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
 type Sections =
@@ -215,6 +216,16 @@ describe("v3 known-answer vectors", () => {
   });
 
   it("session status section", () => expect(committed.sessionStatus.length).toBeGreaterThan(0));
+
+  it("bindMcpCall", () => {
+    const c = (committed as any).bindMcpCall;
+    expect(bindMcpCall(c.tool, c.callId, c.args)).toBe(c.expected);
+  });
+
+  it("bindResult", () => {
+    const c = (committed as any).bindResult;
+    expect(bindResult(c.result)).toBe(c.expected);
+  });
 
   it.each(committed.sessionStatus.map((c: any): [string, any] => [c.name, c]))("session status %s", (_n, c: any) => {
     const ring = c.serverKeyring;

@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. The sections after sessionStatus pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId v1) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -10044,5 +10044,204 @@
       "now": 1767225600000,
       "expected": "unsafe"
     }
-  ]
+  ],
+  "fixedInputs": {
+    "clientRootSig": {
+      "start": 1,
+      "length": 64,
+      "encoded": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiMkJSYnKCkqKywtLi8wMTIzNDU2Nzg5Ojs8PT4_QA"
+    },
+    "serverRootSig": {
+      "start": 65,
+      "length": 64,
+      "encoded": "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5_gA"
+    },
+    "clientNonce": {
+      "start": 160,
+      "length": 16,
+      "encoded": "oKGio6SlpqeoqaqrrK2urw"
+    },
+    "serverNonce": {
+      "start": 176,
+      "length": 16,
+      "encoded": "sLGys7S1tre4ubq7vL2-vw"
+    }
+  },
+  "deriveSessionId": {
+    "keys": {
+      "clientPolicyKey": "client-policy-key",
+      "clientKeyring": {
+        "session": "harness-key",
+        "pi": "harness-key"
+      }
+    },
+    "cases": [
+      {
+        "name": "both roots",
+        "clientRootSig": "clientRootSig",
+        "serverRootSig": "serverRootSig",
+        "expected": "Sihmp4JNFGGxfYjPSXSMuSUaOfj3STn55ToB7yOcRp0"
+      },
+      {
+        "name": "client root null",
+        "clientRootSig": null,
+        "serverRootSig": "serverRootSig",
+        "expected": "dAK3HV9_ZQOkDJNgtMYlPBwcVAa33Hza3QV_qV4GvrY"
+      },
+      {
+        "name": "server root null",
+        "clientRootSig": "clientRootSig",
+        "serverRootSig": null,
+        "expected": "_WFC-8gbHWAqLj7pCSHLa-gIlW2TVSa0RMpjgUpj3Ws"
+      }
+    ]
+  },
+  "bindPrompt": {
+    "prompt": "open a PR for issue #42",
+    "expected": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk"
+  },
+  "bindResult": {
+    "result": {
+      "content": [
+        {
+          "type": "text",
+          "text": "hi"
+        }
+      ],
+      "isError": false,
+      "_meta": {
+        "x": 1
+      }
+    },
+    "expected": "YBkqnV0tWMJE84KUs7n6DNLf75P0zwF096oAvlJ2Zxw"
+  },
+  "bindResponse": {
+    "resultHash": "result-hash",
+    "callId": "call-1",
+    "labels": [
+      {
+        "cls": "third-party",
+        "cid": "cid-1"
+      },
+      {
+        "cls": "private",
+        "cid": "cid-2"
+      }
+    ],
+    "expected": "8uSt7UKQxhX_wUTDkOHv-CWfU6QeBCJN9Gkb1K_WsNM"
+  },
+  "bindMcpCall": {
+    "tool": "create_pull_request",
+    "callId": "call-1",
+    "args": {
+      "title": "t",
+      "body": "b",
+      "draft": false,
+      "n": [
+        1,
+        2.5
+      ]
+    },
+    "expected": "1dK9R69lTXmP45Z9HIVEmO9EtY_bRq68vJvEO_tdZv8"
+  },
+  "commitInfluence": {
+    "entries": [
+      {
+        "cls": "third-party",
+        "src": "web:example.com",
+        "h": "h2"
+      },
+      {
+        "cls": "private",
+        "src": "file:notes.md",
+        "h": "h1",
+        "cid": "cid-1"
+      },
+      {
+        "cls": "public",
+        "src": "web:docs.example.org",
+        "h": "h3"
+      }
+    ],
+    "expected": "1tNgtedjp7S6FojkCifg0XASNGvw8mxK2QiYPVfCyDw"
+  },
+  "merkle": {
+    "leaves": [
+      {
+        "salt": "-72t5JB2o5-0_DBVICoNQg",
+        "path": "gateway/orders/payment",
+        "hash": "VUR8y6hwSc4cSN7YZf3whGqA_gnZGM10e9whWaUvg7Q"
+      },
+      {
+        "salt": "ujLZXNGXFps4j4nU0wX2Yw",
+        "path": "gateway/orders",
+        "hash": "mMqz5CWp6ERal_XklnVmvQzsh_nw1nFpttqtPRdTOYw"
+      },
+      {
+        "salt": "izKXq4MjEbVHm7fWohfcuA",
+        "path": "gateway/search",
+        "hash": "MhqDJRH8a_OiT-_3drygb_b0Gd0jWKc38lI2OkNW6WE"
+      }
+    ],
+    "nodes": [
+      {
+        "left": "VUR8y6hwSc4cSN7YZf3whGqA_gnZGM10e9whWaUvg7Q",
+        "right": "mMqz5CWp6ERal_XklnVmvQzsh_nw1nFpttqtPRdTOYw",
+        "hash": "joaLw6HmR-RpIfLxgwy3QIMxG9NGSfYb-YdqeKpN1OM"
+      }
+    ],
+    "root": "1p3vWiLcx6wwRDP4lTQniqnNKjUfXGhVnwLaryDszBQ",
+    "proofs": {
+      "gateway/orders/payment": {
+        "leafSalt": "-72t5JB2o5-0_DBVICoNQg",
+        "siblings": [
+          "mMqz5CWp6ERal_XklnVmvQzsh_nw1nFpttqtPRdTOYw",
+          "GleOAtomzhKANdq5trEgjsWz1rFhu1SMwzFKJxDPMAc",
+          "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M",
+          "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs",
+          "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+          "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA",
+          "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw",
+          "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0"
+        ],
+        "dirs": "LLLLLLLL",
+        "rootId": "v1"
+      },
+      "gateway/orders": {
+        "leafSalt": "ujLZXNGXFps4j4nU0wX2Yw",
+        "siblings": [
+          "VUR8y6hwSc4cSN7YZf3whGqA_gnZGM10e9whWaUvg7Q",
+          "GleOAtomzhKANdq5trEgjsWz1rFhu1SMwzFKJxDPMAc",
+          "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M",
+          "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs",
+          "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+          "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA",
+          "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw",
+          "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0"
+        ],
+        "dirs": "RLLLLLLL",
+        "rootId": "v1"
+      },
+      "gateway/search": {
+        "leafSalt": "izKXq4MjEbVHm7fWohfcuA",
+        "siblings": [
+          "WNvdj6tvsMs2Jb8wPRXSqllJVXM5Zze7N1X_flvMOaY",
+          "joaLw6HmR-RpIfLxgwy3QIMxG9NGSfYb-YdqeKpN1OM",
+          "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M",
+          "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs",
+          "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+          "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA",
+          "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw",
+          "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0"
+        ],
+        "dirs": "LRLLLLLL",
+        "rootId": "v1"
+      }
+    },
+    "proofHeaders": {
+      "gateway/orders/payment": "eyJsZWFmU2FsdCI6Ii03MnQ1SkIybzUtMF9EQlZJQ29OUWciLCJzaWJsaW5ncyI6WyJtTXF6NUNXcDZFUmFsX1hrbG5WbXZRenNoX253MW5GcHR0cXRQUmRUT1l3IiwiR2xlT0F0b216aEtBTmRxNXRyRWdqc1d6MXJGaHUxU013ekZLSnhEUE1BYyIsIlgwNm5hY1Mtb3V2bkJHNktuUGZUMnBKYy1NajJ0X2Fidl9jTVF5THl2LU0iLCJvbFJVbThDeTdIaVJIeThMNHNWLS1CaHRSNHJxWUVEZ0V6aWt6RDNvSFZzIiwiUGRfTTBvTURoMndhb29YM1d1VFp2Ulh6Q242NXJGdTNtQk1EVjUwLTNnayIsInNTUWlxRG1CQVlMZFpzampkRkdCY0FmcnI3R1RCSWR5Zi1KWWp6aWZoaEEiLCJpSkg0Z05iak1tYUZJckFEQkVPMldIREtORk03WVhlYVI2S3AtWF9OTE13IiwiSndkM3AxcmRPX3d3REduaEE3UkF6LTlobmNublB3RFRzMzltMW1hZ3NLMCJdLCJkaXJzIjoiTExMTExMTEwiLCJyb290SWQiOiJ2MSJ9",
+      "gateway/orders": "eyJsZWFmU2FsdCI6InVqTFpYTkdYRnBzNGo0blUwd1gyWXciLCJzaWJsaW5ncyI6WyJWVVI4eTZod1NjNGNTTjdZWmYzd2hHcUFfZ25aR00xMGU5d2hXYVV2ZzdRIiwiR2xlT0F0b216aEtBTmRxNXRyRWdqc1d6MXJGaHUxU013ekZLSnhEUE1BYyIsIlgwNm5hY1Mtb3V2bkJHNktuUGZUMnBKYy1NajJ0X2Fidl9jTVF5THl2LU0iLCJvbFJVbThDeTdIaVJIeThMNHNWLS1CaHRSNHJxWUVEZ0V6aWt6RDNvSFZzIiwiUGRfTTBvTURoMndhb29YM1d1VFp2Ulh6Q242NXJGdTNtQk1EVjUwLTNnayIsInNTUWlxRG1CQVlMZFpzampkRkdCY0FmcnI3R1RCSWR5Zi1KWWp6aWZoaEEiLCJpSkg0Z05iak1tYUZJckFEQkVPMldIREtORk03WVhlYVI2S3AtWF9OTE13IiwiSndkM3AxcmRPX3d3REduaEE3UkF6LTlobmNublB3RFRzMzltMW1hZ3NLMCJdLCJkaXJzIjoiUkxMTExMTEwiLCJyb290SWQiOiJ2MSJ9",
+      "gateway/search": "eyJsZWFmU2FsdCI6Iml6S1hxNE1qRWJWSG03ZldvaGZjdUEiLCJzaWJsaW5ncyI6WyJXTnZkajZ0dnNNczJKYjh3UFJYU3FsbEpWWE01WnplN04xWF9mbHZNT2FZIiwiam9hTHc2SG1SLVJwSWZMeGd3eTNRSU14RzlOR1NmWWItWWRxZUtwTjFPTSIsIlgwNm5hY1Mtb3V2bkJHNktuUGZUMnBKYy1NajJ0X2Fidl9jTVF5THl2LU0iLCJvbFJVbThDeTdIaVJIeThMNHNWLS1CaHRSNHJxWUVEZ0V6aWt6RDNvSFZzIiwiUGRfTTBvTURoMndhb29YM1d1VFp2Ulh6Q242NXJGdTNtQk1EVjUwLTNnayIsInNTUWlxRG1CQVlMZFpzampkRkdCY0FmcnI3R1RCSWR5Zi1KWWp6aWZoaEEiLCJpSkg0Z05iak1tYUZJckFEQkVPMldIREtORk03WVhlYVI2S3AtWF9OTE13IiwiSndkM3AxcmRPX3d3REduaEE3UkF6LTlobmNublB3RFRzMzltMW1hZ3NLMCJdLCJkaXJzIjoiTFJMTExMTEwiLCJyb290SWQiOiJ2MSJ9"
+    }
+  }
 }
