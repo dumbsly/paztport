@@ -950,15 +950,15 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(none.ok).toBe(false);
     expect(results(none.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     // a client record signed by the right key, but not the root the session attested
-    const phase1 = loadClientMaterial(join(demo, "client"));
-    const other = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").signedRoot = phase1.signedRoot; }));
+    const noRulesClient = loadClientMaterial(join(demo, "client"));
+    const other = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").signedRoot = noRulesClient.signedRoot; }));
     expect(results(other.items, "client")).toEqual(["BAD_CLIENT"]);
     expect(results(other.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     // an intact client record, but a session that names another client root
-    const session = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "session").request.clientRoot = phase1.signedRoot; }));
+    const session = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "session").request.clientRoot = noRulesClient.signedRoot; }));
     expect(results(session.items, "client")).toEqual(["BAD_CLIENT"]);
     // a root its policy key does not sign
-    const forged = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").policyPublicKey = phase1.keyring.pi; }));
+    const forged = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").policyPublicKey = noRulesClient.keyring.pi; }));
     expect(results(forged.items, "client")).toEqual(["BAD_CLIENT"]);
   });
 

@@ -1,25 +1,29 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// Builds the two fixture sets from real runs of `npm run eval -- --modes on,off` (a Paztport-on run that was blocked,
-// and a Paztport-off run). Run it from poc-demos/agents-mcp/:
+// Builds the two fixture sets from one results folder of `npm run eval -- --modes on,off`, a Paztport-on run that the
+// server blocked and a Paztport-off run. Run it from poc-demos/agents-mcp/:
 //
-//   node eval/test/fixtures/derive.ts <on-run dir> <off-run dir>
+//   node eval/test/fixtures/derive.ts <results folder> <on run, e.g. on-001> <off run, e.g. off-002>
 //
 // eval-results/ holds the on run as on-001, a copy of it with the repo in one signed call changed so that the call no
 // longer matches its binding (on-002, the check must fail it), a copy cut down to its run record (on-003), the off run's
-// outcome log (off-001) and the results.json that lists them. recorded-on-run/ (demo-ui) holds the on run with the
+// outcome log (off-001) and the results.json that lists them: the eval's own entries for the two real runs and entries for
+// the copies derived from the on run's. recorded-on-run/ (demo-ui) holds the on run with the
 // transcript's thinking and answer text deltas dropped; nothing reads them and they are most of its size. Nothing
 // else is edited.
 
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-const [onDir, offDir] = process.argv.slice(2);
-if (onDir === undefined || offDir === undefined) {
-  console.error("usage: node eval/test/fixtures/derive.ts <on-run dir> <off-run dir>");
+const [folder, onName, offName] = process.argv.slice(2);
+if (folder === undefined || onName === undefined || offName === undefined) {
+  console.error("usage: node eval/test/fixtures/derive.ts <results folder> <on run> <off run>");
   process.exit(2);
 }
+const onDir = join(folder, "runs", onName);
+const offDir = join(folder, "runs", offName);
+const eval_ = JSON.parse(readFileSync(join(folder, "results.json"), "utf8"));
 const here = import.meta.dirname;
 const lines = (file: string): string[] => readFileSync(file, "utf8").split("\n").filter((l) => l.trim() !== "");
 
@@ -52,14 +56,27 @@ writeFileSync(join(results, "runs/on-003/evidence.jsonl"), runRecord[0] + "\n");
 mkdirSync(join(results, "runs/off-001"), { recursive: true });
 cpSync(join(offDir, "outcome.jsonl"), join(results, "runs/off-001/outcome.jsonl"));
 
-const run = (mode: string, index: number, outcome: string, status: string, verify: string) =>
-  ({ mode, index, dir: `runs/${mode}-${String(index).padStart(3, "0")}`, outcome, status, verify: { status: verify, problems: [] } });
+const entry = (name: string) => {
+  const e = eval_.runs.find((r: { dir: string }) => r.dir === `runs/${name}`);
+  if (e === undefined) throw new Error(`results.json lists no ${name}`);
+  return e;
+};
+const onEntry = entry(onName);
+const offEntry = { ...entry(offName), index: 1, dir: "runs/off-001" };
 writeFileSync(
   join(results, "results.json"),
   JSON.stringify(
     {
-      formatVersion: 1,
-      runs: [run("on", 1, "blocked", "completed", "ok"), run("on", 2, "blocked", "completed", "failed"), run("on", 3, "error", "error", "not-recorded"), run("off", 1, "resisted", "completed", "none")],
+      formatVersion: eval_.formatVersion,
+      scenario: eval_.scenario,
+      payload: eval_.payload,
+      model: eval_.model,
+      runs: [
+        { ...onEntry, index: 1, dir: "runs/on-001" },
+        { ...onEntry, index: 2, dir: "runs/on-002", verify: { status: "failed", problems: [] } },
+        { ...onEntry, index: 3, dir: "runs/on-003", verify: { status: "not-recorded", problems: [] } },
+        offEntry,
+      ],
     },
     null,
     2,

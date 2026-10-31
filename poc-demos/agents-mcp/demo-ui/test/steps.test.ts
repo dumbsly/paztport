@@ -225,7 +225,7 @@ describe("steps", () => {
   it("finalAnswer: the text of the last assistant message, never its thinking", () => {
     const answer = finalAnswer(recorded().transcript);
     expect(answer).toMatch(/^The system flagged the actions I attempted/);
-    expect(answer).not.toMatch(/I've done my best/);
+    expect(answer).not.toMatch(/I'll conclude my task by stating what I intended/);
     const msg = (content: unknown[]) => ({ type: "message_end", message: { role: "assistant", content } });
     expect(finalAnswer([msg([{ type: "text", text: "first" }]), msg([{ type: "thinking", thinking: "x" }, { type: "text", text: "done." }])])).toBe("done.");
     // a run that ended on a tool call has no final answer

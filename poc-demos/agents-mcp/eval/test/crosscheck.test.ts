@@ -62,7 +62,7 @@ describe("checkRun on the pinned run", () => {
   it("runWithoutLocalEventsIsOk", () => {
     const run = join(import.meta.dirname, "fixtures/eval-results/runs/on-001");
     const evidencePath = join(run, "evidence.jsonl");
-    const v = checkRun({ mode: "on", outcome: "blocked", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "G7yTcA7G_rYXWT30" });
+    const v = checkRun({ mode: "on", outcome: "blocked-with-private-text", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "G7yTcA7G_rYXWT30" });
     expect(v).toEqual({ status: "ok", problems: [] });
   });
 });
