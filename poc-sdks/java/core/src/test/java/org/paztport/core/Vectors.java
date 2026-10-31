@@ -14,9 +14,13 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import org.paztport.core.internal.JsonValue;
 
 /**
  * Finds and loads a committed vector file from {@code spec/vectors/} by walking up from the working directory,
@@ -64,6 +68,31 @@ public final class Vectors {
             throw new IllegalArgumentException("not a value read from a vector file: " + node);
         }
         return text;
+    }
+
+    /**
+     * A vector's value as the SDK's own JSON value, members in the file's order, to compare with what the SDK reads.
+     * A number that is not an integer within [0, 2^53 &minus; 1] throws, since no such value exists.
+     */
+    public static JsonValue value(JsonNode node) {
+        if (node.isObject()) {
+            Map<String, JsonValue> members = new LinkedHashMap<>();
+            node.properties().forEach(m -> members.put(m.getKey(), value(m.getValue())));
+            return new JsonValue.Obj(members);
+        } else if (node.isArray()) {
+            List<JsonValue> items = new ArrayList<>();
+            node.forEach(item -> items.add(value(item)));
+            return new JsonValue.Arr(items);
+        } else if (node.isTextual()) {
+            return new JsonValue.Str(node.textValue());
+        } else if (node.isBoolean()) {
+            return new JsonValue.Bool(node.booleanValue());
+        } else if (node.isNull()) {
+            return new JsonValue.Null();
+        } else if (node.isIntegralNumber() && node.canConvertToLong()) {
+            return new JsonValue.Int(node.longValue());
+        }
+        throw new IllegalArgumentException("not a value the SDK reads: " + node);
     }
 
     /** The tree of a vector file's text, with each value's text recorded as it is read. */
