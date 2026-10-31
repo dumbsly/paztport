@@ -78,8 +78,7 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * response at the time the client recorded checking it, which the library's freshness window ties to the server's
  * signed stamps. The client signs those times itself, so a client that lies about them can make its own records count
  * longer than they should; what it cannot do is move a window, which the policy key signed. Old-form roots and
- * keyrings in a record set no limit and are not marked legacy: records made before keyrings and roots expired keep
- * their outcomes. A response past the server's new-form root or keyring window is POLICY_EXPIRED.
+ * keyrings in a record set no limit: records made before keyrings and roots expired keep their outcomes. A response past the server's new-form root or keyring window is POLICY_EXPIRED.
  */
 export type VerifyItem = {
   line: number;
@@ -97,8 +96,6 @@ export type VerifyItem = {
     | "DUPLICATE_RESPONSE"
     | "UNBOUND"
     | LocalResult;
-  /** Set only on an item that verified (its result is in NOT_FAILURES) from a session request with no keyring signature. */
-  legacy?: true;
 };
 /**
  * `pins` are fingerprints of the server policy keys the file's verified sessions were pinned to.
@@ -274,15 +271,13 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (s !== undefined) {
         pins.add(pinFingerprint(rec.pin as string));
       }
-      const sItem = add(s !== undefined ? "OK" : "BAD_SESSION");
-      if (s?.recorded.legacy === true) sItem.legacy = true;
+      add(s !== undefined ? "OK" : "BAD_SESSION");
     } else if (type === "client") {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const { result, legacy } = verifyLocal(rec, client, runOf, records.spent);
-      const lItem = add(result);
-      if (legacy && NOT_FAILURES.includes(result)) lItem.legacy = true;
+      const { result } = verifyLocal(rec, client, runOf, records.spent);
+      add(result);
       if (result === "OK" || result === "REFUSED") {
         boundRids.add(rec.rid as string);
       }
@@ -303,8 +298,7 @@ function verifyFile(path: string, label: string): VerifyReport {
         // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
         // TIME_MISMATCH): a call recorded past one of its session's limits is OUTSIDE_SESSION. The session is attested.
         const result = callInSession(session.recorded, v.result.reason, rec.now)!;
-        const cItem = add(result);
-        if (v.legacy && NOT_FAILURES.includes(result)) cItem.legacy = true;
+        add(result);
         // the first record of a call is the one its response answers
         const k = key(server, rec.rid, rec.callId);
         if (!calls.has(k)) {

@@ -387,7 +387,6 @@ class VectorsV3Test {
                 assertEquals(want.get("attestedAt").get(i).asBoolean(), s.attestedAt(at), name + ": at " + at);
             }
             assertEquals(want.get("responseNotAfter").asLong(), s.responseNotAfter(), name + ": responseNotAfter");
-            assertEquals(want.get("legacy").asBoolean(), s.legacy(), name + ": legacy");
         }
     }
 
@@ -426,8 +425,6 @@ class VectorsV3Test {
                         call.get("recordedTs").get("last").asLong());
                 JsonNode want = c.get("expected").get(i);
                 assertEquals(ReasonCode.valueOf(want.get("reason").asText()), reason, name + " call " + i);
-                assertEquals(want.get("legacy").asBoolean(), reason == ReasonCode.OK && result.legacy(),
-                        name + " call " + i + " legacy");
                 outsideSession |= reason == ReasonCode.OUTSIDE_SESSION;
             }
         }
@@ -450,6 +447,22 @@ class VectorsV3Test {
                     SessionRequest.parse(Vectors.json(c.get("request"))),
                     SignedRoot.parse(Vectors.json(c.get("serverRoot"))), serverKeyring,
                     Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
+        }
+    }
+
+    @Test
+    void sessionRequest() {
+        JsonNode cases = vectors.get("sessionRequest");
+        assertTrue(cases != null && cases.size() > 0, "sessionRequest section");
+        for (JsonNode c : cases) {
+            String name = c.get("name").asText();
+            String got = "OK";
+            try {
+                SessionRequest.parse(Vectors.json(c.get("request")));
+            } catch (IllegalArgumentException e) {
+                got = "MALFORMED";
+            }
+            assertEquals(c.get("expected").asText(), got, name);
         }
     }
 
@@ -528,8 +541,8 @@ class VectorsV3Test {
             OfflineResult result = OfflineVerifier.verify(offlineInput(c, policy), offlineConfig(c, policy));
             JsonNode want = c.get("expected");
             assertEquals(new OfflineResult(ReasonCode.valueOf(want.get("reason").asText()),
-                    want.get("suspectSvc").asText(), want.get("suspectInst").asText(),
-                    want.get("legacy").asBoolean()), result, c.get("name").asText());
+                    want.get("suspectSvc").asText(), want.get("suspectInst").asText()),
+                    result, c.get("name").asText());
         }
     }
 

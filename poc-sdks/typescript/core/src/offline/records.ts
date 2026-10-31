@@ -3,7 +3,7 @@
 
 import { isNotAfter } from "../policy/validity.ts";
 import { isReplyCert } from "../session/reply-cert.ts";
-import { isAttestedSession, isLegacySessionRequest, type LegacySessionRequest, type SessionReply, type SessionRequest } from "../session/session.ts";
+import { isAttestedSession, type SessionReply, type SessionRequest } from "../session/session.ts";
 import { NonceCache } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 
@@ -12,7 +12,7 @@ import type { ReasonCode } from "../verify/reason.ts";
  * pinned, and the server's entry service from the verifier's own configuration, never the record's.
  */
 export type RecordedHandshake = {
-  request: SessionRequest | LegacySessionRequest;
+  request: SessionRequest;
   reply: SessionReply;
   pin: string;
   serverEntry: string;
@@ -26,8 +26,6 @@ export type RecordedSession = {
   attested: boolean;
   /** The `policyNotAfter` a recorded response in the session is checked with: the server root's window and, in the entry-key form, the server keyring's; 2^53 − 1 when neither has one. */
   responseNotAfter: number;
-  /** Attested from a request with no `clientKeyringSig`; never set on one that is not attested, since a failure is never marked. */
-  legacy: boolean;
 };
 
 /** `o`'s own `field` when it is a valid notAfter, else undefined: offline an old-form root or keyring sets no limit. */
@@ -66,15 +64,13 @@ export function recordedSession(h: RecordedHandshake): RecordedSession {
       0,
     );
     const ring = Object.hasOwn(reply, "serverKeyringSig") ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
-    const attested = attestedAt(limit);
     return {
       attestedAt,
-      attested,
+      attested: attestedAt(limit),
       responseNotAfter: earliest([ownWindow(reply.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER),
-      legacy: attested && isLegacySessionRequest(request),
     };
   } catch {
-    return { attestedAt: () => false, attested: false, responseNotAfter: Number.MAX_SAFE_INTEGER, legacy: false };
+    return { attestedAt: () => false, attested: false, responseNotAfter: Number.MAX_SAFE_INTEGER };
   }
 }
 

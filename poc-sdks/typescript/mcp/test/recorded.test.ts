@@ -52,7 +52,6 @@ describe("verifyRecordedCall", () => {
     const r = verifyRecordedCall(w.params(), w.call, w.cfg());
     expect(r.result).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
     expect([r.rid, r.callId, r.influence]).toEqual(["rid-1", "call-1", infl]);
-    expect(r.legacy).toBe(false);
   });
 
   it("aRecordedCallMustNameTheRecordsReceiver", () => {
@@ -66,6 +65,17 @@ describe("verifyRecordedCall", () => {
     expect(verifyRecordedCall(w.params(), { ...w.call, rid: "rid-2" }, w.cfg()).result.reason).toBe("RID_MISMATCH");
     expect(verifyRecordedCall(w.params(), { ...w.call, callId: "call-2" }, w.cfg()).result.reason).toBe("RID_MISMATCH");
     expect(verifyRecordedCall(w.params(), { ...w.call, stampedAt: CALL_TS + 1 }, w.cfg()).result.reason).toBe("TIME_MISMATCH");
+  });
+
+  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
+    const w = world();
+    for (const v of [1, 2, 4]) {
+      for (const at of [0, 1]) {
+        const p = w.params();
+        ((p._meta as Record<string, unknown>)[META_CHAIN] as Record<string, unknown>[])[at]!.v = v;
+        expect(verifyRecordedCall(p, w.call, w.cfg()).result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
+      }
+    }
   });
 
   it("theOriginBindsTheRecordedPrompt", () => {

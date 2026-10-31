@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -122,5 +123,17 @@ class HttpSessionsTest {
 
         assertEquals(400, answer.status());
         assertEquals("{\"error\":\"NO_SESSION\"}", text(answer));
+    }
+
+    @Test
+    void aRequestWithNoKeyringSignatureIsInvalidParams() throws IOException {
+        ObjectNode missing = (ObjectNode) new ObjectMapper().readTree(request(Sessions.newNonce()));
+        missing.remove("clientKeyringSig");
+
+        HttpAnswer answer = HttpSessions.serve(body(missing.toString().getBytes(StandardCharsets.UTF_8)), orders,
+                sessions);
+
+        assertEquals(400, answer.status());
+        assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
     }
 }

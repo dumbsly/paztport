@@ -120,9 +120,6 @@ class SessionsTest {
         SessionRequest wrongSig = new SessionRequest(clientRoot, clientKey, clientRing,
                 Base64Url.encode(new byte[64]), NOT_AFTER, good.nonce());
         assertEquals("unsafe", status(wrongSig), "wrong keyring sig");
-        SessionRequest legacy = new SessionRequest(clientRoot, clientKey, clientRing, null, null, good.nonce());
-        assertTrue(legacy.legacy());
-        assertEquals("unsafe", status(legacy), "legacy");
         assertEquals("unsafe", Sessions.status(good, null, serverKeyring, own, pinned, NOW), "no server root");
         assertEquals("attested", status(good));
     }
@@ -226,7 +223,7 @@ class SessionsTest {
     }
 
     @Test
-    void sessionRequestParseRefusesMalformedFieldsAndReadsAMissingKeyringSigAsLegacy() throws Exception {
+    void sessionRequestParseRefusesMalformedFields() throws Exception {
         assertThrows(IllegalArgumentException.class, () -> parse(JSON.readTree("[]")));
         ObjectNode ok = tree(request(clientRoot).toJson());
         for (String[] bad : new String[][] {{"clientRoot", "5"}, {"clientKeyring", "{\"a\":1}"}, {"nonce", "7"}}) {
@@ -234,11 +231,6 @@ class SessionsTest {
             o.set(bad[0], JSON.readTree(bad[1]));
             assertThrows(IllegalArgumentException.class, () -> parse(o), bad[0]);
         }
-        ObjectNode odd = ok.deepCopy();
-        odd.put("clientKeyringSig", 5);
-        assertEquals("", parse(odd).clientKeyringSig());
-        odd.remove("clientKeyringSig");
-        assertTrue(parse(odd).legacy());
     }
 
     /**

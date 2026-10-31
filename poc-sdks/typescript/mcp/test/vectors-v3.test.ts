@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, parseSessionRequest, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
@@ -17,7 +17,7 @@ import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
 type Sections =
   | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
-  | "replyCert" | "sessionReply" | "sessionStatus";
+  | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
 
@@ -54,13 +54,13 @@ function replayOffline(v: any, c: any) {
   const offline: OfflineConfig = { ...cfg, seen: new Set<string>(c.seen), callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs };
   const full: OfflineInput = { ...input, rid: c.rid, recordedTs, prompt: c.prompt };
   const result = verifyChainOffline(full, offline);
-  return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst, legacy: result.legacy };
+  return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst };
 }
 
-/** A recorded handshake case's session, as the library reads it: at each `at`, at all, the response limit and legacy. */
+/** A recorded handshake case's session, as the library reads it: at each `at`, at all, and the response limit. */
 function replayHandshake(v: any, c: any) {
   const s = recordedSession({ request: c.request, reply: c.reply, pin: v.keys[c.pin].pub, serverEntry: c.serverEntry });
-  return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter, legacy: s.legacy };
+  return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter };
 }
 
 /**
@@ -84,7 +84,7 @@ function replayRecordedCalls(v: any, c: any) {
       },
     );
     const reason = callInSession(sessions[call.handshake], result.reason, call.recordedTs.last);
-    return { reason, legacy: reason === "OK" && result.legacy };
+    return { reason };
   });
 }
 
@@ -102,7 +102,7 @@ function replayLocalStep(v: any, c: any) {
     { ...step, proof: proofRoute === null ? null : policy.proofs[proofRoute] },
     { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
   );
-  return { reason: result.reason, verdict: result.verdict ?? null, legacy: result.legacy };
+  return { reason: result.reason, verdict: result.verdict ?? null };
 }
 
 describe("v3 known-answer vectors", () => {
@@ -216,6 +216,17 @@ describe("v3 known-answer vectors", () => {
   });
 
   it("session status section", () => expect(committed.sessionStatus.length).toBeGreaterThan(0));
+  it("session request section", () => expect(committed.sessionRequest.length).toBeGreaterThan(0));
+
+  it.each(committed.sessionRequest.map((c: any): [string, any] => [c.name, c]))("session request %s", (_n, c: any) => {
+    let got = "OK";
+    try {
+      parseSessionRequest(c.request);
+    } catch {
+      got = "MALFORMED";
+    }
+    expect(got).toBe(c.expected);
+  });
 
   it("bindMcpCall", () => {
     const c = (committed as any).bindMcpCall;

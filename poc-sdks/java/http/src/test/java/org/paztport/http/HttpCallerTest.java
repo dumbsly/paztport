@@ -122,9 +122,7 @@ class HttpCallerTest {
     }
 
     private static List<StampV3> chainOf(Map<String, String> headers) {
-        List<StampV3> stamps = Chains.parse(HttpV3.decodeChain(headers.get(PaztportHeaders.CHAIN)))
-                .stamps();
-        return stamps.stream().map(StampV3.class::cast).toList();
+        return Chains.parse(HttpV3.decodeChain(headers.get(PaztportHeaders.CHAIN))).stamps();
     }
 
     private static byte[] utf8(String s) {

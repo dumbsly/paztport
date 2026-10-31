@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { newNonce, type LegacySessionRequest, type SessionRequest } from "./session.ts";
+import { newNonce, type SessionRequest } from "./session.ts";
 import { parseSignedRoot, type SignedRoot } from "../policy/root.ts";
 import { readNotAfter } from "../policy/validity.ts";
 
@@ -24,10 +24,10 @@ function stringMap(v: Record<string, unknown>, what: string): Record<string, str
 /**
  * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A present
  * `clientKeyringNotAfter` or root `notAfter` that is not an integer in [0, 2^53 − 1] (null included) is malformed,
- * never absent: read as absent, a damaged window would pass for the old form. A missing `clientKeyringSig` is
- * a legacy request (the field stays absent); a present one that is not a string reads as "", which never verifies.
+ * never absent: read as absent, a damaged window would pass for the old form. A `clientKeyringSig` that is
+ * missing, null, not a string or empty is malformed too.
  */
-export function parseSessionRequest(json: unknown): SessionRequest | LegacySessionRequest {
+export function parseSessionRequest(json: unknown): SessionRequest {
   if (!isObject(json)) {
     throw new Error("session request must be an object");
   }
@@ -43,12 +43,15 @@ export function parseSessionRequest(json: unknown): SessionRequest | LegacySessi
   }
   const clientKeyring = stringMap(json.clientKeyring, "clientKeyring");
   const clientKeyringNotAfter = readNotAfter(json, "clientKeyringNotAfter");
-  const clientKeyringSig = Object.hasOwn(json, "clientKeyringSig") ? { clientKeyringSig: typeof json.clientKeyringSig === "string" ? json.clientKeyringSig : "" } : {};
+  const clientKeyringSig = json.clientKeyringSig;
+  if (typeof clientKeyringSig !== "string" || clientKeyringSig === "") {
+    throw new Error("clientKeyringSig must be a non-empty string");
+  }
   return {
     clientRoot,
     clientPolicyKey: str(json.clientPolicyKey, "clientPolicyKey"),
     clientKeyring,
-    ...clientKeyringSig,
+    clientKeyringSig,
     ...(clientKeyringNotAfter !== undefined ? { clientKeyringNotAfter } : {}),
     nonce: str(json.nonce, "nonce"),
   };

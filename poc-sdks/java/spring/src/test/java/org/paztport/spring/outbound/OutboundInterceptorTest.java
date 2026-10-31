@@ -166,9 +166,7 @@ class OutboundInterceptorTest {
     }
 
     private static List<StampV3> chainOf(HttpHeaders headers) {
-        List<StampV3> stamps = Chains.parse(HttpV3.decodeChain(headers.getFirst(PaztportHeaders.CHAIN)))
-                .stamps();
-        return stamps.stream().map(StampV3.class::cast).toList();
+        return Chains.parse(HttpV3.decodeChain(headers.getFirst(PaztportHeaders.CHAIN))).stamps();
     }
 
     @Test

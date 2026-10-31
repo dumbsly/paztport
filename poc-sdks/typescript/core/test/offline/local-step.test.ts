@@ -61,13 +61,13 @@ function world() {
 describe("verifyRecordedLocalStep", () => {
   it("anAllowedStepVerifies", () => {
     const w = world();
-    expect(w.check(w.step())).toEqual({ reason: "OK", verdict: "OK", legacy: false });
+    expect(w.check(w.step())).toEqual({ reason: "OK", verdict: "OK" });
   });
 
   it("aRefusalTheRulesGiveVerifiesWithItsVerdict", () => {
     const w = world();
     const write: Resolved = { paths: [{ need: "write", at: "notes.md" }], programs: [], parse: "ok", readOnly: false };
-    expect(w.check(w.step({ tool: "write", input: { path: "notes.md" }, resolved: write, verdict: "SCOPE_DENIED" }))).toEqual({ reason: "OK", verdict: "SCOPE_DENIED", legacy: false });
+    expect(w.check(w.step({ tool: "write", input: { path: "notes.md" }, resolved: write, verdict: "SCOPE_DENIED" }))).toEqual({ reason: "OK", verdict: "SCOPE_DENIED" });
   });
 
   it("anUnlistedToolsRefusalVerifies", () => {
@@ -76,14 +76,13 @@ describe("verifyRecordedLocalStep", () => {
     expect(w.check(w.step({ tool: "bash", input: { command: "ls" }, resolved: NOTHING, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }))).toEqual({
       reason: "OK",
       verdict: "PATH_NOT_ALLOWED",
-      legacy: false,
     });
   });
 
   it("withNoRulesEveryStepIsScopeDenied", () => {
     const w = world();
     const none = w.client({ rules: null });
-    expect(w.check(w.step({ resolved: NOTHING, verdict: "SCOPE_DENIED", rulesHash: null }), none)).toEqual({ reason: "OK", verdict: "SCOPE_DENIED", legacy: false });
+    expect(w.check(w.step({ resolved: NOTHING, verdict: "SCOPE_DENIED", rulesHash: null }), none)).toEqual({ reason: "OK", verdict: "SCOPE_DENIED" });
     expect(w.check(w.step({ rulesHash: null }), none).reason).toBe("VERDICT_MISMATCH");
   });
 

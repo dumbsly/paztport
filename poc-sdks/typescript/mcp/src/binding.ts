@@ -3,7 +3,7 @@
 
 import { canonicalize, encode, sha256, utf8 } from "@paztport/core";
 
-/** v2 MCP tools/call binding over tool name, call id and canonical arguments. */
+/** MCP tools/call binding over tool name, call id and canonical arguments. */
 export function bindMcpCall(toolName: string, toolCallId: string, args: unknown): string {
   if (toolName.includes("\n") || toolCallId.includes("\n")) {
     throw new Error("toolName and toolCallId must not contain newlines");

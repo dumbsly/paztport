@@ -29,7 +29,7 @@ type Windows = { cert: number; clientRoot: number | null; clientKeyring: number 
  * A recorded handshake: an attested reply in the entry-key form (signed by the entry's certified key, carrying the
  * server keyring's signature and the certificate) or the policy-key form, every window FAR unless given.
  */
-function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; legacy?: boolean; status?: "attested" | "unsafe" } = {}) {
+function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Windows>; status?: "attested" | "unsafe" } = {}) {
   const w: Windows = { cert: FAR, clientRoot: FAR, clientKeyring: FAR, serverRoot: FAR, serverKeyring: FAR, ...o.windows };
   const form = o.form ?? "entry-key";
   const clientPolicy = generateKeyPair();
@@ -53,10 +53,6 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
     ...(clientRing.notAfter === undefined ? {} : { clientKeyringNotAfter: clientRing.notAfter }),
     nonce: newNonce(),
   };
-  if (o.legacy === true) {
-    delete (request as Partial<SessionRequest>).clientKeyringSig;
-    delete request.clientKeyringNotAfter;
-  }
   const serverRoot = w.serverRoot === null ? signRootOldForm(serverTree.root, "s1", serverPolicy.privateKey) : signRoot(serverTree.root, "s1", serverPolicy.privateKey, w.serverRoot);
   const serverServices = { [ENTRY]: entry.publicKey, tools: entry.publicKey };
   const serverRing =
@@ -101,7 +97,7 @@ describe("recordedSession: what a recorded handshake opened", () => {
   // configuration, both roots verify against their sides' policy keys, and the keyring signature verifies."
   it("attestedOnlyWhenEveryCheckHolds", () => {
     const h = handshake();
-    expect(recordedSession(h.recorded)).toMatchObject({ attested: true, legacy: false });
+    expect(recordedSession(h.recorded)).toMatchObject({ attested: true });
     expect(recordedSession(handshake({ status: "unsafe" }).recorded).attested).toBe(false);
     expect(recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey }).attested).toBe(false);
     expect(recordedSession({ ...h.recorded, serverEntry: "tools" }).attested).toBe(false);
@@ -117,15 +113,10 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(recordedSession({ ...resigned(h, {}), serverEntry: "tools" }).attested).toBe(false);
   });
 
-  // "When the request has no clientKeyringSig field at all, it is legacy: the keyring check is skipped, and the
-  // result is marked legacy."
-  it("aRequestWithNoKeyringSignatureIsLegacy", () => {
-    const h = handshake({ legacy: true });
-    expect(recordedSession(h.recorded)).toMatchObject({ attested: true, legacy: true });
-    // a failure is never marked
-    expect(recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey })).toMatchObject({ attested: false, legacy: false });
-    // nothing signs a legacy request's keyring window
-    expect(recordedSession({ ...h.recorded, request: { ...h.request, clientKeyringNotAfter: FAR } }).attested).toBe(false);
+  it("aRequestWithNoKeyringSignatureIsNotAttested", () => {
+    const h = handshake();
+    const { clientKeyringSig: _sig, ...unsigned } = h.request;
+    expect(recordedSession({ ...h.recorded, request: unsigned as SessionRequest }).attested).toBe(false);
   });
 
   // "The handshake record carries no signed time, so it is judged at each call's recorded time … One session can
@@ -182,11 +173,10 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(recordedSession(h.recorded).attested).toBe(true);
   });
 
-  // "Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit, and the
-  // session is not marked legacy for it (only a request with no clientKeyringSig is)."
-  it("oldFormMaterialIsAcceptedSetsNoLimitAndIsNotLegacy", () => {
+  // "Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit."
+  it("oldFormMaterialIsAcceptedAndSetsNoLimit", () => {
     const s = recordedSession(handshake({ windows: { clientRoot: null, clientKeyring: null, serverRoot: null, serverKeyring: null } }).recorded);
-    expect(s).toMatchObject({ attested: true, legacy: false });
+    expect(s).toMatchObject({ attested: true });
     // only the certificate limits it
     expect(s.attestedAt(FAR)).toBe(true);
     expect(s.attestedAt(FAR + 1)).toBe(false);
@@ -207,7 +197,7 @@ describe("recordedSession: what a recorded handshake opened", () => {
   it("neverThrows", () => {
     const h = handshake();
     const broken = { ...h.recorded, reply: null } as unknown as RecordedHandshake;
-    expect(recordedSession(broken)).toMatchObject({ attested: false, legacy: false });
+    expect(recordedSession(broken)).toMatchObject({ attested: false });
     expect(recordedSession(broken).attestedAt(NOW)).toBe(false);
   });
 });

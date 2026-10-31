@@ -85,4 +85,16 @@ describe("verifyResponse", () => {
     const { body, att } = w.response();
     expect(verifyResponse(att, body, { ...CALL, receiver: 1 as unknown as string }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
+  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
+    const w = world();
+    for (const v of [1, 2, 4]) {
+      for (const at of [0, 1]) {
+        const { body, att } = w.response();
+        (att as { chain: Record<string, unknown>[] }).chain[at]!.v = v;
+        const r = verifyResponse(att, body, CALL, w.cfg());
+        expect(r.result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
+        expect(r.labels).toEqual([]);
+      }
+    }
+  });
 });

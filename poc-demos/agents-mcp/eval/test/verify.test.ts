@@ -78,12 +78,6 @@ const results = (items: VerifyItem[], type: string): string[] => items.filter((i
 const bad = (items: VerifyItem[]) => items.filter((i) => !["OK", "REFUSED", "NO_RESPONSE"].includes(i.result));
 
 describe("verifyEvidence", { timeout: 30_000 }, () => {
-  it("freshRunIsNotLegacy", () => {
-    const r = verifyEvidence(write(genuine));
-    expect(r.ok).toBe(true);
-    expect(r.items.filter((i) => i.legacy !== undefined)).toEqual([]);
-  });
-
   it("genuineEvidenceVerifies", () => {
     const r = verifyEvidence(write(genuine));
     expect(bad(r.items)).toEqual([]);
@@ -284,7 +278,6 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(s.reply).toMatchObject({ serverKeyringSig: expect.any(String), serverReplyCert: { svc: "mcp-entry", key: s.reply.serverKeyring["mcp-entry"] } });
     const r = verifyEvidence(write(genuine));
     expect(results(r.items, "session")).toEqual(["OK"]);
-    expect(r.items.find((i) => i.type === "session")!.legacy).toBeUndefined();
     // stripped of the certificate, the reply is judged in the policy-key form, which its signature fails
     const stripped = verifyEvidence(write(genuine, (rs) => { delete rs.find((x) => x.type === "session").reply.serverReplyCert; }));
     expect(results(stripped.items, "session")).toEqual(["BAD_SESSION"]);
@@ -989,6 +982,18 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(results(forged.items, "client")).toEqual(["BAD_CLIENT"]);
   });
 
+  it("aSessionRequestWithoutAKeyringSignatureIsBadSession", () => {
+    for (const sig of [undefined, null, ""]) {
+      const r = verifyEvidence(write(genuine, (rs) => {
+        const req = rs.find((x) => x.type === "session").request;
+        if (sig === undefined) delete req.clientKeyringSig;
+        else req.clientKeyringSig = sig;
+      }));
+      expect(r.ok, String(sig)).toBe(false);
+      expect(results(r.items, "session"), String(sig)).toEqual(["BAD_SESSION"]);
+    }
+  });
+
   it("aClientRecordsKeyringSignatureMustVerify", () => {
     const flip = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
     expect(typeof localLines.map((l) => JSON.parse(l)).find((x) => x.type === "client").keyringSig).toBe("string");
@@ -1000,13 +1005,12 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       const malformed = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").keyringSig = sig; }));
       expect(results(malformed.items, "client"), String(sig)).toEqual(["BAD_CLIENT"]);
     }
-    // a client record from before keyrings were signed has no keyringSig (nor a window), and still verifies
-    const legacy = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); delete c.keyringSig; delete c.keyringNotAfter; }));
-    expect(results(legacy.items, "client")).toEqual(["OK"]);
-    expect(legacy.ok).toBe(true);
-    // but a window with no signature to cover it is no record any writer made
-    const unsigned = verifyEvidence(write(localLines, (rs) => { delete rs.find((x) => x.type === "client").keyringSig; }));
-    expect(results(unsigned.items, "client")).toEqual(["BAD_CLIENT"]);
+    // a record with no signature, with or without a window, is malformed like any other
+    for (const drop of [["keyringSig"], ["keyringSig", "keyringNotAfter"]]) {
+      const unsigned = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); for (const f of drop) delete c[f]; }));
+      expect(unsigned.ok, drop.join()).toBe(false);
+      expect(results(unsigned.items, "client"), drop.join()).toEqual(["BAD_CLIENT"]);
+    }
   });
 
   it("aNewFormClientRecordVerifiesAndItsWindowsAreSigned", () => {
@@ -1117,16 +1121,6 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
   });
 
-  it("verifyLocalSaysWhetherAStepIsLegacy", () => {
-    const recs: any[] = localLines.map((l) => JSON.parse(l));
-    const client = verifyClient(recs.find((x) => x.type === "client"), []);
-    const run = recs.find((x) => x.type === "run");
-    const runOf = (rid: string) => (rid === run.rid ? { prompt: run.prompt as string, ts: new Set<number>([run.ts]) } : undefined);
-    const rec = structuredClone(localOf(recs, "l_read"));
-    expect(rec.chain.map((x: any) => x.v)).toEqual([3, 3]);
-    expect(verifyLocal(rec, client, runOf, new Set())).toEqual({ result: "OK", legacy: false });
-  });
-
   it("aStepWithAStampThatIsNotV3IsUnreadable", () => {
     const recs: any[] = localLines.map((l) => JSON.parse(l));
     const client = verifyClient(recs.find((x) => x.type === "client"), []);
@@ -1137,7 +1131,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
         for (const i of at) odd.chain[i].v = v;
-        expect(verifyLocal(odd, client, runOf, new Set())).toEqual({ result: "UNREADABLE", legacy: false });
+        expect(verifyLocal(odd, client, runOf, new Set())).toEqual({ result: "UNREADABLE" });
       }
     }
   });

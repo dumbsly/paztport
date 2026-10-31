@@ -4,7 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
-import { isLegacySessionRequest, type SessionRequest } from "../../src/session/session.ts";
+import { type SessionRequest } from "../../src/session/session.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { parseSessionRequest, replacementRequest, sessionRequest } from "../../src/session/request.ts";
 
@@ -61,13 +61,11 @@ describe("parseSessionRequest", () => {
     const req = sessionRequest(clientMaterial());
     expect(parseSessionRequest(JSON.parse(JSON.stringify(req)))).toEqual(req);
   });
-  it("readsAMissingKeyringSignatureAsAbsentAndANonStringOneAsEmpty", () => {
-    const { clientKeyringSig: _sig, ...legacy } = wire();
-    const parsed = parseSessionRequest(legacy);
-    expect(Object.hasOwn(parsed, "clientKeyringSig")).toBe(false);
-    expect(isLegacySessionRequest(parsed)).toBe(true);
-    for (const bad of [null, 7, ["x"], {}]) {
-      expect((parseSessionRequest({ ...legacy, clientKeyringSig: bad }) as SessionRequest).clientKeyringSig).toBe("");
+  it("aMissingKeyringSignatureIsInvalid", () => {
+    const { clientKeyringSig: _sig, ...missing } = wire();
+    expect(() => parseSessionRequest(missing)).toThrow("clientKeyringSig must be a non-empty string");
+    for (const bad of [null, "", 7, ["x"], {}]) {
+      expect(() => parseSessionRequest({ ...missing, clientKeyringSig: bad }), JSON.stringify(bad)).toThrow("clientKeyringSig must be a non-empty string");
     }
   });
   it("keepsTheClientRootWholeAndTheKeyringWindow", () => {

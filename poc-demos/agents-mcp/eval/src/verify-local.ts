@@ -32,8 +32,8 @@ import {
  * that names a client root names this root with the same policy key and keyring, and, when it has rules, the
  * rules parse and `rulesProof` proves `session/pi/rules:<rulesHash(rules)>` against the root. With no rules,
  * `rulesProof` must be null. A `keyringSig` must be the policy key's signature over the keyring, over
- * `keyringNotAfter` too when the record has one; a record from before keyrings were signed has none, and is
- * accepted without it. The root is checked whole, in its own form; a window, the root's or the keyring's, that is
+ * `keyringNotAfter` too when the record has one; a record without a `keyringSig`, or with an empty or
+ * non-string one, fails like any other malformed client record. The root is checked whole, in its own form; a window, the root's or the keyring's, that is
  * present but not an integer in [0, 2^53 − 1] fails the record. Each session record must name the same root,
  * policy key and keyring, and, for a signed keyring, the same window. The client policy key is trusted on first
  * use from the file, as it is in session records (where the server's signed reply binds it); verify pins no
@@ -96,11 +96,11 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     }
     const services = keyring as Record<string, string>;
     const keyringNotAfter = readNotAfter(r, "keyringNotAfter"); // throws on a malformed window
-    if (r.keyringSig === undefined && keyringNotAfter !== undefined) {
+    if (!isString(r.keyringSig) || r.keyringSig === "") {
       return undefined;
     }
-    const ring = { policy: r.policyPublicKey, services, sig: r.keyringSig as string };
-    if (r.keyringSig !== undefined && !verifyKeyring(keyringNotAfter === undefined ? ring : { ...ring, notAfter: keyringNotAfter }, r.policyPublicKey)) {
+    const ring = { policy: r.policyPublicKey, services, sig: r.keyringSig };
+    if (!verifyKeyring(keyringNotAfter === undefined ? ring : { ...ring, notAfter: keyringNotAfter }, r.policyPublicKey)) {
       return undefined;
     }
     // the session's request is bound by the server's signed reply: a client record must agree with it
@@ -109,8 +109,7 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
         canonicalize(n.root) !== canonicalize(signedRoot) ||
         n.policyKey !== r.policyPublicKey ||
         canonicalize(n.keyring) !== canonicalize(keyring) ||
-        // a record from before keyrings were signed names no window to compare
-        (r.keyringSig !== undefined && n.keyringNotAfter !== keyringNotAfter)
+        n.keyringNotAfter !== keyringNotAfter
       ) {
         return undefined;
       }
@@ -161,27 +160,27 @@ export function verifyLocal(
   client: Client | undefined,
   runOf: (rid: string) => RunInfo | undefined,
   seen: Set<string>,
-): { result: LocalResult; legacy: boolean } {
+): { result: LocalResult } {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
-    return { result: "UNREADABLE", legacy: false };
+    return { result: "UNREADABLE" };
   }
   if (!isString(r.verdict) || !VERDICTS.includes(r.verdict) || !(r.proof === null || isObject(r.proof))) {
-    return { result: "UNREADABLE", legacy: false };
+    return { result: "UNREADABLE" };
   }
   if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
-    return { result: "UNREADABLE", legacy: false };
+    return { result: "UNREADABLE" };
   }
   let influence: InfluenceEntry[];
   try {
     influence = parseInfluence(r.influence);
     if (parseStampsV3(r.chain).length !== 2) {
-      return { result: "UNREADABLE", legacy: false };
+      return { result: "UNREADABLE" };
     }
   } catch {
-    return { result: "UNREADABLE", legacy: false };
+    return { result: "UNREADABLE" };
   }
   if (client === undefined) {
-    return { result: "NO_CLIENT", legacy: false };
+    return { result: "NO_CLIENT" };
   }
   const step = {
     tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, resolved: r.resolved, verdict: r.verdict as LocalVerdict,
@@ -190,7 +189,7 @@ export function verifyLocal(
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });
   if (v.reason !== "OK") {
-    return { result: v.reason, legacy: false };
+    return { result: v.reason };
   }
-  return { result: v.verdict === "OK" ? "OK" : "REFUSED", legacy: v.legacy };
+  return { result: v.verdict === "OK" ? "OK" : "REFUSED" };
 }

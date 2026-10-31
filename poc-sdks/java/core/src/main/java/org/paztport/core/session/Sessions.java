@@ -144,7 +144,7 @@ public final class Sessions {
      * {@code "attested"} only when both roots verify under their own side's policy key, the client's policy key is
      * pinned, the client's keyring is signed by it, and at {@code nowMs} the client's root and keyring and this
      * side's own root and keyring are all in the new form and current; otherwise {@code "unsafe"}. With no pins every
-     * session is unsafe, and a legacy request (no keyring signature) is unsafe live. Never throws.
+     * session is unsafe. Never throws.
      *
      * <p>Each signature is checked in its object's own form: a root over its own {@code notAfter} if it has one,
      * the keyring over {@code clientKeyringNotAfter} if the request has one (see
@@ -279,9 +279,7 @@ public final class Sessions {
      * Whether a recorded handshake opened an attested session, judged at {@code at} (sessions-and-influence.md
      * &sect;Recorded handshakes): the reply, as recorded, is attested and passes the client's check against the
      * recorded pin and the server's entry service from the verifier's own configuration, both roots verify under
-     * their sides' policy keys, and the client keyring's signature verifies, unless the request is legacy (has no
-     * {@code clientKeyringSig}), when that check is skipped. A legacy request that carries a
-     * {@code clientKeyringNotAfter} is not attested, since no signature covers that window. Never throws.
+     * their sides' policy keys, and the client keyring's signature verifies. Never throws.
      *
      * <p>It is the live check with two differences. There is no clock: {@code at} is the time of the record being
      * judged, a call's last stamp's {@code ts}, which the client signed, never a time read from the handshake
@@ -303,10 +301,7 @@ public final class Sessions {
             }
             // An attested reply has passed with both roots present, and the server's verified under the pin.
             PublicKey clientKey = Crypto.decodePublicKey(Base64Url.decode(req.clientPolicyKey()));
-            boolean keyring = req.legacy()
-                    ? req.clientKeyringNotAfter() == null
-                    : req.clientKeyringFile().verifies(req.clientPolicyKey());
-            return keyring && req.clientRoot().verify(clientKey) && allows(req.clientRoot().notAfter(), at)
+            return req.clientKeyringFile().verifies(req.clientPolicyKey()) && req.clientRoot().verify(clientKey) && allows(req.clientRoot().notAfter(), at)
                     && allows(req.clientKeyringNotAfter(), at);
         } catch (RuntimeException e) {
             return false;

@@ -374,13 +374,13 @@ describe("session handshake", () => {
     const none = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [] }, RULES, Date.now);
     expect(none.openSession(makeClient().request()).status).toBe("unsafe");
   });
-  it("aRequestWithNoKeyringSignatureIsUnsafeNotInvalid", () => {
+  it("aRequestWithNoKeyringSignatureIsInvalidParams", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
-    const { clientKeyringSig: _sig, ...legacy } = makeClient().request();
-    const reply = srv.openSession(legacy);
-    expect(reply.status).toBe("unsafe");
-    expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
-    expect(srv.session()?.status).toBe("unsafe");
+    const { clientKeyringSig: _sig, ...missing } = makeClient().request();
+    for (const request of [missing, { ...missing, clientKeyringSig: null }, { ...missing, clientKeyringSig: "" }, { ...missing, clientKeyringSig: 7 }]) {
+      expect(() => srv.openSession(request)).toThrow(InvalidParams);
+    }
+    expect(srv.session()).toBeUndefined();
   });
   it("replyVerifiesForClient", () => {
     const cfg = serverConfig();

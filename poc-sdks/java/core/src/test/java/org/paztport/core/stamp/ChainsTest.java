@@ -51,7 +51,7 @@ class ChainsTest {
     }
 
     @Test
-    void versionMustBeExactlyTwoOrThree() {
+    void versionMustBeExactlyThree() {
         ObjectNode none = v3();
         none.remove("v");
         rejects(ReasonCode.CHAIN_MISSING, chain(none));

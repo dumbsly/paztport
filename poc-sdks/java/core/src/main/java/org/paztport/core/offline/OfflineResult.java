@@ -7,9 +7,9 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
 /**
- * An offline verdict, with the suspect as in {@link VerifyResult}; {@code legacy} is false.
+ * An offline verdict, with the suspect as in {@link VerifyResult}.
  */
-public record OfflineResult(ReasonCode reason, String suspectSvc, String suspectInst, boolean legacy) {
+public record OfflineResult(ReasonCode reason, String suspectSvc, String suspectInst) {
 
     public boolean ok() {
         return reason == ReasonCode.OK;

@@ -37,7 +37,7 @@ has one, the authenticated peer.
   recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
   reply text, the pin and the configured entry: attested at a time, at all (at the
-  earliest of its limits), the response limit and legacy. `RecordSet` holds a record
+  earliest of its limits) and the response limit. `RecordSet` holds a record
   set's spent nonce keys and a response cache that never forgets, and
   `RecordSet.callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`).
 - **Stamping.** `StamperV3` stamps a hop's outbound call, starting a chain only at

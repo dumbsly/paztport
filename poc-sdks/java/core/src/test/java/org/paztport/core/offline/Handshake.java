@@ -42,7 +42,6 @@ final class Handshake {
     /** How to build one: each window's {@code notAfter}, where null signs that root or keyring in the old form. */
     static final class Options {
         boolean policyKeyForm;
-        boolean legacy;
         String status = "attested";
         long cert = FAR;
         Long clientRoot = FAR;
@@ -76,10 +75,6 @@ final class Handshake {
                 : KeyringFile.sign(clientServices, clientKey, o.clientKeyring, clientPolicy.getPrivate());
         SessionRequest req = SessionRequest.of(clientRoot, clientKey, clientRing, Sessions.newNonce());
         request = tree(req.toJson());
-        if (o.legacy) {
-            request.remove("clientKeyringSig");
-            request.remove("clientKeyringNotAfter");
-        }
 
         SignedRoot serverRoot = o.serverRoot == null
                 ? SignedRoot.signOldForm(serverTree.root(), "s1", serverPolicy.getPrivate())

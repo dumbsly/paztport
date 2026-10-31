@@ -23,7 +23,6 @@ import {
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
-  type LegacySessionRequest,
   type MerkleProof,
   type ReasonCode,
   type ReplyCert,
@@ -68,7 +67,7 @@ export type ServerPolicy = {
 export type Session = {
   sess: string;
   status: "attested" | "unsafe";
-  request: SessionRequest | LegacySessionRequest;
+  request: SessionRequest;
   nonces: NonceCache;
   /** Every class this server has attested in a response in this session (sticky). */
   served: Set<InfluenceClass>;
@@ -268,7 +267,7 @@ export class McpServerSession {
    * sessions rather than stopping. It carries the keyring's window as `serverKeyringNotAfter` when the keyring has one.
    */
   openSession(params: unknown): SessionReply {
-    let request: SessionRequest | LegacySessionRequest;
+    let request: SessionRequest;
     try {
       request = parseSessionRequest(params);
     } catch (e) {

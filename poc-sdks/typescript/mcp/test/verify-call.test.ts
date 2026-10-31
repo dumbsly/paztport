@@ -71,7 +71,6 @@ describe("verifyCall", () => {
     expect(r.rid).toBe("rid-1");
     expect(r.callId).toBe("call-1");
     expect(r.influence).toEqual(infl);
-    expect(r.legacy).toBe(false);
   });
   it("aCallStampedForAnotherReceiverIsBindingMismatch", () => {
     const w = world();
@@ -80,7 +79,7 @@ describe("verifyCall", () => {
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.influence).toEqual([]);
   });
-  it("aLiveResultIsNeverLegacy", () => {
+  it("eachCallGetsItsOwnVerdict", () => {
     const w = world();
     const cfg = w.cfg();
     const p = w.params();
@@ -91,7 +90,6 @@ describe("verifyCall", () => {
       verifyCall(null, SERVER, w.cfg()),
     ];
     expect(results.map((r) => r.result.reason)).toEqual(["OK", "REPLAY", "BINDING_MISMATCH", "CHAIN_MISSING"]);
-    expect(results.map((r) => r.legacy)).toEqual([false, false, false, false]);
   });
   it("replayedCallIsReplay", () => {
     const w = world();

@@ -36,7 +36,6 @@ class RecordedSessionTest {
         Handshake h = Handshake.attested();
         RecordedSession s = h.recorded();
         assertTrue(s.attested());
-        assertFalse(s.legacy());
         assertFalse(Handshake.with(o -> o.status = "unsafe").recorded().attested());
         assertFalse(Handshake.recorded(h.request, h.reply, Handshake.key(Crypto.generateEd25519KeyPair()), ENTRY)
                 .attested());
@@ -59,21 +58,10 @@ class RecordedSessionTest {
         assertFalse(Handshake.recorded(h.request, h.resigned(r -> { }), h.pin, "tools").attested());
     }
 
-    // "When the request has no clientKeyringSig field at all, it is legacy: the keyring check is skipped, and the
-    // result is marked legacy."
     @Test
-    void aRequestWithNoKeyringSignatureIsLegacy() {
-        Handshake h = Handshake.with(o -> o.legacy = true);
-        assertTrue(h.recorded().attested());
-        assertTrue(h.recorded().legacy());
-        // a failure is never marked
-        RecordedSession otherPin =
-                Handshake.recorded(h.request, h.reply, Handshake.key(Crypto.generateEd25519KeyPair()), ENTRY);
-        assertFalse(otherPin.attested());
-        assertFalse(otherPin.legacy());
-        // nothing signs a legacy request's keyring window
-        assertFalse(Handshake.recorded(h.request(r -> r.put("clientKeyringNotAfter", FAR)), h.reply, h.pin, ENTRY)
-                .attested());
+    void aRequestWithNoKeyringSignatureIsNotAttested() {
+        Handshake h = Handshake.attested();
+        assertFalse(Handshake.recorded(h.request(r -> r.remove("clientKeyringSig")), h.reply, h.pin, ENTRY).attested());
     }
 
     // "The handshake record carries no signed time, so it is judged at each call's recorded time … One session can
@@ -196,10 +184,9 @@ class RecordedSessionTest {
         assertTrue(RecordedSession.of(h.request.toString(), h.reply.toString(), h.pin, ENTRY).attested());
     }
 
-    // "Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit, and
-    // the session is not marked legacy for it (only a request with no clientKeyringSig is)."
+    // "Offline, a root or keyring in the old form is accepted, as recorded evidence holds it: it sets no limit."
     @Test
-    void oldFormMaterialIsAcceptedSetsNoLimitAndIsNotLegacy() {
+    void oldFormMaterialIsAcceptedAndSetsNoLimit() {
         RecordedSession s = Handshake.with(o -> {
             o.clientRoot = null;
             o.clientKeyring = null;
@@ -207,7 +194,6 @@ class RecordedSessionTest {
             o.serverKeyring = null;
         }).recorded();
         assertTrue(s.attested());
-        assertFalse(s.legacy());
         // only the certificate limits it
         assertTrue(s.attestedAt(FAR));
         assertFalse(s.attestedAt(FAR + 1));
@@ -258,8 +244,7 @@ class RecordedSessionTest {
             RecordedSession.of(null, null, null, null)}) {
             assertFalse(s.attested());
             assertFalse(s.attestedAt(NOW));
-            assertFalse(s.legacy());
-        }
+            }
         assertEquals(MAX_SAFE, RecordedSession.of(null, null, null, null).responseNotAfter());
     }
 }

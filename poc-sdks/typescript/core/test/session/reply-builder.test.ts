@@ -65,10 +65,4 @@ describe("buildSessionReply", () => {
     expect(a.nonce).not.toBe(b.nonce);
     expect(a.sess).not.toBe(b.sess);
   });
-  it("opensAnUnsafeSessionForALegacyRequest", () => {
-    const w = world();
-    const { clientKeyringSig: _s, ...legacy } = w.req();
-    const reply = buildSessionReply(w.source, legacy, { pinnedClientKeys: [w.clientKey], disabledWhenUnsafe: [] }, NOW);
-    expect(reply.status).toBe("unsafe");
-  });
 });

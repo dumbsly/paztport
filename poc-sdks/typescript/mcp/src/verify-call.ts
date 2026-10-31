@@ -13,8 +13,8 @@ import type { InfluenceEntry, OfflineConfig, ReasonCode, StampV3, V3Config, V3In
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
 
-/** A call's verdict; `legacy` is false. */
-export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[]; legacy: boolean };
+/** A call's verdict, with the rid and call id it names and, when it verifies, its influence. */
+export type CallVerification = { result: VerifyResult; rid: string; callId: string; influence: InfluenceEntry[] };
 
 /** The receiver a tools/call names at the end of its route: `mcp:<serverId>.<tool>`. */
 export function mcpReceiver(serverId: string, tool: string): string {
@@ -29,7 +29,7 @@ function isObject(v: unknown): v is Record<string, unknown> {
 type StampParser = (value: unknown) => StampV3[];
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
-type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult & { legacy: boolean };
+type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult;
 
 /**
  * Reads a tools/call params object once, parses its chain with `parse`, derives the binding, the receiver
@@ -44,7 +44,6 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
     rid,
     callId,
     influence: [],
-    legacy: false,
   });
   try {
     if (!isObject(params) || typeof params.name !== "string" || !isObject(params._meta)) {
@@ -77,7 +76,7 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
     } catch {
       return fail("BINDING_MISMATCH");
     }
-    const { legacy, ...result } = check(
+    const result = check(
       {
         stamps,
         expectedBind,
@@ -89,7 +88,7 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
       `${rid}|${callId}|req`,
       callId,
     );
-    return { result, rid, callId, influence: result.ok ? influence! : [], legacy };
+    return { result, rid, callId, influence: result.ok ? influence! : [] };
   } catch {
     return fail("CHAIN_MISSING");
   }
@@ -105,7 +104,7 @@ export function verifyCall(
   ctx: { serverId: string },
   cfg: Omit<V3Config, "nonceKey">,
 ): CallVerification {
-  return checkCall(params, ctx.serverId, parseStampsV3, (input, nonceKey) => ({ ...verifyChainV3(input, { ...cfg, nonceKey }), legacy: false }));
+  return checkCall(params, ctx.serverId, parseStampsV3, (input, nonceKey) => verifyChainV3(input, { ...cfg, nonceKey }));
 }
 
 /** Where a recorded tools/call is filed, and what the record set says about its run. */
@@ -133,6 +132,6 @@ export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omi
       { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
       { ...cfg, runMaxAgeMs: cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS, callMaxAgeMs: cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS, nonceKey },
     );
-    return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "", legacy: result.legacy } : result;
+    return result.ok && callId !== call.callId ? { ok: false, reason: "RID_MISMATCH", suspectSvc: "", suspectInst: "" } : result;
   });
 }

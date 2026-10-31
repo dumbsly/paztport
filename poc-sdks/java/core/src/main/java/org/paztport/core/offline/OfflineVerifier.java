@@ -90,7 +90,7 @@ public final class OfflineVerifier {
         // 11. Route proven against the root.
         VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute() ? in.receiver() : null,
                 in.proof(), cfg.root(), cfg.rootId());
-        return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst(), false);
+        return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst());
     }
 
     /** Check 7's age limits in exact longs, so an extreme time is EXPIRED rather than a wrapped difference. */
@@ -107,7 +107,7 @@ public final class OfflineVerifier {
     }
 
     private static OfflineResult result(ReasonCode reason) {
-        return new OfflineResult(reason, "", "", false);
+        return new OfflineResult(reason, "", "");
     }
 
     private static OfflineResult rejected(ReasonCode reason) {

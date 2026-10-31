@@ -3,7 +3,7 @@
 
 import type { SignedRoot } from "../policy/root.ts";
 import type { ReplyCert } from "./reply-cert.ts";
-import { deriveSessionId, newNonce, sessionStatus, signSessionReply, type LegacySessionRequest, type SessionReply, type SessionRequest } from "./session.ts";
+import { deriveSessionId, newNonce, sessionStatus, signSessionReply, type SessionReply, type SessionRequest } from "./session.ts";
 
 /** What a server answers a handshake with: its own policy material and the entry service's private key, which signs the reply. */
 export type ReplySource = {
@@ -33,7 +33,7 @@ export type ReplyRules = {
  * this server's own root or keyring once it has expired, so a server left running past its material degrades to
  * unattested sessions rather than stopping. The session id binds both nonces; the server's is fresh.
  */
-export function buildSessionReply(source: ReplySource, request: SessionRequest | LegacySessionRequest, rules: ReplyRules, now: number): SessionReply {
+export function buildSessionReply(source: ReplySource, request: SessionRequest, rules: ReplyRules, now: number): SessionReply {
   const status = sessionStatus(request, source.signedRoot, source.keyringNotAfter, source.policyPublicKey, rules.pinnedClientKeys, now);
   const serverNonce = newNonce();
   const sess = deriveSessionId(request.clientRoot?.sig ?? null, source.signedRoot.sig, request.nonce, serverNonce, {

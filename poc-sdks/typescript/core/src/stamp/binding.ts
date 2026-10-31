@@ -5,7 +5,7 @@ import { encode } from "../encoding/b64url.ts";
 import { sha256, utf8 } from "../crypto/crypto.ts";
 import { canonicalize } from "../encoding/jcs.ts";
 
-/** v2 prompt binding: SHA-256(utf8("prompt\n" + text)), base64url. */
+/** Prompt binding: SHA-256(utf8("prompt\n" + text)), base64url. */
 export function bindPrompt(text: string): string {
   return encode(sha256(utf8("prompt\n" + text)));
 }
@@ -23,7 +23,7 @@ export function bindLocalTool(toolName: string, input: unknown, resolved: unknow
   return encode(sha256(utf8(`tool\n${toolName}\n${canonicalize({ input: input ?? {}, resolved: resolved ?? {} })}`)));
 }
 
-/** v2 result binding: SHA-256(utf8("result\n" + JCS(result without its "_meta" key))), base64url. */
+/** Result binding: SHA-256(utf8("result\n" + JCS(result without its "_meta" key))), base64url. */
 export function bindResult(result: Record<string, unknown>): string {
   const { _meta: _ignored, ...rest } = result;
   return encode(sha256(utf8("result\n" + canonicalize(rest))));

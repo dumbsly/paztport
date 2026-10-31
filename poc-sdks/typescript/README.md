@@ -48,9 +48,9 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
   request carries the signature as `clientKeyringSig`, with the keyring's `notAfter` as `clientKeyringNotAfter`.
-  A request without the signature is legacy offline and unsafe live. One whose signature is present but
-  malformed (not a string) or wrong is unsafe live, and offline is a v3 request whose signature fails, not a
-  legacy one.
+  A request without the signature, or with one that is `null`, not a string or empty, is malformed and opens no
+  session (`InvalidParams`, JSON-RPC `-32602`). One whose signature is wrong is unsafe live and not attested
+  offline.
 - **Handshakes judge the windows, live.** `sessionStatus` takes the server's own keyring window and `now`, and
   opens a session unsafe when either side's root or keyring is in the old form or past its `notAfter`, so a server
   whose own material has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check)
@@ -58,12 +58,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `isAttestedSession` checks a recorded handshake offline at the record's time: an old-form root or keyring is
   accepted and sets no limit, and a new-form one, on either side, counts only up to its `notAfter`.
 - **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
-  (at the earliest of its limits), the `policyNotAfter` a response in it is checked with, and legacy.
+  (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with.
   `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
   spent keys and its response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step
   ([the MCP profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.
-- **The handshake's pieces are core's.** `parseSessionRequest` reads a request (a missing `clientKeyringSig` stays
-  absent, a legacy request, as in the Java SDK), `sessionRequest` and `replacementRequest` write one, and
+- **The handshake's pieces are core's.** `parseSessionRequest` reads a request (a missing `clientKeyringSig` is
+  refused, as in the Java SDK), `sessionRequest` and `replacementRequest` write one, and
   `buildSessionReply` answers it in the entry-key form. `checkSessionReply` is the client's check of a raw reply,
   returning a `ReplyCheck` (`ATTESTED`, `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service
   that loads its own keyring and root checks them with `checkOwnMaterial` and warns near their end with
@@ -75,8 +75,6 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `labelToEntry` turns a verified response's label into the influence entry a client records, and
   `shapedOnlyByTrusted` says whether influence holds no untrusted content. `mintOrigin` takes the origin name as
   `svc`, which the policy and its receivers' allowed origins must carry too.
-- **Legacy is reported.** A recorded handshake says whether its request had no keyring signature, and the agents
-  demo's `verify` marks each item verified from one ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
 
 ## @paztport/mcp
 

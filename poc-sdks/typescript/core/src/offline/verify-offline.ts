@@ -39,8 +39,8 @@ export type OfflineConfig = Pick<V3Config, "keyring" | "root" | "rootId" | "allo
   callMaxAgeMs?: number;
 };
 
-/** An offline verdict; `legacy` is false. */
-export type OfflineResult = VerifyResult & { legacy: boolean };
+/** An offline verdict, with the suspect as in `VerifyResult`. */
+export type OfflineResult = VerifyResult;
 
 /**
  * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3
@@ -67,11 +67,10 @@ export type OfflineResult = VerifyResult & { legacy: boolean };
  * Omitting `recordedTs` skips the recorded-time check (TIME_MISMATCH), leaving only `cfg`'s age limits on the times.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
-  const done = (result: VerifyResult): OfflineResult => ({ ...result, legacy: false });
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
   const stamps = checkStamps(input.stamps, cfg, { receiver: input.receiver, rid: input.rid, signers: cfg.signers });
   if (typeof stamps === "string") {
-    return done(reject(stamps));
+    return reject(stamps);
   }
   const first = stamps[0]!;
   const last = stamps[stamps.length - 1]!;
@@ -79,31 +78,31 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   // 7. Recorded times, the age limits, then the prompt.
   const t = input.recordedTs;
   if (t !== undefined && (last.ts !== t.last || (t.run !== undefined && !t.run.has(first.ts)))) {
-    return done(reject("TIME_MISMATCH"));
+    return reject("TIME_MISMATCH");
   }
   if (cfg.runMaxAgeMs !== undefined || cfg.callMaxAgeMs !== undefined) {
     const runMax = cfg.runMaxAgeMs ?? Number.NaN;
     const callMax = cfg.callMaxAgeMs ?? Number.NaN;
     if (![runMax, callMax].every(Number.isFinite) || last.ts - first.ts > runMax || first.ts - last.ts > callMax) {
-      return done(reject("EXPIRED"));
+      return reject("EXPIRED");
     }
   }
   if (input.prompt === undefined || first.bind !== bindPrompt(input.prompt)) {
-    return done(reject("PROMPT_MISMATCH"));
+    return reject("PROMPT_MISMATCH");
   }
 
   // 8-9. Binding and influence commitment.
   const commitment = checkCommitments(last, input.expectedBind, input.influence);
   if (commitment !== undefined) {
-    return done(reject(commitment));
+    return reject(commitment);
   }
 
   // 10. Replay, across the whole record set.
   if (cfg.seen.has(cfg.nonceKey)) {
-    return done(reject("REPLAY"));
+    return reject("REPLAY");
   }
   cfg.seen.add(cfg.nonceKey);
 
   // 11. Route proven against the root.
-  return done(checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, cfg));
+  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, cfg);
 }

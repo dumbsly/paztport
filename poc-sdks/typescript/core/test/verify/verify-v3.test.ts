@@ -124,7 +124,7 @@ describe("verifyChainV3", () => {
     expect(verify(chain(), { receiverInRoute: false, proofRoute: "session/pi" }).reason).toBe("OK");
   });
 
-  // The cases ported from the retired v2 verifier.
+  // The verdict, the suspect and the order in which a chain's faults are found.
   it("validPasses", () => {
     expect(verify(chain())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
   });

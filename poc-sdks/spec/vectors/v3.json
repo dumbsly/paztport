@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. The sections after sessionStatus pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request body as received, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -2789,8 +2789,7 @@
       "expected": {
         "reason": "OK",
         "suspectSvc": "pi",
-        "suspectInst": "pi-1",
-        "legacy": false
+        "suspectInst": "pi-1"
       }
     },
     {
@@ -2862,8 +2861,7 @@
       "expected": {
         "reason": "CHAIN_MISSING",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     },
     {
@@ -2935,8 +2933,7 @@
       "expected": {
         "reason": "BINDING_MISMATCH",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     },
     {
@@ -3008,8 +3005,7 @@
       "expected": {
         "reason": "TIME_MISMATCH",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     },
     {
@@ -3081,8 +3077,7 @@
       "expected": {
         "reason": "EXPIRED",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     },
     {
@@ -3154,8 +3149,7 @@
       "expected": {
         "reason": "PROMPT_MISMATCH",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     },
     {
@@ -3229,8 +3223,7 @@
       "expected": {
         "reason": "REPLAY",
         "suspectSvc": "",
-        "suspectInst": "",
-        "legacy": false
+        "suspectInst": ""
       }
     }
   ],
@@ -3292,8 +3285,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3344,8 +3336,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3405,8 +3396,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3466,8 +3456,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3527,8 +3516,7 @@
           true,
           false
         ],
-        "responseNotAfter": 1767225600000,
-        "legacy": false
+        "responseNotAfter": 1767225600000
       }
     },
     {
@@ -3588,8 +3576,7 @@
           true,
           false
         ],
-        "responseNotAfter": 1767225600000,
-        "legacy": false
+        "responseNotAfter": 1767225600000
       }
     },
     {
@@ -3649,8 +3636,7 @@
           true,
           false
         ],
-        "responseNotAfter": 1767225600002,
-        "legacy": false
+        "responseNotAfter": 1767225600002
       }
     },
     {
@@ -3698,8 +3684,7 @@
           true,
           true
         ],
-        "responseNotAfter": 9007199254740991,
-        "legacy": false
+        "responseNotAfter": 9007199254740991
       }
     },
     {
@@ -3758,8 +3743,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3818,105 +3802,7 @@
           true,
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
-      }
-    },
-    {
-      "name": "legacy request",
-      "request": {
-        "clientRoot": {
-          "rootId": "v128498df6662",
-          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
-          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
-          "notAfter": 4102444800000
-        },
-        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
-        "clientKeyring": {
-          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
-          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
-        },
-        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
-      },
-      "reply": {
-        "serverRoot": {
-          "rootId": "v33dc7a7d5de4",
-          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
-          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
-          "notAfter": 4102444800000
-        },
-        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
-        "serverKeyring": {
-          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
-          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
-        },
-        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
-        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
-        "status": "attested",
-        "disabled": [],
-        "sig": "lhQZdeRDX7XNGo7iG_my3a68Q7m90kSroPoK3mWd5zxf63rw3kuXogXiqiR8lM8hvPMNEQMU98b0Tt58hzspDg"
-      },
-      "pin": "server-policy",
-      "serverEntry": "mcp-entry",
-      "at": [
-        1767225600000
-      ],
-      "expected": {
-        "attested": true,
-        "attestedAt": [
-          true
-        ],
-        "responseNotAfter": 4102444800000,
-        "legacy": true
-      }
-    },
-    {
-      "name": "legacy request with a keyring window",
-      "request": {
-        "clientRoot": {
-          "rootId": "v128498df6662",
-          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
-          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
-          "notAfter": 4102444800000
-        },
-        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
-        "clientKeyring": {
-          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
-          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
-        },
-        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ",
-        "clientKeyringNotAfter": 4102444800000
-      },
-      "reply": {
-        "serverRoot": {
-          "rootId": "v33dc7a7d5de4",
-          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
-          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
-          "notAfter": 4102444800000
-        },
-        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
-        "serverKeyring": {
-          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
-          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
-        },
-        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
-        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
-        "status": "attested",
-        "disabled": [],
-        "sig": "lhQZdeRDX7XNGo7iG_my3a68Q7m90kSroPoK3mWd5zxf63rw3kuXogXiqiR8lM8hvPMNEQMU98b0Tt58hzspDg"
-      },
-      "pin": "server-policy",
-      "serverEntry": "mcp-entry",
-      "at": [
-        1767225600000
-      ],
-      "expected": {
-        "attested": false,
-        "attestedAt": [
-          false
-        ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -3976,8 +3862,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4034,8 +3919,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4093,8 +3977,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4152,8 +4035,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4211,8 +4093,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4270,8 +4151,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     },
     {
@@ -4329,8 +4209,7 @@
         "attestedAt": [
           false
         ],
-        "responseNotAfter": 4102444800000,
-        "legacy": false
+        "responseNotAfter": 4102444800000
       }
     }
   ],
@@ -4451,8 +4330,7 @@
       ],
       "expected": [
         {
-          "reason": "OK",
-          "legacy": false
+          "reason": "OK"
         }
       ]
     },
@@ -4572,8 +4450,7 @@
       ],
       "expected": [
         {
-          "reason": "OUTSIDE_SESSION",
-          "legacy": false
+          "reason": "OUTSIDE_SESSION"
         }
       ]
     },
@@ -4749,12 +4626,10 @@
       ],
       "expected": [
         {
-          "reason": "OK",
-          "legacy": false
+          "reason": "OK"
         },
         {
-          "reason": "OUTSIDE_SESSION",
-          "legacy": false
+          "reason": "OUTSIDE_SESSION"
         }
       ]
     },
@@ -4874,8 +4749,7 @@
       ],
       "expected": [
         {
-          "reason": "BAD_SIGNATURE",
-          "legacy": false
+          "reason": "BAD_SIGNATURE"
         }
       ]
     },
@@ -5051,12 +4925,10 @@
       ],
       "expected": [
         {
-          "reason": "OK",
-          "legacy": false
+          "reason": "OK"
         },
         {
-          "reason": "REPLAY",
-          "legacy": false
+          "reason": "REPLAY"
         }
       ]
     },
@@ -5279,12 +5151,10 @@
       ],
       "expected": [
         {
-          "reason": "OK",
-          "legacy": false
+          "reason": "OK"
         },
         {
-          "reason": "REPLAY",
-          "legacy": false
+          "reason": "REPLAY"
         }
       ]
     }
@@ -5393,8 +5263,7 @@
       "seen": [],
       "expected": {
         "reason": "OK",
-        "verdict": "OK",
-        "legacy": false
+        "verdict": "OK"
       }
     },
     {
@@ -5500,8 +5369,7 @@
       "seen": [],
       "expected": {
         "reason": "OK",
-        "verdict": "SCOPE_DENIED",
-        "legacy": false
+        "verdict": "SCOPE_DENIED"
       }
     },
     {
@@ -5602,8 +5470,7 @@
       "seen": [],
       "expected": {
         "reason": "OK",
-        "verdict": "PATH_NOT_ALLOWED",
-        "legacy": false
+        "verdict": "PATH_NOT_ALLOWED"
       }
     },
     {
@@ -5693,8 +5560,7 @@
       "seen": [],
       "expected": {
         "reason": "OK",
-        "verdict": "SCOPE_DENIED",
-        "legacy": false
+        "verdict": "SCOPE_DENIED"
       }
     },
     {
@@ -5801,8 +5667,7 @@
       "seen": [],
       "expected": {
         "reason": "OK",
-        "verdict": "OK",
-        "legacy": false
+        "verdict": "OK"
       }
     },
     {
@@ -5909,8 +5774,7 @@
       "seen": [],
       "expected": {
         "reason": "POLICY_EXPIRED",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6017,8 +5881,7 @@
       "seen": [],
       "expected": {
         "reason": "POLICY_EXPIRED",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6125,8 +5988,7 @@
       "seen": [],
       "expected": {
         "reason": "BAD_SIGNATURE",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6232,8 +6094,7 @@
       "seen": [],
       "expected": {
         "reason": "PROOF_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6334,8 +6195,7 @@
       "seen": [],
       "expected": {
         "reason": "PROOF_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6437,8 +6297,7 @@
       "seen": [],
       "expected": {
         "reason": "POLICY_EXPIRED",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6544,8 +6403,7 @@
       "seen": [],
       "expected": {
         "reason": "RULES_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6651,8 +6509,7 @@
       "seen": [],
       "expected": {
         "reason": "VERDICT_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6758,8 +6615,7 @@
       "seen": [],
       "expected": {
         "reason": "VERDICT_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6865,8 +6721,7 @@
       "seen": [],
       "expected": {
         "reason": "RULES_MISMATCH",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     },
     {
@@ -6974,8 +6829,7 @@
       ],
       "expected": {
         "reason": "REPLAY",
-        "verdict": null,
-        "legacy": false
+        "verdict": null
       }
     }
   ],
@@ -9646,6 +9500,107 @@
       ],
       "now": 1767225600000,
       "expected": "unsafe"
+    }
+  ],
+  "sessionRequest": [
+    {
+      "name": "well formed",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "expected": "OK"
+    },
+    {
+      "name": "no keyring signature",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "expected": "MALFORMED"
+    },
+    {
+      "name": "keyring signature null",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ",
+        "clientKeyringSig": null
+      },
+      "expected": "MALFORMED"
+    },
+    {
+      "name": "keyring signature empty",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ",
+        "clientKeyringSig": ""
+      },
+      "expected": "MALFORMED"
+    },
+    {
+      "name": "keyring signature a number",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ",
+        "clientKeyringSig": 7
+      },
+      "expected": "MALFORMED"
     }
   ],
   "fixedInputs": {

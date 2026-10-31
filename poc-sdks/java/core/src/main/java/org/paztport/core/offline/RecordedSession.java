@@ -17,7 +17,7 @@ import org.paztport.core.session.Sessions;
 /**
  * A handshake read back from a record set, and what it gives the records that rely on it
  * (sessions-and-influence.md &sect;Recorded handshakes): whether it opened an attested session at a given time and
- * at all, the limit on a response recorded in it, and whether it is legacy. It is built from the request and reply
+ * at all, and the limit on a response recorded in it. It is built from the request and reply
  * as recorded, the server policy key the client pinned, and the server's entry service from the verifier's own
  * configuration, never the record's.
  *
@@ -37,7 +37,6 @@ public final class RecordedSession {
     private final String sess;
     private final boolean attested;
     private final long responseNotAfter;
-    private final boolean legacy;
 
     private RecordedSession(String requestJson, String replyJson, String pin, String serverEntry) {
         this.reply = replyJson;
@@ -54,7 +53,6 @@ public final class RecordedSession {
                 request == null ? null : request.clientKeyringNotAfter(), serverRoot, serverKeyring));
         boolean entryKeyForm = tree != null && tree.has("serverKeyringSig");
         this.responseNotAfter = earliest(JsonIntegers.MAX_SAFE, serverRoot, entryKeyForm ? serverKeyring : null);
-        this.legacy = attested && request.legacy();
     }
 
     /**
@@ -96,14 +94,6 @@ public final class RecordedSession {
      */
     public long responseNotAfter() {
         return responseNotAfter;
-    }
-
-    /**
-     * Attested from a request with no {@code clientKeyringSig}, whose keyring check was skipped; never set on one
-     * that is not attested, since a failure is never marked.
-     */
-    public boolean legacy() {
-        return legacy;
     }
 
     /** The earliest of {@code windows}, or {@code none} when none of them is set. */

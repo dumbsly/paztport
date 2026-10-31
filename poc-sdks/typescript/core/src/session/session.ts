@@ -22,17 +22,6 @@ export type SessionRequest = {
   nonce: string;
 };
 
-/** A request from before keyrings were signed: it carries no `clientKeyringSig`. */
-export type LegacySessionRequest = Omit<SessionRequest, "clientKeyringSig">;
-
-/**
- * True when the request has no `clientKeyringSig` field, as a recorded request from before signed keyrings
- * does. A field that is present but not a string is a v3 request whose signature fails, not a legacy one.
- */
-export function isLegacySessionRequest(req: SessionRequest | LegacySessionRequest): req is LegacySessionRequest {
-  return !Object.hasOwn(req, "clientKeyringSig");
-}
-
 /**
  * A reply carrying `serverKeyringSig` and `serverReplyCert` is signed by the entry service's certified key; one
  * with neither is signed by the server policy key. Which form it is depends only on which fields are present.
@@ -132,7 +121,7 @@ export function deriveSessionId(
 }
 
 /** Whether both roots are present and each verifies against its side's policy key. */
-function rootsVerify(req: SessionRequest | LegacySessionRequest, serverRoot: SignedRoot | null, serverPolicyKey: string): boolean {
+function rootsVerify(req: SessionRequest, serverRoot: SignedRoot | null, serverPolicyKey: string): boolean {
   return req.clientRoot !== null && serverRoot !== null && verifyRoot(req.clientRoot, req.clientPolicyKey) && verifyRoot(serverRoot, serverPolicyKey);
 }
 
@@ -146,9 +135,8 @@ function presentedKeyring(msg: object, windowField: string, policy: string, serv
 }
 
 /** Whether the client's keyring signature verifies under its policy key, over `clientKeyringNotAfter` when the request has one. */
-function keyringVerifies(req: SessionRequest | LegacySessionRequest): boolean {
-  if (!Object.hasOwn(req, "clientKeyringSig")) return false;
-  const { clientPolicyKey, clientKeyring, clientKeyringSig } = req as SessionRequest;
+function keyringVerifies(req: SessionRequest): boolean {
+  const { clientPolicyKey, clientKeyring, clientKeyringSig } = req;
   return verifyKeyring(presentedKeyring(req, "clientKeyringNotAfter", clientPolicyKey, clientKeyring, clientKeyringSig), clientPolicyKey);
 }
 
@@ -169,7 +157,7 @@ function windowAllows(msg: object, field: string, at: number): boolean {
 
 /**
  * "attested" only when both roots verify against their sides' policy keys, the client's policy key is one the server
- * pinned, the client's keyring is signed by it (a legacy request, with no signature, never is), and at `now` (ms) the client's root and keyring and the server's own
+ * pinned, the client's keyring is signed by it, and at `now` (ms) the client's root and keyring and the server's own
  * root and keyring (`serverKeyringNotAfter`, undefined for an old-form keyring) are all new form and current. No pins
  * means every session is unsafe.
  *
@@ -181,7 +169,7 @@ function windowAllows(msg: object, field: string, at: number): boolean {
  * keeps serving as it would an unattested caller, rather than stopping.
  */
 export function sessionStatus(
-  req: SessionRequest | LegacySessionRequest,
+  req: SessionRequest,
   serverRoot: SignedRoot | null,
   serverKeyringNotAfter: number | undefined,
   serverPolicyKey: string,
@@ -262,7 +250,7 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
  */
 function replyHolds(
   reply: SessionReply,
-  req: SessionRequest | LegacySessionRequest,
+  req: SessionRequest,
   pinnedServerPolicyKey: string,
   serverEntry: string,
   at: number,
@@ -300,7 +288,7 @@ function replyHolds(
  */
 export function verifySessionReply(
   reply: SessionReply,
-  req: SessionRequest | LegacySessionRequest,
+  req: SessionRequest,
   pinnedServerPolicyKey: string,
   serverEntry: string,
   at: number,
@@ -312,19 +300,18 @@ export function verifySessionReply(
  * Whether a recorded handshake opened an attested session: the reply passes the client's shape check
  * (isSessionReply, as checkSessionReply runs it first), is attested and verifies against the pin, and both roots
  * verify against their sides' policy keys. The reply binds the client root's signature
- * but not its contents, so the client root is checked here too, and so is the keyring's signature unless
- * the request is legacy. There is no client pin offline: the server's signed "attested" reply, whose
+ * but not its contents, so the client root is checked here too, and so is the keyring's signature.
+ * There is no client pin offline: the server's signed "attested" reply, whose
  * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
  * of the record judged, since the handshake record carries no signed time: the caller passes a time the client signed
- * (a call's last stamp `ts`). A legacy request that carries `clientKeyringNotAfter` is not attested, since no
- * signature covers that window. The session is attested only for records no later than its certificate's `notAfter`
+ * (a call's last stamp `ts`). The session is attested only for records no later than its certificate's `notAfter`
  * (entry-key form) and the `notAfter` of each root and keyring in the new form, on both sides, each read only after
  * its own signature verified. Old-form roots and keyrings are accepted as recorded evidence holds them and set no
  * limit, so a policy-key reply over old-form material is attested at any time. The caller must not take `at` from
  * the handshake record, which anyone holding the file can edit. Never throws.
  */
 export function isAttestedSession(
-  req: SessionRequest | LegacySessionRequest,
+  req: SessionRequest,
   reply: SessionReply,
   pinnedServerPolicyKey: string,
   serverEntry: string,
@@ -336,7 +323,7 @@ export function isAttestedSession(
       reply.status === "attested" &&
       replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&
-      (isLegacySessionRequest(req) ? !Object.hasOwn(req, "clientKeyringNotAfter") : keyringVerifies(req)) &&
+      keyringVerifies(req) &&
       windowAllows(req.clientRoot!, "notAfter", at) &&
       windowAllows(req, "clientKeyringNotAfter", at)
     );

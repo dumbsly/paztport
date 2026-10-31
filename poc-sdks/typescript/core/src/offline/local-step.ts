@@ -47,10 +47,9 @@ export type RecordedRun = { prompt: string; ts: ReadonlySet<number> };
 
 /**
  * A recorded local step's result. OK means the record verified, whatever the gate decided: `verdict`, set only then,
- * is the decision it signed, OK when the call was allowed and the refusal's code when it was not. `legacy` is set only
- * on a step that verified from v2 stamps.
+ * is the decision it signed, OK when the call was allowed and the refusal's code when it was not.
  */
-export type LocalStepResult = { reason: ReasonCode; verdict?: LocalVerdict; legacy: boolean };
+export type LocalStepResult = { reason: ReasonCode; verdict?: LocalVerdict };
 
 /** True when `window`, a new-form `notAfter` or undefined for the old form, still holds at `at`; a malformed one never does. */
 function within(window: number | undefined, at: number): boolean {
@@ -78,7 +77,7 @@ export function verifyRecordedLocalStep(
   cfg: { client: LocalStepClient; signers: Signers; run?: RecordedRun; seen: Set<string> },
 ): LocalStepResult {
   const { client, signers, run } = cfg;
-  const fail = (reason: ReasonCode): LocalStepResult => ({ reason, legacy: false });
+  const fail = (reason: ReasonCode): LocalStepResult => ({ reason });
   let bind: string;
   try {
     bind = localStepBind({ toolName: step.tool, toolCallId: step.callId, input: step.input, resolved: step.resolved, verdict: step.verdict, listed: step.routeAllowed, rulesHash: step.rulesHash });
@@ -128,5 +127,5 @@ export function verifyRecordedLocalStep(
   if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== step.verdict) {
     return fail("VERDICT_MISMATCH");
   }
-  return { reason: "OK", verdict: step.verdict, legacy: chain.legacy };
+  return { reason: "OK", verdict: step.verdict };
 }

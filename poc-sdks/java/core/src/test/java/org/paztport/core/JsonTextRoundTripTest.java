@@ -30,7 +30,6 @@ import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
 
 /**
  * Every wire object in {@code v3.json} that has an SDK value type is read by that type and written back, and the
@@ -219,7 +218,7 @@ class JsonTextRoundTripTest {
             if (!parsed.ok()) {
                 throw new IllegalArgumentException(parsed.failure().name());
             }
-            return ((StampV3) parsed.stamps().get(0)).toJson();
+            return parsed.stamps().get(0).toJson();
         }),
         INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
         REQUEST(json -> SessionRequest.parse(json).toJson()),

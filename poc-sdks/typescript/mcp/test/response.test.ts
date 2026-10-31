@@ -133,4 +133,16 @@ describe("verifyMcpResponse", () => {
     expect(verifyMcpResponse(w.response(), { ...CALL, toolCallId: "a\nb" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
     expect(verifyMcpResponse(w.response(), { ...CALL, rid: 1 as unknown as string, toolCallId: "c" }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
+  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
+    const w = world();
+    for (const v of [1, 2, 4]) {
+      for (const at of [0, 1]) {
+        const resp = w.response();
+        ((resp._meta as any)[META_ATTESTATION].chain as Record<string, unknown>[])[at]!.v = v;
+        const r = verifyMcpResponse(resp, CALL, w.cfg());
+        expect(r.result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
+        expect(r.labels).toEqual([]);
+      }
+    }
+  });
 });

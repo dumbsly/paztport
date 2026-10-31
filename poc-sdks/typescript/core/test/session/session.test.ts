@@ -13,12 +13,10 @@ import { checkSessionReply } from "../../src/session/reply-check.ts";
 import {
   deriveSessionId,
   isAttestedSession,
-  isLegacySessionRequest,
   newNonce,
   sessionStatus,
   signSessionReply,
   verifySessionReply,
-  type LegacySessionRequest,
   type SessionReply,
   type SessionRequest,
 } from "../../src/session/session.ts";
@@ -206,15 +204,6 @@ describe("sessionStatus", () => {
     const old = world(true);
     const oldReply = signSessionReply(old.body(), old.serverPolicy.privateKey);
     expect(isAttestedSession(inheriting(old.req), oldReply, old.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
-  });
-});
-
-describe("isLegacySessionRequest", () => {
-  it("aRequestWithoutAKeyringSignatureIsLegacy", () => {
-    const w = world();
-    const { clientKeyringSig: _sig, ...legacy } = w.req;
-    expect(isLegacySessionRequest(legacy)).toBe(true);
-    expect(isLegacySessionRequest(w.req)).toBe(false);
   });
 });
 
@@ -432,29 +421,11 @@ describe("isAttestedSession", () => {
     expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
   });
-  it("aLegacyRequestWithAnAttestedReplyIsAttested", () => {
-    const w = world();
-    const { clientKeyringSig: _sig, clientKeyringNotAfter: _window, ...legacy } = w.req;
-    const req: LegacySessionRequest = legacy;
-    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(true);
-  });
-  it("aLegacyRequestCarryingAKeyringWindowIsNotAttested", () => {
-    // no signature covers the window, so it could have been added or moved by anyone holding the file
-    const w = world();
-    const { clientKeyringSig: _sig, ...legacy } = w.req;
-    const req: LegacySessionRequest = legacy;
-    expect(Object.hasOwn(req, "clientKeyringNotAfter")).toBe(true);
-    const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
-    expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
-    expect(isAttestedSession({ ...req, clientKeyringNotAfter: NOW - 1 }, reply, w.serverPolicy.publicKey, ENTRY, NOW - 2)).toBe(false);
-  });
-  it("aKeyringSignatureThatIsPresentButNotAStringIsNotLegacy", () => {
+  it("aKeyringSignatureThatIsNotAStringIsNotAttested", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     for (const sig of [null, 1]) {
       const req = { ...w.req, clientKeyringSig: sig } as unknown as SessionRequest;
-      expect(isLegacySessionRequest(req), String(sig)).toBe(false);
       expect(isAttestedSession(req, reply, w.serverPolicy.publicKey, ENTRY, NOW), String(sig)).toBe(false);
     }
   });

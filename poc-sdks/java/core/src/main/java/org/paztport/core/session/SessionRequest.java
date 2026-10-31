@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Map;
+import java.util.Objects;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.internal.RootJson;
@@ -15,8 +16,7 @@ import org.paztport.core.policy.SignedRoot;
 
 /**
  * The client's half of the session handshake. {@code clientRoot} is null to ask for an unsafe session.
- * {@code clientKeyringSig} is null when the field is absent, which is how a request recorded before keyrings were
- * signed looks; a present but malformed one is read as the empty string, which never verifies.
+ * {@code clientKeyringSig} is the client policy key's signature over its keyring, never null or empty.
  *
  * <p>{@code clientKeyringNotAfter} is the keyring's validity window, null for an old-form keyring. It travels
  * beside the keyring rather than inside it because the keyring's wire form is a bare map of service keys. Its
@@ -28,6 +28,7 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         String clientKeyringSig, Long clientKeyringNotAfter, String nonce) {
 
     public SessionRequest {
+        Objects.requireNonNull(clientKeyringSig, "clientKeyringSig");
         clientKeyring = Map.copyOf(clientKeyring);
     }
 
@@ -42,8 +43,8 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
 
     /**
      * Reads a request, throwing {@link IllegalArgumentException} on a shape error (the spec's Invalid params), text
-     * that is not one JSON value included. A missing {@code clientKeyringSig} is legacy (null); a present one that
-     * is not a string reads as the empty string, which never verifies. The client root is read whole by
+     * that is not one JSON value included. A {@code clientKeyringSig} that is missing, null, not a string
+     * or empty is a shape error, as for any other required member. The client root is read whole by
      * {@link SignedRoot#parse}, its {@code notAfter} included. A present {@code clientKeyringNotAfter}, or a client
      * root {@code notAfter}, that is not an integer in [0, 2^53 &minus; 1] (judged by value) is a shape error rather
      * than an absent field: read as absent, a damaged window would pass for the old form.
@@ -76,9 +77,9 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         if (ring == null || !ring.isObject()) {
             throw new IllegalArgumentException("clientKeyring must be an object");
         }
-        String sig = null;
-        if (params.has("clientKeyringSig")) {
-            sig = params.get("clientKeyringSig").isTextual() ? params.get("clientKeyringSig").textValue() : "";
+        JsonNode ringSig = params.get("clientKeyringSig");
+        if (ringSig == null || !ringSig.isTextual() || ringSig.textValue().isEmpty()) {
+            throw new IllegalArgumentException("clientKeyringSig must be a non-empty string");
         }
         Long ringNotAfter = null;
         if (params.has("clientKeyringNotAfter")) {
@@ -88,12 +89,7 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
             }
         }
         return new SessionRequest(root, Sessions.text(params.get("clientPolicyKey"), "clientPolicyKey"),
-                Sessions.stringMap(ring), sig, ringNotAfter, Sessions.text(params.get("nonce"), "nonce"));
-    }
-
-    /** True for a request with no {@code clientKeyringSig} field at all. */
-    public boolean legacy() {
-        return clientKeyringSig == null;
+                Sessions.stringMap(ring), ringSig.textValue(), ringNotAfter, Sessions.text(params.get("nonce"), "nonce"));
     }
 
     /**
@@ -105,8 +101,7 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
     }
 
     /**
-     * The wire form; an absent keyring signature stays absent, and {@code clientKeyringNotAfter} is written only
-     * for a new-form keyring.
+     * The wire form; {@code clientKeyringNotAfter} is written only for a new-form keyring.
      */
     public String toJson() {
         return Json.text(tree());
@@ -118,9 +113,7 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         o.put("clientPolicyKey", clientPolicyKey);
         ObjectNode ring = o.putObject("clientKeyring");
         clientKeyring.forEach(ring::put);
-        if (clientKeyringSig != null) {
-            o.put("clientKeyringSig", clientKeyringSig);
-        }
+        o.put("clientKeyringSig", clientKeyringSig);
         if (clientKeyringNotAfter != null) {
             o.put("clientKeyringNotAfter", clientKeyringNotAfter);
         }

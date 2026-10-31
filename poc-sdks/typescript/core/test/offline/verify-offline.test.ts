@@ -65,8 +65,8 @@ const SIGNERS = { svcs: ["session", "pi"], inst: "pi-1" };
 describe("verifyChainOffline", () => {
   it("aConsistentRecordedChainVerifiesWithNoFreshnessWindow", () => {
     const w = world();
-    expect(verifyChainOffline(w.input(w.chain()), w.cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1", legacy: false });
-    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ signers: SIGNERS }))).toMatchObject({ reason: "OK", legacy: false });
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" });
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ signers: SIGNERS }))).toMatchObject({ reason: "OK" });
   });
 
   it("eachReasonInTheLiveOrder", () => {
@@ -90,10 +90,10 @@ describe("verifyChainOffline", () => {
       ["REPLAY", verifyChainOffline(w.input(w.chain()), spent)],
     ];
     for (const [reason, r] of cases) {
-      expect([reason, r.reason, r.suspectSvc, r.suspectInst, r.legacy]).toEqual([reason, reason, "", "", false]);
+      expect([reason, r.reason, r.suspectSvc, r.suspectInst]).toEqual([reason, reason, "", ""]);
     }
     const denied = verifyChainOffline(w.input(w.chain({ rcv: "local:bash" }), { receiver: "local:bash" }), w.cfg());
-    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1", legacy: false });
+    expect(denied).toEqual({ ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1" });
   });
 
   it("theFirstFailureInTheLiveOrderIsReported", () => {
@@ -115,7 +115,7 @@ describe("verifyChainOffline", () => {
     expect(verifyChainOffline(w.input([{ ...o, inst: "pi-2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_ORIGIN");
     expect(verifyChainOffline(w.input([{ ...o, inst: "pi|2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_SIGNATURE");
     expect(verifyChainOffline(w.input([o, { ...s, bind: "a|b" }]), w.cfg()).reason).toBe("BAD_SIGNATURE");
-    expect(verifyChainOffline(w.input([o, { ...s, rcv: "a|b" }]), w.cfg())).toMatchObject({ reason: "BAD_SIGNATURE", legacy: false });
+    expect(verifyChainOffline(w.input([o, { ...s, rcv: "a|b" }]), w.cfg())).toMatchObject({ reason: "BAD_SIGNATURE" });
   });
 
   it("recordedTimesMustAgree", () => {
@@ -223,7 +223,7 @@ describe("verifyChainOffline", () => {
     const [o, s] = w.chain() as [StampV3, StampV3];
     for (const v of [1, 2, 4]) {
       for (const odd of [[{ ...o, v }, s], [o, { ...s, v }], [{ ...o, v }, { ...s, v }]]) {
-        expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING", legacy: false });
+        expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING" });
         expect(
           verifyChainV3(
             { stamps: odd, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true },
@@ -237,9 +237,9 @@ describe("verifyChainOffline", () => {
   it("aBrokenRcvIsABindingMismatch", () => {
     const w = world();
     // the origin names another next hop than the one that follows it
-    expect(verifyChainOffline(w.input(w.chain({}, { rcv: "search" })), w.cfg())).toMatchObject({ reason: "BINDING_MISMATCH", legacy: false });
+    expect(verifyChainOffline(w.input(w.chain({}, { rcv: "search" })), w.cfg())).toMatchObject({ reason: "BINDING_MISMATCH" });
     // the last stamp names another receiver than the record's
-    expect(verifyChainOffline(w.input(w.chain({ rcv: "local:write" })), w.cfg())).toMatchObject({ reason: "BINDING_MISMATCH", legacy: false });
+    expect(verifyChainOffline(w.input(w.chain({ rcv: "local:write" })), w.cfg())).toMatchObject({ reason: "BINDING_MISMATCH" });
     // checked after the signatures: a bad signature still comes first
     const o = w.origin({ rcv: "search" });
     expect(verifyChainOffline(w.input([o, w.step(o, {}, w.other.privateKey)]), w.cfg()).reason).toBe("BAD_SIGNATURE");
