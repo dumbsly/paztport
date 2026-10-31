@@ -409,11 +409,11 @@ Each kind of record is checked this way:
   neither has a window). So a response recorded after the server's new-form material expired is `POLICY_EXPIRED`.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
-  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the new form, are no
-  later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route verdict and proof
-  the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step
-  signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those
-  signed rules (`VERDICT_MISMATCH`).
+  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring, each in the
+  new form, are no later than their `notAfter` (`POLICY_EXPIRED`; an old-form one sets no limit). Then the route
+  verdict and proof the client recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the
+  `rulesHash` the step signed MUST be the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one
+  re-derived from those signed rules (`VERDICT_MISMATCH`).
 - **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
   verify against their sides' policy keys, and, unless the request is legacy, the client keyring's signature
   verifies. It is judged at the time of each call that relies on it: a new-form root or keyring, on either side,
