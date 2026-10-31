@@ -227,9 +227,10 @@ Rules:
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
   are all covered by the stamp.
 
-`v1.json` pins the HTTP binding in `bindings`. `v2.json` pins the prompt, `tools/call`, result and response
-bindings. `v3.json` pins a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
-binding with and without a query in `requestBinding`, and the HTTP result hash in `resultHash`.
+`v1.json` pins the HTTP binding in `bindings`. `v3.json` pins the prompt, `tools/call`, result and response
+bindings in `bindPrompt`, `bindMcpCall`, `bindResult` and `bindResponse`, and a local-tool binding through the
+`local step ok` case. `http-v3.json` pins the HTTP binding with and without a query in `requestBinding`, and the
+HTTP result hash in `resultHash`.
 
 ## Carrying a chain
 

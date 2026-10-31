@@ -249,7 +249,7 @@ sess = b64url( H( 0x02 ‖ flags ‖ clientRootSig ‖ serverRootSig ‖ clientN
 
 Each decoded value MUST have exactly the length shown, or there is no session id. `flags` says which roots are
 present, so input without a root can't be read as input with one. The layout is the same as in v2, and
-`v2.json` pins it in `deriveSessionId`. It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds
+`v3.json` pins it in `deriveSessionId`. It does not cover `clientKeyringSig` or `clientKeyringNotAfter`: it binds
 the keyring itself, and the server checks the signature, over that window, before it attests.
 
 Every v3 stamp in the session carries `sess`, so a chain made for one session fails in any other.
@@ -394,7 +394,7 @@ infl = b64url( H( utf8( JCS( normalise(entries) ) ) ) )
 
 Normalising first means the order a client happened to record things in doesn't change the commitment. Entries
 without `owner` commit exactly as they did before owners existed, so a v2 commitment is unchanged: the first
-case of `v3.json`'s `influence` gives the same commitment as `v2.json`'s `commitInfluence`. `v3.json` pins the
+case of `v3.json`'s `influence` gives the commitment its `commitInfluence` pins. `v3.json` pins the
 owner's sort position and the with-and-without case.
 
 ## Content labels
