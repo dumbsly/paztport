@@ -1,11 +1,9 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { decideServerCall, type ReasonCode } from "@paztport/core";
 import {
+  handleToolCall,
   McpServerSession,
-  META_VERDICT,
-  refusedToolResult,
   SESSION_METHOD,
   type ServerPolicy,
   type SessionRules,
@@ -88,9 +86,9 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     };
     // Off is a deployment switch, not a protocol mode: the only path that bypasses handleToolCall.
     const decided: ToolCallOutcome<CallToolResult, ReturnType<GithubTool["run"]>> =
-      server !== null && mode !== "off"
-        ? await server.handleToolCall(params, facts, mode, run)
-        : ungated(name, facts, mode, execute);
+      mode !== "off"
+        ? await handleToolCall(server, rules, params, facts, mode, run)
+        : { ran: true, verdict: "OK", verified: null, ...execute() };
     const { verdict, verified } = decided;
     const record = {
       ts: now(),
@@ -128,25 +126,6 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
       result.write?.texts ?? [],
     );
     return decided.result;
-  }
-
-  /** Off, or a server with no policy: no session, so only the unsafe-session rule decides (when not off), and nothing is attested. */
-  function ungated<D>(
-    name: string,
-    facts: { isWrite: boolean; publicDestination: boolean },
-    callMode: Mode,
-    execute: () => { result: CallToolResult; detail: D },
-  ): ToolCallOutcome<CallToolResult, D> {
-    const verdict: ReasonCode =
-      callMode === "off"
-        ? "OK"
-        : decideServerCall({ tool: name, ...facts, attested: false, served: [], clientInfluence: [], disabledWhenUnsafe: rules.disabledWhenUnsafe });
-    if (verdict !== "OK" && callMode === "enforce") {
-      return { ran: false, result: refusedToolResult(verdict), verdict, verified: null };
-    }
-    const { result, detail } = execute();
-    const noted = callMode === "audit" && verdict !== "OK" ? { ...result, _meta: { [META_VERDICT]: { reason: verdict, audit: true } } } : result;
-    return { ran: true, result: noted, verdict, verified: null, detail };
   }
 
   const methods: Record<string, (params: unknown) => Promise<unknown>> = {};

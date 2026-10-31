@@ -23,6 +23,7 @@ import {
 } from "@paztport/core";
 import {
   checkServerPolicy,
+  handleToolCall,
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,
@@ -731,6 +732,27 @@ describe("handleToolCall", () => {
     const out = await srv.handleToolCall(client.callParams("list_issues", ARGS, []), READ, "enforce", () => ({ result: RESULT, cls: "public", detail: 42 }));
     if (out.ran) expect(out.detail).toBe(42);
     else throw new Error("expected the call to run");
+  });
+
+  describe("with no server session", () => {
+    const params = { name: "create_pull_request", arguments: ARGS };
+    const run = () => ({ result: RESULT, cls: "public" as const });
+    it("enforceRefusesAListedWriteUnsafeSession", async () => {
+      const out = await handleToolCall(null, RULES, params, PUBLIC_WRITE, "enforce", run);
+      expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false, verified: null });
+      expect(out.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: { reason: "UNSAFE_SESSION" } } });
+    });
+    it("auditRunsItWithTheNote", async () => {
+      const out = await handleToolCall(null, RULES, params, PUBLIC_WRITE, "audit", run);
+      expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: true, verified: null });
+      expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "UNSAFE_SESSION", audit: true });
+      expect(meta(out.result)[META_ATTESTATION]).toBeUndefined();
+    });
+    it("aReadRunsUnattested", async () => {
+      const out = await handleToolCall(null, RULES, { name: "list_issues", arguments: ARGS }, READ, "enforce", run);
+      expect(out).toMatchObject({ verdict: "OK", ran: true });
+      expect(meta(out.result)).toEqual({});
+    });
   });
 
   it("noHandshakeIsAnUnsafeSession", async () => {

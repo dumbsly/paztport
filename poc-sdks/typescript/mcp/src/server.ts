@@ -186,6 +186,58 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
   }
 }
 
+/**
+ * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
+ * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
+ * verdict other than OK gives an `isError` result carrying `{reason}` and `run` is not called; in audit `run` is
+ * called anyway and its result carries `{reason, audit: true}`. `run` gets the verdict and returns the result with
+ * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
+ * is returned unattested. A null `server` is a deployment with no Paztport material: no handshake, so every call is
+ * in an unsafe session under `rules`. The `off` switch is not a protocol mode; a deployment that has one does not call this.
+ */
+export async function handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
+  server: McpServerSession | null,
+  rules: SessionRules,
+  params: Record<string, unknown>,
+  facts: ToolCallFacts,
+  mode: ToolCallMode,
+  run: (ctx: { verdict: ReasonCode }) => ToolRun<R, D> | Promise<ToolRun<R, D>>,
+): Promise<ToolCallOutcome<R, D>> {
+  const name = typeof params.name === "string" ? params.name : "";
+  const sess = server?.session();
+  const attested = sess?.status === "attested";
+  let verdict: ReasonCode = "OK";
+  let call: ServerCallCheck | null = null;
+  if (server !== null && attested) {
+    call = server.checkCall(params);
+    verdict = call.reason;
+  }
+  if (verdict === "OK") {
+    verdict = decideServerCall({
+      tool: name,
+      isWrite: facts.isWrite,
+      publicDestination: facts.publicDestination,
+      attested,
+      served: sess?.served ?? [],
+      clientInfluence: call?.influence ?? [],
+      disabledWhenUnsafe: rules.disabledWhenUnsafe,
+      ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
+    });
+  }
+  const verified = call !== null && call.reason === "OK" ? call : null;
+  if (verdict !== "OK" && mode === "enforce") {
+    return { result: refusedToolResult(verdict), verdict, ran: false, verified };
+  }
+  const { result, cls, detail } = await run({ verdict });
+  const noted: R = verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: { reason: verdict, audit: true } } } : result;
+  if (server === null || verified === null) {
+    return { result: noted, verdict, ran: true, verified, detail: detail as D };
+  }
+  const args = params.arguments ?? {};
+  const attestedResult = server.attest(verified.session, noted, { rid: verified.rid, callId: verified.callId, name, args, caller: verified.caller }, cls);
+  return { result: attestedResult, verdict, ran: true, verified, detail: detail as D };
+}
+
 /** The server side of one MCP connection: its paztport/session handshake, call checks and response stamps. */
 export class McpServerSession {
   private readonly policy: ServerPolicy;
@@ -263,53 +315,14 @@ export class McpServerSession {
     return { reason, rid: v.rid, callId: v.callId, influence: ok ? v.influence : [], caller: ok ? v.result.suspectSvc : "", session };
   }
 
-  /**
-   * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
-   * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
-   * verdict other than OK gives an `isError` result carrying `{reason}` and `run` is not called; in audit `run` is
-   * called anyway and its result carries `{reason, audit: true}`. `run` gets the verdict and returns the result with
-   * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
-   * is returned unattested. The `off` switch is not a protocol mode; a deployment that has one does not call this.
-   */
-  async handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
+  /** Handles a tools/call on this session with its rules; see the free function handleToolCall. */
+  handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
     params: Record<string, unknown>,
     facts: ToolCallFacts,
     mode: ToolCallMode,
     run: (ctx: { verdict: ReasonCode }) => ToolRun<R, D> | Promise<ToolRun<R, D>>,
   ): Promise<ToolCallOutcome<R, D>> {
-    const name = typeof params.name === "string" ? params.name : "";
-    const sess = this.current;
-    const attested = sess?.status === "attested";
-    let verdict: ReasonCode = "OK";
-    let call: ServerCallCheck | null = null;
-    if (attested) {
-      call = this.checkCall(params);
-      verdict = call.reason;
-    }
-    if (verdict === "OK") {
-      verdict = decideServerCall({
-        tool: name,
-        isWrite: facts.isWrite,
-        publicDestination: facts.publicDestination,
-        attested,
-        served: sess?.served ?? [],
-        clientInfluence: call?.influence ?? [],
-        disabledWhenUnsafe: this.rules.disabledWhenUnsafe,
-        ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
-      });
-    }
-    const verified = call !== null && call.reason === "OK" ? call : null;
-    if (verdict !== "OK" && mode === "enforce") {
-      return { result: refusedToolResult(verdict), verdict, ran: false, verified };
-    }
-    const { result, cls, detail } = await run({ verdict });
-    const noted: R = verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: { reason: verdict, audit: true } } } : result;
-    if (verified === null) {
-      return { result: noted, verdict, ran: true, verified, detail: detail as D };
-    }
-    const args = params.arguments ?? {};
-    const attestedResult = this.attest(verified.session, noted, { rid: verified.rid, callId: verified.callId, name, args, caller: verified.caller }, cls);
-    return { result: attestedResult, verdict, ran: true, verified, detail: detail as D };
+    return handleToolCall(this, this.rules, params, facts, mode, run);
   }
 
   /**
