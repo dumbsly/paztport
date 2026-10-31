@@ -278,7 +278,7 @@ function verifyFile(path: string, label: string): VerifyReport {
       client = verifyClient(rec, named);
       add(client !== undefined ? "OK" : "BAD_CLIENT");
     } else if (type === "local") {
-      const { result } = verifyLocal(rec, client, runOf, records.spent);
+      const result = verifyLocal(rec, client, runOf, records.spent);
       add(result);
       if (result === "OK" || result === "REFUSED") {
         boundRids.add(rec.rid as string);

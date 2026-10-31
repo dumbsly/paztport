@@ -157,27 +157,27 @@ export function verifyLocal(
   client: Client | undefined,
   runOf: (rid: string) => RunInfo | undefined,
   seen: Set<string>,
-): { result: LocalResult } {
+): LocalResult {
   if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
-    return { result: "UNREADABLE" };
+    return "UNREADABLE";
   }
   if (!isString(r.verdict) || !VERDICTS.includes(r.verdict) || !(r.proof === null || isObject(r.proof))) {
-    return { result: "UNREADABLE" };
+    return "UNREADABLE";
   }
   if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
-    return { result: "UNREADABLE" };
+    return "UNREADABLE";
   }
   let influence: InfluenceEntry[];
   try {
     influence = parseInfluence(r.influence);
     if (parseStampsV3(r.chain).length !== 2) {
-      return { result: "UNREADABLE" };
+      return "UNREADABLE";
     }
   } catch {
-    return { result: "UNREADABLE" };
+    return "UNREADABLE";
   }
   if (client === undefined) {
-    return { result: "NO_CLIENT" };
+    return "NO_CLIENT";
   }
   const step = {
     tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, resolved: r.resolved, verdict: r.verdict as LocalVerdict,
@@ -186,7 +186,7 @@ export function verifyLocal(
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });
   if (v.reason !== "OK") {
-    return { result: v.reason };
+    return v.reason;
   }
-  return { result: v.verdict === "OK" ? "OK" : "REFUSED" };
+  return v.verdict === "OK" ? "OK" : "REFUSED";
 }

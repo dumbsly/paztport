@@ -17,8 +17,8 @@ const jsonl = (file: string) =>
     .map((l) => JSON.parse(l));
 /**
  * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-31). events, outcome and evidence are as
- * recorded; the transcript is the recorded one with its thinking_delta and text_delta events removed (nothing reads
- * them, and they were most of its size).
+ * recorded; the transcript is the recorded one with its thinking_delta and text_delta events removed (nothing
+ * depends on them, the `*_start` events give the same activity, and they were most of its size).
  */
 const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 

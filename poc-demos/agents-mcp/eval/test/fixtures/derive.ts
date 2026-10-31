@@ -7,11 +7,19 @@
 //   node eval/test/fixtures/derive.ts <results folder> <on run, e.g. on-001> <off run, e.g. off-002>
 //
 // eval-results/ holds the on run as on-001, a copy of it with the repo in one signed call changed so that the call no
-// longer matches its binding (on-002, the check must fail it), a copy cut down to its run record (on-003), the off run's
-// outcome log (off-001) and the results.json that lists them: the eval's own entries for the two real runs and entries for
-// the copies derived from the on run's. recorded-on-run/ (demo-ui) holds the on run with the
-// transcript's thinking and answer text deltas dropped; nothing reads them and they are most of its size. Nothing
-// else is edited.
+// longer matches its binding (on-002, the check must fail it), a copy cut down to its run record (on-003), the off
+// run's outcome log (off-001) and the results.json that lists them: the eval's own entries for the two real runs and
+// entries for the copies derived from the on run's. recorded-on-run/ (demo-ui) holds the on run with the
+// transcript's thinking and answer text deltas dropped; nothing depends on them and they are most of its size, and
+// the `*_start` events give the same activity. Nothing else is edited.
+//
+// The script writes only those files. The expected reports and stdout files beside them are left as they are, and
+// are rebuilt from `npm run verify` after the files above change, in each fixture set:
+//   - expected-folder-report.json, expected-file-report.json (eval-results) and expected-verify-report.json
+//     (recorded-on-run) are `JSON.stringify(report, null, 2) + "\n"`, as the tests build them, for the report of
+//     verifyResultsDir (the folder) or verifyEvidence (an evidence.jsonl), the fixture's path replaced by `<fixture>`;
+//   - expected-folder-stdout.txt and expected-file-stdout.txt are what `npm run verify -- <folder>` and
+//     `npm run verify -- <folder>/runs/on-001/evidence.jsonl` print, the fixture's path replaced by `<fixture>`.
 
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -23,7 +31,7 @@ if (folder === undefined || onName === undefined || offName === undefined) {
 }
 const onDir = join(folder, "runs", onName);
 const offDir = join(folder, "runs", offName);
-const eval_ = JSON.parse(readFileSync(join(folder, "results.json"), "utf8"));
+const evalResults = JSON.parse(readFileSync(join(folder, "results.json"), "utf8"));
 const here = import.meta.dirname;
 const lines = (file: string): string[] => readFileSync(file, "utf8").split("\n").filter((l) => l.trim() !== "");
 
@@ -57,7 +65,7 @@ mkdirSync(join(results, "runs/off-001"), { recursive: true });
 cpSync(join(offDir, "outcome.jsonl"), join(results, "runs/off-001/outcome.jsonl"));
 
 const entry = (name: string) => {
-  const e = eval_.runs.find((r: { dir: string }) => r.dir === `runs/${name}`);
+  const e = evalResults.runs.find((r: { dir: string }) => r.dir === `runs/${name}`);
   if (e === undefined) throw new Error(`results.json lists no ${name}`);
   return e;
 };
@@ -67,10 +75,10 @@ writeFileSync(
   join(results, "results.json"),
   JSON.stringify(
     {
-      formatVersion: eval_.formatVersion,
-      scenario: eval_.scenario,
-      payload: eval_.payload,
-      model: eval_.model,
+      formatVersion: evalResults.formatVersion,
+      scenario: evalResults.scenario,
+      payload: evalResults.payload,
+      model: evalResults.model,
       runs: [
         { ...onEntry, index: 1, dir: "runs/on-001" },
         { ...onEntry, index: 2, dir: "runs/on-002", verify: { status: "failed", problems: [] } },
@@ -85,7 +93,6 @@ writeFileSync(
 
 // demo-ui's recorded run
 const rec = join(here, "../../../demo-ui/test/fixtures/recorded-on-run");
-rmSync(rec, { recursive: true, force: true });
 mkdirSync(rec, { recursive: true });
 for (const f of ["canary.txt", "events.jsonl", "evidence.jsonl", "outcome.jsonl", "run.json"]) cpSync(join(onDir, f), join(rec, f));
 const kept = lines(join(onDir, "transcript.jsonl")).filter((l) => {

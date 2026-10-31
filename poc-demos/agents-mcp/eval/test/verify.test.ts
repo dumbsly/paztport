@@ -1160,7 +1160,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
         for (const i of at) odd.chain[i].v = v;
-        expect(verifyLocal(odd, client, runOf, new Set())).toEqual({ result: "UNREADABLE" });
+        expect(verifyLocal(odd, client, runOf, new Set())).toBe("UNREADABLE");
       }
     }
   });
