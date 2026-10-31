@@ -705,6 +705,34 @@ describe("handleToolCall", () => {
     expect(meta(audit.result)[META_VERDICT].audit).toBe(true);
   });
 
+  it("destinationOwnerPassesThroughToTheDecision", async () => {
+    const { srv, client } = open(["create_pull_request"]);
+    const owned: InfluenceEntry[] = [
+      { cls: "private", src: "x", h: "h", owner: "o" },
+      { cls: "third-party", src: "y", h: "h2" },
+    ];
+    const run = () => ({ result: RESULT, cls: "public" as const });
+    const same = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, owned), { ...PUBLIC_WRITE, destinationOwner: "o" }, "enforce", run);
+    expect(same).toMatchObject({ verdict: "OK", ran: true });
+    const other = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, owned), { ...PUBLIC_WRITE, destinationOwner: "elsewhere" }, "enforce", run);
+    expect(other).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: false });
+  });
+
+  it("auditInAnUnsafeSessionRunsTheWriteUnattestedWithTheVerdict", async () => {
+    const { srv, client } = open(["create_pull_request"], false);
+    const out = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, []), PUBLIC_WRITE, "audit", () => ({ result: RESULT, cls: "public" }));
+    expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: true, verified: null });
+    expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "UNSAFE_SESSION", audit: true });
+    expect(meta(out.result)[META_ATTESTATION]).toBeUndefined();
+  });
+
+  it("detailFromRunComesBackWithTheOutcome", async () => {
+    const { srv, client } = open(["list_issues"]);
+    const out = await srv.handleToolCall(client.callParams("list_issues", ARGS, []), READ, "enforce", () => ({ result: RESULT, cls: "public", detail: 42 }));
+    if (out.ran) expect(out.detail).toBe(42);
+    else throw new Error("expected the call to run");
+  });
+
   it("noHandshakeIsAnUnsafeSession", async () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const out = await srv.handleToolCall({ name: "create_pull_request", arguments: ARGS }, PUBLIC_WRITE, "enforce", () => ({ result: RESULT, cls: "public" }));

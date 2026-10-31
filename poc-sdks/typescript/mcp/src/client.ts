@@ -73,7 +73,8 @@ export type OpenedSession = { outcome: SessionOutcome; exchanges: SessionExchang
  * Opens a session: sends `request` through `send`, which rejects on a JSON-RPC error, a timeout or a transport error
  * (`rpcCode` gives the JSON-RPC code of what it rejected with, if any), and classifies the reply. When the outcome
  * warrants a replacement, sends `replacementRequest` (a null root, so the server cannot attest it) best effort; the
- * session is unsafe whatever comes back, and the outcome is the first one's.
+ * session is unsafe whatever comes back, and the outcome is the first one's. `onExchange` reports each exchange as it
+ * happens, so a caller keeping evidence loses nothing if the replacement hangs.
  */
 export async function openSession(opts: {
   request: SessionRequest;
@@ -82,6 +83,8 @@ export async function openSession(opts: {
   now: () => number;
   send: (request: SessionRequest) => Promise<unknown>;
   rpcCode: (error: unknown) => number | undefined;
+  /** Called with each exchange as it happens, with the outcome the first reply gave, before any replacement is sent. */
+  onExchange?: (exchange: SessionExchange, outcome: SessionOutcome) => void;
 }): Promise<OpenedSession> {
   const { request, send } = opts;
   let raw: unknown = null;
@@ -93,6 +96,7 @@ export async function openSession(opts: {
   }
   outcome ??= classifySessionReply(raw, request, opts.pin, opts.serverEntry, opts.now());
   const exchanges: SessionExchange[] = [{ request, reply: raw }];
+  opts.onExchange?.(exchanges[0]!, outcome);
   if (outcome.status === "unsafe" && outcome.replaceSession) {
     const replacement = replacementRequest(request);
     let second: unknown = null;
@@ -102,6 +106,7 @@ export async function openSession(opts: {
       // stays unsafe
     }
     exchanges.push({ request: replacement, reply: second });
+    opts.onExchange?.(exchanges[1]!, outcome);
   }
   return { outcome, exchanges };
 }

@@ -522,6 +522,19 @@ describe("openSession", () => {
     expect(opened.exchanges.map((e) => e.reply)).toEqual([other.raw, c.raw]);
   });
 
+  it("onExchangeReportsTheFirstExchangeBeforeTheReplacementIsSent", async () => {
+    const c = connected();
+    const events: string[] = [];
+    await openSession({
+      ...opts(c, async () => {
+        events.push("send");
+        return Promise.reject({ code: -32603 });
+      }),
+      onExchange: (x, outcome) => events.push(`exchange:${x.request.clientRoot === null ? "replacement" : "first"}:${outcome.status}`),
+    });
+    expect(events).toEqual(["send", "exchange:first:unsafe", "send", "exchange:replacement:unsafe"]);
+  });
+
   it("aFailedReplacementIsRecordedAsNoReply", async () => {
     const c = connected();
     let n = 0;

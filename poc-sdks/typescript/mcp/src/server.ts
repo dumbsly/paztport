@@ -103,16 +103,13 @@ export type RefusedToolResult = {
   _meta: Record<string, unknown>;
 };
 
-/** What `run` returns: the tool's result and the class of the content it holds, which labels the attested response. */
-export type ToolRun<R> = { result: R; cls: InfluenceClass };
+/** What `run` returns: the tool's result, the class of the content it holds (it labels the attested response), and anything the caller wants back. */
+export type ToolRun<R, D = undefined> = { result: R; cls: InfluenceClass; detail?: D };
 
-/** What handleToolCall decided and did. `ran` is false for a refusal; `verified` is the call check when the chain verified, else null. */
-export type ToolCallOutcome<R> = {
-  result: R | RefusedToolResult;
-  verdict: ReasonCode;
-  ran: boolean;
-  verified: ServerCallCheck | null;
-};
+/** What handleToolCall decided and did. `verified` is the call check when the chain verified, else null; a call that ran carries `run`'s `detail`. */
+export type ToolCallOutcome<R, D = undefined> =
+  | { ran: false; result: RefusedToolResult; verdict: ReasonCode; verified: ServerCallCheck | null }
+  | { ran: true; result: R; verdict: ReasonCode; verified: ServerCallCheck | null; detail: D };
 
 /** The result for a refused call. */
 export function refusedToolResult(reason: string): RefusedToolResult {
@@ -274,12 +271,12 @@ export class McpServerSession {
    * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
    * is returned unattested. The `off` switch is not a protocol mode; a deployment that has one does not call this.
    */
-  async handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
+  async handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
     params: Record<string, unknown>,
     facts: ToolCallFacts,
     mode: ToolCallMode,
-    run: (ctx: { verdict: ReasonCode }) => ToolRun<R> | Promise<ToolRun<R>>,
-  ): Promise<ToolCallOutcome<R>> {
+    run: (ctx: { verdict: ReasonCode }) => ToolRun<R, D> | Promise<ToolRun<R, D>>,
+  ): Promise<ToolCallOutcome<R, D>> {
     const name = typeof params.name === "string" ? params.name : "";
     const sess = this.current;
     const attested = sess?.status === "attested";
@@ -305,14 +302,14 @@ export class McpServerSession {
     if (verdict !== "OK" && mode === "enforce") {
       return { result: refusedToolResult(verdict), verdict, ran: false, verified };
     }
-    const { result, cls } = await run({ verdict });
+    const { result, cls, detail } = await run({ verdict });
     const noted: R = verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: { reason: verdict, audit: true } } } : result;
     if (verified === null) {
-      return { result: noted, verdict, ran: true, verified };
+      return { result: noted, verdict, ran: true, verified, detail: detail as D };
     }
     const args = params.arguments ?? {};
     const attestedResult = this.attest(verified.session, noted, { rid: verified.rid, callId: verified.callId, name, args, caller: verified.caller }, cls);
-    return { result: attestedResult, verdict, ran: true, verified };
+    return { result: attestedResult, verdict, ran: true, verified, detail: detail as D };
   }
 
   /**
