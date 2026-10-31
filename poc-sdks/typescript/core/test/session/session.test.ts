@@ -9,6 +9,7 @@ import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
 import { issueReplyCert } from "../../src/session/reply-cert.ts";
 import { signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { isCurrent } from "../../src/policy/validity.ts";
+import { checkSessionReply } from "../../src/session/reply-check.ts";
 import {
   deriveSessionId,
   isAttestedSession,
@@ -395,6 +396,17 @@ describe("isAttestedSession", () => {
     expect(isAttestedSession(noClient, signSessionReply({ ...body, sess, status: "unsafe" }, w.serverPolicy.privateKey), w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     // what a recorded file may hold instead of a reply
     expect(isAttestedSession(w.req, {} as SessionReply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+  });
+  // "attested only when … the reply passes the client's check": its shape check included, so a reply the server
+  // signed that the live client answers MALFORMED_REPLY is never attested offline either.
+  it("aSignedReplyThatFailsTheClientsShapeCheckIsNotAttested", () => {
+    const w = world();
+    const { disabled: _d, ...noDisabled } = w.body();
+    for (const body of [noDisabled, { ...w.body(), disabled: [7] }, { ...w.body(), serverKeyring: { ...w.body().serverKeyring, extra: 1 } }]) {
+      const reply = signSessionReply(body as Omit<SessionReply, "sig">, w.serverPolicy.privateKey);
+      expect(checkSessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
+      expect(isAttestedSession(w.req, reply, w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
+    }
   });
   it("aV3RequestWhoseKeyringSignatureFailsIsNotAttested", () => {
     const w = world();

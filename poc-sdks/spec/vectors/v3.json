@@ -4172,6 +4172,64 @@
       }
     },
     {
+      "name": "a signed reply the client's shape check refuses",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+          "notAfter": 4102444800000
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
+        "status": "attested",
+        "sig": "toUVU43rFEiB56iorxexiMjGerbMmuZLiQ2xMMMAaE_9WdB6y_jParrtpfgTkKidUjB92F2BLxySUNhalHEzDg"
+      },
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "at": [
+        1767225600000
+      ],
+      "expected": {
+        "attested": false,
+        "attestedAt": [
+          false
+        ],
+        "responseNotAfter": 4102444800000,
+        "legacy": false
+      }
+    },
+    {
       "name": "another pin",
       "request": {
         "clientRoot": {

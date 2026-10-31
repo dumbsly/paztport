@@ -309,8 +309,9 @@ export function verifySessionReply(
 }
 
 /**
- * Whether a recorded handshake opened an attested session: the reply is attested and verifies against the
- * pin, and both roots verify against their sides' policy keys. The reply binds the client root's signature
+ * Whether a recorded handshake opened an attested session: the reply passes the client's shape check
+ * (isSessionReply, as checkSessionReply runs it first), is attested and verifies against the pin, and both roots
+ * verify against their sides' policy keys. The reply binds the client root's signature
  * but not its contents, so the client root is checked here too, and so is the keyring's signature unless
  * the request is legacy. There is no client pin offline: the server's signed "attested" reply, whose
  * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
@@ -331,6 +332,7 @@ export function isAttestedSession(
 ): boolean {
   try {
     return (
+      isSessionReply(reply) &&
       reply.status === "attested" &&
       replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at, "offline") &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&

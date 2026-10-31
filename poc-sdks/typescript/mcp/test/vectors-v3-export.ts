@@ -711,6 +711,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     handshakeCase("legacy request", legacyRequest, replyTo(legacyRequest, "server-policy", {}, OLD), [NOW]),
     handshakeCase("legacy request with a keyring window", { ...legacyRequest, clientKeyringNotAfter: LIVE_NOT_AFTER }, replyTo({ ...legacyRequest, clientKeyringNotAfter: LIVE_NOT_AFTER }, "server-policy", {}, OLD), [NOW]),
     handshakeCase("unsafe", request, replyTo(request, "mcp-entry", { status: "unsafe", disabled: [TOOL] }), [NOW]),
+    handshakeCase("a signed reply the client's shape check refuses", request, replyTo(request, "mcp-entry", {}, ["disabled"]), [NOW]),
     handshakeCase("another pin", request, replyTo(request, "mcp-entry"), [NOW], { pin: "client-policy" }),
     handshakeCase("the configured entry, not the reply's", request, replyTo(request, "github-tools", { serverReplyCert: certFor("github-tools", "github-tools") }), [NOW], { serverEntry: "mcp-entry" }),
     handshakeCase("configured for another entry", request, replyTo(request, "mcp-entry"), [NOW], { serverEntry: "github-tools" }),
@@ -731,12 +732,17 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["legacy request", true, [true], true],
     ["legacy request with a keyring window", false, [false], false],
     ["unsafe", false, [false], false],
+    ["a signed reply the client's shape check refuses", false, [false], false],
     ["another pin", false, [false], false],
     ["the configured entry, not the reply's", false, [false], false],
     ["configured for another entry", false, [false], false],
     ["client keyring window moved", false, [false], false],
     ["client root signed by another key", false, [false], false],
   ]);
+  // The server signed it, so only the shape check refuses it: live it is MALFORMED_REPLY, and offline never attested.
+  const shapeRefused = recordedHandshake.find((c) => c.name === "a signed reply the client's shape check refuses")!;
+  check("the shape-refused reply live", checkSessionReply(shapeRefused.reply, request, keys["server-policy"].pub, "mcp-entry", NOW), "MALFORMED_REPLY");
+  check("the shape-refused reply's response limit", shapeRefused.expected.responseNotAfter, LIVE_NOT_AFTER);
   check(
     "recorded handshake response limits",
     recordedHandshake.slice(0, 10).map((c) => c.expected.responseNotAfter),
