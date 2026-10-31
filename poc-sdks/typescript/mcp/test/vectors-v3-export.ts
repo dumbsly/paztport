@@ -386,6 +386,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     live(callCase("route fails before peer", { proofRoute: OTHER_ROUTE, peer: { svc: "search", inst: "10.0.0.9" } }), no("PATH_NOT_ALLOWED", "search", "10.0.0.9")),
     live({ ...responseCase, name: "response to wrong receiver", receiver: "other" }, no("BINDING_MISMATCH")),
     // Malformed rcv fields.
+    // A stamp that is not v3 beside a v3 one.
+    live(callCase("a stamp whose v is not 3", { chain: notV3Call }), no("CHAIN_MISSING")),
     live(callCase("v3 stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
     live(callCase("rcv holding the delimiter", { chain: malformed({ ...hop, rcv: "a|b" }) }), no("BAD_SIGNATURE")),
     live(callCase("non-string rcv", { chain: malformed({ ...hop, rcv: 7 }) }), no("CHAIN_MISSING")),
@@ -781,6 +783,10 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { name, request, reply, pin, serverEntry, at, expected };
   };
   const clientRootAt = (t: number): SessionRequest => ({ ...request, clientRoot: clientRootUntil(t) });
+  // Client material a reader refuses as malformed, recorded all the same: the session it opened is never attested.
+  const unsignedRequest = withoutSig as unknown as SessionRequest;
+  const unwindowedRingRequest = withoutRingWindow as unknown as SessionRequest;
+  const unwindowedRootRequest = { ...wireRequest, clientRoot: unwindowedClientRoot } as unknown as SessionRequest;
   const recordedHandshake = [
     handshakeCase("entry-key form, limited by the certificate", request, replyTo(request, "mcp-entry"), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
     handshakeCase("policy-key form, limited by the roots and keyrings", request, replyTo(request, "server-policy", {}, POLICY_KEY_FORM), [LIVE_NOT_AFTER, LIVE_NOT_AFTER + 1]),
@@ -806,6 +812,9 @@ export function buildVectorsV3(): Record<string, unknown> {
     handshakeCase("configured for another entry", request, replyTo(request, "mcp-entry"), [NOW], { serverEntry: "github-tools" }),
     handshakeCase("client keyring window moved", { ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, replyTo({ ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, "mcp-entry"), [NOW]),
     handshakeCase("client root signed by another key", { ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, replyTo({ ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, "mcp-entry"), [NOW]),
+    handshakeCase("request without a client keyring signature", unsignedRequest, replyTo(unsignedRequest, "mcp-entry"), [NOW]),
+    handshakeCase("request without a client keyring notAfter", unwindowedRingRequest, replyTo(unwindowedRingRequest, "mcp-entry"), [NOW]),
+    handshakeCase("client root without notAfter", unwindowedRootRequest, replyTo(unwindowedRootRequest, "mcp-entry"), [NOW]),
   ];
   check("recorded handshake answers", recordedHandshake.map((c) => [c.name, c.expected.attested, c.expected.attestedAt]), [
     ["entry-key form, limited by the certificate", true, [true, false]],
@@ -822,10 +831,18 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["configured for another entry", false, [false]],
     ["client keyring window moved", false, [false]],
     ["client root signed by another key", false, [false]],
+    ["request without a client keyring signature", false, [false]],
+    ["request without a client keyring notAfter", false, [false]],
+    ["client root without notAfter", false, [false]],
   ]);
   // The server signed it, so only the shape check refuses it: live it is MALFORMED_REPLY, and offline never attested.
   const shapeRefused = recordedHandshake.find((c) => c.name === "a signed reply the client's shape check refuses")!;
   check("the shape-refused reply live", checkSessionReply(shapeRefused.reply, request, keys["server-policy"].pub, "mcp-entry", NOW), "MALFORMED_REPLY");
+  check(
+    "the unsigned and unwindowed requests' response limits",
+    recordedHandshake.slice(-3).map((c) => c.expected.responseNotAfter),
+    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER],
+  );
   check("the shape-refused reply's response limit", shapeRefused.expected.responseNotAfter, LIVE_NOT_AFTER);
   check(
     "recorded handshake response limits",

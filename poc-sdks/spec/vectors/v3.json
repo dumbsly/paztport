@@ -2056,6 +2056,77 @@
       }
     },
     {
+      "name": "a stamp whose v is not 3",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 2,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "CHAIN_MISSING",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
       "name": "v3 stamp with no rcv",
       "chain": [
         {
@@ -3983,6 +4054,177 @@
         "status": "attested",
         "disabled": [],
         "sig": "Eje1wS1V9H-kpv-xCJuVPQVsYdxpu-j2Ur4javk1vj4NMuw3VVPQhkBTD8IVQ7_iq_ggI4Kks9YxCLpp75OiDg"
+      },
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "at": [
+        1767225600000
+      ],
+      "expected": {
+        "attested": false,
+        "attestedAt": [
+          false
+        ],
+        "responseNotAfter": 4102444800000
+      }
+    },
+    {
+      "name": "request without a client keyring signature",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+          "notAfter": 4102444800000
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
+        "status": "attested",
+        "disabled": [],
+        "sig": "cUOMoygc3oHr1iWerTX_0fiIEmF77ftxhWHrKkFHYQp-nT42Ex4e_5o2PEhbcpM_8MU3-eR-CZZl8DPvJBYQBQ"
+      },
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "at": [
+        1767225600000
+      ],
+      "expected": {
+        "attested": false,
+        "attestedAt": [
+          false
+        ],
+        "responseNotAfter": 4102444800000
+      }
+    },
+    {
+      "name": "request without a client keyring notAfter",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg",
+          "notAfter": 4102444800000
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+          "notAfter": 4102444800000
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
+        "status": "attested",
+        "disabled": [],
+        "sig": "cUOMoygc3oHr1iWerTX_0fiIEmF77ftxhWHrKkFHYQp-nT42Ex4e_5o2PEhbcpM_8MU3-eR-CZZl8DPvJBYQBQ"
+      },
+      "pin": "server-policy",
+      "serverEntry": "mcp-entry",
+      "at": [
+        1767225600000
+      ],
+      "expected": {
+        "attested": false,
+        "attestedAt": [
+          false
+        ],
+        "responseNotAfter": 4102444800000
+      }
+    },
+    {
+      "name": "client root without notAfter",
+      "request": {
+        "clientRoot": {
+          "rootId": "v128498df6662",
+          "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+          "sig": "vRROYYlhig1MqY75cgeaz0mBFn_ir026jAEFbA4YSU2h3Rtuxtc75CbzPy2zZl8OHzZBJxwpjzaYWkyO5i0dCg"
+        },
+        "clientPolicyKey": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "clientKeyring": {
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8"
+        },
+        "clientKeyringSig": "xcsqLY3YpPl_iyunDY6ZjspXJN9Ynuga45ZVyXL0nrdfQfgunBmKzsdLrRtbkADI_mdKGyqGl8stG0ULpcCxDw",
+        "clientKeyringNotAfter": 4102444800000,
+        "nonce": "DnRxEJ-B4WC-BSlSIgnvEQ"
+      },
+      "reply": {
+        "serverRoot": {
+          "rootId": "v33dc7a7d5de4",
+          "root": "onAKorO9LjCxSJhkXsvdTMc-0VwbjPLoxjzUA2gbsDI",
+          "sig": "q_LVjnuhvlCWVbz_SOgKrD3n9fk5TtrfSZYJ-68Oqygyn_UwGiVv34Hjby2wdR3hue5gF2l6Lr_ZI0J0_bDzAw",
+          "notAfter": 4102444800000
+        },
+        "serverPolicyKey": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "serverKeyring": {
+          "mcp-entry": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "github-tools": "MCowBQYDK2VwAyEA2cLgL1i2uBmypEWBIPWIC7hzFbubhFHijMwM_KOH-uA"
+        },
+        "serverKeyringSig": "DFfLolrqSjyD85_hqjhuviVPigEu0sPNPRHiC6O4Xk60vqH5wauAdDC1pCu79nNXWou3yPW8B1_YKb0KiMb_AA",
+        "serverKeyringNotAfter": 4102444800000,
+        "serverReplyCert": {
+          "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+          "svc": "mcp-entry",
+          "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+          "notAfter": 1798761600000,
+          "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA"
+        },
+        "nonce": "TJQb7rNCTipnIfTXkeDaKg",
+        "sess": "jjQHQ4Y-PtrmrhhcFR7kmtyby4F17OsAd0ucu6t6VW4",
+        "status": "attested",
+        "disabled": [],
+        "sig": "cUOMoygc3oHr1iWerTX_0fiIEmF77ftxhWHrKkFHYQp-nT42Ex4e_5o2PEhbcpM_8MU3-eR-CZZl8DPvJBYQBQ"
       },
       "pin": "server-policy",
       "serverEntry": "mcp-entry",
