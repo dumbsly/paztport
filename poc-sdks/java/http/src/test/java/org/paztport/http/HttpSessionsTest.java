@@ -6,6 +6,7 @@ package org.paztport.http;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -135,5 +136,11 @@ class HttpSessionsTest {
 
         assertEquals(400, answer.status());
         assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
+        // nothing was opened: the answer names no session, and the signed request's own session id is not kept
+        assertNull(new ObjectMapper().readTree(answer.json()).get("sess"));
+        String signed = new ObjectMapper().readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders,
+                sessions).json()).get("sess").asText();
+        assertNotNull(sessions.find("CN=shop CA", "orders", signed), "a signed request opens one");
+        assertNull(sessions.find("CN=shop CA", "orders", ""), "the refused one opened none");
     }
 }

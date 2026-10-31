@@ -349,6 +349,8 @@ final class VectorsHttpPartner {
         Material shop = fx.material("shop");
         ObjectNode nullWindow = (ObjectNode) tree(fx.handshake("shop"));
         nullWindow.putNull("clientKeyringNotAfter");
+        ObjectNode unsigned = (ObjectNode) tree(fx.handshake("shop"));
+        unsigned.remove("clientKeyringSig");
         ArrayNode a = arr();
         a.add(new Script("a body that is not JSON", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8("this is not JSON"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
@@ -359,6 +361,9 @@ final class VectorsHttpPartner {
                         + "\"clientKeyring\":{},\"nonce\":\"n\"}"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring window that is null", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8(nullWindow.toString()),
+                        handshakeError(HttpSessions.INVALID_PARAMS)).c);
+        a.add(new Script("a keyring signature that is missing", partner(), shop)
+                .handshakeBody(NOW, "shop", utf8(unsigned.toString()),
                         handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a nonce of 15 bytes", partner(), shop)
                 .handshake(NOW, "shop", "short-nonce", null, handshakeError(HttpSessions.NO_SESSION)).c);
