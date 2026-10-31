@@ -21,6 +21,8 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -61,11 +63,7 @@ public class OpeningCheckController {
      * the opening's class and owner. Only JSON is taken: any other content type is answered {@code 415}.
      */
     @PostMapping(path = "/debug/check-opening", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid,
-            @RequestBody(required = false) byte[] body) {
-        if (body == null || body.length == 0) {
-            return malformed();
-        }
+    public ResponseEntity<Map<String, Object>> check(@RequestParam String rid, @RequestBody byte[] body) {
         String text;
         JsonNode tree;
         try {
@@ -102,6 +100,12 @@ public class OpeningCheckController {
             return ResponseEntity.notFound().build();
         }
         return ResponseEntity.ok(Map.of("opens", BoundaryInfluence.opens(sent, opening)));
+    }
+
+    /** Spring refuses a JSON request with a missing or empty body with this exception before {@link #check} runs. */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> unreadable() {
+        return malformed();
     }
 
     private static ResponseEntity<Map<String, Object>> malformed() {

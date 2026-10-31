@@ -129,7 +129,17 @@ class OpeningCheckControllerTest {
         }
         mvc.perform(post("/debug/check-opening").param("rid", RID).contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+    }
+
+    /** Without a body the content type is still checked: only JSON is taken. */
+    @Test
+    void aBodilessRequestOfAnotherContentTypeIsUnsupported() throws Exception {
+        mvc.perform(post("/debug/check-opening").param("rid", RID).contentType(MediaType.TEXT_PLAIN))
+                .andExpect(status().isUnsupportedMediaType());
+        mvc.perform(post("/debug/check-opening").param("rid", RID))
+                .andExpect(status().isUnsupportedMediaType());
     }
 
     @Test
