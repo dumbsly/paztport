@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["core/src", "core/test", "http/src", "http/test", "mcp/src", "mcp/test", "policy-tool/src", "policy-tool/test", "vitest.config.ts"]
+  "include": ["core/src", "core/test", "mcp/src", "mcp/test", "policy-tool/src", "policy-tool/test", "vitest.config.ts"]
 }

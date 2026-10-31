@@ -1,6 +1,6 @@
 # TypeScript SDK
 
-An npm workspace of four packages. Node 22.19 or newer runs the `.ts` sources
+An npm workspace of three packages. Node 22.19 or newer runs the `.ts` sources
 directly, with no build step. Nothing is published: the agents demo
 ([poc-demos/agents-mcp](../../poc-demos/agents-mcp/README.md)) links the packages
 with `file:` paths, and they resolve their own dependencies from this workspace,
@@ -19,11 +19,11 @@ writes one and names it, so there it always runs.
 ## @paztport/core
 
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers,
-canonical JSON, v1, v2 and v3 stamps and chains, the salted Merkle tree, signed roots
+canonical JSON, v2 and v3 stamps and chains, the salted Merkle tree, signed roots
 and keyrings, reply certificates, policy building, reason codes, the replay cache, prompt
 binding, influence and the owner-aware influence rule, sessions, local tool rules and the
-verdict for a local tool call, local steps, the live v1 verifier and the live v3 chain
-verifier (`verifyChainV3`).
+verdict for a local tool call, local steps, the live v3 chain verifier
+(`verifyChainV3`).
 For responders, `signEvent` signs an event, `createEventVerifier` checks a received body (strictly, with `ts`
 read by value) and `isAttributable` says whether the responder may act on it.
 Offline verification of a recorded run (`verifyChainOffline`) is here too, and shares its
@@ -78,13 +78,6 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `svc`, which the policy and its receivers' allowed origins must carry too.
 - **Legacy is reported.** The offline results say whether a chain was legacy, and the agents demo's `verify`
   marks each such item ([eval README](../../poc-demos/agents-mcp/eval/README.md)).
-
-## @paztport/http
-
-The v1 HTTP request binding (`bindHttp`): SHA-256 over method, path and body. The
-Java SDK computes the same bytes for a request with no query. This SDK does not
-speak v3 over HTTP, which only the Java SDK does, and does not replay
-`spec/vectors/http-v3.json`.
 
 ## @paztport/mcp
 
