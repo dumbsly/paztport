@@ -337,7 +337,7 @@ class EventVectorsExport {
             attributable.add(attributableCase(reason, reason, "search", "search-1", false, true));
         }
         for (String reason : List.of("OK", "INFLUENCE_DENIED", "UNSAFE_SESSION", "POLICY_EXPIRED", "SCOPE_DENIED",
-                "UNCHECKABLE", "TIME_MISMATCH", "NOT_A_CODE", "")) {
+                "UNCHECKABLE", "TIME_MISMATCH", "OUTSIDE_SESSION", "NOT_A_CODE", "")) {
             attributable.add(attributableCase("excluded: " + (reason.isEmpty() ? "empty reason" : reason), reason,
                     "search", "search-1", false, false));
         }

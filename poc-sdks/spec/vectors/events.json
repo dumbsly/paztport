@@ -1191,6 +1191,18 @@
     },
     "expected" : false
   }, {
+    "name" : "excluded: OUTSIDE_SESSION",
+    "event" : {
+      "reason" : "OUTSIDE_SESSION",
+      "suspectSvc" : "search",
+      "suspectInst" : "search-1",
+      "rid" : "rid-event-1",
+      "audit" : false,
+      "ts" : 1767225600000,
+      "eventId" : "event-1"
+    },
+    "expected" : false
+  }, {
     "name" : "excluded: NOT_A_CODE",
     "event" : {
       "reason" : "NOT_A_CODE",
