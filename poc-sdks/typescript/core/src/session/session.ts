@@ -6,7 +6,7 @@ import { concat, randomBytes, sha256, sign, utf8, verify } from "../crypto/crypt
 import { canonicalize } from "../encoding/jcs.ts";
 import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
 import { isReplyCert, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
-import { verifyRoot, type SignedRoot } from "../policy/root.ts";
+import { parseSignedRoot, verifyRoot, type SignedRoot } from "../policy/root.ts";
 import { isCurrent, isNotAfter } from "../policy/validity.ts";
 
 /**
@@ -51,6 +51,47 @@ export type SessionReply = {
   disabled: string[];
   sig: string;
 };
+
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+function isStringMap(v: unknown): v is Record<string, string> {
+  return isObject(v) && Object.values(v).every((x) => typeof x === "string");
+}
+
+/** Whether `v` reads as a signed root, a root `notAfter` that is not an integer in [0, 2^53 − 1] included. */
+function isSignedRoot(v: unknown): boolean {
+  try {
+    parseSignedRoot(v, "serverRoot");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The reply's shape; `serverKeyringSig`, `serverKeyringNotAfter` and `serverReplyCert` are optional, but each, when
+ * present (even as null), must be well formed: a window, the keyring's or the root's, that is not an integer in
+ * [0, 2^53 − 1] makes the reply malformed rather than old form.
+ */
+export function isSessionReply(v: unknown): v is SessionReply {
+  return (
+    isObject(v) &&
+    (v.serverRoot === null || isSignedRoot(v.serverRoot)) &&
+    typeof v.serverPolicyKey === "string" &&
+    isStringMap(v.serverKeyring) &&
+    (!Object.hasOwn(v, "serverKeyringSig") || typeof v.serverKeyringSig === "string") &&
+    (!Object.hasOwn(v, "serverKeyringNotAfter") || isNotAfter(v.serverKeyringNotAfter)) &&
+    (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
+    typeof v.nonce === "string" &&
+    typeof v.sess === "string" &&
+    (v.status === "attested" || v.status === "unsafe") &&
+    Array.isArray(v.disabled) &&
+    v.disabled.every((d) => typeof d === "string") &&
+    typeof v.sig === "string"
+  );
+}
 
 export function newNonce(): string {
   return encode(randomBytes(16));
