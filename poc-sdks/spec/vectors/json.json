@@ -1,0 +1,1148 @@
+{
+  "about": "Paztport's JSON vectors: how a reader reads bytes and a writer writes them (spec wire.md, JSON). Each input is exactly one of utf8, a JSON string whose UTF-8 encoding is the bytes; hex, the bytes in hex; or build, {head, repeat, times, tail}, the UTF-8 of head, then repeat written times times, then tail. limits gives the limits the cases sit at and one past: wireBytes, tokenText (the base64url text of wireBytes bytes), fileBytes and depth. A wire case is read as a token: the replay encodes the bytes as canonical base64url (RFC 4648 §5, no padding) and reads that text by the spec's reading steps 1 to 3: the size limits, the strict parse with the depth limit, and the canonical-bytes check. expected is OK or REFUSED, and value, given for every OK case whose input is not build, is the value read. A file case reads the bytes as a file: the file size limit and the strict parse with the depth limit, with no canonical-bytes check. A fileFormat case is one file of its kind (keyring, root, replyCert, proofs or rules; null for a value of no kind): printing value as a file gives file exactly, and reading file gives value. A jcs case (the MCP profile) is hashed content: binary64 is an IEEE 754 double as 16 hex digits, most significant first, or value is a JSON value; expected is its JCS text, or null when JCS refuses it. A jcs value may hold what a strict reader refuses, such as a lone surrogate, so a replay reads this file's own structure with any JSON reader, and only the case inputs with the reader under test. Every answer was written by hand from the spec, and the Appendix B and §3.2.3 rows are copied from RFC 8785; none was computed by an implementation. Cases may be added; a recorded answer changes only with a protocol change.",
+  "limits": {
+    "wireBytes": 262144,
+    "tokenText": 349526,
+    "fileBytes": 1048576,
+    "depth": 32
+  },
+  "wire": [
+    {
+      "name": "an empty object",
+      "utf8": "{}",
+      "expected": "OK",
+      "value": {}
+    },
+    {
+      "name": "an empty array",
+      "utf8": "[]",
+      "expected": "OK",
+      "value": []
+    },
+    {
+      "name": "the literal true",
+      "utf8": "true",
+      "expected": "OK",
+      "value": true
+    },
+    {
+      "name": "a string at the top level",
+      "utf8": "\"paztport\"",
+      "expected": "OK",
+      "value": "paztport"
+    },
+    {
+      "name": "an object holding a number, an array of literals and a string",
+      "utf8": "{\"a\":1,\"b\":[true,false,null],\"c\":\"x\"}",
+      "expected": "OK",
+      "value": {
+        "a": 1,
+        "b": [
+          true,
+          false,
+          null
+        ],
+        "c": "x"
+      }
+    },
+    {
+      "name": "names in UTF-16 code unit order, U+1F600 before U+FB33",
+      "utf8": "{\"😀\":0,\"דּ\":1}",
+      "expected": "OK",
+      "value": {
+        "😀": 0,
+        "דּ": 1
+      }
+    },
+    {
+      "name": "a string holding every escape JCS writes",
+      "utf8": "\"\\\"\\\\\\b\\f\\n\\r\\t\\u0000\\u001f\"",
+      "expected": "OK",
+      "value": "\"\\\b\f\n\r\t\u0000\u001f"
+    },
+    {
+      "name": "U+00E9, U+20AC and U+1F600 written as themselves",
+      "utf8": "\"é€😀\"",
+      "expected": "OK",
+      "value": "é€😀"
+    },
+    {
+      "name": "U+007F and U+2028 written as themselves",
+      "hex": "227fe280a822",
+      "expected": "OK",
+      "value": " "
+    },
+    {
+      "name": "the integer 0",
+      "utf8": "0",
+      "expected": "OK",
+      "value": 0
+    },
+    {
+      "name": "the integer 9007199254740991, 2^53 - 1",
+      "utf8": "9007199254740991",
+      "expected": "OK",
+      "value": 9007199254740991
+    },
+    {
+      "name": "the integer 1000000000000000, 16 digits",
+      "utf8": "1000000000000000",
+      "expected": "OK",
+      "value": 1000000000000000
+    },
+    {
+      "name": "a string of exactly 262144 bytes, its quotes included",
+      "build": {
+        "head": "\"",
+        "repeat": "a",
+        "times": 262142,
+        "tail": "\""
+      },
+      "expected": "OK"
+    },
+    {
+      "name": "32 nested arrays",
+      "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": "OK",
+      "value": [
+        [
+          [
+            [
+              [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    []
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "32 nested objects",
+      "build": {
+        "head": "",
+        "repeat": "{\"a\":",
+        "times": 31,
+        "tail": "{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+      },
+      "expected": "OK"
+    },
+    {
+      "name": "a space before the value",
+      "utf8": " {}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a newline after the value",
+      "utf8": "{}\n",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a space inside an object",
+      "utf8": "{\"a\": 1}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "members out of order",
+      "utf8": "{\"b\":1,\"a\":2}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "names in code point order, U+FB33 before U+1F600",
+      "utf8": "{\"דּ\":1,\"😀\":0}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a repeated name",
+      "utf8": "{\"a\":1,\"a\":2}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\/ for /",
+      "utf8": "\"\\/\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\u0041 for A",
+      "utf8": "\"\\u0041\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\u00e9 for U+00E9",
+      "utf8": "\"\\u00e9\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\u001F, in uppercase hex",
+      "utf8": "\"\\u001F\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\u0008 in place of \\b",
+      "utf8": "\"\\u0008\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escaped surrogate pair \\ud83d\\ude00 for U+1F600",
+      "utf8": "\"\\ud83d\\ude00\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone high surrogate escaped as \\ud800",
+      "utf8": "\"\\ud800\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone low surrogate escaped as \\udc00",
+      "utf8": "\"\\udc00\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone surrogate escaped as \\ud800, then x",
+      "utf8": "\"\\ud800x\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a raw lone surrogate, ed a0 80",
+      "hex": "22eda08022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the raw noncharacter U+FDD0",
+      "hex": "22efb79022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the raw noncharacter U+FFFE",
+      "hex": "22efbfbe22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the raw noncharacter U+1FFFF",
+      "hex": "22f09fbfbf22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the raw noncharacter U+10FFFF",
+      "hex": "22f48fbfbf22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a byte order mark before {}",
+      "hex": "efbbbf7b7d",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "{} in UTF-16LE",
+      "hex": "7b007d00",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "{} in UTF-16BE with its byte order mark",
+      "hex": "feff007b007d",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "{} in UTF-32BE",
+      "hex": "0000007b0000007d",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone continuation byte, 80",
+      "hex": "228022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form c0 80 of U+0000",
+      "hex": "22c08022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form c1 bf of U+007F",
+      "hex": "22c1bf22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form e0 80 80 of U+0000",
+      "hex": "22e0808022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form e0 9f bf of U+07FF",
+      "hex": "22e09fbf22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form f0 80 80 80 of U+0000",
+      "hex": "22f080808022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form f0 8f bf bf of U+FFFF",
+      "hex": "22f08fbfbf22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "f4 90 80 80, above U+10FFFF",
+      "hex": "22f490808022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the byte f5",
+      "hex": "22f522",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the byte ff",
+      "hex": "22ff22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a sequence cut short, e2 82",
+      "hex": "22e28222",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a raw U+0000 in a string",
+      "hex": "220022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a raw U+001F in a string",
+      "hex": "221f22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -0",
+      "utf8": "-0",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 01, with a leading zero",
+      "utf8": "01",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 00",
+      "utf8": "00",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number +1",
+      "utf8": "+1",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1.0",
+      "utf8": "1.0",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e3",
+      "utf8": "1e3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1E3",
+      "utf8": "1E3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e+3",
+      "utf8": "1e+3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -1",
+      "utf8": "-1",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1.5",
+      "utf8": "1.5",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -0.5",
+      "utf8": "-0.5",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e-7",
+      "utf8": "1e-7",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 9007199254740992, 2^53",
+      "utf8": "9007199254740992",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 10000000000000000, 17 digits",
+      "utf8": "10000000000000000",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a 400-digit integer",
+      "build": {
+        "head": "",
+        "repeat": "9",
+        "times": 400,
+        "tail": ""
+      },
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -9223372036854775808, -2^63",
+      "utf8": "-9223372036854775808",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a trailing comma in an array",
+      "utf8": "[1,]",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a trailing comma in an object",
+      "utf8": "{\"a\":1,}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a string in single quotes",
+      "utf8": "['a']",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "an unquoted name",
+      "utf8": "{a:1}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a comment",
+      "utf8": "[/*c*/1]",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "NaN",
+      "utf8": "NaN",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "Infinity",
+      "utf8": "Infinity",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "an unterminated array",
+      "utf8": "[1",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "an unterminated string",
+      "utf8": "\"abc",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "an empty input",
+      "utf8": "",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "two values",
+      "utf8": "{}{}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the invalid escape \\x",
+      "utf8": "\"\\x\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the escape \\u12, with two hex digits",
+      "utf8": "\"\\u12\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "tru",
+      "utf8": "tru",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "33 nested arrays",
+      "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "33 nested objects",
+      "build": {
+        "head": "",
+        "repeat": "{\"a\":",
+        "times": 32,
+        "tail": "{}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}}"
+      },
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a string of 262145 bytes, its quotes included",
+      "build": {
+        "head": "\"",
+        "repeat": "a",
+        "times": 262143,
+        "tail": "\""
+      },
+      "expected": "REFUSED"
+    }
+  ],
+  "file": [
+    {
+      "name": "whitespace everywhere, and a final newline",
+      "utf8": " \t{\r\n  \"a\" : [ 1 ,\ttrue ] ,\n  \"b\":\"x\"\n}\n",
+      "expected": "OK",
+      "value": {
+        "a": [
+          1,
+          true
+        ],
+        "b": "x"
+      }
+    },
+    {
+      "name": "members in any order",
+      "utf8": "{\"b\":1,\"a\":2}",
+      "expected": "OK",
+      "value": {
+        "b": 1,
+        "a": 2
+      }
+    },
+    {
+      "name": "the escape \\/, read as /",
+      "utf8": "\"\\/\"",
+      "expected": "OK",
+      "value": "/"
+    },
+    {
+      "name": "the escape \\u00e9, read as U+00E9",
+      "utf8": "\"\\u00e9\"",
+      "expected": "OK",
+      "value": "é"
+    },
+    {
+      "name": "the escape \\u0041, read as A",
+      "utf8": "\"\\u0041\"",
+      "expected": "OK",
+      "value": "A"
+    },
+    {
+      "name": "the escape \\u00E9 in uppercase hex, read as U+00E9",
+      "utf8": "\"\\u00E9\"",
+      "expected": "OK",
+      "value": "é"
+    },
+    {
+      "name": "the escaped surrogate pair \\ud83d\\ude00, read as U+1F600",
+      "utf8": "\"\\ud83d\\ude00\"",
+      "expected": "OK",
+      "value": "😀"
+    },
+    {
+      "name": "exactly 1048576 bytes",
+      "build": {
+        "head": "\"",
+        "repeat": "a",
+        "times": 1048574,
+        "tail": "\""
+      },
+      "expected": "OK"
+    },
+    {
+      "name": "32 nested arrays",
+      "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": "OK",
+      "value": [
+        [
+          [
+            [
+              [
+                [
+                  [
+                    [
+                      [
+                        [
+                          [
+                            [
+                              [
+                                [
+                                  [
+                                    [
+                                      [
+                                        [
+                                          [
+                                            [
+                                              [
+                                                [
+                                                  [
+                                                    [
+                                                      [
+                                                        [
+                                                          [
+                                                            [
+                                                              [
+                                                                [
+                                                                  [
+                                                                    []
+                                                                  ]
+                                                                ]
+                                                              ]
+                                                            ]
+                                                          ]
+                                                        ]
+                                                      ]
+                                                    ]
+                                                  ]
+                                                ]
+                                              ]
+                                            ]
+                                          ]
+                                        ]
+                                      ]
+                                    ]
+                                  ]
+                                ]
+                              ]
+                            ]
+                          ]
+                        ]
+                      ]
+                    ]
+                  ]
+                ]
+              ]
+            ]
+          ]
+        ]
+      ]
+    },
+    {
+      "name": "a repeated name",
+      "utf8": "{\"a\":1,\"a\":2}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a name repeated through an escape, \\u0061 for a",
+      "utf8": "{\"a\":1,\"\\u0061\":2}",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone surrogate escaped as \\ud800",
+      "utf8": "\"\\ud800\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the noncharacter U+FFFF escaped as \\uffff",
+      "utf8": "\"\\uffff\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the noncharacter U+FDD0 escaped as \\ufdd0",
+      "utf8": "\"\\ufdd0\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the noncharacter U+10FFFF escaped as the pair \\udbff\\udfff",
+      "utf8": "\"\\udbff\\udfff\"",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a lone continuation byte, 80",
+      "hex": "228022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the overlong form c0 80 of U+0000",
+      "hex": "22c08022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a raw lone surrogate, ed a0 80",
+      "hex": "22eda08022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "f4 90 80 80, above U+10FFFF",
+      "hex": "22f490808022",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a sequence cut short, e2 82",
+      "hex": "22e28222",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the raw noncharacter U+FFFE",
+      "hex": "22efbfbe22",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a byte order mark before {}",
+      "hex": "efbbbf7b7d",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -0",
+      "utf8": "-0",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 01, with a leading zero",
+      "utf8": "01",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 00",
+      "utf8": "00",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number +1",
+      "utf8": "+1",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1.0",
+      "utf8": "1.0",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e3",
+      "utf8": "1e3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1E3",
+      "utf8": "1E3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e+3",
+      "utf8": "1e+3",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -1",
+      "utf8": "-1",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1.5",
+      "utf8": "1.5",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -0.5",
+      "utf8": "-0.5",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 1e-7",
+      "utf8": "1e-7",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 9007199254740992, 2^53",
+      "utf8": "9007199254740992",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number 10000000000000000, 17 digits",
+      "utf8": "10000000000000000",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "a 400-digit integer",
+      "build": {
+        "head": "",
+        "repeat": "9",
+        "times": 400,
+        "tail": ""
+      },
+      "expected": "REFUSED"
+    },
+    {
+      "name": "the number -9223372036854775808, -2^63",
+      "utf8": "-9223372036854775808",
+      "expected": "REFUSED"
+    },
+    {
+      "name": "1048577 bytes",
+      "build": {
+        "head": "\"",
+        "repeat": "a",
+        "times": 1048575,
+        "tail": "\""
+      },
+      "expected": "REFUSED"
+    },
+    {
+      "name": "33 nested arrays",
+      "utf8": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": "REFUSED"
+    }
+  ],
+  "fileFormat": [
+    {
+      "name": "a keyring",
+      "kind": "keyring",
+      "value": {
+        "notAfter": 1798761600000,
+        "policy": "MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c",
+        "services": {
+          "pi": "MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8",
+          "session": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY"
+        },
+        "sig": "EqqU4_Zh5JChj0MJ1lK-hWV4J1tSqMaR_QNsXmn4fuV5FcIA6QY0iVkqeAIcC6hdNhhi3aaMSGlBCwgieOQjBw"
+      },
+      "file": "{\n  \"notAfter\": 1798761600000,\n  \"policy\": \"MCowBQYDK2VwAyEAfQNZTmPjT9_g3vetQl2BiLIQRjx52SazyRoXh7V227c\",\n  \"services\": {\n    \"pi\": \"MCowBQYDK2VwAyEAUd0vHKUihGesdJJMfvbah8t0g6b1whtUnRRslYPr1i8\",\n    \"session\": \"MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY\"\n  },\n  \"sig\": \"EqqU4_Zh5JChj0MJ1lK-hWV4J1tSqMaR_QNsXmn4fuV5FcIA6QY0iVkqeAIcC6hdNhhi3aaMSGlBCwgieOQjBw\"\n}\n"
+    },
+    {
+      "name": "a signed root",
+      "kind": "root",
+      "value": {
+        "notAfter": 1798761600000,
+        "root": "SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4",
+        "rootId": "v128498df6662",
+        "sig": "4nmqeKZXzaUkClKZ8SzVCIXSb9KiGiZuQSkCwuPnYUIVBdrH09SIFn1qbbqssuFeb99HqcNxvBOAdkQI5uiyDQ"
+      },
+      "file": "{\n  \"notAfter\": 1798761600000,\n  \"root\": \"SOU3UQ3YhNm3n8xvLwVDNVE_OjYUyaxSc9I0GLoAFr4\",\n  \"rootId\": \"v128498df6662\",\n  \"sig\": \"4nmqeKZXzaUkClKZ8SzVCIXSb9KiGiZuQSkCwuPnYUIVBdrH09SIFn1qbbqssuFeb99HqcNxvBOAdkQI5uiyDQ\"\n}\n"
+    },
+    {
+      "name": "a reply certificate",
+      "kind": "replyCert",
+      "value": {
+        "key": "MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw",
+        "notAfter": 1798761600000,
+        "policy": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
+        "sig": "Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA",
+        "svc": "mcp-entry"
+      },
+      "file": "{\n  \"key\": \"MCowBQYDK2VwAyEAHBvgTd_hlBakY5DQ-jLgYs8ur1YIxJ0AdTwbAMpFJlw\",\n  \"notAfter\": 1798761600000,\n  \"policy\": \"MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I\",\n  \"sig\": \"Di-W3XltVTD0v5qr14K2ctA6aMBFAWnbAimC3RxiD3_jGijp5TTJ76TgikwuOgvy9H_lFbNj-r_lbPo63gSVAA\",\n  \"svc\": \"mcp-entry\"\n}\n"
+    },
+    {
+      "name": "a proof bundle with two routes",
+      "kind": "proofs",
+      "value": {
+        "proofs": {
+          "gateway/orders": {
+            "dirs": "RLLLLLLL",
+            "leafSalt": "ujLZXNGXFps4j4nU0wX2Yw",
+            "rootId": "merkle-vector",
+            "siblings": [
+              "VUR8y6hwSc4cSN7YZf3whGqA_gnZGM10e9whWaUvg7Q",
+              "GleOAtomzhKANdq5trEgjsWz1rFhu1SMwzFKJxDPMAc",
+              "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M",
+              "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs",
+              "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+              "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA",
+              "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw",
+              "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0"
+            ]
+          },
+          "gateway/search": {
+            "dirs": "LRLLLLLL",
+            "leafSalt": "izKXq4MjEbVHm7fWohfcuA",
+            "rootId": "merkle-vector",
+            "siblings": [
+              "WNvdj6tvsMs2Jb8wPRXSqllJVXM5Zze7N1X_flvMOaY",
+              "joaLw6HmR-RpIfLxgwy3QIMxG9NGSfYb-YdqeKpN1OM",
+              "X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M",
+              "olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs",
+              "Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk",
+              "sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA",
+              "iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw",
+              "Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0"
+            ]
+          }
+        },
+        "rootId": "merkle-vector",
+        "service": "gateway"
+      },
+      "file": "{\n  \"proofs\": {\n    \"gateway/orders\": {\n      \"dirs\": \"RLLLLLLL\",\n      \"leafSalt\": \"ujLZXNGXFps4j4nU0wX2Yw\",\n      \"rootId\": \"merkle-vector\",\n      \"siblings\": [\n        \"VUR8y6hwSc4cSN7YZf3whGqA_gnZGM10e9whWaUvg7Q\",\n        \"GleOAtomzhKANdq5trEgjsWz1rFhu1SMwzFKJxDPMAc\",\n        \"X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M\",\n        \"olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs\",\n        \"Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk\",\n        \"sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA\",\n        \"iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw\",\n        \"Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0\"\n      ]\n    },\n    \"gateway/search\": {\n      \"dirs\": \"LRLLLLLL\",\n      \"leafSalt\": \"izKXq4MjEbVHm7fWohfcuA\",\n      \"rootId\": \"merkle-vector\",\n      \"siblings\": [\n        \"WNvdj6tvsMs2Jb8wPRXSqllJVXM5Zze7N1X_flvMOaY\",\n        \"joaLw6HmR-RpIfLxgwy3QIMxG9NGSfYb-YdqeKpN1OM\",\n        \"X06nacS-ouvnBG6KnPfT2pJc-Mj2t_abv_cMQyLyv-M\",\n        \"olRUm8Cy7HiRHy8L4sV--BhtR4rqYEDgEzikzD3oHVs\",\n        \"Pd_M0oMDh2waooX3WuTZvRXzCn65rFu3mBMDV50-3gk\",\n        \"sSQiqDmBAYLdZsjjdFGBcAfrr7GTBIdyf-JYjzifhhA\",\n        \"iJH4gNbjMmaFIrADBEO2WHDKNFM7YXeaR6Kp-X_NLMw\",\n        \"Jwd3p1rdO_wwDGnhA7RAz-9hncnnPwDTs39m1magsK0\"\n      ]\n    }\n  },\n  \"rootId\": \"merkle-vector\",\n  \"service\": \"gateway\"\n}\n"
+    },
+    {
+      "name": "local rules",
+      "kind": "rules",
+      "value": {
+        "folders": [
+          {
+            "access": [
+              "read"
+            ],
+            "path": "."
+          },
+          {
+            "access": [
+              "read",
+              "write"
+            ],
+            "destination": "public",
+            "label": "public",
+            "path": "website"
+          },
+          {
+            "access": [
+              "read",
+              "write"
+            ],
+            "destination": "private",
+            "path": "notes"
+          }
+        ],
+        "programs": [
+          "cat",
+          "ls"
+        ],
+        "v": 1
+      },
+      "file": "{\n  \"folders\": [\n    {\n      \"access\": [\n        \"read\"\n      ],\n      \"path\": \".\"\n    },\n    {\n      \"access\": [\n        \"read\",\n        \"write\"\n      ],\n      \"destination\": \"public\",\n      \"label\": \"public\",\n      \"path\": \"website\"\n    },\n    {\n      \"access\": [\n        \"read\",\n        \"write\"\n      ],\n      \"destination\": \"private\",\n      \"path\": \"notes\"\n    }\n  ],\n  \"programs\": [\n    \"cat\",\n    \"ls\"\n  ],\n  \"v\": 1\n}\n"
+    },
+    {
+      "name": "an empty object and an empty array",
+      "kind": null,
+      "value": {
+        "a": {},
+        "b": []
+      },
+      "file": "{\n  \"a\": {},\n  \"b\": []\n}\n"
+    }
+  ],
+  "jcs": [
+    {
+      "name": "RFC 8785 Appendix B: 0000000000000000, zero",
+      "binary64": "0000000000000000",
+      "expected": "0"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 8000000000000000, minus zero",
+      "binary64": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 0000000000000001, min pos number",
+      "binary64": "0000000000000001",
+      "expected": "5e-324"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 8000000000000001, min neg number",
+      "binary64": "8000000000000001",
+      "expected": "-5e-324"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 7fefffffffffffff, max pos number",
+      "binary64": "7fefffffffffffff",
+      "expected": "1.7976931348623157e+308"
+    },
+    {
+      "name": "RFC 8785 Appendix B: ffefffffffffffff, max neg number",
+      "binary64": "ffefffffffffffff",
+      "expected": "-1.7976931348623157e+308"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 4340000000000000, max pos int",
+      "binary64": "4340000000000000",
+      "expected": "9007199254740992"
+    },
+    {
+      "name": "RFC 8785 Appendix B: c340000000000000, max neg int",
+      "binary64": "c340000000000000",
+      "expected": "-9007199254740992"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 4430000000000000, ~2**68",
+      "binary64": "4430000000000000",
+      "expected": "295147905179352830000"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 7fffffffffffffff, NaN",
+      "binary64": "7fffffffffffffff",
+      "expected": null
+    },
+    {
+      "name": "RFC 8785 Appendix B: 7ff0000000000000, Infinity",
+      "binary64": "7ff0000000000000",
+      "expected": null
+    },
+    {
+      "name": "RFC 8785 Appendix B: 44b52d02c7e14af5",
+      "binary64": "44b52d02c7e14af5",
+      "expected": "9.999999999999997e+22"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 44b52d02c7e14af6",
+      "binary64": "44b52d02c7e14af6",
+      "expected": "1e+23"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 44b52d02c7e14af7",
+      "binary64": "44b52d02c7e14af7",
+      "expected": "1.0000000000000001e+23"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 444b1ae4d6e2ef4e",
+      "binary64": "444b1ae4d6e2ef4e",
+      "expected": "999999999999999700000"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 444b1ae4d6e2ef4f",
+      "binary64": "444b1ae4d6e2ef4f",
+      "expected": "999999999999999900000"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 444b1ae4d6e2ef50",
+      "binary64": "444b1ae4d6e2ef50",
+      "expected": "1e+21"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 3eb0c6f7a0b5ed8c",
+      "binary64": "3eb0c6f7a0b5ed8c",
+      "expected": "9.999999999999997e-7"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 3eb0c6f7a0b5ed8d",
+      "binary64": "3eb0c6f7a0b5ed8d",
+      "expected": "0.000001"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 41b3de4355555553",
+      "binary64": "41b3de4355555553",
+      "expected": "333333333.3333332"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 41b3de4355555554",
+      "binary64": "41b3de4355555554",
+      "expected": "333333333.33333325"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 41b3de4355555555",
+      "binary64": "41b3de4355555555",
+      "expected": "333333333.3333333"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 41b3de4355555556",
+      "binary64": "41b3de4355555556",
+      "expected": "333333333.3333334"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 41b3de4355555557",
+      "binary64": "41b3de4355555557",
+      "expected": "333333333.33333343"
+    },
+    {
+      "name": "RFC 8785 Appendix B: becbf647612f3696",
+      "binary64": "becbf647612f3696",
+      "expected": "-0.0000033333333333333333"
+    },
+    {
+      "name": "RFC 8785 Appendix B: 43143ff3c1cb0959, round to even",
+      "binary64": "43143ff3c1cb0959",
+      "expected": "1424953923781206.2"
+    },
+    {
+      "name": "RFC 8785 §3.2.2's sample",
+      "value": {
+        "numbers": [
+          333333333.3333333,
+          1e+30,
+          4.5,
+          0.002,
+          1e-27
+        ],
+        "string": "€$\u000f\nA'B\"\\\\\"/",
+        "literals": [
+          null,
+          true,
+          false
+        ]
+      },
+      "expected": "{\"literals\":[null,true,false],\"numbers\":[333333333.3333333,1e+30,4.5,0.002,1e-27],\"string\":\"€$\\u000f\\nA'B\\\"\\\\\\\\\\\"/\"}"
+    },
+    {
+      "name": "RFC 8785 §3.2.3's sorting example",
+      "value": {
+        "1": "One",
+        "€": "Euro Sign",
+        "\r": "Carriage Return",
+        "דּ": "Hebrew Letter Dalet With Dagesh",
+        "😀": "Emoji: Grinning Face",
+        "": "Control",
+        "ö": "Latin Small Letter O With Diaeresis"
+      },
+      "expected": "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\":\"Control\",\"ö\":\"Latin Small Letter O With Diaeresis\",\"€\":\"Euro Sign\",\"😀\":\"Emoji: Grinning Face\",\"דּ\":\"Hebrew Letter Dalet With Dagesh\"}"
+    },
+    {
+      "name": "-0, written 0",
+      "binary64": "8000000000000000",
+      "expected": "0"
+    },
+    {
+      "name": "a string holding the noncharacter U+FFFF, written as itself",
+      "value": "￿",
+      "expected": "\"￿\""
+    },
+    {
+      "name": "a string holding a lone surrogate",
+      "value": "\ud800",
+      "expected": null
+    }
+  ]
+}
