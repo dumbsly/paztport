@@ -14,8 +14,8 @@ import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
-  utf8, verifyChainOffline, verifyChainV3, verifyKeyring, issueReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, deriveSessionId, isCurrent, isNotAfter, renewRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
+  utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
+  checkSessionReply, deriveSessionId, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
@@ -457,7 +457,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
     return { name, policyKey: "client-policy", policy: "client", signingBytes: bytes === null ? null : encode(bytes), signed, verifies, ...current };
   };
-  const renewed = renewRoot(oldRoot, POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
+  const renewed = signRenewedRoot(oldRoot, POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
   check("root renewed keeps the tree", [renewed.rootId, renewed.root], [oldRoot.rootId, oldRoot.root]);
   check("root renewed is the tree signed afresh", renewed, newRoot(POLICY_NOT_AFTER + DAY_MS));
   const { notAfter: _rootWindow, ...rootWindowDropped } = newRoot(POLICY_NOT_AFTER);
@@ -479,7 +479,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   // The server's reply certificate for mcp-entry, and forms of it that must not verify under the server pin.
   const CERT_NOT_AFTER = 1_798_761_600_000;
   const issueCert = (policy: KeyName, notAfter: number, signer: KeyName): ReplyCert =>
-    issueReplyCert(keys[policy].pub, "mcp-entry", keys["mcp-entry"].pub, notAfter, keys[signer].priv);
+    signReplyCert(keys[policy].pub, "mcp-entry", keys["mcp-entry"].pub, notAfter, keys[signer].priv);
   const certCase = (name: string, signer: KeyName, cert: ReplyCert, verifies: boolean) => {
     check(`reply certificate ${name}`, verifyReplyCert(cert, keys["server-policy"].pub), verifies);
     return { name, signer, pin: "server-policy", cert, signingBytes: encode(replyCertSigningBytes(cert.policy, cert.svc, cert.key, cert.notAfter)), verifies };
@@ -520,7 +520,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   const oldServerRoot = signRootOldForm(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv);
   const oldServerRing = signKeyringOldForm(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv);
   const certFor = (svc: string, key: KeyName, signer: KeyName = "server-policy") =>
-    issueReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
+    signReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
   const entryCert = certFor("mcp-entry", "mcp-entry");
   const sessFor = (root: { sig: string } | null) => deriveSessionId(clientRoot.sig, root?.sig ?? null, request.nonce, SERVER_NONCE, request);
   /** A reply in the entry-key form by default; `drop` leaves fields out, and `signer` signs it. */

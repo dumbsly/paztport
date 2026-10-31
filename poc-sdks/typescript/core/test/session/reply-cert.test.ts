@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
-import { isReplyCert, issueReplyCert, replyCertSigningBytes, verifyReplyCert } from "../../src/session/reply-cert.ts";
+import { isReplyCert, signReplyCert, replyCertSigningBytes, verifyReplyCert } from "../../src/session/reply-cert.ts";
 import * as core from "../../src/index.ts";
 
 const POLICY = generateKeyPair();
@@ -12,7 +12,7 @@ const ENTRY = generateKeyPair();
 const NOT_AFTER = 1_798_761_600_000;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 
-const issued = () => issueReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, POLICY.privateKey);
+const issued = () => signReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, POLICY.privateKey);
 
 describe("reply certificate", () => {
   it("signs the four fields under a domain prefix", () => {
@@ -25,7 +25,7 @@ describe("reply certificate", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["issueReplyCert", "replyCertSigningBytes", "verifyReplyCert", "isReplyCert"]) expect(name in core, name).toBe(true);
+    for (const name of ["signReplyCert", "replyCertSigningBytes", "verifyReplyCert", "isReplyCert"]) expect(name in core, name).toBe(true);
   });
 
   it("an issued certificate verifies under its policy key", () => {
@@ -43,12 +43,12 @@ describe("reply certificate", () => {
   });
 
   it("one signed by another policy key fails", () => {
-    const forged = issueReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, OTHER.privateKey);
+    const forged = signReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, OTHER.privateKey);
     expect(verifyReplyCert(forged, POLICY.publicKey)).toBe(false);
   });
 
   it("one whose policy is not the pin fails", () => {
-    const other = issueReplyCert(OTHER.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, OTHER.privateKey);
+    const other = signReplyCert(OTHER.publicKey, "mcp-entry", ENTRY.publicKey, NOT_AFTER, OTHER.privateKey);
     expect(verifyReplyCert(other, OTHER.publicKey)).toBe(true);
     expect(verifyReplyCert(other, POLICY.publicKey)).toBe(false);
   });
@@ -82,7 +82,7 @@ describe("reply certificate", () => {
 
   it("issuing refuses an out-of-range notAfter", () => {
     for (const bad of [-1, MAX_SAFE + 1, 1.5, Number.NaN]) {
-      expect(() => issueReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, bad, POLICY.privateKey)).toThrow();
+      expect(() => signReplyCert(POLICY.publicKey, "mcp-entry", ENTRY.publicKey, bad, POLICY.privateKey)).toThrow();
       expect(() => replyCertSigningBytes("P", "s", "K", bad)).toThrow();
     }
   });

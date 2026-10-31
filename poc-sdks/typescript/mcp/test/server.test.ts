@@ -10,7 +10,7 @@ import {
   earliestNotAfter,
   expiryWarnings,
   generateKeyPair,
-  issueReplyCert,
+  signReplyCert,
   signKeyring,
   signKeyringOldForm,
   utf8,
@@ -64,7 +64,7 @@ function serverSetup(
     keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter,
-    replyCert: issueReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
+    replyCert: signReplyCert(policy.publicKey, entryName, entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles[entryName]!.proofs[`${entryName}/${toolsName}`]!,
     inst: "mock-github-1",
@@ -138,11 +138,11 @@ describe("checkServerPolicy", () => {
     const entryKey = cfg.keyring["mcp-entry"]!;
     const another = generateKeyPair();
     const forged: Record<string, [ServerPolicy["replyCert"], string]> = {
-      "for another service": [issueReplyCert(cfg.policyPublicKey, "github-tools", entryKey, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
-      "for another key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
-      "signed by another policy key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
-      "naming another policy key": [issueReplyCert(another.publicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
-      expired: [issueReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
+      "for another service": [signReplyCert(cfg.policyPublicKey, "github-tools", entryKey, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
+      "for another key": [signReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
+      "signed by another policy key": [signReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
+      "naming another policy key": [signReplyCert(another.publicKey, "mcp-entry", entryKey, later, another.privateKey), "replyCert is not signed by policyPublicKey"],
+      expired: [signReplyCert(cfg.policyPublicKey, "mcp-entry", entryKey, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
     };
     for (const [name, [replyCert, why]] of Object.entries(forged)) {
       expect(() => checkServerPolicy({ ...cfg, replyCert }, Date.now()), name).toThrow(why);
@@ -227,10 +227,10 @@ describe("checkServerPolicy", () => {
     expect(warned[0]).toContain("keyring");
     expect(warned[0]).toContain(`notAfter ${near} (${new Date(near).toISOString()})`);
     expect(warned[1]).toContain("root");
-    const certNear = { ...cfg, replyCert: issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, near, policyPrivateKey) };
+    const certNear = { ...cfg, replyCert: signReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, near, policyPrivateKey) };
     expect(expiryWarnings(certNear, now).map((m) => m.includes("replyCert"))).toContain(true);
     const { cfg: farCfg, policyPrivateKey: farKey } = serverSetup();
-    const far = { ...farCfg, replyCert: issueReplyCert(farCfg.policyPublicKey, "mcp-entry", farCfg.keyring["mcp-entry"]!, now + 30 * DAY_MS, farKey) };
+    const far = { ...farCfg, replyCert: signReplyCert(farCfg.policyPublicKey, "mcp-entry", farCfg.keyring["mcp-entry"]!, now + 30 * DAY_MS, farKey) };
     const quiet: string[] = [];
     new McpServerSession(far, RULES, () => now, (m) => quiet.push(m));
     expect(quiet).toEqual([]);

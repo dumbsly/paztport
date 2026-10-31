@@ -50,7 +50,7 @@ export function parseSignedRoot(v: unknown, what: string): SignedRoot {
 }
 
 /** The same root text and rootId signed again in the new form until `notAfter`, naming exactly the tree `sr` did; the caller must still allow every route in it, as a narrowed policy needs a new tree, not a renewal. */
-export function renewRoot(sr: SignedRoot, notAfter: number, policyPrivateKey: string): SignedRoot {
+export function signRenewedRoot(sr: SignedRoot, notAfter: number, policyPrivateKey: string): SignedRoot {
   return signText(sr.rootId, sr.root, policyPrivateKey, notAfter);
 }
 

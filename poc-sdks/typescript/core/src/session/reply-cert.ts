@@ -19,7 +19,7 @@ export function replyCertSigningBytes(policy: string, svc: string, key: string, 
 }
 
 /** Signs a reply certificate; the caller must have checked `key` is `svc`'s key in its current keyring signed by this policy key. */
-export function issueReplyCert(policyPublicKey: string, svc: string, key: string, notAfter: number, policyPrivateKey: string): ReplyCert {
+export function signReplyCert(policyPublicKey: string, svc: string, key: string, notAfter: number, policyPrivateKey: string): ReplyCert {
   const sig = encode(sign(policyPrivateKey, replyCertSigningBytes(policyPublicKey, svc, key, notAfter)));
   return { policy: policyPublicKey, svc, key, notAfter, sig };
 }

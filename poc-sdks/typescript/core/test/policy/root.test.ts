@@ -6,8 +6,8 @@ import { decode, encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, sha256, utf8 } from "../../src/crypto/crypto.ts";
 import * as core from "../../src/index.ts";
 import { signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
-import { issueReplyCert, verifyReplyCert } from "../../src/session/reply-cert.ts";
-import { parseSignedRoot, renewRoot, rootSigningBytes, signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
+import { signReplyCert, verifyReplyCert } from "../../src/session/reply-cert.ts";
+import { parseSignedRoot, signRenewedRoot, rootSigningBytes, signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { earliestNotAfter, isCurrent, readNotAfter } from "../../src/policy/validity.ts";
 
 const POLICY = generateKeyPair();
@@ -30,7 +30,7 @@ describe("signed root", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signRoot", "signRootOldForm", "renewRoot", "rootSigningBytes", "verifyRoot", "parseSignedRoot", "isCurrent"]) expect(name in core, name).toBe(true);
+    for (const name of ["signRoot", "signRootOldForm", "signRenewedRoot", "rootSigningBytes", "verifyRoot", "parseSignedRoot", "isCurrent"]) expect(name in core, name).toBe(true);
   });
 
   it("signRoot signs only the new form, so a missing window never yields the old form", () => {
@@ -120,14 +120,14 @@ describe("signed root", () => {
 
   it("renewKeepsRoot", () => {
     const old = oldForm();
-    const renewed = renewRoot(old, NOT_AFTER + 5, POLICY.privateKey);
+    const renewed = signRenewedRoot(old, NOT_AFTER + 5, POLICY.privateKey);
     expect(renewed).toEqual({ rootId: old.rootId, root: old.root, sig: renewed.sig, notAfter: NOT_AFTER + 5 });
     expect(verifyRoot(renewed, POLICY.publicKey)).toBe(true);
     // Renewing a new-form root signs exactly what signing the tree afresh until that time would.
-    expect(renewRoot(newForm(), NOT_AFTER + 9, POLICY.privateKey)).toEqual(signRoot(ROOT, "v1", POLICY.privateKey, NOT_AFTER + 9));
+    expect(signRenewedRoot(newForm(), NOT_AFTER + 9, POLICY.privateKey)).toEqual(signRoot(ROOT, "v1", POLICY.privateKey, NOT_AFTER + 9));
     // The root text is reused as it stands, so the renewed root names exactly the tree the old one did.
     const odd = { ...old, root: old.root + "==" };
-    expect(renewRoot(odd, NOT_AFTER, POLICY.privateKey).root).toBe(odd.root);
+    expect(signRenewedRoot(odd, NOT_AFTER, POLICY.privateKey).root).toBe(odd.root);
     expect(decode(renewed.root)).toEqual(ROOT);
   });
 
@@ -142,7 +142,7 @@ describe("signed root", () => {
   // These would also fail incidentally, since the bodies differ; the literal signing-bytes tests are what pin the prefixes.
   it("crossPrefixReplyCert", () => {
     const root = newForm();
-    const cert = issueReplyCert(POLICY.publicKey, "mcp-entry", generateKeyPair().publicKey, NOT_AFTER, POLICY.privateKey);
+    const cert = signReplyCert(POLICY.publicKey, "mcp-entry", generateKeyPair().publicKey, NOT_AFTER, POLICY.privateKey);
     expect(verifyRoot(root, POLICY.publicKey) && verifyReplyCert(cert, POLICY.publicKey)).toBe(true);
     expect(verifyRoot({ ...root, sig: cert.sig }, POLICY.publicKey), "a reply-certificate signature as a root's").toBe(false);
     expect(verifyReplyCert({ ...cert, sig: root.sig }, POLICY.publicKey), "a root signature as a reply certificate's").toBe(false);

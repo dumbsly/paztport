@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  buildPolicy, DEFAULT_DEPTH, describeNotAfter, issueReplyCert, keyPairMatches, parseLocalRules, parseSignedRoot, renewKeyring, renewRoot, rulesHash, rulesRouteNodes,
+  buildPolicy, DEFAULT_DEPTH, describeNotAfter, signReplyCert, keyPairMatches, parseLocalRules, parseSignedRoot, renewKeyring, signRenewedRoot, rulesHash, rulesRouteNodes,
   verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
@@ -70,7 +70,7 @@ function renewedKeyring(keyringPath: string, notAfter: number, privateKey: strin
 function replyCert(ring: SignedKeyring, keyringPath: string, svc: string, notAfter: number, privateKey: string): ReplyCert {
   const key = Object.hasOwn(ring.services, svc) ? ring.services[svc] : undefined;
   if (typeof key !== "string") return refuse(`${keyringPath} has no key for service ${svc}`);
-  const cert = issueReplyCert(ring.policy, svc, key, notAfter, privateKey);
+  const cert = signReplyCert(ring.policy, svc, key, notAfter, privateKey);
   if (!verifyReplyCert(cert, ring.policy)) return refuse(`the certificate for ${svc} does not verify`);
   return cert;
 }
@@ -121,7 +121,7 @@ function renewedRoot(out: string, ring: SignedKeyring, notAfter: number, private
   }
   if (!verifyRoot(root, ring.policy)) return refuse(`${rootPath} is not signed by this policy key (--policy-key)`);
   // renewing vouches that every route in the existing tree is still allowed: a narrowed policy is a rebuild, never a renewal
-  return renewRoot(root, notAfter, privateKey);
+  return signRenewedRoot(root, notAfter, privateKey);
 }
 
 function main(): void {

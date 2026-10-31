@@ -6,7 +6,7 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decode, generateKeyPair, issueReplyCert, signKeyring, signRoot, type ReplyCert, type SignedKeyring, type SignedRoot } from "@paztport/core";
+import { decode, generateKeyPair, signReplyCert, signKeyring, signRoot, type ReplyCert, type SignedKeyring, type SignedRoot } from "@paztport/core";
 
 const MOCK = join(import.meta.dirname, "../../../mock-github-mcp/src");
 export const MAIN = join(MOCK, "main.ts");
@@ -69,7 +69,7 @@ export function resignDemo(demo: string, to: string, windows: DemoWindows): stri
   ring("server/keyring.json", server, windows.serverKeyring);
   root("server/root.json", server, windows.serverRoot);
   const cert = json<ReplyCert>("server/reply-cert.json");
-  put("server/reply-cert.json", issueReplyCert(server.publicKey, cert.svc, cert.key, cert.notAfter, server.privateKey));
+  put("server/reply-cert.json", signReplyCert(server.publicKey, cert.svc, cert.key, cert.notAfter, server.privateKey));
   writeFileSync(join(to, "client/server-policy.pub"), server.publicKey + "\n");
   return to;
 }

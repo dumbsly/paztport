@@ -8,7 +8,7 @@ import { buildPolicy } from "../../src/policy/policy.ts";
 import { checkSessionReply } from "../../src/session/reply-check.ts";
 import { sessionRequest } from "../../src/session/request.ts";
 import { buildSessionReply, type ReplySource } from "../../src/session/reply-builder.ts";
-import { issueReplyCert } from "../../src/session/reply-cert.ts";
+import { signReplyCert } from "../../src/session/reply-cert.ts";
 
 const FAR = 4_102_444_800_000;
 const NOW = 1_767_225_600_000;
@@ -25,7 +25,7 @@ function world() {
     keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter: FAR,
-    replyCert: issueReplyCert(serverPolicy.publicKey, "mcp-entry", entry.publicKey, FAR, serverPolicy.privateKey),
+    replyCert: signReplyCert(serverPolicy.publicKey, "mcp-entry", entry.publicKey, FAR, serverPolicy.privateKey),
     entryPrivateKey: entry.privateKey,
   };
   const clientRoot = buildPolicy([["pi", "mcp:s.t"]], 8, clientPolicy.privateKey, FAR).signedRoot;

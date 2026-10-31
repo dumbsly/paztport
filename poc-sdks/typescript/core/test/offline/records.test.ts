@@ -10,7 +10,7 @@ import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { signRoot, signRootOldForm } from "../../src/policy/root.ts";
 import { bindResponse, newContentId, recheckResponse } from "../../src/session/attestation.ts";
-import { issueReplyCert } from "../../src/session/reply-cert.ts";
+import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
 import { signStampV3 } from "../../src/stamp/stamp.ts";
@@ -69,7 +69,7 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
       ? {
           serverKeyringSig: serverRing.sig,
           ...(serverRing.notAfter === undefined ? {} : { serverKeyringNotAfter: serverRing.notAfter }),
-          serverReplyCert: issueReplyCert(serverPolicy.publicKey, ENTRY, entry.publicKey, w.cert, serverPolicy.privateKey),
+          serverReplyCert: signReplyCert(serverPolicy.publicKey, ENTRY, entry.publicKey, w.cert, serverPolicy.privateKey),
         }
       : {};
   const reply = signSessionReply(

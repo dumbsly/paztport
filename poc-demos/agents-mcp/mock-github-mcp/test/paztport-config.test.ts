@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, decode, generateKeyPair, issueReplyCert, signKeyring, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
+import { buildPolicy, decode, generateKeyPair, signReplyCert, signKeyring, signRoot, signRootOldForm, verifyRoot, verifySessionReply } from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
@@ -34,7 +34,7 @@ function serverSetup(): { cfg: ServerPolicy; policyPrivateKey: string } {
     keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter: ring.notAfter!,
-    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
+    replyCert: signReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 30 * DAY_MS, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",
@@ -198,17 +198,17 @@ describe("loadServerConfig", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const later = Date.now() + DAY_MS;
     const forged: Record<string, [unknown, string]> = {
-      expired: [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
-      "for github-tools": [issueReplyCert(cfg.policyPublicKey, "github-tools", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
-      "for another key": [issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
+      expired: [signReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, Date.now() - 1, policyPrivateKey), "replyCert expired at"],
+      "for github-tools": [signReplyCert(cfg.policyPublicKey, "github-tools", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert is for github-tools, not the entry mcp-entry"],
+      "for another key": [signReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["github-tools"]!, later, policyPrivateKey), "replyCert names a key other than the entry's keyring key"],
       "signed by another policy key": [
-        issueReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, generateKeyPair().privateKey),
+        signReplyCert(cfg.policyPublicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, generateKeyPair().privateKey),
         "replyCert is not signed by policyPublicKey",
       ],
       "naming another policy key": [
         (() => {
           const other = generateKeyPair();
-          return issueReplyCert(other.publicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, other.privateKey);
+          return signReplyCert(other.publicKey, "mcp-entry", cfg.keyring["mcp-entry"]!, later, other.privateKey);
         })(),
         "replyCert is not signed by policyPublicKey",
       ],

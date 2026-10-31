@@ -14,7 +14,7 @@ import {
 } from "../../src/policy/own-material.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { signRootOldForm } from "../../src/policy/root.ts";
-import { issueReplyCert } from "../../src/session/reply-cert.ts";
+import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { decode } from "../../src/encoding/b64url.ts";
 
 /** Valid until 2100-01-01. */
@@ -33,7 +33,7 @@ function material(windows: { root?: number; keyring?: number; cert?: number } = 
       keyringSig: ring.sig,
       keyringNotAfter: ring.notAfter,
       signedRoot,
-      replyCert: issueReplyCert(policy.publicKey, "a", entry.publicKey, windows.cert ?? FAR, policy.privateKey),
+      replyCert: signReplyCert(policy.publicKey, "a", entry.publicKey, windows.cert ?? FAR, policy.privateKey),
     },
   };
 }

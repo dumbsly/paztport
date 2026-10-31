@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, issueReplyCert, keyringSigningBytes, normalizeInfluence,
+  NonceCache, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signKeyringOldForm, signRoot, signRootOldForm, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
@@ -195,7 +195,7 @@ describe("v3 known-answer vectors", () => {
     expect(encode(utf8("paztport-reply-cert\n" + canonicalize({ key, notAfter, policy, svc })))).toBe(c.signingBytes);
     expect(verifyReplyCert(c.cert, committed.keys[c.pin].pub)).toBe(c.verifies);
     // Every certificate that verifies is reproduced byte for byte by issuing it.
-    if (c.verifies) expect(issueReplyCert(policy, svc, key, notAfter, committed.keys[c.signer].priv).sig).toBe(sig);
+    if (c.verifies) expect(signReplyCert(policy, svc, key, notAfter, committed.keys[c.signer].priv).sig).toBe(sig);
   });
 
   it("session reply section", () => expect(committed.sessionReply.length).toBeGreaterThan(0));
@@ -232,7 +232,7 @@ describe("v3 known-answer vectors", () => {
   it.each(["constructor", "__proto__", "toString"])("protoEntryHasNoKey %s", (entry) => {
     const good = committed.sessionReply.find((c: any) => c.name === "new form attested");
     const keys = committed.keys;
-    const cert = issueReplyCert(keys["server-policy"].pub, entry, keys["mcp-entry"].pub, good.reply.serverReplyCert.notAfter, keys["server-policy"].priv);
+    const cert = signReplyCert(keys["server-policy"].pub, entry, keys["mcp-entry"].pub, good.reply.serverReplyCert.notAfter, keys["server-policy"].priv);
     expect(verifyReplyCert(cert, keys["server-policy"].pub)).toBe(true);
     const services: Record<string, string> = { ...good.reply.serverKeyring };
     const inherits = new Proxy(services, {

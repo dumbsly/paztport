@@ -6,7 +6,7 @@ import { decode, encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, randomBytes, sign, utf8, verify } from "../../src/crypto/crypto.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
 import { signKeyring, signKeyringOldForm } from "../../src/policy/keyring.ts";
-import { issueReplyCert } from "../../src/session/reply-cert.ts";
+import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { signRoot, signRootOldForm, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
 import { isCurrent } from "../../src/policy/validity.ts";
 import { checkSessionReply } from "../../src/session/reply-check.ts";
@@ -475,7 +475,7 @@ describe("the entry key form", () => {
     const ring = oldRing
       ? signKeyringOldForm(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey)
       : signKeyring(services, w.serverPolicy.publicKey, w.serverPolicy.privateKey, ringNotAfter);
-    const cert = issueReplyCert(w.serverPolicy.publicKey, ENTRY, entry.publicKey, NOW + 1000, w.serverPolicy.privateKey);
+    const cert = signReplyCert(w.serverPolicy.publicKey, ENTRY, entry.publicKey, NOW + 1000, w.serverPolicy.privateKey);
     const body: Omit<SessionReply, "sig"> = {
       ...w.body(), serverKeyring: services, serverKeyringSig: ring.sig, ...(oldRing ? {} : { serverKeyringNotAfter: ringNotAfter }), serverReplyCert: cert,
     };

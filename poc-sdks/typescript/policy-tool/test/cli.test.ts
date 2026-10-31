@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  decode, isCurrent, parseLocalRules, renewKeyring, renewRoot, rulesHash, rulesRoute, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
+  decode, isCurrent, parseLocalRules, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign, signKeyringOldForm, signRootOldForm, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
@@ -501,7 +501,7 @@ describe("policy-tool CLIs", () => {
     const built = readJson<SignedRoot>(join(out, "root.json"));
     const ring = readKeyring(join(keys, "keyring.json"));
     const priv = readKey(join(keys, "policy.key"));
-    const expiredRoot = renewRoot(built, 1000, priv);
+    const expiredRoot = signRenewedRoot(built, 1000, priv);
     const oldRoot = signRootOldForm(decode(built.root), built.rootId, priv);
     const expiredRing = renewKeyring(ring as SignedKeyring, 1000, priv);
     const oldRing = signKeyringOldForm(ring.services, ring.policy, priv);

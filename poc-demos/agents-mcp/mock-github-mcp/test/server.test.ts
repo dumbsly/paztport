@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPolicy,
   generateKeyPair,
-  issueReplyCert,
+  signReplyCert,
   signKeyring,
   type InfluenceEntry,
   type SessionReply,
@@ -44,7 +44,7 @@ function serverConfig(): ServerPolicy {
     keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter: ring.notAfter!,
-    replyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 30 * 86_400_000, policy.privateKey),
+    replyCert: signReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, Date.now() + 30 * 86_400_000, policy.privateKey),
     signedRoot,
     routeProof: bundles["mcp-entry"]!.proofs["mcp-entry/github-tools"]!,
     inst: "mock-github-1",

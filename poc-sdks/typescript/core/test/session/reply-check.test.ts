@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
-import { issueReplyCert } from "../../src/session/reply-cert.ts";
+import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { checkSessionReply, serverPolicyNotAfter } from "../../src/session/reply-check.ts";
 
@@ -22,7 +22,7 @@ function reply(): SessionReply {
       serverKeyring: ring.services,
       serverKeyringSig: ring.sig,
       serverKeyringNotAfter: 10,
-      serverReplyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, 30, policy.privateKey),
+      serverReplyCert: signReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, 30, policy.privateKey),
       nonce: "n",
       sess: "s",
       status: "attested",
@@ -73,7 +73,7 @@ describe("checkSessionReply", () => {
         serverKeyring: ring.services,
         serverKeyringSig: ring.sig,
         serverKeyringNotAfter: 10,
-        serverReplyCert: issueReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, 30, policy.privateKey),
+        serverReplyCert: signReplyCert(policy.publicKey, "mcp-entry", entry.publicKey, 30, policy.privateKey),
         nonce: serverNonce,
         sess,
         status,

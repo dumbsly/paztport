@@ -7,7 +7,7 @@ import {
   bindResult,
   buildPolicy,
   generateKeyPair,
-  issueReplyCert,
+  signReplyCert,
   mintOrigin,
   NonceCache,
   NONCE_TTL_MS,
@@ -52,7 +52,7 @@ const NOT_AFTER = 4_102_444_800_000;
 type Certify = (p: { policy: { publicKey: string; privateKey: string }; keys: Record<string, string> }) => ReplyCert;
 
 /** mcp-entry's certificate, valid for 30 days. */
-const CERTIFY_ENTRY: Certify = ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + 30 * DAY_MS, policy.privateKey);
+const CERTIFY_ENTRY: Certify = ({ policy, keys }) => signReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + 30 * DAY_MS, policy.privateKey);
 
 /**
  * A consistent server policy, and the certificate `certify` issues under its keys. McpServerSession refuses to start
@@ -277,15 +277,15 @@ describe("classifySessionReply", () => {
     }
   });
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
-    const expired = serverMaterial(({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
+    const expired = serverMaterial(({ policy, keys }) => signReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
     const c = connected({ policy: expired.policy, served: expired.served });
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("aServerWithAForgedCertificateIsABadSignature", () => {
     const forged: Record<string, Certify> = {
-      "signed by another policy key": ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, generateKeyPair().privateKey),
-      "for another service": ({ policy, keys }) => issueReplyCert(policy.publicKey, "github-tools", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey),
-      "for a key not the entry's": ({ policy, keys }) => issueReplyCert(policy.publicKey, "mcp-entry", keys["github-tools"]!, Date.now() + DAY_MS, policy.privateKey),
+      "signed by another policy key": ({ policy, keys }) => signReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() + DAY_MS, generateKeyPair().privateKey),
+      "for another service": ({ policy, keys }) => signReplyCert(policy.publicKey, "github-tools", keys["mcp-entry"]!, Date.now() + DAY_MS, policy.privateKey),
+      "for a key not the entry's": ({ policy, keys }) => signReplyCert(policy.publicKey, "mcp-entry", keys["github-tools"]!, Date.now() + DAY_MS, policy.privateKey),
     };
     for (const [name, certify] of Object.entries(forged)) {
       const { policy, served } = serverMaterial(certify);
