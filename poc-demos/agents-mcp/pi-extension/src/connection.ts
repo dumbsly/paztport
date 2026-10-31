@@ -4,8 +4,8 @@
 import { JSON_RPC_ERROR_CODES, McpClient, McpError, McpTimeoutError, StdioTransport, type Tool } from "@earendil-works/pi-mcp";
 import { encode, NonceCache, NONCE_TTL_MS, randomBytes, sessionRequest, type InfluenceClass, type SessionReply } from "@paztport/core";
 import {
-  readToolResult,
   openSession,
+  readToolResult,
   SESSION_METHOD,
   stampToolCall,
   toolCallProof,
@@ -190,6 +190,8 @@ export class ServerConnection {
       keyringSig: this.material.keyringSig,
       keyringNotAfter: this.material.keyringNotAfter,
     });
+    // Each request that was sent is written to the evidence file as it happens, with the raw reply (null when
+    // there was none) and the state it left this connection in.
     const opened = await openSession({
       request: req,
       pin,
@@ -197,23 +199,19 @@ export class ServerConnection {
       now: () => this.now(),
       send: (r) => client.request(SESSION_METHOD, r as unknown as Record<string, unknown>),
       rpcCode: (e) => (e instanceof McpError ? e.code : undefined),
+      onExchange: (x, first) =>
+        this.evidence.write({
+          v: 1,
+          type: "session",
+          server: this.spec.id,
+          request: x.request,
+          reply: x.reply,
+          pin,
+          status: x.request === req && first.status === "attested" ? "attested" : "unsafe",
+          ...(first.status === "unsafe" ? { reason: first.reason } : {}),
+        }),
     });
     const { outcome } = opened;
-    // Each request that was sent is written to the evidence file, with the raw reply (null when
-    // there was none) and the state it left this connection in.
-    opened.exchanges.forEach((x, i) => {
-      const status = i === 0 && outcome.status === "attested" ? "attested" : "unsafe";
-      this.evidence.write({
-        v: 1,
-        type: "session",
-        server: this.spec.id,
-        request: x.request,
-        reply: x.reply,
-        pin,
-        status,
-        ...(outcome.status === "unsafe" ? { reason: outcome.reason } : {}),
-      });
-    });
     if (outcome.status === "attested") {
       this.reply = outcome.reply;
       this.state = "attested";

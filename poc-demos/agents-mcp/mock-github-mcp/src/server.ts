@@ -1,15 +1,16 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { decideServerCall, type InfluenceClass, type ReasonCode } from "@paztport/core";
+import { decideServerCall, type ReasonCode } from "@paztport/core";
 import {
   McpServerSession,
   META_VERDICT,
   refusedToolResult,
   SESSION_METHOD,
-  type ToolCallOutcome,
   type ServerPolicy,
   type SessionRules,
+  type ToolCallOutcome,
+  type ToolRun,
 } from "@paztport/mcp";
 import { GITHUB_TOOLS, type GithubState, type GithubTool } from "./github.ts";
 import { labelFor } from "./labels.ts";
@@ -77,17 +78,19 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     const args = isObject(params.arguments) ? params.arguments : {};
     const facts = { isWrite: tool.kind === "write", publicDestination: isPublic(state, args) };
     const sess = mode !== "off" ? server?.session() : undefined;
-    let ranResult: ReturnType<GithubTool["run"]> | undefined;
-    const run = (): { result: CallToolResult; cls: InfluenceClass } => {
-      const result = tool.run(state, args);
-      ranResult = result;
-      return { result: { content: [{ type: "text", text: result.text }], isError: result.isError ?? false }, cls: labelFor(result) };
+    const execute = (): { result: CallToolResult; detail: ReturnType<GithubTool["run"]> } => {
+      const detail = tool.run(state, args);
+      return { result: { content: [{ type: "text", text: detail.text }], isError: detail.isError ?? false }, detail };
     };
-    // Off is a deployment switch, not a protocol mode; a server with no policy gates by the unsafe-session rule alone.
-    const decided: ToolCallOutcome<CallToolResult> =
-      mode !== "off" && server !== null
+    const run = (): ToolRun<CallToolResult, ReturnType<GithubTool["run"]>> => {
+      const { result, detail } = execute();
+      return { result, cls: labelFor(detail), detail };
+    };
+    // Off is a deployment switch, not a protocol mode: the only path that bypasses handleToolCall.
+    const decided: ToolCallOutcome<CallToolResult, ReturnType<GithubTool["run"]>> =
+      server !== null && mode !== "off"
         ? await server.handleToolCall(params, facts, mode, run)
-        : await ungated(name, facts, mode, run);
+        : ungated(name, facts, mode, execute);
     const { verdict, verified } = decided;
     const record = {
       ts: now(),
@@ -106,7 +109,7 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
       return decided.result;
     }
 
-    const result = ranResult!;
+    const result = decided.detail;
     const label = labelFor(result);
     const privateRead = result.read?.includesPrivate ?? false;
     const pr = result.write && tool.name === "create_pull_request" ? state.pulls().at(-1) : undefined;
@@ -127,27 +130,23 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
     return decided.result;
   }
 
-  /** The off mode, and a server with no policy: no session, so only the unsafe-session rule decides, and nothing is attested. */
-  async function ungated(
+  /** Off, or a server with no policy: no session, so only the unsafe-session rule decides (when not off), and nothing is attested. */
+  function ungated<D>(
     name: string,
     facts: { isWrite: boolean; publicDestination: boolean },
     callMode: Mode,
-    run: () => { result: CallToolResult; cls: InfluenceClass },
-  ): Promise<ToolCallOutcome<CallToolResult>> {
+    execute: () => { result: CallToolResult; detail: D },
+  ): ToolCallOutcome<CallToolResult, D> {
     const verdict: ReasonCode =
       callMode === "off"
         ? "OK"
         : decideServerCall({ tool: name, ...facts, attested: false, served: [], clientInfluence: [], disabledWhenUnsafe: rules.disabledWhenUnsafe });
     if (verdict !== "OK" && callMode === "enforce") {
-      return { result: refusedToolResult(verdict), verdict, ran: false, verified: null };
+      return { ran: false, result: refusedToolResult(verdict), verdict, verified: null };
     }
-    const { result } = run();
-    return {
-      result: callMode === "audit" && verdict !== "OK" ? { ...result, _meta: { [META_VERDICT]: { reason: verdict, audit: true } } } : result,
-      verdict,
-      ran: true,
-      verified: null,
-    };
+    const { result, detail } = execute();
+    const noted = callMode === "audit" && verdict !== "OK" ? { ...result, _meta: { [META_VERDICT]: { reason: verdict, audit: true } } } : result;
+    return { ran: true, result: noted, verdict, verified: null, detail };
   }
 
   const methods: Record<string, (params: unknown) => Promise<unknown>> = {};
