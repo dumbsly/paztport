@@ -44,14 +44,14 @@ import org.paztport.core.session.ReplyCert;
  * </ul>
  *
  * Either mode first checks the keyring (and, renewing, the root) is signed by the policy key in {@code policy.key},
- * in either form and whether or not it has expired, and that the keyring names that key; on a refusal it writes
- * nothing and exits 2. The keyring is written in place, truncated and rewritten rather than replaced by a rename,
- * so that it can be a single file mounted into the tool. It is written first, so a keyring that cannot be written
- * (mounted read-only, say) stops the run with one line, {@code policy-tool: cannot write <file>: <reason>}, the
- * reason being the file system's ({@code Read-only file system}, {@code No space left on device}), and nothing
- * written; that and any other I/O error exit 1. Written in place, it is not written atomically: a crash or a full
- * disk part-way through leaves it empty or truncated, which the next run refuses as not a keyring. This tool only
- * re-signs a keyring, never writes one from nothing, so recovering from that means new keys from the keygen.
+ * whether or not it has expired, and that the keyring names that key; on a refusal it writes nothing and exits 2.
+ * The keyring is written in place, truncated and rewritten rather than replaced by a rename, so that it can be a
+ * single file mounted into the tool. It is written first, so a keyring that cannot be written (mounted read-only,
+ * say) stops the run with one line, {@code policy-tool: cannot write <file>: <reason>}, the reason being the file
+ * system's ({@code Read-only file system}, {@code No space left on device}), and nothing written; that and any other
+ * I/O error exit 1. Written in place, it is not written atomically: a crash or a full disk part-way through leaves
+ * it empty or truncated, which the next run refuses as not a keyring. This tool only re-signs a keyring, never
+ * writes one from nothing, so recovering from that means new keys from the keygen.
  *
  * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, either mode also writes {@code reply-cert.json}, a
  * {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days

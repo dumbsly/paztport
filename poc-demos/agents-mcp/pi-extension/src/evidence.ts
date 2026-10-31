@@ -30,7 +30,7 @@ export type EvidenceRecord =
       v: 1;
       type: "client";
       keyring: Record<string, string>;
-      /** The policy key's signature over the keyring (verify accepts an older record without one). */
+      /** The policy key's signature over the keyring. */
       keyringSig: string;
       /** The keyring's window, which `keyringSig` covers. */
       keyringNotAfter: number;

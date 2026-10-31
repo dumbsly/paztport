@@ -202,7 +202,7 @@ public final class PartnerSessions {
         if (Sessions.status(req, ownRoot, ownKeyring, ownPolicyPublic, pinnedClientKeys, clock.getAsLong())
                 .equals("attested")) {
             try {
-                // The client's keyring whole, its window included, so it verifies in the form it was signed in.
+                // The client's keyring whole, its window included, so its signature is checked over its window.
                 verifier = new VerifierV3(VerifierConfigV3.pinned(req.clientKeyringFile(), req.clientRoot(),
                         req.clientPolicyKey(), clientOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs));
             } catch (IllegalArgumentException e) {

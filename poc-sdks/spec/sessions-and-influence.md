@@ -176,7 +176,7 @@ session is the same.
 | Part | Rule |
 |---|---|
 | Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
-| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
+| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer, included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
@@ -333,9 +333,9 @@ policy key and keyring, is its statement that it pinned them.
 
 A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature has
 verified: the root's under its side's policy key, the client keyring's under the client policy key, and the server
-keyring's under the pin. Each signature is checked over its own window, so one moved or dropped in the record fails
-offline too, and an inherited one never counts. A recorded root or keyring without a window opened no attested
-session.
+keyring's under the pin. Each signature is checked over its own window, so one moved in the record fails its
+signature offline too, and an inherited one never counts. One dropped from the record leaves a root or keyring
+without a window, which a reader refuses, so the handshake opened no attested session.
 
 ## Influence
 

@@ -88,8 +88,9 @@ the spec's objects and times, never from any implementation's record format:
   recorded, `pin` (the server policy key the client pinned, by name in `keys`) and `serverEntry` (the server's entry
   service from the verifier's own configuration). `expected.attestedAt[i]` is whether it opened an attested session
   judged at `at[i]`, `attested` whether it did at all (judged at the earliest of its limits), `responseNotAfter` the
-  `policyNotAfter` a response recorded in it is checked with (2^53 − 1 when neither the server's root nor, in the
-  entry-key form, its keyring has a window), read from the reply's windows whether or not the session is attested.
+  `policyNotAfter` a response recorded in it is checked with (the server root's `notAfter`, or in the entry-key form
+  the earlier of it and `serverKeyringNotAfter`), read from the reply's windows whether or not the session is
+  attested.
 - A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked in
   order against one set of spent nonce keys that starts empty. Each call names the handshake whose session it was
   made in by its index, `handshake`, and carries an offline case's chain inputs (`chain`, `expectedBind`,

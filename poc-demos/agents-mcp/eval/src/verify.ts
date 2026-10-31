@@ -76,11 +76,11 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * Lifetimes are judged at each record's own time, as the client signed it, never at the time verify runs: a call at
  * its last stamp's `ts` (the record's `now`, which must equal it, else TIME_MISMATCH), a local step likewise, and a
  * response at the time the client recorded checking it, which the library's freshness window ties to the server's
- * signed stamps. The client signs those times itself, so a client that lies about them can make its own records count
- * longer than they should; what it cannot do is move a window, which the policy key signed. Records made before
- * keyrings and roots expired keep their outcomes. A response past the server's root or keyring window is
- * POLICY_EXPIRED. A record whose root or keyring has no window does not verify: a client record so is BAD_CLIENT,
- * and a session record so opened no attested session, so no call in it is judged.
+ * signed stamps. The client signs those times itself, so a client that lies about them can make its own records
+ * count longer than they should; what it cannot do is move a window, which the policy key signed. A response past
+ * the server's root or keyring window is POLICY_EXPIRED. A record whose root or keyring has no window does not
+ * verify: a client record so is BAD_CLIENT, and a session record so opened no attested session, so no call in it is
+ * judged.
  */
 export type VerifyItem = {
   line: number;

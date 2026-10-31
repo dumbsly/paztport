@@ -161,8 +161,10 @@ describe("recordedSession: what a recorded handshake opened", () => {
   });
 
   // "A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature has
-  // verified … so one moved or dropped in the record fails offline too, and an inherited one never counts."
-  it("aMovedOrDroppedWindowFailsItsSignature", () => {
+  // verified … so one moved in the record fails its signature offline too, and an inherited one never counts. One
+  // dropped from the record leaves a root or keyring without a window, which a reader refuses, so the handshake opened
+  // no attested session."
+  it("aMovedWindowFailsItsSignatureAndADroppedOneIsRefused", () => {
     const h = handshake({ windows: { clientRoot: NOW } });
     expect(recordedSession({ ...h.recorded, request: { ...h.request, clientRoot: { ...h.request.clientRoot!, notAfter: FAR } } }).attested).toBe(false);
     const { notAfter: _w, ...dropped } = h.request.clientRoot!;

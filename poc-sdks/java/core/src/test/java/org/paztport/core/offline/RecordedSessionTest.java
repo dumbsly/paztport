@@ -6,6 +6,7 @@ package org.paztport.core.offline;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.paztport.core.offline.Handshake.ENTRY;
 import static org.paztport.core.offline.Handshake.FAR;
@@ -13,6 +14,7 @@ import static org.paztport.core.offline.Handshake.MAX_SAFE;
 import static org.paztport.core.offline.Handshake.NOW;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
@@ -21,6 +23,9 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.SessionRequest;
+import org.paztport.core.session.Sessions;
 
 /**
  * One test per sentence of sessions-and-influence.md §Recorded handshakes, and of verification.md §Offline
@@ -167,19 +172,29 @@ class RecordedSessionTest {
     }
 
     // "A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature
-    // has verified … so one moved or dropped in the record fails offline too."
+    // has verified … so one moved in the record fails its signature offline too … One dropped from the record leaves
+    // a root or keyring without a window, which a reader refuses, so the handshake opened no attested session."
     @Test
-    void aMovedOrDroppedWindowFailsItsSignature() {
+    void aMovedWindowFailsItsSignatureAndADroppedOneIsRefused() {
         Handshake h = Handshake.with(o -> o.clientRoot = NOW);
         ObjectNode moved = h.request(r -> ((ObjectNode) r.get("clientRoot")).put("notAfter", FAR));
         assertFalse(Handshake.recorded(moved, h.reply, h.pin, ENTRY).attested());
-        ObjectNode dropped = h.request(r -> ((ObjectNode) r.get("clientRoot")).remove("notAfter"));
-        assertFalse(Handshake.recorded(dropped, h.reply, h.pin, ENTRY).attested());
         Handshake g = Handshake.attested();
         assertFalse(Handshake.recorded(g.request, g.resigned(r -> r.put("serverKeyringNotAfter", FAR + 1)), g.pin,
                 ENTRY).attested());
+
+        ObjectNode dropped = h.request(r -> ((ObjectNode) r.get("clientRoot")).remove("notAfter"));
         ObjectNode ringDropped = g.request(r -> r.remove("clientKeyringNotAfter"));
+        for (ObjectNode request : List.of(dropped, ringDropped)) {
+            assertThrows(IllegalArgumentException.class, () -> SessionRequest.parse(request.toString()));
+        }
+        assertFalse(Handshake.recorded(dropped, h.reply, h.pin, ENTRY).attested());
         assertFalse(Handshake.recorded(ringDropped, g.reply, g.pin, ENTRY).attested());
+        ObjectNode rootDropped = g.resigned(r -> ((ObjectNode) r.get("serverRoot")).remove("notAfter"));
+        assertEquals(ReplyCheck.MALFORMED_REPLY,
+                Sessions.checkReply(rootDropped.toString(), SessionRequest.parse(g.request.toString()), g.pin, ENTRY,
+                        NOW));
+        assertFalse(Handshake.recorded(g.request, rootDropped, g.pin, ENTRY).attested());
     }
 
     // The session id calls are checked against is the one in the reply this session judged.
