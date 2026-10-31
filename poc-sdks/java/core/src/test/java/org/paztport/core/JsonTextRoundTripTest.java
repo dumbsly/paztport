@@ -79,7 +79,7 @@ class JsonTextRoundTripTest {
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
     private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 15, Kind.ROOT, 29, Kind.PROOF, 5,
-            Kind.STAMP, 19, Kind.INFLUENCE, 10, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
+            Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 9, Kind.CERT, 12, Kind.REPLY, 38);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 
@@ -147,7 +147,7 @@ class JsonTextRoundTripTest {
             for (JsonNode c : v.get(section)) {
                 JsonNode chain = c.get("chain");
                 for (int i = 0; chain.isArray() && i < chain.size(); i++) {
-                    // A v2 stamp is only ever read, as legacy evidence; nothing writes one.
+                    // A stamp whose v is not 3 is only ever read; nothing writes one.
                     if (chain.get(i).path("v").asInt() == 3) {
                         add(out, seen, Kind.STAMP, section + "/" + c.get("name").textValue() + "/" + i,
                                 chain.get(i));
@@ -215,7 +215,7 @@ class JsonTextRoundTripTest {
         ROOT(json -> SignedRoot.parse(json).toJson()),
         PROOF(json -> MerkleProof.parse(json).toJson()),
         STAMP(json -> {
-            ParsedChain parsed = Chains.parse("[" + json + "]", false);
+            ParsedChain parsed = Chains.parse("[" + json + "]");
             if (!parsed.ok()) {
                 throw new IllegalArgumentException(parsed.failure().name());
             }

@@ -13,13 +13,13 @@ import { isDeepStrictEqual } from "node:util";
 import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
-  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV2, signStampV3, signingBytesV3,
+  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signKeyringOldForm, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, decodeProof, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signRootOldForm, signSessionReply, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, InfluenceFact, LegacySessionRequest, LocalRules, LocalVerdict, MerkleProof, Peer, RecordedStamp, ReplyCert, Resolved, SessionReply, SessionRequest,
+  InfluenceEntry, InfluenceFact, LegacySessionRequest, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, Resolved, SessionReply, SessionRequest,
   SignedKeyring, SignedRoot, StampV3,
 } from "@paztport/core";
 import { bindMcpCall, mcpReceiver } from "../src/index.ts";
@@ -232,7 +232,7 @@ type Expected = { reason: string; suspectSvc: string; suspectInst: string };
 /** What a verify case shares with an offline one. */
 type CaseInputs = {
   name: string;
-  chain: RecordedStamp[];
+  chain: StampV3[];
   expectedBind: string;
   influence: InfluenceEntry[];
   policy: "client" | "server" | "mesh";
@@ -313,17 +313,9 @@ export function buildVectorsV3(): Record<string, unknown> {
   const staleCall = [staleOrigin, v3(hopFields(staleOrigin.sig), "pi")];
   // Malformed rcv fields, built by hand: signStampV3 refuses the delimiter, and the parse and delimiter checks come before signatures.
   const { rcv: _rcv, ...hopWithoutRcv } = hop;
-  const malformed = (last: unknown) => [origin, last] as unknown as RecordedStamp[];
-  // The same call recorded before stamps named their receiver (v2, influence with no owners), and mixed.
-  const v2Influence: InfluenceEntry[] = [{ cls: "third-party", src: "web:example.com", h: "h2" }];
-  const v2Origin = signStampV2({ svc: "session", inst: "pi-1", rid: RID, ts: NOW - 2000, sess: SESS, bind: bindPrompt(PROMPT), infl: "", prev: "" }, keys.session.priv);
-  const v2Call: RecordedStamp[] = [
-    v2Origin,
-    signStampV2({ svc: "pi", inst: "pi-1", rid: RID, ts: NOW - 1000, sess: SESS, bind: callBind, infl: commitInfluence(v2Influence), prev: v2Origin.sig }, keys.pi.priv),
-  ];
-  const mixedCall: RecordedStamp[] = [v2Origin, v3(hopFields(v2Origin.sig), "pi")];
-  // A v2 chain whose stamps carry an rcv: v2 does not sign it, so it is ignored, even one naming the wrong hop.
-  const strayRcvV2Call = v2Call.map((s) => ({ ...s, rcv: "search" })) as unknown as RecordedStamp[];
+  const malformed = (last: unknown) => [origin, last] as unknown as StampV3[];
+  // A stamp that is not v3 beside a v3 one.
+  const notV3Call = [origin, { ...hop, v: 2 }] as unknown as StampV3[];
 
   const clientCall: Omit<CaseInputs, "name"> = {
     chain: call, expectedBind: callBind, influence: INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
@@ -381,7 +373,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     ),
     live(callCase("receiver chain broken", { chain: strayCall }), no("BINDING_MISMATCH")),
     live(callCase("wrong receiver", { receiver: OTHER_RCV }), no("BINDING_MISMATCH")),
-    live(callCase("v2 stamps live", { chain: v2Call, influence: v2Influence }), no("CHAIN_MISSING")),
     live(callCase("peer ok", { peer: { svc: "pi", inst: "10.0.0.7" } }), ok("pi", "10.0.0.7")),
     live(callCase("peer mismatch", { peer: { svc: "search", inst: "10.0.0.9" } }), no("PEER_MISMATCH", "search", "10.0.0.9")),
     live(callCase("peer blamed on bad signature", { chain: forgedCall, peer: { svc: "search", inst: "10.0.0.9" } }), no("BAD_SIGNATURE", "search", "10.0.0.9")),
@@ -431,10 +422,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     };
   };
   const offline = [
-    offlineCase({ name: "legacy v2 recorded call", ...clientCall, chain: v2Call, influence: v2Influence }, { ...ok("pi", "pi-1"), legacy: true }),
     offlineCase({ name: "v3 recorded call", ...clientCall }, { ...ok("pi", "pi-1"), legacy: false }),
-    offlineCase({ name: "mixed versions", ...clientCall, chain: mixedCall }, { ...no("CHAIN_MISSING"), legacy: false }),
-    offlineCase({ name: "legacy v2 call with a stray rcv", ...clientCall, chain: strayRcvV2Call, influence: v2Influence }, { ...ok("pi", "pi-1"), legacy: true }),
+    offlineCase({ name: "a stamp whose v is not 3", ...clientCall, chain: notV3Call }, { ...no("CHAIN_MISSING"), legacy: false }),
     offlineCase({ name: "receiver chain broken", ...clientCall, chain: strayCall }, { ...no("BINDING_MISMATCH"), legacy: false }),
     offlineCase({ name: "recorded time differs", ...clientCall, recordedTs: { last: hop.ts + 1 } }, { ...no("TIME_MISMATCH"), legacy: false }),
     offlineCase({ name: "expired", ...clientCall, chain: staleCall }, { ...no("EXPIRED"), legacy: false }),
@@ -866,19 +855,13 @@ export function buildVectorsV3(): Record<string, unknown> {
     recordedTs: { last: number };
     prompt: string;
   };
-  const callIn = (reply: SessionReply, ts: number, callId: string, o: { forged?: boolean; v2?: boolean } = {}): RecordedCallInput => {
+  const callIn = (reply: SessionReply, ts: number, callId: string, o: { forged?: boolean } = {}): RecordedCallInput => {
     const bind = bindMcpCall(TOOL, callId, ARGS);
     const sess = reply.sess;
-    let chain: RecordedStamp[];
-    if (o.v2 === true) {
-      const first = signStampV2({ svc: "session", inst: "pi-1", rid: RID, ts: ts - 1000, sess, bind: bindPrompt(PROMPT), infl: "", prev: "" }, keys.session.priv);
-      chain = [first, signStampV2({ svc: "pi", inst: "pi-1", rid: RID, ts, sess, bind, infl: commitInfluence(v2Influence), prev: first.sig }, keys.pi.priv)];
-    } else {
-      const first = v3({ ...originFields, ts: ts - 1000, sess }, "session");
-      chain = [first, v3({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
-    }
+    const first = v3({ ...originFields, ts: ts - 1000, sess }, "session");
+    const chain = [first, v3({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
     return {
-      handshake: 0, chain, expectedBind: bind, influence: o.v2 === true ? v2Influence : INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV, receiverInRoute: true,
+      handshake: 0, chain, expectedBind: bind, influence: INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV, receiverInRoute: true,
       nonceKey: `${RID}|${callId}|req`, rid: RID, recordedTs: { last: ts }, prompt: PROMPT,
     };
   };
@@ -905,7 +888,6 @@ export function buildVectorsV3(): Record<string, unknown> {
   const entryKeyReply = replyTo(request, "mcp-entry");
   const shortRoot = clientRootAt(NOW);
   const shortRootReply = replyTo(shortRoot, "mcp-entry");
-  const legacyReply = replyTo(legacyRequest, "server-policy", {}, OLD);
   const inSession = { request, reply: entryKeyReply };
   const recordedCall = [
     recordedCallCase("at the certificate's notAfter", [inSession], [callIn(entryKeyReply, CERT_NOT_AFTER, "call-1")]),
@@ -914,7 +896,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     recordedCallCase("a failing call keeps its result past the limit", [{ request: shortRoot, reply: shortRootReply }], [callIn(shortRootReply, NOW + 1, "call-1", { forged: true })]),
     recordedCallCase("replay in the record set", [inSession], [callIn(entryKeyReply, NOW, "call-1"), callIn(entryKeyReply, NOW + 60_000, "call-1")]),
     recordedCallCase("a repeated handshake resets no spent key", [inSession, inSession], [callIn(entryKeyReply, NOW, "call-1"), { ...callIn(entryKeyReply, NOW, "call-1"), handshake: 1 }]),
-    recordedCallCase("legacy v2 call in a legacy session", [{ request: legacyRequest, reply: legacyReply }], [callIn(legacyReply, NOW, "call-1", { v2: true })]),
   ];
   check("recorded call answers", recordedCall.map((c) => [c.name, c.expected]), [
     ["at the certificate's notAfter", [{ reason: "OK", legacy: false }]],
@@ -923,7 +904,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["a failing call keeps its result past the limit", [{ reason: "BAD_SIGNATURE", legacy: false }]],
     ["replay in the record set", [{ reason: "OK", legacy: false }, { reason: "REPLAY", legacy: false }]],
     ["a repeated handshake resets no spent key", [{ reason: "OK", legacy: false }, { reason: "REPLAY", legacy: false }]],
-    ["legacy v2 call in a legacy session", [{ reason: "OK", legacy: true }]],
   ]);
 
   // Recorded local steps (MCP profile): the client's own steps, checked against its keyring and root and its signed
@@ -940,28 +920,21 @@ export function buildVectorsV3(): Record<string, unknown> {
   const localStepCase = (
     name: string,
     d: Partial<LocalDecision> = {},
-    o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[]; v2?: boolean } = {},
+    o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[] } = {},
   ) => {
     const decision: LocalDecision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ_NOTES, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(LOCAL_RULES), ...d };
     const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rules: LOCAL_RULES, ...o.client };
-    let chain: RecordedStamp[];
-    if (o.v2 === true) {
-      const first = signStampV2({ svc: "session", inst: "pi-1", rid: RID, ts: NOW - 2000, sess: "", bind: bindPrompt(PROMPT), infl: "", prev: "" }, keys.session.priv);
-      const bind = localStepBind({ toolName: decision.tool, toolCallId: decision.callId, input: decision.input, resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash });
-      chain = [first, signStampV2({ svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, sess: "", bind, infl: commitInfluence(INFLUENCE), prev: first.sig }, keys.pi.priv)];
-    } else {
-      const first = localOrigin;
-      chain = [
-        first,
-        stampLocalStep(
-          {
-            svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
-            resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: INFLUENCE,
-          },
-          keys.pi.priv,
-        ),
-      ];
-    }
+    const first = localOrigin;
+    const chain = [
+      first,
+      stampLocalStep(
+        {
+          svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+          resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: INFLUENCE,
+        },
+        keys.pi.priv,
+      ),
+    ];
     const proofRoute = Object.hasOwn(o, "proofRoute") ? o.proofRoute! : decision.routeAllowed ? routeOf(["session", "pi", localReceiver(decision.tool)]) : null;
     const step = { ...decision, rid: RID, now: STEP_TS, chain, proofRoute, influence: INFLUENCE };
     const run = { prompt: PROMPT, ts: [localOrigin.ts] };
@@ -999,7 +972,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     localStepCase("verdict not the rules', unlisted tool resolving something", { tool: "bash", input: { command: "cat notes.md" }, resolved: READ_NOTES, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }),
     localStepCase("rules mismatch before verdict mismatch", { rulesHash: null, verdict: "SCOPE_DENIED" }),
     localStepCase("replay in the record set", {}, { seen: [`${RID}|tc-1|local`] }),
-    localStepCase("legacy v2 step", {}, { v2: true }),
   ];
   check("recorded local step answers", recordedLocalStep.map((c) => [c.name, c.expected.reason, c.expected.verdict, c.expected.legacy]), [
     ["allowed", "OK", "OK", false],
@@ -1018,7 +990,6 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["verdict not the rules', unlisted tool resolving something", "VERDICT_MISMATCH", null, false],
     ["rules mismatch before verdict mismatch", "RULES_MISMATCH", null, false],
     ["replay in the record set", "REPLAY", null, false],
-    ["legacy v2 step", "OK", "OK", true],
   ]);
 
   return {
