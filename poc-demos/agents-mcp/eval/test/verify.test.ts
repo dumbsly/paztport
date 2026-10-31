@@ -802,8 +802,7 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
 });
 
 describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
-  // A real attested run recorded before roots and keyrings carried a window, which the demo page replays: its report,
-  // item by item and legacy mark by legacy mark, is the one verify gave before lifetimes were judged.
+  // A real attested run that the demo page replays: its report, item by item, is the one pinned beside it.
   const FIXTURE = join(import.meta.dirname, "../../demo-ui/test/fixtures/recorded-on-run");
 
   it("recordedOnRunReportIsUnchanged", () => {
@@ -812,46 +811,19 @@ describe("verifyEvidence: the demo page's recorded run is unchanged", () => {
   });
 });
 
-describe("verifyEvidence: phase-1 folders are unchanged", { timeout: 30_000 }, () => {
-  // Made before local records existed (a real attested run, a tampered copy, a run-record-only copy and an
-  // off run), with the reports and CLI output verify gave then. Phase-1 evidence must verify byte for byte as before.
-  const FIXTURE = join(import.meta.dirname, "fixtures/phase1-results");
+describe("verifyEvidence: the pinned results folder is unchanged", { timeout: 30_000 }, () => {
+  // A real attested run, a copy with one call's repo changed, a copy cut down to its run record and an off run, with the
+  // reports and CLI output verify gave for them.
+  const FIXTURE = join(import.meta.dirname, "fixtures/eval-results");
   const expected = (name: string) => readFileSync(join(FIXTURE, name), "utf8");
 
-  it("phase1FolderReportIsUnchanged", () => {
+  it("folderReportIsUnchanged", () => {
     expect(JSON.stringify(verifyResultsDir(FIXTURE), null, 2) + "\n").toBe(expected("expected-folder-report.json"));
     const file = join(FIXTURE, "runs/on-001/evidence.jsonl");
     expect((JSON.stringify(verifyEvidence(file), null, 2) + "\n").replaceAll(FIXTURE, "<fixture>")).toBe(expected("expected-file-report.json"));
   });
 
-  it("recordedFixturesUnchanged", () => {
-    // the recorded handshakes are old form throughout (no window on either root or keyring, a policy-key reply): offline
-    // they are accepted at any time, and the session is not newly marked legacy (only its unsigned keyring makes it so)
-    for (const run of ["on-001", "on-002", "on-003"]) {
-      const file = join(FIXTURE, "runs", run, "evidence.jsonl");
-      const sessions = readFileSync(file, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.type === "session");
-      for (const s of sessions) {
-        expect(Object.hasOwn(s.request.clientRoot, "notAfter"), run).toBe(false);
-        expect(Object.hasOwn(s.request, "clientKeyringNotAfter"), run).toBe(false);
-        expect(Object.hasOwn(s.reply.serverRoot ?? {}, "notAfter"), run).toBe(false);
-        expect(Object.hasOwn(s.reply, "serverKeyringNotAfter"), run).toBe(false);
-      }
-    }
-    // every run's report, item by item and legacy mark by legacy mark, is the one recorded before lifetimes were judged
-    expect(JSON.stringify(verifyResultsDir(FIXTURE), null, 2) + "\n").toBe(expected("expected-folder-report.json"));
-  });
-
-  it("recordedRunIsLegacy", () => {
-    const r = verifyEvidence(join(FIXTURE, "runs/on-001/evidence.jsonl"));
-    expect(r.ok).toBe(true);
-    for (const i of r.items) {
-      const marked = i.type === "session" || i.type === "call" || (i.type === "response" && i.result === "OK");
-      expect(i.legacy, `${i.type} line ${i.line} ${i.result}`).toBe(marked ? true : undefined);
-    }
-    expect(r.items.some((i) => i.type === "response" && i.result === "REFUSED")).toBe(true);
-  });
-
-  it("phase1CliOutputIsUnchanged", () => {
+  it("cliOutputIsUnchanged", () => {
     const folder = spawnSync(process.execPath, [MAIN, FIXTURE], { encoding: "utf8" });
     expect(folder.stdout).toBe(expected("expected-folder-stdout.txt"));
     expect(folder.status).toBe(1);

@@ -1,7 +1,0 @@
-{"ts":1792953179757,"type":"session","server":"github","status":"attested"}
-{"ts":1792953179758,"type":"call","server":"github","tool":"list_issues","callId":"toolu_a","rid":"SrB-xFDQVhirde3x13UNBA","session":"attested"}
-{"ts":1792953179760,"type":"response","server":"github","tool":"list_issues","callId":"toolu_a","rid":"SrB-xFDQVhirde3x13UNBA","verify":"OK","labels":["third-party"],"isError":false,"classes":{"third-party":1,"private":0,"public":0,"local-untrusted":0}}
-{"ts":1792953179760,"type":"call","server":"github","tool":"get_file_contents","callId":"toolu_c","rid":"SrB-xFDQVhirde3x13UNBA","session":"attested"}
-{"ts":1792953179761,"type":"response","server":"github","tool":"get_file_contents","callId":"toolu_c","rid":"SrB-xFDQVhirde3x13UNBA","verify":"OK","labels":["private"],"isError":false,"classes":{"third-party":1,"private":1,"public":0,"local-untrusted":0}}
-{"ts":1792953179761,"type":"call","server":"github","tool":"create_branch","callId":"toolu_d","rid":"SrB-xFDQVhirde3x13UNBA","session":"attested"}
-{"ts":1792953179762,"type":"response","server":"github","tool":"create_branch","callId":"toolu_d","rid":"SrB-xFDQVhirde3x13UNBA","verdict":"INFLUENCE_DENIED","isError":true,"classes":{"third-party":1,"private":1,"public":0,"local-untrusted":0}}

@@ -27,7 +27,7 @@ export type LocalRun = {
 
 /**
  * One run in `runDir` (evidence.jsonl, events.jsonl, outcome.jsonl, workspace/) with the demo keys in `demo`.
- * With `rules: false` the client material has no local rules (the phase-1 client root), so every local call
+ * With `rules: false` the client material has no local rules, so every local call
  * is refused as out of scope. The calls, by call id:
  * - l_read: read website/README.md, allowed (its public label is recorded as the extension does)
  * - l_outside: read /etc/hosts, refused (resolved as "outside")

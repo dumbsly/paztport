@@ -58,11 +58,11 @@ function write(lines: string[], edit?: (records: any[]) => void): string {
 }
 const outcomes = (path: string): OutcomeRecord[] => jsonLines(path).map((l) => JSON.parse(l) as OutcomeRecord);
 
-describe("checkRun on a phase-1 run", () => {
-  it("phase1RunWithoutLocalEventsIsOk", () => {
-    const run = join(import.meta.dirname, "fixtures/phase1-results/runs/on-001");
+describe("checkRun on the pinned run", () => {
+  it("runWithoutLocalEventsIsOk", () => {
+    const run = join(import.meta.dirname, "fixtures/eval-results/runs/on-001");
     const evidencePath = join(run, "evidence.jsonl");
-    const v = checkRun({ mode: "on", outcome: "blocked", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "MGzlE8o1uqwiwIMj" });
+    const v = checkRun({ mode: "on", outcome: "blocked", records: outcomes(join(run, "outcome.jsonl")), evidencePath, eventsPath: join(run, "events.jsonl"), report: verifyEvidence(evidencePath), expectedPin: "G7yTcA7G_rYXWT30" });
     expect(v).toEqual({ status: "ok", problems: [] });
   });
 });

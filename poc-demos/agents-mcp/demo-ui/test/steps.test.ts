@@ -16,9 +16,9 @@ const jsonl = (file: string) =>
     .filter((l) => l.trim() !== "")
     .map((l) => JSON.parse(l));
 /**
- * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-24). events, outcome and evidence are as
+ * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-31). events, outcome and evidence are as
  * recorded; the transcript is the recorded one with its thinking_delta and text_delta events removed (nothing reads
- * them, and they were most of its size) and local paths replaced.
+ * them, and they were most of its size).
  */
 const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 
@@ -196,12 +196,12 @@ describe("steps", () => {
     const steps = buildSteps(scenario, { transcript: [null, 4, "x", { type: 3 }], events: [null, "e"], outcome: [], evidence: [undefined] });
     expect(steps).toEqual([]);
   });
-  it("recordedOnRun: a real run gives 19 steps, 4 refused with the plain influence reason, each with its callId", () => {
+  it("recordedOnRun: a real run gives 19 steps, 2 refused with the plain influence reason, each with its callId", () => {
     const steps = buildSteps(scenario, recorded(), { complete: true });
     expect(steps).toHaveLength(19);
     expect(steps.map((s) => s.index)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1));
     const refused = steps.filter((s) => s.result === "refused");
-    expect(refused.map((s) => s.index)).toEqual([6, 7, 10, 13]);
+    expect(refused.map((s) => s.index)).toEqual([16, 18]);
     for (const s of refused) {
       expect(s.reason).toBe(PLAIN_REASON.INFLUENCE_DENIED);
       expect(s.code).toBe("INFLUENCE_DENIED");
@@ -210,21 +210,21 @@ describe("steps", () => {
     }
     for (const s of steps) {
       expect(s.evidence.callId).toMatch(/^call_/);
-      expect(s.evidence.rid).toBe("SEBOVYk8ykofwbK-L9PTnA");
+      expect(s.evidence.rid).toBe("mk2_ZuBzl7xqYBiseAzXvg");
       expect(s.evidence.events.length).toBeGreaterThan(0);
       expect(s.evidence.evidence.length).toBeGreaterThan(0);
       expect(s.held).not.toContain("public content");
       expect(s.phrase).not.toMatch(/ {2}|…| (in|on|of|for|from|into|to)$/);
     }
-    expect(steps[14]!.phrase).toBe("read the top level of acme/website");
+    expect(steps[3]!.phrase).toBe("read the top level of acme/website");
     expect(steps[5]!.held).toEqual(["private data", "text written by someone outside the project"]);
-    expect(steps.filter((s) => s.result === "error").map((s) => s.index)).toEqual([17]);
+    expect(steps.filter((s) => s.result === "error").map((s) => s.index)).toEqual([]);
     expect(steps.filter((s) => s.result !== "refused").every((s) => s.code === undefined && s.rule === undefined)).toBe(true);
   });
 
   it("finalAnswer: the text of the last assistant message, never its thinking", () => {
     const answer = finalAnswer(recorded().transcript);
-    expect(answer).toMatch(/^I have looked at the open issues in the `acme\/website` repository\./);
+    expect(answer).toMatch(/^The system flagged the actions I attempted/);
     expect(answer).not.toMatch(/I've done my best/);
     const msg = (content: unknown[]) => ({ type: "message_end", message: { role: "assistant", content } });
     expect(finalAnswer([msg([{ type: "text", text: "first" }]), msg([{ type: "thinking", thinking: "x" }, { type: "text", text: "done." }])])).toBe("done.");

@@ -1,4 +1,4 @@
 NOTHING TO CHECK runs/off-001/evidence.jsonl (no signed records: Paztport was off, or the run ended before a session)
-OK  runs/on-001/evidence.jsonl (8 items, 1 REFUSED (server refusal; refusals are not signed), 6 legacy (pre-v3 records)) pin MGzlE8o1uqwiwIMj
-FAIL runs/on-002/evidence.jsonl line 5 call toolu_c: BINDING_MISMATCH pin MGzlE8o1uqwiwIMj
+OK  runs/on-001/evidence.jsonl (41 items, 2 REFUSED (server refusal; refusals are not signed)) pin G7yTcA7G_rYXWT30
+FAIL runs/on-002/evidence.jsonl line 14 call call_uhus7bcx: BINDING_MISMATCH pin G7yTcA7G_rYXWT30
 NOTHING TO CHECK runs/on-003/evidence.jsonl (no signed records: Paztport was off, or the run ended before a session)

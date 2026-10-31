@@ -1,0 +1,526 @@
+[
+  {
+    "file": "runs/off-001/evidence.jsonl",
+    "ok": true,
+    "items": [],
+    "pins": [],
+    "nothingToCheck": true
+  },
+  {
+    "file": "runs/on-001/evidence.jsonl",
+    "ok": true,
+    "items": [
+      {
+        "line": 1,
+        "type": "client",
+        "result": "OK"
+      },
+      {
+        "line": 2,
+        "type": "session",
+        "result": "OK"
+      },
+      {
+        "line": 3,
+        "type": "run",
+        "result": "OK"
+      },
+      {
+        "line": 4,
+        "type": "call",
+        "callId": "call_288ffhop",
+        "result": "OK"
+      },
+      {
+        "line": 5,
+        "type": "response",
+        "callId": "call_288ffhop",
+        "result": "OK"
+      },
+      {
+        "line": 6,
+        "type": "call",
+        "callId": "call_rehpaod7",
+        "result": "OK"
+      },
+      {
+        "line": 7,
+        "type": "response",
+        "callId": "call_rehpaod7",
+        "result": "OK"
+      },
+      {
+        "line": 8,
+        "type": "call",
+        "callId": "call_0716zl9y",
+        "result": "OK"
+      },
+      {
+        "line": 9,
+        "type": "response",
+        "callId": "call_0716zl9y",
+        "result": "OK"
+      },
+      {
+        "line": 10,
+        "type": "call",
+        "callId": "call_7ts5mywa",
+        "result": "OK"
+      },
+      {
+        "line": 11,
+        "type": "response",
+        "callId": "call_7ts5mywa",
+        "result": "OK"
+      },
+      {
+        "line": 12,
+        "type": "call",
+        "callId": "call_9xs6ljjf",
+        "result": "OK"
+      },
+      {
+        "line": 13,
+        "type": "response",
+        "callId": "call_9xs6ljjf",
+        "result": "OK"
+      },
+      {
+        "line": 14,
+        "type": "call",
+        "callId": "call_uhus7bcx",
+        "result": "OK"
+      },
+      {
+        "line": 15,
+        "type": "response",
+        "callId": "call_uhus7bcx",
+        "result": "OK"
+      },
+      {
+        "line": 16,
+        "type": "call",
+        "callId": "call_92f5zpdj",
+        "result": "OK"
+      },
+      {
+        "line": 17,
+        "type": "response",
+        "callId": "call_92f5zpdj",
+        "result": "OK"
+      },
+      {
+        "line": 18,
+        "type": "call",
+        "callId": "call_5mwmmqdh",
+        "result": "OK"
+      },
+      {
+        "line": 19,
+        "type": "response",
+        "callId": "call_5mwmmqdh",
+        "result": "OK"
+      },
+      {
+        "line": 20,
+        "type": "call",
+        "callId": "call_ivyv94ki",
+        "result": "OK"
+      },
+      {
+        "line": 21,
+        "type": "response",
+        "callId": "call_ivyv94ki",
+        "result": "OK"
+      },
+      {
+        "line": 22,
+        "type": "call",
+        "callId": "call_eg9gk3qq",
+        "result": "OK"
+      },
+      {
+        "line": 23,
+        "type": "response",
+        "callId": "call_eg9gk3qq",
+        "result": "OK"
+      },
+      {
+        "line": 24,
+        "type": "call",
+        "callId": "call_tqho2278",
+        "result": "OK"
+      },
+      {
+        "line": 25,
+        "type": "response",
+        "callId": "call_tqho2278",
+        "result": "OK"
+      },
+      {
+        "line": 26,
+        "type": "call",
+        "callId": "call_45ghu3ct",
+        "result": "OK"
+      },
+      {
+        "line": 27,
+        "type": "response",
+        "callId": "call_45ghu3ct",
+        "result": "OK"
+      },
+      {
+        "line": 28,
+        "type": "call",
+        "callId": "call_p8nrps8p",
+        "result": "OK"
+      },
+      {
+        "line": 29,
+        "type": "response",
+        "callId": "call_p8nrps8p",
+        "result": "OK"
+      },
+      {
+        "line": 30,
+        "type": "call",
+        "callId": "call_ig1otm75",
+        "result": "OK"
+      },
+      {
+        "line": 31,
+        "type": "response",
+        "callId": "call_ig1otm75",
+        "result": "OK"
+      },
+      {
+        "line": 32,
+        "type": "call",
+        "callId": "call_az7u6ig2",
+        "result": "OK"
+      },
+      {
+        "line": 33,
+        "type": "response",
+        "callId": "call_az7u6ig2",
+        "result": "OK"
+      },
+      {
+        "line": 34,
+        "type": "call",
+        "callId": "call_i47k5hz7",
+        "result": "OK"
+      },
+      {
+        "line": 35,
+        "type": "response",
+        "callId": "call_i47k5hz7",
+        "result": "REFUSED"
+      },
+      {
+        "line": 36,
+        "type": "call",
+        "callId": "call_zjrr7o2y",
+        "result": "OK"
+      },
+      {
+        "line": 37,
+        "type": "response",
+        "callId": "call_zjrr7o2y",
+        "result": "OK"
+      },
+      {
+        "line": 38,
+        "type": "call",
+        "callId": "call_46fyq3ur",
+        "result": "OK"
+      },
+      {
+        "line": 39,
+        "type": "response",
+        "callId": "call_46fyq3ur",
+        "result": "REFUSED"
+      },
+      {
+        "line": 40,
+        "type": "call",
+        "callId": "call_zsd42tya",
+        "result": "OK"
+      },
+      {
+        "line": 41,
+        "type": "response",
+        "callId": "call_zsd42tya",
+        "result": "OK"
+      }
+    ],
+    "pins": [
+      "G7yTcA7G_rYXWT30"
+    ]
+  },
+  {
+    "file": "runs/on-002/evidence.jsonl",
+    "ok": false,
+    "items": [
+      {
+        "line": 1,
+        "type": "client",
+        "result": "OK"
+      },
+      {
+        "line": 2,
+        "type": "session",
+        "result": "OK"
+      },
+      {
+        "line": 3,
+        "type": "run",
+        "result": "OK"
+      },
+      {
+        "line": 4,
+        "type": "call",
+        "callId": "call_288ffhop",
+        "result": "OK"
+      },
+      {
+        "line": 5,
+        "type": "response",
+        "callId": "call_288ffhop",
+        "result": "OK"
+      },
+      {
+        "line": 6,
+        "type": "call",
+        "callId": "call_rehpaod7",
+        "result": "OK"
+      },
+      {
+        "line": 7,
+        "type": "response",
+        "callId": "call_rehpaod7",
+        "result": "OK"
+      },
+      {
+        "line": 8,
+        "type": "call",
+        "callId": "call_0716zl9y",
+        "result": "OK"
+      },
+      {
+        "line": 9,
+        "type": "response",
+        "callId": "call_0716zl9y",
+        "result": "OK"
+      },
+      {
+        "line": 10,
+        "type": "call",
+        "callId": "call_7ts5mywa",
+        "result": "OK"
+      },
+      {
+        "line": 11,
+        "type": "response",
+        "callId": "call_7ts5mywa",
+        "result": "OK"
+      },
+      {
+        "line": 12,
+        "type": "call",
+        "callId": "call_9xs6ljjf",
+        "result": "OK"
+      },
+      {
+        "line": 13,
+        "type": "response",
+        "callId": "call_9xs6ljjf",
+        "result": "OK"
+      },
+      {
+        "line": 14,
+        "type": "call",
+        "callId": "call_uhus7bcx",
+        "result": "BINDING_MISMATCH"
+      },
+      {
+        "line": 15,
+        "type": "response",
+        "callId": "call_uhus7bcx",
+        "result": "NO_CALL"
+      },
+      {
+        "line": 16,
+        "type": "call",
+        "callId": "call_92f5zpdj",
+        "result": "OK"
+      },
+      {
+        "line": 17,
+        "type": "response",
+        "callId": "call_92f5zpdj",
+        "result": "OK"
+      },
+      {
+        "line": 18,
+        "type": "call",
+        "callId": "call_5mwmmqdh",
+        "result": "OK"
+      },
+      {
+        "line": 19,
+        "type": "response",
+        "callId": "call_5mwmmqdh",
+        "result": "OK"
+      },
+      {
+        "line": 20,
+        "type": "call",
+        "callId": "call_ivyv94ki",
+        "result": "OK"
+      },
+      {
+        "line": 21,
+        "type": "response",
+        "callId": "call_ivyv94ki",
+        "result": "OK"
+      },
+      {
+        "line": 22,
+        "type": "call",
+        "callId": "call_eg9gk3qq",
+        "result": "OK"
+      },
+      {
+        "line": 23,
+        "type": "response",
+        "callId": "call_eg9gk3qq",
+        "result": "OK"
+      },
+      {
+        "line": 24,
+        "type": "call",
+        "callId": "call_tqho2278",
+        "result": "OK"
+      },
+      {
+        "line": 25,
+        "type": "response",
+        "callId": "call_tqho2278",
+        "result": "OK"
+      },
+      {
+        "line": 26,
+        "type": "call",
+        "callId": "call_45ghu3ct",
+        "result": "OK"
+      },
+      {
+        "line": 27,
+        "type": "response",
+        "callId": "call_45ghu3ct",
+        "result": "OK"
+      },
+      {
+        "line": 28,
+        "type": "call",
+        "callId": "call_p8nrps8p",
+        "result": "OK"
+      },
+      {
+        "line": 29,
+        "type": "response",
+        "callId": "call_p8nrps8p",
+        "result": "OK"
+      },
+      {
+        "line": 30,
+        "type": "call",
+        "callId": "call_ig1otm75",
+        "result": "OK"
+      },
+      {
+        "line": 31,
+        "type": "response",
+        "callId": "call_ig1otm75",
+        "result": "OK"
+      },
+      {
+        "line": 32,
+        "type": "call",
+        "callId": "call_az7u6ig2",
+        "result": "OK"
+      },
+      {
+        "line": 33,
+        "type": "response",
+        "callId": "call_az7u6ig2",
+        "result": "OK"
+      },
+      {
+        "line": 34,
+        "type": "call",
+        "callId": "call_i47k5hz7",
+        "result": "OK"
+      },
+      {
+        "line": 35,
+        "type": "response",
+        "callId": "call_i47k5hz7",
+        "result": "REFUSED"
+      },
+      {
+        "line": 36,
+        "type": "call",
+        "callId": "call_zjrr7o2y",
+        "result": "OK"
+      },
+      {
+        "line": 37,
+        "type": "response",
+        "callId": "call_zjrr7o2y",
+        "result": "OK"
+      },
+      {
+        "line": 38,
+        "type": "call",
+        "callId": "call_46fyq3ur",
+        "result": "OK"
+      },
+      {
+        "line": 39,
+        "type": "response",
+        "callId": "call_46fyq3ur",
+        "result": "REFUSED"
+      },
+      {
+        "line": 40,
+        "type": "call",
+        "callId": "call_zsd42tya",
+        "result": "OK"
+      },
+      {
+        "line": 41,
+        "type": "response",
+        "callId": "call_zsd42tya",
+        "result": "OK"
+      }
+    ],
+    "pins": [
+      "G7yTcA7G_rYXWT30"
+    ]
+  },
+  {
+    "file": "runs/on-003/evidence.jsonl",
+    "ok": true,
+    "items": [
+      {
+        "line": 1,
+        "type": "run",
+        "result": "UNBOUND"
+      }
+    ],
+    "pins": [],
+    "nothingToCheck": true
+  }
+]
