@@ -16,6 +16,7 @@ import {
   signKeyring,
   signSessionReply,
   type InfluenceEntry,
+  type SessionRequest,
   type ReplyCert,
   type SessionReply,
 } from "@paztport/core";
@@ -27,6 +28,7 @@ import {
   META_CHAIN,
   META_INFLUENCE,
   META_PROOF,
+  openSession,
   readToolResult,
   stampToolCall,
   toolCallProof,
@@ -471,5 +473,60 @@ describe("readToolResult", () => {
   it("offHashesAndRecordsNothing", () => {
     const raw = { content: [{ type: "text", text: "\ud800" }] };
     expect(readToolResult(raw, { session: "off" })).toEqual({ kind: "read", influence: { kind: "none" } });
+  });
+});
+
+describe("openSession", () => {
+  const opts = (c: ReturnType<typeof connected>, send: (r: SessionRequest) => Promise<unknown>) => ({
+    request: c.req,
+    pin: c.policy.policyPublicKey,
+    serverEntry: "mcp-entry",
+    now: Date.now,
+    send,
+    rpcCode: (e: unknown) => (e as { code?: number }).code,
+  });
+
+  it("anAttestedReplyIsOneExchange", async () => {
+    const c = connected();
+    const opened = await openSession(opts(c, async () => c.raw));
+    expect(opened.outcome.status).toBe("attested");
+    expect(opened.exchanges).toEqual([{ request: c.req, reply: c.raw }]);
+  });
+
+  it("anUnsafeReplyIsNotReplaced", async () => {
+    const c = connected({ withRoot: false });
+    const sent: SessionRequest[] = [];
+    const opened = await openSession(opts(c, async (r) => (sent.push(r), c.raw)));
+    expect(opened.outcome).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
+    expect(sent).toEqual([c.req]);
+  });
+
+  it("methodNotFoundIsNotReplaced", async () => {
+    const c = connected();
+    const opened = await openSession(opts(c, async () => Promise.reject({ code: -32601 })));
+    expect(opened.outcome).toMatchObject({ status: "unsafe", reason: "METHOD_NOT_FOUND" });
+    expect(opened.exchanges).toEqual([{ request: c.req, reply: null }]);
+  });
+
+  it("anUnusableReplyIsReplacedWithANullRootAndStaysUnsafeWhateverComesBack", async () => {
+    const c = connected();
+    const other = connected();
+    const sent: SessionRequest[] = [];
+    // the first reply answers another request; the replacement's reply is a genuine attested one for the first request
+    const opened = await openSession(opts(c, async (r) => (sent.push(r), sent.length === 1 ? other.raw : c.raw)));
+    expect(opened.outcome).toMatchObject({ status: "unsafe", replaceSession: true });
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual({ ...replacementRequest(c.req), nonce: sent[1]!.nonce });
+    expect(sent[1]!.nonce).not.toBe(c.req.nonce);
+    expect(sent[1]!.clientRoot).toBeNull();
+    expect(opened.exchanges.map((e) => e.reply)).toEqual([other.raw, c.raw]);
+  });
+
+  it("aFailedReplacementIsRecordedAsNoReply", async () => {
+    const c = connected();
+    let n = 0;
+    const opened = await openSession(opts(c, async () => (++n === 1 ? Promise.reject({ code: -32603 }) : Promise.reject(new Error("closed")))));
+    expect(opened.outcome).toEqual({ status: "unsafe", reason: "HANDSHAKE_ERROR", replaceSession: true });
+    expect(opened.exchanges.map((e) => e.reply)).toEqual([null, null]);
   });
 });

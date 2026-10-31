@@ -26,6 +26,7 @@ import {
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,
+  META_VERDICT,
   verifyCall,
   type ServerPolicy,
   type Session,
@@ -609,5 +610,104 @@ describe("call check", () => {
     expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
     expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
     expect(att.chain.map((s: any) => s.rcv)).toEqual(["tools", "pi"]);
+  });
+});
+
+describe("handleToolCall", () => {
+  const READ = { isWrite: false, publicDestination: false };
+  const PUBLIC_WRITE = { isWrite: true, publicDestination: true };
+  const ARGS = { owner: "o", repo: "r" };
+  /** Private content and third-party content together: a public write is refused. */
+  const TAINTED_PRIVATE: InfluenceEntry[] = [
+    { cls: "private", src: "x", h: "h", owner: "o" },
+    { cls: "third-party", src: "y", h: "h2" },
+  ];
+  const meta = (r: object): Record<string, any> => (r as { _meta?: Record<string, any> })._meta ?? {};
+
+  function open(tools: string[], withRoot = true) {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const client = makeClient({ tools, withRoot });
+    const reply = srv.openSession(client.request());
+    client.acceptReply(reply, reply.serverPolicyKey);
+    return { srv, client };
+  }
+
+  it("aVerifiedOkCallRunsAndIsAttested", async () => {
+    const { srv, client } = open(["list_issues"]);
+    let ran = 0;
+    const out = await srv.handleToolCall(client.callParams("list_issues", ARGS, [], { rid: "r-1", callId: "c-1" }), READ, "enforce", () => {
+      ran++;
+      return { result: RESULT, cls: "public" };
+    });
+    expect(ran).toBe(1);
+    expect(out).toMatchObject({ verdict: "OK", ran: true, verified: { reason: "OK", rid: "r-1", callId: "c-1" } });
+    expect(meta(out.result)[META_ATTESTATION].labels[0].cls).toBe("public");
+    expect(meta(out.result)[META_VERDICT]).toBeUndefined();
+    expect(srv.session()!.served).toEqual(new Set(["public"]));
+  });
+
+  it("anUnsafeSessionRunsAReadUnattestedAndRefusesAListedWrite", async () => {
+    const { srv, client } = open(["list_issues", "create_pull_request"], false);
+    expect(srv.session()!.status).toBe("unsafe");
+    const read = await srv.handleToolCall(client.callParams("list_issues", ARGS, []), READ, "enforce", () => ({ result: RESULT, cls: "public" }));
+    expect(read).toMatchObject({ verdict: "OK", ran: true, verified: null });
+    expect(meta(read.result)[META_ATTESTATION]).toBeUndefined();
+    let ran = false;
+    const write = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, []), PUBLIC_WRITE, "enforce", () => {
+      ran = true;
+      return { result: RESULT, cls: "public" };
+    });
+    expect(ran).toBe(false);
+    expect(write).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false });
+    expect(write.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: { reason: "UNSAFE_SESSION" } } });
+  });
+
+  it("enforceRefusesWithOnlyTheReasonAndDoesNotAttest", async () => {
+    const { srv, client } = open(["list_issues", "create_pull_request"]);
+    const influence = TAINTED_PRIVATE;
+    let ran = false;
+    const out = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, influence), PUBLIC_WRITE, "enforce", () => {
+      ran = true;
+      return { result: RESULT, cls: "public" };
+    });
+    expect(ran).toBe(false);
+    expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: false, verified: { reason: "OK" } });
+    expect(out.result).toEqual({
+      content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }],
+      isError: true,
+      _meta: { [META_VERDICT]: { reason: "INFLUENCE_DENIED" } },
+    });
+    expect(srv.session()!.served.size).toBe(0);
+  });
+
+  it("auditRunsTheCallAndNotesTheReasonWithAudit", async () => {
+    const { srv, client } = open(["list_issues", "create_pull_request"]);
+    const influence = TAINTED_PRIVATE;
+    const seen: string[] = [];
+    const out = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, influence), PUBLIC_WRITE, "audit", ({ verdict }) => {
+      seen.push(verdict);
+      return { result: RESULT, cls: "public" };
+    });
+    expect(seen).toEqual(["INFLUENCE_DENIED"]);
+    expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true });
+    expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
+    expect(meta(out.result)[META_ATTESTATION]).toBeDefined();
+  });
+
+  it("aFailedChainIsRefusedInEnforceAndNeverAttested", async () => {
+    const { srv, client } = open(["list_issues"]);
+    const params = client.callParams("list_issues", ARGS, []);
+    const out = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, READ, "enforce", () => ({ result: RESULT, cls: "public" }));
+    expect(out).toMatchObject({ verdict: "BINDING_MISMATCH", ran: false, verified: null });
+    const audit = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, READ, "audit", () => ({ result: RESULT, cls: "public" }));
+    expect(audit.ran).toBe(true);
+    expect(meta(audit.result)[META_ATTESTATION]).toBeUndefined();
+    expect(meta(audit.result)[META_VERDICT].audit).toBe(true);
+  });
+
+  it("noHandshakeIsAnUnsafeSession", async () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const out = await srv.handleToolCall({ name: "create_pull_request", arguments: ARGS }, PUBLIC_WRITE, "enforce", () => ({ result: RESULT, cls: "public" }));
+    expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false });
   });
 });

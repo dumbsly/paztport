@@ -6,6 +6,7 @@ import {
   bindResult,
   buildSessionReply,
   checkOwnMaterial,
+  decideServerCall,
   decode,
   describeNotAfter,
   describeOwnMaterialProblem,
@@ -32,7 +33,7 @@ import {
   type SignedRoot,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
-import { META_ATTESTATION } from "./meta.ts";
+import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 import { verifyCall } from "./verify-call.ts";
 
 /**
@@ -81,6 +82,46 @@ export type SessionRules = { disabledWhenUnsafe: string[] };
 
 /** A call check's verdict; `caller` is the verified call's last signer, "" when the call did not verify. */
 export type ServerCallCheck = { reason: ReasonCode; rid: string; callId: string; influence: InfluenceEntry[]; caller: string; session: Session };
+
+/** What the server knows about a tools/call that its tool table, not the protocol, supplies. */
+export type ToolCallFacts = {
+  /** Whether the tool writes. */
+  isWrite: boolean;
+  /** Whether the write's destination is public. */
+  publicDestination: boolean;
+  /** The destination's owner, when the influence rule is owner-aware. */
+  destinationOwner?: string;
+};
+
+/** The two modes the protocol defines: a refusal is enforced, or only noted on a result that runs anyway. */
+export type ToolCallMode = "enforce" | "audit";
+
+/** The result of a call the server refused: it carries the reason and nothing else (no attribution). */
+export type RefusedToolResult = {
+  content: [{ type: "text"; text: string }];
+  isError: true;
+  _meta: Record<string, unknown>;
+};
+
+/** What `run` returns: the tool's result and the class of the content it holds, which labels the attested response. */
+export type ToolRun<R> = { result: R; cls: InfluenceClass };
+
+/** What handleToolCall decided and did. `ran` is false for a refusal; `verified` is the call check when the chain verified, else null. */
+export type ToolCallOutcome<R> = {
+  result: R | RefusedToolResult;
+  verdict: ReasonCode;
+  ran: boolean;
+  verified: ServerCallCheck | null;
+};
+
+/** The result for a refused call. */
+export function refusedToolResult(reason: string): RefusedToolResult {
+  return {
+    content: [{ type: "text", text: `Paztport refused this call: ${reason}` }],
+    isError: true,
+    _meta: { [META_VERDICT]: { reason } },
+  };
+}
 
 /** Thrown for a malformed request; an MCP server answers it with -32602 Invalid params. The message names the bad field. */
 export class InvalidParams extends Error {}
@@ -223,6 +264,55 @@ export class McpServerSession {
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
     const ok = reason === "OK";
     return { reason, rid: v.rid, callId: v.callId, influence: ok ? v.influence : [], caller: ok ? v.result.suspectSvc : "", session };
+  }
+
+  /**
+   * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
+   * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
+   * verdict other than OK gives an `isError` result carrying `{reason}` and `run` is not called; in audit `run` is
+   * called anyway and its result carries `{reason, audit: true}`. `run` gets the verdict and returns the result with
+   * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
+   * is returned unattested. The `off` switch is not a protocol mode; a deployment that has one does not call this.
+   */
+  async handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
+    params: Record<string, unknown>,
+    facts: ToolCallFacts,
+    mode: ToolCallMode,
+    run: (ctx: { verdict: ReasonCode }) => ToolRun<R> | Promise<ToolRun<R>>,
+  ): Promise<ToolCallOutcome<R>> {
+    const name = typeof params.name === "string" ? params.name : "";
+    const sess = this.current;
+    const attested = sess?.status === "attested";
+    let verdict: ReasonCode = "OK";
+    let call: ServerCallCheck | null = null;
+    if (attested) {
+      call = this.checkCall(params);
+      verdict = call.reason;
+    }
+    if (verdict === "OK") {
+      verdict = decideServerCall({
+        tool: name,
+        isWrite: facts.isWrite,
+        publicDestination: facts.publicDestination,
+        attested,
+        served: sess?.served ?? [],
+        clientInfluence: call?.influence ?? [],
+        disabledWhenUnsafe: this.rules.disabledWhenUnsafe,
+        ...(facts.destinationOwner !== undefined ? { destinationOwner: facts.destinationOwner } : {}),
+      });
+    }
+    const verified = call !== null && call.reason === "OK" ? call : null;
+    if (verdict !== "OK" && mode === "enforce") {
+      return { result: refusedToolResult(verdict), verdict, ran: false, verified };
+    }
+    const { result, cls } = await run({ verdict });
+    const noted: R = verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: { reason: verdict, audit: true } } } : result;
+    if (verified === null) {
+      return { result: noted, verdict, ran: true, verified };
+    }
+    const args = params.arguments ?? {};
+    const attestedResult = this.attest(verified.session, noted, { rid: verified.rid, callId: verified.callId, name, args, caller: verified.caller }, cls);
+    return { result: attestedResult, verdict, ran: true, verified };
   }
 
   /**

@@ -6,6 +6,7 @@ import {
   checkSessionReply,
   commitInfluence,
   decode,
+  replacementRequest,
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
@@ -60,6 +61,49 @@ export function classifySessionReply(raw: unknown, req: SessionRequest, pin: str
  */
 export function classifySessionError(rpcCode: number | undefined): SessionOutcome {
   return rpcCode === METHOD_NOT_FOUND ? { status: "unsafe", reason: "METHOD_NOT_FOUND", replaceSession: false } : unusable("HANDSHAKE_ERROR");
+}
+
+/** A request sent in the handshake and the raw reply to it, null when there was none. */
+export type SessionExchange = { request: SessionRequest; reply: unknown };
+
+/** What `openSession` did: the outcome, and each request sent with its raw reply, in order, so the caller can keep evidence. */
+export type OpenedSession = { outcome: SessionOutcome; exchanges: SessionExchange[] };
+
+/**
+ * Opens a session: sends `request` through `send`, which rejects on a JSON-RPC error, a timeout or a transport error
+ * (`rpcCode` gives the JSON-RPC code of what it rejected with, if any), and classifies the reply. When the outcome
+ * warrants a replacement, sends `replacementRequest` (a null root, so the server cannot attest it) best effort; the
+ * session is unsafe whatever comes back, and the outcome is the first one's.
+ */
+export async function openSession(opts: {
+  request: SessionRequest;
+  pin: string;
+  serverEntry: string;
+  now: () => number;
+  send: (request: SessionRequest) => Promise<unknown>;
+  rpcCode: (error: unknown) => number | undefined;
+}): Promise<OpenedSession> {
+  const { request, send } = opts;
+  let raw: unknown = null;
+  let outcome: SessionOutcome | undefined;
+  try {
+    raw = (await send(request)) ?? null;
+  } catch (e) {
+    outcome = classifySessionError(opts.rpcCode(e));
+  }
+  outcome ??= classifySessionReply(raw, request, opts.pin, opts.serverEntry, opts.now());
+  const exchanges: SessionExchange[] = [{ request, reply: raw }];
+  if (outcome.status === "unsafe" && outcome.replaceSession) {
+    const replacement = replacementRequest(request);
+    let second: unknown = null;
+    try {
+      second = (await send(replacement)) ?? null;
+    } catch {
+      // stays unsafe
+    }
+    exchanges.push({ request: replacement, reply: second });
+  }
+  return { outcome, exchanges };
 }
 
 /**
