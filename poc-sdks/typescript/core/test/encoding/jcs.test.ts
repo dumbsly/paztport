@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { canonicalize } from "../../src/encoding/jcs.ts";
 
@@ -46,5 +47,13 @@ describe("jcs", () => {
   it("rejectsLoneSurrogateValueAndKey", () => {
     expect(() => canonicalize("\ud800")).toThrow();
     expect(() => canonicalize({ "\ud800": 1 })).toThrow();
+  });
+
+  it("canonicalizeCallsNoJsonLibrary", () => {
+    for (const file of ["jcs.ts", "json.ts", "json-file.ts"]) {
+      const source = readFileSync(new URL(`../../src/encoding/${file}`, import.meta.url), "utf8");
+      expect(source, file).not.toContain("JSON.parse");
+      expect(source, file).not.toContain("JSON.stringify");
+    }
   });
 });

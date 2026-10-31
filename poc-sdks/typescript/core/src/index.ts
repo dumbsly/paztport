@@ -3,7 +3,9 @@
 
 export * from "./encoding/b64url.ts";
 export * from "./crypto/crypto.ts";
-export * from "./encoding/jcs.ts";
+export { canonicalize, writeToken, writeWire } from "./encoding/jcs.ts";
+export * from "./encoding/json.ts";
+export * from "./encoding/json-file.ts";
 export * from "./policy/merkle.ts";
 export * from "./policy/root.ts";
 export * from "./policy/policy.ts";
