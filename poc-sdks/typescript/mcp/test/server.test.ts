@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildPolicy,
   canonicalize,
+  decideServerCall,
   decode,
   earliestNotAfter,
   expiryWarnings,
@@ -22,7 +23,6 @@ import {
 } from "@paztport/core";
 import {
   checkServerPolicy,
-  decideServerCall,
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,
@@ -317,7 +317,7 @@ describe("session handshake", () => {
       expect(reply.status, what).toBe("unsafe");
       expect(reply.disabled, what).toEqual(RULES.disabledWhenUnsafe);
       const decide = (tool: string, isWrite: boolean) =>
-        decideServerCall({ tool, isWrite, publicDestination: true, session: srv.session(), clientInfluence: [], rules: RULES });
+        decideServerCall({ tool, isWrite, publicDestination: true, attested: srv.session()?.status === "attested", served: srv.session()?.served ?? [], clientInfluence: [], disabledWhenUnsafe: RULES.disabledWhenUnsafe });
       expect(decide("list_issues", false), what).toBe("OK");
       expect(decide("create_pull_request", true), what).toBe("UNSAFE_SESSION");
       // and a client judging the reply at that time refuses it, so it takes its replacement path
@@ -589,76 +589,5 @@ describe("call check", () => {
     expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
     expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
     expect(att.chain.map((s: any) => s.rcv)).toEqual(["tools", "pi"]);
-  });
-});
-
-describe("decideServerCall", () => {
-  const entry = (cls: InfluenceClass): InfluenceEntry => ({ cls, src: "x", h: "h" });
-  function sessions() {
-    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
-    srv.openSession(makeClient().request());
-    const attested = srv.session()!;
-    srv.openSession(makeClient({ withRoot: false }).request());
-    const unsafe = srv.session()!;
-    expect([attested.status, unsafe.status]).toEqual(["attested", "unsafe"]);
-    return { srv, attested, unsafe };
-  }
-  const write = (session: Session | undefined, clientInfluence: InfluenceEntry[], over: Partial<Parameters<typeof decideServerCall>[0]> = {}) =>
-    decideServerCall({ tool: "create_branch", isWrite: true, publicDestination: true, session, clientInfluence, rules: RULES, ...over });
-
-  it("clientInfluenceAloneDecides", () => {
-    const { attested } = sessions();
-    expect(write(attested, [entry("private"), entry("third-party")])).toBe("INFLUENCE_DENIED");
-    expect(write(attested, [entry("private"), entry("local-untrusted")])).toBe("INFLUENCE_DENIED");
-    expect(write(attested, [entry("third-party"), entry("public")])).toBe("OK");
-    expect(write(attested, [])).toBe("OK");
-  });
-  it("servedClassesCountWhenTheClientOmitsThem", () => {
-    const { srv, attested } = sessions();
-    srv.attest(attested, RESULT, CALL, "private");
-    expect(write(attested, [entry("third-party")])).toBe("INFLUENCE_DENIED");
-    expect(write(attested, [])).toBe("OK");
-    srv.attest(attested, RESULT, { ...CALL, rid: "rid-2", callId: "call-2" }, "third-party");
-    expect(write(attested, [])).toBe("INFLUENCE_DENIED");
-  });
-  it("the owner of private data must be the destination owner", () => {
-    const { attested } = sessions();
-    const mine: InfluenceEntry[] = [entry("third-party"), { ...entry("private"), owner: "alice" }];
-    expect(write(attested, mine, { destinationOwner: "alice" })).toBe("OK");
-    expect(write(attested, mine, { destinationOwner: "bob" })).toBe("INFLUENCE_DENIED");
-  });
-  it("a served private class has no owner, so it is refused", () => {
-    const { srv, attested } = sessions();
-    srv.attest(attested, RESULT, CALL, "private");
-    expect(write(attested, [entry("third-party")], { destinationOwner: "alice" })).toBe("INFLUENCE_DENIED");
-  });
-  it("onlyPublicWritesAreDecided", () => {
-    const { attested } = sessions();
-    attested.served.add("private");
-    attested.served.add("third-party");
-    expect(write(attested, [], { publicDestination: false })).toBe("OK");
-    expect(write(attested, [], { tool: "list_issues", isWrite: false })).toBe("OK");
-  });
-  it("attestedSessionIgnoresTheUnsafeGate", () => {
-    const { attested } = sessions();
-    expect(RULES.disabledWhenUnsafe).toContain("create_branch");
-    expect(write(attested, [])).toBe("OK");
-  });
-  it("unsafeGateRefusesListedTools", () => {
-    const { unsafe } = sessions();
-    expect(write(unsafe, [])).toBe("UNSAFE_SESSION");
-    expect(write(unsafe, [], { publicDestination: false })).toBe("UNSAFE_SESSION");
-    // no handshake yet is gated the same way
-    expect(write(undefined, [])).toBe("UNSAFE_SESSION");
-    expect(write(unsafe, [], { tool: "list_issues", isWrite: false })).toBe("OK");
-  });
-  it("writeLeftOutOfTheUnsafeListIsUngated", () => {
-    const { unsafe } = sessions();
-    const rules: SessionRules = { disabledWhenUnsafe: ["create_pull_request"] };
-    unsafe.served.add("private");
-    unsafe.served.add("third-party");
-    expect(write(unsafe, [entry("private"), entry("third-party")], { rules })).toBe("OK");
-    expect(write(undefined, [entry("private"), entry("third-party")], { rules })).toBe("OK");
-    expect(write(unsafe, [], { rules, tool: "create_pull_request" })).toBe("UNSAFE_SESSION");
   });
 });

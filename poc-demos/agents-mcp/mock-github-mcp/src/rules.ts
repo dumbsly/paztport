@@ -1,8 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { InfluenceClass } from "@paztport/core";
-import { publicWriteDecision } from "@paztport/mcp";
+import { publicWriteDecision, type InfluenceClass } from "@paztport/core";
 import type { GithubTool } from "./github.ts";
 
 /**

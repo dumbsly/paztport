@@ -1,9 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import type { ReasonCode } from "@paztport/core";
+import { decideServerCall, type ReasonCode } from "@paztport/core";
 import {
-  decideServerCall,
   McpServerSession,
   META_VERDICT,
   SESSION_METHOD,
@@ -88,9 +87,10 @@ export function createGithubServer(opts: GithubServerOptions): { handle(message:
           tool: tool.name,
           isWrite: tool.kind === "write",
           publicDestination: isPublic(state, args),
-          session: sess,
+          attested: sess?.status === "attested",
+          served: sess?.served ?? [],
           clientInfluence: call?.influence ?? [],
-          rules,
+          disabledWhenUnsafe: rules.disabledWhenUnsafe,
         });
       }
     }

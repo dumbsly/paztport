@@ -18,13 +18,11 @@ import {
   ORIGIN_SVC,
   parseSessionRequest,
   provesPath,
-  publicWriteRefused,
   signStampV3,
   verifyReplyCert,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
-  type InfluenceFact,
   type LegacySessionRequest,
   type MerkleProof,
   type ReasonCode,
@@ -249,47 +247,4 @@ export class McpServerSession {
     session.served.add(cls);
     return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: attestation } };
   }
-}
-
-/**
- * What the influence rule sees in an attested session: the client's verified influence plus every
- * class this server served in the session. A served class carries no owner. The union only adds
- * facts, so the server is stricter, never looser, than the harness: a client that fails to record a
- * private (or third-party) label cannot launder it past the rule.
- */
-function contextInfluence(influence: InfluenceEntry[], session: Session): InfluenceFact[] {
-  return [...influence, ...[...session.served].map((cls) => ({ cls }))];
-}
-
-/** The influence rule applied to a tool call: only a write to a public destination is decided by it. */
-export function publicWriteDecision(
-  isWrite: boolean,
-  publicDestination: boolean,
-  influence: readonly InfluenceFact[],
-  destinationOwner?: string,
-): "OK" | "INFLUENCE_DENIED" {
-  if (!isWrite || !publicDestination) return "OK";
-  return publicWriteRefused(influence, destinationOwner) ? "INFLUENCE_DENIED" : "OK";
-}
-
-/**
- * The server's decision on a tools/call, once any chain it carries has verified (`clientInfluence` is
- * then checkCall's influence). In an attested session the influence rule decides, over the union of
- * the client's influence and the classes served in the session. Otherwise (an unsafe session, or no
- * handshake yet) the tools in `rules.disabledWhenUnsafe` are refused and every other tool runs ungated.
- */
-export function decideServerCall(opts: {
-  tool: string;
-  isWrite: boolean;
-  publicDestination: boolean;
-  session: Session | undefined;
-  clientInfluence: InfluenceEntry[];
-  rules: SessionRules;
-  destinationOwner?: string;
-}): "OK" | "UNSAFE_SESSION" | "INFLUENCE_DENIED" {
-  const { session } = opts;
-  if (session?.status === "attested") {
-    return publicWriteDecision(opts.isWrite, opts.publicDestination, contextInfluence(opts.clientInfluence, session), opts.destinationOwner);
-  }
-  return opts.rules.disabledWhenUnsafe.includes(opts.tool) ? "UNSAFE_SESSION" : "OK";
 }

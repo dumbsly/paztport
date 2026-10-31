@@ -7,14 +7,13 @@ import {
   commitInfluence,
   decode,
   routeOf,
+  sanitiseVerdictReason,
   serverPolicyNotAfter,
   signStampV3,
   type ContentLabel,
   type InfluenceEntry,
   type MerkleProof,
   type NonceCache,
-  type OfflineReasonCode,
-  type ReasonCode,
   type SessionReply,
   type SessionRequest,
   type StampV3,
@@ -26,31 +25,6 @@ import { mcpReceiver } from "./verify-call.ts";
 
 /** The JSON-RPC error code for an unknown method: a server without Paztport answers paztport/session with it. */
 const METHOD_NOT_FOUND = -32601;
-
-/**
- * Every refusal code a live verifier can give (a server's verdicts are ReasonCodes; the offline-only
- * codes are not among them). A Record, so tsc flags a code added to the library and missing here.
- */
-const REFUSAL_CODES: Record<Exclude<ReasonCode, "OK" | OfflineReasonCode>, true> = {
-  CHAIN_MISSING: true,
-  BAD_ORIGIN: true,
-  BAD_SIGNATURE: true,
-  BROKEN_LINK: true,
-  EXPIRED: true,
-  RID_MISMATCH: true,
-  BINDING_MISMATCH: true,
-  REPLAY: true,
-  PATH_NOT_ALLOWED: true,
-  SESSION_UNKNOWN: true,
-  CLIENT_PATH_NOT_ALLOWED: true,
-  INFLUENCE_MISMATCH: true,
-  INFLUENCE_DENIED: true,
-  UNSAFE_SESSION: true,
-  SCOPE_DENIED: true,
-  UNCHECKABLE: true,
-  PEER_MISMATCH: true,
-  POLICY_EXPIRED: true,
-};
 
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -150,7 +124,7 @@ function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boole
     return undefined;
   }
   const v = meta[META_VERDICT];
-  const reason = isObject(v) && typeof v.reason === "string" && Object.hasOwn(REFUSAL_CODES, v.reason) ? v.reason : "UNKNOWN";
+  const reason = sanitiseVerdictReason(isObject(v) ? v.reason : undefined);
   return { reason, audit: isObject(v) && v.audit === true };
 }
 
