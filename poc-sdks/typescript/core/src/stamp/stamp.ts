@@ -7,7 +7,7 @@ import { sign, utf8 } from "../crypto/crypto.ts";
 const LONE_SURROGATE = /\p{Surrogate}/u;
 
 /** Checks one stamp object's typed fields; returns it as a record. */
-function checkStamp(item: unknown, strings: readonly string[]): Record<string, unknown> {
+function checkStamp(item: unknown): Record<string, unknown> {
   if (typeof item !== "object" || item === null || Array.isArray(item)) {
     throw new Error("stamp must be an object");
   }
@@ -15,7 +15,7 @@ function checkStamp(item: unknown, strings: readonly string[]): Record<string, u
   if (o.v !== 3 || typeof o.ts !== "number" || !Number.isSafeInteger(o.ts)) {
     throw new Error("malformed stamp");
   }
-  for (const f of [...strings, "sig"]) {
+  for (const f of [...V3_STRING_FIELDS, "sig"]) {
     if (typeof o[f] !== "string") {
       throw new Error(`malformed stamp field ${f}`);
     }
@@ -100,5 +100,5 @@ function toV3(o: Record<string, unknown>): StampV3 {
 
 /** Throws unless value is a non-empty array of well-formed v3 stamps. */
 export function parseStampsV3(value: unknown): StampV3[] {
-  return nonEmptyArray(value).map((item) => toV3(checkStamp(item, V3_STRING_FIELDS)));
+  return nonEmptyArray(value).map((item) => toV3(checkStamp(item)));
 }

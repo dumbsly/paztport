@@ -71,6 +71,17 @@ class SessionRequestTest {
         }
     }
 
+    @Test
+    void anEmptyKeyringSignatureIsRefusedWhenBuilt() {
+        Map<String, String> ring = Map.of("payment", "payment-key");
+        assertThrows(IllegalArgumentException.class,
+                () -> new SessionRequest(null, "pin", ring, "", NOT_AFTER, "nonce"));
+        assertThrows(NullPointerException.class,
+                () -> new SessionRequest(null, "pin", ring, null, NOT_AFTER, "nonce"));
+        assertThrows(NullPointerException.class, () -> SessionRequest.of(null, "pin",
+                new KeyringFile(ring, "pin", null, NOT_AFTER), "nonce"), "an unsigned keyring");
+    }
+
     /**
      * Client material without {@code notAfter} is malformed: a request whose keyring window or client root window is
      * missing is refused at parse, as one whose window is not an integer is, and so opens no session at all.

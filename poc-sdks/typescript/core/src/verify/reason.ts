@@ -26,7 +26,7 @@ export type ReasonCode =
   | "RULES_MISMATCH"
   | "VERDICT_MISMATCH"
   | "PEER_MISMATCH"
-  /** A keyring or root the verifier relies on is past its notAfter, or has none, so its policy owner no longer vouches for it; it says nothing about the request, so it is never attributable. */
+  /** A keyring or root the verifier relies on is past its notAfter, so its policy owner no longer vouches for it; it says nothing about the request, so it is never attributable. */
   | "POLICY_EXPIRED";
 
 /** Codes only the offline verifier of a recorded chain gives; no live verifier or server returns them. */

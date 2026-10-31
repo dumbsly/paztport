@@ -28,12 +28,15 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
 
     public SessionRequest {
         Objects.requireNonNull(clientKeyringSig, "clientKeyringSig");
+        if (clientKeyringSig.isEmpty()) {
+            throw new IllegalArgumentException("clientKeyringSig must not be empty");
+        }
         clientKeyring = Map.copyOf(clientKeyring);
     }
 
     /**
      * A request presenting {@code keyring} whole: its services, signature and validity window, so none of them can
-     * be left behind.
+     * be left behind. Throws {@link NullPointerException} for an unsigned keyring.
      */
     public static SessionRequest of(SignedRoot clientRoot, String clientPolicyKey, KeyringFile keyring, String nonce) {
         return new SessionRequest(clientRoot, clientPolicyKey, keyring.services(), keyring.sig(), keyring.notAfter(),
