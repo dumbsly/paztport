@@ -52,11 +52,11 @@ function earliest(windows: (number | undefined)[], none: number): number {
 
 /**
  * Reads a recorded handshake; a request or reply that does not read is a handshake that opened no attested session.
- * Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each
- * root and keyring, both sides; it is attested at all when attested at the earliest of them. The windows are read
- * before the signatures over them are checked, but none counts unless the session is attested at it, which checks each signature. A
- * response is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and the
- * certificate do not limit it. Never throws.
+ * Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each root and keyring, both
+ * sides; it is attested at all when attested at the earliest of them. The windows are read before the signatures
+ * over them are checked, but none counts unless the session is attested at it, which checks each signature. A
+ * response is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and
+ * the certificate do not limit it. Never throws.
  */
 export function recordedSession(h: RecordedHandshake): RecordedSession {
   const { pin, serverEntry } = h;

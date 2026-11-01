@@ -9,21 +9,21 @@
  * application keeps whichever one its framework brings:
  * <ul>
  * <li>A value type writes its wire form with {@code String toJson()} and reads it with
- * {@code static T parse(String json)} on the type itself, for example {@code KeyringFile.parse} and
- * {@code SessionRequest.parse}. A reader throws {@link IllegalArgumentException} for anything malformed, text
- * that is not exactly one JSON value included.
+ * {@code static T parse(String json)} on the type itself, for example {@code KeyringFile.parse},
+ * {@code SessionRequest.parse} and {@code SessionReply.parse}. A reader throws {@link IllegalArgumentException}
+ * for anything malformed, text that is not exactly one JSON value included.
  * <li>Where a reader takes a whole HTTP body, it also takes the body's bytes as they arrived: {@code parse(byte[])},
- * read in the encoding the first bytes show (UTF-8, UTF-16 or UTF-32, a byte order mark skipped), as those bodies
- * always have been. The SDK reads two such bodies: the session request, with {@code SessionRequest.parse(byte[])},
- * and the session reply, with {@code Sessions.checkReply(byte[], ...)}.
+ * which reads them as the message's wire bytes, exactly its JCS bytes in UTF-8, so UTF-16, a byte order mark or a
+ * newline after them is refused. The SDK reads two such bodies: the session request, with
+ * {@code SessionRequest.parse(byte[])}, and the session reply, with {@code SessionReply.parse(byte[])}, which
+ * {@code Sessions.checkReply(byte[], ...)} reads it with before checking it.
  * <li>A list carried on the wire is read and written by the class that owns it, named for what it reads:
  * {@code Influence.parse} and {@code Influence.toJson}, {@code ContentLabel.parseAll} and
  * {@code ContentLabel.toJson(List)}, {@code Chains.parse} and {@code Chains.toJson}. {@code Chains.parse} returns
  * its failure as a reason rather than throwing, since reading a chain is the verifier's first check.
- * <li>A message judged as received has no reader. The session reply is one: its signature covers the form it
- * arrived in, so {@code Sessions.checkReply} takes its text or bytes, and the server only ever writes one. A
- * responder event is another: {@code EventVerifier.accept} takes the body's text, and a sender writes it with
- * {@code ResponderEvent.toJson} and {@code EventEnvelope.toJson}.
+ * <li>A message judged as received has no reader of its own. A responder event is one:
+ * {@code EventVerifier.accept} takes the body's text, and a sender writes it with {@code ResponderEvent.toJson} and
+ * {@code EventEnvelope.toJson}.
  * <li>The verifiers take the stamps, influence and proof as the JSON text received, and read each from its bytes
  * at the check that needs it, so text that is not the JCS text of what it holds is a rejection there like any
  * other malformed input.

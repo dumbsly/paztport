@@ -27,18 +27,20 @@ has one, the authenticated peer.
 
 - **Stamps and chains.** `StampV3` signs and refuses a field holding `|` or a lone
   surrogate, or a `ts` outside ±(2^53 − 1). `Chains` reads a chain off the wire
-  strictly, as checks 1 and 2 of the live order, and never throws; `ts` is read by
-  value, so `1.0` is 1. A stamp whose `v` is not 3 is `CHAIN_MISSING`.
+  strictly, from its bytes, as checks 1 and 2 of the live order, and never throws; a
+  `ts` is a protocol integer, so `1.0` is refused. A stamp whose `v` is not 3 is
+  `CHAIN_MISSING`.
 - **Verifying.** `VerifierV3` runs the live order: first its own policy's window
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
   either fails or has expired. `OfflineVerifier` re-checks a recorded chain.
-- **Record sets.** `RecordedSession` reads a recorded handshake from its request and
-  reply, each its wire bytes as text, the pin and the configured entry: attested at a time, at all (at the
-  earliest of its limits) and the response limit. `RecordSet` holds a record
-  set's spent nonce keys and a response cache that never forgets, and
-  `RecordSet.callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`).
+- **Record sets.** `RecordedSession` reads a recorded handshake from its request
+  and reply, each its wire bytes as text, the pin and the configured entry: attested
+  at a time, at all (at the earliest of its limits) and the response limit.
+  `RecordSet` holds a record set's spent nonce keys and a response cache that never
+  forgets, and `RecordSet.callInSession` limits a recorded call to its session
+  (`OUTSIDE_SESSION`).
 - **Stamping.** `StamperV3` stamps a hop's outbound call, starting a chain only at
   an origin, and stamps a response as one more stamp on the request chain, back to
   the caller.
@@ -60,10 +62,10 @@ has one, the authenticated peer.
   `ContentLabel.parseAll`, `Chains.parse`). A session request and reply are read
   from their wire bytes, by `SessionRequest.parse` and `SessionReply.parse`, with
   exactly their members; `Sessions.checkReply` takes a reply's text or bytes and
-  reads it first, and `RecordedSession.of` takes both as text. The verifiers take the stamps, influence and proof
-  as the JSON text received and read it themselves, so text that is not JSON is a
-  typed rejection at the check that reads it. `Jcs` canonicalises JSON text. The
-  `org.paztport.core.encoding` package states the rule.
+  reads it first, and `RecordedSession.of` takes both as text. The verifiers take
+  the stamps, influence and proof as the JSON text received and read it themselves,
+  so text that is not JSON is a typed rejection at the check that reads it. `Jcs`
+  canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks before the policy owner signs), `Routes`,

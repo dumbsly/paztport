@@ -97,7 +97,10 @@ function fixed(value: string, length: number, what: string): Uint8Array {
   return bytes;
 }
 
-/** Binds both roots, both nonces and the client's policy key and keyring; throws on bad lengths. */
+/**
+ * Binds both roots, both nonces and the client's policy key and keyring; throws on bad lengths, and on a policy key or
+ * keyring the protocol writer refuses (a string holding a lone surrogate or a noncharacter).
+ */
 export function deriveSessionId(
   clientRootSig: string | null,
   serverRootSig: string | null,
