@@ -42,10 +42,29 @@ implementation accepts and refuses the same bytes. An object's **wire bytes** ar
 **file** is one of the files under [Keys and files](#keys-and-files) or a client's local `rules.json`. Content
 Paztport only hashes, such as a tool's arguments, is not one of its objects ([Hashed content](#hashed-content)).
 
+Every Paztport object is read and written by these rules, and none passes through a transport's JSON parser: a
+transport carries an object's wire bytes, or their token, and the object is read from those.
+
 `json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
 one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Two more
 sections pin neighbours of JSON: `base64url` the [binary values](#encodings) a token is decoded from, and `bindings`
 the [bindings](#bindings) that refuse a lone surrogate. Its `about` says how to replay each section.
+
+### Carrying an object
+
+An object travels as its wire bytes, or as its **token**, the base64url of its wire bytes:
+
+- **HTTP headers.** A chain, a proof, influence entries and a response's attestation each travel as a token, one
+  header each ([HTTP (v3)](#http-v3)).
+- **HTTP bodies.** A session request and its reply ([sessions-and-influence.md](sessions-and-influence.md#over-http)),
+  a refusal `{"reason"}` and an event's envelope ([Events](#events)) travel as their wire bytes, the whole body.
+- **MCP** ([the MCP profile](README.md#the-mcp-profile)). Each value under `_meta` but `paztport/callId` is a
+  token ([MCP (v3)](#mcp-v3)), and so are the `request` of `paztport/session`'s params and the `reply` of its
+  result ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)). The JSON-RPC message around them is
+  MCP's own, read by its JSON parser.
+
+A record keeps each object as its token, as it was sent or received
+([Recorded handshakes](sessions-and-influence.md#recorded-handshakes)).
 
 ### Reading
 
@@ -72,10 +91,13 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
 | A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
-| A response attestation | A client, from an HTTP header or MCP `_meta` ([verification.md](verification.md#http-requests-and-responses)) | `CHAIN_MISSING` |
+| A response attestation | A client, from an HTTP header or MCP `_meta` ([HTTP](verification.md#http-requests-and-responses), [MCP](verification.md#the-mcp-server-and-client)) | `CHAIN_MISSING` |
+| A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)); a verifier of a recorded response | `UNKNOWN`, a refusal; offline, no refusal: the result is judged as a response |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
 | A session request | A server, over MCP or HTTP ([sessions-and-influence.md](sessions-and-influence.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
+| `paztport/session` params (MCP profile) | A server ([the handshake](sessions-and-influence.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
 | A session reply | A client, live ([its check](sessions-and-influence.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions-and-influence.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
+| A `paztport/session` result (MCP profile) | A client ([the handshake](sessions-and-influence.md#the-handshake)) | `MALFORMED_REPLY` |
 | A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None: the refusal gives no reason |
 | A boundary opening | A checker ([Opening an entry](sessions-and-influence.md#blinded-influence)) | Does not open; the PSP demo's check answers `400 {"reason":"MALFORMED_OPENING"}` for bytes that do not read or are not one JSON object |
 | A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | Malformed, and each reader names the file: a service does not start, a policy tool writes nothing and exits as for any malformed input, and a client does not load its rules |
@@ -339,16 +361,19 @@ refusals in `bindings`: each binding, given a lone surrogate in one string it ha
 
 This section belongs to [the MCP profile](README.md#the-mcp-profile).
 
-A tool call carries Paztport in the `tools/call` request's `params._meta`:
+A tool call carries Paztport in the `tools/call` request's `params._meta`. Every value but `paztport/callId`'s is a
+token, the base64url of the object's JCS bytes, read as [wire bytes](#reading), as an HTTP header is:
 
 | `_meta` key | Value |
 |---|---|
-| `paztport/chain` | The chain, as a JSON array of stamps: the run's origin, then the calling hop's stamp. |
-| `paztport/proof` | The proof for the call's route, a [proof object](#proof-object). |
-| `paztport/influence` | The influence entries the call was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). The last stamp's `infl` commits to them. |
+| `paztport/chain` | The chain's token: a JSON array of stamps, the run's origin, then the calling hop's stamp. |
+| `paztport/proof` | The token of the proof for the call's route, a [proof object](#proof-object). |
+| `paztport/influence` | The token of the influence entries the call was made under, a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). The last stamp's `infl` commits to them. |
 | `paztport/callId` | The call id, a string, which the `tools/call` binding covers. |
 
-A result carries the server's attestation in `result._meta["paztport/attestation"]`:
+A member that is not a string is read as a token that does not read, and gets its reader's refusal
+([Reading](#reading)). A result carries the token of the server's attestation in
+`result._meta["paztport/attestation"]`:
 
 ```json
 { "chain": [ /* the response chain, v3 */ ], "proof": { /* proof for the server's route */ },
@@ -359,10 +384,12 @@ A result carries the server's attestation in `result._meta["paztport/attestation
 members `chain`, `proof`, `labels` and `resultHash`: its `chain` is read as a [chain](#chains), its `proof` as a
 [proof object](#proof-object), and each label has exactly `cls` and `cid` and, when it names an owner, `owner`, a
 non-empty string. An attestation or a label with another member, or an attestation whose bytes are not its
-canonical bytes, does not read (`CHAIN_MISSING`). A refusal carries `result._meta["paztport/verdict"]` instead:
-`{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }` when an audit-mode server ran the call anyway.
-A verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The handshake is the
-JSON-RPC method `paztport/session`
+canonical bytes, does not read (`CHAIN_MISSING`). A refusal carries the token of its verdict in
+`result._meta["paztport/verdict"]` instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }`
+when an audit-mode server ran the call anyway. A verdict is a wire object with exactly a string `reason` and,
+optionally, an `audit` that is `true`; one with another member, or an `audit` of any other value, does not read. A
+verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The handshake is the
+JSON-RPC method `paztport/session`, whose params and result each carry one token
 ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
 
 ### HTTP (v3)

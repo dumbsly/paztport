@@ -21,6 +21,15 @@ sends its signed root, its policy key, its keyring and a fresh nonce, and the se
 one session per connection: a new handshake replaces the current one, with its keyring, nonce cache and served
 classes, so calls signed for the old session are refused.
 
+The params are `{"request": "<token>"}`, the [request](#the-request)'s token, and the result is
+`{"reply": "<token>"}`, the [reply](#the-reply)'s token, each the base64url of the object's JCS bytes
+([wire.md](wire.md#carrying-an-object)). MCP lets every request and result carry `_meta`, such as a progress token:
+the server ignores the params' `_meta`, and the client the result's. A server MUST answer params with any other
+member, or whose `request` is missing, not a string or does not read, with JSON-RPC error `-32602` (Invalid params),
+and open no session. A client MUST take a result with any other member, or whose `reply` is missing or not a string,
+as `MALFORMED_REPLY`, as it takes a reply that does not read ([its check](#the-clients-check-of-the-reply)).
+`v3.json` pins both readings, in `sessionParams` and `sessionResult` (MCP profile).
+
 ### The request
 
 | Field | Type | Meaning |
@@ -37,8 +46,8 @@ its own `notAfter` member, as for any [signed root or keyring](wire.md#keys-and-
 therefore fails its signature.
 
 A request is read from its bytes as [wire bytes](wire.md#reading), and has exactly the members above; a client root
-has exactly a [signed root's](wire.md#the-signed-root) members. Over MCP it is read from the JCS bytes of the
-`params` value. A server MUST answer a request that does not read, or that is not an object, has a member the table
+has exactly a [signed root's](wire.md#the-signed-root) members. Over MCP it is read from the token in the params'
+`request`. A server MUST answer a request that does not read, or that is not an object, has a member the table
 does not list, or whose `clientRoot` is neither `null` nor an object of exactly string `rootId`, `root` and `sig`
 and an integer `notAfter`, whose `clientKeyring` is not an object of strings or names a service that is not a [route
 node](wire.md#routes), whose `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is missing,
@@ -75,7 +84,7 @@ is missing, `null`, empty or a number, one with no `clientKeyringNotAfter`, one 
 A reply is read from its bytes as [wire bytes](wire.md#reading), and has exactly the members above, the three of
 the entry-key form each only when present; a non-null `serverRoot` has exactly a
 [signed root's](wire.md#the-signed-root) members, and a `serverReplyCert` exactly a
-[reply certificate's](wire.md#the-reply-certificate). Over MCP it is read from the JCS bytes of the `result` value.
+[reply certificate's](wire.md#the-reply-certificate). Over MCP it is read from the token in the result's `reply`.
 
 A reply is in one of two forms, told apart only by which fields are present:
 
@@ -317,14 +326,14 @@ the server decides it:
 The served classes only add facts: a client that fails to record a `private` or `third-party` label can't
 launder it past the rule. A served class carries no owner, so it counts as unknown.
 
-A refusal is a result with `isError: true` and `_meta["paztport/verdict"] = { "reason": <code> }`, and the tool
-does not run. An audit-mode server runs the call anyway and adds `"audit": true`. A server attests a result only
-for a call that verified.
+A refusal is a result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": <code> }`, and
+the tool does not run. An audit-mode server runs the call anyway, and its verdict adds `"audit": true`. A server
+attests a result only for a call that verified.
 
 ## Recorded handshakes
 
-A record keeps the request and the reply as their tokens, the base64url of the bytes received, and a verifier reads
-each as [wire bytes](wire.md#reading), as [above](#the-handshake).
+A record keeps the request's token as sent and the reply's as received, and a verifier reads each as
+[wire bytes](wire.md#reading), as [above](#the-handshake).
 
 Offline, a recorded handshake opened an attested session only when the reply's `status` is `"attested"`, the
 reply passes the client's check against the recorded pin and the server's entry service from the verifier's own
