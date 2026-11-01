@@ -72,6 +72,7 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
 | A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
+| A response attestation | A client, from an HTTP header or MCP `_meta` ([verification.md](verification.md#http-requests-and-responses)) | `CHAIN_MISSING` |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
 
 ### The grammar
@@ -312,7 +313,7 @@ Rules:
   verifier that cannot compute a binding answers as the rule above says. A binding over hashed content binds the
   value read, not its text ([Hashed content](#hashed-content)).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
-  `{ cls, cid }` or `{ cls, cid, owner }` (other fields are dropped before hashing).
+  `{ cls, cid }` or `{ cls, cid, owner }`, the members a label has ([Carrying a chain](#carrying-a-chain)).
 - In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it
   took (the `tools/call` binding), and the last binds the response.
 - The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
@@ -349,10 +350,14 @@ A result carries the server's attestation in `result._meta["paztport/attestation
   "labels": [{ "cls": "private", "cid": "<b64url>", "owner": "..." }], "resultHash": "<b64url>" }
 ```
 
-`resultHash` is the result binding of the result it rides on. A refusal carries `result._meta["paztport/verdict"]`
-instead: `{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }` when an audit-mode server ran the
-call anyway. A verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The
-handshake is the JSON-RPC method `paztport/session`
+`resultHash` is the result binding of the result it rides on. The attestation is a wire object with exactly the
+members `chain`, `proof`, `labels` and `resultHash`: its `chain` is read as a [chain](#chains), its `proof` as a
+[proof object](#proof-object), and each label has exactly `cls` and `cid` and, when it names an owner, `owner`, a
+non-empty string. An attestation or a label with another member, or an attestation whose bytes are not its
+canonical bytes, does not read (`CHAIN_MISSING`). A refusal carries `result._meta["paztport/verdict"]` instead:
+`{ "reason": "<code>" }`, or `{ "reason": "<code>", "audit": true }` when an audit-mode server ran the call anyway.
+A verdict is not signed ([verification.md](verification.md#the-mcp-server-and-client)). The handshake is the
+JSON-RPC method `paztport/session`
 ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)).
 
 ### HTTP (v3)
@@ -374,7 +379,7 @@ A response carries the answering service's attestation in one header, also the b
 
 | Header | Value |
 |---|---|
-| `X-Path-Response` | The JSON object `{ "stamp": <v3 stamp>, "labels": [ ... ] }`, the labels written as in an MCP attestation. |
+| `X-Path-Response` | The JSON object `{ "labels": [ ... ], "stamp": <v3 stamp> }`, with exactly those two members, the labels written as in an MCP attestation, each with exactly its members. A header that does not read as that is `CHAIN_MISSING`. |
 
 The response stamp is one more stamp on the request chain the answering service received, so it needs no proof
 of its own: the caller already holds the proof for the request's route. Because it is shaped like a request stamp,

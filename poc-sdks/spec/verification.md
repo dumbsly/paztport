@@ -178,8 +178,9 @@ client's own configuration names it (`["mcp-entry"]` in the agents demo), never 
 `receiver` = the client's own `svc`,
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
 
-1. The call's `rid` and `callId` are strings, `callId` holds no `\n`, and the attestation is an object with an
-   array `chain`, a string `resultHash` and an array of well-formed `labels` (`CHAIN_MISSING`).
+1. The call's `rid` and `callId` are strings, `callId` holds no `\n`, and the attestation reads from the JCS bytes
+   of the `_meta` value ([wire.md](wire.md#mcp-v3)): an object with exactly a `chain` of stamps, a `proof`, a string
+   `resultHash` and an array of well-formed `labels` (`CHAIN_MISSING`).
 2. The first stamp's `rid` is the call's (`RID_MISMATCH`).
 3. `resultHash` equals the result binding of the result received (`BINDING_MISMATCH`).
 4. The live order, 0 to 12, with `expectedBind` = the response binding of `resultHash`, the call id and the
@@ -317,8 +318,8 @@ spends the request's nonce key.
 response stamp, `receiver` = its own name, `receiverInRoute = false`, `proof` = the proof it sent,
 `influence = []`, `nonceKey = <rid>|<target>|resp` and no peer. In order:
 
-1. The header is present and decodes to an object with a `stamp` and an array of well-formed `labels`
-   (`CHAIN_MISSING`).
+1. The header is present and reads from its token ([wire.md](wire.md#http-v3)) as an object with exactly a `stamp`
+   and an array of well-formed `labels` (`CHAIN_MISSING`).
 2. The response binding of `resultHash`, the request's `rid` and the labels can be computed
    (`BINDING_MISMATCH`).
 3. The live order, 0 to 11, with `expectedBind` = that binding. The sent chain's last `rcv` is the target, so
@@ -429,7 +430,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | Code | Given by | Meaning |
 |---|---|---|
 | `OK` | live, offline | Every check held. |
-| `CHAIN_MISSING` | live, offline | No chain, or one that does not parse, or a malformed transport field around it. |
+| `CHAIN_MISSING` | live, offline | No chain, or one that does not parse, or a malformed transport field around it, a response attestation that does not read included. |
 | `BAD_ORIGIN` | live, offline | The origin is not an allowed origin (or, offline, not the expected instance). |
 | `BAD_SIGNATURE` | live, offline | A field holds `\|`, a key is unknown, or a signature fails. |
 | `BROKEN_LINK` | live, offline | A `prev` does not match. |
