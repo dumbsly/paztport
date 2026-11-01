@@ -159,8 +159,8 @@ describe("policy-tool CLIs", () => {
     expect(typeof ring.policy).toBe("string");
     expect(Object.keys(ring.services).length).toBeGreaterThan(0);
     expect(readFileSync(p, "utf8")).toContain("services");
-    // Only the generated keyring is signed; an old local demo keyring is not, and must not fail a local run.
-    if (named !== undefined) expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
+    // The Java keygen and policy tool always sign the keyring, so it verifies under the policy key it names.
+    expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
   });
 
   /** Keys for gateway and orders plus a paths.yaml, for the reply certificate cases. */
