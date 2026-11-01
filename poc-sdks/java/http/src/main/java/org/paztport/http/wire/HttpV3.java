@@ -57,7 +57,7 @@ public final class HttpV3 {
     // --- Header encodings ---
 
     public static String encodeChain(List<StampV3> chain) {
-        return JsonWriter.token(Chains.tree(chain));
+        return token(Chains.toJson(chain));
     }
 
     /** The chain's JSON text: blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
@@ -76,7 +76,7 @@ public final class HttpV3 {
 
     /** {@code null} for an empty list, so no header is sent. */
     public static String encodeInfluence(List<InfluenceEntry> entries) {
-        return entries == null || entries.isEmpty() ? null : JsonWriter.token(Influence.tree(entries));
+        return entries == null || entries.isEmpty() ? null : token(Influence.toJson(entries));
     }
 
     /** The influence's JSON text: absent gives {@code []}; unreadable gives {@code "malformed"}. */
@@ -128,8 +128,15 @@ public final class HttpV3 {
 
     /** The response header: the base64url of the JCS bytes of {@code {labels, stamp}}. */
     public static String encodeResponse(StampV3 stamp, List<ContentLabel> labels) {
-        return JsonWriter.token(new JsonValue.Obj(Map.of("stamp", stamp.tree(), "labels", ContentLabel.tree(labels))));
+        return JsonWriter.token(new JsonValue.Obj(Map.of("stamp", JsonReader.wireText(stamp.toJson()),
+                "labels", JsonReader.wireText(ContentLabel.toJson(labels)))));
     }
+
+    /** The base64url of the value's JCS bytes, the form of every header that carries an object. */
+    private static String token(String jcsText) {
+        return Base64Url.encode(jcsText.getBytes(StandardCharsets.UTF_8));
+    }
+
 
     /** What a caller learns from a response. {@code labels} is empty unless the result is {@code OK}. */
     public record ResponseCheck(VerifyResult result, List<ContentLabel> labels, String resultHash) {

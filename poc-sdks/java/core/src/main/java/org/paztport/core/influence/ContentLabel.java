@@ -74,8 +74,8 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         return JsonWriter.text(tree(labels));
     }
 
-    /** The labels as a JSON value, for the writers of this SDK; not API. */
-    public static JsonValue.Arr tree(List<ContentLabel> labels) {
+    /** The labels as a JSON value. */
+    static JsonValue.Arr tree(List<ContentLabel> labels) {
         return new JsonValue.Arr(labels.stream().map(l -> (JsonValue) l.tree()).toList());
     }
 

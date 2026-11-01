@@ -18,6 +18,7 @@ import java.util.Set;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.offline.OfflineConfig;
@@ -64,7 +65,8 @@ class OfflineVerifierTest {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         List<Map<String, JsonValue>> stamps = new ArrayList<>();
-        Chains.parse(in.stamps()).stamps().forEach(s -> stamps.add(new LinkedHashMap<>(s.tree().members())));
+        Chains.parse(in.stamps()).stamps().forEach(s -> stamps.add(new LinkedHashMap<>(
+                ((JsonValue.Obj) JsonReader.wireText(s.toJson())).members())));
         for (int i : positions) {
             stamps.get(i).put("v", new JsonValue.Int(version));
         }

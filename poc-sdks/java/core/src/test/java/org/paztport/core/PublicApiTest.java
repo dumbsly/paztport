@@ -12,9 +12,10 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.encoding.Jcs;
 
 /**
- * The SDK's public API names no JSON library: a user brings whichever Jackson their framework uses (Spring Boot 4's
- * web layer is on Jackson 3) and never meets the one the SDK reads with. {@link PublicApi} walks every class a user
- * can name in core's exported packages; the http module runs the same walk over its own.
+ * The SDK's public API names no JSON library and none of its own {@code internal} types: a user brings whichever
+ * Jackson their framework uses (Spring Boot 4's web layer is on Jackson 3), and the SDK has no JSON library to
+ * meet it with. {@link PublicApi} walks every class a user can name in core's exported packages; the http module
+ * runs the same walk over its own.
  */
 class PublicApiTest {
 

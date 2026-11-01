@@ -63,8 +63,8 @@ public final class Chains {
         return JsonWriter.text(tree(chain));
     }
 
-    /** The chain as a JSON value, for the writers of this SDK; not API. */
-    public static JsonValue.Arr tree(List<StampV3> chain) {
+    /** The chain as a JSON value. */
+    static JsonValue.Arr tree(List<StampV3> chain) {
         return new JsonValue.Arr(chain.stream().map(s -> (JsonValue) s.tree()).toList());
     }
 

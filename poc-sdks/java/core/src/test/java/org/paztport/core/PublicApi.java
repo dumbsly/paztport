@@ -31,7 +31,7 @@ import java.util.stream.Stream;
 
 /**
  * The walk behind each module's {@code PublicApiTest}: what a user of a module can name, and whether any of it
- * names a JSON library. Shared with the http module's tests through core's test jar, so both modules are held to
+ * names a JSON library or one of the SDK's own {@code internal} types. Shared with the http module's tests through core's test jar, so both modules are held to
  * one walk.
  *
  * <p>For every class a user can name in a module's exported packages (every package but {@code internal}), it
@@ -43,8 +43,9 @@ import java.util.stream.Stream;
  */
 public final class PublicApi {
 
-    /** The packages a public signature must not name. */
-    public static final List<String> FORBIDDEN = List.of("com.fasterxml.", "tools.jackson.");
+    /** The packages a public signature must not name: JSON libraries, and the SDK's own {@code internal} packages. */
+    public static final List<String> FORBIDDEN = List.of("com.fasterxml.", "tools.jackson.",
+            "org.paztport.core.internal.", "org.paztport.http.internal.");
 
     private PublicApi() {
     }
