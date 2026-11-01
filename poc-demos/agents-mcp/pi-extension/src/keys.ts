@@ -108,7 +108,7 @@ export function readPin(path: string): string {
  */
 export function loadClientMaterial(dir: string, policyDir: string = dir, now: number = Date.now(), warn: (message: string) => void = console.error): ClientMaterial {
   const ring = readAs(dir, "keyring.json", readKeyringFile);
-  const keyring = Object.fromEntries(Object.entries(ring.services));
+  const keyring = ring.services;
   const policyPublicKey = ring.policy;
   const keyringSig = ring.sig;
   const keyringNotAfter = ring.notAfter;

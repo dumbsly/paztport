@@ -93,7 +93,7 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
   const cfg: ServerPolicy = {
     policyPublicKey: ring.policy,
     signingKeys: { "mcp-entry": readText(join(dir, "mcp-entry.key")), "github-tools": readText(join(dir, "github-tools.key")) },
-    keyring: Object.fromEntries(Object.entries(ring.services)),
+    keyring: ring.services,
     keyringSig: ring.sig,
     keyringNotAfter: ring.notAfter,
     replyCert,
