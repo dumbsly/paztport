@@ -28,7 +28,9 @@ export type OfflineInput = Omit<VerifyInput, "peer"> & {
   prompt?: string;
 };
 
-export type OfflineConfig = Pick<VerifierConfig, "keyring" | "root" | "rootId" | "allowedOrigins" | "sess" | "nonceKey"> & {
+export type OfflineConfig = Pick<
+  VerifierConfig, "keyring" | "root" | "rootId" | "allowedOrigins" | "sess" | "nonceKey"
+> & {
   /** Every nonce key spent so far anywhere in the record set. A chain that reaches the replay check adds its own. */
   seen: Set<string>;
   /** For a chain that never leaves one process, such as a client's local steps: who signs it and from which instance. */

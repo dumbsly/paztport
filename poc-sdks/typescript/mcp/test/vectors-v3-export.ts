@@ -640,9 +640,9 @@ export function buildVectors(): Record<string, unknown> {
     const bytes = read === undefined ? null : keyringSigningBytes(read.policy, read.services, read.notAfter);
     if (verifies) check(`keyring ${name} re-signed`, signKeyring(signed.services, signed.policy, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
     const current = ats === undefined ? {} : { current: currentAt(read ?? {}, ats) };
-    const signingBytes = bytes === null ? null : encode(bytes);
+    const signedBytes = bytes === null ? null : encode(bytes);
     const sig = signed.sig;
-    return { name, policyKey: "client-policy", services, signingBytes, sig, signed, file, verifies, ...current };
+    return { name, policyKey: "client-policy", services, signingBytes: signedBytes, sig, signed, file, verifies, ...current };
   };
   const tamperedServices = { session: "session", pi: "gateway" } as const;
   // A keyring genuinely signed over a service name that is not a route node. signKeyring refuses it, so the signature is made over
@@ -675,8 +675,8 @@ export function buildVectors(): Record<string, unknown> {
     const bytes = read === undefined ? null : rootSigningBytes(read.rootId, read.root, read.notAfter);
     if (verifies) check(`root ${name} re-signed`, signRoot(decode(signed.root), signed.rootId, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
     const current = ats === undefined ? {} : { current: currentAt(read ?? {}, ats) };
-    const signingBytes = bytes === null ? null : encode(bytes);
-    return { name, policyKey: "client-policy", policy: "client", signingBytes, signed, file, verifies, ...current };
+    const signedBytes = bytes === null ? null : encode(bytes);
+    return { name, policyKey: "client-policy", policy: "client", signingBytes: signedBytes, signed, file, verifies, ...current };
   };
   const renewed = signRenewedRoot(newRoot(POLICY_NOT_AFTER), POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
   check("root renewed keeps the tree", [renewed.rootId, renewed.root], [rootPolicy.rootId, rootPolicy.root]);
@@ -706,8 +706,8 @@ export function buildVectors(): Record<string, unknown> {
     const verified = read !== undefined && verifyReplyCert(read, keys["server-policy"].pub);
     check(`reply certificate ${name}`, verified, verifies);
     const bytes = read && encode(replyCertSigningBytes(read.policy, read.svc, read.key, read.notAfter));
-    const signingBytes = bytes ?? null;
-    return { name, signer, pin: "server-policy", cert, file, signingBytes, verifies };
+    const signedBytes = bytes ?? null;
+    return { name, signer, pin: "server-policy", cert, file, signingBytes: signedBytes, verifies };
   };
   const signedCert = issueCert("server-policy", CERT_NOT_AFTER, "server-policy");
   const otherPolicyCert = issueCert("client-policy", CERT_NOT_AFTER, "client-policy");
