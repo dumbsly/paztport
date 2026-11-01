@@ -22,10 +22,6 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
             <!-- Builds the X.509 certificates; the JDK has no public API for it. Keygen only: the SDK needs none. -->
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>

@@ -25,10 +25,6 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-        <dependency>
             <!-- The facade only: the event publishers and the trace lines log through it, and the
                  application chooses what backs it. -->
             <groupId>org.slf4j</groupId>
@@ -38,6 +34,12 @@
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- Test code only: walks the vector files. The SDK reads and writes JSON itself. -->
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
             <scope>test</scope>
         </dependency>
         <dependency>

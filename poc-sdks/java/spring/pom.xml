@@ -45,6 +45,12 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- Test code only: reads the JSON the tests send and receive. The SDK reads and writes JSON itself. -->
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- The silent peer the HTTP module's tests also use. -->
         <dependency>
             <groupId>org.paztport</groupId>

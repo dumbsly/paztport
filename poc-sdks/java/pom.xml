@@ -42,10 +42,10 @@
 
     <dependencyManagement>
         <dependencies>
-            <!-- Manages the SDK's Jackson 2 (com.fasterxml.jackson, which it reads and canonicalises
-                 JSON with inside; no public signature names it), the Jackson 3 that Spring MVC uses, and
-                 JUnit. None is pinned beside it: a BOM imported after this one loses to it, and a single
-                 pinned Jackson module would split Jackson 2 across two lines. -->
+            <!-- Manages Jackson 2 (com.fasterxml.jackson, for test code that walks JSON files), the Jackson 3
+                 that Spring MVC uses, SnakeYAML, and JUnit. None is pinned beside it: a BOM imported after this
+                 one loses to it, and a single pinned Jackson module would split Jackson 2 across two lines.
+                 The SDK reads and writes JSON itself. -->
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>

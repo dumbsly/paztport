@@ -1,5 +1,5 @@
 
-Lists of 63 third-party dependencies.
+Lists of 62 third-party dependencies.
      (Apache-2.0) Apache Commons Codec (commons-codec:commons-codec:1.21.0 - https://commons.apache.org/proper/commons-codec/)
      (Apache-2.0) Apache Commons Compress (org.apache.commons:commons-compress:1.27.1 - https://commons.apache.org/proper/commons-compress/)
      (Apache-2.0) Apache Commons IO (commons-io:commons-io:2.13.0 - https://commons.apache.org/proper/commons-io/)
@@ -25,7 +25,6 @@ Lists of 63 third-party dependencies.
      (Apache-2.0) Jackson-core (tools.jackson.core:jackson-core:3.1.5 - https://github.com/FasterXML/jackson-core)
      (Apache-2.0) jackson-databind (com.fasterxml.jackson.core:jackson-databind:2.21.5 - https://github.com/FasterXML/jackson)
      (Apache-2.0) jackson-databind (tools.jackson.core:jackson-databind:3.1.5 - https://github.com/FasterXML/jackson)
-     (Apache-2.0) Jackson-dataformat-YAML (com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.21.5 - https://github.com/FasterXML/jackson-dataformats-text)
      (EPL 2.0) (GPL2 w/ CPE) Jakarta Annotations API (jakarta.annotation:jakarta.annotation-api:3.0.0 - https://projects.eclipse.org/projects/ee4j.ca)
      (Apache-2.0) (LGPL-2.1-or-later) Java Native Access (net.java.dev.jna:jna:5.13.0 - https://github.com/java-native-access/jna)
      (The Apache License, Version 2.0) JSpecify annotations (org.jspecify:jspecify:1.0.1 - https://jspecify.dev/)

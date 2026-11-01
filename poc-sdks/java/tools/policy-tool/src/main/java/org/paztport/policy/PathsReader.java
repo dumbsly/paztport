@@ -3,32 +3,58 @@
 
 package org.paztport.policy;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.dataformat.yaml.YAMLMapper;
+import java.io.ByteArrayInputStream;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import org.yaml.snakeyaml.LoaderOptions;
+import org.yaml.snakeyaml.Yaml;
+import org.yaml.snakeyaml.constructor.SafeConstructor;
 
-/** Reads {@code paths.yaml} into a list of routes, in file order. Fails closed. */
+/**
+ * Reads {@code paths.yaml} into a list of routes, in file order. Fails closed: the document is one mapping whose
+ * only key is {@code paths}, a non-empty list of routes, each a list of strings. A duplicate key, a type tag, or
+ * anything else is malformed.
+ */
 public final class PathsReader {
-
-    private static final YAMLMapper MAPPER = (YAMLMapper) new YAMLMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, true);
 
     private PathsReader() {
     }
 
-    private record PathsFile(List<List<String>> paths) {
-    }
-
     public static List<List<String>> parse(byte[] yaml) {
-        PathsFile file;
+        Object document;
         try {
-            file = MAPPER.readValue(yaml, PathsFile.class);
+            LoaderOptions options = new LoaderOptions();
+            options.setAllowDuplicateKeys(false);
+            document = new Yaml(new SafeConstructor(options)).load(new ByteArrayInputStream(yaml));
         } catch (Exception e) {
             throw new IllegalArgumentException("malformed paths.yaml", e);
         }
-        if (file == null || file.paths() == null || file.paths().isEmpty()) {
+        if (!(document instanceof Map<?, ?> top)) {
+            throw new IllegalArgumentException("malformed paths.yaml");
+        }
+        for (Object key : top.keySet()) {
+            if (!"paths".equals(key)) {
+                throw new IllegalArgumentException("malformed paths.yaml");
+            }
+        }
+        if (!(top.get("paths") instanceof List<?> routes) || routes.isEmpty()) {
             throw new IllegalArgumentException("paths.yaml has no 'paths' entries");
         }
-        return file.paths();
+        List<List<String>> result = new ArrayList<>();
+        for (Object route : routes) {
+            if (!(route instanceof List<?> steps)) {
+                throw new IllegalArgumentException("malformed paths.yaml");
+            }
+            List<String> path = new ArrayList<>();
+            for (Object step : steps) {
+                if (!(step instanceof String s)) {
+                    throw new IllegalArgumentException("malformed paths.yaml");
+                }
+                path.add(s);
+            }
+            result.add(List.copyOf(path));
+        }
+        return List.copyOf(result);
     }
 }
