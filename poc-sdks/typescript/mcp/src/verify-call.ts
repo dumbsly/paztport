@@ -10,7 +10,9 @@ import {
   verifyChainV3,
   writeToken,
 } from "@paztport/core";
-import type { InfluenceEntry, JsonValue, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult } from "@paztport/core";
+import type {
+  InfluenceEntry, JsonValue, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult,
+} from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
 

@@ -25,7 +25,10 @@ type Fields = Partial<Omit<StampV3, "sig" | "v">>;
 /** An input's fields to change, the influence and proof as values. */
 type Over = Partial<Omit<OfflineInput, "influence" | "proof">> & { influence?: unknown; proof?: unknown };
 
-/** A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches the reader. */
+/**
+ * A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches
+ * the reader.
+ */
 const token = (value: unknown): string => encode(utf8(canonicalize(value)));
 
 function world() {

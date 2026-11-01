@@ -15,7 +15,10 @@ export const NONCE_TTL_MS = 15_000;
 /** The authenticated transport peer, supplied by the transport extension (e.g. from mTLS): its service name and its address. */
 export type Peer = { svc: string; inst: string };
 
-/** What a verifier is handed for one chain: `chain`, `influence` and `proof` are the tokens received, each read only by the verifier. */
+/**
+ * What a verifier is handed for one chain: `chain`, `influence` and `proof` are the tokens received, each read only by
+ * the verifier.
+ */
 export type V3Input = {
   /** The chain's token. */
   chain: string;
@@ -60,7 +63,10 @@ function policyCurrent(cfg: V3Config): boolean {
 /** Check 0's refusal: about the verifier's own config, not the request, so it names no suspect, not even a peer; expiry is not the sender's fault. */
 const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
 
-/** A V3Input with what the reader gave for each token: its value, or undefined for one that does not read and for no proof. */
+/**
+ * A V3Input with what the reader gave for each token: its value, or undefined for one that does not read and for no
+ * proof.
+ */
 export type V3Read = Omit<V3Input, "chain" | "influence" | "proof"> & {
   chain: JsonValue | undefined;
   influence: JsonValue | undefined;
@@ -135,7 +141,12 @@ function check(input: V3Read, cfg: V3Config): VerifyResult {
 export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return verifyChainRead(
-    { ...input, chain: readOrUndefined(input.chain), influence: readOrUndefined(input.influence), proof: readOrUndefined(input.proof) },
+    {
+      ...input,
+      chain: readOrUndefined(input.chain),
+      influence: readOrUndefined(input.influence),
+      proof: readOrUndefined(input.proof),
+    },
     cfg,
   );
 }

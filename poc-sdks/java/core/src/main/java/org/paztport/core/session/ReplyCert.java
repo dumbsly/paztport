@@ -31,7 +31,7 @@ import org.paztport.core.internal.JsonWriter;
  *
  * <p>The signature covers {@code utf8("paztport-reply-cert\n") || JCS({key, notAfter, policy, svc})}; any other
  * field on the wire is ignored and unsigned. {@code notAfter} is an integer in [0, 2^53 &minus; 1], the range both
- * SDKs print the same way, judged by value as a stamp's {@code ts} is.
+ * SDKs print the same way, judged by value.
  *
  * <p>What the signer must have verified: the policy owner issues a certificate only after checking that
  * {@code key} is {@code svc}'s key in its current keyring, signed by the same policy key.
@@ -118,9 +118,9 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     /**
      * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with string
      * {@code policy}, {@code svc}, {@code key} and {@code sig} and an in-range integer {@code notAfter}.
-     * {@code notAfter} is checked by value, by the rule a stamp's {@code ts} follows, so {@code 1.0} and {@code 1e3}
-     * are the integers 1 and 1000 and a reply gets the verdict the TypeScript SDK gives it; a string or a fraction
-     * is refused. The signature covers the plain digits of that value. Other fields are ignored.
+     * {@code notAfter} is checked by value, so {@code 1.0} and {@code 1e3} are the integers 1 and 1000 and a reply
+     * gets the verdict the TypeScript SDK gives it; a string or a fraction is refused. The signature covers the plain
+     * digits of that value. Other fields are ignored.
      */
     public static ReplyCert parse(String json) {
         if (json == null) {

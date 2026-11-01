@@ -68,7 +68,10 @@ export function influenceOf(value: JsonValue): InfluenceEntry[] {
   });
 }
 
-/** Reads an influence list from its token: MalformedJson for bytes that do not read, an Error naming the member for an entry the schema refuses. */
+/**
+ * Reads an influence list from its token: MalformedJson for bytes that do not read, an Error naming the member for
+ * an entry the schema refuses.
+ */
 export function readInfluence(token: string): InfluenceEntry[] {
   return influenceOf(readToken(token));
 }

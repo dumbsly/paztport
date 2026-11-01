@@ -3,7 +3,9 @@
 
 import { isWellFormed } from "../crypto/crypto.ts";
 import { bindPrompt } from "../stamp/binding.ts";
-import { checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers } from "../internal/chain-checks.ts";
+import {
+  checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers,
+} from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
 import type { V3Config, V3Input } from "../verify/verify-v3.ts";
 
@@ -69,7 +71,8 @@ export type OfflineResult = VerifyResult;
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
-  const stamps = checkStamps(readOrUndefined(input.chain), cfg, { receiver: input.receiver, rid: input.rid, signers: cfg.signers });
+  const shape = { receiver: input.receiver, rid: input.rid, signers: cfg.signers };
+  const stamps = checkStamps(readOrUndefined(input.chain), cfg, shape);
   if (typeof stamps === "string") {
     return reject(stamps);
   }

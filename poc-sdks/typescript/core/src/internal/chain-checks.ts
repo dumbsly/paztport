@@ -125,8 +125,15 @@ export function checkStamps(
   return stamps;
 }
 
-/** Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence read (INFLUENCE_MISMATCH). */
-export function checkCommitments(last: StampV3, expectedBind: string, influence: JsonValue | undefined): ReasonCode | undefined {
+/**
+ * Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence read
+ * (INFLUENCE_MISMATCH).
+ */
+export function checkCommitments(
+  last: StampV3,
+  expectedBind: string,
+  influence: JsonValue | undefined,
+): ReasonCode | undefined {
   // 8. Binding.
   if (last.bind !== expectedBind) {
     return "BINDING_MISMATCH";
@@ -152,7 +159,12 @@ export function checkCommitments(last: StampV3, expectedBind: string, influence:
  * Check 11 and the result: the chain's services, then the receiver when given, proven against the root by the proof
  * read (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
  */
-export function checkRoute(stamps: StampV3[], receiver: string | undefined, proof: JsonValue | undefined, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
+export function checkRoute(
+  stamps: StampV3[],
+  receiver: string | undefined,
+  proof: JsonValue | undefined,
+  cfg: { root: Uint8Array; rootId: string },
+): VerifyResult {
   const last = stamps[stamps.length - 1]!;
   // 11. Route proven against the root.
   const svcs = stamps.map((s) => s.svc);

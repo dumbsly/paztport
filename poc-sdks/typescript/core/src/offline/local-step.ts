@@ -126,7 +126,9 @@ export function verifyRecordedLocalStep(
   const resolved = step.resolved;
   // the chain committed to the influence, so its token reads
   const classes = influenceClasses(readInfluence(step.influence));
-  const expected = decideLocalCall({ routeAllowed: step.routeAllowed, rules: client.rules, classes, resolve: () => resolved });
+  const expected = decideLocalCall({
+    routeAllowed: step.routeAllowed, rules: client.rules, classes, resolve: () => resolved,
+  });
   if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== step.verdict) {
     return fail("VERDICT_MISMATCH");
   }

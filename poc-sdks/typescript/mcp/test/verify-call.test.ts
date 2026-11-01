@@ -214,7 +214,8 @@ describe("verifyCall", () => {
     const meta = p._meta as Record<string, unknown>;
     const [s0, s1] = meta[META_CHAIN] as Record<string, unknown>[];
     const proof = meta[META_PROOF] as Record<string, unknown>;
-    const withMeta = (m: Record<string, unknown>) => verifyCall({ ...p, _meta: { ...meta, ...m } }, SERVER, w.cfg()).result.reason;
+    const withMeta = (m: Record<string, unknown>) =>
+      verifyCall({ ...p, _meta: { ...meta, ...m } }, SERVER, w.cfg()).result.reason;
     expect(withMeta({ [META_CHAIN]: [s0, { ...s1, ts: -1 }] })).toBe("CHAIN_MISSING");
     expect(withMeta({ [META_CHAIN]: [s0, { ...s1, inst: "pi-\uFDD0" }] })).toBe("CHAIN_MISSING");
     expect(withMeta({ [META_CHAIN]: [s0, { ...s1, extra: true }] })).toBe("CHAIN_MISSING");

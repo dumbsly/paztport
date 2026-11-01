@@ -42,7 +42,10 @@ function world() {
   const origin = (over: Partial<Omit<StampV3, "v" | "sig">> = {}) =>
     signStampV3({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, session.privateKey);
   /** A step the gate signed for `d`, its proof the tree's for the tool's route when `routeAllowed`. */
-  const step = (d: Partial<Decision> = {}, o: { key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<StampV3, "v" | "sig">> } = {}): RecordedLocalStep => {
+  type StepOver = {
+    key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<StampV3, "v" | "sig">>;
+  };
+  const step = (d: Partial<Decision> = {}, o: StepOver = {}): RecordedLocalStep => {
     const decision: Decision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(RULES), ...d };
     const first = origin(o.originOver);
     const ts = o.ts ?? STEP_TS;
@@ -53,8 +56,12 @@ function world() {
       },
       o.key ?? pi.privateKey,
     );
-    const proof = Object.hasOwn(o, "proof") ? o.proof! : decision.routeAllowed ? tree.proofFor(`session/pi/local:${decision.tool}`) : null;
-    return { ...decision, rid: "rid-1", now: ts, chain: writeToken([first, stamp]), proof: proof === null ? null : writeToken(proof), influence: writeToken(INFLUENCE) };
+    const listed = decision.routeAllowed ? tree.proofFor(`session/pi/local:${decision.tool}`) : null;
+    const proof = Object.hasOwn(o, "proof") ? o.proof! : listed;
+    return {
+      ...decision, rid: "rid-1", now: ts, chain: writeToken([first, stamp]),
+      proof: proof === null ? null : writeToken(proof), influence: writeToken(INFLUENCE),
+    };
   };
   const run = { prompt: PROMPT, ts: new Set([RUN_TS]) };
   const check = (s: RecordedLocalStep, c: LocalStepClient = client(), seen = new Set<string>()) => verifyRecordedLocalStep(s, { client: c, signers: SIGNERS, run, seen });

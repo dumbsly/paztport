@@ -194,8 +194,9 @@ function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess) 
 function checkCall(h: ReturnType<typeof handshake>, chain: StampV3[], ts: number, spent: Set<string>) {
   return verifyChainOffline(
     {
-      chain: writeToken(chain), expectedBind: "call-bind", influence: writeToken([]), proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders",
-      receiverInRoute: true, rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
+      chain: writeToken(chain), expectedBind: "call-bind", influence: writeToken([]),
+      proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders", receiverInRoute: true,
+      rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
     },
     { keyring: h.request.clientKeyring, root: h.clientTree.root, rootId: "c1", allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req" },
   );

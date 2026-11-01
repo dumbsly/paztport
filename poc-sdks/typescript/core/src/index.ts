@@ -17,7 +17,9 @@ export * from "./verify/nonce.ts";
 export {
   commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceClass, type InfluenceEntry,
 } from "./influence/influence.ts";
-export { CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChainV3, type Peer, type V3Config, type V3Input } from "./verify/verify-v3.ts";
+export {
+  CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChainV3, type Peer, type V3Config, type V3Input,
+} from "./verify/verify-v3.ts";
 export * from "./offline/verify-offline.ts";
 export * from "./offline/records.ts";
 export * from "./offline/local-step.ts";

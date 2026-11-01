@@ -7,7 +7,8 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  bindPrompt, bindResponse, commitInfluence, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash, readProof, verifyProof,
+  bindPrompt, bindResponse, commitInfluence, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash,
+  readProof, verifyProof,
 } from "../src/index.ts";
 
 const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
