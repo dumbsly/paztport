@@ -562,10 +562,49 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(await restore([labelled], "off")).toEqual(ZERO);
     // write and edit record nothing live, so nothing here
     expect(await restore([toolResultEntry("write", text("ok")), toolResultEntry("edit", text("ok"))])).toEqual({ ...ZERO, "local-untrusted": 1 });
-    // a write, an edit or a refusal records nothing, whether or not its content can be hashed
+    // a write or an edit records nothing, whether or not its content can be hashed; an error result whose
+    // content cannot be hashed and is no refusal may hold anything, so it counts as unknown
     const lone = text("lone \ud800 surrogate");
     expect(await restore([toolResultEntry("write", lone), toolResultEntry("edit", lone)])).toEqual({ ...ZERO, "local-untrusted": 1 });
     expect(await restore([toolResultEntry("read", lone, undefined, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+  });
+
+  it("aRestoredWithheldResultRecordsNothing", async () => {
+    // a result this extension withheld (UNRECORDABLE_TEXT on an error result) was recorded as nothing live
+    const text = (t: string) => [{ type: "text", text: t }];
+    const restore = async (branch: SessionEntry[]) => {
+      const s = setup([github(), docs()]);
+      s.pi.branch = branch;
+      await s.pi.emit("session_start", { reason: "resume" });
+      // the docs server is unattested: its live result adds one local-untrusted entry
+      return (await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).details.influence;
+    };
+    // a local tool's, and a built-in MCP tool's (details { server, tool }, or none)
+    expect(await restore([toolResultEntry("read", text(UNRECORDABLE_TEXT), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    expect(await restore([toolResultEntry("bash", text(UNRECORDABLE_TEXT), { exitCode: 0 }, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    expect(await restore([toolResultEntry("mcp__other__fetch", text(UNRECORDABLE_TEXT), { server: "other", tool: "fetch" }, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    expect(await restore([toolResultEntry("read_mcp_resource", text(UNRECORDABLE_TEXT), undefined, true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    // only the exact text on an error result: anything else is content
+    expect(await restore([toolResultEntry("read", text(UNRECORDABLE_TEXT))])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([toolResultEntry("read", text(`${UNRECORDABLE_TEXT} `), undefined, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
+    expect(await restore([toolResultEntry("mcp__other__fetch", text(UNRECORDABLE_TEXT), { server: "other", tool: "fetch" })])).toEqual({ ...ZERO, "local-untrusted": 2 });
+  });
+
+  it("aRestoredServerResultRecordsWhatTheLivePathDid", async () => {
+    const lone = [{ type: "text", text: "lone \ud800 surrogate" }];
+    const own = (extra: Record<string, unknown>) => ({ server: "github", callId: id(), influence: ZERO, session: "attested", ...extra });
+    const restore = async (branch: SessionEntry[]) => {
+      const s = setup([github(), docs()]);
+      s.pi.branch = branch;
+      await s.pi.emit("session_start", { reason: "resume" });
+      return (await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id())).details.influence;
+    };
+    // live, a server result that cannot be hashed is a MALFORMED_RESULT error (refused): nothing is recorded
+    expect(await restore([toolResultEntry("mcp__github__list_issues", lone, own({ refused: true }), true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    // a refusal carries no server content
+    expect(await restore([toolResultEntry("mcp__github__create_branch", [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], own({ verdict: "INFLUENCE_DENIED", refused: true }), true)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    // not marked refused, the content may hold anything: unknown
+    expect(await restore([toolResultEntry("mcp__github__list_issues", lone, own({}))])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
   });
 
   it("restoredBranchRecordedLikeLivePath", async () => {

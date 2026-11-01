@@ -92,6 +92,12 @@ function annotationsOf(tool: Tool): ToolAnnotations | undefined {
 /** What the model sees in place of a tool result this extension cannot record. */
 export const UNRECORDABLE_TEXT = "Paztport could not record this tool result, so it was withheld.";
 
+/** Whether a tool result is one this extension withheld: an error result holding exactly UNRECORDABLE_TEXT. */
+function isWithheld(m: Record<string, unknown>): boolean {
+  const part: unknown = Array.isArray(m.content) && m.content.length === 1 ? m.content[0] : undefined;
+  return m.isError === true && isObject(part) && part.type === "text" && part.text === UNRECORDABLE_TEXT;
+}
+
 /** The hash restore records for content it cannot hash: that of the text the live path puts in its place. */
 const UNRECORDABLE_HASH = contentHash({ content: [{ type: "text", text: UNRECORDABLE_TEXT }] });
 
@@ -224,10 +230,10 @@ export default function paztport(pi: ExtensionAPI): void {
    * Records one restored built-in tool result as the live tool_result did. Off mode records nothing.
    * Labels in details.paztport give their classes (the source is local:<tool>, as live). pi emits no
    * tool_result for a call that tool_call blocked: it saves an error result holding our refusal text, which
-   * is not recorded. write and edit record nothing live. Any other result has no labels (this
-   * extension did not see it, or it came from another run) and may hold anything: private and
-   * local-untrusted. A result with nested calls has had them recorded by restoreEntry, and records nothing more
-   * unless it has labels.
+   * is not recorded, and neither is a result this extension withheld (see isWithheld). write and edit
+   * record nothing live. Any other result has no labels (this extension did not see it, or it came from
+   * another run) and may hold anything: private and local-untrusted. A result with nested calls has had them
+   * recorded by restoreEntry, and records nothing more unless it has labels.
    */
   function restoreLocal(toolName: string, m: Record<string, unknown>, mode: PaztportConfig["mode"], nested: boolean): void {
     if (mode === "off") {
@@ -245,7 +251,7 @@ export default function paztport(pi: ExtensionAPI): void {
       }
       return;
     }
-    if (nested || (m.isError === true && isRefusalText(m.content)) || toolName === "write" || toolName === "edit") {
+    if (nested || (m.isError === true && isRefusalText(m.content)) || isWithheld(m) || toolName === "write" || toolName === "edit") {
       return;
     }
     influence.recordUnknown(`builtin:${toolName}`, hash ?? UNRECORDABLE_HASH);
@@ -285,7 +291,7 @@ export default function paztport(pi: ExtensionAPI): void {
       } else {
         influence.recordUntrusted(`server:${d.server}`, h);
       }
-    } else {
+    } else if (!isWithheld(m)) {
       const h = hashContent(m.content);
       if (h === undefined) {
         influence.recordUnknown(`builtin:${m.toolName}`, UNRECORDABLE_HASH);
