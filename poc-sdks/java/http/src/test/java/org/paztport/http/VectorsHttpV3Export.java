@@ -146,8 +146,10 @@ class VectorsHttpV3Export {
     static ObjectNode build() throws IOException {
         JsonNode core = load("v3.json");
         KeyPair payment = derive("payment");
-        PrivateKey gatewayKey = Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("gateway").get("priv").asText()));
-        PrivateKey ordersKey = Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("orders").get("priv").asText()));
+        PrivateKey gatewayKey =
+                Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("gateway").get("priv").asText()));
+        PrivateKey ordersKey =
+                Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("orders").get("priv").asText()));
         JsonNode proof = core.get("policies").get("mesh").get("proofs").get(ROUTE);
         MerkleProof sentProof = MerkleProof.parse(Vectors.text(proof));
 
@@ -336,7 +338,10 @@ class VectorsHttpV3Export {
                 s.get("prev").asText(), s.get("sig").asText());
     }
 
-    /** Replays every section of {@code http} through {@link HttpWire}; {@code core} supplies the shared keys and policy. */
+    /**
+     * Replays every section of {@code http} through {@link HttpWire}; {@code core} supplies the shared keys and
+     * policy.
+     */
     static void assertAll(JsonNode http, JsonNode core) {
         for (JsonNode c : http.get("resultHash")) {
             assertEquals(c.get("hash").asText(),

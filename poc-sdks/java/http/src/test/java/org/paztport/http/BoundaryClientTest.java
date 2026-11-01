@@ -270,7 +270,8 @@ class BoundaryClientTest {
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), System::currentTimeMillis, 30_000, 300_000));
         assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInput(chainJson,
                 RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeInfluence(
-                        call.header(PaztportHeaders.INFLUENCE)), HttpWire.decodeProof(call.header(PaztportHeaders.PROOF)),
+                        call.header(PaztportHeaders.INFLUENCE)),
+                HttpWire.decodeProof(call.header(PaztportHeaders.PROOF)),
                 "psp", true, "rid-1|payment|req", new Peer("payment", "127.0.0.1"))).reason());
 
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),

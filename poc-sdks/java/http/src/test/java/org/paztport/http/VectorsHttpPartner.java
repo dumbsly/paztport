@@ -1002,7 +1002,8 @@ final class VectorsHttpPartner {
                 String proof = r.headers().get(PaztportHeaders.PROOF.toLowerCase());
                 call.set("proof", proof == null ? NullNode.instance : tree(HttpWire.decodeProof(proof)));
                 String influence = r.headers().get(PaztportHeaders.INFLUENCE.toLowerCase());
-                call.set("influence", influence == null ? NullNode.instance : tree(HttpWire.decodeInfluence(influence)));
+                call.set("influence",
+                        influence == null ? NullNode.instance : tree(HttpWire.decodeInfluence(influence)));
                 ObjectNode o = obj();
                 o.set("call", call);
                 out.add(o);

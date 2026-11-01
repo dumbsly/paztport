@@ -20,7 +20,8 @@ class PublicApiTest {
 
     @Test
     void namesNoJsonLibrary() throws Exception {
-        assertTrue(PublicApi.moduleClasses(HttpWire.class, "org.paztport.http").size() > 5, "found the module's classes");
+        assertTrue(PublicApi.moduleClasses(HttpWire.class, "org.paztport.http").size() > 5,
+                "found the module's classes");
         PublicApi.Findings found = PublicApi.module(HttpWire.class, "org.paztport.http");
         assertTrue(found.types().isEmpty(),
                 "public signatures naming a JSON library:\n  " + String.join("\n  ", found.types()));

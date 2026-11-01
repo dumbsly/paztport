@@ -143,8 +143,8 @@ class HttpWireTest {
         byte[] none = new byte[0];
         Stamper.Stamped s = sent(List.of(), RequestBinding.compute("GET", "/search", none));
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(
-                HttpWire.request(HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()), null, "GET", "/search\ud800",
-                        none, "payment", null)).reason());
+                HttpWire.request(HttpWire.encodeChain(s.chain()), HttpWire.encodeProof(s.proof()), null, "GET",
+                        "/search\ud800", none, "payment", null)).reason());
     }
 
     @Test
@@ -208,7 +208,8 @@ class HttpWireTest {
     @Test
     void responseCheckLabelsAltered() {
         Stamper.Stamped s = sent(List.of());
-        Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(200, BODY), RID, LABELS);
+        Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(200, BODY), RID,
+                LABELS);
         String header = HttpWire.encodeResponse(stamp, List.of(new ContentLabel(InfluenceClass.PUBLIC, "cid-1", null)));
         var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders");
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
@@ -230,12 +231,14 @@ class HttpWireTest {
     @Test
     void responseCheckMalformedLabels() {
         Stamper.Stamped s = sent(List.of());
-        Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(200, BODY), RID, List.of());
+        Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(200, BODY), RID,
+                List.of());
         String header = Base64Url.encode(
                 ("{\"labels\":[{\"cid\":\"c\",\"cls\":\"nope\"}],\"stamp\":" + stamp.toJson() + "}")
                         .getBytes(StandardCharsets.UTF_8));
         assertEquals(ReasonCode.CHAIN_MISSING,
-                HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason());
+                HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result()
+                        .reason());
     }
 
     /**
@@ -328,8 +331,8 @@ class HttpWireTest {
                 policy.bundles().get("orders"));
         Stamp stamp = Stamp.sign("payment", "payment-1", "a\nb", NOW, "", "orders", "x", "",
                 s.chain().get(1).sig(), paymentKey.getPrivate());
-        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), HttpWire.encodeResponse(stamp, List.of()), 200,
-                BODY, "orders");
+        var check = HttpWire.verifyResponse(verifier(), s.chain(), s.proof(), HttpWire.encodeResponse(stamp, List.of()),
+                200, BODY, "orders");
         assertEquals(ReasonCode.BINDING_MISMATCH, check.result().reason());
         assertTrue(check.labels().isEmpty());
     }

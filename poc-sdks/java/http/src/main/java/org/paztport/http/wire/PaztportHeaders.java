@@ -8,12 +8,12 @@ public final class PaztportHeaders {
 
     public static final String CHAIN = "X-Path-Chain";
     public static final String PROOF = "X-Path-Proof";
-    /** the influence entries a request commits to. */
+    /** The influence entries a request commits to. */
     public static final String INFLUENCE = "X-Path-Influence";
-    /** a response's attestation stamp and content labels. */
+    /** A response's attestation stamp and content labels. */
     public static final String RESPONSE = "X-Path-Response";
 
-    /** the id of the session a call to a partner organisation is made in. */
+    /** The id of the session a call to a partner organisation is made in. */
     public static final String SESSION = "X-Path-Session";
 
     private PaztportHeaders() {

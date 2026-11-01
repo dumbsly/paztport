@@ -25,7 +25,7 @@ import org.paztport.core.stamp.Stamp;
  * vector pins the answer for both.
  *
  * <ol>
- * <li>the stamps parse, all with v 3 (CHAIN_MISSING);
+ * <li>the stamps parse, every stamp's {@code v} is 3 (CHAIN_MISSING);
  * <li>no signed field holds {@code |}, {@code rcv} included (BAD_SIGNATURE);
  * <li>the origin's service is allowed (BAD_ORIGIN);
  * <li>each stamp is signed by its service's key and links to the one before, then each {@code rcv} names the
