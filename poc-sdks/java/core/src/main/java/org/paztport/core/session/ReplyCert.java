@@ -7,19 +7,20 @@ import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * {@code reply-cert.json}: the policy key's statement that {@code key} is service {@code svc}'s reply key until
@@ -61,15 +62,15 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         if (policy == null || svc == null || key == null) {
             throw new IllegalArgumentException("a reply certificate needs a policy key, a service and a key");
         }
-        if (!inRange(notAfter)) {
+        if (!JsonIntegers.inRange(notAfter)) {
             throw new IllegalArgumentException("notAfter must be an integer in [0, 2^53 - 1]");
         }
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("key", key);
-        o.put("notAfter", notAfter);
-        o.put("policy", policy);
-        o.put("svc", svc);
-        byte[] body = JcsWriter.bytes(o);
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("key", new JsonValue.Str(key));
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        o.put("policy", new JsonValue.Str(policy));
+        o.put("svc", new JsonValue.Str(svc));
+        byte[] body = JsonWriter.wire(new JsonValue.Obj(o));
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);
@@ -94,19 +95,19 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         }
     }
 
-    /** The wire form, fields in the order the spec lists them. */
+    /** The wire form: the object's JCS text, {@code {key, notAfter, policy, sig, svc}}. */
     public String toJson() {
-        return Json.text(tree());
+        return JsonWriter.text(tree());
     }
 
-    ObjectNode tree() {
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("policy", policy);
-        o.put("svc", svc);
-        o.put("key", key);
-        o.put("notAfter", notAfter);
-        o.put("sig", sig);
-        return o;
+    JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("policy", new JsonValue.Str(policy));
+        o.put("svc", new JsonValue.Str(svc));
+        o.put("key", new JsonValue.Str(key));
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        o.put("sig", new JsonValue.Str(sig));
+        return new JsonValue.Obj(o);
     }
 
     /**
@@ -129,7 +130,7 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
             throw new IllegalArgumentException("a reply certificate must be a JSON object");
         }
         Long notAfter = JsonIntegers.safeInteger(node.get("notAfter"));
-        if (notAfter == null || !inRange(notAfter)) {
+        if (notAfter == null || !JsonIntegers.inRange(notAfter)) {
             throw new IllegalArgumentException("reply certificate notAfter must be an integer in [0, 2^53 - 1]");
         }
         return new ReplyCert(text(node, "policy"), text(node, "svc"), text(node, "key"), notAfter,
@@ -147,10 +148,6 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
             throw new UncheckedIOException("failed to read " + file, e);
         }
         return fromTree(node);
-    }
-
-    private static boolean inRange(long v) {
-        return v >= 0 && v <= MAX_NOT_AFTER;
     }
 
     private static String text(JsonNode node, String field) {

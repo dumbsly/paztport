@@ -405,6 +405,11 @@ describe("isAttestedSession", () => {
   });
 });
 
+/** A reply signed over whatever it holds, as a hostile server could sign one; signSessionReply refuses what no reader reads. */
+function signAnything(body: object, privateKey: string): SessionReply {
+  return { ...body, sig: encode(sign(privateKey, utf8("paztport-session-reply\n" + canonicalize(body)))) } as SessionReply;
+}
+
 describe("the entry key form", () => {
   /**
    * A reply signed by mcp-entry's key, with the server keyring's signature and window (until `keyringNotAfter`,
@@ -428,7 +433,7 @@ describe("the entry key form", () => {
   });
   it("serverKeyringNotAfterIsCoveredByTheKeyringSignature", () => {
     const w = entryWorld();
-    const verifies = (body: Omit<SessionReply, "sig">) => verifySessionReply(signSessionReply(body, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW);
+    const verifies = (body: Omit<SessionReply, "sig">) => verifySessionReply(signAnything(body, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW);
     expect(w.reply.serverKeyringNotAfter).toBe(NOT_AFTER);
     expect(verifies(w.body)).toBe(true);
     // the entry key signs the reply whatever window it names; only the policy key's keyring signature binds it
@@ -436,7 +441,7 @@ describe("the entry key form", () => {
     // dropped, the reply is malformed: a keyring signature always travels with its window
     const { serverKeyringNotAfter: _window, ...dropped } = w.body;
     expect(verifies(dropped)).toBe(false);
-    expect(checkSessionReply(signSessionReply(dropped, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
+    expect(checkSessionReply(signAnything(dropped, w.entry.privateKey), w.req, w.serverPolicy.publicKey, ENTRY, NOW)).toBe("MALFORMED_REPLY");
     for (const bad of [1.5, -1, 2 ** 53, "x", null]) {
       expect(verifies({ ...w.body, serverKeyringNotAfter: bad } as unknown as Omit<SessionReply, "sig">), String(bad)).toBe(false);
     }
@@ -547,7 +552,7 @@ describe("the entry key form", () => {
   it("malformedNewFieldsFailWithoutThrowing", () => {
     const w = entryWorld();
     for (const bad of [{ serverKeyringSig: null }, { serverKeyringSig: 7 }, { serverReplyCert: null }, { serverReplyCert: { ...w.body.serverReplyCert, notAfter: 1.5 } }]) {
-      const reply = signSessionReply({ ...w.body, ...bad } as unknown as Omit<SessionReply, "sig">, w.entry.privateKey);
+      const reply = signAnything({ ...w.body, ...bad }, w.entry.privateKey);
       expect(verifySessionReply(reply, w.req, w.serverPolicy.publicKey, ENTRY, NOW), JSON.stringify(bad)).toBe(false);
     }
   });

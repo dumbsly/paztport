@@ -2,8 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { encode } from "../encoding/b64url.ts";
-import { isWellFormed, sha256, utf8 } from "../crypto/crypto.ts";
-import { canonicalize } from "../encoding/jcs.ts";
+import { sha256 } from "../crypto/crypto.ts";
+import { canonicalize, writeWire } from "../encoding/jcs.ts";
+import type { JsonValue } from "../encoding/json.ts";
+import { isProtocolText } from "../encoding/json-rules.ts";
 
 export type InfluenceClass = "third-party" | "private" | "public" | "local-untrusted";
 export type InfluenceEntry = { cls: InfluenceClass; src: string; h: string; cid?: string; owner?: string };
@@ -59,8 +61,8 @@ export function parseInfluence(value: unknown): InfluenceEntry[] {
       throw new Error("malformed influence owner");
     }
     for (const f of [o.src, o.h, o.cid, o.owner]) {
-      if (typeof f === "string" && !isWellFormed(f)) {
-        throw new Error("lone surrogate in influence entry");
+      if (typeof f === "string" && !isProtocolText(f)) {
+        throw new Error("lone surrogate or noncharacter in influence entry");
       }
     }
     const base = { cls: o.cls as InfluenceClass, src: o.src, h: o.h };
@@ -74,7 +76,7 @@ export function commitInfluence(entries: InfluenceEntry[]): string {
   if (entries.length === 0) {
     return "";
   }
-  return encode(sha256(utf8(canonicalize(normalizeInfluence(entries)))));
+  return encode(sha256(writeWire(normalizeInfluence(entries) as JsonValue[])));
 }
 
 export function influenceClasses(entries: InfluenceEntry[]): Set<InfluenceClass> {

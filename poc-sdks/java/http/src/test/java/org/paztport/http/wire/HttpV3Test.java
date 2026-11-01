@@ -20,6 +20,7 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.StampV3;
@@ -80,6 +81,33 @@ class HttpV3Test {
                 HttpV3.encodeInfluence(influence), "POST", "/pay", BODY, "payment", null);
         assertEquals(RID + "|orders|req", in.nonceKey());
         assertEquals(ReasonCode.OK, verifier().verify(in).reason());
+    }
+
+    @Test
+    void headersAreJcs() {
+        String face = "\uD83D\uDE00";
+        List<InfluenceEntry> influence = List.of(
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:" + face, "h1", "c", "alice"));
+        StamperV3.Stamped s = sent(influence);
+        String chain = HttpV3.encodeChain(s.chain());
+        String proof = HttpV3.encodeProof(s.proof());
+        String infl = HttpV3.encodeInfluence(influence);
+        String resp = respondHeader(s, 200, LABELS);
+        for (String header : List.of(chain, proof, infl, resp)) {
+            JsonReader.token(header);
+        }
+        assertEquals("[{\"cid\":\"c\",\"cls\":\"third-party\",\"h\":\"h1\",\"owner\":\"alice\",\"src\":\"web:" + face
+                + "\"}]", text(infl));
+        assertTrue(text(chain).startsWith("[{\"bind\":\"" + s.chain().get(0).bind() + "\",\"infl\":"));
+        String p = text(proof);
+        assertTrue(p.startsWith("{\"dirs\":\""));
+        assertTrue(p.indexOf("\"leafSalt\"") < p.indexOf("\"rootId\"") && p.indexOf("\"rootId\"") < p.indexOf("\"siblings\""));
+        assertTrue(text(resp).startsWith(
+                "{\"labels\":[{\"cid\":\"cid-1\",\"cls\":\"private\",\"owner\":\"alice\"}],\"stamp\":{\"bind\":\""));
+    }
+
+    private static String text(String header) {
+        return new String(Base64Url.decode(header), StandardCharsets.UTF_8);
     }
 
     @Test
@@ -233,15 +261,12 @@ class HttpV3Test {
         return HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();
     }
 
-    /**
-     * A header carries the bytes it always has: a character outside the Basic Multilingual Plane goes as an escaped
-     * surrogate pair, not as its four UTF-8 bytes, though the SDK's JSON text holds it as the character itself.
-     */
+    /** A character outside the Basic Multilingual Plane goes in a header as its four UTF-8 bytes. */
     @Test
-    void headersKeepTheirBytes() {
+    void aHeaderHoldsASupplementaryCharacterAsUtf8() {
         InfluenceEntry e = new InfluenceEntry(InfluenceClass.PUBLIC, "s", "\ud83d\ude00", null, null);
-        assertEquals("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"\ud83d\ude00\"}]", Influence.toJson(List.of(e)));
-        assertEquals("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"\\uD83D\\uDE00\"}]",
+        assertEquals("[{\"cls\":\"public\",\"h\":\"\ud83d\ude00\",\"src\":\"s\"}]", Influence.toJson(List.of(e)));
+        assertEquals("[{\"cls\":\"public\",\"h\":\"\ud83d\ude00\",\"src\":\"s\"}]",
                 new String(Base64Url.decode(HttpV3.encodeInfluence(List.of(e))), StandardCharsets.UTF_8));
     }
 

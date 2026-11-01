@@ -3,12 +3,11 @@
 
 package org.paztport.core.session;
 
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.SignedRoot;
 
 /**
@@ -35,36 +34,34 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
     }
 
     /**
-     * The wire form: a null root is JSON null, and {@code serverKeyringSig}, {@code serverKeyringNotAfter},
-     * {@code serverReplyCert} and {@code sig} are each left out while null.
+     * The wire form: the object's JCS text. A null root is JSON null, and {@code serverKeyringSig},
+     * {@code serverKeyringNotAfter}, {@code serverReplyCert} and {@code sig} are each left out while null.
      */
     public String toJson() {
-        return Json.text(tree());
+        return JsonWriter.text(tree());
     }
 
-    ObjectNode tree() {
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.set("serverRoot", Sessions.rootJson(serverRoot));
-        o.put("serverPolicyKey", serverPolicyKey);
-        ObjectNode ring = o.putObject("serverKeyring");
-        serverKeyring.forEach(ring::put);
+    JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("serverRoot", Sessions.rootJson(serverRoot));
+        o.put("serverPolicyKey", new JsonValue.Str(serverPolicyKey));
+        o.put("serverKeyring", Sessions.stringMapJson(serverKeyring));
         if (serverKeyringSig != null) {
-            o.put("serverKeyringSig", serverKeyringSig);
+            o.put("serverKeyringSig", new JsonValue.Str(serverKeyringSig));
         }
         if (serverKeyringNotAfter != null) {
-            o.put("serverKeyringNotAfter", serverKeyringNotAfter);
+            o.put("serverKeyringNotAfter", new JsonValue.Int(serverKeyringNotAfter));
         }
         if (serverReplyCert != null) {
-            o.set("serverReplyCert", serverReplyCert.tree());
+            o.put("serverReplyCert", serverReplyCert.tree());
         }
-        o.put("nonce", nonce);
-        o.put("sess", sess);
-        o.put("status", status);
-        ArrayNode off = o.putArray("disabled");
-        disabled.forEach(off::add);
+        o.put("nonce", new JsonValue.Str(nonce));
+        o.put("sess", new JsonValue.Str(sess));
+        o.put("status", new JsonValue.Str(status));
+        o.put("disabled", new JsonValue.Arr(disabled.stream().map(d -> (JsonValue) new JsonValue.Str(d)).toList()));
         if (sig != null) {
-            o.put("sig", sig);
+            o.put("sig", new JsonValue.Str(sig));
         }
-        return o;
+        return new JsonValue.Obj(o);
     }
 }

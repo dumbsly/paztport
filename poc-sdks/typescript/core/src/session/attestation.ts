@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { encode } from "../encoding/b64url.ts";
-import { randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
+import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
 import { bindResult } from "../stamp/binding.ts";
 import type { InfluenceClass } from "../influence/influence.ts";
-import { canonicalize } from "../encoding/jcs.ts";
+import { writeWire } from "../encoding/jcs.ts";
+import type { JsonValue } from "../encoding/json.ts";
 import type { MerkleProof } from "../policy/merkle.ts";
 import type { VerifyResult } from "../verify/reason.ts";
 import type { StampV3 } from "../stamp/stamp.ts";
@@ -28,7 +29,7 @@ export function bindResponse(resultHash: string, toolCallId: string, labels: Con
   if (toolCallId.includes("\n")) {
     throw new Error("toolCallId must not contain newlines");
   }
-  return encode(sha256(utf8(resultHash + "\n" + toolCallId + "\n" + canonicalize(labels))));
+  return encode(sha256(concat(utf8(resultHash + "\n" + toolCallId + "\n"), writeWire(labels as JsonValue))));
 }
 
 /** The attestation's fields, its chain left for the verifier to parse. */

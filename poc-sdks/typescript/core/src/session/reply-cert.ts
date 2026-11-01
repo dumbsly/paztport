@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode, encode } from "../encoding/b64url.ts";
-import { sign, utf8, verify } from "../crypto/crypto.ts";
-import { canonicalize } from "../encoding/jcs.ts";
+import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
+import { writeWire } from "../encoding/jcs.ts";
 
 /** The policy key's statement that `key` is service `svc`'s reply key until `notAfter` (ms since the epoch, inclusive). */
 export type ReplyCert = { policy: string; svc: string; key: string; notAfter: number; sig: string };
@@ -15,7 +15,7 @@ function validNotAfter(n: unknown): n is number {
 /** The bytes a certificate signature covers: domain prefix + JCS of key, notAfter, policy and svc; throws on a notAfter outside [0, 2^53 − 1]. */
 export function replyCertSigningBytes(policy: string, svc: string, key: string, notAfter: number): Uint8Array {
   if (!validNotAfter(notAfter)) throw new TypeError("notAfter must be an integer in [0, 2^53 - 1]");
-  return utf8("paztport-reply-cert\n" + canonicalize({ key, notAfter, policy, svc }));
+  return concat(utf8("paztport-reply-cert\n"), writeWire({ key, notAfter, policy, svc }));
 }
 
 /** Signs a reply certificate; the caller must have checked `key` is `svc`'s key in its current keyring signed by this policy key. */

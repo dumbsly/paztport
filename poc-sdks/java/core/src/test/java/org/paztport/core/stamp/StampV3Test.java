@@ -7,10 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.security.KeyPair;
-import java.util.ArrayList;
-import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
@@ -40,20 +37,34 @@ class StampV3Test {
     }
 
     @Test
-    void toJsonWritesVersionThenWireOrder() {
+    void toJsonIsJcs() {
         StampV3 s = StampV3.sign("pi", "i", "r", 1, "", "x", "b", "", "", KEY.getPrivate());
-        List<String> names = new ArrayList<>();
-        s.tree().fieldNames().forEachRemaining(names::add);
-        assertEquals(List.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig"), names);
-        assertEquals(3, s.tree().get("v").asInt());
+        assertEquals("{\"bind\":\"b\",\"infl\":\"\",\"inst\":\"i\",\"prev\":\"\",\"rcv\":\"x\",\"rid\":\"r\","
+                + "\"sess\":\"\",\"sig\":\"" + s.sig() + "\",\"svc\":\"pi\",\"ts\":1,\"v\":3}", s.toJson());
     }
 
     @Test
     void roundTrip() {
         StampV3 s = StampV3.sign("pi", "i", "r", 1767225600000L, "sess", "x", "b", "n", "p", KEY.getPrivate());
-        ParsedChain p = Chains.parse(JsonNodeFactory.instance.arrayNode().add(s.tree()).toString());
+        ParsedChain p = Chains.parse("[" + s.toJson() + "]");
         assertTrue(p.ok());
         assertEquals(s, p.stamps().get(0));
+    }
+
+    @Test
+    void signRefusesANoncharacter() {
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "\uFFFE", "r", 1, "", "x", "b", "", "", KEY.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", 1, "\uFDD0", "x", "b", "", "", KEY.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", 1, "", "x", "b", "", "\uD83F\uDFFF", KEY.getPrivate()));
+    }
+
+    @Test
+    void signRefusesANegativeTs() {
+        assertThrows(IllegalArgumentException.class,
+                () -> StampV3.sign("pi", "i", "r", -1, "", "x", "b", "", "", KEY.getPrivate()));
     }
 
     @Test
@@ -61,12 +72,10 @@ class StampV3Test {
         assertThrows(IllegalArgumentException.class,
                 () -> StampV3.sign("pi", "i", "r", 9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
         assertThrows(IllegalArgumentException.class,
-                () -> StampV3.sign("pi", "i", "r", -9007199254740992L, "", "x", "b", "", "", KEY.getPrivate()));
-        assertThrows(IllegalArgumentException.class,
                 () -> StampV3.sign("pi", "i", "r", Long.MIN_VALUE, "", "x", "b", "", "", KEY.getPrivate()));
         assertThrows(IllegalArgumentException.class,
                 () -> StampV3.sign("pi", "i", "r", Long.MAX_VALUE, "", "x", "b", "", "", KEY.getPrivate()));
         StampV3.sign("pi", "i", "r", 9007199254740991L, "", "x", "b", "", "", KEY.getPrivate());
-        StampV3.sign("pi", "i", "r", -9007199254740991L, "", "x", "b", "", "", KEY.getPrivate());
+        StampV3.sign("pi", "i", "r", 0, "", "x", "b", "", "", KEY.getPrivate());
     }
 }

@@ -4,12 +4,13 @@
 package org.paztport.core.session;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
@@ -100,20 +101,19 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         return new KeyringFile(clientKeyring, clientPolicyKey, clientKeyringSig, clientKeyringNotAfter);
     }
 
-    /** The wire form. */
+    /** The wire form: the object's JCS text. */
     public String toJson() {
-        return Json.text(tree());
+        return JsonWriter.text(tree());
     }
 
-    ObjectNode tree() {
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.set("clientRoot", Sessions.rootJson(clientRoot));
-        o.put("clientPolicyKey", clientPolicyKey);
-        ObjectNode ring = o.putObject("clientKeyring");
-        clientKeyring.forEach(ring::put);
-        o.put("clientKeyringSig", clientKeyringSig);
-        o.put("clientKeyringNotAfter", clientKeyringNotAfter);
-        o.put("nonce", nonce);
-        return o;
+    JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("clientRoot", Sessions.rootJson(clientRoot));
+        o.put("clientPolicyKey", new JsonValue.Str(clientPolicyKey));
+        o.put("clientKeyring", Sessions.stringMapJson(clientKeyring));
+        o.put("clientKeyringSig", new JsonValue.Str(clientKeyringSig));
+        o.put("clientKeyringNotAfter", new JsonValue.Int(clientKeyringNotAfter));
+        o.put("nonce", new JsonValue.Str(nonce));
+        return new JsonValue.Obj(o);
     }
 }

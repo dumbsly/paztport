@@ -25,7 +25,12 @@ class ChainsTest {
     private static final KeyPair KEY = Crypto.generateEd25519KeyPair();
 
     private static ObjectNode v3() {
-        return StampV3.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate()).tree();
+        try {
+            return (ObjectNode) MAPPER.readTree(
+                    StampV3.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate()).toJson());
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private static ArrayNode chain(JsonNode... stamps) {

@@ -9,6 +9,7 @@ import java.util.List;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.MalformedJsonException;
 import org.paztport.core.encoding.MalformedJsonException.Step;
+import org.paztport.core.encoding.Text;
 
 /**
  * Writes a {@link JsonValue} as its canonical bytes (RFC 8785), or as a file in the spec's one file form, and
@@ -144,7 +145,7 @@ public final class JsonWriter {
             } else if (Character.isSurrogate(c)) {
                 throw refuse("a string holding a lone surrogate");
             }
-            if (JsonReader.isNoncharacter(cp)) {
+            if (Text.isNoncharacter(cp)) {
                 throw refuse("a string holding a noncharacter");
             }
             switch (cp) {

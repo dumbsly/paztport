@@ -45,7 +45,7 @@ class InfluenceTest {
     @Test
     void dropsUnknownFields() {
         List<InfluenceEntry> e = Influence.parse("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"extra\":1}]");
-        assertEquals("{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}", e.get(0).toJson());
+        assertEquals("{\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}", e.get(0).toJson());
     }
 
     @Test

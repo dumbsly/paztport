@@ -3,8 +3,6 @@
 
 package org.paztport.keygen;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -23,6 +21,8 @@ import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 
 /**
@@ -51,7 +51,6 @@ public final class KeygenMain {
     private static final List<String> DEFAULT_TLS_ONLY = List.of("operator", "responder");
     private static final Duration TLS_VALIDITY = Duration.ofDays(825);
     private static final long DAY_MS = 86_400_000L;
-    private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
 
     private KeygenMain() {
     }
@@ -85,7 +84,8 @@ public final class KeygenMain {
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
-        MAPPER.writeValue(outDir.resolve("keyring.json").toFile(), KeyGenerator.toKeyring(result, keyringNotAfter));
+        Files.writeString(outDir.resolve("keyring.json"),
+                JsonWriter.file(JsonReader.wireText(KeyGenerator.toKeyring(result, keyringNotAfter).toJson())));
         Files.writeString(outDir.resolve("policy.pub"), KeyGenerator.policyPublicKey(result) + "\n");
 
         for (Map.Entry<String, KeyPair> e : result.services().entrySet()) {

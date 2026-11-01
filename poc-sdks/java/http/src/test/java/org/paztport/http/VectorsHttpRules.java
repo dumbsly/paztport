@@ -141,13 +141,56 @@ final class VectorsHttpRules {
         return s.getBytes(StandardCharsets.UTF_8);
     }
 
-    /** A value the SDK wrote as JSON text, as a tree to place in a vector. */
+    /**
+     * A value the SDK wrote as JSON text, as a tree to place in a vector, each object's members in the order the
+     * vectors list them.
+     */
     static JsonNode tree(String json) {
         try {
-            return MAPPER.readTree(json);
+            return layout(MAPPER.readTree(json));
         } catch (IOException e) {
             throw new UncheckedIOException(e);
         }
+    }
+
+    /** A kind of object, told by the members it always has, and the order a vector lists its members in. */
+    private record Layout(Set<String> marker, List<String> order) {
+    }
+
+    private static final List<Layout> LAYOUTS = List.of(
+            new Layout(Set.of("v", "svc", "rcv"),
+                    List.of("v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig")),
+            new Layout(Set.of("leafSalt"), List.of("leafSalt", "siblings", "dirs", "rootId")),
+            new Layout(Set.of("root", "rootId"), List.of("rootId", "root", "sig", "notAfter")),
+            new Layout(Set.of("services", "policy"), List.of("services", "policy", "sig", "notAfter")),
+            new Layout(Set.of("policy", "svc", "key"), List.of("policy", "svc", "key", "notAfter", "sig")),
+            new Layout(Set.of("cls", "src", "h"), List.of("cls", "src", "h", "cid", "owner")),
+            new Layout(Set.of("cls", "cid"), List.of("cls", "cid", "owner")),
+            new Layout(Set.of("cls", "salt", "originals"), List.of("cls", "owner", "salt", "originals")),
+            new Layout(Set.of("clientPolicyKey"), List.of("clientRoot", "clientPolicyKey", "clientKeyring",
+                    "clientKeyringSig", "clientKeyringNotAfter", "nonce")));
+
+    /** {@code n} with the members of every object in the order its kind's layout gives; other objects keep theirs. */
+    private static JsonNode layout(JsonNode n) {
+        if (n.isArray()) {
+            ArrayNode a = arr();
+            n.forEach(item -> a.add(layout(item)));
+            return a;
+        } else if (!n.isObject()) {
+            return n;
+        }
+        List<String> names = new ArrayList<>();
+        n.fieldNames().forEachRemaining(names::add);
+        List<String> order = LAYOUTS.stream()
+                .filter(l -> names.containsAll(l.marker()) && l.order().containsAll(names))
+                .map(Layout::order).findFirst().orElse(names);
+        ObjectNode o = obj();
+        for (String name : order) {
+            if (n.has(name)) {
+                o.set(name, layout(n.get(name)));
+            }
+        }
+        return o;
     }
 
     static JsonNode entries(List<InfluenceEntry> entries) {

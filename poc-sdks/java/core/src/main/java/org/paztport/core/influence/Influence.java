@@ -4,8 +4,6 @@
 package org.paztport.core.influence;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -13,8 +11,9 @@ import java.util.List;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
-import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /** Parsing, normalising and committing influence entries, the same way in every SDK. */
 public final class Influence {
@@ -67,8 +66,8 @@ public final class Influence {
                 throw new IllegalArgumentException("malformed influence owner");
             }
             for (String s : new String[] {src.textValue(), h.textValue(), cid, owner}) {
-                if (s != null && !Text.isWellFormed(s)) {
-                    throw new IllegalArgumentException("lone surrogate in influence entry");
+                if (s != null && (!Text.isWellFormed(s) || Text.hasNoncharacter(s))) {
+                    throw new IllegalArgumentException("lone surrogate or noncharacter in influence entry");
                 }
             }
             out.add(new InfluenceEntry(InfluenceClass.fromWire(cls.textValue()), src.textValue(), h.textValue(),
@@ -97,15 +96,11 @@ public final class Influence {
 
     /** The wire form of {@code entries}, in the order given, each as {@link InfluenceEntry#toJson()} writes it. */
     public static String toJson(List<InfluenceEntry> entries) {
-        return Json.text(tree(entries));
+        return JsonWriter.text(tree(entries));
     }
 
-    static ArrayNode tree(List<InfluenceEntry> entries) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        for (InfluenceEntry e : entries) {
-            a.add(e.tree());
-        }
-        return a;
+    static JsonValue.Arr tree(List<InfluenceEntry> entries) {
+        return new JsonValue.Arr(entries.stream().map(e -> (JsonValue) e.tree()).toList());
     }
 
     /** Empty string for no influence, otherwise b64url(SHA-256(JCS(normalised entries))). */
@@ -113,6 +108,6 @@ public final class Influence {
         if (entries.isEmpty()) {
             return "";
         }
-        return Base64Url.encode(Crypto.sha256(JcsWriter.bytes(tree(normalise(entries)))));
+        return Base64Url.encode(Crypto.sha256(JsonWriter.wire(tree(normalise(entries)))));
     }
 }

@@ -3,7 +3,8 @@
 
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, sign, utf8, verify } from "../crypto/crypto.ts";
-import { canonicalize } from "../encoding/jcs.ts";
+import { canonicalize, writeWire } from "../encoding/jcs.ts";
+import type { JsonValue } from "../encoding/json.ts";
 import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
 import { isReplyCert, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { parseSignedRoot, verifyRoot, type SignedRoot } from "../policy/root.ts";
@@ -182,7 +183,7 @@ export function sessionStatus(
 
 /** The bytes a session reply signature covers: domain prefix + JCS of the reply without "sig". */
 function replySigningBytes(body: Omit<SessionReply, "sig">): Uint8Array {
-  return utf8("paztport-session-reply\n" + canonicalize(body));
+  return concat(utf8("paztport-session-reply\n"), writeWire(body as JsonValue));
 }
 
 /**

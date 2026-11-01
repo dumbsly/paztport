@@ -4,14 +4,14 @@
 package org.paztport.core.stamp;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.util.ArrayList;
 import java.util.List;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.verify.ReasonCode;
 
 /**
@@ -62,9 +62,7 @@ public final class Chains {
 
     /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link StampV3#toJson()}. */
     public static String toJson(List<StampV3> chain) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        chain.forEach(s -> a.add(s.tree()));
-        return Json.text(a);
+        return JsonWriter.text(new JsonValue.Arr(chain.stream().map(s -> (JsonValue) s.tree()).toList()));
     }
 
     /** One stamp, or null if any field breaks the rules. */

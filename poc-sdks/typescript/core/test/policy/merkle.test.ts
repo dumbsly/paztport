@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { concat, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { decode, encode } from "../../src/encoding/b64url.ts";
+import { canonicalize } from "../../src/encoding/jcs.ts";
 import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, parseProof, provesPath, verifyProof } from "../../src/policy/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
@@ -71,11 +72,12 @@ describe("merkle", () => {
     const proof = t.proofFor("a/c");
     const decoded = decodeProof(encodeProof(proof));
     expect(decoded).toEqual(proof);
+    expect(Buffer.from(decode(encodeProof(proof))).toString()).toBe(canonicalize(proof));
     expect(Object.keys(JSON.parse(Buffer.from(decode(encodeProof(proof))).toString()))).toEqual([
-      "leafSalt",
-      "siblings",
       "dirs",
+      "leafSalt",
       "rootId",
+      "siblings",
     ]);
   });
   it("decodeRejectsGarbage", () => {

@@ -154,7 +154,7 @@ class SessionsTest {
      * the record drops (the policy-key form then needs the policy key, which did not sign it).
      */
     @Test
-    void entryKeyForm() {
+    void entryKeyForm() throws Exception {
         KeyPair entry = Crypto.generateEd25519KeyPair();
         Map<String, String> ring = Map.of("pay", key(entry), "ledger", "ledger-key");
         KeyringFile signedRing = KeyringFile.sign(ring, serverKey, NOT_AFTER, serverPolicy.getPrivate());
@@ -167,7 +167,7 @@ class SessionsTest {
                 sess, "attested", List.of(), null);
 
         JsonNode byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
-        assertEquals(cert.tree(), byEntry.get("serverReplyCert"));
+        assertEquals(JSON.readTree(cert.toJson()), byEntry.get("serverReplyCert"));
         assertEquals(ReplyCheck.ATTESTED, check(byEntry, req, serverKey, "pay", NOW + 1000));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "pay", NOW + 1001));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "ledger", NOW));

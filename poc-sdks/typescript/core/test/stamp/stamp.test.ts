@@ -18,6 +18,18 @@ describe("stamp v3", () => {
     expect(() => signingBytesV3({ v: 3, ...F, rcv: "a|b" })).toThrow("stamp field rcv must not contain '|'");
     expect(() => signingBytesV3({ v: 3, ...F, rcv: "\uD800" })).toThrow("lone surrogate");
   });
+  it("signStampV3RefusesANoncharacter", () => {
+    expect(() => signStampV3({ ...F, inst: "\uFFFE" }, key)).toThrow("noncharacter");
+    expect(() => signStampV3({ ...F, sess: "\uFDD0" }, key)).toThrow("noncharacter");
+    expect(() => signStampV3({ ...F, prev: "\u{1FFFF}" }, key)).toThrow("noncharacter");
+    expect(() => signingBytesV3({ v: 3, ...F, inst: "\uFFFF" })).toThrow("noncharacter");
+  });
+  it("signStampV3RefusesANegativeTs", () => {
+    expect(() => signStampV3({ ...F, ts: -1 }, key)).toThrow("ts");
+    expect(() => signStampV3({ ...F, ts: 2 ** 53 }, key)).toThrow("ts");
+    expect(() => signStampV3({ ...F, ts: 1.5 }, key)).toThrow("ts");
+    expect(signStampV3({ ...F, ts: 0 }, key).ts).toBe(0);
+  });
   it("parseStampsV3 takes only v3 stamps with a string rcv", () => {
     const s = signStampV3(F, key);
     expect(parseStampsV3([s])).toEqual([s]);

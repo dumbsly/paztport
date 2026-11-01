@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode, encode } from "../encoding/b64url.ts";
-import { sign, utf8, verify } from "../crypto/crypto.ts";
-import { canonicalize } from "../encoding/jcs.ts";
+import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
+import { writeWire } from "../encoding/jcs.ts";
 import { isNotAfter, readNotAfter } from "./validity.ts";
 
 /** The policy root signed by the policy key; `notAfter` (ms since the epoch, inclusive) is when the owner stops vouching for its routes. */
@@ -12,7 +12,7 @@ export type SignedRoot = { rootId: string; root: string; sig: string; notAfter: 
 /** The bytes a root signature covers, `root` as its base64url text: domain prefix + JCS of notAfter, root and rootId; throws on a notAfter outside [0, 2^53 − 1]. */
 export function rootSigningBytes(rootId: string, root: string, notAfter: number): Uint8Array {
   if (!isNotAfter(notAfter)) throw new TypeError("notAfter must be an integer in [0, 2^53 - 1]");
-  return utf8("paztport-root\n" + canonicalize({ notAfter, root, rootId }));
+  return concat(utf8("paztport-root\n"), writeWire({ notAfter, root, rootId }));
 }
 
 function signText(rootId: string, rootB64: string, policyPrivateKey: string, notAfter: number): SignedRoot {

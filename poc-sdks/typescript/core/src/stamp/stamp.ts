@@ -3,6 +3,7 @@
 
 import { decode, encode } from "../encoding/b64url.ts";
 import { isWellFormed, sign, utf8 } from "../crypto/crypto.ts";
+import { isProtocolText } from "../encoding/json-rules.ts";
 
 /** Checks one stamp object's typed fields; returns it as a record. */
 function checkStamp(item: unknown): Record<string, unknown> {
@@ -48,21 +49,24 @@ export type StampV3 = {
 
 const V3_STRING_FIELDS = ["svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev"] as const;
 
-/** The exact bytes covered by a v3 stamp's signature; throws if any string field contains the delimiter or a lone surrogate. */
+/** The exact bytes covered by a v3 stamp's signature; throws if any string field contains the delimiter, a lone surrogate or a noncharacter. */
 export function signingBytesV3(s: Omit<StampV3, "sig">): Uint8Array {
   for (const f of V3_STRING_FIELDS) {
     if (s[f].includes("|")) {
       throw new Error(`stamp field ${f} must not contain '|'`);
     }
-    if (!isWellFormed(s[f])) {
-      throw new Error(`stamp field ${f} must not contain a lone surrogate`);
+    if (!isProtocolText(s[f])) {
+      throw new Error(`stamp field ${f} must not contain a lone surrogate or a noncharacter`);
     }
   }
   return utf8(`3|${s.svc}|${s.inst}|${s.rid}|${s.ts}|${s.sess}|${s.rcv}|${s.bind}|${s.infl}|${s.prev}`);
 }
 
-/** Signs a v3 stamp, the one every live producer makes; throws if a field holds the delimiter or a lone surrogate. */
+/** Signs a v3 stamp, the one every live producer makes; throws if a field holds the delimiter, a lone surrogate or a noncharacter, or `ts` is outside [0, 2^53 − 1]. */
 export function signStampV3(fields: Omit<StampV3, "sig" | "v">, privateKey: string): StampV3 {
+  if (!Number.isSafeInteger(fields.ts) || fields.ts < 0) {
+    throw new Error("stamp ts must be an integer in [0, 2^53 - 1]");
+  }
   const base = {
     v: 3 as const,
     svc: fields.svc,

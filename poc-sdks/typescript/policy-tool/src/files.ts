@@ -3,7 +3,7 @@
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { readNotAfter, type SignedKeyring } from "@paztport/core";
+import { printFile, readNotAfter, type JsonValue, type SignedKeyring } from "@paztport/core";
 
 const DAY_MS = 86_400_000;
 
@@ -29,10 +29,9 @@ export function readKeyring(path: string): Keyring {
   return ring;
 }
 
-/** Writes a keyring over `path` in place, its fields in the order the keygen has always written them. */
+/** Writes a keyring over `path` in place, in the file format. */
 export function writeKeyring(path: string, k: SignedKeyring): void {
-  const ring: Keyring = { services: k.services, policy: k.policy, sig: k.sig, notAfter: k.notAfter };
-  writeJson(path, ring);
+  writeJson(path, { services: k.services, policy: k.policy, sig: k.sig, notAfter: k.notAfter });
 }
 
 /** Now plus `days` days (`fallback` when undefined), or undefined unless `days` is a positive whole number whose end is a safe integer. */
@@ -42,9 +41,10 @@ export function notAfterInDays(days: string | undefined, fallback: number): numb
   return days !== "" && Number.isSafeInteger(d) && d >= 1 && Number.isSafeInteger(notAfter) ? notAfter : undefined;
 }
 
-export function writeJson(path: string, value: unknown): void {
+/** Writes `value` to `path` in the file format. */
+export function writeJson(path: string, value: JsonValue): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
+  writeFileSync(path, printFile(value));
 }
 
 /** Writes secret material owner-only; mode applies only on create, so chmod too. */

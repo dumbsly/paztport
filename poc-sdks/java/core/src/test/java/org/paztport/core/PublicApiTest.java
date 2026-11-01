@@ -18,24 +18,13 @@ import org.paztport.core.encoding.Jcs;
  */
 class PublicApiTest {
 
-    /**
-     * The Jackson annotations still on public types, each known and kept on purpose: the tools write
-     * {@code root.json} and {@code keyring.json}, and the starter reads them, by binding these records, so the
-     * annotations decide those files' form until the records gain writers of their own. They bind no user to
-     * Jackson, since an annotation whose class is absent is ignored. Any other is a failure, and so is an entry
-     * here that no longer matches, so the list cannot go stale.
-     */
-    private static final Set<String> ANNOTATIONS_KEPT = Set.of(
-            "org.paztport.core.policy.KeyringFile: @com.fasterxml.jackson.annotation.JsonInclude",
-            "org.paztport.core.policy.SignedRoot: @com.fasterxml.jackson.annotation.JsonInclude");
-
     @Test
     void namesNoJsonLibrary() throws Exception {
         assertTrue(PublicApi.moduleClasses(Jcs.class, "org.paztport.core").size() > 50, "found the module's classes");
         PublicApi.Findings found = PublicApi.module(Jcs.class, "org.paztport.core");
         assertTrue(found.types().isEmpty(),
                 "public signatures naming a JSON library:\n  " + String.join("\n  ", found.types()));
-        assertEquals(ANNOTATIONS_KEPT, found.annotations(), "JSON library annotations on public types");
+        assertTrue(found.annotations().isEmpty(), "JSON library annotations on public types: " + found.annotations());
     }
 
     /**

@@ -22,6 +22,8 @@ import org.junit.jupiter.api.condition.OS;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 
 class KeygenMainTest {
@@ -63,6 +65,14 @@ class KeygenMainTest {
 
         byte[] msg = "hop".getBytes(StandardCharsets.UTF_8);
         assertTrue(Crypto.verify(pub, msg, Crypto.sign(priv, msg)));
+    }
+
+    @Test
+    void keyringIsInTheFileFormat(@TempDir Path dir) throws Exception {
+        KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop");
+
+        byte[] bytes = Files.readAllBytes(dir.resolve("keyring.json"));
+        assertEquals(new String(bytes, StandardCharsets.UTF_8), JsonWriter.file(JsonReader.file(bytes)));
     }
 
     @Test

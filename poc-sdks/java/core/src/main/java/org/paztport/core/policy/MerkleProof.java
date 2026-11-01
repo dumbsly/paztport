@@ -6,11 +6,15 @@ package org.paztport.core.policy;
 import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * A membership proof for one route, carried in {@code X-Path-Proof}. Padded to a
@@ -77,13 +81,23 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
         return Arrays.equals(working, root);
     }
 
-    /** The wire form: {@code {leafSalt, siblings, dirs, rootId}}. */
+    /** The wire form: the object's JCS text, {@code {dirs, leafSalt, rootId, siblings}}. */
     public String toJson() {
-        return Json.writeText(this);
+        return JsonWriter.text(tree());
     }
 
+    /** The header form: the base64url of {@link #toJson()}'s bytes. */
     public String encode() {
-        return Base64Url.encode(Json.write(this));
+        return JsonWriter.token(tree());
+    }
+
+    JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("leafSalt", new JsonValue.Str(leafSalt));
+        o.put("siblings", new JsonValue.Arr(siblings.stream().map(s -> (JsonValue) new JsonValue.Str(s)).toList()));
+        o.put("dirs", new JsonValue.Str(dirs));
+        o.put("rootId", new JsonValue.Str(rootId));
+        return new JsonValue.Obj(o);
     }
 
     public static MerkleProof decode(String header) {

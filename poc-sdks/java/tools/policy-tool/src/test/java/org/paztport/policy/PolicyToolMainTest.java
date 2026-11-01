@@ -25,6 +25,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
@@ -150,6 +152,28 @@ class PolicyToolMainTest {
         assertEquals(orders, cert.key());
         assertEquals(NOT_AFTER, cert.notAfter());
         assertTrue(Files.exists(out.resolve("root.json")));
+    }
+
+    @Test
+    void filesAreInTheFileFormat(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+
+        PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER);
+        assertInTheFileFormat(keys.resolve("keyring.json"), out.resolve("root.json"), out.resolve("reply-cert.json"),
+                out.resolve("proofs-gateway.json"), out.resolve("proofs-orders.json"));
+
+        PolicyToolMain.renew(keys, out, NOT_AFTER, "orders", NOT_AFTER);
+        assertInTheFileFormat(keys.resolve("keyring.json"), out.resolve("root.json"), out.resolve("reply-cert.json"));
+    }
+
+    private static void assertInTheFileFormat(Path... files) throws IOException {
+        for (Path f : files) {
+            byte[] bytes = Files.readAllBytes(f);
+            assertEquals(new String(bytes, StandardCharsets.UTF_8), JsonWriter.file(JsonReader.file(bytes)), f.toString());
+        }
     }
 
     @Test

@@ -8,7 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import {
-  canonicalize, decode, encode, isCurrent, parseLocalRules, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
+  canonicalize, decode, encode, isCurrent, printFile, readFile, parseLocalRules, renewKeyring, signRenewedRoot, rulesHash, rulesRoute, sign, utf8, verify, verifyKeyring, verifyProof, verifyReplyCert, verifyRoot,
 } from "@paztport/core";
 import type { MerkleProof, ProofBundle, ReplyCert, SignedKeyring, SignedRoot } from "@paztport/core";
 import { readJson, readKey, readKeyring } from "../src/files.ts";
@@ -57,7 +57,7 @@ describe("policy-tool CLIs", () => {
     const ring = readKeyring(join(out, "keyring.json"));
     expect(typeof ring.sig).toBe("string");
     // signed with a window, valid for seven days
-    expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["services", "policy", "sig", "notAfter"]);
+    expect(Object.keys(readJson<object>(join(out, "keyring.json")))).toEqual(["notAfter", "policy", "services", "sig"]);
     expect(ring.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
     expect(ring.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
     expect(verifyKeyring(ring as SignedKeyring, ring.policy)).toBe(true);
@@ -131,7 +131,7 @@ describe("policy-tool CLIs", () => {
     const root = readJson<SignedRoot>(join(out, "root.json"));
     expect(verifyRoot(root, ring.policy)).toBe(true);
     // signed with a window, valid for seven days, and the window is printed
-    expect(Object.keys(root)).toEqual(["rootId", "root", "sig", "notAfter"]);
+    expect(Object.keys(root)).toEqual(["notAfter", "root", "rootId", "sig"]);
     expect(root.notAfter).toBeGreaterThanOrEqual(before + 7 * DAY_MS);
     expect(root.notAfter).toBeLessThanOrEqual(after + 7 * DAY_MS);
     expect(r.stdout).toContain(`notAfter ${root.notAfter}`);
@@ -207,7 +207,7 @@ describe("policy-tool CLIs", () => {
     expect(r.status, r.stderr).toBe(0);
     const ring = readKeyring(join(keys, "keyring.json"));
     const cert = readJson<ReplyCert>(join(out, "reply-cert.json"));
-    expect(Object.keys(cert)).toEqual(["policy", "svc", "key", "notAfter", "sig"]);
+    expect(Object.keys(cert)).toEqual(["key", "notAfter", "policy", "sig", "svc"]);
     expect(verifyReplyCert(cert, ring.policy)).toBe(true);
     expect(cert.svc).toBe("orders");
     expect(cert.key).toBe(ring.services.orders);
@@ -220,6 +220,19 @@ describe("policy-tool CLIs", () => {
     expect(r.stdout).toContain(String(cert.notAfter));
     for (const secret of [ring.policy, ring.services.orders!, cert.sig, readKey(join(keys, "policy.key"))]) {
       expect(r.stdout + r.stderr).not.toContain(secret);
+    }
+  });
+
+  it("filesAreInTheFileFormat", () => {
+    const { keys, policyArgs } = certWorld();
+    const out = tmp();
+    const r = run(policy, policyArgs(out, "--reply-cert-svc", "orders", "--keyring", join(keys, "keyring.json")));
+    expect(r.status, r.stderr).toBe(0);
+    const files = [join(keys, "keyring.json"), ...readdirSync(out).map((name) => join(out, name))];
+    expect(files.length).toBeGreaterThan(3);
+    for (const file of files) {
+      const text = readFileSync(file, "utf8");
+      expect(text, file).toBe(printFile(readFile(readFileSync(file))));
     }
   });
 
@@ -368,7 +381,7 @@ describe("policy-tool CLIs", () => {
     expect(root.notAfter).toBeGreaterThanOrEqual(start + 30 * DAY_MS);
     expect(root.notAfter).toBeLessThanOrEqual(end + 30 * DAY_MS);
     expect(ring.notAfter).toBe(root.notAfter);
-    expect(Object.keys(readJson<object>(join(keys, "keyring.json")))).toEqual(["services", "policy", "sig", "notAfter"]);
+    expect(Object.keys(readJson<object>(join(keys, "keyring.json")))).toEqual(["notAfter", "policy", "services", "sig"]);
     expect(verifyRoot(root, before.policy)).toBe(true);
     expect(verifyKeyring(ring as SignedKeyring, before.policy)).toBe(true);
     expect(ring.services).toEqual(before.services);
@@ -434,7 +447,7 @@ describe("policy-tool CLIs", () => {
     expect(renewed.rootId).toBe(built.rootId);
     expect(renewed.root).toBe(built.root);
     expect(renewed.notAfter).toBeGreaterThan(built.notAfter);
-    expect(Object.keys(renewed)).toEqual(["rootId", "root", "sig", "notAfter"]);
+    expect(Object.keys(renewed)).toEqual(["notAfter", "root", "rootId", "sig"]);
     expect(verifyRoot(renewed, ringBefore.policy)).toBe(true);
     // the bundles are untouched and still prove against the renewed root
     const after = snapshot(out);

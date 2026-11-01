@@ -3,12 +3,12 @@
 
 package org.paztport.http;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.Map;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
@@ -31,8 +31,6 @@ public final class HttpSessions {
     public static final String NO_SESSION = "NO_SESSION";
     /** A handshake carries a keyring and a root: far more than this is not one, and is not read. */
     public static final int MAX_BODY_BYTES = 256 * 1024;
-
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private HttpSessions() {
     }
@@ -83,10 +81,6 @@ public final class HttpSessions {
 
     /** The body of a refusal: {@code {"error":"<code>"}}. */
     public static byte[] error(String code) {
-        try {
-            return MAPPER.writeValueAsBytes(JsonNodeFactory.instance.objectNode().put("error", code));
-        } catch (JsonProcessingException e) {
-            throw new IllegalStateException(e);
-        }
+        return JsonWriter.wire(new JsonValue.Obj(Map.of("error", new JsonValue.Str(code))));
     }
 }

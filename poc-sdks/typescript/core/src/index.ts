@@ -5,7 +5,7 @@ export * from "./encoding/b64url.ts";
 export * from "./crypto/crypto.ts";
 export { canonicalize, writeToken, writeWire } from "./encoding/jcs.ts";
 export * from "./encoding/json.ts";
-export { JSON_LIMITS, MalformedJson, type JsonStep } from "./encoding/json-rules.ts";
+export { JSON_LIMITS, MalformedJson, isProtocolText, type JsonStep } from "./encoding/json-rules.ts";
 export * from "./encoding/json-file.ts";
 export * from "./policy/merkle.ts";
 export * from "./policy/root.ts";

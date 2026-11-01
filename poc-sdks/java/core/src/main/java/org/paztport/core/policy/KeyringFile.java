@@ -3,13 +3,10 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -20,9 +17,10 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * The on-disk {@code keyring.json}: every service's public key plus the policy public key, each as a base64url
@@ -38,7 +36,6 @@ import org.paztport.core.internal.JsonIntegers;
  * <p>What the signer must have verified: the policy owner signs a keyring only after checking that each listed key
  * is that service's current key, and {@code notAfter} is when it stops vouching for them.
  */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public record KeyringFile(Map<String, String> services, String policy, String sig, long notAfter) {
 
     /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
@@ -57,15 +54,14 @@ public record KeyringFile(Map<String, String> services, String policy, String si
      * {@link IllegalArgumentException} for a {@code notAfter} out of range, which nothing signs.
      */
     public static byte[] signingBytes(String policy, Map<String, String> services, long notAfter) {
-        if (!JsonIntegers.isNotAfter(notAfter)) {
+        if (!JsonIntegers.inRange(notAfter)) {
             throw new IllegalArgumentException("notAfter must be an integer in [0, 2^53 - 1]");
         }
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("notAfter", notAfter);
-        o.put("policy", policy);
-        ObjectNode s = o.putObject("services");
-        services.forEach(s::put);
-        byte[] body = JcsWriter.bytes(o);
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        o.put("policy", new JsonValue.Str(policy));
+        o.put("services", servicesJson(services));
+        byte[] body = JsonWriter.wire(new JsonValue.Obj(o));
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);
@@ -170,9 +166,22 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         return fromTree(node);
     }
 
-    /** The wire form: {@code {services, policy, sig?, notAfter}}, with a null {@code sig} left out. */
+    /** The wire form: the object's JCS text, {@code {notAfter, policy, services, sig?}} with a null {@code sig} left out. */
     public String toJson() {
-        return Json.writeText(this);
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("services", servicesJson(services));
+        o.put("policy", new JsonValue.Str(policy));
+        if (sig != null) {
+            o.put("sig", new JsonValue.Str(sig));
+        }
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        return JsonWriter.text(new JsonValue.Obj(o));
+    }
+
+    private static JsonValue.Obj servicesJson(Map<String, String> services) {
+        Map<String, JsonValue> s = new LinkedHashMap<>();
+        services.forEach((name, key) -> s.put(name, new JsonValue.Str(key)));
+        return new JsonValue.Obj(s);
     }
 
     private static String text(JsonNode node, String field) {

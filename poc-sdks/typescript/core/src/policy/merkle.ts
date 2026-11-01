@@ -3,6 +3,7 @@
 
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
+import { writeToken } from "../encoding/jcs.ts";
 
 export type MerkleProof = { leafSalt: string; siblings: string[]; dirs: string; rootId: string };
 
@@ -142,8 +143,7 @@ export function provesPath(value: unknown, path: string, root: Uint8Array, rootI
 }
 
 export function encodeProof(p: MerkleProof): string {
-  const ordered = { leafSalt: p.leafSalt, siblings: p.siblings, dirs: p.dirs, rootId: p.rootId };
-  return encode(utf8(JSON.stringify(ordered)));
+  return writeToken({ leafSalt: p.leafSalt, siblings: p.siblings, dirs: p.dirs, rootId: p.rootId });
 }
 
 export function decodeProof(text: string): MerkleProof {

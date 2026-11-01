@@ -3,10 +3,9 @@
 
 package org.paztport.policy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
@@ -17,6 +16,8 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.paztport.core.crypto.KeyFiles;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.PolicyOwner;
@@ -64,7 +65,6 @@ import org.paztport.core.session.ReplyCert;
  */
 public final class PolicyToolMain {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
     private static final long DAY_MS = 86_400_000L;
     private static final int DEFAULT_DAYS = 7;
 
@@ -107,12 +107,12 @@ public final class PolicyToolMain {
 
         writeKeyringInPlace(keyringFile, ring);
         Files.createDirectories(outDir);
-        MAPPER.writeValue(outDir.resolve("root.json").toFile(), result.signedRoot());
+        write(outDir.resolve("root.json"), result.signedRoot().toJson());
         for (ProofBundle bundle : result.bundles().values()) {
-            MAPPER.writeValue(outDir.resolve("proofs-" + bundle.service() + ".json").toFile(), bundle);
+            write(outDir.resolve("proofs-" + bundle.service() + ".json"), bundle.toJson());
         }
         if (cert != null) {
-            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), MAPPER.readTree(cert.toJson()));
+            write(outDir.resolve("reply-cert.json"), cert.toJson());
         }
     }
 
@@ -152,10 +152,19 @@ public final class PolicyToolMain {
         }
 
         writeKeyringInPlace(keyringFile, ring);
-        MAPPER.writeValue(rootFile.toFile(), renewed);
+        write(rootFile, renewed.toJson());
         if (cert != null) {
-            MAPPER.writeValue(outDir.resolve("reply-cert.json").toFile(), MAPPER.readTree(cert.toJson()));
+            write(outDir.resolve("reply-cert.json"), cert.toJson());
         }
+    }
+
+    /** Writes an object's JCS text {@code json} as a file, in the spec's file form. */
+    private static void write(Path file, String json) throws IOException {
+        Files.writeString(file, fileText(json));
+    }
+
+    private static String fileText(String json) {
+        return JsonWriter.file(JsonReader.wireText(json));
     }
 
     /**
@@ -184,7 +193,7 @@ public final class PolicyToolMain {
      * keys from the keygen, since this tool only re-signs a keyring.
      */
     private static void writeKeyringInPlace(Path keyringFile, KeyringFile ring) throws IOException {
-        byte[] bytes = MAPPER.writeValueAsBytes(ring);
+        byte[] bytes = fileText(ring.toJson()).getBytes(StandardCharsets.UTF_8);
         try {
             Files.write(keyringFile, bytes);
         } catch (IOException e) {

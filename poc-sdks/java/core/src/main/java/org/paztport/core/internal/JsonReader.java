@@ -351,18 +351,10 @@ public final class JsonReader {
 
     /** The code point, unless it is a noncharacter. */
     private int character(int cp) {
-        if (isNoncharacter(cp)) {
+        if (Text.isNoncharacter(cp)) {
             throw refuse("a noncharacter");
         }
         return cp;
-    }
-
-    /**
-     * True for a noncharacter, which I-JSON refuses (RFC 7493 section 2.1): U+FDD0 to U+FDEF, and each code point
-     * whose last four hex digits are FFFE or FFFF.
-     */
-    static boolean isNoncharacter(int cp) {
-        return cp >= 0xfdd0 && cp <= 0xfdef || (cp & 0xfffe) == 0xfffe;
     }
 
     private boolean next(char c) {

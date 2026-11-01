@@ -3,14 +3,12 @@
 
 package org.paztport.core;
 
-import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -19,9 +17,9 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
-import org.paztport.core.encoding.Jcs;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.SignedRoot;
@@ -113,20 +111,13 @@ class JsonTextRoundTripTest {
         } catch (IllegalArgumentException e) {
             return Outcome.REFUSED;
         }
-        byte[] wrote = jcs(back);
-        if (same(c.json(), wrote)) {
+        // What an object is written as reads back as the canonical bytes of what it holds.
+        JsonReader.wireText(back);
+        if (tree(back).equals(tree(c.json()))) {
             return Outcome.SAME;
         }
-        assertArrayEquals(wrote, jcs(c.kind().roundTrip.apply(back)), c.name() + ": written again");
+        assertEquals(back, c.kind().roundTrip.apply(back), c.name() + ": written again");
         return Outcome.NORMALISED;
-    }
-
-    private static boolean same(String json, byte[] wrote) {
-        try {
-            return Arrays.equals(jcs(json), wrote);
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
     }
 
     private record Case(String name, Kind kind, String json) {
@@ -288,10 +279,6 @@ class JsonTextRoundTripTest {
             throw new IllegalArgumentException("not a notAfter: " + n);
         }
         return v;
-    }
-
-    private static byte[] jcs(String json) {
-        return Jcs.bytes(json);
     }
 
     private static JsonNode tree(String json) {

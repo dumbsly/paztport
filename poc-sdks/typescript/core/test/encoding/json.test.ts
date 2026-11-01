@@ -7,7 +7,7 @@ import { encode } from "../../src/encoding/b64url.ts";
 import { writeToken } from "../../src/encoding/jcs.ts";
 import { printFile } from "../../src/encoding/json-file.ts";
 import { readFile, readToken, readWireBytes, type JsonValue } from "../../src/encoding/json.ts";
-import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import { MalformedJson, isProtocolText } from "../../src/encoding/json-rules.ts";
 
 /** The error `read` throws, which must be a MalformedJson. */
 function refusal(read: () => unknown): MalformedJson {
@@ -116,5 +116,16 @@ describe("json", () => {
 
   it("printFileWritesTheFileFormat", () => {
     expect(printFile({ b: [1, {}], a: "é" })).toBe('{\n  "a": "é",\n  "b": [\n    1,\n    {}\n  ]\n}\n');
+  });
+});
+
+describe("isProtocolText", () => {
+  it("accepts text a Paztport string may hold", () => {
+    for (const s of ["", "plain", "caf\u00e9", "\u{1F600}", "\uFFFD", "\u{10FFFD}"]) expect(isProtocolText(s), s).toBe(true);
+  });
+  it("refuses a lone surrogate and a noncharacter", () => {
+    for (const s of ["\uD800", "a\uDC00b", "\uFFFE", "\uFFFF", "\uFDD0", "\uFDEF", "\u{1FFFE}", "x\u{10FFFF}"]) {
+      expect(isProtocolText(s), s).toBe(false);
+    }
   });
 });

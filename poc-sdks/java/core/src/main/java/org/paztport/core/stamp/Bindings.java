@@ -7,7 +7,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.influence.ContentLabel;
 
@@ -36,7 +35,8 @@ public final class Bindings {
     }
 
     /**
-     * The response binding: {@code b64url(SHA-256(utf8(resultHash + "\n" + callId + "\n" + JCS(labels))))}. A newline
+     * The response binding: {@code b64url(SHA-256(utf8(resultHash + "\n" + callId + "\n" + JCS(labels))))}, the
+     * labels written by {@link ContentLabel#toJson(List)}. A newline
      * in the call id would let two (hash, id) pairs share bytes, and a lone surrogate would encode as {@code ?}, so
      * both are refused with {@link IllegalArgumentException}.
      */
@@ -47,7 +47,7 @@ public final class Bindings {
         if (callId.contains("\n")) {
             throw new IllegalArgumentException("response: callId must not contain newlines");
         }
-        String text = resultHash + "\n" + callId + "\n" + Jcs.canonicalize(ContentLabel.toJson(labels));
+        String text = resultHash + "\n" + callId + "\n" + ContentLabel.toJson(labels);
         return Base64Url.encode(Crypto.sha256(text.getBytes(StandardCharsets.UTF_8)));
     }
 }

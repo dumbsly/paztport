@@ -4,15 +4,16 @@
 package org.paztport.core.influence;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * What a response says about its own content: a class, a content id the caller can later cite, and (for private
@@ -22,7 +23,10 @@ import org.paztport.core.internal.Json;
  */
 public record ContentLabel(InfluenceClass cls, String cid, String owner) {
 
-    /** Refuses a missing class or cid, an empty owner, or a lone surrogate, none of which the binding could carry. */
+    /**
+     * Refuses a missing class or cid, an empty owner, a lone surrogate or a noncharacter, none of which the binding
+     * could carry.
+     */
     public ContentLabel {
         if (cls == null || cid == null) {
             throw new IllegalArgumentException("content label needs cls and cid");
@@ -30,8 +34,9 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
         if (owner != null && owner.isEmpty()) {
             throw new IllegalArgumentException("content label owner must not be empty");
         }
-        if (!Text.isWellFormed(cid) || (owner != null && !Text.isWellFormed(owner))) {
-            throw new IllegalArgumentException("lone surrogate in content label");
+        if (!Text.isWellFormed(cid) || Text.hasNoncharacter(cid)
+                || (owner != null && (!Text.isWellFormed(owner) || Text.hasNoncharacter(owner)))) {
+            throw new IllegalArgumentException("lone surrogate or noncharacter in content label");
         }
     }
 
@@ -75,24 +80,22 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
 
     /** The wire form of {@code labels}, in the order given, each as {@link #toJson()} writes it. */
     public static String toJson(List<ContentLabel> labels) {
-        ArrayNode a = JsonNodeFactory.instance.arrayNode();
-        labels.forEach(l -> a.add(l.tree()));
-        return Json.text(a);
+        return JsonWriter.text(new JsonValue.Arr(labels.stream().map(l -> (JsonValue) l.tree()).toList()));
     }
 
-    /** The wire form: {@code {cls, cid, owner?}}, with an absent owner left out. */
+    /** The wire form: the object's JCS text, {@code {cls, cid, owner?}} with an absent owner left out. */
     public String toJson() {
-        return Json.text(tree());
+        return JsonWriter.text(tree());
     }
 
-    private ObjectNode tree() {
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("cls", cls.wire());
-        o.put("cid", cid);
+    private JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("cls", new JsonValue.Str(cls.wire()));
+        o.put("cid", new JsonValue.Str(cid));
         if (owner != null) {
-            o.put("owner", owner);
+            o.put("owner", new JsonValue.Str(owner));
         }
-        return o;
+        return new JsonValue.Obj(o);
     }
 
     /** The influence entry a receiver records for content carrying this label. */

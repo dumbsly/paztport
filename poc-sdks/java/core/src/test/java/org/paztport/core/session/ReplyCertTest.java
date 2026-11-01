@@ -118,20 +118,28 @@ class ReplyCertTest {
         assertThrows(IllegalArgumentException.class, () -> ReplyCert.signingBytes("P", "s", "K", -1));
     }
 
+    private static ObjectNode tree(ReplyCert c) {
+        try {
+            return (ObjectNode) JSON.readTree(c.toJson());
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
     @Test
     void jsonRoundTrips() throws Exception {
         ReplyCert c = issued();
-        ObjectNode o = c.tree();
+        ObjectNode o = tree(c);
         List<String> names = new ArrayList<>();
         o.fieldNames().forEachRemaining(names::add);
-        assertEquals(List.of("policy", "svc", "key", "notAfter", "sig"), names);
+        assertEquals(List.of("key", "notAfter", "policy", "sig", "svc"), names);
         assertTrue(o.get("notAfter").isIntegralNumber());
         assertEquals(c, ReplyCert.parse(JSON.writeValueAsString(o)));
     }
 
     @Test
     void parseIgnoresOtherFields() throws Exception {
-        ObjectNode o = issued().tree();
+        ObjectNode o = tree(issued());
         o.put("note", "not signed");
         ReplyCert c = ReplyCert.parse(o.toString());
         assertEquals(issued(), c);
@@ -142,7 +150,7 @@ class ReplyCertTest {
     void parseRefusesABadNotAfter() throws Exception {
         for (String bad : new String[] {"1.5", "-1", "-1.0", "9007199254740992", "9.007199254740992e15",
                 "18446744073709551616", "\"1798761600000\"", "\"1e3\"", "null", "true", "[]", "{}"}) {
-            ObjectNode o = issued().tree();
+            ObjectNode o = tree(issued());
             o.set("notAfter", json(bad));
             assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(o.toString()), bad);
         }
@@ -153,7 +161,7 @@ class ReplyCertTest {
         String[] text = {"1.0", "1e3", "1798761600000.0", "1.7987616E12"};
         long[] value = {1, 1000, NOT_AFTER, NOT_AFTER};
         for (int i = 0; i < text.length; i++) {
-            ObjectNode o = issued().tree();
+            ObjectNode o = tree(issued());
             o.set("notAfter", json(text[i]));
             assertEquals(value[i], ReplyCert.parse(o.toString()).notAfter(), text[i]);
         }
@@ -169,7 +177,7 @@ class ReplyCertTest {
     @Test
     void parseAcceptsTheRangeEnds() throws Exception {
         for (long ok : new long[] {0, MAX_SAFE}) {
-            ObjectNode o = issued().tree();
+            ObjectNode o = tree(issued());
             o.put("notAfter", ok);
             assertEquals(ok, ReplyCert.parse(o.toString()).notAfter());
         }
@@ -178,15 +186,15 @@ class ReplyCertTest {
     @Test
     void parseRefusesAMissingOrNonStringField() {
         for (String field : new String[] {"policy", "svc", "key", "notAfter", "sig"}) {
-            ObjectNode missing = issued().tree();
+            ObjectNode missing = tree(issued());
             missing.remove(field);
             assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(missing.toString()), field);
         }
         for (String field : new String[] {"policy", "svc", "key", "sig"}) {
-            ObjectNode number = issued().tree();
+            ObjectNode number = tree(issued());
             number.put(field, 1);
             assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(number.toString()), field);
-            ObjectNode nul = issued().tree();
+            ObjectNode nul = tree(issued());
             nul.putNull(field);
             assertThrows(IllegalArgumentException.class, () -> ReplyCert.parse(nul.toString()), field);
         }
@@ -203,7 +211,7 @@ class ReplyCertTest {
     @Test
     void loadsTheToolsFile(@TempDir Path dir) throws Exception {
         Path f = dir.resolve("reply-cert.json");
-        Files.writeString(f, issued().tree().toPrettyString());
+        Files.writeString(f, tree(issued()).toPrettyString());
         assertEquals(issued(), ReplyCert.load(f));
         for (String bad : new String[] {"{not json", "", "[]", issued().toJson() + " {}"}) {
             Files.writeString(f, bad);

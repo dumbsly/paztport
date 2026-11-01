@@ -21,6 +21,8 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
@@ -46,16 +48,23 @@ public final class Sessions {
     }
 
     /** A root's wire form: JSON null when there is none, its {@code notAfter} written inside it. */
-    static JsonNode rootJson(SignedRoot root) {
+    static JsonValue rootJson(SignedRoot root) {
         if (root == null) {
-            return JsonNodeFactory.instance.nullNode();
+            return new JsonValue.Null();
         }
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("rootId", root.rootId());
-        o.put("root", root.root());
-        o.put("sig", root.sig());
-        o.put("notAfter", root.notAfter());
-        return o;
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("rootId", new JsonValue.Str(root.rootId()));
+        o.put("root", new JsonValue.Str(root.root()));
+        o.put("sig", new JsonValue.Str(root.sig()));
+        o.put("notAfter", new JsonValue.Int(root.notAfter()));
+        return new JsonValue.Obj(o);
+    }
+
+    /** A map of strings as a JSON object. */
+    static JsonValue.Obj stringMapJson(Map<String, String> map) {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        map.forEach((name, value) -> o.put(name, new JsonValue.Str(value)));
+        return new JsonValue.Obj(o);
     }
 
     static String text(JsonNode n, String what) {
@@ -175,14 +184,19 @@ public final class Sessions {
      * certificate in the reply is covered as parsed, never as its raw text.
      */
     public static byte[] replySigningBytes(SessionReply reply) {
-        return signingBytes(reply.tree());
+        Map<String, JsonValue> body = new LinkedHashMap<>(reply.tree().members());
+        body.remove("sig");
+        return withDomain(JsonWriter.wire(new JsonValue.Obj(body)));
     }
 
     private static byte[] signingBytes(JsonNode replyJson) {
         ObjectNode body = replyJson.deepCopy();
         body.remove("sig");
+        return withDomain(JcsWriter.bytes(body));
+    }
+
+    private static byte[] withDomain(byte[] json) {
         byte[] prefix = REPLY_DOMAIN.getBytes(StandardCharsets.UTF_8);
-        byte[] json = JcsWriter.bytes(body);
         byte[] out = new byte[prefix.length + json.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);
         System.arraycopy(json, 0, out, prefix.length, json.length);

@@ -3,13 +3,10 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JacksonException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -17,11 +14,14 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.RootJson;
 
 /**
@@ -38,7 +38,6 @@ import org.paztport.core.internal.RootJson;
  * allows, and {@code notAfter} is when it stops vouching for them. Renewing is signing the same tree again with a
  * new {@code notAfter}; narrowing is not renewing.
  */
-@JsonInclude(JsonInclude.Include.NON_NULL)
 public record SignedRoot(String rootId, String root, String sig, long notAfter) {
 
     /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
@@ -92,13 +91,29 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
         return Base64Url.decode(root);
     }
 
-    /** The wire form: {@code {rootId, root, sig, notAfter}}, with a null field left out. */
+    /** The wire form: the object's JCS text, {@code {notAfter, root, rootId, sig}} with a null field left out. */
     public String toJson() {
-        return Json.writeText(this);
+        return JsonWriter.text(tree());
     }
 
+    /** The header form: the base64url of {@link #toJson()}'s bytes. */
     public String encode() {
-        return Base64Url.encode(Json.write(this));
+        return JsonWriter.token(tree());
+    }
+
+    JsonValue.Obj tree() {
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        if (rootId != null) {
+            o.put("rootId", new JsonValue.Str(rootId));
+        }
+        if (root != null) {
+            o.put("root", new JsonValue.Str(root));
+        }
+        if (sig != null) {
+            o.put("sig", new JsonValue.Str(sig));
+        }
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        return new JsonValue.Obj(o);
     }
 
     /** Reads the base64url text {@link #encode} writes, by the rules of {@link #parse}. */
@@ -115,14 +130,14 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
         if (rootId == null || root == null) {
             throw new IllegalArgumentException("a signed root needs a root id and a root");
         }
-        if (!JsonIntegers.isNotAfter(notAfter)) {
+        if (!JsonIntegers.inRange(notAfter)) {
             throw new IllegalArgumentException("notAfter must be an integer in [0, 2^53 - 1]");
         }
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("notAfter", notAfter);
-        o.put("root", root);
-        o.put("rootId", rootId);
-        byte[] body = JcsWriter.bytes(o);
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("notAfter", new JsonValue.Int(notAfter));
+        o.put("root", new JsonValue.Str(root));
+        o.put("rootId", new JsonValue.Str(rootId));
+        byte[] body = JsonWriter.wire(new JsonValue.Obj(o));
         byte[] prefix = DOMAIN.getBytes(StandardCharsets.UTF_8);
         byte[] out = new byte[prefix.length + body.length];
         System.arraycopy(prefix, 0, out, 0, prefix.length);

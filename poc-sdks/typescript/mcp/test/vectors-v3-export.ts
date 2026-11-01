@@ -15,7 +15,7 @@ import {
   canonicalize, commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, decodeProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, signSessionReply, verifyRoot,
+  checkSessionReply, decodeProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
@@ -56,7 +56,7 @@ const ABOUT =
   "A sessionRequest case is a request body as received, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). " +
   "The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
   "which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; " +
-  "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and encoded proof headers are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
+  "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
 
 /** The deterministic Ed25519 key pair for a name, as base64url SPKI and PKCS#8 DER. */
@@ -602,6 +602,9 @@ export function buildVectorsV3(): Record<string, unknown> {
   const serverRingServices = resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" });
   const serverRootUntil = (notAfter: number) => signRoot(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv, notAfter);
   const serverRingUntil = (notAfter: number) => signKeyring(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv, notAfter);
+  /** A reply signed over whatever it holds: the crafted cases carry values the SDK's signer refuses to write. */
+  const signAnyReply = (body: Record<string, unknown>, priv: string): SessionReply =>
+    ({ ...body, sig: encode(sign(priv, utf8("paztport-session-reply\n" + canonicalize(body)))) }) as unknown as SessionReply;
   const certFor = (svc: string, key: KeyName, signer: KeyName = "server-policy") =>
     signReplyCert(keys["server-policy"].pub, svc, keys[key].pub, CERT_NOT_AFTER, keys[signer].priv);
   const entryCert = certFor("mcp-entry", "mcp-entry");
@@ -614,7 +617,7 @@ export function buildVectorsV3(): Record<string, unknown> {
       serverKeyringNotAfter: LIVE_NOT_AFTER, serverReplyCert: entryCert, nonce: SERVER_NONCE, sess: sessFor(root), status: "attested", disabled: [], ...o,
     };
     for (const f of drop) delete body[f];
-    return signSessionReply(body as unknown as Omit<SessionReply, "sig">, keys[signer].priv) as unknown as Record<string, unknown>;
+    return signAnyReply(body, keys[signer].priv) as unknown as Record<string, unknown>;
   };
   // The keyring's signature and its window travel together: neither is in the policy-key form.
   const NO_RING_SIG = ["serverKeyringSig", "serverKeyringNotAfter"];
@@ -773,7 +776,7 @@ export function buildVectorsV3(): Record<string, unknown> {
       sess: deriveSessionId(req.clientRoot?.sig ?? null, root.sig, req.nonce, SERVER_NONCE, req), status: "attested", disabled: [], ...o,
     };
     for (const f of drop) delete body[f];
-    return signSessionReply(body as unknown as Omit<SessionReply, "sig">, keys[signer].priv);
+    return signAnyReply(body, keys[signer].priv);
   };
   const handshakeCase = (name: string, request: SessionRequest, reply: SessionReply, at: number[], o: { pin?: KeyName; serverEntry?: string } = {}) => {
     const pin = o.pin ?? "server-policy";

@@ -56,11 +56,11 @@ public final class JsonIntegers {
     }
 
     /**
-     * True when {@code v} is a valid {@code notAfter}: an integer in [0, 2^53 &minus; 1]. The one range check every
-     * window is held to, whether read from the wire, about to be signed or pinned in a verifier's config, so that no
-     * window one SDK accepts is one the other refuses.
+     * True when {@code v} is a protocol integer: in [0, 2^53 &minus; 1]. The one range check every window and every
+     * stamp {@code ts} is held to, whether read from the wire, about to be signed or pinned in a verifier's config,
+     * so that no value one SDK accepts is one the other refuses.
      */
-    public static boolean isNotAfter(long v) {
+    public static boolean inRange(long v) {
         return v >= 0 && v <= MAX_SAFE;
     }
 
@@ -71,6 +71,6 @@ public final class JsonIntegers {
      */
     public static Long notAfter(JsonNode n) {
         Long v = safeInteger(n);
-        return v != null && isNotAfter(v) ? v : null;
+        return v != null && inRange(v) ? v : null;
     }
 }

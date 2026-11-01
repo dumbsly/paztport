@@ -4,8 +4,6 @@
 package org.paztport.core.influence;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -24,8 +22,9 @@ import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
-import org.paztport.core.internal.JcsWriter;
 import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * The influence a sender's egress hands to another organisation. The full entries name internal services and
@@ -123,18 +122,18 @@ public final class BoundaryInfluence {
         if (rid == null || partnerEntry == null || cls == null) {
             throw new IllegalArgumentException("a boundary salt needs a rid, a partner entry and a class");
         }
-        ObjectNode o = JsonNodeFactory.instance.objectNode();
-        o.put("cls", cls.wire());
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("cls", new JsonValue.Str(cls.wire()));
         if (owner != null) {
-            o.put("owner", owner);
+            o.put("owner", new JsonValue.Str(owner));
         }
-        o.put("rcv", partnerEntry);
-        o.put("rid", rid);
+        o.put("rcv", new JsonValue.Str(partnerEntry));
+        o.put("rid", new JsonValue.Str(rid));
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
             mac.init(new SecretKeySpec(key, "HmacSHA256"));
             mac.update(SALT_DOMAIN);
-            mac.update(JcsWriter.bytes(o));
+            mac.update(JsonWriter.wire(new JsonValue.Obj(o)));
             return Arrays.copyOf(mac.doFinal(), SALT_LENGTH);
         } catch (GeneralSecurityException e) {
             throw new IllegalStateException("HMAC-SHA256 unavailable", e);
@@ -150,7 +149,7 @@ public final class BoundaryInfluence {
         if (salt == null || salt.length != SALT_LENGTH || group == null) {
             throw new IllegalArgumentException("a boundary commitment needs a 16-byte salt and a group");
         }
-        byte[] body = JcsWriter.bytes(Influence.tree(Influence.normalise(group)));
+        byte[] body = JsonWriter.wire(Influence.tree(Influence.normalise(group)));
         byte[] message = new byte[ENTRY_DOMAIN.length + SALT_LENGTH + body.length];
         System.arraycopy(ENTRY_DOMAIN, 0, message, 0, ENTRY_DOMAIN.length);
         System.arraycopy(salt, 0, message, ENTRY_DOMAIN.length, SALT_LENGTH);
@@ -205,14 +204,14 @@ public final class BoundaryInfluence {
             if (cls == null || salt == null || originals == null || originals.contains(null)) {
                 throw new IllegalArgumentException("only a well-formed opening has a JSON form");
             }
-            ObjectNode o = JsonNodeFactory.instance.objectNode();
-            o.put("cls", cls.wire());
+            Map<String, JsonValue> o = new LinkedHashMap<>();
+            o.put("cls", new JsonValue.Str(cls.wire()));
             if (owner != null) {
-                o.put("owner", owner);
+                o.put("owner", new JsonValue.Str(owner));
             }
-            o.put("salt", salt);
-            o.set("originals", Influence.tree(originals));
-            return Json.text(o);
+            o.put("salt", new JsonValue.Str(salt));
+            o.put("originals", Influence.tree(originals));
+            return JsonWriter.text(new JsonValue.Obj(o));
         }
 
         /**

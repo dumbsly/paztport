@@ -76,7 +76,7 @@ public final class VerifierV3 {
     public VerifyResult verify(VerifyInputV3 in) {
         long now = cfg.clock().getAsLong();
         // 0. The pinned policy is still vouched for; first, and blaming no one (see the class comment).
-        if (!JsonIntegers.isNotAfter(cfg.policyNotAfter()) || now > cfg.policyNotAfter()) {
+        if (!JsonIntegers.inRange(cfg.policyNotAfter()) || now > cfg.policyNotAfter()) {
             return VerifyResult.reject(ReasonCode.POLICY_EXPIRED);
         }
         if (in == null) {

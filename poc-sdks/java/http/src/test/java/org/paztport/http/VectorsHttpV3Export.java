@@ -12,7 +12,6 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -128,11 +127,7 @@ class VectorsHttpV3Export {
 
     /** A value the SDK wrote as JSON text, as a tree to place in a vector. */
     private static JsonNode tree(String json) {
-        try {
-            return MAPPER.readTree(json);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+        return VectorsHttpRules.tree(json);
     }
 
     private static ArrayNode stampsJson(List<StampV3> stamps) {

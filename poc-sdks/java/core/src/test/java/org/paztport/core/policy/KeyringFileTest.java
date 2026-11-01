@@ -77,13 +77,12 @@ class KeyringFileTest {
     }
 
     @Test
-    void jsonWithAndWithoutSigDeserialises() throws Exception {
-        ObjectMapper m = new ObjectMapper();
+    void jsonWithAndWithoutSigRoundTrips() {
         KeyringFile f = signed();
-        assertEquals(f, m.readValue(m.writeValueAsBytes(f), KeyringFile.class));
-        KeyringFile bare = m.readValue("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}", KeyringFile.class);
+        assertEquals(f, KeyringFile.parse(f.toJson()));
+        KeyringFile bare = KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}");
         assertNull(bare.sig());
-        assertFalse(m.writeValueAsString(bare).contains("sig"));
+        assertEquals("{\"notAfter\":1,\"policy\":\"p\",\"services\":{}}", bare.toJson());
     }
 
     @Test
