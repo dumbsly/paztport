@@ -6,7 +6,7 @@ import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
 import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
 import { exactly, int, object, str } from "../internal/fields.ts";
-import { isNotAfter, readNotAfter } from "./validity.ts";
+import { isNotAfter } from "./validity.ts";
 
 /** The policy root signed by the policy key; `notAfter` (ms since the epoch, inclusive) is when the owner stops vouching for its routes. */
 export type SignedRoot = { rootId: string; root: string; sig: string; notAfter: number };
@@ -27,24 +27,11 @@ export function signRoot(root: Uint8Array, rootId: string, policyPrivateKey: str
   return signText(rootId, encode(root), policyPrivateKey, notAfter);
 }
 
-/** A signed root read whole from parsed JSON, its own `notAfter` kept (judged by value) and other members dropped; throws naming `what` and the field when `v` is not an object of string `rootId`, `root` and `sig` and a `notAfter` in [0, 2^53 − 1]. Checks no signature. */
-export function parseSignedRoot(v: unknown, what: string): SignedRoot {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) throw new TypeError(`${what} must be an object`);
-  const o = v as Record<string, unknown>;
-  for (const field of ["rootId", "root", "sig"]) {
-    if (typeof o[field] !== "string") throw new TypeError(`${what}.${field} must be a string`);
-  }
-  let notAfter: number;
-  try {
-    notAfter = readNotAfter(o, "notAfter");
-  } catch {
-    throw new TypeError(`${what}.notAfter must be an integer in [0, 2^53 - 1]`);
-  }
-  return { rootId: o.rootId as string, root: o.root as string, sig: o.sig as string, notAfter };
-}
-
-/** The root's schema: exactly `notAfter`, `root`, `rootId` and `sig`. */
-function rootOf(value: JsonValue): SignedRoot {
+/**
+ * The root's schema: exactly `notAfter`, `root`, `rootId` and `sig`. A session message's own reader applies it to the
+ * root it carries.
+ */
+export function rootOf(value: JsonValue): SignedRoot {
   const o = object(value);
   exactly(o, ["notAfter", "root", "rootId", "sig"]);
   return { rootId: str(o, "rootId"), root: str(o, "root"), sig: str(o, "sig"), notAfter: int(o, "notAfter") };

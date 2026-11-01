@@ -12,7 +12,6 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -35,6 +34,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.http.HttpSessions;
@@ -210,11 +210,11 @@ class PartnerHandshakeTest {
         Answer answer = post(client("orders"), json(req));
 
         assertEquals(200, answer.status());
-        JsonNode reply = JSON.readTree(answer.body());
-        assertEquals(reply.toString(), answer.body(), "the reply exactly as the SDK writes it");
+        SessionReply reply = SessionReply.parse(answer.body());
+        assertEquals(reply.toJson(), answer.body(), "the reply exactly as the SDK writes it");
         assertEquals(ReplyCheck.ATTESTED,
                 Sessions.checkReply(answer.body(), req, PSP_PIN, "psp", System.currentTimeMillis()));
-        assertOpen("orders", reply.get("sess").asText());
+        assertOpen("orders", reply.sess());
         assertThat(logs.list.stream().map(ILoggingEvent::getFormattedMessage).toList())
                 .contains("PAZTPORT_TRACE session peer=orders status=attested");
     }
@@ -253,10 +253,11 @@ class PartnerHandshakeTest {
         assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(body, req, PSP_PIN, "psp", now));
         assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "ledger", now));
         assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(body, req, PSP_PIN, "psp", CERT.notAfter() + 1));
-        ObjectNode stripped = reply.deepCopy();
-        stripped.remove("serverKeyringSig");
-        stripped.remove("serverReplyCert");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped.toString(), req, PSP_PIN, "psp", now));
+        SessionReply read = SessionReply.parse(body);
+        SessionReply stripped = new SessionReply(read.serverRoot(), read.serverPolicyKey(), read.serverKeyring(), null,
+                read.serverKeyringNotAfter(), null, read.nonce(), read.sess(), read.status(), read.disabled(),
+                read.sig());
+        assertEquals(ReplyCheck.BAD_SIGNATURE, Sessions.checkReply(stripped.toJson(), req, PSP_PIN, "psp", now));
     }
 
     @Test

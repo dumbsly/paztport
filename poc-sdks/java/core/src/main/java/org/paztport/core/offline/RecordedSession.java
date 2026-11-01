@@ -3,12 +3,12 @@
 
 package org.paztport.core.offline;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.Arrays;
 import java.util.Objects;
 import java.util.function.Supplier;
-import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
@@ -41,23 +41,23 @@ public final class RecordedSession {
         this.request = readOrNull(() -> SessionRequest.parse(requestJson));
         this.pin = pin;
         this.serverEntry = serverEntry;
-        JsonNode tree = readOrNull(() -> Json.tree(replyJson));
-        JsonNode id = tree == null ? null : tree.get("sess");
-        this.sess = id != null && id.isTextual() ? id.textValue() : null;
+        JsonValue.Obj tree = readOrNull(() -> JsonReader.wireText(replyJson)) instanceof JsonValue.Obj o ? o : null;
+        this.sess = tree != null && tree.get("sess") instanceof JsonValue.Str id ? id.value() : null;
         SignedRoot clientRoot = request == null ? null : request.clientRoot();
-        Long serverRoot = window(tree == null ? null : tree.get("serverRoot"), "notAfter");
+        Long serverRoot = window(member(tree, "serverRoot"), "notAfter");
         Long serverKeyring = window(tree, "serverKeyringNotAfter");
-        Long cert = window(tree == null ? null : tree.get("serverReplyCert"), "notAfter");
+        Long cert = window(member(tree, "serverReplyCert"), "notAfter");
         this.attested = attestedAt(earliest(0, cert, clientRoot == null ? null : clientRoot.notAfter(),
                 request == null ? null : request.clientKeyringNotAfter(), serverRoot, serverKeyring));
-        boolean entryKeyForm = tree != null && tree.has("serverKeyringSig");
+        boolean entryKeyForm = tree != null && tree.get("serverKeyringSig") != null;
         this.responseNotAfter = earliest(JsonIntegers.MAX_SAFE, serverRoot, entryKeyForm ? serverKeyring : null);
     }
 
     /**
-     * Reads a recorded handshake: {@code requestJson} and {@code replyJson} as recorded, {@code pin} the server
-     * policy key the client pinned, and {@code serverEntry} the server's entry service from the verifier's own
-     * configuration. A request or reply that does not read is a handshake that opened no attested session.
+     * Reads a recorded handshake: {@code requestJson} and {@code replyJson} as recorded, each its message's wire
+     * bytes as text, {@code pin} the server policy key the client pinned, and {@code serverEntry} the server's entry
+     * service from the verifier's own configuration. A request or reply that does not read is a handshake that
+     * opened no attested session.
      */
     public static RecordedSession of(String requestJson, String replyJson, String pin, String serverEntry) {
         return new RecordedSession(requestJson, replyJson, pin, serverEntry);
@@ -101,9 +101,14 @@ public final class RecordedSession {
         return Arrays.stream(windows).filter(Objects::nonNull).mapToLong(Long::longValue).min().orElse(none);
     }
 
-    /** {@code o}'s own {@code field} when it is a valid {@code notAfter}, else null, a limit the record lacks. */
-    private static Long window(JsonNode o, String field) {
-        return o != null && o.isObject() && o.has(field) ? JsonIntegers.notAfter(o.get(field)) : null;
+    /** {@code o}'s own {@code field} when it is an integer, else null, a limit the record lacks. */
+    private static Long window(JsonValue.Obj o, String field) {
+        return o != null && o.get(field) instanceof JsonValue.Int i ? i.value() : null;
+    }
+
+    /** {@code o}'s member {@code name} when it is an object, else null. */
+    private static JsonValue.Obj member(JsonValue.Obj o, String name) {
+        return o != null && o.get(name) instanceof JsonValue.Obj m ? m : null;
     }
 
     /** What {@code reader} reads, or null when the record does not read. */

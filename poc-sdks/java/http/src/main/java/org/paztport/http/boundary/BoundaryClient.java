@@ -3,9 +3,6 @@
 
 package org.paztport.http.boundary;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.URI;
@@ -15,6 +12,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -28,11 +26,15 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCheck;
+import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.StampV3;
@@ -138,8 +140,6 @@ public final class BoundaryClient implements AutoCloseable {
 
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
     private static final Logger LOG = LoggerFactory.getLogger(BoundaryClient.class);
-    private static final ObjectMapper JSON = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     /** What a session id must look like before it goes in a header: base64url, as every derived id is. */
     private static final Pattern SESSION_ID = Pattern.compile("[A-Za-z0-9_-]{1,128}");
 
@@ -365,8 +365,8 @@ public final class BoundaryClient implements AutoCloseable {
             byte[] reply = handshake(full);
             check = Sessions.checkReply(reply, full, pinnedPartnerKey, partner, millis.getAsLong());
             if (check == ReplyCheck.ATTESTED || check == ReplyCheck.UNSAFE) {
-                // The check derived the same id from both sides' inputs, so it is a real session id.
-                Session s = new Session(read(reply).get("sess").textValue(), check == ReplyCheck.ATTESTED, false,
+                // The check read the reply and derived the same id from both sides' inputs, so it is a real one.
+                Session s = new Session(SessionReply.parse(reply).sess(), check == ReplyCheck.ATTESTED, false,
                         nanos.getAsLong());
                 trace(check.name(), s);
                 return s;
@@ -375,18 +375,18 @@ public final class BoundaryClient implements AutoCloseable {
             // No usable answer: whatever the partner opened is left to expire, and the replacement is asked for.
         }
         SessionRequest replacement = SessionRequest.of(null, ownPolicyKey, ownKeyring, Sessions.newNonce());
-        JsonNode reply;
+        byte[] reply;
         try {
-            reply = read(handshake(replacement));
+            reply = handshake(replacement);
         } catch (IOException e) {
             throw new IllegalStateException("no session could be opened with " + partner, e);
         }
         // Trusted either way, as unsafe: nothing is signed or carried in it, so only the id is taken from it.
-        JsonNode sess = reply == null ? null : reply.get("sess");
-        if (sess == null || !sess.isTextual() || !SESSION_ID.matcher(sess.textValue()).matches()) {
+        String sess = replacementSess(reply);
+        if (sess == null || !SESSION_ID.matcher(sess).matches()) {
             throw new IllegalStateException("no session could be opened with " + partner);
         }
-        Session s = new Session(sess.textValue(), false, true, nanos.getAsLong());
+        Session s = new Session(sess, false, true, nanos.getAsLong());
         trace(check == null ? "-" : check.name(), s);
         return s;
     }
@@ -409,11 +409,11 @@ public final class BoundaryClient implements AutoCloseable {
         return response.body();
     }
 
-    /** A reply body's JSON, or null for a body that is not one JSON value. */
-    private static JsonNode read(byte[] body) {
+    /** The session id of the replacement's reply, read as any reply is, or null for a body that is not one. */
+    private static String replacementSess(byte[] body) {
         try {
-            return JSON.readTree(body);
-        } catch (IOException e) {
+            return SessionReply.parse(body).sess();
+        } catch (IllegalArgumentException e) {
             return null;
         }
     }
@@ -423,13 +423,16 @@ public final class BoundaryClient implements AutoCloseable {
         return WholeExchange.send(http, request, HttpResponse.BodyHandlers.ofByteArray());
     }
 
-    /** The {@code reason} of a JSON refusal body, or null when there is none. */
+    /**
+     * The {@code reason} of a refusal body, read from its wire bytes as {@code {"reason":"<code>"}} and nothing
+     * more; null for any other body, which gives no reason.
+     */
     private static String reason(byte[] body) {
         try {
-            JsonNode node = JSON.readTree(body);
-            JsonNode reason = node == null ? null : node.get("reason");
-            return reason != null && reason.isTextual() ? reason.textValue() : null;
-        } catch (IOException e) {
+            JsonValue.Obj o = JsonFields.object(JsonReader.wire(body));
+            JsonFields.exactly(o, Set.of("reason"), Set.of());
+            return JsonFields.string(o, "reason");
+        } catch (IllegalArgumentException e) {
             return null;
         }
     }

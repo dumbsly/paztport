@@ -3,27 +3,19 @@
 
 package org.paztport.core.session;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayOutputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.PrivateKey;
 import java.security.PublicKey;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.JcsWriter;
-import org.paztport.core.internal.Json;
-import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
-import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
@@ -67,21 +59,6 @@ public final class Sessions {
         return new JsonValue.Obj(o);
     }
 
-    static String text(JsonNode n, String what) {
-        if (n == null || !n.isTextual()) {
-            throw new IllegalArgumentException(what + " must be a string");
-        }
-        return n.textValue();
-    }
-
-    static Map<String, String> stringMap(JsonNode o) {
-        Map<String, String> out = new LinkedHashMap<>();
-        for (Map.Entry<String, JsonNode> e : o.properties()) {
-            out.put(e.getKey(), text(e.getValue(), "entry " + e.getKey()));
-        }
-        return out;
-    }
-
     /**
      * Whether a well-shaped request may open a session at all: the nonce is 16 bytes, a present client root's
      * signature is 64, and the keyring and policy key can be canonicalised. A server answers a request that fails
@@ -101,13 +78,20 @@ public final class Sessions {
         }
     }
 
+    /**
+     * The hash of the client's keys as one Paztport object, {@code {clientKeyring, clientPolicyKey}}, over its
+     * canonical bytes; null when there are none, so there is no session id.
+     */
     private static byte[] keysHash(String clientPolicyKey, Map<String, String> clientKeyring) {
+        if (clientPolicyKey == null || clientKeyring == null
+                || clientKeyring.values().stream().anyMatch(Objects::isNull)) {
+            return null;
+        }
         try {
-            ObjectNode o = JsonNodeFactory.instance.objectNode();
-            o.put("clientPolicyKey", clientPolicyKey);
-            ObjectNode ring = o.putObject("clientKeyring");
-            clientKeyring.forEach(ring::put);
-            return Crypto.sha256(JcsWriter.bytes(o));
+            Map<String, JsonValue> o = new LinkedHashMap<>();
+            o.put("clientPolicyKey", new JsonValue.Str(clientPolicyKey));
+            o.put("clientKeyring", stringMapJson(clientKeyring));
+            return Crypto.sha256(JsonWriter.wire(new JsonValue.Obj(o)));
         } catch (IllegalArgumentException e) {
             return null;
         }
@@ -180,19 +164,14 @@ public final class Sessions {
     }
 
     /**
-     * The bytes the reply signature covers: a domain prefix, then the JCS of the reply without its signature. A
-     * certificate in the reply is covered as parsed, never as its raw text.
+     * The bytes the reply signature covers: a domain prefix, then the JCS of the reply without its signature. For a
+     * reply read from its bytes these are the bytes received less {@code sig}, since a reply reads only from its
+     * canonical bytes and only with the members it has.
      */
     public static byte[] replySigningBytes(SessionReply reply) {
         Map<String, JsonValue> body = new LinkedHashMap<>(reply.tree().members());
         body.remove("sig");
         return withDomain(JsonWriter.wire(new JsonValue.Obj(body)));
-    }
-
-    private static byte[] signingBytes(JsonNode replyJson) {
-        ObjectNode body = replyJson.deepCopy();
-        body.remove("sig");
-        return withDomain(JcsWriter.bytes(body));
     }
 
     private static byte[] withDomain(byte[] json) {
@@ -201,30 +180,6 @@ public final class Sessions {
         System.arraycopy(prefix, 0, out, 0, prefix.length);
         System.arraycopy(json, 0, out, prefix.length, json.length);
         return out;
-    }
-
-    /**
-     * The signing bytes of a received reply. The signature covers the reply's parsed value, as TypeScript's
-     * {@code JSON.parse} then JCS does, never the text it arrived in. The numbers in a reply judged by value are the
-     * certificate's {@code notAfter}, {@code serverKeyringNotAfter} and the root's {@code notAfter}, so each is
-     * rewritten as the integer it parsed to: {@code 1798761600000.0} and {@code 1.7987616e12} then cover the same
-     * bytes as the plain digits, which {@link Jcs} would otherwise refuse, and Java and TypeScript give the same
-     * verdict. Everything else, extra certificate or root fields included, is canonicalised as received, so a
-     * non-integral number anywhere else still fails. Assumes {@link #wellShaped}, which has already checked that
-     * each is a safe integer in range.
-     */
-    private static byte[] receivedSigningBytes(JsonNode reply) {
-        ObjectNode copy = reply.deepCopy();
-        if (copy.get("serverReplyCert") instanceof ObjectNode cert) {
-            cert.put("notAfter", ReplyCert.fromTree(cert).notAfter());
-        }
-        if (copy.has("serverKeyringNotAfter")) {
-            copy.put("serverKeyringNotAfter", JsonIntegers.notAfter(copy.get("serverKeyringNotAfter")));
-        }
-        if (copy.get("serverRoot") instanceof ObjectNode root && root.has("notAfter")) {
-            root.put("notAfter", JsonIntegers.notAfter(root.get("notAfter")));
-        }
-        return signingBytes(copy);
     }
 
     /**
@@ -249,12 +204,10 @@ public final class Sessions {
     /**
      * The client's live check of a reply against the request it sent, the server policy key it pinned, the server's
      * entry service from its own configuration (never from the reply) and the time {@code nowMs}, in the spec's
-     * order: shape, pin, then signature, roots and session id, then status. Takes the reply's JSON text, not a
-     * parsed reply, so that the shape check is the first outcome (null, or text that is not one JSON value, is
-     * {@code MALFORMED_REPLY}), and so the signature is checked over the reply as received, any extra field
-     * included (with the three numbers judged by value, the certificate's {@code notAfter},
-     * {@code serverKeyringNotAfter} and the root's {@code notAfter}, read as the integers they parse to; see
-     * {@link #receivedSigningBytes}). Never throws.
+     * order: shape, pin, then signature, roots and session id, then status. Takes the reply's wire bytes as text,
+     * not a parsed reply, so that reading it is the first outcome: text that does not read as a reply by
+     * {@link SessionReply#parse}, null included, is {@code MALFORMED_REPLY}. The signature is then checked over the
+     * reply read, which is the reply as received. Never throws.
      *
      * <p>The form is decided by which fields are present, never by which key verifies: trying the policy key and
      * then the entry key would let a reply stripped of its certificate, or carrying a certificate it should not,
@@ -270,16 +223,18 @@ public final class Sessions {
      */
     public static ReplyCheck checkReply(String reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
+        return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
+                nowMs);
     }
 
     /**
-     * {@link #checkReply(String, SessionRequest, String, String, long)} over a reply body as it arrived: bytes in
-     * whichever Unicode encoding their first bytes show, UTF-8 with or without a byte order mark included.
+     * {@link #checkReply(String, SessionRequest, String, String, long)} over a reply body as it arrived: its wire
+     * bytes, read as they are.
      */
     public static ReplyCheck checkReply(byte[] reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        return checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, nowMs);
+        return checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry,
+                nowMs);
     }
 
     /**
@@ -301,7 +256,7 @@ public final class Sessions {
             return false;
         }
         try {
-            if (checkReply(readOrNull(() -> Json.tree(reply)), req, pinnedServerPolicyKey, serverEntry, at)
+            if (checkReply(readOrNull(() -> SessionReply.parse(reply)), req, pinnedServerPolicyKey, serverEntry, at)
                     != ReplyCheck.ATTESTED) {
                 return false;
             }
@@ -315,8 +270,8 @@ public final class Sessions {
         }
     }
 
-    /** The reply as a tree, or null when it is not one JSON value, which the shape check then refuses. */
-    private static JsonNode readOrNull(Supplier<JsonNode> reader) {
+    /** The reply read, or null when it does not read, which the shape check then refuses. */
+    private static SessionReply readOrNull(Supplier<SessionReply> reader) {
         try {
             return reader.get();
         } catch (IllegalArgumentException e) {
@@ -329,38 +284,33 @@ public final class Sessions {
      * server keyring, must be current at {@code nowMs}, the client's clock live and the time of the record judged
      * offline.
      */
-    private static ReplyCheck checkReply(JsonNode reply, SessionRequest req, String pinnedServerPolicyKey,
+    private static ReplyCheck checkReply(SessionReply reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
-        if (!wellShaped(reply)) {
+        if (reply == null) {
             return ReplyCheck.MALFORMED_REPLY;
         }
-        String serverPolicyKey = reply.get("serverPolicyKey").textValue();
-        if (!serverPolicyKey.equals(pinnedServerPolicyKey)) {
+        if (!reply.serverPolicyKey().equals(pinnedServerPolicyKey)) {
             return ReplyCheck.PIN_MISMATCH;
         }
         try {
             PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
             PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs);
-            if (signer == null || !Crypto.verify(signer, receivedSigningBytes(reply),
-                    Base64Url.decode(reply.get("sig").textValue()))) {
+            if (signer == null || !Crypto.verify(signer, replySigningBytes(reply), Base64Url.decode(reply.sig()))) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            JsonNode root = reply.get("serverRoot");
-            boolean attested = reply.get("status").textValue().equals(ATTESTED);
-            if (attested && (root.isNull() || req.clientRoot() == null)) {
+            SignedRoot root = reply.serverRoot();
+            boolean attested = reply.status().equals(ATTESTED);
+            if (attested && (root == null || req.clientRoot() == null)) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             String expected = deriveSessionId(req.clientRoot() == null ? null : req.clientRoot().sig(),
-                    root.isNull() ? null : root.get("sig").textValue(), req.nonce(), reply.get("nonce").textValue(),
-                    req.clientPolicyKey(), req.clientKeyring());
-            if (expected == null || !expected.equals(reply.get("sess").textValue())) {
+                    root == null ? null : root.sig(), req.nonce(), reply.nonce(), req.clientPolicyKey(),
+                    req.clientKeyring());
+            if (expected == null || !expected.equals(reply.sess())) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            if (!root.isNull()) {
-                SignedRoot serverRoot = RootJson.read(root);
-                if (!serverRoot.verify(pin) || !serverRoot.isCurrent(nowMs)) {
-                    return ReplyCheck.BAD_SIGNATURE;
-                }
+            if (root != null && (!root.verify(pin) || !root.isCurrent(nowMs))) {
+                return ReplyCheck.BAD_SIGNATURE;
             }
             return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
         } catch (RuntimeException e) {
@@ -377,80 +327,27 @@ public final class Sessions {
      * holds for it, {@code nowMs} is no later than its {@code notAfter}, and the keyring is current at {@code nowMs}:
      * the keyring alone is the reply's own claim until the policy key's signature covers it, and the certificate is
      * what says the key is still current. The keyring's signature is checked over {@code serverKeyringNotAfter}, so
-     * a window moved in transit fails it before the window is judged. Assumes {@link #wellShaped}, which holds a
-     * reply with a keyring signature to its window.
+     * a window moved in transit fails it before the window is judged. A reply read holds a keyring signature only
+     * beside its window.
      */
-    private static PublicKey replySigner(JsonNode reply, PublicKey pin, String pinText, String serverEntry,
+    private static PublicKey replySigner(SessionReply reply, PublicKey pin, String pinText, String serverEntry,
             long nowMs) {
-        boolean hasRingSig = reply.has("serverKeyringSig");
-        boolean hasCert = reply.has("serverReplyCert");
+        boolean hasRingSig = reply.serverKeyringSig() != null;
+        boolean hasCert = reply.serverReplyCert() != null;
         if (!hasRingSig && !hasCert) {
-            return reply.has("serverKeyringNotAfter") ? null : pin;
+            return reply.serverKeyringNotAfter() != null ? null : pin;
         }
         if (!hasRingSig || !hasCert || serverEntry == null) {
             return null;
         }
-        Map<String, String> services = stringMap(reply.get("serverKeyring"));
-        KeyringFile ring = new KeyringFile(services, reply.get("serverPolicyKey").textValue(),
-                reply.get("serverKeyringSig").textValue(), JsonIntegers.notAfter(reply.get("serverKeyringNotAfter")));
-        ReplyCert cert = ReplyCert.fromTree(reply.get("serverReplyCert"));
+        KeyringFile ring = new KeyringFile(reply.serverKeyring(), reply.serverPolicyKey(), reply.serverKeyringSig(),
+                reply.serverKeyringNotAfter());
+        ReplyCert cert = reply.serverReplyCert();
         if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
-                || !cert.key().equals(services.get(serverEntry)) || nowMs > cert.notAfter()
+                || !cert.key().equals(reply.serverKeyring().get(serverEntry)) || nowMs > cert.notAfter()
                 || !ring.isCurrent(nowMs)) {
             return null;
         }
         return Crypto.decodePublicKey(Base64Url.decode(cert.key()));
-    }
-
-    /**
-     * The reply's shape. A {@code serverKeyringNotAfter}, or a root {@code notAfter}, that is not an integer in
-     * [0, 2^53 &minus; 1] (judged by value) makes the reply malformed, and so does a missing one: a root has its own,
-     * and a reply with {@code serverKeyringSig} carries the window that signature was made over.
-     */
-    private static boolean wellShaped(JsonNode r) {
-        if (r == null || !r.isObject()) {
-            return false;
-        }
-        JsonNode root = r.get("serverRoot");
-        boolean rootOk = root != null && (root.isNull() || parsesAsSignedRoot(root));
-        JsonNode status = r.get("status");
-        JsonNode ring = r.get("serverKeyring");
-        JsonNode disabled = r.get("disabled");
-        return rootOk && isText(r.get("serverPolicyKey")) && ring != null && ring.isObject() && allText(ring)
-                && isText(r.get("nonce")) && isText(r.get("sess")) && status != null && status.isTextual()
-                && (status.textValue().equals(ATTESTED) || status.textValue().equals(UNSAFE))
-                && disabled != null && disabled.isArray() && allText(disabled) && isText(r.get("sig"))
-                && (!r.has("serverKeyringSig")
-                        || r.get("serverKeyringSig").isTextual() && r.has("serverKeyringNotAfter"))
-                && (!r.has("serverKeyringNotAfter") || JsonIntegers.notAfter(r.get("serverKeyringNotAfter")) != null)
-                && (!r.has("serverReplyCert") || parsesAsReplyCert(r.get("serverReplyCert")));
-    }
-
-    private static boolean parsesAsSignedRoot(JsonNode n) {
-        try {
-            RootJson.read(n);
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-    }
-
-    private static boolean parsesAsReplyCert(JsonNode n) {
-        try {
-            ReplyCert.fromTree(n);
-            return true;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
-    }
-
-    private static boolean isText(JsonNode n) {
-        return n != null && n.isTextual();
-    }
-
-    private static boolean allText(JsonNode container) {
-        List<JsonNode> items = new ArrayList<>();
-        container.forEach(items::add);
-        return items.stream().allMatch(JsonNode::isTextual);
     }
 }

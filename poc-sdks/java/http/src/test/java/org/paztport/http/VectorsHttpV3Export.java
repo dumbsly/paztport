@@ -288,7 +288,7 @@ class VectorsHttpV3Export {
         for (JsonNode c : b.get("openings")) {
             InfluenceEntry sent = Influence.parse("[" + Vectors.text(c.get("sent")) + "]").get(0);
             assertEquals(c.get("opens").asBoolean(),
-                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(Vectors.json(c.get("opening")))),
+                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(Vectors.text(c.get("opening")))),
                     c.get("name").asText());
         }
     }

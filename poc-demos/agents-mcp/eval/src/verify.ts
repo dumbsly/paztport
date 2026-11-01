@@ -8,13 +8,15 @@ import {
   decode,
   encode,
   newRecordSet,
+  readSessionReply,
+  readSessionRequest,
   recordedSession,
   sha256,
   utf8,
+  writeToken,
+  type JsonValue,
   type ReasonCode,
   type RecordedSession,
-  type SessionReply,
-  type SessionRequest,
 } from "@paztport/core";
 import { hasRefusalShape, verifyMcpResponse, verifyRecordedCall } from "@paztport/mcp";
 import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, type NamedClient, type RunInfo } from "./verify-local.ts";
@@ -145,17 +147,22 @@ export function pinFingerprint(pin: string): string {
 
 function verifySession(r: Rec): Session | undefined {
   try {
-    const request = r.request as SessionRequest;
-    const reply = r.reply as SessionReply;
-    if (r.status !== "attested" || !isString(r.pin) || !isObject(request) || !isObject(reply)) {
+    if (r.status !== "attested" || !isString(r.pin) || !isObject(r.request) || !isObject(r.reply)) {
       return undefined;
     }
+    // The record holds each message as a value; the library reads it as the token it was received as.
+    const requestToken = writeToken(r.request as JsonValue);
+    const replyToken = writeToken(r.reply as JsonValue);
     // The record carries no signed time, so the library judges the session itself at the earliest of its limits, and
     // each call again at its own recorded time.
-    const recorded = recordedSession({ request, reply, pin: r.pin, serverEntry: SERVER_ENTRY });
+    const recorded = recordedSession({
+      request: requestToken, reply: replyToken, pin: r.pin, serverEntry: SERVER_ENTRY,
+    });
     if (!recorded.attested) {
       return undefined;
     }
+    const request = readSessionRequest(requestToken);
+    const reply = readSessionReply(replyToken);
     return {
       recorded,
       clientKeyring: request.clientKeyring,

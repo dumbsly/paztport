@@ -17,7 +17,7 @@ import {
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
   writeToken,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, readProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
+  checkSessionReply, readProof, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
   verifyResponse,
@@ -60,7 +60,9 @@ const ABOUT =
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), " +
   "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
-  "A sessionRequest case is a request body as received, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). " +
+  "A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: " +
+  "`expected` is OK for a well-formed request and MALFORMED for one it refuses " +
+  "(JSON-RPC -32602, HTTP 400 INVALID_PARAMS). " +
   "The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
   "which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; " +
   "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
@@ -754,8 +756,11 @@ export function buildVectorsV3(): Record<string, unknown> {
     const pin = o.pin ?? "server-policy";
     const serverEntry = o.serverEntry ?? "mcp-entry";
     const now = o.now ?? NOW;
-    check(`session reply ${name}`, checkSessionReply(raw, request, keys[pin].pub, serverEntry, now), expected);
-    return { name, request, reply: raw, pin, serverEntry, now, expected };
+    const requestToken = tokenOf(request);
+    const replyToken = tokenOf(raw);
+    const got = checkSessionReply(replyToken, readSessionRequest(requestToken), keys[pin].pub, serverEntry, now);
+    check(`session reply ${name}`, got, expected);
+    return { name, request, requestToken, reply: raw, replyToken, pin, serverEntry, now, expected };
   };
   const attackerRing = { ...serverRing.services, "mcp-entry": keys.orders.pub };
   const { notAfter: _serverRootWindow, ...serverRootWindowDropped } = serverRoot;
@@ -799,9 +804,9 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionReplyCase("serverReplyCert null", reply("mcp-entry", { serverReplyCert: null }), "MALFORMED_REPLY"),
     sessionReplyCase("notAfter not an integer", reply("mcp-entry", { serverReplyCert: { ...entryCert, notAfter: 1.5 } }), "MALFORMED_REPLY"),
     sessionReplyCase(
-      "entry named in the reply is ignored",
+      "a member the reply does not have",
       reply("github-tools", { serverEntry: "github-tools", serverReplyCert: certFor("github-tools", "github-tools") }),
-      "BAD_SIGNATURE",
+      "MALFORMED_REPLY",
     ),
     sessionReplyCase("pin mismatch", reply("mcp-entry"), "PIN_MISMATCH", { pin: "client-policy" }),
     // The server keyring's window is covered by the policy key's keyring signature, not by the entry key's.
@@ -853,10 +858,12 @@ export function buildVectorsV3(): Record<string, unknown> {
     const ownRoot = readRootFile(utf8(serverRootFile));
     const ownRing = readKeyringFile(utf8(serverKeyringFile));
     const pins = pinned.map((n) => keys[n].pub);
-    const got = sessionStatus(req, ownRoot, ownRing.notAfter, keys["server-policy"].pub, pins, now);
+    const requestToken = tokenOf(req);
+    const req1 = readSessionRequest(requestToken);
+    const got = sessionStatus(req1, ownRoot, ownRing.notAfter, keys["server-policy"].pub, pins, now);
     check(`session status ${name}`, got, expected);
     return {
-      name, request: req, serverRoot: root, serverRootFile, serverKeyring: ring, serverKeyringFile,
+      name, request: req, requestToken, serverRoot: root, serverRootFile, serverKeyring: ring, serverKeyringFile,
       serverPolicyKey: "server-policy", pinned, now, expected,
     };
   };
@@ -881,14 +888,15 @@ export function buildVectorsV3(): Record<string, unknown> {
   const { clientKeyringNotAfter: _ringWindow, ...withoutRingWindow } = wireRequest;
   const { notAfter: _rootWindow, ...unwindowedClientRoot } = wireRequest.clientRoot as Record<string, unknown>;
   const sessionRequestCase = (name: string, body: Record<string, unknown>, expected: "OK" | "MALFORMED") => {
+    const requestToken = tokenOf(body);
     let got: "OK" | "MALFORMED" = "OK";
     try {
-      parseSessionRequest(body);
+      readSessionRequest(requestToken);
     } catch {
       got = "MALFORMED";
     }
     check(`session request ${name}`, got, expected);
-    return { name, request: body, expected };
+    return { name, request: body, requestToken, expected };
   };
   const sessionRequestCases = [
     sessionRequestCase("well formed", wireRequest, "OK"),
@@ -917,9 +925,11 @@ export function buildVectorsV3(): Record<string, unknown> {
   const handshakeCase = (name: string, request: SessionRequest, reply: SessionReply, at: number[], o: { pin?: KeyName; serverEntry?: string } = {}) => {
     const pin = o.pin ?? "server-policy";
     const serverEntry = o.serverEntry ?? "mcp-entry";
-    const s = recordedSession({ request, reply, pin: keys[pin].pub, serverEntry });
+    const requestToken = tokenOf(request);
+    const replyToken = tokenOf(reply);
+    const s = recordedSession({ request: requestToken, reply: replyToken, pin: keys[pin].pub, serverEntry });
     const expected = { attested: s.attested, attestedAt: at.map((t) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter };
-    return { name, request, reply, pin, serverEntry, at, expected };
+    return { name, request, requestToken, reply, replyToken, pin, serverEntry, at, expected };
   };
   const clientRootAt = (t: number): SessionRequest => ({ ...request, clientRoot: clientRootUntil(t) });
   // Client material a reader refuses as malformed, recorded all the same: the session it opened is never attested.
@@ -976,7 +986,9 @@ export function buildVectorsV3(): Record<string, unknown> {
   ]);
   // The server signed it, so only the shape check refuses it: live it is MALFORMED_REPLY, and offline never attested.
   const shapeRefused = recordedHandshake.find((c) => c.name === "a signed reply the client's shape check refuses")!;
-  check("the shape-refused reply live", checkSessionReply(shapeRefused.reply, request, keys["server-policy"].pub, "mcp-entry", NOW), "MALFORMED_REPLY");
+  const serverPin = keys["server-policy"].pub;
+  const shapeRefusedLive = checkSessionReply(shapeRefused.replyToken, request, serverPin, "mcp-entry", NOW);
+  check("the shape-refused reply live", shapeRefusedLive, "MALFORMED_REPLY");
   check(
     "the unsigned and unwindowed requests' response limits",
     recordedHandshake.slice(-3).map((c) => c.expected.responseNotAfter),
@@ -1013,12 +1025,20 @@ export function buildVectorsV3(): Record<string, unknown> {
     };
   };
   const recordedCallCase = (name: string, handshakes: { request: SessionRequest; reply: SessionReply }[], calls: RecordedCallInput[]) => {
-    const recorded = handshakes.map((h) => ({ request: h.request, reply: h.reply, pin: "server-policy" as KeyName, serverEntry: "mcp-entry" }));
-    const sessions = recorded.map((h) => recordedSession({ ...h, pin: keys[h.pin].pub }));
+    const recorded = handshakes.map((h) => ({
+      request: h.request, requestToken: tokenOf(h.request), reply: h.reply, replyToken: tokenOf(h.reply),
+      pin: "server-policy" as KeyName, serverEntry: "mcp-entry",
+    }));
+    const sessions = recorded.map((h) =>
+      recordedSession({
+        request: h.requestToken, reply: h.replyToken, pin: keys[h.pin].pub, serverEntry: h.serverEntry,
+      }),
+    );
     const records = newRecordSet();
     const expected = calls.map((c) => {
       const h = recorded[c.handshake]!;
-      const clientRoot = h.request.clientRoot!;
+      const request = readSessionRequest(h.requestToken);
+      const clientRoot = request.clientRoot!;
       const v = verifyChainOffline(
         {
           chain: c.chainToken, expectedBind: c.expectedBind, influence: c.influenceToken, proof: proofTokenOf(c),
@@ -1026,7 +1046,8 @@ export function buildVectorsV3(): Record<string, unknown> {
           prompt: c.prompt,
         },
         {
-          keyring: h.request.clientKeyring, root: decode(clientRoot.root), rootId: clientRoot.rootId, allowedOrigins: ["session"], sess: h.reply.sess,
+          keyring: request.clientKeyring, root: decode(clientRoot.root), rootId: clientRoot.rootId,
+          allowedOrigins: ["session"], sess: h.reply.sess,
           nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
         },
       );

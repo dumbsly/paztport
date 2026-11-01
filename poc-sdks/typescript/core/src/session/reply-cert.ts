@@ -4,7 +4,7 @@
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
-import { readFile } from "../encoding/json.ts";
+import { readFile, type JsonValue } from "../encoding/json.ts";
 import { exactly, int, object, str } from "../internal/fields.ts";
 
 /** The policy key's statement that `key` is service `svc`'s reply key until `notAfter` (ms since the epoch, inclusive). */
@@ -44,7 +44,15 @@ export function isReplyCert(v: unknown): v is ReplyCert {
  * the member for a certificate other than exactly `key`, `notAfter`, `policy`, `sig` and `svc`. Checks no signature.
  */
 export function readReplyCertFile(bytes: Uint8Array): ReplyCert {
-  const o = object(readFile(bytes));
+  return replyCertOf(readFile(bytes));
+}
+
+/**
+ * The certificate's schema: exactly `key`, `notAfter`, `policy`, `sig` and `svc`. A session reply's own reader applies
+ * it to the certificate it carries.
+ */
+export function replyCertOf(value: JsonValue): ReplyCert {
+  const o = object(value);
   exactly(o, ["key", "notAfter", "policy", "sig", "svc"]);
   const policy = str(o, "policy");
   return { policy, svc: str(o, "svc"), key: str(o, "key"), notAfter: int(o, "notAfter"), sig: str(o, "sig") };

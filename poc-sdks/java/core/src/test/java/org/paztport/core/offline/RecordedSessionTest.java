@@ -12,8 +12,11 @@ import static org.paztport.core.offline.Handshake.ENTRY;
 import static org.paztport.core.offline.Handshake.FAR;
 import static org.paztport.core.offline.Handshake.MAX_SAFE;
 import static org.paztport.core.offline.Handshake.NOW;
+import static org.paztport.core.offline.Handshake.inMember;
+import static org.paztport.core.offline.Handshake.text;
+import static org.paztport.core.offline.Handshake.with;
+import static org.paztport.core.offline.Handshake.without;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
@@ -21,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.internal.JsonValue;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCheck;
@@ -47,26 +51,29 @@ class RecordedSessionTest {
         assertFalse(Handshake.recorded(h.request, h.reply, h.pin, "tools").attested());
         String otherRootSig = SignedRoot.sign(h.clientTree.root(), "c1", FAR,
                 Crypto.generateEd25519KeyPair().getPrivate()).sig();
-        ObjectNode badClientRoot = h.request(r -> ((ObjectNode) r.get("clientRoot")).put("sig", otherRootSig));
+        JsonValue.Obj badClientRoot = inMember(h.request, "clientRoot",
+                r -> with(r, "sig", new JsonValue.Str(otherRootSig)));
         assertFalse(Handshake.recorded(badClientRoot, h.reply, h.pin, ENTRY).attested());
         String otherRingSig = KeyringFile.sign(Map.of("session", Handshake.key(h.session), "pi", Handshake.key(h.pi)),
                 Handshake.key(h.clientPolicy), FAR, Crypto.generateEd25519KeyPair().getPrivate()).sig();
-        ObjectNode badRing = h.request(r -> r.put("clientKeyringSig", otherRingSig));
+        JsonValue.Obj badRing = with(h.request, "clientKeyringSig", new JsonValue.Str(otherRingSig));
         assertFalse(Handshake.recorded(badRing, h.reply, h.pin, ENTRY).attested());
     }
 
     @Test
     void theEntryIsTheVerifiersNeverTheRecords() {
         Handshake h = Handshake.attested();
-        assertTrue(Handshake.recorded(h.request, h.resigned(r -> r.put("serverEntry", "tools")), h.pin, ENTRY)
-                .attested());
-        assertFalse(Handshake.recorded(h.request, h.resigned(r -> { }), h.pin, "tools").attested());
+        assertTrue(Handshake.recorded(h.request, h.resigned(r -> r), h.pin, ENTRY).attested());
+        assertFalse(Handshake.recorded(h.request, h.resigned(r -> r), h.pin, "tools").attested());
+        // a reply has no member naming an entry: one signed with it is not a reply, and opened no attested session
+        assertFalse(Handshake.recorded(h.request, h.resigned(r -> with(r, "serverEntry", new JsonValue.Str(ENTRY))),
+                h.pin, ENTRY).attested());
     }
 
     @Test
     void aRequestWithNoKeyringSignatureIsNotAttested() {
         Handshake h = Handshake.attested();
-        assertFalse(Handshake.recorded(h.request(r -> r.remove("clientKeyringSig")), h.reply, h.pin, ENTRY).attested());
+        assertFalse(Handshake.recorded(without(h.request, "clientKeyringSig"), h.reply, h.pin, ENTRY).attested());
     }
 
     // "The handshake record carries no signed time, so it is judged at each call's recorded time … One session can
@@ -111,8 +118,8 @@ class RecordedSessionTest {
         // a window moved earlier in the record fails its signature at the earliest limit, so the session is
         // attested at no time
         Handshake h = Handshake.attested();
-        assertFalse(Handshake.recorded(h.request(r -> r.put("clientKeyringNotAfter", 0)), h.reply, h.pin, ENTRY)
-                .attested());
+        assertFalse(Handshake.recorded(with(h.request, "clientKeyringNotAfter", new JsonValue.Int(0)), h.reply, h.pin,
+                ENTRY).attested());
     }
 
     // "A recorded response is limited only by the server's root window and, in the entry-key form, the server
@@ -139,8 +146,8 @@ class RecordedSessionTest {
         }).recorded().responseNotAfter());
         // 2^53 - 1 when the reply holds neither window, as a policy-key reply with no root does
         Handshake p = Handshake.with(o -> o.policyKeyForm = true);
-        RecordedSession rootless = Handshake.recorded(p.request, p.reply.deepCopy().putNull("serverRoot"), p.pin,
-                ENTRY);
+        RecordedSession rootless = Handshake.recorded(p.request, with(p.reply, "serverRoot", new JsonValue.Null()),
+                p.pin, ENTRY);
         assertFalse(rootless.attested());
         assertEquals(MAX_SAFE, rootless.responseNotAfter());
     }
@@ -160,7 +167,7 @@ class RecordedSessionTest {
         assertFalse(otherEntry.attested());
         assertEquals(NOW + 1, otherEntry.responseNotAfter());
         assertEquals(NOW + 1,
-                RecordedSession.of("not a request", h.reply.toString(), h.pin, ENTRY).responseNotAfter());
+                RecordedSession.of("not a request", text(h.reply), h.pin, ENTRY).responseNotAfter());
     }
 
     // "There is no client pin offline. The server's signed "attested" reply … is its statement that it pinned them."
@@ -168,7 +175,21 @@ class RecordedSessionTest {
     void thereIsNoClientPinOffline() {
         // nothing the verifier is given names the client policy key: the reply alone vouches for it
         Handshake h = Handshake.attested();
-        assertTrue(RecordedSession.of(h.request.toString(), h.reply.toString(), h.pin, ENTRY).attested());
+        assertTrue(RecordedSession.of(text(h.request), text(h.reply), h.pin, ENTRY).attested());
+    }
+
+    // "A recorded request that is not a well-formed request … opened no attested session": a request is read from its
+    // bytes as wire bytes, so the same request in another member order is not one.
+    @Test
+    void aRequestInWireMemberOrderIsNotAttested() {
+        Handshake h = Handshake.attested();
+        String request = text(h.request);
+        int nonce = request.lastIndexOf(",\"nonce\":");
+        String nonceFirst = "{" + request.substring(nonce + 1, request.length() - 1) + ","
+                + request.substring(1, nonce) + "}";
+
+        assertTrue(RecordedSession.of(request, text(h.reply), h.pin, ENTRY).attested());
+        assertFalse(RecordedSession.of(nonceFirst, text(h.reply), h.pin, ENTRY).attested());
     }
 
     // "A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature
@@ -177,23 +198,22 @@ class RecordedSessionTest {
     @Test
     void aMovedWindowFailsItsSignatureAndADroppedOneIsRefused() {
         Handshake h = Handshake.with(o -> o.clientRoot = NOW);
-        ObjectNode moved = h.request(r -> ((ObjectNode) r.get("clientRoot")).put("notAfter", FAR));
+        JsonValue.Obj moved = inMember(h.request, "clientRoot", r -> with(r, "notAfter", new JsonValue.Int(FAR)));
         assertFalse(Handshake.recorded(moved, h.reply, h.pin, ENTRY).attested());
         Handshake g = Handshake.attested();
-        assertFalse(Handshake.recorded(g.request, g.resigned(r -> r.put("serverKeyringNotAfter", FAR + 1)), g.pin,
-                ENTRY).attested());
+        JsonValue.Obj ringMoved = g.resigned(r -> with(r, "serverKeyringNotAfter", new JsonValue.Int(FAR + 1)));
+        assertFalse(Handshake.recorded(g.request, ringMoved, g.pin, ENTRY).attested());
 
-        ObjectNode dropped = h.request(r -> ((ObjectNode) r.get("clientRoot")).remove("notAfter"));
-        ObjectNode ringDropped = g.request(r -> r.remove("clientKeyringNotAfter"));
-        for (ObjectNode request : List.of(dropped, ringDropped)) {
-            assertThrows(IllegalArgumentException.class, () -> SessionRequest.parse(request.toString()));
+        JsonValue.Obj dropped = inMember(h.request, "clientRoot", r -> without(r, "notAfter"));
+        JsonValue.Obj ringDropped = without(g.request, "clientKeyringNotAfter");
+        for (JsonValue.Obj request : List.of(dropped, ringDropped)) {
+            assertThrows(IllegalArgumentException.class, () -> SessionRequest.parse(text(request)));
         }
         assertFalse(Handshake.recorded(dropped, h.reply, h.pin, ENTRY).attested());
         assertFalse(Handshake.recorded(ringDropped, g.reply, g.pin, ENTRY).attested());
-        ObjectNode rootDropped = g.resigned(r -> ((ObjectNode) r.get("serverRoot")).remove("notAfter"));
+        JsonValue.Obj rootDropped = g.resigned(r -> inMember(r, "serverRoot", root -> without(root, "notAfter")));
         assertEquals(ReplyCheck.MALFORMED_REPLY,
-                Sessions.checkReply(rootDropped.toString(), SessionRequest.parse(g.request.toString()), g.pin, ENTRY,
-                        NOW));
+                Sessions.checkReply(text(rootDropped), SessionRequest.parse(text(g.request)), g.pin, ENTRY, NOW));
         assertFalse(Handshake.recorded(g.request, rootDropped, g.pin, ENTRY).attested());
     }
 
@@ -201,20 +221,21 @@ class RecordedSessionTest {
     @Test
     void theSessionIdIsTheJudgedReplys() {
         Handshake h = Handshake.attested();
-        assertEquals(h.reply.get("sess").textValue(), h.recorded().sess());
+        assertEquals(((JsonValue.Str) h.reply.get("sess")).value(), h.recorded().sess());
         // read whether or not the session is attested; the reader relies on it only when it is
         Handshake unsafe = Handshake.with(o -> o.status = "unsafe");
         assertEquals(unsafe.sess(), unsafe.recorded().sess());
-        assertNull(Handshake.recorded(h.request, h.resigned(r -> r.put("sess", 7)), h.pin, ENTRY).sess());
-        assertNull(Handshake.recorded(h.request, h.resigned(r -> r.remove("sess")), h.pin, ENTRY).sess());
-        assertNull(RecordedSession.of(h.request.toString(), "{", h.pin, ENTRY).sess());
+        assertNull(Handshake.recorded(h.request, h.resigned(r -> with(r, "sess", new JsonValue.Int(7))), h.pin, ENTRY)
+                .sess());
+        assertNull(Handshake.recorded(h.request, h.resigned(r -> without(r, "sess")), h.pin, ENTRY).sess());
+        assertNull(RecordedSession.of(text(h.request), "{", h.pin, ENTRY).sess());
     }
 
     @Test
     void neverThrows() {
         Handshake h = Handshake.attested();
-        String request = h.request.toString();
-        String reply = h.reply.toString();
+        String request = text(h.request);
+        String reply = text(h.reply);
         for (RecordedSession s : new RecordedSession[] {
             RecordedSession.of(request, null, h.pin, ENTRY),
             RecordedSession.of(request, "null", h.pin, ENTRY),

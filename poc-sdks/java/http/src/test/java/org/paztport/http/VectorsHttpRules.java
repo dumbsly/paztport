@@ -106,8 +106,9 @@ final class VectorsHttpRules {
             + " depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its"
             + " rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)),"
             + " for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of"
-            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url. Bodies and certificates are hex,"
-            + " and headers are their values as sent. A receiver case enters `request` at `service` `uses` times"
+            + " SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each"
+            + " request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their"
+            + " values as sent. A receiver case enters `request` at `service` `uses` times"
             + " against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is"
             + " the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads"
             + " each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a"
@@ -275,15 +276,15 @@ final class VectorsHttpRules {
             Map<String, MerkleProof> proofs = new LinkedHashMap<>();
             m.get("proofs").properties()
                     .forEach(e -> proofs.put(e.getKey(), MerkleProof.parse(Vectors.text(e.getValue()))));
-            return new Material(publicKey(m.get("policyKey").asText()), SignedRoot.parse(Vectors.json(m.get("root"))),
-                    KeyringFile.parse(Vectors.json(m.get("keyring"))), proofs,
+            return new Material(publicKey(m.get("policyKey").asText()), SignedRoot.parse(Vectors.text(m.get("root"))),
+                    KeyringFile.parse(Vectors.text(m.get("keyring"))), proofs,
                     m.has("entry") ? m.get("entry").asText() : null,
-                    m.has("replyCert") ? ReplyCert.parse(Vectors.json(m.get("replyCert"))) : null);
+                    m.has("replyCert") ? ReplyCert.parse(Vectors.text(m.get("replyCert"))) : null);
         }
 
-        /** A named handshake request's JSON text. */
-        String handshake(String name) {
-            return Vectors.json(rules.get("handshakes").get(name));
+        /** A named handshake request's body: its JCS bytes. */
+        byte[] handshake(String name) {
+            return unhex(rules.get("handshakeBodies").get(name));
         }
 
         /** The peer a named client certificate gives, connected from its address; null names no certificate. */
@@ -391,6 +392,7 @@ final class VectorsHttpRules {
         material.set("psp", partnerMaterial(made.get("psp-policy"), made.get("psp"), NOT_AFTER));
         material.set("psp-expiring", partnerMaterial(made.get("psp-policy"), made.get("psp"), EXPIRES));
         rules.set("handshakes", handshakes(new Fixtures(reread(rules), http, v3)));
+        rules.set("handshakeBodies", handshakeBodies(rules.get("handshakes")));
         rules.set("peers", peers(made.get("shop-ca")));
         // The cases are built from the fixtures as the file holds them, as a replay reads them.
         Fixtures fx = new Fixtures(reread(rules), http, v3);
@@ -428,6 +430,13 @@ final class VectorsHttpRules {
         h.set("short-root-sig", request(SessionRequest.of(new SignedRoot(r.rootId(), r.root(), shortSig, r.notAfter()),
                 shop.policyKey(), shop.keyring(), nonce("short-root-sig", 16))));
         return h;
+    }
+
+    /** Each handshake request's body: the hex of its JCS bytes. */
+    private static ObjectNode handshakeBodies(JsonNode handshakes) {
+        ObjectNode bodies = obj();
+        handshakes.properties().forEach(e -> bodies.put(e.getKey(), hex(utf8(Vectors.text(e.getValue())))));
+        return bodies;
     }
 
     // --- Chains a receiver is sent ---

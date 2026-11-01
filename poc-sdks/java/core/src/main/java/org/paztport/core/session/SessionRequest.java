@@ -3,12 +3,13 @@
 
 package org.paztport.core.session;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
-import org.paztport.core.internal.Json;
-import org.paztport.core.internal.JsonIntegers;
+import java.util.Set;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.RootJson;
@@ -26,6 +27,9 @@ import org.paztport.core.policy.SignedRoot;
  */
 public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<String, String> clientKeyring,
         String clientKeyringSig, long clientKeyringNotAfter, String nonce) {
+
+    private static final Set<String> MEMBERS = Set.of("clientKeyring", "clientKeyringNotAfter", "clientKeyringSig",
+            "clientPolicyKey", "clientRoot", "nonce");
 
     public SessionRequest {
         Objects.requireNonNull(clientKeyringSig, "clientKeyringSig");
@@ -45,52 +49,40 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
     }
 
     /**
-     * Reads a request, throwing {@link IllegalArgumentException} on a shape error (the spec's Invalid params), text
-     * that is not one JSON value included. A {@code clientKeyringSig} that is missing, null, not a string
-     * or empty is a shape error, as for any other required member. The client root is read whole by
-     * {@link SignedRoot#parse}, its {@code notAfter} included. A {@code clientKeyringNotAfter}, or a client root
-     * {@code notAfter}, that is missing or not an integer in [0, 2^53 &minus; 1] (judged by value) is a shape
-     * error.
+     * Reads a request from its wire bytes, given as text, throwing {@link IllegalArgumentException} for one that
+     * does not read (the spec's Invalid params): a {@link MalformedJsonException} for text that is not exactly the
+     * canonical bytes of one value, and otherwise a refusal naming the member. A request has exactly its six members:
+     * {@code clientRoot} {@code null} or a root, whole and with exactly its own members, string
+     * {@code clientPolicyKey} and {@code nonce}, a {@code clientKeyring} of strings, a non-empty string
+     * {@code clientKeyringSig}, and an integer {@code clientKeyringNotAfter}.
      */
     public static SessionRequest parse(String json) {
-        return fromTree(json == null ? null : Json.tree(json));
+        if (json == null) {
+            throw new IllegalArgumentException("a session request must be a JSON object");
+        }
+        return fromTree(JsonReader.wireText(json));
     }
 
-    /**
-     * {@link #parse(String)} over a request body as it arrived: bytes in whichever Unicode encoding their
-     * first bytes show, UTF-8 with or without a byte order mark included.
-     */
+    /** {@link #parse(String)} over a request body as it arrived: its wire bytes, read as they are. */
     public static SessionRequest parse(byte[] json) {
-        return fromTree(json == null ? null : Json.tree(json));
+        if (json == null) {
+            throw new IllegalArgumentException("a session request must be a JSON object");
+        }
+        return fromTree(JsonReader.wire(json));
     }
 
-    private static SessionRequest fromTree(JsonNode params) {
-        if (params == null || !params.isObject()) {
-            throw new IllegalArgumentException("session request must be an object");
+    /** The request's schema. */
+    private static SessionRequest fromTree(JsonValue value) {
+        JsonValue.Obj o = JsonFields.object(value);
+        JsonFields.exactly(o, MEMBERS, Set.of());
+        JsonValue root = o.get("clientRoot");
+        String ringSig = JsonFields.string(o, "clientKeyringSig");
+        if (ringSig.isEmpty()) {
+            throw new IllegalArgumentException("member clientKeyringSig is empty");
         }
-        JsonNode r = params.get("clientRoot");
-        SignedRoot root = null;
-        if (r == null || !(r.isNull() || r.isObject())) {
-            throw new IllegalArgumentException("clientRoot must be an object or null");
-        }
-        if (r.isObject()) {
-            root = RootJson.read(r);
-        }
-        JsonNode ring = params.get("clientKeyring");
-        if (ring == null || !ring.isObject()) {
-            throw new IllegalArgumentException("clientKeyring must be an object");
-        }
-        JsonNode ringSig = params.get("clientKeyringSig");
-        if (ringSig == null || !ringSig.isTextual() || ringSig.textValue().isEmpty()) {
-            throw new IllegalArgumentException("clientKeyringSig must be a non-empty string");
-        }
-        Long ringNotAfter = JsonIntegers.notAfter(params.get("clientKeyringNotAfter"));
-        if (ringNotAfter == null) {
-            throw new IllegalArgumentException("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
-        }
-        return new SessionRequest(root, Sessions.text(params.get("clientPolicyKey"), "clientPolicyKey"),
-                Sessions.stringMap(ring), ringSig.textValue(), ringNotAfter,
-                Sessions.text(params.get("nonce"), "nonce"));
+        return new SessionRequest(root instanceof JsonValue.Null ? null : RootJson.read(root),
+                JsonFields.string(o, "clientPolicyKey"), JsonFields.stringMap(o, "clientKeyring"), ringSig,
+                JsonFields.integer(o, "clientKeyringNotAfter"), JsonFields.string(o, "nonce"));
     }
 
     /**

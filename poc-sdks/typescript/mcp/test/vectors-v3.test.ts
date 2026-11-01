@@ -8,11 +8,12 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession,
-  verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, parseSessionRequest,
+  verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, readSessionRequest,
+  readSessionReply,
   isCurrent, isNotAfter, printFile, signReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
   readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign, signKeyring,
   signRoot, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
-  verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot,
+  verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
 } from "@paztport/core";
 import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
 import { bindMcpCall } from "../src/index.ts";
@@ -78,7 +79,9 @@ function replayOffline(v: any, c: any) {
 
 /** A recorded handshake case's session, as the library reads it: at each `at`, at all, and the response limit. */
 function replayHandshake(v: any, c: any) {
-  const s = recordedSession({ request: c.request, reply: c.reply, pin: v.keys[c.pin].pub, serverEntry: c.serverEntry });
+  const s = recordedSession({
+    request: c.requestToken, reply: c.replyToken, pin: v.keys[c.pin].pub, serverEntry: c.serverEntry,
+  });
   return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter };
 }
 
@@ -87,10 +90,15 @@ function replayHandshake(v: any, c: any) {
  * handshake it names (that request's client keyring and root, that reply's session id) and then limited to it.
  */
 function replayRecordedCalls(v: any, c: any) {
-  const sessions = c.handshakes.map((h: any) => recordedSession({ request: h.request, reply: h.reply, pin: v.keys[h.pin].pub, serverEntry: h.serverEntry }));
+  const sessions = c.handshakes.map((h: any) =>
+    recordedSession({
+      request: h.requestToken, reply: h.replyToken, pin: v.keys[h.pin].pub, serverEntry: h.serverEntry,
+    }),
+  );
   const records = newRecordSet();
   return c.calls.map((call: any) => {
     const h = c.handshakes[call.handshake];
+    const request = readSessionRequest(h.requestToken);
     const policy = v.policies[call.policy];
     const result = verifyChainOffline(
       {
@@ -99,8 +107,9 @@ function replayRecordedCalls(v: any, c: any) {
         receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
       },
       {
-        keyring: h.request.clientKeyring, root: decode(h.request.clientRoot.root), rootId: h.request.clientRoot.rootId, allowedOrigins: c.allowedOrigins,
-        sess: h.reply.sess, nonceKey: call.nonceKey, seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs,
+        keyring: request.clientKeyring, root: decode(request.clientRoot!.root), rootId: request.clientRoot!.rootId,
+        allowedOrigins: c.allowedOrigins, sess: readSessionReply(h.replyToken).sess, nonceKey: call.nonceKey,
+        seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs,
       },
     );
     const reason = callInSession(sessions[call.handshake], result.reason, call.recordedTs.last);
@@ -253,6 +262,20 @@ describe("v3 known-answer vectors", () => {
       expect(c.step.decisionToken, c.name).toBe(encode(utf8(canonicalize(decision))));
       tokens += 3;
     }
+    const handshakes = [
+      ...committed.sessionReply,
+      ...committed.recordedHandshake,
+      ...committed.recordedCall.flatMap((c: any) => c.handshakes.map((h: any) => ({ ...h, name: c.name }))),
+    ];
+    for (const c of handshakes) {
+      expect(c.requestToken, c.name).toBe(encode(utf8(canonicalize(c.request))));
+      expect(c.replyToken, c.name).toBe(encode(utf8(canonicalize(c.reply))));
+      tokens += 2;
+    }
+    for (const c of [...committed.sessionStatus, ...committed.sessionRequest]) {
+      expect(c.requestToken, c.name).toBe(encode(utf8(canonicalize(c.request))));
+      tokens += 1;
+    }
     for (const [name, policy] of Object.entries(committed.policies as Record<string, any>)) {
       expect(Object.keys(policy.proofTokens), name).toEqual(Object.keys(policy.proofs));
       for (const route of Object.keys(policy.proofs)) {
@@ -305,9 +328,10 @@ describe("v3 known-answer vectors", () => {
 
   it.each(committed.sessionReply.map((c: any): [string, any] => [c.name, c]))("session reply %s", (_n, c: any) => {
     const pin = committed.keys[c.pin].pub;
-    expect(checkSessionReply(c.reply, c.request, pin, c.serverEntry, c.now)).toBe(c.expected);
+    const request = readSessionRequest(c.requestToken);
+    expect(checkSessionReply(c.replyToken, request, pin, c.serverEntry, c.now)).toBe(c.expected);
     // Offline, judged at the same time, the handshake is attested exactly when the live check says so.
-    expect(isAttestedSession(c.request, c.reply, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED");
+    expect(isAttestedSession(request, c.replyToken, pin, c.serverEntry, c.now)).toBe(c.expected === "ATTESTED");
   });
 
   it("session status section", () => expect(committed.sessionStatus.length).toBeGreaterThan(0));
@@ -316,7 +340,7 @@ describe("v3 known-answer vectors", () => {
   it.each(committed.sessionRequest.map((c: any): [string, any] => [c.name, c]))("session request %s", (_n, c: any) => {
     let got = "OK";
     try {
-      parseSessionRequest(c.request);
+      readSessionRequest(c.requestToken);
     } catch {
       got = "MALFORMED";
     }
@@ -337,7 +361,8 @@ describe("v3 known-answer vectors", () => {
     const ring = readKeyringFile(utf8(c.serverKeyringFile));
     const root = readRootFile(utf8(c.serverRootFile));
     const pinned = c.pinned.map((n: string) => committed.keys[n].pub);
-    const status = sessionStatus(c.request, root, ring.notAfter, committed.keys[c.serverPolicyKey].pub, pinned, c.now);
+    const request = readSessionRequest(c.requestToken);
+    const status = sessionStatus(request, root, ring.notAfter, committed.keys[c.serverPolicyKey].pub, pinned, c.now);
     expect(status).toBe(c.expected);
     // the server's own keyring is the one it signed
     expect(verifyKeyring(ring, committed.keys[c.serverPolicyKey].pub)).toBe(true);
@@ -346,7 +371,8 @@ describe("v3 known-answer vectors", () => {
   // A configured entry named like an Object.prototype member must not find a key in a keyring that lacks it. Here
   // the keyring inherits the entry, holding the certificate's key, so only the own-member check stops the reply. It
   // is a proxy rather than Object.create's, since JCS refuses an object whose prototype is not Object.prototype: to
-  // JCS and Object.keys it is the signed keyring, while a lookup finds the entry as an inherited member would.
+  // JCS and Object.keys it is the signed keyring, while a lookup finds the entry as an inherited member would. The
+  // reply's token holds none of that: the keyring a reader reads from it has no such member at all.
   it.each(["constructor", "__proto__", "toString"])("protoEntryHasNoKey %s", (entry) => {
     const good = committed.sessionReply.find((c: any) => c.name === "entry-key form attested");
     const keys = committed.keys;
@@ -363,8 +389,11 @@ describe("v3 known-answer vectors", () => {
     expect(verifyKeyring(ring, keys["server-policy"].pub)).toBe(true);
     const { sig: _sig, ...body } = good.reply;
     const reply = signSessionReply({ ...body, serverKeyring: inherits, serverReplyCert: cert } as Omit<SessionReply, "sig">, keys["mcp-entry"].priv);
-    expect(checkSessionReply(reply, good.request, keys["server-policy"].pub, entry, good.now)).toBe("BAD_SIGNATURE");
-    expect(isAttestedSession(good.request, reply, keys["server-policy"].pub, entry, good.now)).toBe(false);
+    const request = readSessionRequest(good.requestToken);
+    expect(verifySessionReply(reply, request, keys["server-policy"].pub, entry, good.now)).toBe(false);
+    const token = encode(utf8(canonicalize(reply)));
+    expect(checkSessionReply(token, request, keys["server-policy"].pub, entry, good.now)).toBe("BAD_SIGNATURE");
+    expect(isAttestedSession(request, token, keys["server-policy"].pub, entry, good.now)).toBe(false);
   });
 
   it("each keyring case's named services and policy key are its readable keyring's", () => {

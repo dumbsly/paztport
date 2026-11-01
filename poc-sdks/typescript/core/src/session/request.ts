@@ -1,58 +1,29 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readToken } from "../encoding/json.ts";
+import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
+import { rootOf, type SignedRoot } from "../policy/root.ts";
 import { newNonce, type SessionRequest } from "./session.ts";
-import { parseSignedRoot, type SignedRoot } from "../policy/root.ts";
-import { readNotAfter } from "../policy/validity.ts";
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function str(v: unknown, what: string): string {
-  if (typeof v !== "string") {
-    throw new Error(`${what} must be a string`);
-  }
-  return v;
-}
-
-/** Copies a string map into an object whose keys (even "__proto__") are ordinary own properties. */
-function stringMap(v: Record<string, unknown>, what: string): Record<string, string> {
-  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
-}
 
 /**
- * Reads a request; throws naming the bad field. The client root is read whole, its own `notAfter` kept. A
- * `clientKeyringNotAfter` or root `notAfter` that is missing or not an integer in [0, 2^53 − 1] (null included) is
- * malformed, and so is a `clientKeyringSig` that is missing, null, not a string or empty.
+ * Reads a request from its token: MalformedJson for bytes that are not exactly the canonical bytes of one value, and
+ * an Error naming the member for a request other than exactly its six members: `clientRoot` null or a root with
+ * exactly its own members, string `clientPolicyKey` and `nonce`, a `clientKeyring` of strings, a non-empty string
+ * `clientKeyringSig`, and an integer `clientKeyringNotAfter`. Checks no signature.
  */
-export function parseSessionRequest(json: unknown): SessionRequest {
-  if (!isObject(json)) {
-    throw new Error("session request must be an object");
-  }
-  let clientRoot: SignedRoot | null = null;
-  if (json.clientRoot !== null) {
-    if (!isObject(json.clientRoot)) {
-      throw new Error("clientRoot must be an object or null");
-    }
-    clientRoot = parseSignedRoot(json.clientRoot, "clientRoot");
-  }
-  if (!isObject(json.clientKeyring)) {
-    throw new Error("clientKeyring must be an object");
-  }
-  const clientKeyring = stringMap(json.clientKeyring, "clientKeyring");
-  const clientKeyringNotAfter = readNotAfter(json, "clientKeyringNotAfter");
-  const clientKeyringSig = json.clientKeyringSig;
-  if (typeof clientKeyringSig !== "string" || clientKeyringSig === "") {
-    throw new Error("clientKeyringSig must be a non-empty string");
-  }
+export function readSessionRequest(token: string): SessionRequest {
+  const o = object(readToken(token));
+  exactly(o, ["clientKeyring", "clientKeyringNotAfter", "clientKeyringSig", "clientPolicyKey", "clientRoot", "nonce"]);
+  const clientKeyringSig = str(o, "clientKeyringSig");
+  if (clientKeyringSig === "") throw new Error("member clientKeyringSig is empty");
   return {
-    clientRoot,
-    clientPolicyKey: str(json.clientPolicyKey, "clientPolicyKey"),
-    clientKeyring,
+    clientRoot: o.clientRoot === null ? null : rootOf(o.clientRoot!),
+    clientPolicyKey: str(o, "clientPolicyKey"),
+    clientKeyring: stringMap(o, "clientKeyring"),
     clientKeyringSig,
-    clientKeyringNotAfter,
-    nonce: str(json.nonce, "nonce"),
+    clientKeyringNotAfter: int(o, "clientKeyringNotAfter"),
+    nonce: str(o, "nonce"),
   };
 }
 

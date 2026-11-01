@@ -2,28 +2,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { isNotAfter } from "../policy/validity.ts";
-import { isSessionReply, verifySessionReply, type SessionReply, type SessionRequest } from "./session.ts";
+import { readSessionReply, verifySessionReply, type SessionReply, type SessionRequest } from "./session.ts";
 
 /** What a client concludes from a handshake reply: the vocabulary of the spec's session-reply vectors. */
 export type ReplyCheck = "ATTESTED" | "UNSAFE" | "MALFORMED_REPLY" | "PIN_MISMATCH" | "BAD_SIGNATURE";
 
 /**
- * Checks a session handshake reply against the request it answers, the pinned server policy key, the server's
- * entry service from the client's own configuration, and the time `now` (ms): a reply that is not well formed, one
- * from another key than the pin, one that does not verify (live, see verifySessionReply), then its own status.
- * Never throws.
+ * Checks a session handshake reply, given as its token, against the request it answers, the pinned server policy
+ * key, the server's entry service from the client's own configuration, and the time `now` (ms): a reply that does
+ * not read (readSessionReply), one from another key than the pin, one that does not verify (live, see
+ * verifySessionReply), then its own status. Never throws.
  */
-export function checkSessionReply(raw: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): ReplyCheck {
-  if (!isSessionReply(raw)) {
+export function checkSessionReply(
+  reply: string,
+  req: SessionRequest,
+  pin: string,
+  serverEntry: string,
+  now: number,
+): ReplyCheck {
+  let read: SessionReply;
+  try {
+    read = readSessionReply(reply);
+  } catch {
     return "MALFORMED_REPLY";
   }
-  if (raw.serverPolicyKey !== pin) {
+  if (read.serverPolicyKey !== pin) {
     return "PIN_MISMATCH";
   }
-  if (!verifySessionReply(raw, req, pin, serverEntry, now)) {
+  if (!verifySessionReply(read, req, pin, serverEntry, now)) {
     return "BAD_SIGNATURE";
   }
-  return raw.status === "attested" ? "ATTESTED" : "UNSAFE";
+  return read.status === "attested" ? "ATTESTED" : "UNSAFE";
 }
 
 /**

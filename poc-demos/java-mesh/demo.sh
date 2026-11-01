@@ -322,8 +322,9 @@ fi
 # because it has no root.
 zero_sig=$(head -c64 /dev/zero | base64 | tr '+/' '-_' | tr -d '=\n')
 nonce=$(head -c16 /dev/urandom | base64 | tr '+/' '-_' | tr -d '=\n')
+# The body is the request's JCS bytes: its members in name order, with no whitespace.
 preq POST "https://psp:8080/paztport/session" -H 'Content-Type: application/json' \
-  -d "{\"clientRoot\":null,\"clientPolicyKey\":\"unpinned\",\"clientKeyring\":{},\"clientKeyringSig\":\"$zero_sig\",\"clientKeyringNotAfter\":4102444800000,\"nonce\":\"$nonce\"}"
+  -d "{\"clientKeyring\":{},\"clientKeyringNotAfter\":4102444800000,\"clientKeyringSig\":\"$zero_sig\",\"clientPolicyKey\":\"unpinned\",\"clientRoot\":null,\"nonce\":\"$nonce\"}"
 sess=$(printf '%s' "$BODY" | sed -n 's/.*"sess":"\([A-Za-z0-9_-]*\)".*/\1/p')
 unsafe=false
 printf '%s' "$BODY" | grep -q '"status":"unsafe"' && unsafe=true

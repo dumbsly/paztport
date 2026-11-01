@@ -10,8 +10,6 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.security.KeyPair;
@@ -134,11 +132,11 @@ class PartnerSessionsTest {
         assertEquals(psp.keyring().sig(), reply.serverKeyringSig());
         assertEquals(psp.cert(), reply.serverReplyCert());
         assertEquals(ReplyCheck.ATTESTED, check(reply, req));
-        ObjectNode stripped = (ObjectNode) new ObjectMapper().readTree(reply.toJson());
-        stripped.remove("serverKeyringSig");
-        stripped.remove("serverReplyCert");
+        SessionReply stripped = new SessionReply(reply.serverRoot(), reply.serverPolicyKey(), reply.serverKeyring(),
+                null, reply.serverKeyringNotAfter(), null, reply.nonce(), reply.sess(), reply.status(),
+                reply.disabled(), reply.sig());
         assertEquals(ReplyCheck.BAD_SIGNATURE,
-                Sessions.checkReply(stripped.toString(), req, psp.pin(), "psp", System.currentTimeMillis()));
+                Sessions.checkReply(stripped.toJson(), req, psp.pin(), "psp", System.currentTimeMillis()));
     }
 
     // A certificate for another service, or for a key the keyring does not hold for this one, would sign replies

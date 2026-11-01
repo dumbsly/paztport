@@ -1023,6 +1023,22 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     }
   });
 
+  it("aSessionRecordWithAMemberItsMessageDoesNotHaveIsBadSession", () => {
+    // each message is read as its token, with exactly its members; the reply is signed again with the extra member,
+    // as a server holding the entry key could, so only the reading refuses it
+    const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
+    const session = (rs: any[]) => rs.find((x) => x.type === "session");
+    for (const [what, edit] of [
+      ["request", (rs: any[]) => { session(rs).request.serverEntry = "mcp-entry"; }],
+      ["reply", (rs: any[]) => {
+        const { sig: _sig, ...body } = session(rs).reply;
+        session(rs).reply = signSessionReply({ ...body, serverEntry: "mcp-entry" }, entryKey);
+      }],
+    ] as const) {
+      expect(results(verifyEvidence(write(genuine, edit)).items, "session"), what).toEqual(["BAD_SESSION"]);
+    }
+  });
+
   it("aClientRecordsKeyringSignatureMustVerify", () => {
     const flip = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
     expect(typeof localLines.map((l) => JSON.parse(l)).find((x) => x.type === "client").keyringSig).toBe("string");

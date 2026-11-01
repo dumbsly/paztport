@@ -3,11 +3,12 @@
 
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, sign, utf8, verify } from "../crypto/crypto.ts";
-import { canonicalize, writeWire } from "../encoding/jcs.ts";
-import type { JsonValue } from "../encoding/json.ts";
+import { writeWire } from "../encoding/jcs.ts";
+import { readToken, type JsonValue } from "../encoding/json.ts";
+import { array, exactly, int, object, str, stringMap } from "../internal/fields.ts";
 import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
-import { isReplyCert, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
-import { parseSignedRoot, verifyRoot, type SignedRoot } from "../policy/root.ts";
+import { replyCertOf, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
+import { rootOf, verifyRoot, type SignedRoot } from "../policy/root.ts";
 import { isCurrent, isNotAfter } from "../policy/validity.ts";
 
 /**
@@ -42,46 +43,44 @@ export type SessionReply = {
   sig: string;
 };
 
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function isStringMap(v: unknown): v is Record<string, string> {
-  return isObject(v) && Object.values(v).every((x) => typeof x === "string");
-}
-
-/** Whether `v` reads as a signed root, a root `notAfter` that is not an integer in [0, 2^53 − 1] included. */
-function isSignedRoot(v: unknown): boolean {
-  try {
-    parseSignedRoot(v, "serverRoot");
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /**
- * The reply's shape; `serverKeyringSig`, `serverKeyringNotAfter` and `serverReplyCert` are optional, but each, when
- * present (even as null), must be well formed: a window, the keyring's or the root's, that is not an integer in
- * [0, 2^53 − 1] makes the reply malformed, and so does a missing one: a root has its own, and a reply with
- * `serverKeyringSig` carries the window that signature was made over.
+ * Reads a reply from its token: MalformedJson for bytes that are not exactly the canonical bytes of one value, and an
+ * Error naming the member for a reply other than exactly its members: `serverRoot` null or a root with exactly its
+ * own members, string `serverPolicyKey`, `nonce`, `sess` and `sig`, a `serverKeyring` of strings, `status`
+ * "attested" or "unsafe", a `disabled` array of strings, and, each only when present, a string `serverKeyringSig`,
+ * which needs `serverKeyringNotAfter` beside it, an integer `serverKeyringNotAfter`, and a `serverReplyCert` with
+ * exactly a certificate's members. A member whose value is null is present. Checks no signature.
  */
-export function isSessionReply(v: unknown): v is SessionReply {
-  return (
-    isObject(v) &&
-    (v.serverRoot === null || isSignedRoot(v.serverRoot)) &&
-    typeof v.serverPolicyKey === "string" &&
-    isStringMap(v.serverKeyring) &&
-    (!Object.hasOwn(v, "serverKeyringSig") || (typeof v.serverKeyringSig === "string" && Object.hasOwn(v, "serverKeyringNotAfter"))) &&
-    (!Object.hasOwn(v, "serverKeyringNotAfter") || isNotAfter(v.serverKeyringNotAfter)) &&
-    (!Object.hasOwn(v, "serverReplyCert") || isReplyCert(v.serverReplyCert)) &&
-    typeof v.nonce === "string" &&
-    typeof v.sess === "string" &&
-    (v.status === "attested" || v.status === "unsafe") &&
-    Array.isArray(v.disabled) &&
-    v.disabled.every((d) => typeof d === "string") &&
-    typeof v.sig === "string"
-  );
+export function readSessionReply(token: string): SessionReply {
+  const o = object(readToken(token));
+  exactly(o, ["disabled", "nonce", "serverKeyring", "serverPolicyKey", "serverRoot", "sess", "sig", "status"], [
+    "serverKeyringNotAfter",
+    "serverKeyringSig",
+    "serverReplyCert",
+  ]);
+  const status = str(o, "status");
+  if (status !== "attested" && status !== "unsafe") throw new Error("member status is neither attested nor unsafe");
+  const disabled = array(o, "disabled").map((d) => {
+    if (typeof d !== "string") throw new Error("member disabled holds a value that is not a string");
+    return d;
+  });
+  const reply: SessionReply = {
+    serverRoot: o.serverRoot === null ? null : rootOf(o.serverRoot!),
+    serverPolicyKey: str(o, "serverPolicyKey"),
+    serverKeyring: stringMap(o, "serverKeyring"),
+    nonce: str(o, "nonce"),
+    sess: str(o, "sess"),
+    status,
+    disabled,
+    sig: str(o, "sig"),
+  };
+  if (Object.hasOwn(o, "serverKeyringSig")) {
+    reply.serverKeyringSig = str(o, "serverKeyringSig");
+    if (!Object.hasOwn(o, "serverKeyringNotAfter")) throw new Error("no member serverKeyringNotAfter");
+  }
+  if (Object.hasOwn(o, "serverKeyringNotAfter")) reply.serverKeyringNotAfter = int(o, "serverKeyringNotAfter");
+  if (Object.hasOwn(o, "serverReplyCert")) reply.serverReplyCert = replyCertOf(o.serverReplyCert!);
+  return reply;
 }
 
 export function newNonce(): string {
@@ -107,7 +106,9 @@ export function deriveSessionId(
   clientKeys: ClientKeys,
 ): string {
   const flags = (clientRootSig !== null ? 1 : 0) | (serverRootSig !== null ? 2 : 0);
-  const keysHash = sha256(utf8(canonicalize({ clientPolicyKey: clientKeys.clientPolicyKey, clientKeyring: clientKeys.clientKeyring })));
+  // The client's keys as one Paztport object, hashed over its canonical bytes.
+  const { clientPolicyKey, clientKeyring } = clientKeys;
+  const keysHash = sha256(writeWire({ clientPolicyKey, clientKeyring }));
   return encode(
     sha256(
       concat(
@@ -210,7 +211,7 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
     return Object.hasOwn(reply, "serverKeyringNotAfter") ? undefined : pin;
   }
   const cert = reply.serverReplyCert;
-  if (!hasRingSig || !hasCert || typeof reply.serverKeyringSig !== "string" || !isReplyCert(cert)) {
+  if (!hasRingSig || !hasCert || typeof reply.serverKeyringSig !== "string" || cert === undefined) {
     return undefined;
   }
   const ring = reply.serverKeyring;
@@ -275,9 +276,9 @@ export function verifySessionReply(
 }
 
 /**
- * Whether a recorded handshake opened an attested session: the reply passes the client's shape check
- * (isSessionReply, as checkSessionReply runs it first), is attested and verifies against the pin, and both roots
- * verify against their sides' policy keys. The reply binds the client root's signature
+ * Whether a recorded handshake opened an attested session: the reply's token reads (readSessionReply, as
+ * checkSessionReply reads it first), the reply is attested and verifies against the pin, and both roots verify
+ * against their sides' policy keys. The reply binds the client root's signature
  * but not its contents, so the client root is checked here too, and so is the keyring's signature.
  * There is no client pin offline: the server's signed "attested" reply, whose
  * session id binds the client's policy key and keyring, is its statement that it pinned them. `at` is the time
@@ -289,14 +290,14 @@ export function verifySessionReply(
  */
 export function isAttestedSession(
   req: SessionRequest,
-  reply: SessionReply,
+  replyToken: string,
   pinnedServerPolicyKey: string,
   serverEntry: string,
   at: number,
 ): boolean {
   try {
+    const reply = readSessionReply(replyToken);
     return (
-      isSessionReply(reply) &&
       reply.status === "attested" &&
       replyHolds(reply, req, pinnedServerPolicyKey, serverEntry, at) &&
       rootsVerify(req, reply.serverRoot, reply.serverPolicyKey) &&

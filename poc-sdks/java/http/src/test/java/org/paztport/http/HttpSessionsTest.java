@@ -7,23 +7,27 @@ import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.Arrays;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
+import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.verify.Peer;
@@ -68,6 +72,16 @@ class HttpSessionsTest {
         return SessionRequest.of(null, pub(shopPolicy), shopKeyring, nonce).toJson().getBytes(StandardCharsets.UTF_8);
     }
 
+    /** A request body's members, read as the partner reads it, for a test to alter. */
+    private static Map<String, JsonValue> members(byte[] request) {
+        return new LinkedHashMap<>(((JsonValue.Obj) JsonReader.wire(request)).members());
+    }
+
+    /** Members written back as an object's wire bytes. */
+    private static byte[] wire(Map<String, JsonValue> members) {
+        return JsonWriter.wire(new JsonValue.Obj(members));
+    }
+
     private static InputStream body(byte[] bytes) {
         return new ByteArrayInputStream(bytes);
     }
@@ -86,9 +100,7 @@ class HttpSessionsTest {
     void aHandshakeIsAnsweredWithTheSignedReply() throws IOException {
         HttpAnswer answer = HttpSessions.serve(body(request(Sessions.newNonce())), orders, sessions);
 
-        assertEquals(200, answer.status());
-        String sess = new ObjectMapper().readTree(answer.json()).get("sess").asText();
-        assertNotNull(sessions.find("CN=shop CA", "orders", sess), "kept for the peer that opened it");
+        assertNotNull(sessions.find("CN=shop CA", "orders", sess(answer)), "kept for the peer that opened it");
     }
 
     // The peer comes from the certificate alone, so a request with none to give opens nothing and is not read.
@@ -120,6 +132,49 @@ class HttpSessionsTest {
         }
     }
 
+    /**
+     * A body is the request's canonical bytes, so a request file sent as saved, with a newline after it, is not a
+     * readable request: it is refused as any other, with no stack trace and no 500, and opens nothing.
+     */
+    @Test
+    void aBodyWithATrailingNewlineIsInvalidParams() throws IOException {
+        // a peer holds one session, so a refused request that opened another would evict the first
+        PartnerSessions one = partner(1);
+        String kept = sess(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one));
+        byte[] request = request(Sessions.newNonce());
+        byte[] saved = Arrays.copyOf(request, request.length + 1);
+        saved[request.length] = '\n';
+
+        HttpAnswer answer = HttpSessions.serve(body(saved), orders, one);
+
+        assertEquals(400, answer.status());
+        assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
+        assertNotNull(one.find("CN=shop CA", "orders", kept), "the refused request opened no session");
+    }
+
+    /** The same request in another member order is not its canonical bytes either. */
+    @Test
+    void aBodyInWireMemberOrderIsInvalidParams() throws IOException {
+        PartnerSessions one = partner(1);
+        String kept = sess(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one));
+        String request = new String(request(Sessions.newNonce()), StandardCharsets.UTF_8);
+        int nonce = request.lastIndexOf(",\"nonce\":");
+        String nonceFirst = "{" + request.substring(nonce + 1, request.length() - 1) + ","
+                + request.substring(1, nonce) + "}";
+
+        HttpAnswer answer = HttpSessions.serve(body(nonceFirst.getBytes(StandardCharsets.UTF_8)), orders, one);
+
+        assertEquals(400, answer.status());
+        assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
+        assertNotNull(one.find("CN=shop CA", "orders", kept), "the refused request opened no session");
+    }
+
+    /** The session id a 200 answer's reply names. */
+    private static String sess(HttpAnswer answer) {
+        assertEquals(200, answer.status());
+        return SessionReply.parse(answer.json()).sess();
+    }
+
     @Test
     void aReadableRequestThatOpensNoSessionIsNoSession() throws IOException {
         String shortNonce = Base64.getUrlEncoder().withoutPadding().encodeToString(new byte[15]);
@@ -134,14 +189,11 @@ class HttpSessionsTest {
     void aRequestWithNoKeyringSignatureIsInvalidParams() throws IOException {
         // a peer holds one session, so a refused request that opened another would evict the first
         PartnerSessions one = partner(1);
-        ObjectMapper json = new ObjectMapper();
-        String kept = json.readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one).json())
-                .get("sess").asText();
-        ObjectNode missing = (ObjectNode) json.readTree(request(Sessions.newNonce()));
+        String kept = sess(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one));
+        Map<String, JsonValue> missing = members(request(Sessions.newNonce()));
         missing.remove("clientKeyringSig");
 
-        HttpAnswer answer = HttpSessions.serve(body(missing.toString().getBytes(StandardCharsets.UTF_8)), orders,
-                one);
+        HttpAnswer answer = HttpSessions.serve(body(wire(missing)), orders, one);
 
         assertEquals(400, answer.status());
         assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));
@@ -152,18 +204,19 @@ class HttpSessionsTest {
     @Test
     void clientMaterialWithoutNotAfterIsInvalidParams() throws IOException {
         PartnerSessions one = partner(1);
-        ObjectMapper json = new ObjectMapper();
-        String kept = json.readTree(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one).json())
-                .get("sess").asText();
-        ObjectNode noRingWindow = (ObjectNode) json.readTree(request(Sessions.newNonce()));
+        String kept = sess(HttpSessions.serve(body(request(Sessions.newNonce())), orders, one));
+        Map<String, JsonValue> noRingWindow = members(request(Sessions.newNonce()));
         noRingWindow.remove("clientKeyringNotAfter");
-        ObjectNode noRootWindow = (ObjectNode) json.readTree(SessionRequest.of(
+        Map<String, JsonValue> noRootWindow = members(SessionRequest.of(
                 PolicyBuilder.build(List.of(List.of("orders", "psp")), 4, NOT_AFTER, shopPolicy.getPrivate())
-                        .signedRoot(), pub(shopPolicy), shopKeyring, Sessions.newNonce()).toJson());
-        ((ObjectNode) noRootWindow.get("clientRoot")).remove("notAfter");
+                        .signedRoot(), pub(shopPolicy), shopKeyring, Sessions.newNonce()).toJson()
+                .getBytes(StandardCharsets.UTF_8));
+        Map<String, JsonValue> root = new LinkedHashMap<>(((JsonValue.Obj) noRootWindow.get("clientRoot")).members());
+        root.remove("notAfter");
+        noRootWindow.put("clientRoot", new JsonValue.Obj(root));
 
-        for (ObjectNode bad : List.of(noRingWindow, noRootWindow)) {
-            HttpAnswer answer = HttpSessions.serve(body(bad.toString().getBytes(StandardCharsets.UTF_8)), orders, one);
+        for (Map<String, JsonValue> bad : List.of(noRingWindow, noRootWindow)) {
+            HttpAnswer answer = HttpSessions.serve(body(wire(bad)), orders, one);
 
             assertEquals(400, answer.status());
             assertEquals("{\"error\":\"INVALID_PARAMS\"}", text(answer));

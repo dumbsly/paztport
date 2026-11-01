@@ -3,18 +3,18 @@
 
 package org.paztport.core.offline;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Jcs;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleLeaf;
 import org.paztport.core.policy.MerkleTree;
@@ -27,7 +27,8 @@ import org.paztport.core.session.Sessions;
 /**
  * A recorded handshake built for a test: an attested reply in the entry-key form (signed by the entry's certified
  * key, carrying the server keyring's signature and the certificate) or the policy-key form, every window
- * {@link #FAR} unless given. The request and reply are held as trees, so a test can alter one as a record could be.
+ * {@link #FAR} unless given. The request and reply are held as JSON values, so a test can alter one as a record
+ * could be, and are recorded as their wire bytes.
  */
 final class Handshake {
 
@@ -36,8 +37,6 @@ final class Handshake {
     /** Far past every time judged here. */
     static final long FAR = 4_102_444_800_000L;
     static final long MAX_SAFE = (1L << 53) - 1;
-
-    private static final ObjectMapper JSON = new ObjectMapper();
 
     /** How to build one: each window's {@code notAfter}. */
     static final class Options {
@@ -59,8 +58,8 @@ final class Handshake {
             MerkleTree.build(List.of(new MerkleLeaf(Crypto.randomBytes(16), "session/pi/orders")), 4, "c1");
     final MerkleTree serverTree =
             MerkleTree.build(List.of(new MerkleLeaf(Crypto.randomBytes(16), "mcp-entry/tools")), 4, "s1");
-    final ObjectNode request;
-    final ObjectNode reply;
+    final JsonValue.Obj request;
+    final JsonValue.Obj reply;
     /** The server policy key the client pinned. */
     final String pin = key(serverPolicy);
 
@@ -104,16 +103,36 @@ final class Handshake {
         return Base64Url.encode(Crypto.encodePublicKey(pair.getPublic()));
     }
 
-    static ObjectNode tree(String json) {
-        try {
-            return (ObjectNode) JSON.readTree(json);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    static JsonValue.Obj tree(String json) {
+        return (JsonValue.Obj) JsonReader.wireText(json);
+    }
+
+    /** A message's wire bytes as text, as a record holds it. */
+    static String text(JsonValue.Obj message) {
+        return JsonWriter.text(message);
+    }
+
+    /** {@code o} with its member {@code name} set to {@code value}, added or replaced. */
+    static JsonValue.Obj with(JsonValue.Obj o, String name, JsonValue value) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.put(name, value);
+        return new JsonValue.Obj(members);
+    }
+
+    /** {@code o} without its member {@code name}. */
+    static JsonValue.Obj without(JsonValue.Obj o, String name) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.remove(name);
+        return new JsonValue.Obj(members);
+    }
+
+    /** {@code o}'s member {@code name}, an object, with {@code edit} applied to it. */
+    static JsonValue.Obj inMember(JsonValue.Obj o, String name, UnaryOperator<JsonValue.Obj> edit) {
+        return with(o, name, edit.apply((JsonValue.Obj) o.get(name)));
     }
 
     String sess() {
-        return reply.get("sess").textValue();
+        return ((JsonValue.Str) reply.get("sess")).value();
     }
 
     /** This handshake as recorded, read by the verifier configured for {@link #ENTRY}. */
@@ -121,28 +140,18 @@ final class Handshake {
         return recorded(request, reply, pin, ENTRY);
     }
 
-    static RecordedSession recorded(ObjectNode request, ObjectNode reply, String pin, String serverEntry) {
-        return RecordedSession.of(request.toString(), reply.toString(), pin, serverEntry);
+    static RecordedSession recorded(JsonValue.Obj request, JsonValue.Obj reply, String pin, String serverEntry) {
+        return RecordedSession.of(text(request), text(reply), pin, serverEntry);
     }
 
-    /** A copy of the request with {@code edit} applied. */
-    ObjectNode request(Consumer<ObjectNode> edit) {
-        ObjectNode copy = request.deepCopy();
-        edit.accept(copy);
-        return copy;
-    }
-
-    /** The reply with {@code edit} applied and signed again by the entry key, over every field it then has. */
-    ObjectNode resigned(Consumer<ObjectNode> edit) {
-        ObjectNode copy = reply.deepCopy();
-        copy.remove("sig");
-        edit.accept(copy);
+    /** The reply with {@code edit} applied and signed again by the entry key, over every member it then has. */
+    JsonValue.Obj resigned(UnaryOperator<JsonValue.Obj> edit) {
+        JsonValue.Obj body = edit.apply(without(reply, "sig"));
         byte[] prefix = "paztport-session-reply\n".getBytes(StandardCharsets.UTF_8);
-        byte[] body = Jcs.bytes(copy.toString());
-        byte[] signed = new byte[prefix.length + body.length];
+        byte[] json = JsonWriter.wire(body);
+        byte[] signed = new byte[prefix.length + json.length];
         System.arraycopy(prefix, 0, signed, 0, prefix.length);
-        System.arraycopy(body, 0, signed, prefix.length, body.length);
-        copy.put("sig", Base64Url.encode(Crypto.sign(entry.getPrivate(), signed)));
-        return copy;
+        System.arraycopy(json, 0, signed, prefix.length, json.length);
+        return with(body, "sig", new JsonValue.Str(Base64Url.encode(Crypto.sign(entry.getPrivate(), signed))));
     }
 }

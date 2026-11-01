@@ -54,19 +54,20 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check) refuses the server's
   root, and in the entry-key form its keyring, when expired, as `BAD_SIGNATURE`. `isAttestedSession` checks a
   recorded handshake offline at the record's time: each root and keyring, on either side, counts only up to its
-  `notAfter`. A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile` and `parseSessionRequest`
+  `notAfter`. A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile` and `readSessionRequest`
   refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
 - **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
   (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with.
   `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
   spent keys and its response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step
   ([the MCP profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.
-- **The handshake's pieces are core's.** `parseSessionRequest` reads a request (a missing `clientKeyringSig` is
-  refused, as in the Java SDK), `sessionRequest` and `replacementRequest` write one, and
-  `buildSessionReply` answers it in the entry-key form. `checkSessionReply` is the client's check of a raw reply,
-  returning a `ReplyCheck` (`ATTESTED`, `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service
-  that loads its own keyring and root checks them with `checkOwnMaterial` and warns near their end with
-  `expiryWarnings` (`WARN_WITHIN_MS`, `describeNotAfter`).
+- **The handshake's pieces are core's.** `readSessionRequest` reads a request from its token, with exactly its
+  members (a missing `clientKeyringSig` is refused, as in the Java SDK), `sessionRequest` and `replacementRequest`
+  write one, and `buildSessionReply` answers it in the entry-key form. `readSessionReply` reads a reply from its
+  token, and `checkSessionReply` is the client's check of a reply's token, returning a `ReplyCheck` (`ATTESTED`,
+  `UNSAFE`, `MALFORMED_REPLY`, `PIN_MISMATCH` or `BAD_SIGNATURE`). A service that loads its own keyring and root
+  checks them with `checkOwnMaterial` and warns near their end with `expiryWarnings` (`WARN_WITHIN_MS`,
+  `describeNotAfter`).
 - **The server's decision is core's.** `decideServerCall` is a server's decision on a tool call once its chain has
   verified: in an attested session the influence rule decides over the client's influence and every class the
   server has served (`publicWriteDecision` is the rule for a write), and otherwise the tools disabled when unsafe

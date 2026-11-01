@@ -41,6 +41,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +56,9 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
@@ -347,34 +351,29 @@ final class VectorsHttpPartner {
     /** sessions-and-influence.md, over HTTP: the handshake endpoint's errors, and the peer it needs. */
     static ArrayNode handshakeErrors(Fixtures fx) {
         Material shop = fx.material("shop");
-        ObjectNode nullWindow = (ObjectNode) tree(fx.handshake("shop"));
-        nullWindow.putNull("clientKeyringNotAfter");
-        ObjectNode unsigned = (ObjectNode) tree(fx.handshake("shop"));
-        unsigned.remove("clientKeyringSig");
-        ObjectNode noRingWindow = (ObjectNode) tree(fx.handshake("shop"));
-        noRingWindow.remove("clientKeyringNotAfter");
-        ObjectNode noRootWindow = (ObjectNode) tree(fx.handshake("shop"));
-        ((ObjectNode) noRootWindow.get("clientRoot")).remove("notAfter");
+        // Each body is in JCS member order, so its order is never what the reader refuses.
+        JsonValue.Obj request = (JsonValue.Obj) JsonReader.wire(fx.handshake("shop"));
+        byte[] nullWindow = jcs(with(request, "clientKeyringNotAfter", new JsonValue.Null()));
+        byte[] unsigned = jcs(without(request, "clientKeyringSig"));
+        byte[] noRingWindow = jcs(without(request, "clientKeyringNotAfter"));
+        byte[] noRootWindow = jcs(with(request, "clientRoot",
+                without((JsonValue.Obj) request.get("clientRoot"), "notAfter")));
         ArrayNode a = arr();
         a.add(new Script("a body that is not JSON", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8("this is not JSON"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a JSON array", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8("[]"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a client root that is a string", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8("{\"clientRoot\":\"root\",\"clientPolicyKey\":\"k\","
-                        + "\"clientKeyring\":{},\"nonce\":\"n\"}"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", utf8("{\"clientKeyring\":{},\"clientPolicyKey\":\"k\","
+                        + "\"clientRoot\":\"root\",\"nonce\":\"n\"}"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring window that is null", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8(nullWindow.toString()),
-                        handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", nullWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring signature that is missing", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8(unsigned.toString()),
-                        handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", unsigned, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring window that is missing", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8(noRingWindow.toString()),
-                        handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", noRingWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a client root window that is missing", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8(noRootWindow.toString()),
-                        handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", noRootWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a nonce of 15 bytes", partner(), shop)
                 .handshake(NOW, "shop", "short-nonce", null, handshakeError(HttpSessions.NO_SESSION)).c);
         a.add(new Script("a client root signature of 63 bytes", partner(), shop)
@@ -388,6 +387,24 @@ final class VectorsHttpPartner {
         a.add(new Script("a request with no client root opens an unsafe session", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe")).c);
         return a;
+    }
+
+    private static byte[] jcs(JsonValue.Obj o) {
+        return JsonWriter.wire(o);
+    }
+
+    /** {@code o} with its member {@code name} set to {@code value}, added or replaced. */
+    private static JsonValue.Obj with(JsonValue.Obj o, String name, JsonValue value) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.put(name, value);
+        return new JsonValue.Obj(members);
+    }
+
+    /** {@code o} without its member {@code name}. */
+    private static JsonValue.Obj without(JsonValue.Obj o, String name) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.remove(name);
+        return new JsonValue.Obj(members);
     }
 
     /** verification.md, at a partner: a session's calls once its material expires, and the partner's own lapse. */
@@ -491,7 +508,7 @@ final class VectorsHttpPartner {
     private static ObjectNode handshake(JsonNode step, Fixtures fx, PartnerSessions sessions,
             Map<String, String> opened) {
         JsonNode h = step.get("handshake");
-        byte[] body = h.get("request").isNull() ? unhex(h.get("body")) : utf8(fx.handshake(h.get("request").asText()));
+        byte[] body = h.get("request").isNull() ? unhex(h.get("body")) : fx.handshake(h.get("request").asText());
         HttpAnswer answer;
         try {
             answer = HttpSessions.serve(new ByteArrayInputStream(body), fx.peer(h.get("peer")), sessions);

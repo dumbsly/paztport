@@ -7,28 +7,29 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
 class SessionsTest {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
     private static final long NOW = 1_767_225_600_000L;
     /** The roots' and keyrings' window, 2028-01-01: unlike any certificate's, so a test can rewrite one. */
     private static final long NOT_AFTER = 1_830_297_600_000L;
@@ -71,25 +72,59 @@ class SessionsTest {
                 serverPolicy.getPrivate());
     }
 
-    private JsonNode wire(SessionReply r) {
+    /** A message's JSON value, read from its wire text as the SDK reads it, so a test can alter it. */
+    private static JsonValue.Obj tree(String json) {
+        return (JsonValue.Obj) JsonReader.wireText(json);
+    }
+
+    private static JsonValue.Obj wire(SessionReply r) {
         return tree(r.toJson());
     }
 
-    private static ObjectNode tree(String json) {
-        try {
-            return (ObjectNode) JSON.readTree(json);
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
+    /** {@code o} with its member {@code name} set to {@code value}, added or replaced. */
+    private static JsonValue.Obj with(JsonValue.Obj o, String name, JsonValue value) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.put(name, value);
+        return new JsonValue.Obj(members);
     }
 
-    /** The client's check of a reply held as a tree, so a test can alter it first. */
-    private static ReplyCheck check(JsonNode reply, SessionRequest req, String pin, String entry, long now) {
-        return Sessions.checkReply(reply.toString(), req, pin, entry, now);
+    /** {@code o} without its member {@code name}. */
+    private static JsonValue.Obj without(JsonValue.Obj o, String name) {
+        Map<String, JsonValue> members = new LinkedHashMap<>(o.members());
+        members.remove(name);
+        return new JsonValue.Obj(members);
     }
 
-    private static SessionRequest parse(JsonNode request) {
-        return SessionRequest.parse(request.toString());
+    private static JsonValue.Obj member(JsonValue.Obj o, String name) {
+        return (JsonValue.Obj) o.get(name);
+    }
+
+    /** The values of other types a member that must be an integer is given. */
+    private static final List<JsonValue> NOT_INTEGERS = List.of(new JsonValue.Str("x"), new JsonValue.Null(),
+            new JsonValue.Bool(true), new JsonValue.Obj(Map.of()), new JsonValue.Arr(List.of()));
+
+    /** The numbers no reader reads, each in place of {@link #NOT_AFTER}'s digits. */
+    private static final List<String> NOT_PROTOCOL_INTEGERS =
+            List.of("1.5", "-1", String.valueOf(MAX_SAFE + 1), NOT_AFTER + ".0", "1.8302976e12");
+
+    /** {@code o}'s JCS text, signed again with {@code key} as a reply is: over every member but {@code sig}. */
+    private static String signed(JsonValue.Obj o, PrivateKey key) {
+        JsonValue.Obj body = without(o, "sig");
+        byte[] prefix = "paztport-session-reply\n".getBytes(StandardCharsets.UTF_8);
+        byte[] json = JsonWriter.wire(body);
+        byte[] bytes = new byte[prefix.length + json.length];
+        System.arraycopy(prefix, 0, bytes, 0, prefix.length);
+        System.arraycopy(json, 0, bytes, prefix.length, json.length);
+        return JsonWriter.text(with(body, "sig", new JsonValue.Str(Base64Url.encode(Crypto.sign(key, bytes)))));
+    }
+
+    /** The client's check of a reply held as a value, so a test can alter it first. */
+    private static ReplyCheck check(JsonValue reply, SessionRequest req, String pin, String entry, long now) {
+        return Sessions.checkReply(JsonWriter.text(reply), req, pin, entry, now);
+    }
+
+    private static SessionRequest parse(JsonValue request) {
+        return SessionRequest.parse(JsonWriter.text(request));
     }
 
     @Test
@@ -128,15 +163,12 @@ class SessionsTest {
         SessionRequest req = request(clientRoot);
         SessionReply attested = reply(req, serverRoot, "attested");
 
-        assertEquals(ReplyCheck.MALFORMED_REPLY,
-                check(JSON.valueToTree("nope"), req, serverKey, "pay", NOW));
-        ObjectNode noStatus = (ObjectNode) wire(attested);
-        noStatus.remove("status");
-        assertEquals(ReplyCheck.MALFORMED_REPLY, check(noStatus, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(new JsonValue.Str("nope"), req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, check(without(wire(attested), "status"), req, serverKey, "pay",
+                NOW));
         assertEquals(ReplyCheck.PIN_MISMATCH, check(wire(attested), req, key(clientPolicy), "pay", NOW));
 
-        ObjectNode altered = (ObjectNode) wire(attested);
-        altered.put("nonce", Sessions.newNonce());
+        JsonValue.Obj altered = with(wire(attested), "nonce", new JsonValue.Str(Sessions.newNonce()));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(altered, req, serverKey, "pay", NOW));
 
         SessionReply nullRoot = reply(req, null, "attested");
@@ -148,13 +180,52 @@ class SessionsTest {
     }
 
     /**
+     * A reply is read from its bytes as wire bytes: the same reply in another member order, or with a newline after
+     * it, is not its canonical bytes, and is malformed before its signature is looked at.
+     */
+    @Test
+    void aReplyThatIsNotItsCanonicalBytesIsMalformed() {
+        SessionRequest req = request(clientRoot);
+        String text = reply(req, serverRoot, "attested").toJson();
+        int sig = text.lastIndexOf(",\"sig\":");
+        String sigFirst = "{" + text.substring(sig + 1, text.length() - 1) + "," + text.substring(1, sig) + "}";
+
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(text, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(sigFirst, req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(text + "\n", req, serverKey, "pay", NOW));
+        assertEquals(ReplyCheck.MALFORMED_REPLY,
+                Sessions.checkReply((text + "\n").getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW));
+    }
+
+    /**
+     * A reply has exactly its members, so one the server signed with a member a reply does not have is malformed,
+     * and so is a certificate in it with a member a certificate does not have.
+     */
+    @Test
+    void aReplyWithAnExtraMemberIsMalformed() {
+        SessionRequest req = request(clientRoot);
+        KeyPair entry = Crypto.generateEd25519KeyPair();
+        JsonValue.Obj reply = entryKeyReply(req, entry, NOW + 1000);
+        assertEquals(ReplyCheck.ATTESTED, check(tree(signed(reply, entry.getPrivate())), req, serverKey, "pay", NOW));
+
+        String extra = signed(with(reply, "serverEntry", new JsonValue.Str("pay")), entry.getPrivate());
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extra, req, serverKey, "pay", NOW));
+        String extraInCert = signed(with(reply, "serverReplyCert",
+                with(member(reply, "serverReplyCert"), "note", new JsonValue.Str("added"))), entry.getPrivate());
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extraInCert, req, serverKey, "pay", NOW));
+        String extraInRoot = signed(with(reply, "serverRoot",
+                with(member(reply, "serverRoot"), "note", new JsonValue.Str("added"))), entry.getPrivate());
+        assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(extraInRoot, req, serverKey, "pay", NOW));
+    }
+
+    /**
      * The entry-key form: signed by the entry service's key, which the reply's signed keyring and certificate
      * vouch for. The forged cases: an expired certificate, an entry the client did not configure, the same reply
      * signed by the policy key (the form is decided by the fields, so the pin is never tried), and a certificate
      * the record drops (the policy-key form then needs the policy key, which did not sign it).
      */
     @Test
-    void entryKeyForm() throws Exception {
+    void entryKeyForm() {
         KeyPair entry = Crypto.generateEd25519KeyPair();
         Map<String, String> ring = Map.of("pay", key(entry), "ledger", "ledger-key");
         KeyringFile signedRing = KeyringFile.sign(ring, serverKey, NOT_AFTER, serverPolicy.getPrivate());
@@ -166,30 +237,25 @@ class SessionsTest {
         SessionReply unsigned = new SessionReply(serverRoot, serverKey, ring, signedRing.sig(), NOT_AFTER, cert, nonce,
                 sess, "attested", List.of(), null);
 
-        JsonNode byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
-        assertEquals(JSON.readTree(cert.toJson()), byEntry.get("serverReplyCert"));
+        JsonValue.Obj byEntry = wire(Sessions.signReply(unsigned, entry.getPrivate()));
+        assertEquals(tree(cert.toJson()), byEntry.get("serverReplyCert"));
         assertEquals(ReplyCheck.ATTESTED, check(byEntry, req, serverKey, "pay", NOW + 1000));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "pay", NOW + 1001));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "ledger", NOW));
 
-        JsonNode byPolicy = wire(Sessions.signReply(unsigned, serverPolicy.getPrivate()));
+        JsonValue.Obj byPolicy = wire(Sessions.signReply(unsigned, serverPolicy.getPrivate()));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byPolicy, req, serverKey, "pay", NOW));
 
-        ObjectNode noCert = (ObjectNode) byEntry.deepCopy();
-        noCert.remove("serverReplyCert");
-        noCert.remove("serverKeyringSig");
+        JsonValue.Obj noCert = without(without(byEntry, "serverReplyCert"), "serverKeyringSig");
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(noCert, req, serverKey, "pay", NOW));
     }
 
     /**
-     * A certificate's {@code notAfter} is judged by value, and the reply's signature covers the reply's parsed
-     * value, so a reply whose certificate writes the same integer as {@code 1798761600000.0} or {@code 1.7987616e12}
-     * gets the verdict the plain digits get, as it does in TypeScript. A fraction is no integer by value and is
-     * malformed. Tampering with any other field, including an extra field inside the certificate, still breaks the
-     * signature.
+     * A certificate's {@code notAfter} is a protocol integer: written {@code 1798761600000.0} or
+     * {@code 1.7987616e12}, or as a fraction, the reply does not read, and is malformed.
      */
     @Test
-    void entryKeyReplyCertNotAfterJudgedByValue() throws Exception {
+    void aCertificateNotAfterWrittenAnyOtherWayIsMalformed() {
         long notAfter = 1_798_761_600_000L;
         KeyPair entry = Crypto.generateEd25519KeyPair();
         Map<String, String> ring = Map.of("pay", key(entry));
@@ -199,37 +265,40 @@ class SessionsTest {
         String nonce = Sessions.newNonce();
         String sess = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), nonce, clientKey,
                 clientRing);
-        SessionReply signed = Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(),
-                NOT_AFTER, cert, nonce, sess, "attested", List.of(), null), entry.getPrivate());
-        String text = signed.toJson();
+        String text = Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, signedRing.sig(),
+                NOT_AFTER, cert, nonce, sess, "attested", List.of(), null), entry.getPrivate()).toJson();
         String digits = "\"notAfter\":" + notAfter;
         assertTrue(text.contains(digits));
 
-        assertEquals(ReplyCheck.ATTESTED, check(JSON.readTree(text), req, serverKey, "pay", NOW));
-        for (String same : List.of("1798761600000.0", "1.7987616e12", "1.7987616E+12")) {
-            JsonNode rewritten = JSON.readTree(text.replace(digits, "\"notAfter\":" + same));
-            assertEquals(ReplyCheck.ATTESTED, check(rewritten, req, serverKey, "pay", NOW), same);
+        assertEquals(ReplyCheck.ATTESTED, Sessions.checkReply(text, req, serverKey, "pay", NOW));
+        for (String other : List.of("1798761600000.0", "1.7987616e12", "1.7987616E+12", "1798761600000.5")) {
+            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(
+                    text.replace(digits, "\"notAfter\":" + other), req, serverKey, "pay", NOW), other);
         }
-        JsonNode fraction = JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.5"));
-        assertEquals(ReplyCheck.MALFORMED_REPLY, check(fraction, req, serverKey, "pay", NOW));
-
-        ObjectNode otherField = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
-        otherField.put("nonce", Sessions.newNonce());
-        assertEquals(ReplyCheck.BAD_SIGNATURE, check(otherField, req, serverKey, "pay", NOW));
-        ObjectNode extraInCert = (ObjectNode) JSON.readTree(text.replace(digits, "\"notAfter\":1798761600000.0"));
-        ((ObjectNode) extraInCert.get("serverReplyCert")).put("note", "added");
-        assertEquals(ReplyCheck.BAD_SIGNATURE, check(extraInCert, req, serverKey, "pay", NOW));
     }
 
     @Test
-    void sessionRequestParseRefusesMalformedFields() throws Exception {
-        assertThrows(IllegalArgumentException.class, () -> parse(JSON.readTree("[]")));
-        ObjectNode ok = tree(request(clientRoot).toJson());
-        for (String[] bad : new String[][] {{"clientRoot", "5"}, {"clientKeyring", "{\"a\":1}"}, {"nonce", "7"}}) {
-            ObjectNode o = ok.deepCopy();
-            o.set(bad[0], JSON.readTree(bad[1]));
-            assertThrows(IllegalArgumentException.class, () -> parse(o), bad[0]);
+    void sessionRequestParseRefusesMalformedFields() {
+        assertThrows(IllegalArgumentException.class, () -> SessionRequest.parse("[]"));
+        JsonValue.Obj ok = tree(request(clientRoot).toJson());
+        for (JsonValue bad : List.of(new JsonValue.Int(5), new JsonValue.Str("root"))) {
+            assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientRoot", bad)), "clientRoot");
         }
+        assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientKeyring",
+                new JsonValue.Obj(Map.of("a", new JsonValue.Int(1))))), "clientKeyring");
+        assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "nonce", new JsonValue.Int(7))), "nonce");
+        assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientPolicyKey", new JsonValue.Null())),
+                "clientPolicyKey");
+    }
+
+    /** A request has exactly its members: one it does not have, at its top or in its root, is malformed. */
+    @Test
+    void aRequestWithAnExtraMemberIsMalformed() {
+        JsonValue.Obj ok = tree(request(clientRoot).toJson());
+        assertEquals("a member the object does not define", assertThrows(IllegalArgumentException.class,
+                () -> parse(with(ok, "serverEntry", new JsonValue.Str("pay")))).getMessage());
+        assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientRoot",
+                with(member(ok, "clientRoot"), "note", new JsonValue.Str("added")))));
     }
 
     /**
@@ -245,46 +314,42 @@ class SessionsTest {
     }
 
     /**
-     * A {@code clientKeyringNotAfter} or client root {@code notAfter} that is missing or not a safe integer in
-     * [0, 2^53 &minus; 1] is a shape error, so the request opens no session.
+     * A {@code clientKeyringNotAfter} or client root {@code notAfter} that is missing, not an integer, or a number
+     * that is not a protocol integer is a shape error, so the request opens no session.
      */
     @Test
-    void malformedNotAfterOpensNoSession() throws Exception {
-        ObjectNode ok = tree(request(clientRoot).toJson());
-        for (String bad : new String[] {"1.5", "\"x\"", "-1", String.valueOf(MAX_SAFE + 1), "null", "true", "{}",
-                "[]"}) {
-            ObjectNode ring = ok.deepCopy();
-            ring.set("clientKeyringNotAfter", JSON.readTree(bad));
-            assertThrows(IllegalArgumentException.class, () -> parse(ring), "keyring " + bad);
-            ObjectNode root = ok.deepCopy();
-            ((ObjectNode) root.get("clientRoot")).set("notAfter", JSON.readTree(bad));
-            assertThrows(IllegalArgumentException.class, () -> parse(root), "root " + bad);
+    void malformedNotAfterOpensNoSession() {
+        JsonValue.Obj ok = tree(request(clientRoot).toJson());
+        for (JsonValue bad : NOT_INTEGERS) {
+            assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientKeyringNotAfter", bad)),
+                    "keyring " + bad);
+            assertThrows(IllegalArgumentException.class, () -> parse(with(ok, "clientRoot",
+                    with(member(ok, "clientRoot"), "notAfter", bad))), "root " + bad);
         }
-        ObjectNode noRing = ok.deepCopy();
-        noRing.remove("clientKeyringNotAfter");
-        assertThrows(IllegalArgumentException.class, () -> parse(noRing), "keyring missing");
-        ObjectNode noRoot = ok.deepCopy();
-        ((ObjectNode) noRoot.get("clientRoot")).remove("notAfter");
-        assertThrows(IllegalArgumentException.class, () -> parse(noRoot), "root missing");
+        String text = JsonWriter.text(ok);
+        assertEquals(2, text.split("otAfter\":" + NOT_AFTER, -1).length - 1);
+        for (String bad : NOT_PROTOCOL_INTEGERS) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> SessionRequest.parse(text.replace("otAfter\":" + NOT_AFTER, "otAfter\":" + bad)), bad);
+        }
+        assertThrows(IllegalArgumentException.class, () -> parse(without(ok, "clientKeyringNotAfter")),
+                "keyring missing");
+        assertThrows(IllegalArgumentException.class,
+                () -> parse(with(ok, "clientRoot", without(member(ok, "clientRoot"), "notAfter"))), "root missing");
     }
 
     /**
      * The client keyring's signature is checked over its {@code clientKeyringNotAfter}. Forged: the window moved by
-     * a millisecond fails the signature and the session is unsafe. The same integer written {@code 1.83e12} is the
-     * same window, read by value.
+     * a millisecond fails the signature and the session is unsafe.
      */
     @Test
-    void clientKeyringNotAfterIsCoveredByTheKeyringSignature() throws Exception {
-        ObjectNode wire = tree(request(clientRoot).toJson());
-        assertEquals(NOT_AFTER, wire.get("clientKeyringNotAfter").longValue());
+    void clientKeyringNotAfterIsCoveredByTheKeyringSignature() {
+        JsonValue.Obj wire = tree(request(clientRoot).toJson());
+        assertEquals(new JsonValue.Int(NOT_AFTER), wire.get("clientKeyringNotAfter"));
         assertEquals("attested", status(parse(wire)));
 
-        ObjectNode moved = wire.deepCopy();
-        moved.put("clientKeyringNotAfter", NOT_AFTER + 1);
+        JsonValue.Obj moved = with(wire, "clientKeyringNotAfter", new JsonValue.Int(NOT_AFTER + 1));
         assertEquals("unsafe", status(parse(moved)), "moved");
-        ObjectNode byValue = (ObjectNode) JSON.readTree(JSON.writeValueAsString(wire)
-                .replace("\"clientKeyringNotAfter\":" + NOT_AFTER, "\"clientKeyringNotAfter\":1.8302976e12"));
-        assertEquals("attested", status(parse(byValue)), "by value");
     }
 
     /**
@@ -294,10 +359,10 @@ class SessionsTest {
      */
     @Test
     void notAfterIsWrittenWithEveryRootAndKeyring() {
-        ObjectNode fresh = tree(request(clientRoot).toJson());
-        assertEquals(NOT_AFTER, fresh.get("clientKeyringNotAfter").longValue());
-        assertEquals(NOT_AFTER, fresh.get("clientRoot").get("notAfter").longValue());
-        assertFalse(wire(reply(request(clientRoot), serverRoot, "attested")).has("serverKeyringNotAfter"));
+        JsonValue.Obj fresh = tree(request(clientRoot).toJson());
+        assertEquals(new JsonValue.Int(NOT_AFTER), fresh.get("clientKeyringNotAfter"));
+        assertEquals(new JsonValue.Int(NOT_AFTER), member(fresh, "clientRoot").get("notAfter"));
+        assertNull(wire(reply(request(clientRoot), serverRoot, "attested")).get("serverKeyringNotAfter"));
 
         // The same root and nonce with the keyring signed until two windows, each as the server parses it off the
         // wire: the two differ in the keyring's signature and window, and in nothing the session id binds.
@@ -349,9 +414,9 @@ class SessionsTest {
                 SessionRequest.of(moved, clientKey, clientKeyring, Sessions.newNonce()).toJson())), "root moved");
 
         KeyringFile expiredRing = KeyringFile.sign(clientRing, clientKey, NOW - 1, clientPolicy.getPrivate());
-        ObjectNode ringMoved = tree(
-                SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson());
-        ringMoved.put("clientKeyringNotAfter", NOT_AFTER);
+        JsonValue.Obj ringMoved = with(tree(
+                SessionRequest.of(clientRoot, clientKey, expiredRing, Sessions.newNonce()).toJson()),
+                "clientKeyringNotAfter", new JsonValue.Int(NOT_AFTER));
         assertEquals("unsafe", status(parse(ringMoved)), "keyring moved");
     }
 
@@ -389,10 +454,10 @@ class SessionsTest {
         SessionRequest req = request(clientRoot);
         byte[] rootBytes = Crypto.sha256("s".getBytes());
         SignedRoot rootUntilNow = SignedRoot.sign(rootBytes, "v1", NOW, serverPolicy.getPrivate());
-        JsonNode policyForm = wire(reply(req, rootUntilNow, "attested"));
+        JsonValue.Obj policyForm = wire(reply(req, rootUntilNow, "attested"));
         assertEquals(ReplyCheck.ATTESTED, check(policyForm, req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(policyForm, req, serverKey, "pay", NOW + 1));
-        JsonNode unsafe = wire(reply(req, rootUntilNow, "unsafe"));
+        JsonValue.Obj unsafe = wire(reply(req, rootUntilNow, "unsafe"));
         assertEquals(ReplyCheck.UNSAFE, check(unsafe, req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(unsafe, req, serverKey, "pay", NOW + 1));
 
@@ -402,7 +467,7 @@ class SessionsTest {
                 NOT_AFTER), req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(entryKeyReply(req, entry, certNotAfter,
                 rootUntilNow, NOT_AFTER), req, serverKey, "pay", NOW + 1), "root past, entry-key form");
-        JsonNode ringUntilNow = entryKeyReply(req, entry, certNotAfter, serverRoot, NOW);
+        JsonValue.Obj ringUntilNow = entryKeyReply(req, entry, certNotAfter, serverRoot, NOW);
         assertEquals(ReplyCheck.ATTESTED, check(ringUntilNow, req, serverKey, "pay", NOW));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringUntilNow, req, serverKey, "pay", NOW + 1),
                 "keyring past");
@@ -411,38 +476,37 @@ class SessionsTest {
         SignedRoot extended = new SignedRoot(expired.rootId(), expired.root(), expired.sig(), NOT_AFTER);
         assertTrue(extended.isCurrent(NOW));
         assertFalse(extended.verify(serverPolicy.getPublic()));
-        JsonNode byEntry = entryKeyReply(req, entry, certNotAfter, extended, NOT_AFTER);
-        assertEquals(NOT_AFTER, byEntry.get("serverRoot").get("notAfter").longValue());
+        JsonValue.Obj byEntry = entryKeyReply(req, entry, certNotAfter, extended, NOT_AFTER);
+        assertEquals(new JsonValue.Int(NOT_AFTER), member(byEntry, "serverRoot").get("notAfter"));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(byEntry, req, serverKey, "pay", NOW));
 
         String pn = Sessions.newNonce();
         String ps = Sessions.deriveSessionId(clientRoot.sig(), serverRoot.sig(), req.nonce(), pn, clientKey,
                 clientRing);
         Map<String, String> ring = Map.of("pay", "server-key");
-        JsonNode withoutWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, null,
-                null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+        JsonValue.Obj withoutWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null,
+                null, null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
         assertEquals(ReplyCheck.ATTESTED, check(withoutWindow, req, serverKey, "pay", NOW));
-        JsonNode withWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null, NOT_AFTER,
-                null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
-        assertTrue(withWindow.has("serverKeyringNotAfter"));
+        JsonValue.Obj withWindow = wire(Sessions.signReply(new SessionReply(serverRoot, serverKey, ring, null,
+                NOT_AFTER, null, pn, ps, "attested", List.of(), null), serverPolicy.getPrivate()));
+        assertNotNull(withWindow.get("serverKeyringNotAfter"));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(withWindow, req, serverKey, "pay", NOW));
 
-        ObjectNode rootWindowDropped = (ObjectNode) policyForm.deepCopy();
-        ((ObjectNode) rootWindowDropped.get("serverRoot")).remove("notAfter");
+        JsonValue.Obj rootWindowDropped = with(policyForm, "serverRoot",
+                without(member(policyForm, "serverRoot"), "notAfter"));
         assertEquals(ReplyCheck.MALFORMED_REPLY, check(rootWindowDropped, req, serverKey, "pay", NOW));
-        ObjectNode ringWindowDropped = (ObjectNode) entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER)
-                .deepCopy();
-        ringWindowDropped.remove("serverKeyringNotAfter");
+        JsonValue.Obj ringWindowDropped =
+                without(entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER), "serverKeyringNotAfter");
         assertEquals(ReplyCheck.MALFORMED_REPLY, check(ringWindowDropped, req, serverKey, "pay", NOW));
     }
 
     /** An entry-key reply: server root and keyring, the keyring's window beside it as on the request. */
-    private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter) {
+    private JsonValue.Obj entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter) {
         return entryKeyReply(req, entry, certNotAfter, serverRoot, NOT_AFTER);
     }
 
     /** An entry-key reply carrying {@code root} and a keyring signed until {@code ringNotAfter}. */
-    private JsonNode entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter, SignedRoot root,
+    private JsonValue.Obj entryKeyReply(SessionRequest req, KeyPair entry, long certNotAfter, SignedRoot root,
             long ringNotAfter) {
         Map<String, String> ring = Map.of("pay", key(entry));
         KeyringFile signedRing = KeyringFile.sign(ring, serverKey, ringNotAfter, serverPolicy.getPrivate());
@@ -456,42 +520,37 @@ class SessionsTest {
 
     /**
      * A reply's {@code serverKeyringNotAfter} and its root's {@code notAfter} are carried and checked. Forged: either
-     * moved by a millisecond fails the signature; one dropped, or a value that is not a safe integer in
-     * [0, 2^53 &minus; 1], is malformed. Written {@code 1.8302976e12}, each is the same integer, and since the reply's
-     * signature covers its parsed value, the verdict is the plain digits' one, as in TypeScript.
+     * moved by a millisecond fails the signature; one dropped, one of another type, or a number that is not a
+     * protocol integer ({@code 1.8302976e12} for the same integer included) is malformed.
      */
     @Test
-    void replyNotAftersAreCarriedAndChecked() throws Exception {
+    void replyNotAftersAreCarriedAndChecked() {
         SessionRequest req = request(clientRoot);
-        JsonNode reply = entryKeyReply(req, Crypto.generateEd25519KeyPair(), NOW + 1000);
-        assertEquals(NOT_AFTER, reply.get("serverKeyringNotAfter").longValue());
-        assertEquals(NOT_AFTER, reply.get("serverRoot").get("notAfter").longValue());
+        JsonValue.Obj reply = entryKeyReply(req, Crypto.generateEd25519KeyPair(), NOW + 1000);
+        assertEquals(new JsonValue.Int(NOT_AFTER), reply.get("serverKeyringNotAfter"));
+        assertEquals(new JsonValue.Int(NOT_AFTER), member(reply, "serverRoot").get("notAfter"));
         assertEquals(ReplyCheck.ATTESTED, check(reply, req, serverKey, "pay", NOW));
 
-        ObjectNode ringMoved = reply.deepCopy();
-        ringMoved.put("serverKeyringNotAfter", NOT_AFTER + 1);
+        JsonValue.Obj ringMoved = with(reply, "serverKeyringNotAfter", new JsonValue.Int(NOT_AFTER + 1));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(ringMoved, req, serverKey, "pay", NOW));
-        ObjectNode ringDropped = reply.deepCopy();
-        ringDropped.remove("serverKeyringNotAfter");
-        assertEquals(ReplyCheck.MALFORMED_REPLY, check(ringDropped, req, serverKey, "pay", NOW));
-        ObjectNode rootMoved = reply.deepCopy();
-        ((ObjectNode) rootMoved.get("serverRoot")).put("notAfter", NOT_AFTER + 1);
+        assertEquals(ReplyCheck.MALFORMED_REPLY,
+                check(without(reply, "serverKeyringNotAfter"), req, serverKey, "pay", NOW));
+        JsonValue.Obj rootMoved = with(reply, "serverRoot",
+                with(member(reply, "serverRoot"), "notAfter", new JsonValue.Int(NOT_AFTER + 1)));
         assertEquals(ReplyCheck.BAD_SIGNATURE, check(rootMoved, req, serverKey, "pay", NOW));
 
-        for (String bad : new String[] {"1.5", "\"x\"", "-1", String.valueOf(MAX_SAFE + 1), "null", "true", "{}",
-                "[]"}) {
-            ObjectNode ring = reply.deepCopy();
-            ring.set("serverKeyringNotAfter", JSON.readTree(bad));
-            assertEquals(ReplyCheck.MALFORMED_REPLY, check(ring, req, serverKey, "pay", NOW), bad);
-            ObjectNode root = reply.deepCopy();
-            ((ObjectNode) root.get("serverRoot")).set("notAfter", JSON.readTree(bad));
-            assertEquals(ReplyCheck.MALFORMED_REPLY, check(root, req, serverKey, "pay", NOW), bad);
+        for (JsonValue bad : NOT_INTEGERS) {
+            assertEquals(ReplyCheck.MALFORMED_REPLY,
+                    check(with(reply, "serverKeyringNotAfter", bad), req, serverKey, "pay", NOW), bad.toString());
+            assertEquals(ReplyCheck.MALFORMED_REPLY, check(with(reply, "serverRoot",
+                    with(member(reply, "serverRoot"), "notAfter", bad)), req, serverKey, "pay", NOW), bad.toString());
         }
-
-        String text = JSON.writeValueAsString(reply);
+        String text = JsonWriter.text(reply);
         assertEquals(2, text.split("otAfter\":" + NOT_AFTER, -1).length - 1);
-        JsonNode byValue = JSON.readTree(text.replace("otAfter\":" + NOT_AFTER, "otAfter\":1.8302976e12"));
-        assertEquals(ReplyCheck.ATTESTED, check(byValue, req, serverKey, "pay", NOW));
+        for (String bad : NOT_PROTOCOL_INTEGERS) {
+            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(
+                    text.replace("otAfter\":" + NOT_AFTER, "otAfter\":" + bad), req, serverKey, "pay", NOW), bad);
+        }
     }
 
     @Test

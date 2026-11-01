@@ -35,7 +35,7 @@ has one, the authenticated peer.
   keyring and the root against the pinned policy key, and refuses to build a config if
   either fails or has expired. `OfflineVerifier` re-checks a recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request and
-  reply text, the pin and the configured entry: attested at a time, at all (at the
+  reply, each its wire bytes as text, the pin and the configured entry: attested at a time, at all (at the
   earliest of its limits) and the response limit. `RecordSet` holds a record
   set's spent nonce keys and a response cache that never forgets, and
   `RecordSet.callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`).
@@ -57,9 +57,10 @@ has one, the authenticated peer.
   `IllegalArgumentException` for anything malformed, text that is not one JSON value
   included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
   list is read and written by the class that owns it (`Influence.parse`,
-  `ContentLabel.parseAll`, `Chains.parse`). A session reply is judged as received, so
-  it has no reader: `Sessions.checkReply` takes its text or bytes, and
-  `RecordedSession.of` its text. The verifiers take the stamps, influence and proof
+  `ContentLabel.parseAll`, `Chains.parse`). A session request and reply are read
+  from their wire bytes, by `SessionRequest.parse` and `SessionReply.parse`, with
+  exactly their members; `Sessions.checkReply` takes a reply's text or bytes and
+  reads it first, and `RecordedSession.of` takes both as text. The verifiers take the stamps, influence and proof
   as the JSON text received and read it themselves, so text that is not JSON is a
   typed rejection at the check that reads it. `Jcs` canonicalises JSON text. The
   `org.paztport.core.encoding` package states the rule.
@@ -87,7 +88,8 @@ once per request tree. `HttpSessions` fixes the handshake's names (`PATH`,
 `/paztport/session`, and the error codes `INVALID_PARAMS` and `NO_SESSION`) and
 writes `{"error":"<code>"}`; core reads the bodies, a request with
 `SessionRequest.parse(byte[])` and a reply with `Sessions.checkReply(byte[],
-...)`, as strictly as `HttpV3` reads a header (trailing tokens are refused).
+...)`, as their wire bytes: each body is exactly its message's JCS bytes, so a
+newline after them is refused.
 
 The receivers decide a request with no framework and keep no per-request state.
 `HttpReceiver.accept(InboundRequest, Peer, VerificationMode)` decides one request

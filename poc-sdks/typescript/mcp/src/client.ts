@@ -6,13 +6,16 @@ import {
   checkSessionReply,
   commitInfluence,
   decode,
+  readSessionReply,
   replacementRequest,
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
   signStampV3,
+  writeToken,
   type ContentLabel,
   type InfluenceEntry,
+  type JsonValue,
   type MerkleProof,
   type NonceCache,
   type SessionReply,
@@ -45,12 +48,19 @@ const unusable = (reason: string): SessionOutcome => ({ status: "unsafe", reason
 
 /**
  * Classifies a paztport/session reply against the request it answers, the pinned server policy key, the server's
- * entry service from the client's own configuration, and the time `now` (ms).
+ * entry service from the client's own configuration, and the time `now` (ms). The raw reply value is read as the
+ * reply's token: a value that token cannot hold is MALFORMED_REPLY.
  */
 export function classifySessionReply(raw: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
-  const check = checkSessionReply(raw, req, pin, serverEntry, now);
+  let token: string;
+  try {
+    token = writeToken(raw as JsonValue);
+  } catch {
+    return unusable("MALFORMED_REPLY");
+  }
+  const check = checkSessionReply(token, req, pin, serverEntry, now);
   if (check === "ATTESTED") {
-    return { status: "attested", reply: raw as SessionReply };
+    return { status: "attested", reply: readSessionReply(token) };
   }
   return check === "UNSAFE" ? { status: "unsafe", reason: "UNSAFE", replaceSession: false } : unusable(check);
 }

@@ -270,10 +270,6 @@ describe("session handshake", () => {
     expect(srv.openSession(JSON.parse(JSON.stringify(req))).status).toBe("attested");
     expect(srv.session()!.request.clientRoot).toEqual(req.clientRoot);
     expect(srv.session()!.request.clientKeyringNotAfter).toBe(CLIENT_NOT_AFTER);
-    // judged by value: an integer written with a fraction or an exponent is that integer
-    const text = JSON.stringify(req).replace(`"clientKeyringNotAfter":${CLIENT_NOT_AFTER}`, `"clientKeyringNotAfter":${CLIENT_NOT_AFTER}.0`);
-    expect(text).toContain(".0");
-    expect(srv.openSession(JSON.parse(text)).status).toBe("attested");
   });
   it("aTamperedClientKeyringNotAfterIsUnsafe", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
@@ -288,9 +284,13 @@ describe("session handshake", () => {
     const current = srv.session();
     for (const bad of [1.5, -1, 2 ** 53, "x", null, true, {}, []]) {
       expect(() => srv.openSession({ ...good, clientKeyringNotAfter: bad }), `keyring ${String(bad)}`).toThrow(InvalidParams);
-      expect(() => srv.openSession({ ...good, clientKeyringNotAfter: bad }), `keyring ${String(bad)}`).toThrow("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
-      expect(() => srv.openSession({ ...good, clientRoot: { ...good.clientRoot!, notAfter: bad } }), `root ${String(bad)}`).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
+      const root = { ...good.clientRoot!, notAfter: bad };
+      expect(() => srv.openSession({ ...good, clientRoot: root }), `root ${String(bad)}`).toThrow(InvalidParams);
     }
+    const ring = { ...good, clientKeyringNotAfter: "x" };
+    expect(() => srv.openSession(ring)).toThrow("member clientKeyringNotAfter is not an integer");
+    const root = { ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } };
+    expect(() => srv.openSession(root)).toThrow("member notAfter is not an integer");
     // a request that opens no session leaves the current one in place
     expect(srv.session()).toBe(current);
   });
@@ -302,10 +302,20 @@ describe("session handshake", () => {
     const { clientKeyringNotAfter: _w, ...noRingWindow } = good;
     const { notAfter: _n, ...root } = good.clientRoot!;
     expect(() => srv.openSession(noRingWindow)).toThrow(InvalidParams);
-    expect(() => srv.openSession(noRingWindow)).toThrow("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => srv.openSession(noRingWindow)).toThrow("no member clientKeyringNotAfter");
     expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow(InvalidParams);
-    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow("no member notAfter");
     expect(srv.session()).toBe(current);
+  });
+  it("aRequestValueWithAnExtraMemberIsInvalidParams", () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const good = makeClient().request();
+    const extraInRoot = { ...good, clientRoot: { ...good.clientRoot!, note: "added" } };
+    for (const request of [{ ...good, serverEntry: "mcp-entry" }, extraInRoot]) {
+      expect(() => srv.openSession(request)).toThrow(InvalidParams);
+      expect(() => srv.openSession(request)).toThrow("a member the object does not define");
+    }
+    expect(srv.session()).toBeUndefined();
   });
   it("anExpiredClientRootOrKeyringIsUnsafeAtTheHandshake", () => {
     const T = Date.now() + 60_000;

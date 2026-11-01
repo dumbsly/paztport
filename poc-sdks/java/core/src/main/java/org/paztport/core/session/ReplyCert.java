@@ -3,7 +3,6 @@
 
 package org.paztport.core.session;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -134,36 +133,11 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         return fromTree(JsonReader.file(file));
     }
 
-    /** The certificate's schema. */
-    private static ReplyCert fromTree(JsonValue value) {
+    /** The certificate's schema, which a session reply's own reader applies to the certificate it holds. */
+    static ReplyCert fromTree(JsonValue value) {
         JsonValue.Obj o = JsonFields.object(value);
         JsonFields.exactly(o, MEMBERS, Set.of());
         return new ReplyCert(JsonFields.string(o, "policy"), JsonFields.string(o, "svc"), JsonFields.string(o, "key"),
                 JsonFields.integer(o, "notAfter"), JsonFields.string(o, "sig"));
-    }
-
-    /**
-     * The certificate inside a session reply, read from a Jackson tree: string {@code policy}, {@code svc},
-     * {@code key} and {@code sig}, and a {@code notAfter} judged by value, so {@code 1.0} and {@code 1e3} are the
-     * integers 1 and 1000; other members are ignored. Throws {@link IllegalArgumentException} otherwise.
-     */
-    static ReplyCert fromTree(JsonNode node) {
-        if (node == null || !node.isObject()) {
-            throw new IllegalArgumentException("a reply certificate must be a JSON object");
-        }
-        Long notAfter = JsonIntegers.safeInteger(node.get("notAfter"));
-        if (notAfter == null || !JsonIntegers.inRange(notAfter)) {
-            throw new IllegalArgumentException("reply certificate notAfter must be an integer in [0, 2^53 - 1]");
-        }
-        return new ReplyCert(text(node, "policy"), text(node, "svc"), text(node, "key"), notAfter,
-                text(node, "sig"));
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || !v.isTextual()) {
-            throw new IllegalArgumentException("reply certificate " + field + " must be a string");
-        }
-        return v.textValue();
     }
 }

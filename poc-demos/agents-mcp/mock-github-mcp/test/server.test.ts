@@ -707,17 +707,19 @@ describe("composed github server", () => {
   it("malformedSessionIsInvalidParams", async () => {
     const h = setup();
     const good = h.client.request();
+    const { nonce: _nonce, ...noNonce } = good;
+    const { clientKeyringNotAfter: _window, ...noWindow } = good;
     const cases: [unknown, RegExp][] = [
-      [null, /session request/],
-      [{ ...good, clientPolicyKey: 1 }, /clientPolicyKey/],
-      [{ ...good, nonce: undefined }, /nonce/],
-      [{ ...good, clientKeyring: [] }, /clientKeyring/],
-      [{ ...good, clientRoot: { rootId: "v" } }, /clientRoot\.root/],
+      [null, /not an object/],
+      [{ ...good, clientPolicyKey: 1 }, /member clientPolicyKey is not a string/],
+      [noNonce, /no member nonce/],
+      [{ ...good, clientKeyring: [] }, /member clientKeyring is not an object/],
+      [{ ...good, clientRoot: { rootId: "v" } }, /no member notAfter/],
       // a window that is missing or not an integer is malformed
-      [{ ...good, clientKeyringNotAfter: undefined }, /clientKeyringNotAfter must be an integer/],
-      [{ ...good, clientKeyringNotAfter: 1.5 }, /clientKeyringNotAfter must be an integer/],
-      [{ ...good, clientKeyringNotAfter: null }, /clientKeyringNotAfter must be an integer/],
-      [{ ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } }, /clientRoot\.notAfter must be an integer/],
+      [noWindow, /no member clientKeyringNotAfter/],
+      [{ ...good, clientKeyringNotAfter: 1.5 }, /1\.5 is not a protocol integer/],
+      [{ ...good, clientKeyringNotAfter: null }, /member clientKeyringNotAfter is not an integer/],
+      [{ ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } }, /member notAfter is not an integer/],
     ];
     for (const [params, field] of cases) {
       const r = await h.rpc(SESSION_METHOD, params);

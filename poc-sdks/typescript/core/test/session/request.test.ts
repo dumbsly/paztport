@@ -2,11 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair } from "../../src/crypto/crypto.ts";
+import { decode, encode } from "../../src/encoding/b64url.ts";
+import { generateKeyPair, utf8 } from "../../src/crypto/crypto.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
-import { type SessionRequest } from "../../src/session/session.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
-import { parseSessionRequest, replacementRequest, sessionRequest } from "../../src/session/request.ts";
+import { readSessionRequest, replacementRequest, sessionRequest } from "../../src/session/request.ts";
 
 /** Valid until 2100-01-01. */
 const NOT_AFTER = 4_102_444_800_000;
@@ -49,47 +52,83 @@ describe("replacementRequest", () => {
   });
 });
 
-describe("parseSessionRequest", () => {
-  const wire = () => JSON.parse(JSON.stringify(sessionRequest(clientMaterial()))) as Record<string, unknown>;
+describe("readSessionRequest", () => {
+  const value = () => sessionRequest(clientMaterial());
+  /** The token of `req` with its members changed by `edit`, written as the SDK writes a request. */
+  const token = (req: object, edit: Record<string, unknown> = {}): string =>
+    writeToken({ ...req, ...edit } as JsonValue);
+  /** The token of exactly `text`'s bytes, which need not be canonical. */
+  const bytes = (text: string): string => encode(utf8(text));
   it("readsWhatSessionRequestWrites", () => {
-    const req = sessionRequest(clientMaterial());
-    expect(parseSessionRequest(JSON.parse(JSON.stringify(req)))).toEqual(req);
+    const req = value();
+    expect(readSessionRequest(token(req))).toEqual(req);
+    expect(readSessionRequest(token({ ...req, clientRoot: null }))).toEqual({ ...req, clientRoot: null });
   });
   it("aMissingKeyringSignatureIsInvalid", () => {
-    const { clientKeyringSig: _sig, ...missing } = wire();
-    expect(() => parseSessionRequest(missing)).toThrow("clientKeyringSig must be a non-empty string");
-    for (const bad of [null, "", 7, ["x"], {}]) {
-      expect(() => parseSessionRequest({ ...missing, clientKeyringSig: bad }), JSON.stringify(bad)).toThrow("clientKeyringSig must be a non-empty string");
+    const { clientKeyringSig: _sig, ...missing } = value();
+    expect(() => readSessionRequest(token(missing))).toThrow("no member clientKeyringSig");
+    for (const bad of [null, 7, ["x"], {}]) {
+      expect(() => readSessionRequest(token(missing, { clientKeyringSig: bad })), String(bad)).toThrow(
+        "member clientKeyringSig is not a string",
+      );
     }
+    const empty = token(missing, { clientKeyringSig: "" });
+    expect(() => readSessionRequest(empty)).toThrow("member clientKeyringSig is empty");
   });
   it("refusesClientMaterialWithoutNotAfter", () => {
-    const wire = JSON.parse(JSON.stringify(sessionRequest(clientMaterial()))) as Record<string, unknown>;
-    const { clientKeyringNotAfter: _w, ...noRingWindow } = wire;
-    const { notAfter: _r, ...root } = wire.clientRoot as Record<string, unknown>;
-    expect(() => parseSessionRequest(noRingWindow)).toThrow("clientKeyringNotAfter must be an integer in [0, 2^53 - 1]");
-    expect(() => parseSessionRequest({ ...wire, clientRoot: root })).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
+    const { clientKeyringNotAfter: _w, ...noRingWindow } = value();
+    const { notAfter: _r, ...root } = value().clientRoot!;
+    expect(() => readSessionRequest(token(noRingWindow))).toThrow("no member clientKeyringNotAfter");
+    expect(() => readSessionRequest(token(value(), { clientRoot: root }))).toThrow("no member notAfter");
   });
   it("keepsTheClientRootWholeAndTheKeyringWindow", () => {
-    const req = sessionRequest(clientMaterial());
-    const parsed = parseSessionRequest(JSON.parse(JSON.stringify(req)));
-    expect(parsed.clientRoot).toEqual(req.clientRoot);
-    expect(parsed.clientKeyringNotAfter).toBe(NOT_AFTER);
+    const req = value();
+    const read = readSessionRequest(token(req));
+    expect(read.clientRoot).toEqual(req.clientRoot);
+    expect(read.clientKeyringNotAfter).toBe(NOT_AFTER);
+  });
+  it("aRequestInWireMemberOrderIsMalformed", () => {
+    const req = value();
+    const text = new TextDecoder().decode(decode(token(req)));
+    const at = text.lastIndexOf(',"nonce":');
+    const nonceFirst = `{${text.slice(at + 1, -1)},${text.slice(1, at)}}`;
+    expect(readSessionRequest(bytes(text))).toEqual(req);
+    expect(() => readSessionRequest(bytes(nonceFirst))).toThrow(MalformedJson);
+    expect(() => readSessionRequest(bytes(`${text}\n`))).toThrow(MalformedJson);
+  });
+  it("aRequestWithAnExtraMemberIsMalformed", () => {
+    const extra = token(value(), { serverEntry: "mcp-entry" });
+    expect(() => readSessionRequest(extra)).toThrow("a member the object does not define");
+    expect(() => readSessionRequest(token(value(), { clientRoot: { ...value().clientRoot!, note: "added" } }))).toThrow(
+      "a member the object does not define",
+    );
+  });
+  it("aNotAfterWrittenAnyOtherWayIsMalformed", () => {
+    const text = new TextDecoder().decode(decode(token(value())));
+    expect(text.split(`otAfter":${NOT_AFTER}`).length - 1).toBe(2);
+    for (const bad of ["1.5", "-1", String(2 ** 53), `${NOT_AFTER}.0`, "4.1024448e12"]) {
+      const written = bytes(text.replace(`otAfter":${NOT_AFTER}`, `otAfter":${bad}`));
+      expect(() => readSessionRequest(written), bad).toThrow(MalformedJson);
+    }
   });
   it("namesTheBadField", () => {
-    expect(() => parseSessionRequest(null)).toThrow("session request must be an object");
-    expect(() => parseSessionRequest([])).toThrow("session request must be an object");
-    expect(() => parseSessionRequest({ ...wire(), clientRoot: "x" })).toThrow("clientRoot must be an object or null");
-    expect(() => parseSessionRequest({ ...wire(), clientKeyring: [] })).toThrow("clientKeyring must be an object");
-    expect(() => parseSessionRequest({ ...wire(), clientKeyring: { a: 1 } })).toThrow("clientKeyring entry a must be a string");
-    expect(() => parseSessionRequest({ ...wire(), clientPolicyKey: 1 })).toThrow("clientPolicyKey must be a string");
-    expect(() => parseSessionRequest({ ...wire(), nonce: undefined })).toThrow("nonce must be a string");
-    for (const bad of [null, -1, 1.5, "7", 2 ** 53]) {
-      expect(() => parseSessionRequest({ ...wire(), clientKeyringNotAfter: bad }), String(bad)).toThrow("clientKeyringNotAfter");
+    expect(() => readSessionRequest(writeToken(null))).toThrow("not an object");
+    expect(() => readSessionRequest(writeToken([]))).toThrow("not an object");
+    expect(() => readSessionRequest("not*base64url")).toThrow(MalformedJson);
+    expect(() => readSessionRequest(token(value(), { clientRoot: "x" }))).toThrow("not an object");
+    const refusal = (edit: Record<string, unknown>) => () => readSessionRequest(token(value(), edit));
+    expect(refusal({ clientKeyring: [] })).toThrow("member clientKeyring is not an object");
+    expect(refusal({ clientKeyring: { a: 1 } })).toThrow("member clientKeyring holds a value that is not a string");
+    expect(refusal({ clientPolicyKey: 1 })).toThrow("member clientPolicyKey is not a string");
+    expect(refusal({ nonce: null })).toThrow("member nonce is not a string");
+    for (const bad of [null, "7", true, {}, []]) {
+      const window = refusal({ clientKeyringNotAfter: bad });
+      expect(window, String(bad)).toThrow("member clientKeyringNotAfter is not an integer");
     }
   });
   it("keepsAnInheritedNameAsAnOrdinaryKey", () => {
-    const text = JSON.stringify(wire()).replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",');
-    const parsed = parseSessionRequest(JSON.parse(text));
-    expect(Object.hasOwn(parsed.clientKeyring, "__proto__")).toBe(true);
+    const text = new TextDecoder().decode(decode(token(value())));
+    const read = readSessionRequest(bytes(text.replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",')));
+    expect(Object.hasOwn(read.clientKeyring, "__proto__")).toBe(true);
   });
 });

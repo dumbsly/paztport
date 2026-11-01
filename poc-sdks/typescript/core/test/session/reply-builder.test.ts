@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import { generateKeyPair } from "../../src/crypto/crypto.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { checkSessionReply } from "../../src/session/reply-check.ts";
@@ -44,7 +45,7 @@ describe("buildSessionReply", () => {
     expect(reply.disabled).toEqual([]);
     expect(reply.serverRoot).toEqual(w.source.signedRoot);
     expect(reply.serverKeyringNotAfter).toBe(FAR);
-    expect(checkSessionReply(JSON.parse(JSON.stringify(reply)), req, w.source.policyPublicKey, "mcp-entry", NOW)).toBe("ATTESTED");
+    expect(checkSessionReply(writeToken(reply), req, w.source.policyPublicKey, "mcp-entry", NOW)).toBe("ATTESTED");
   });
   it("opensAnUnsafeSessionListingTheDisabledToolsOtherwise", () => {
     const w = world();
@@ -53,7 +54,7 @@ describe("buildSessionReply", () => {
       const reply = buildSessionReply(w.source, req, rules, NOW);
       expect(reply.status).toBe("unsafe");
       expect(reply.disabled).toEqual(["w", "x"]);
-      expect(checkSessionReply(JSON.parse(JSON.stringify(reply)), req, w.source.policyPublicKey, "mcp-entry", NOW)).toBe("UNSAFE");
+      expect(checkSessionReply(writeToken(reply), req, w.source.policyPublicKey, "mcp-entry", NOW)).toBe("UNSAFE");
     }
   });
   it("drawsAFreshServerNonceEachTime", () => {

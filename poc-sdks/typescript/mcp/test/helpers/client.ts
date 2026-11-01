@@ -6,6 +6,7 @@
 import {
   bindPrompt,
   buildPolicy,
+  checkSessionReply,
   commitInfluence,
   decode,
   generateKeyPair,
@@ -15,7 +16,7 @@ import {
   signKeyring,
   signRoot,
   signStampV3,
-  verifySessionReply,
+  writeToken,
   type ContentLabel,
   type InfluenceEntry,
   type MerkleProof,
@@ -139,7 +140,12 @@ export function makeClient(
   return {
     request,
     acceptReply(reply, pinnedServerKey) {
-      if (req === undefined || !verifySessionReply(reply, req, pinnedServerKey, "mcp-entry", Date.now())) {
+      // the reply as a client receives it: its token, read and checked
+      if (req === undefined) {
+        return false;
+      }
+      const check = checkSessionReply(writeToken(reply), req, pinnedServerKey, "mcp-entry", Date.now());
+      if (check !== "ATTESTED" && check !== "UNSAFE") {
         return false;
       }
       sess = reply.sess;

@@ -541,6 +541,20 @@ class BoundaryClientTest {
         assertEquals(partner.issued().get(1), partner.calls().get(1).header(PaztportHeaders.SESSION));
     }
 
+    // A refusal is read from its wire bytes, {"reason":"<code>"} and nothing more. Any other body gives no reason, so
+    // the session is kept, as after any refusal that names none.
+    @Test
+    void aRefusalBodyThatIsNotItsWireBytesGivesNoReason() throws Exception {
+        List<String> bodies = List.of("{\"reason\": \"SESSION_UNKNOWN\"}", "{\"reason\":\"SESSION_UNKNOWN\"}\n",
+                "{\"detail\":\"gone\",\"reason\":\"SESSION_UNKNOWN\"}", "{\"reason\":\"POLICY_EXPIRED\",\"x\":1}");
+        bodies.forEach(body -> partner.answerNext(403, body));
+
+        for (int i = 0; i < bodies.size(); i++) {
+            assertEquals(403, verified("rid-" + i, this::charge).status(), bodies.get(i));
+        }
+        assertEquals(1, partner.handshakes().size(), "the session is kept");
+    }
+
     // Once the egress's own root or keyring lapses, the partner refuses every call in the attested session
     // POLICY_EXPIRED; the session is dropped so that the next call opens a new handshake, which the partner judges
     // unsafe, and the egress says why, once.

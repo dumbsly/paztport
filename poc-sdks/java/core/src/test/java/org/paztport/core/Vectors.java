@@ -4,19 +4,13 @@
 package org.paztport.core;
 
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,17 +23,13 @@ import org.paztport.core.internal.JsonWriter;
  * so a test does not depend on which module or directory Maven was started from. Shared with the http module's
  * tests through core's test jar.
  *
- * <p>A replay hands the SDK each value's own text from the file, not the tree written back out: the spec asks for
- * that, since a vector may write a number as {@code 1798761600000.0}, which a reader judges by value and a tree
- * written back would print as {@code 1.7987616E12}. So the tree is built here while the file is read, and every
- * value in it remembers the exact text it was read from; {@link #json} gives that text back.
+ * <p>A replay hands the SDK what a case says was received as the bytes the case carries for it (a token, a hex
+ * body, a file's text), and builds every other input from the case's values ({@link #text}). Jackson only walks the
+ * file.
  */
 public final class Vectors {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
-
-    /** Each value read from a vector file, by identity, to the text it was read from. */
-    private static final Map<JsonNode, String> TEXT = Collections.synchronizedMap(new IdentityHashMap<>());
 
     private Vectors() {
     }
@@ -53,23 +43,6 @@ public final class Vectors {
             }
         }
         throw new IllegalStateException("spec/vectors/" + name + " not found above " + dir);
-    }
-
-    /**
-     * A vector's value as the SDK takes it: the text the file holds for it, exactly; null stays null. Only a value
-     * {@link #load} returned (or reached from one) has such text, so anything else is a test's mistake and throws.
-     * Jackson shares the nodes for {@code true}, {@code false}, {@code null}, {@code ""} and small integers, so for
-     * those the text is that of the value's last occurrence, which is the same JSON.
-     */
-    public static String json(JsonNode node) {
-        if (node == null) {
-            return null;
-        }
-        String text = TEXT.get(node);
-        if (text == null) {
-            throw new IllegalArgumentException("not a value read from a vector file: " + node);
-        }
-        return text;
     }
 
     /**
@@ -110,48 +83,14 @@ public final class Vectors {
         return new String(Base64Url.decode(token.textValue()), StandardCharsets.UTF_8);
     }
 
-    /** The tree of a vector file's text, with each value's text recorded as it is read. */
+    /** The tree of a vector file's text. */
     public static JsonNode read(String file) throws IOException {
         try (JsonParser p = MAPPER.getFactory().createParser(file)) {
-            p.nextToken();
-            JsonNode root = value(p, file);
+            JsonNode root = MAPPER.readTree(p);
             if (p.nextToken() != null) {
                 throw new IOException("a vector file holds one JSON value");
             }
             return root;
         }
-    }
-
-    /**
-     * The value at the parser's current token, built as a tree read would build it: a repeated name's last value
-     * wins, and a scalar is read from its own text, so it is the node a tree read gives.
-     */
-    private static JsonNode value(JsonParser p, String file) throws IOException {
-        int start = (int) p.currentTokenLocation().getCharOffset();
-        JsonNode node;
-        if (p.currentToken() == JsonToken.START_OBJECT) {
-            ObjectNode o = JsonNodeFactory.instance.objectNode();
-            while (p.nextToken() == JsonToken.FIELD_NAME) {
-                String name = p.currentName();
-                p.nextToken();
-                o.set(name, value(p, file));
-            }
-            node = o;
-        } else if (p.currentToken() == JsonToken.START_ARRAY) {
-            ArrayNode a = JsonNodeFactory.instance.arrayNode();
-            while (p.nextToken() != JsonToken.END_ARRAY) {
-                a.add(value(p, file));
-            }
-            node = a;
-        } else {
-            p.finishToken();
-            node = null;
-        }
-        String text = file.substring(start, (int) p.currentLocation().getCharOffset());
-        if (node == null) {
-            node = MAPPER.readTree(text);
-        }
-        TEXT.put(node, text);
-        return node;
     }
 }

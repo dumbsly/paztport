@@ -3,11 +3,17 @@
 
 package org.paztport.core.session;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.SignedRoot;
 
 /**
@@ -28,9 +34,71 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
         String serverKeyringSig, Long serverKeyringNotAfter, ReplyCert serverReplyCert, String nonce, String sess,
         String status, List<String> disabled, String sig) {
 
+    private static final Set<String> MEMBERS = Set.of("disabled", "nonce", "serverKeyring", "serverPolicyKey",
+            "serverRoot", "sess", "sig", "status");
+    private static final Set<String> ENTRY_KEY_FORM = Set.of("serverKeyringNotAfter", "serverKeyringSig",
+            "serverReplyCert");
+
     public SessionReply {
         serverKeyring = Map.copyOf(serverKeyring);
         disabled = List.copyOf(disabled);
+    }
+
+    /**
+     * Reads a reply from its wire bytes, given as text, throwing {@link IllegalArgumentException} for one that does
+     * not read: a {@link MalformedJsonException} for text that is not exactly the canonical bytes of one value, and
+     * otherwise a refusal naming the member. A reply has exactly its members: {@code serverRoot} {@code null} or a
+     * root with exactly its own members, string {@code serverPolicyKey}, {@code nonce}, {@code sess} and
+     * {@code sig}, a {@code serverKeyring} of strings, {@code status} {@code "attested"} or {@code "unsafe"}, a
+     * {@code disabled} array of strings, and, each only when present, a string {@code serverKeyringSig}, which
+     * needs {@code serverKeyringNotAfter} beside it, an integer {@code serverKeyringNotAfter}, and a
+     * {@code serverReplyCert} with exactly a certificate's members. A member whose value is {@code null} is present.
+     * Checks no signature: {@link Sessions#checkReply} reads a reply with this, then checks it.
+     */
+    public static SessionReply parse(String json) {
+        if (json == null) {
+            throw new IllegalArgumentException("a session reply must be a JSON object");
+        }
+        return fromTree(JsonReader.wireText(json));
+    }
+
+    /** {@link #parse(String)} over a reply body as it arrived: its wire bytes, read as they are. */
+    public static SessionReply parse(byte[] json) {
+        if (json == null) {
+            throw new IllegalArgumentException("a session reply must be a JSON object");
+        }
+        return fromTree(JsonReader.wire(json));
+    }
+
+    /** The reply's schema. */
+    private static SessionReply fromTree(JsonValue value) {
+        JsonValue.Obj o = JsonFields.object(value);
+        JsonFields.exactly(o, MEMBERS, ENTRY_KEY_FORM);
+        JsonValue root = o.get("serverRoot");
+        String status = JsonFields.string(o, "status");
+        if (!status.equals("attested") && !status.equals("unsafe")) {
+            throw new IllegalArgumentException("member status is neither attested nor unsafe");
+        }
+        List<String> disabled = new ArrayList<>();
+        for (JsonValue item : JsonFields.array(o, "disabled")) {
+            if (!(item instanceof JsonValue.Str s)) {
+                throw new IllegalArgumentException("member disabled holds a value that is not a string");
+            }
+            disabled.add(s.value());
+        }
+        String ringSig = null;
+        if (o.get("serverKeyringSig") != null) {
+            ringSig = JsonFields.string(o, "serverKeyringSig");
+            if (o.get("serverKeyringNotAfter") == null) {
+                throw new IllegalArgumentException("no member serverKeyringNotAfter");
+            }
+        }
+        return new SessionReply(root instanceof JsonValue.Null ? null : RootJson.read(root),
+                JsonFields.string(o, "serverPolicyKey"), JsonFields.stringMap(o, "serverKeyring"), ringSig,
+                o.get("serverKeyringNotAfter") == null ? null : JsonFields.integer(o, "serverKeyringNotAfter"),
+                o.get("serverReplyCert") == null ? null : ReplyCert.fromTree(o.get("serverReplyCert")),
+                JsonFields.string(o, "nonce"), JsonFields.string(o, "sess"), status, disabled,
+                JsonFields.string(o, "sig"));
     }
 
     /**

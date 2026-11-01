@@ -311,8 +311,8 @@ class VectorsV3Test {
         for (JsonNode c : cases) {
             String name = c.get("name").asText();
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
-            SessionRequest req = SessionRequest.parse(Vectors.json(c.get("request")));
-            String reply = Vectors.json(c.get("reply"));
+            SessionRequest req = SessionRequest.parse(Vectors.tokenText(c.get("requestToken")));
+            String reply = Vectors.tokenText(c.get("replyToken"));
             String entry = c.get("serverEntry").asText();
             long now = c.get("now").asLong();
             assertEquals(ReplyCheck.valueOf(c.get("expected").asText()), Sessions.checkReply(reply, req, pin, entry,
@@ -325,7 +325,7 @@ class VectorsV3Test {
 
     /** A recorded handshake case's session: from its request, reply, pin and the verifier's configured entry. */
     private static RecordedSession recordedSession(JsonNode h) {
-        return RecordedSession.of(Vectors.json(h.get("request")), Vectors.json(h.get("reply")),
+        return RecordedSession.of(Vectors.tokenText(h.get("requestToken")), Vectors.tokenText(h.get("replyToken")),
                 vectors.get("keys").get(h.get("pin").asText()).get("pub").asText(), h.get("serverEntry").asText());
     }
 
@@ -367,13 +367,14 @@ class VectorsV3Test {
             for (int i = 0; i < c.get("calls").size(); i++) {
                 JsonNode call = c.get("calls").get(i);
                 int index = call.get("handshake").asInt();
-                JsonNode request = c.get("handshakes").get(index).get("request");
-                JsonNode clientRoot = request.get("clientRoot");
+                SessionRequest request =
+                        SessionRequest.parse(Vectors.tokenText(c.get("handshakes").get(index).get("requestToken")));
+                SignedRoot clientRoot = request.clientRoot();
                 Map<String, PublicKey> ring = new LinkedHashMap<>();
-                request.get("clientKeyring").properties().forEach(e -> ring.put(e.getKey(),
-                        Crypto.decodePublicKey(Base64Url.decode(e.getValue().asText()))));
+                request.clientKeyring().forEach((svc, key) -> ring.put(svc,
+                        Crypto.decodePublicKey(Base64Url.decode(key))));
                 OfflineConfig cfg = new OfflineConfig(Keyring.of(ring),
-                        Base64Url.decode(clientRoot.get("root").asText()), clientRoot.get("rootId").asText(), origins,
+                        Base64Url.decode(clientRoot.root()), clientRoot.rootId(), origins,
                         sessions.get(index).sess(), records.spent(), null,
                         c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
                 OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
@@ -400,7 +401,7 @@ class VectorsV3Test {
             // the server's own keyring is the one it signed
             assertTrue(serverKeyring.verifies(serverKey), name);
             assertEquals(c.get("expected").asText(), Sessions.status(
-                    SessionRequest.parse(Vectors.json(c.get("request"))),
+                    SessionRequest.parse(Vectors.tokenText(c.get("requestToken"))),
                     SignedRoot.parse(c.get("serverRootFile").textValue()), serverKeyring,
                     Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
         }
@@ -414,7 +415,7 @@ class VectorsV3Test {
             String name = c.get("name").asText();
             String got = "OK";
             try {
-                SessionRequest.parse(Vectors.json(c.get("request")));
+                SessionRequest.parse(Vectors.tokenText(c.get("requestToken")));
             } catch (IllegalArgumentException e) {
                 got = "MALFORMED";
             }

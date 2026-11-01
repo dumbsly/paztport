@@ -5,16 +5,17 @@
 // verification's recorded call, response and handshake.
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
+import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
-import { signRoot, type SignedRoot } from "../../src/policy/root.ts";
+import { signRoot } from "../../src/policy/root.ts";
 import { bindResponse, newContentId, verifyResponse } from "../../src/session/attestation.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
 import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
-import { writeToken } from "../../src/encoding/jcs.ts";
+import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
+import { encode } from "../../src/encoding/b64url.ts";
 import { verifyChainOffline } from "../../src/offline/verify-offline.ts";
 import { callInSession, newRecordSet, recordedSession, type RecordedHandshake } from "../../src/offline/records.ts";
 
@@ -76,14 +77,21 @@ function handshake(o: { form?: "entry-key" | "policy-key"; windows?: Partial<Win
     },
     form === "entry-key" ? entry.privateKey : serverPolicy.privateKey,
   );
-  const recorded: RecordedHandshake = { request, reply, pin: serverPolicy.publicKey, serverEntry: ENTRY };
+  const recorded: RecordedHandshake = {
+    request: token(request), reply: token(reply), pin: serverPolicy.publicKey, serverEntry: ENTRY,
+  };
   return { recorded, request, reply, clientPolicy, serverPolicy, entry, session, pi, clientTree, serverTree };
+}
+
+/** A message as the token a record holds: its value's JCS bytes, whatever the value holds. */
+function token(message: object): string {
+  return encode(utf8(canonicalize(message)));
 }
 
 /** The handshake with `reply` replaced by one re-signed by the entry key over `over`. */
 function resigned(h: ReturnType<typeof handshake>, over: Partial<SessionReply>): RecordedHandshake {
   const { sig: _sig, ...body } = h.reply;
-  return { ...h.recorded, reply: signSessionReply({ ...body, ...over }, h.entry.privateKey) };
+  return { ...h.recorded, reply: token(signSessionReply({ ...body, ...over }, h.entry.privateKey)) };
 }
 
 describe("recordedSession: what a recorded handshake opened", () => {
@@ -97,21 +105,23 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey }).attested).toBe(false);
     expect(recordedSession({ ...h.recorded, serverEntry: "tools" }).attested).toBe(false);
     const badClientRoot = { ...h.request, clientRoot: { ...h.request.clientRoot!, sig: signRoot(h.clientTree.root, "c1", generateKeyPair().privateKey, FAR).sig } };
-    expect(recordedSession({ ...h.recorded, request: badClientRoot }).attested).toBe(false);
+    expect(recordedSession({ ...h.recorded, request: token(badClientRoot) }).attested).toBe(false);
     const badRing = { ...h.request, clientKeyringSig: signKeyring(h.request.clientKeyring, h.request.clientPolicyKey, generateKeyPair().privateKey, FAR).sig };
-    expect(recordedSession({ ...h.recorded, request: badRing }).attested).toBe(false);
+    expect(recordedSession({ ...h.recorded, request: token(badRing) }).attested).toBe(false);
   });
 
   it("theEntryIsTheVerifiersNeverTheRecords", () => {
     const h = handshake();
-    expect(recordedSession(resigned(h, { serverEntry: "tools" } as Partial<SessionReply>)).attested).toBe(true);
+    expect(recordedSession(resigned(h, {})).attested).toBe(true);
     expect(recordedSession({ ...resigned(h, {}), serverEntry: "tools" }).attested).toBe(false);
+    // a reply has no member naming an entry: one signed with it is not a reply, and opened no attested session
+    expect(recordedSession(resigned(h, { serverEntry: ENTRY } as Partial<SessionReply>)).attested).toBe(false);
   });
 
   it("aRequestWithNoKeyringSignatureIsNotAttested", () => {
     const h = handshake();
     const { clientKeyringSig: _sig, ...unsigned } = h.request;
-    expect(recordedSession({ ...h.recorded, request: unsigned as SessionRequest }).attested).toBe(false);
+    expect(recordedSession({ ...h.recorded, request: token(unsigned) }).attested).toBe(false);
   });
 
   // "The handshake record carries no signed time, so it is judged at each call's recorded time … One session can
@@ -135,7 +145,8 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(s.attestedAt(NOW + 4)).toBe(false);
     // a window moved earlier in the record fails its signature at the earliest limit, so the session is attested at no time
     const h = handshake();
-    expect(recordedSession({ ...h.recorded, request: { ...h.request, clientKeyringNotAfter: 0 } }).attested).toBe(false);
+    const moved = token({ ...h.request, clientKeyringNotAfter: 0 });
+    expect(recordedSession({ ...h.recorded, request: moved }).attested).toBe(false);
   });
 
   // "A recorded response is limited only by the server's root window and, in the entry-key form, the server
@@ -148,7 +159,7 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(recordedSession(handshake({ form: "policy-key", windows: { serverRoot: NOW + 2 } }).recorded).responseNotAfter).toBe(NOW + 2);
     // 2^53 − 1 when the reply holds neither window, as a policy-key reply with no root does
     const rootless = handshake({ form: "policy-key" });
-    const s = recordedSession({ ...rootless.recorded, reply: { ...rootless.reply, serverRoot: null } });
+    const s = recordedSession({ ...rootless.recorded, reply: token({ ...rootless.reply, serverRoot: null }) });
     expect(s.attested).toBe(false);
     expect(s.responseNotAfter).toBe(Number.MAX_SAFE_INTEGER);
   });
@@ -167,12 +178,24 @@ describe("recordedSession: what a recorded handshake opened", () => {
   // no attested session."
   it("aMovedWindowFailsItsSignatureAndADroppedOneIsRefused", () => {
     const h = handshake({ windows: { clientRoot: NOW } });
-    expect(recordedSession({ ...h.recorded, request: { ...h.request, clientRoot: { ...h.request.clientRoot!, notAfter: FAR } } }).attested).toBe(false);
+    const withRoot = (clientRoot: object) => ({ ...h.recorded, request: token({ ...h.request, clientRoot }) });
+    expect(recordedSession(withRoot({ ...h.request.clientRoot!, notAfter: FAR })).attested).toBe(false);
     const { notAfter: _w, ...dropped } = h.request.clientRoot!;
-    expect(recordedSession({ ...h.recorded, request: { ...h.request, clientRoot: dropped as SignedRoot } }).attested).toBe(false);
+    expect(recordedSession(withRoot(dropped)).attested).toBe(false);
     expect(recordedSession(resigned(handshake(), { serverKeyringNotAfter: FAR + 1 })).attested).toBe(false);
     const { clientKeyringNotAfter: _k, ...noWindow } = h.request;
-    expect(recordedSession({ ...h.recorded, request: Object.assign(Object.create({ clientKeyringNotAfter: FAR }), noWindow) }).attested).toBe(false);
+    expect(recordedSession({ ...h.recorded, request: token(noWindow) }).attested).toBe(false);
+  });
+
+  // "A recorded request that is not a well-formed request … opened no attested session": a request is read from its
+  // token, so the same request in another member order is not one.
+  it("aRequestInWireMemberOrderIsNotAttested", () => {
+    const h = handshake();
+    const text = canonicalize(h.request);
+    const at = text.lastIndexOf(',"nonce":');
+    const nonceFirst = `{${text.slice(at + 1, -1)},${text.slice(1, at)}}`;
+    expect(recordedSession({ ...h.recorded, request: encode(utf8(text)) }).attested).toBe(true);
+    expect(recordedSession({ ...h.recorded, request: encode(utf8(nonceFirst)) }).attested).toBe(false);
   });
 
   it("neverThrows", () => {

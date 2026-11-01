@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.session.SessionReply;
@@ -15,11 +16,12 @@ import org.paztport.core.session.Sessions;
 
 /**
  * The session handshake over HTTP, with no web framework: where the request and reply travel, the body of a
- * refusal, and a partner's answer to one request ({@link #serve}). The request and reply are the JSON forms
- * {@link Sessions} defines. A server reads a request body with {@link SessionRequest#parse(byte[])} and a client checks
- * a reply body with {@link Sessions#checkReply(byte[], SessionRequest, String, String, long)}; both refuse bytes that
- * are not exactly one JSON value, trailing tokens included, so a body cannot carry a second value that another parser
- * would read differently.
+ * refusal, and a partner's answer to one request ({@link #serve}). Each body is its message's wire bytes, the JCS
+ * bytes of the JSON forms {@link Sessions} defines. A server reads a request body with
+ * {@link SessionRequest#parse(byte[])} and a client checks a reply body with
+ * {@link Sessions#checkReply(byte[], SessionRequest, String, String, long)}; both refuse bytes that are not exactly
+ * the canonical bytes of one value, so a body cannot carry whitespace, a second value or another spelling that
+ * another parser would read differently.
  */
 public final class HttpSessions {
 
@@ -29,8 +31,8 @@ public final class HttpSessions {
     public static final String INVALID_PARAMS = "INVALID_PARAMS";
     /** The error code for a request that does not open a session. */
     public static final String NO_SESSION = "NO_SESSION";
-    /** A handshake carries a keyring and a root: far more than this is not one, and is not read. */
-    public static final int MAX_BODY_BYTES = 256 * 1024;
+    /** A handshake carries a keyring and a root: a body past the wire limit is not one, and is not read. */
+    public static final int MAX_BODY_BYTES = JsonReader.WIRE_BYTES;
 
     private HttpSessions() {
     }
@@ -40,9 +42,10 @@ public final class HttpSessions {
      * issuer and the service it names, which the transport authenticated, never a name the body gives, so a client
      * cannot open a session as someone else; a request with no client certificate, or with one that names no single
      * service or no issuer, has no peer and opens nothing, and its body is not read. A body that is not a readable
-     * request, or is over {@link #MAX_BODY_BYTES}, is {@code 400 INVALID_PARAMS}, and a readable one that cannot
-     * open a session is {@code 400 NO_SESSION}; either way no session is opened, and none the peer holds is touched.
-     * Otherwise it is {@code 200} with the signed reply.
+     * request's wire bytes (a newline after them included), or is over {@link #MAX_BODY_BYTES}, is
+     * {@code 400 INVALID_PARAMS}, and a readable one that cannot open a session is {@code 400 NO_SESSION}; either way
+     * no session is opened, and none the peer holds is touched. Otherwise it is {@code 200} with the signed reply's
+     * wire bytes.
      *
      * @param body the request body; read up to one byte past the limit, and not closed
      * @param peer the client certificate the transport authenticated, or null without one

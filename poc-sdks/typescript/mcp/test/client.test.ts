@@ -198,7 +198,11 @@ describe("classifySessionReply", () => {
       ]),
     ];
     for (const raw of bad) {
-      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
+      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
+        status: "unsafe",
+        reason: "MALFORMED_REPLY",
+        replaceSession: true,
+      });
     }
   });
   it("otherServerKeyIsAPinMismatch", () => {
@@ -227,31 +231,26 @@ describe("classifySessionReply", () => {
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter).status).toBe("attested");
     expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter + 1)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
-  it("aCertificatesNotAfterIsJudgedByValue", () => {
-    // The Java client pins the same verdicts: the signature covers the parsed value, never the text.
+  it("theServersKeyringAndRootWindowsAreCarried", () => {
     const c = connected();
-    const at = Date.now();
-    const text = JSON.stringify(c.raw);
-    const digits = String(c.policy.replyCert.notAfter);
-    expect(text).toContain(`"notAfter":${digits}`);
-    const rewrite = (to: string): unknown => JSON.parse(text.replace(`"notAfter":${digits}`, `"notAfter":${to}`));
-    for (const same of [`${digits}.0`, `${digits[0]}.${digits.slice(1)}e${digits.length - 1}`]) {
-      expect(classifySessionReply(rewrite(same), c.req, c.policy.policyPublicKey, "mcp-entry", at).status, same).toBe("attested");
-    }
-    expect(classifySessionReply(rewrite(`${digits}.5`), c.req, c.policy.policyPublicKey, "mcp-entry", at)).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
-  });
-  it("theServersKeyringAndRootWindowsAreCarriedAndJudgedByValue", () => {
-    const c = connected();
-    const at = Date.now();
     expect(c.raw).toMatchObject({ serverKeyringNotAfter: NOT_AFTER, serverRoot: { notAfter: NOT_AFTER } });
-    const text = JSON.stringify(c.raw);
-    for (const field of ["serverKeyringNotAfter", "notAfter"]) {
-      const from = `"${field}":${NOT_AFTER}`;
-      expect(text, field).toContain(from);
-      for (const same of [`${NOT_AFTER}.0`, "4.1024448e12"]) {
-        const raw: unknown = JSON.parse(text.replace(from, `"${field}":${same}`));
-        expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", at).status, `${field} ${same}`).toBe("attested");
-      }
+    const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
+    expect(outcome.status).toBe("attested");
+  });
+  it("aReplyValueItsTokenCannotHoldIsMalformed", () => {
+    // the value is read as the reply's token, which holds protocol integers only
+    const c = connected();
+    const reply = c.raw as SessionReply;
+    for (const raw of [
+      { ...reply, serverReplyCert: { ...reply.serverReplyCert!, notAfter: reply.serverReplyCert!.notAfter + 0.5 } },
+      { ...reply, serverKeyringNotAfter: NOT_AFTER + 0.5 },
+      { ...reply, serverRoot: { ...reply.serverRoot!, notAfter: -1 } },
+    ]) {
+      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
+        status: "unsafe",
+        reason: "MALFORMED_REPLY",
+        replaceSession: true,
+      });
     }
   });
   it("aMovedServerKeyringNotAfterIsABadSignatureAndADroppedOneMalformed", () => {

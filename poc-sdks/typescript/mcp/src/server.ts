@@ -16,13 +16,15 @@ import {
   newContentId,
   NonceCache,
   NONCE_TTL_MS,
-  parseSessionRequest,
   provesPath,
+  readSessionRequest,
   signStampV3,
   verifyReplyCert,
+  writeToken,
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
+  type JsonValue,
   type MerkleProof,
   type ReasonCode,
   type ReplyCert,
@@ -265,12 +267,13 @@ export class McpServerSession {
    * `now()`: an expired client root or keyring makes the session unsafe, and so does this server's own root or
    * keyring once it has expired, so a server left running past its material degrades to unattested sessions rather
    * than stopping. A request whose client root or keyring has no `notAfter` is malformed. The reply carries the
-   * keyring's window as `serverKeyringNotAfter`.
+   * keyring's window as `serverKeyringNotAfter`. The params value is read as the request's token: a value that
+   * token cannot hold, or a request other than exactly its members, is malformed.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
     try {
-      request = parseSessionRequest(params);
+      request = readSessionRequest(writeToken(params as JsonValue));
     } catch (e) {
       throw new InvalidParams((e as Error).message);
     }

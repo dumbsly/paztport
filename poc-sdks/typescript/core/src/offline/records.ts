@@ -1,19 +1,19 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { isNotAfter } from "../policy/validity.ts";
-import { isReplyCert } from "../session/reply-cert.ts";
-import { isAttestedSession, type SessionReply, type SessionRequest } from "../session/session.ts";
+import { readToken, type JsonValue } from "../encoding/json.ts";
+import { readSessionRequest } from "../session/request.ts";
+import { isAttestedSession, type SessionRequest } from "../session/session.ts";
 import { NonceCache } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 
 /**
- * A handshake read back from a record set: the request and reply as recorded, the server policy key the client
- * pinned, and the server's entry service from the verifier's own configuration, never the record's.
+ * A handshake read back from a record set: the request and reply as recorded, as their tokens, the server policy key
+ * the client pinned, and the server's entry service from the verifier's own configuration, never the record's.
  */
 export type RecordedHandshake = {
-  request: SessionRequest;
-  reply: SessionReply;
+  request: string;
+  reply: string;
   pin: string;
   serverEntry: string;
 };
@@ -28,11 +28,20 @@ export type RecordedSession = {
   responseNotAfter: number;
 };
 
-/** `o`'s own `field` when it is a valid notAfter, else undefined: a limit the record lacks. */
-function ownWindow(o: unknown, field: string): number | undefined {
-  if (typeof o !== "object" || o === null || !Object.hasOwn(o, field)) return undefined;
-  const n = (o as Record<string, unknown>)[field];
-  return isNotAfter(n) ? n : undefined;
+/** `o`'s own `field` when `o` is an object and that is an integer, else undefined: a limit the record lacks. */
+function ownWindow(o: JsonValue | undefined, field: string): number | undefined {
+  if (typeof o !== "object" || o === null || Array.isArray(o) || !Object.hasOwn(o, field)) return undefined;
+  const n = o[field];
+  return typeof n === "number" ? n : undefined;
+}
+
+/** What `read` reads, or undefined when the record does not read. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
 }
 
 /** The earliest of `windows`, or `none` when no item has one. */
@@ -42,35 +51,37 @@ function earliest(windows: (number | undefined)[], none: number): number {
 }
 
 /**
- * Reads a recorded handshake. Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each
+ * Reads a recorded handshake; a request or reply that does not read is a handshake that opened no attested session.
+ * Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each
  * root and keyring, both sides; it is attested at all when attested at the earliest of them. The windows are read
  * before the signatures over them are checked, but none counts unless the session is attested at it, which checks each signature. A
  * response is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and the
  * certificate do not limit it. Never throws.
  */
 export function recordedSession(h: RecordedHandshake): RecordedSession {
-  const { request, reply, pin, serverEntry } = h;
-  const attestedAt = (at: number) => isAttestedSession(request, reply, pin, serverEntry, at);
-  try {
-    const limit = earliest(
-      [
-        isReplyCert(reply.serverReplyCert) ? reply.serverReplyCert.notAfter : undefined,
-        ownWindow(request.clientRoot, "notAfter"),
-        ownWindow(request, "clientKeyringNotAfter"),
-        ownWindow(reply.serverRoot, "notAfter"),
-        ownWindow(reply, "serverKeyringNotAfter"),
-      ],
-      0,
-    );
-    const ring = Object.hasOwn(reply, "serverKeyringSig") ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
-    return {
-      attestedAt,
-      attested: attestedAt(limit),
-      responseNotAfter: earliest([ownWindow(reply.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER),
-    };
-  } catch {
-    return { attestedAt: () => false, attested: false, responseNotAfter: Number.MAX_SAFE_INTEGER };
-  }
+  const { pin, serverEntry } = h;
+  const request: SessionRequest | undefined = readOr(() => readSessionRequest(h.request));
+  // The reply's windows are read from its value whether or not it is a well-formed reply.
+  const value = readOr(() => readToken(h.reply));
+  const reply = typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined;
+  const attestedAt = (at: number) => request !== undefined && isAttestedSession(request, h.reply, pin, serverEntry, at);
+  const limit = earliest(
+    [
+      ownWindow(reply?.serverReplyCert, "notAfter"),
+      request?.clientRoot?.notAfter,
+      request?.clientKeyringNotAfter,
+      ownWindow(reply?.serverRoot, "notAfter"),
+      ownWindow(reply, "serverKeyringNotAfter"),
+    ],
+    0,
+  );
+  const entryKeyForm = reply !== undefined && Object.hasOwn(reply, "serverKeyringSig");
+  const ring = entryKeyForm ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
+  return {
+    attestedAt,
+    attested: attestedAt(limit),
+    responseNotAfter: earliest([ownWindow(reply?.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER),
+  };
 }
 
 /**

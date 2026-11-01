@@ -8,7 +8,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 
 /**
  * The one JSON entry point for the wire format. Reads fail closed: malformed or
@@ -97,21 +96,6 @@ public final class Json {
         try {
             return present(EXACT_TREES.readTree(json));
         } catch (JacksonException e) {
-            throw new IllegalArgumentException("malformed JSON", e);
-        }
-    }
-
-    /**
-     * Exactly one JSON value read from a message body, in whichever Unicode encoding its first bytes show, UTF-8
-     * with or without a byte order mark included; null, empty or anything else throws.
-     */
-    public static JsonNode tree(byte[] json) {
-        if (json == null) {
-            throw new IllegalArgumentException("no JSON");
-        }
-        try {
-            return present(TREES.readTree(json));
-        } catch (IOException e) {
             throw new IllegalArgumentException("malformed JSON", e);
         }
     }
