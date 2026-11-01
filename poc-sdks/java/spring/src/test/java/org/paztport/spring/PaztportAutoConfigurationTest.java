@@ -244,13 +244,13 @@ class PaztportAutoConfigurationTest {
 
     /**
      * A root or keyring without {@code notAfter} is malformed: neither a verifier nor a partner starts on it, and
-     * the refusal is the reader's, the one a {@code notAfter} that is not an integer gets, with no key in it.
+     * the refusal names the property, the reader's reason and the file, with no key in it.
      */
     @Test
     void materialWithoutNotAfterFailsAtStartup(@TempDir Path dir) throws Exception {
         for (String file : List.of("root.json", "keyring.json")) {
-            String message = (file.equals("root.json") ? "signed root" : "keyring")
-                    + " notAfter must be an integer in [0, 2^53 - 1]";
+            String message = (file.equals("root.json") ? "paztport.root-path" : "paztport.keyring-path")
+                    + " is malformed (no member notAfter): " + dir.resolve(file);
             writeWorld(dir);
             dropNotAfter(dir.resolve(file));
             runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir)).run(context -> {
@@ -262,6 +262,30 @@ class PaztportAutoConfigurationTest {
             dropNotAfter(dir.resolve(file));
             partnerFails(dir, message);
         }
+    }
+
+    /**
+     * A keyring saved with a byte order mark, as an editor on Windows may save one, is malformed: the service does
+     * not start, and the refusal names the property and the file, with the reader's reason and no parser exception
+     * under it.
+     */
+    @Test
+    void aKeyringWithAByteOrderMarkIsMalformed(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        Path keyring = dir.resolve("keyring.json");
+        byte[] text = Files.readAllBytes(keyring);
+        byte[] marked = new byte[text.length + 3];
+        marked[0] = (byte) 0xEF;
+        marked[1] = (byte) 0xBB;
+        marked[2] = (byte) 0xBF;
+        System.arraycopy(text, 0, marked, 3, text.length);
+        Files.write(keyring, marked);
+        runner.withPropertyValues(VERIFIER_PROPS).withPropertyValues(trust(dir)).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                    .hasMessageStartingWith("paztport.keyring-path is malformed")
+                    .hasMessageEndingWith(": " + keyring);
+        });
     }
 
     private static void dropNotAfter(Path file) throws IOException {

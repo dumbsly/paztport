@@ -3,13 +3,14 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -22,7 +23,7 @@ import org.paztport.core.internal.JsonWriter;
  */
 public record ProofBundle(String service, String rootId, Map<String, MerkleProof> proofs) {
 
-    private static final ObjectMapper READER = new ObjectMapper();
+    private static final Set<String> MEMBERS = Set.of("proofs", "rootId", "service");
 
     public ProofBundle {
         proofs = Map.copyOf(proofs);
@@ -48,15 +49,32 @@ public record ProofBundle(String service, String rootId, Map<String, MerkleProof
     }
 
     /**
-     * Reads {@code proofs-<service>.json} as the policy tool writes it.
-     *
-     * @throws UncheckedIOException when the file cannot be read or is not a proof bundle
+     * Reads {@code proofs-<service>.json} as a file, in any member order and spacing: exactly a string
+     * {@code service}, a string {@code rootId} and a {@code proofs} object, each of whose names is a route and each
+     * of whose values a proof object. Anything else throws {@link IllegalArgumentException}, naming the member, and
+     * a file that cannot be read {@link UncheckedIOException}.
      */
     public static ProofBundle load(Path file) {
+        JsonValue.Obj o = JsonFields.object(JsonReader.file(file));
+        JsonFields.exactly(o, MEMBERS, Set.of());
+        Map<String, MerkleProof> proofs = new LinkedHashMap<>();
+        JsonFields.object(o, "proofs").members().forEach((route, proof) -> {
+            if (!isRoute(route)) {
+                throw new IllegalArgumentException("member proofs holds a name that is not a route");
+            }
+            proofs.put(route, MerkleProof.fromTree(proof));
+        });
+        return new ProofBundle(JsonFields.string(o, "service"), JsonFields.string(o, "rootId"), proofs);
+    }
+
+    /** Whether {@code route} is a route: at least two nodes joined by {@code /}, each a valid route node. */
+    private static boolean isRoute(String route) {
+        List<String> nodes = List.of(route.split("/", -1));
         try {
-            return READER.readValue(Files.readAllBytes(file), ProofBundle.class);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
+            nodes.forEach(Routes::requireValidNode);
+        } catch (IllegalArgumentException e) {
+            return false;
         }
+        return nodes.size() >= 2;
     }
 }

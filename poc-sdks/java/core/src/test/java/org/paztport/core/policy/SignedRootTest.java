@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.encoding.MalformedJsonException.Step;
 import org.paztport.core.session.ReplyCert;
 
 class SignedRootTest {
@@ -164,15 +165,14 @@ class SignedRootTest {
     }
 
     @Test
-    void notAfterByValue() throws Exception {
+    void notAfterIsAProtocolInteger() throws Exception {
         SignedRoot r = signedRoot();
         String head = "{\"rootId\":\"v1\",\"root\":\"" + r.root() + "\",\"sig\":\"" + r.sig() + "\",\"notAfter\":";
-        assertEquals(1_000_000_000_000L, SignedRoot.parse(head + "1.0e12}").notAfter());
         assertEquals(MAX_SAFE, SignedRoot.parse(head + MAX_SAFE + "}").notAfter());
         assertEquals(0L, SignedRoot.parse(head + "0}").notAfter());
-        assertTrue(SignedRoot.parse(head + "1798761600000.0}").verify(POLICY.getPublic()));
-        for (String bad : new String[] {"1.5", "-1", String.valueOf(MAX_SAFE + 1), "\"1798761600000\"", "null",
-                "true", "{}", "[]"}) {
+        assertTrue(SignedRoot.parse(head + NOT_AFTER + "}").verify(POLICY.getPublic()));
+        for (String bad : new String[] {"1.0e12", "1798761600000.0", "1.5", "-1", String.valueOf(MAX_SAFE + 1),
+                "\"1798761600000\"", "null", "true", "{}", "[]"}) {
             assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(head + bad + "}"), bad);
         }
     }
@@ -187,11 +187,6 @@ class SignedRootTest {
                 () -> SignedRoot.parse("{\"rootId\":1,\"root\":\"R\",\"sig\":\"S\"}"));
         assertThrows(IllegalArgumentException.class,
                 () -> SignedRoot.parse("{\"rootId\":\"v1\",\"root\":\"R\"}"));
-        // An unsigned field is ignored, as on a reply certificate.
-        SignedRoot r = signedRoot();
-        ObjectNode extra = JSON.valueToTree(r);
-        extra.put("note", "unsigned");
-        assertTrue(SignedRoot.parse(extra.toString()).verify(POLICY.getPublic()));
     }
 
     @Test
@@ -216,14 +211,62 @@ class SignedRootTest {
         String root = Base64Url.encode(ROOT);
         String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
                 ("v1|" + root).getBytes(StandardCharsets.UTF_8)));
-        String text = "{\"rootId\":\"v1\",\"root\":\"" + root + "\",\"sig\":\"" + sig + "\"}";
-        String message = "signed root notAfter must be an integer in [0, 2^53 - 1]";
+        String text = "{\"root\":\"" + root + "\",\"rootId\":\"v1\",\"sig\":\"" + sig + "\"}";
+        String message = "no member notAfter";
         assertEquals(message, assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(text)).getMessage());
         assertEquals(message, assertThrows(IllegalArgumentException.class,
                 () -> SignedRoot.decode(Base64Url.encode(text.getBytes(StandardCharsets.UTF_8)))).getMessage());
         Path file = dir.resolve("root.json");
         Files.writeString(file, text);
         assertEquals(message, assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(file)).getMessage());
+    }
+
+    /**
+     * A file is read in any member order and spacing: here as Jackson's pretty printer writes one, members in the
+     * record's order, {@code " : "} between a name and its value, and no newline at the end.
+     */
+    @Test
+    void aFileInAnyMemberOrderAndSpacingLoads(@TempDir Path dir) throws Exception {
+        SignedRoot r = signedRoot();
+        String text = "{\n  \"rootId\" : \"v1\",\n  \"root\" : \"" + r.root() + "\",\n  \"sig\" : \"" + r.sig()
+                + "\",\n  \"notAfter\" : " + NOT_AFTER + "\n}";
+        Path file = dir.resolve("root.json");
+        Files.writeString(file, text);
+        assertEquals(r, SignedRoot.load(file));
+        assertEquals(r, SignedRoot.parse(text));
+    }
+
+    /** A {@code notAfter} is a protocol integer by its text: {@code 1798761600000.0} does not read, though equal. */
+    @Test
+    void aNotAfterWrittenWithAFractionIsMalformed(@TempDir Path dir) throws Exception {
+        String text = signedRoot().toFile().replace(NOT_AFTER + ",", NOT_AFTER + ".0,");
+        assertTrue(text.contains("1798761600000.0"), text);
+        Path file = dir.resolve("root.json");
+        Files.writeString(file, text);
+        assertEquals(Step.PARSE, assertThrows(MalformedJsonException.class, () -> SignedRoot.load(file)).step());
+        assertEquals(Step.PARSE, assertThrows(MalformedJsonException.class, () -> SignedRoot.parse(text)).step());
+    }
+
+    /** A member the root does not define is refused, not ignored. */
+    @Test
+    void anExtraMemberIsMalformed(@TempDir Path dir) throws Exception {
+        String text = signedRoot().toFile().replace("{\n", "{\n  \"note\": \"not signed\",\n");
+        Path file = dir.resolve("root.json");
+        Files.writeString(file, text);
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(file)).getMessage());
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(text)).getMessage());
+    }
+
+    /** A token is a wire object: the root's JCS bytes and no other spelling of them. */
+    @Test
+    void aTokenThatIsNotTheRootsCanonicalBytesIsMalformed() {
+        SignedRoot r = signedRoot();
+        assertEquals(r, SignedRoot.decode(r.encode()));
+        String spaced = Base64Url.encode(r.toFile().getBytes(StandardCharsets.UTF_8));
+        assertEquals(Step.CANONICAL,
+                assertThrows(MalformedJsonException.class, () -> SignedRoot.decode(spaced)).step());
     }
 
     @Test

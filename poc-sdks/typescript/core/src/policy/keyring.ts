@@ -4,6 +4,9 @@
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
+import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
+import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
+import { requireValidNode } from "./routes.ts";
 import { isNotAfter } from "./validity.ts";
 
 /** A keyring signed offline by its policy key: the policy key and the services' public keys; `notAfter` (ms since the epoch, inclusive) is when the owner stops vouching for them. */
@@ -33,4 +36,33 @@ export function verifyKeyring(k: SignedKeyring, policyKey: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** The keyring's schema: exactly `notAfter`, `policy`, `services` and `sig`, each service named by a route node. */
+function keyringOf(value: JsonValue): SignedKeyring {
+  const o = object(value);
+  exactly(o, ["notAfter", "policy", "services", "sig"]);
+  const services = stringMap(object(o, "services"));
+  for (const name of Object.keys(services)) {
+    try {
+      requireValidNode(name);
+    } catch {
+      // the name is data, so the refusal does not repeat it
+      throw new Error("member services holds a name that is not a route node");
+    }
+  }
+  return { policy: str(o, "policy"), services, sig: str(o, "sig"), notAfter: int(o, "notAfter") };
+}
+
+/**
+ * Reads `keyring.json` in any member order and spacing: MalformedJson for bytes that do not read, an Error naming
+ * the member for a keyring the schema refuses. Checks no signature.
+ */
+export function readKeyringFile(bytes: Uint8Array): SignedKeyring {
+  return keyringOf(readFile(bytes));
+}
+
+/** Reads a keyring from the token of the object `keyring.json` holds, by readKeyringFile's schema. */
+export function readKeyring(token: string): SignedKeyring {
+  return keyringOf(readToken(token));
 }

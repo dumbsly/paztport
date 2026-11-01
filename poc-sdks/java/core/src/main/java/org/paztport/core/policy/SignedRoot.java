@@ -3,14 +3,8 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.core.JacksonException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -18,8 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.Json;
+import org.paztport.core.encoding.MalformedJsonException;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.internal.RootJson;
@@ -44,8 +39,6 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-root\n";
-    private static final ObjectMapper READER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     /**
      * Signs {@code root} under {@code rootId}, vouched for until {@code notAfter}. The caller must already have
@@ -121,9 +114,12 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
         return new JsonValue.Obj(o);
     }
 
-    /** Reads the base64url text {@link #encode} writes, by the rules of {@link #parse}. */
+    /**
+     * Reads the base64url text {@link #encode} writes: a token of the root's JCS bytes, held to the members
+     * {@link #parse} reads. Text that is not exactly that throws {@link IllegalArgumentException}.
+     */
     public static SignedRoot decode(String text) {
-        return RootJson.read(Json.read(Base64Url.decode(text), JsonNode.class));
+        return RootJson.read(JsonReader.token(text));
     }
 
     /**
@@ -151,30 +147,25 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with string
-     * {@code rootId}, {@code root} and {@code sig}, and a {@code notAfter} that is an integer in [0, 2^53 &minus; 1]
-     * judged by value as a reply certificate's is: {@code 1.0e12} is an integer, while a fraction, a string,
-     * {@code null} or no {@code notAfter} at all is refused. Other fields are ignored and unsigned. Jackson's record
-     * binding would truncate {@code 1.5} to 1, which is why this, not binding, is the reader.
+     * Reads a root as a file reads, in any member order and spacing. Throws {@link IllegalArgumentException} unless
+     * {@code json} is an object of exactly string {@code rootId}, {@code root} and {@code sig} and an integer
+     * {@code notAfter}: a protocol integer by its text, so {@code 1.0e12} and {@code 1798761600000.0} are refused, as
+     * is any other member. The refusal names the member, or is a {@link MalformedJsonException} for text that does
+     * not read.
      */
     public static SignedRoot parse(String json) {
         if (json == null) {
             throw new IllegalArgumentException("a signed root must be a JSON object");
         }
-        return RootJson.read(Json.tree(json));
+        return RootJson.read(JsonReader.fileText(json));
     }
 
-    /** Reads {@code root.json}; malformed content throws {@link IllegalArgumentException}. */
+    /**
+     * Reads {@code root.json} by {@link #parse}'s rules; malformed content throws {@link IllegalArgumentException},
+     * and a file that cannot be read {@link UncheckedIOException}.
+     */
     public static SignedRoot load(Path file) {
-        JsonNode node;
-        try {
-            node = READER.readTree(Files.readAllBytes(file));
-        } catch (JacksonException e) {
-            throw new IllegalArgumentException("malformed signed root " + file, e);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        }
-        return RootJson.read(node);
+        return RootJson.read(JsonReader.file(file));
     }
 
     private static SignedRoot signText(String rootId, String rootB64, long notAfter, PrivateKey policyKey) {

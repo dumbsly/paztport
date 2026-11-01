@@ -7,11 +7,14 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, parseSessionRequest, parseSignedRoot, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
-  publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signRoot, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
+  NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession,
+  verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, parseSessionRequest,
+  isCurrent, isNotAfter, printFile, signReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
+  readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign, signKeyring,
+  signRoot, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot,
 } from "@paztport/core";
-import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
+import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
 import { bindMcpCall } from "../src/index.ts";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
@@ -20,6 +23,22 @@ type Sections =
   | "responseAttestation" | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
+
+/** What `read` gives, or undefined for a file its reader refuses. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
+/** A case whose file does not read: it never verifies, has no signed bytes and is current at no time. */
+function refused(c: any): void {
+  expect(c.signingBytes).toBeNull();
+  expect(c.verifies).toBe(false);
+  for (const { at, current } of c.current ?? []) expect(current, String(at)).toBe(false);
+}
 
 /** The config fields both verifiers share, from a case's names: keys from `keys`, the root and proof from `policies`. */
 function shared(v: any, c: any) {
@@ -138,50 +157,62 @@ describe("v3 known-answer vectors", () => {
     expect(commitInfluence(c.entries)).toBe(c.commitment);
   });
   it.each(committed.rule.map((c: any): [string, any] => [c.name, c]))("rule %s", (_n, c: any) => expect(publicWriteRefused(c.influence, c.destinationOwner ?? undefined)).toBe(c.refused));
+  // A keyring, root or certificate case is replayed from its `file` alone. One that does not read never verifies,
+  // has no signed bytes and is current at no time; one that reads is the case's readable value.
   it.each(committed.keyring.map((c: any): [string, any] => [c.name, c]))("keyring %s", (_n, k: any) => {
-    const { policy, services, notAfter } = k.signed;
-    expect(verifyKeyring(k.signed, committed.keys[k.policyKey].pub)).toBe(k.verifies);
-    for (const { at, current } of k.current ?? []) expect(isCurrent(k.signed, at), String(at)).toBe(current);
+    const read = readOr(() => readKeyringFile(utf8(k.file)));
+    if (read === undefined) return refused(k);
+    const { policy, services, notAfter } = read;
+    expect({ ...read, services: { ...services } }).toEqual(k.signed);
+    expect(encode(keyringSigningBytes(policy, services, notAfter))).toBe(k.signingBytes);
+    expect(encode(utf8("paztport-keyring\n" + canonicalize({ notAfter, policy, services })))).toBe(k.signingBytes);
+    expect(verifyKeyring(read, committed.keys[k.policyKey].pub)).toBe(k.verifies);
+    for (const { at, current } of k.current ?? []) expect(isCurrent(read, at), String(at)).toBe(current);
     // Every keyring that verifies is reproduced byte for byte by signing it.
     if (k.verifies) expect(signKeyring(services, policy, committed.keys[k.policyKey].priv, notAfter).sig).toBe(k.sig);
   });
   it("root section", () => expect(committed.root.length).toBeGreaterThan(0));
   it.each(committed.root.map((c: any): [string, any] => [c.name, c]))("root %s", (_n, r: any) => {
-    const { rootId, root, sig, notAfter } = r.signed;
-    expect(verifyRoot(r.signed, committed.keys[r.policyKey].pub)).toBe(r.verifies);
+    const read = readOr(() => readRootFile(utf8(r.file)));
+    if (read === undefined) return refused(r);
+    const { rootId, root, sig, notAfter } = read;
+    expect(read).toEqual(r.signed);
     expect(root).toBe(committed.policies[r.policy].root);
     expect(rootId).toBe(committed.policies[r.policy].rootId);
-    for (const { at, current } of r.current ?? []) expect(isCurrent(r.signed, at), String(at)).toBe(current);
-    // A root without a notAfter in range has no signed bytes: nothing signs it, and its signature is never consulted.
-    if (r.signingBytes === null) {
-      expect(() => rootSigningBytes(rootId, root, notAfter)).toThrow(TypeError);
-      expect(() => parseSignedRoot(r.signed, "root")).toThrow(TypeError);
-    } else {
-      expect(encode(rootSigningBytes(rootId, root, notAfter))).toBe(r.signingBytes);
-      expect(encode(utf8("paztport-root\n" + canonicalize({ notAfter, root, rootId })))).toBe(r.signingBytes);
-    }
+    expect(encode(rootSigningBytes(rootId, root, notAfter))).toBe(r.signingBytes);
+    expect(encode(utf8("paztport-root\n" + canonicalize({ notAfter, root, rootId })))).toBe(r.signingBytes);
+    expect(verifyRoot(read, committed.keys[r.policyKey].pub)).toBe(r.verifies);
+    for (const { at, current } of r.current ?? []) expect(isCurrent(read, at), String(at)).toBe(current);
     // Every root that verifies is reproduced byte for byte by signing it.
     if (r.verifies) expect(signRoot(decode(root), rootId, committed.keys[r.policyKey].priv, notAfter).sig).toBe(sig);
   });
 
-  // The cases that tie the readers' reading of a notAfter together: 2^53 is refused, and a value written with a
-  // fraction is read as the integer it equals, the one its signature is over.
-  it.each(["keyring", "root"] as const)("%s notAfter is judged by value", (section) => {
-    const byName = (name: string) => committed[section].find((c: any) => c.name === name);
-    const verify = (c: any) => (section === "keyring" ? verifyKeyring(c.signed, committed.keys[c.policyKey].pub) : verifyRoot(c.signed, committed.keys[c.policyKey].pub));
-    const tooLarge = byName("notAfter 2^53");
-    expect(tooLarge.signed.notAfter).toBe(2 ** 53);
-    expect(tooLarge.signingBytes).toBeNull();
-    expect(verify(tooLarge)).toBe(false);
-    const written = byName("notAfter written 1798761600000.0");
-    expect(written.signed.notAfter).toBe(1_798_761_600_000);
-    expect(verify(written)).toBe(true);
-    expect(written.signingBytes).toBe(byName("signed").signingBytes);
-    expect(written.sig ?? written.signed.sig).toBe(byName("signed").signed.sig);
-    // the file spells it with a fraction, once per section, so the text reaches each reader as written
-    const section0 = committedText.indexOf(`\n  "${section}": [`);
-    const at = committedText.indexOf('"name": "notAfter written 1798761600000.0"', section0);
-    expect(committedText.slice(at, committedText.indexOf('"verifies"', at))).toContain('"notAfter": 1798761600000.0\n');
+  // Each file is its readable value in the file format, but where the format cannot write the value's notAfter (1.5,
+  // 2^53), or the case writes it with a fraction: there the file holds that number's own text.
+  it("every file is its value in the file format, but for a notAfter the format cannot write", () => {
+    const files: [string, unknown, string][] = [
+      ...committed.keyring.map((c: any): [string, unknown, string] => [c.name, c.signed, c.file]),
+      ...committed.root.map((c: any): [string, unknown, string] => [c.name, c.signed, c.file]),
+      ...committed.replyCert.map((c: any): [string, unknown, string] => [c.name, c.cert, c.file]),
+      ...committed.sessionStatus.flatMap((c: any): [string, unknown, string][] => [
+        [c.name, c.serverRoot, c.serverRootFile],
+        [c.name, c.serverKeyring, c.serverKeyringFile],
+      ]),
+    ];
+    let spliced = 0;
+    for (const [name, value, file] of files) {
+      const n = (value as { notAfter?: unknown }).notAfter;
+      const fraction = name === "notAfter written 1798761600000.0";
+      const own = fraction ? `${String(n)}.0` : n !== undefined && !isNotAfter(n) ? String(n) : undefined;
+      if (own === undefined) {
+        expect(file, name).toBe(printFile(value as JsonValue));
+      } else {
+        const zero = printFile({ ...(value as object), notAfter: 0 } as JsonValue);
+        expect(file, name).toBe(zero.replace('"notAfter": 0', `"notAfter": ${own}`));
+        spliced += 1;
+      }
+    }
+    expect(spliced).toBe(6);
   });
   it.each(committed.verify.map((c: any): [string, any] => [c.name, c]))("verify %s", (_n, c: any) => expect(replayLive(committed, c)).toEqual(c.expected));
   it.each(committed.offline.map((c: any): [string, any] => [c.name, c]))("offline %s", (_n, c: any) => expect(replayOffline(committed, c)).toEqual(c.expected));
@@ -259,11 +290,13 @@ describe("v3 known-answer vectors", () => {
   });
 
   it.each(committed.replyCert.map((c: any): [string, any] => [c.name, c]))("reply certificate %s", (_n, c: any) => {
-    const { policy, svc, key, notAfter, sig } = c.cert;
-    expect(isReplyCert(c.cert)).toBe(true);
+    const read = readOr(() => readReplyCertFile(utf8(c.file)));
+    if (read === undefined) return refused(c);
+    const { policy, svc, key, notAfter, sig } = read;
+    expect(read).toEqual(c.cert);
     expect(encode(replyCertSigningBytes(policy, svc, key, notAfter))).toBe(c.signingBytes);
     expect(encode(utf8("paztport-reply-cert\n" + canonicalize({ key, notAfter, policy, svc })))).toBe(c.signingBytes);
-    expect(verifyReplyCert(c.cert, committed.keys[c.pin].pub)).toBe(c.verifies);
+    expect(verifyReplyCert(read, committed.keys[c.pin].pub)).toBe(c.verifies);
     // Every certificate that verifies is reproduced byte for byte by issuing it.
     if (c.verifies) expect(signReplyCert(policy, svc, key, notAfter, committed.keys[c.signer].priv).sig).toBe(sig);
   });
@@ -301,9 +334,11 @@ describe("v3 known-answer vectors", () => {
   });
 
   it.each(committed.sessionStatus.map((c: any): [string, any] => [c.name, c]))("session status %s", (_n, c: any) => {
-    const ring = c.serverKeyring;
+    const ring = readKeyringFile(utf8(c.serverKeyringFile));
+    const root = readRootFile(utf8(c.serverRootFile));
     const pinned = c.pinned.map((n: string) => committed.keys[n].pub);
-    expect(sessionStatus(c.request, c.serverRoot, ring.notAfter, committed.keys[c.serverPolicyKey].pub, pinned, c.now)).toBe(c.expected);
+    const status = sessionStatus(c.request, root, ring.notAfter, committed.keys[c.serverPolicyKey].pub, pinned, c.now);
+    expect(status).toBe(c.expected);
     // the server's own keyring is the one it signed
     expect(verifyKeyring(ring, committed.keys[c.serverPolicyKey].pub)).toBe(true);
   });
@@ -332,15 +367,8 @@ describe("v3 known-answer vectors", () => {
     expect(isAttestedSession(good.request, reply, keys["server-policy"].pub, entry, good.now)).toBe(false);
   });
 
-  it("keyring signing bytes and named services match the signed keyring", () => {
+  it("each keyring case's named services and policy key are its readable keyring's", () => {
     for (const k of committed.keyring) {
-      const { policy, services, notAfter } = k.signed;
-      if (k.signingBytes === null) {
-        expect(() => keyringSigningBytes(policy, services, notAfter), k.name).toThrow(TypeError);
-      } else {
-        expect(encode(keyringSigningBytes(policy, services, notAfter)), k.name).toBe(k.signingBytes);
-        expect(encode(utf8("paztport-keyring\n" + canonicalize({ notAfter, policy, services }))), k.name).toBe(k.signingBytes);
-      }
       expect(k.signed.sig).toBe(k.sig);
       const named = Object.fromEntries(Object.entries(k.services as Record<string, string>).map(([svc, name]) => [svc, committed.keys[name].pub]));
       expect(k.signed.services).toEqual(named);

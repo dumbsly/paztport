@@ -36,8 +36,8 @@ import org.paztport.core.stamp.ParsedChain;
  * outcomes stay fixed, and only the adapters at the bottom follow the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
- * malformed inputs. The rest are normalised: an extra field dropped, or a number written {@code 1798761600000.0} read
- * by value and written back as plain digits; writing those back again changes nothing. Each object is read from its own
+ * malformed inputs. The rest are normalised: an extra field of a session reply dropped by the reply built from it;
+ * writing those back again changes nothing. Each object is read from its own
  * text in the file, so two that differ only in how they are written are two cases. A whole session reply has no reader
  * in the SDK, since the client checks a reply as received, so a reply is built here from its fields and written back
  * with {@code SessionReply.toJson()}, which pins the reply's wire form as well.
@@ -51,6 +51,8 @@ class JsonTextRoundTripTest {
             "keyring/no notAfter",
             "keyring/notAfter 2^53",
             "keyring/notAfter not an integer",
+            // A member the certificate does not define.
+            "replyCert/an extra field",
             "root/no notAfter",
             "root/notAfter 2^53",
             "root/notAfter not an integer",
@@ -74,13 +76,10 @@ class JsonTextRoundTripTest {
 
     /** The objects that come back normalised, by case. */
     private static final Set<String> NORMALISED = Set.of(
-            "keyring/notAfter written 1798761600000.0",
-            "replyCert/an extra field is ignored",
-            "root/notAfter written 1798761600000.0",
             "sessionReply/entry named in the reply is ignored/reply");
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
-    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 26, Kind.PROOF, 5,
+    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 12, Kind.ROOT, 25, Kind.PROOF, 5,
             Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 12, Kind.REPLY, 36);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }

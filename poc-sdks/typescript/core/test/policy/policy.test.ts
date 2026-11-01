@@ -2,9 +2,11 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair } from "../../src/crypto/crypto.ts";
+import { generateKeyPair, utf8 } from "../../src/crypto/crypto.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import * as core from "../../src/index.ts";
 import { verifyProof } from "../../src/policy/merkle.ts";
-import { buildPolicy } from "../../src/policy/policy.ts";
+import { buildPolicy, readProofBundleFile } from "../../src/policy/policy.ts";
 import { verifyRoot } from "../../src/policy/root.ts";
 import { decode } from "../../src/encoding/b64url.ts";
 
@@ -67,4 +69,35 @@ describe("policy", () => {
       expect(() => buildPolicy([["gateway", node]], 4, privateKey, 4_102_444_800_000), JSON.stringify(node)).toThrow(/route node/);
     }
   });
+});
+
+describe("readProofBundleFile", () => {
+  const bundle = () => buildPolicy(demo, 8, generateKeyPair().privateKey, NOT_AFTER).bundles.gateway!;
+
+  it("reads a bundle in any member order and spacing", () => {
+    const b = bundle();
+    for (const text of [JSON.stringify(b, null, 2), printFile(b)]) expect(readProofBundleFile(utf8(text))).toEqual(b);
+    expect(readProofBundleFile(utf8(printFile({ ...b, proofs: {} }))).proofs).toEqual({});
+  });
+
+  it("refuses a member the bundle does not define, and a proof its schema refuses", () => {
+    const b = bundle();
+    expect(() => readProofBundleFile(utf8(printFile({ ...b, note: "x" }))))
+      .toThrow("a member the object does not define");
+    const proof = b.proofs["gateway/orders"]!;
+    expect(() => readProofBundleFile(utf8(printFile({ ...b, proofs: { "gateway/orders": { ...proof, extra: 1 } } }))))
+      .toThrow("a member the object does not define");
+    expect(() => readProofBundleFile(utf8(printFile({ ...b, proofs: { "gateway/orders": { ...proof, dirs: "X" } } }))))
+      .toThrow("member dirs is not one L or R per sibling");
+  });
+
+  it("refuses a name in proofs that is not a route, without the name", () => {
+    const proof = bundle().proofs["gateway/orders"]!;
+    for (const route of ["gateway", "gateway/", "/orders", "gateway//orders", "gateway/../orders", "a|b/c"]) {
+      expect(() => readProofBundleFile(utf8(printFile({ ...bundle(), proofs: { [route]: proof } }))), route)
+        .toThrow(/^member proofs holds a name that is not a route$/);
+    }
+  });
+
+  it("is exported from the core", () => expect("readProofBundleFile" in core).toBe(true));
 });

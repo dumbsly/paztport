@@ -13,6 +13,7 @@ import { isDeepStrictEqual } from "node:util";
 import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   canonicalize, commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
+  printFile, readKeyringFile, readReplyCertFile, readRootFile,
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
   writeToken,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
@@ -22,7 +23,8 @@ import {
   verifyResponse,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, InfluenceFact, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, Resolved, SessionReply, SessionRequest,
+  InfluenceEntry, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, Resolved,
+  SessionReply, SessionRequest,
   SignedKeyring, SignedRoot, StampV3,
 } from "@paztport/core";
 import { bindMcpCall, mcpReceiver } from "../src/index.ts";
@@ -34,8 +36,8 @@ type KeyName = (typeof KEY_NAMES)[number];
 const PKCS8_ED25519_PREFIX = "302e020100300506032b657004220420";
 /** The keyring and root cases' fixed notAfter: 2027-01-01, as the Java tests use. */
 const POLICY_NOT_AFTER = 1_798_761_600_000;
-/** The keyring and root cases whose notAfter the file writes as `1798761600000.0` (see vectorsV3Text). */
-const BY_VALUE = { keyring: "notAfter written 1798761600000.0", root: "notAfter written 1798761600000.0" } as const;
+/** The keyring and root case whose `file` writes its notAfter `1798761600000.0`, the integer its signature is over. */
+const FRACTION_CASE = "notAfter written 1798761600000.0";
 const DEPTH = 8;
 /** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsV3Text). */
 const TS_MIN_CASE = "stamp ts of -2^63";
@@ -165,9 +167,33 @@ function wireOrderAttestationToken(att: Attestation): string {
 }
 
 /**
+ * A case's file text: printFile of its value, except where the value's notAfter is not a protocol integer (1.5, 2^53),
+ * which printFile refuses, or the case is FRACTION_CASE. Then it is the value's file with notAfter printed as 0, and
+ * that number's own text put in its place.
+ */
+function fileOf(name: unknown, value: object): string {
+  const n = (value as { notAfter?: unknown }).notAfter;
+  const own = name === FRACTION_CASE ? `${String(n)}.0` : n !== undefined && !isNotAfter(n) ? String(n) : undefined;
+  if (own === undefined) return printFile(value as JsonValue);
+  const zero = printFile({ ...value, notAfter: 0 } as JsonValue);
+  if (zero.split('"notAfter": 0').length !== 2) throw new Error(`no notAfter in the file of ${String(name)}`);
+  return zero.replace('"notAfter": 0', `"notAfter": ${own}`);
+}
+
+/** What `read` gives, or undefined for a file its reader refuses. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Every token in the vectors is tokenOf its readable sibling, `<m>Token` of `<m>` and `proofTokens` of `proofs`,
  * except the chain token TS_MIN_CASE crafts, which holds the ts exactly, and the attestation token WIRE_ORDER_CASE
- * crafts, which writes the members in wire order.
+ * crafts, which writes the members in wire order. Every file is fileOf its readable sibling: a keyring's or root's
+ * `signed`, a certificate's `cert`, and a session status case's `serverRoot` and `serverKeyring`.
  */
 function checkTokens(value: unknown, path = ""): void {
   if (Array.isArray(value)) {
@@ -190,6 +216,10 @@ function checkTokens(value: unknown, path = ""): void {
     } else if (k === "decisionToken") {
       const { callId, resolved, verdict, routeAllowed, rulesHash } = o;
       check(`${at} is the token of its decision`, v, tokenOf({ callId, resolved, verdict, routeAllowed, rulesHash }));
+    } else if (k === "file") {
+      check(`${at} is the file of its value`, v, fileOf(o.name, (o.signed ?? o.cert) as object));
+    } else if (k === "serverRootFile" || k === "serverKeyringFile") {
+      check(`${at} is the file of its value`, v, fileOf(o.name, o[k.slice(0, -4)] as object));
     } else if (k === "proofTokens") {
       for (const [route, t] of Object.entries(v as Record<string, string>)) {
         check(`${at}.${route} is the token of its proof`, t, tokenOf((o.proofs as Record<string, unknown>)[route]));
@@ -584,11 +614,11 @@ export function buildVectorsV3(): Record<string, unknown> {
   // domain-separation guarantee: the two signed bodies differ, so those signatures would fail even without the
   // prefixes. What pins the prefixes is each case's literal `signingBytes`, which both replays rebuild by hand.
   //
-  // Two cases tie the readers together on how a notAfter is read: one of 2^53, which each must refuse, and one
-  // written 1798761600000.0 in the file (see BY_VALUE), which each must read by value as the integer the signature
-  // is over.
+  // Each case carries its `file`, which a replay reads, and its answers are the file's: a file that does not read
+  // never verifies, has no signed bytes and is never current. Two cases tie the readers together on how a notAfter
+  // is read: one of 2^53, and one whose file writes it 1798761600000.0 (FRACTION_CASE), the integer its signature is
+  // over; each reader refuses both.
   const DAY_MS = 86_400_000;
-  const hasWindow = (o: object): o is { notAfter: unknown } => Object.hasOwn(o, "notAfter");
   const currentAt = (o: object, ats: number[]) => ats.map((at) => ({ at, current: isCurrent(o, at) }));
   const ringServices = { session: "session", pi: "pi" } as const;
   const ringPolicy = keys["client-policy"].pub;
@@ -599,11 +629,16 @@ export function buildVectorsV3(): Record<string, unknown> {
   const unwindowedRing = { policy: ringPolicy, services: resolveKeyring(ringServices), sig: encode(sign(keys["client-policy"].priv, utf8("paztport-keyring\n" + canonicalize({ policy: ringPolicy, services: resolveKeyring(ringServices) })))) };
   const unwindowedRoot = { rootId: rootPolicy.rootId, root: rootPolicy.root, sig: encode(sign(keys["client-policy"].priv, utf8(`${rootPolicy.rootId}|${rootPolicy.root}`))) };
   const keyringFormCase = (name: string, signed: SignedKeyring, verifies: boolean, ats?: number[], services: Record<string, KeyName> = ringServices) => {
-    check(`keyring ${name}`, verifyKeyring(signed, ringPolicy), verifies);
-    const bytes = hasWindow(signed) && isNotAfter(signed.notAfter) ? keyringSigningBytes(signed.policy, signed.services, signed.notAfter) : null;
+    const file = fileOf(name, signed);
+    const read = readOr(() => readKeyringFile(utf8(file)));
+    if (read !== undefined) check(`keyring ${name} file`, { ...read, services: { ...read.services } }, signed);
+    check(`keyring ${name}`, read !== undefined && verifyKeyring(read, ringPolicy), verifies);
+    const bytes = read === undefined ? null : keyringSigningBytes(read.policy, read.services, read.notAfter);
     if (verifies) check(`keyring ${name} re-signed`, signKeyring(signed.services, signed.policy, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
-    const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
-    return { name, policyKey: "client-policy", services, signingBytes: bytes === null ? null : encode(bytes), sig: signed.sig, signed, verifies, ...current };
+    const current = ats === undefined ? {} : { current: currentAt(read ?? {}, ats) };
+    const signingBytes = bytes === null ? null : encode(bytes);
+    const sig = signed.sig;
+    return { name, policyKey: "client-policy", services, signingBytes, sig, signed, file, verifies, ...current };
   };
   const tamperedServices = { session: "session", pi: "gateway" } as const;
   const keyring = [
@@ -616,16 +651,20 @@ export function buildVectorsV3(): Record<string, unknown> {
     keyringFormCase("notAfter not an integer", { ...newRing(POLICY_NOT_AFTER), notAfter: 1.5 }, false),
     keyringFormCase("root signature as a keyring signature", { ...newRing(POLICY_NOT_AFTER), sig: newRoot(POLICY_NOT_AFTER).sig }, false),
     keyringFormCase("notAfter 2^53", { ...newRing(POLICY_NOT_AFTER), notAfter: 2 ** 53 }, false),
-    keyringFormCase(BY_VALUE.keyring, newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    keyringFormCase(FRACTION_CASE, newRing(POLICY_NOT_AFTER), false, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
   ];
 
   // The client policy's signed root, under the client-policy pin; `policy` names the tree.
   const rootCase = (name: string, signed: SignedRoot, verifies: boolean, ats?: number[]) => {
-    check(`root ${name}`, verifyRoot(signed, keys["client-policy"].pub), verifies);
-    const bytes = hasWindow(signed) && isNotAfter(signed.notAfter) ? rootSigningBytes(signed.rootId, signed.root, signed.notAfter) : null;
+    const file = fileOf(name, signed);
+    const read = readOr(() => readRootFile(utf8(file)));
+    if (read !== undefined) check(`root ${name} file`, read, signed);
+    check(`root ${name}`, read !== undefined && verifyRoot(read, keys["client-policy"].pub), verifies);
+    const bytes = read === undefined ? null : rootSigningBytes(read.rootId, read.root, read.notAfter);
     if (verifies) check(`root ${name} re-signed`, signRoot(decode(signed.root), signed.rootId, keys["client-policy"].priv, signed.notAfter).sig, signed.sig);
-    const current = ats === undefined ? {} : { current: currentAt(signed, ats) };
-    return { name, policyKey: "client-policy", policy: "client", signingBytes: bytes === null ? null : encode(bytes), signed, verifies, ...current };
+    const current = ats === undefined ? {} : { current: currentAt(read ?? {}, ats) };
+    const signingBytes = bytes === null ? null : encode(bytes);
+    return { name, policyKey: "client-policy", policy: "client", signingBytes, signed, file, verifies, ...current };
   };
   const renewed = signRenewedRoot(newRoot(POLICY_NOT_AFTER), POLICY_NOT_AFTER + DAY_MS, keys["client-policy"].priv);
   check("root renewed keeps the tree", [renewed.rootId, renewed.root], [rootPolicy.rootId, rootPolicy.root]);
@@ -641,7 +680,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     rootCase("signed by another policy key", newRoot(POLICY_NOT_AFTER, "server-policy"), false),
     rootCase("keyring signature as a root signature", { ...newRoot(POLICY_NOT_AFTER), sig: newRing(POLICY_NOT_AFTER).sig }, false),
     rootCase("notAfter 2^53", { ...newRoot(POLICY_NOT_AFTER), notAfter: 2 ** 53 }, false),
-    rootCase(BY_VALUE.root, newRoot(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    rootCase(FRACTION_CASE, newRoot(POLICY_NOT_AFTER), false, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
   ];
 
   // The server's reply certificate for mcp-entry, and forms of it that must not verify under the server pin.
@@ -649,8 +688,14 @@ export function buildVectorsV3(): Record<string, unknown> {
   const issueCert = (policy: KeyName, notAfter: number, signer: KeyName): ReplyCert =>
     signReplyCert(keys[policy].pub, "mcp-entry", keys["mcp-entry"].pub, notAfter, keys[signer].priv);
   const certCase = (name: string, signer: KeyName, cert: ReplyCert, verifies: boolean) => {
-    check(`reply certificate ${name}`, verifyReplyCert(cert, keys["server-policy"].pub), verifies);
-    return { name, signer, pin: "server-policy", cert, signingBytes: encode(replyCertSigningBytes(cert.policy, cert.svc, cert.key, cert.notAfter)), verifies };
+    const file = fileOf(name, cert);
+    const read = readOr(() => readReplyCertFile(utf8(file)));
+    if (read !== undefined) check(`reply certificate ${name} file`, read, cert);
+    const verified = read !== undefined && verifyReplyCert(read, keys["server-policy"].pub);
+    check(`reply certificate ${name}`, verified, verifies);
+    const bytes = read && encode(replyCertSigningBytes(read.policy, read.svc, read.key, read.notAfter));
+    const signingBytes = bytes ?? null;
+    return { name, signer, pin: "server-policy", cert, file, signingBytes, verifies };
   };
   const signedCert = issueCert("server-policy", CERT_NOT_AFTER, "server-policy");
   const otherPolicyCert = issueCert("client-policy", CERT_NOT_AFTER, "client-policy");
@@ -660,7 +705,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     certCase("tampered notAfter", "server-policy", { ...signedCert, notAfter: CERT_NOT_AFTER + 1 }, false),
     certCase("signed by another policy key", "client-policy", issueCert("server-policy", CERT_NOT_AFTER, "client-policy"), false),
     certCase("names another policy key", "client-policy", otherPolicyCert, false),
-    certCase("an extra field is ignored", "server-policy", { ...signedCert, note: "not signed" } as ReplyCert, true),
+    certCase("an extra field", "server-policy", { ...signedCert, note: "not signed" } as ReplyCert, false),
     certCase("largest notAfter", "server-policy", issueCert("server-policy", Number.MAX_SAFE_INTEGER, "server-policy"), true),
   ];
 
@@ -803,9 +848,17 @@ export function buildVectorsV3(): Record<string, unknown> {
     const ring = o.serverKeyring ?? serverRing;
     const pinned = o.pinned ?? ["client-policy"];
     const now = o.now ?? NOW;
-    const got = sessionStatus(req, root, ring.notAfter, keys["server-policy"].pub, pinned.map((n) => keys[n].pub), now);
+    const serverRootFile = printFile(root);
+    const serverKeyringFile = printFile(ring);
+    const ownRoot = readRootFile(utf8(serverRootFile));
+    const ownRing = readKeyringFile(utf8(serverKeyringFile));
+    const pins = pinned.map((n) => keys[n].pub);
+    const got = sessionStatus(req, ownRoot, ownRing.notAfter, keys["server-policy"].pub, pins, now);
     check(`session status ${name}`, got, expected);
-    return { name, request: req, serverRoot: root, serverKeyring: ring, serverPolicyKey: "server-policy", pinned, now, expected };
+    return {
+      name, request: req, serverRoot: root, serverRootFile, serverKeyring: ring, serverKeyringFile,
+      serverPolicyKey: "server-policy", pinned, now, expected,
+    };
   };
   const sessionStatusCases = [
     statusCase("attested", {}, "attested"),
@@ -1172,22 +1225,10 @@ export function buildVectorsV3(): Record<string, unknown> {
   return vectors;
 }
 
-/**
- * v3.json's text: the built vectors as JSON, except that the BY_VALUE cases' notAfter is written
- * `1798761600000.0`, which JSON.stringify would print as plain digits, so each reader's by-value reading is tested.
- */
+/** v3.json's text: the built vectors as JSON. */
 export function vectorsV3Text(): string {
   const vectors = buildVectorsV3();
   let text = JSON.stringify(vectors, null, 2) + "\n";
-  for (const [section, name] of Object.entries(BY_VALUE)) {
-    const at = text.indexOf(`"name": ${JSON.stringify(name)}`, text.indexOf(`\n  "${section}": [`));
-    // the signed object's last member, so the digits end the line
-    const from = `"notAfter": ${POLICY_NOT_AFTER}\n`;
-    const window = text.indexOf(from, at);
-    const next = text.indexOf('"name": ', at + 1);
-    if (at < 0 || window < 0 || (next >= 0 && next < window)) throw new Error(`no notAfter in the ${section} case ${name}`);
-    text = text.slice(0, window) + `"notAfter": ${POLICY_NOT_AFTER}.0\n` + text.slice(window + from.length);
-  }
   // JSON.stringify prints −2^63 as -9223372036854776000; the file spells it exactly, so a 64-bit reader meets the long
   // it could take it for
   const at = text.indexOf(`"name": ${JSON.stringify(TS_MIN_CASE)}`);

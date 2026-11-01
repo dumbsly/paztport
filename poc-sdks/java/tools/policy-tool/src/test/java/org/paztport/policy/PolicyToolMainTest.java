@@ -111,11 +111,11 @@ class PolicyToolMainTest {
 
         PolicyToolMain.run(pathsYaml, keys, out, 8);
 
-        ProofBundle search = JSON.readValue(Files.readAllBytes(out.resolve("proofs-search.json")), ProofBundle.class);
+        ProofBundle search = ProofBundle.load(out.resolve("proofs-search.json"));
         assertTrue(search.proofs().isEmpty(), "search must hold no proofs");
 
         SignedRoot root = SignedRoot.load(out.resolve("root.json"));
-        ProofBundle orders = JSON.readValue(Files.readAllBytes(out.resolve("proofs-orders.json")), ProofBundle.class);
+        ProofBundle orders = ProofBundle.load(out.resolve("proofs-orders.json"));
         assertFalse(orders.proofs().isEmpty());
         assertTrue(orders.proofs().get("gateway/orders/payment").verify("gateway/orders/payment", root.rootBytes()));
     }
@@ -373,7 +373,7 @@ class PolicyToolMainTest {
         after.remove(out.resolve("root.json"));
         after.remove(out.resolve("reply-cert.json"));
         assertEquals(bundles, after);
-        ProofBundle orders = JSON.readValue(Files.readAllBytes(out.resolve("proofs-orders.json")), ProofBundle.class);
+        ProofBundle orders = ProofBundle.load(out.resolve("proofs-orders.json"));
         assertEquals(renewed.rootId(), orders.rootId());
         assertTrue(orders.proofs().get("gateway/orders/payment").verify("gateway/orders/payment", renewed.rootBytes()));
 
@@ -488,6 +488,23 @@ class PolicyToolMainTest {
                 + "\",\"sig\":\"" + sign(policy, "paztport-keyring\n" + body) + "\"}");
         before = snapshot(keys, out);
         e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
+        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring", e.getMessage());
+        assertEquals(before, snapshot(keys, out));
+    }
+
+    /** A {@code notAfter} is a protocol integer by its text, so one written with a fraction is refused, as above. */
+    @Test
+    void renewRefusesANotAfterWrittenWithAFractionAndWritesNothing(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        Path pathsYaml = dir.resolve("paths.yaml");
+        Path out = dir.resolve("out");
+        writeWorld(keys, pathsYaml);
+        PolicyToolMain.run(pathsYaml, keys, out, 8);
+        String keyring = Files.readString(keys.resolve("keyring.json"));
+        Files.writeString(keys.resolve("keyring.json"), keyring.replaceFirst("(\"notAfter\": [0-9]+)", "$1.0"));
+        Map<Path, String> before = snapshot(keys, out);
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
         assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring", e.getMessage());
         assertEquals(before, snapshot(keys, out));

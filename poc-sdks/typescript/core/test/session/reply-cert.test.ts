@@ -2,8 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { generateKeyPair } from "../../src/crypto/crypto.ts";
-import { isReplyCert, signReplyCert, replyCertSigningBytes, verifyReplyCert } from "../../src/session/reply-cert.ts";
+import { generateKeyPair, utf8 } from "../../src/crypto/crypto.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import {
+  isReplyCert, readReplyCertFile, signReplyCert, replyCertSigningBytes, verifyReplyCert,
+} from "../../src/session/reply-cert.ts";
 import * as core from "../../src/index.ts";
 
 const POLICY = generateKeyPair();
@@ -118,4 +122,47 @@ describe("reply certificate", () => {
   it("isReplyCert refuses a non-object", () => {
     for (const bad of [null, undefined, [], "cert", 1, true]) expect(isReplyCert(bad), String(bad)).toBe(false);
   });
+});
+
+describe("readReplyCertFile", () => {
+  const malformed = (read: () => unknown) => {
+    try {
+      read();
+    } catch (e) {
+      return e as Error;
+    }
+    throw new Error("read");
+  };
+
+  it("a file in any member order and spacing loads", () => {
+    const c = issued();
+    for (const text of [JSON.stringify(c, null, 2), printFile(c)]) {
+      const read = readReplyCertFile(utf8(text));
+      expect(read).toEqual(c);
+      expect(verifyReplyCert(read, POLICY.publicKey)).toBe(true);
+    }
+  });
+
+  it("a notAfter written with a fraction is malformed", () => {
+    const text = printFile(issued()).replace(`${NOT_AFTER},`, `${NOT_AFTER}.0,`);
+    expect(text).toContain("1798761600000.0");
+    const e = malformed(() => readReplyCertFile(utf8(text)));
+    expect(e).toBeInstanceOf(MalformedJson);
+    expect((e as MalformedJson).step).toBe("parse");
+  });
+
+  it("an extra member is malformed", () => {
+    const text = printFile({ ...issued(), note: "not signed" });
+    expect(malformed(() => readReplyCertFile(utf8(text))).message).toBe("a member the object does not define");
+  });
+
+  it("refuses each member missing, naming it", () => {
+    const c = issued();
+    for (const name of ["key", "notAfter", "policy", "sig", "svc"]) {
+      const { [name as keyof typeof c]: _gone, ...rest } = c;
+      expect(malformed(() => readReplyCertFile(utf8(printFile(rest)))).message, name).toBe(`no member ${name}`);
+    }
+  });
+
+  it("is exported from the core", () => expect("readReplyCertFile" in core).toBe(true));
 });

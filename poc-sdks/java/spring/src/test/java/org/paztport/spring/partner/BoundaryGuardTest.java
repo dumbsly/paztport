@@ -350,7 +350,7 @@ class BoundaryGuardTest {
                 .withPropertyValues("paztport.keyring-path=" + windowless).run(context -> {
                     assertThat(context).hasFailed();
                     assertThat(context.getStartupFailure()).rootCause()
-                            .hasMessage("keyring notAfter must be an integer in [0, 2^53 - 1]");
+                            .hasMessage("paztport.keyring-path is malformed (no member notAfter): " + windowless);
                 });
     }
 

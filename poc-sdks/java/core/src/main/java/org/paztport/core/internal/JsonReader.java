@@ -3,7 +3,12 @@
 
 package org.paztport.core.internal;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -92,6 +97,35 @@ public final class JsonReader {
             throw new MalformedJsonException(Step.SIZE, "a file past " + FILE_BYTES + " bytes");
         }
         return new JsonReader(bytes).document();
+    }
+
+    /**
+     * The file at {@code path}, read as {@link #file(byte[])} reads its bytes. No more than one byte past the limit
+     * is read, so a larger file is refused without being held. A file that cannot be read throws
+     * {@link UncheckedIOException} naming it.
+     */
+    public static JsonValue file(Path path) {
+        byte[] bytes;
+        try (InputStream in = Files.newInputStream(path)) {
+            bytes = in.readNBytes(FILE_BYTES + 1);
+        } catch (IOException e) {
+            throw new UncheckedIOException("failed to read " + path, e);
+        }
+        return file(bytes);
+    }
+
+    /**
+     * JSON text read as a file of its UTF-8, for an API that takes text: refused past the limit before it is
+     * encoded, and as a parse when it holds a lone surrogate, as {@link #wireText} refuses it.
+     */
+    public static JsonValue fileText(String json) {
+        if (json.length() > FILE_BYTES) {
+            throw new MalformedJsonException(Step.SIZE, "a file past " + FILE_BYTES + " bytes");
+        }
+        if (!Text.isWellFormed(json)) {
+            throw new MalformedJsonException(Step.PARSE, "text holding a lone surrogate");
+        }
+        return file(json.getBytes(StandardCharsets.UTF_8));
     }
 
     private JsonValue document() {

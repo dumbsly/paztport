@@ -45,6 +45,33 @@ public final class OwnMaterial {
     }
 
     /**
+     * Reads {@code paztport.keyring-path}. A file that does not read as a keyring is refused with
+     * {@link IllegalStateException} naming the property, the reader's reason and the file, and without the reader's
+     * exception under it; one that cannot be read at all throws as {@link KeyringFile#load} does.
+     */
+    public static KeyringFile loadKeyring(Path file) {
+        try {
+            return KeyringFile.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(KEYRING, e, file);
+        }
+    }
+
+    /** Reads {@code paztport.root-path}, refusing a file that does not read as a root as {@link #loadKeyring} does. */
+    public static SignedRoot loadRoot(Path file) {
+        try {
+            return SignedRoot.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(ROOT, e, file);
+        }
+    }
+
+    /** The reader's message names the rule or the member, never the file's text, so it is safe to log. */
+    private static IllegalStateException malformed(String property, IllegalArgumentException e, Path file) {
+        return new IllegalStateException(property + " is malformed (" + e.getMessage() + "): " + file);
+    }
+
+    /**
      * Refuses unless {@code keyring} and {@code root} both verify under {@code policyPin} and are current at
      * {@code nowMs}, throwing {@link IllegalStateException} that names the property and the fix; then warns once for
      * each that has {@link #WARN_WITHIN_MS} or less left. Never prints key material.

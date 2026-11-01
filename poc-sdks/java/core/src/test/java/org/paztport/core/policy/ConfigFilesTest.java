@@ -69,10 +69,7 @@ class ConfigFilesTest {
         assertNotNull(loadedBundle.proofFor("gateway/orders"));
     }
 
-    /**
-     * A root or keyring whose {@code notAfter} is not an integer is refused at startup, not truncated: Jackson's
-     * record binding would read {@code 1.5} as 1, which the TypeScript SDK refuses, so the two would disagree.
-     */
+    /** A root or keyring whose {@code notAfter} is not a protocol integer is refused at startup, never truncated. */
     @Test
     void refusesANotAfterThatIsNotAnInteger(@TempDir Path dir) throws Exception {
         String policyPub = Base64Url.encode(Crypto.encodePublicKey(policy.getPublic()));
@@ -88,6 +85,38 @@ class ConfigFilesTest {
 
         assertThrows(IllegalArgumentException.class, () -> SignedRoot.load(dir.resolve("root.json")));
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(dir.resolve("keyring.json")));
+    }
+
+    /**
+     * A bundle is read as a file, in any member order and spacing, and strictly: a member it does not define, a name
+     * in {@code proofs} that is not a route, and a proof its schema refuses are each refused, naming no route.
+     */
+    @Test
+    void aProofBundleIsReadStrictly(@TempDir Path dir) throws Exception {
+        MerkleTree tree = MerkleTree.build(List.of(new MerkleLeaf(Crypto.randomBytes(16), "gateway/orders")), 8, "v1");
+        MerkleProof proof = tree.proofFor("gateway/orders");
+        ProofBundle bundle = new ProofBundle("gateway", "v1", Map.of("gateway/orders", proof));
+        Path file = dir.resolve("proofs-gateway.json");
+        JSON.writerWithDefaultPrettyPrinter().writeValue(file.toFile(), bundle);
+        assertEquals(bundle, ProofBundle.load(file));
+
+        ObjectNode extra = (ObjectNode) JSON.readTree(bundle.toFile());
+        extra.put("note", "x");
+        JSON.writeValue(file.toFile(), extra);
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> ProofBundle.load(file)).getMessage());
+
+        for (String route : List.of("gateway", "gateway/", "/orders", "gateway//orders", "gateway/../orders")) {
+            JSON.writeValue(file.toFile(), new ProofBundle("gateway", "v1", Map.of(route, proof)));
+            assertEquals("member proofs holds a name that is not a route",
+                    assertThrows(IllegalArgumentException.class, () -> ProofBundle.load(file), route).getMessage());
+        }
+
+        ObjectNode bad = (ObjectNode) JSON.readTree(bundle.toFile());
+        ((ObjectNode) bad.get("proofs").get("gateway/orders")).put("extra", 1);
+        JSON.writeValue(file.toFile(), bad);
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> ProofBundle.load(file)).getMessage());
     }
 
     /** A bundle is only a file, so one over the wire limit and under the file limit is written and read back. */

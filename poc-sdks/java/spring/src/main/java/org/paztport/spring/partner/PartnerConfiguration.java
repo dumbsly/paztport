@@ -99,8 +99,8 @@ public class PartnerConfiguration {
             throw new IllegalStateException(
                     "paztport.boundary.tls-bundle is set but no SSL bundles are configured (spring.ssl.bundle.*)");
         }
-        SignedRoot ownRoot = SignedRoot.load(Path.of(props.getRootPath()));
-        KeyringFile ownKeyring = KeyringFile.load(Path.of(props.getKeyringPath()));
+        SignedRoot ownRoot = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
+        KeyringFile ownKeyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
@@ -212,8 +212,8 @@ public class PartnerConfiguration {
         }
         String service = props.getServiceName();
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        KeyringFile keyring = KeyringFile.load(Path.of(props.getKeyringPath()));
-        SignedRoot ownRoot = SignedRoot.load(Path.of(props.getRootPath()));
+        KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
+        SignedRoot ownRoot = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()), pin,
                 clock.getAsLong());
         PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
@@ -223,7 +223,7 @@ public class PartnerConfiguration {
         } catch (UncheckedIOException e) {
             throw new IllegalStateException("paztport.partner.reply-cert-path could not be read", e);
         } catch (IllegalArgumentException e) {
-            // Without the parser's cause, which quotes the file: a key file named here by mistake must not be logged.
+            // Without the reader's exception under it: one line names the property, as for the keyring and root.
             throw new IllegalStateException("paztport.partner.reply-cert-path is not a reply certificate");
         }
         Set<String> clientKeys = new LinkedHashSet<>();

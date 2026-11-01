@@ -5,7 +5,6 @@ package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -207,11 +206,10 @@ class VectorsV3Test {
     void keyring() {
         for (JsonNode c : vectors.get("keyring")) {
             String name = c.get("name").asText();
-            JsonNode signed = c.get("signed");
             String pin = vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText();
             KeyringFile file;
             try {
-                file = KeyringFile.parse(Vectors.json(signed));
+                file = KeyringFile.parse(c.get("file").textValue());
             } catch (IllegalArgumentException e) {
                 refused(c);
                 continue;
@@ -238,7 +236,7 @@ class VectorsV3Test {
                     vectors.get("keys").get(c.get("policyKey").asText()).get("pub").asText()));
             SignedRoot root;
             try {
-                root = SignedRoot.parse(Vectors.json(c.get("signed")));
+                root = SignedRoot.parse(c.get("file").textValue());
             } catch (IllegalArgumentException e) {
                 refused(c);
                 continue;
@@ -258,53 +256,15 @@ class VectorsV3Test {
     }
 
     /**
-     * A keyring or root the reader refused: its {@code notAfter} is missing or not an integer in range, so nothing
-     * signs it, it never verifies and it is current at no time, its signature never consulted.
+     * A keyring, root or certificate whose file the reader refused, a {@code notAfter} that is missing or not a
+     * protocol integer among the reasons: nothing signs it, it never verifies and it is current at no time, its
+     * signature never consulted.
      */
     private static void refused(JsonNode c) {
         String name = c.get("name").asText();
         assertTrue(c.get("signingBytes").isNull(), name);
         assertFalse(c.get("verifies").asBoolean(), name);
         current(c, at -> false);
-    }
-
-    /** The case named {@code name} in {@code section}. */
-    static JsonNode named(String section, String name) {
-        for (JsonNode c : vectors.get(section)) {
-            if (c.get("name").asText().equals(name)) {
-                return c;
-            }
-        }
-        throw new IllegalArgumentException(section + " has no case " + name);
-    }
-
-    /**
-     * The cases that tie the two readers' reading of a {@code notAfter} together: 2^53 is refused, and a value the
-     * file writes with a fraction reaches the strict reader as a floating-point number, which it reads by value as
-     * the integer the signature is over.
-     */
-    @Test
-    void notAfterJudgedByValue() {
-        String pinText = vectors.get("keys").get("client-policy").get("pub").asText();
-        PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinText));
-        JsonNode ringTooLarge = named("keyring", "notAfter 2^53");
-        assertEquals("9007199254740992", ringTooLarge.get("signed").get("notAfter").asText());
-        assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(Vectors.json(ringTooLarge.get("signed"))));
-        JsonNode rootTooLarge = named("root", "notAfter 2^53");
-        assertThrows(IllegalArgumentException.class, () -> SignedRoot.parse(Vectors.json(rootTooLarge.get("signed"))));
-
-        JsonNode ringWritten = named("keyring", "notAfter written 1798761600000.0").get("signed");
-        assertTrue(ringWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
-        KeyringFile ring = KeyringFile.parse(Vectors.json(ringWritten));
-        assertEquals(1_798_761_600_000L, ring.notAfter());
-        assertTrue(ring.verifies(pinText));
-        assertEquals(named("keyring", "signed").get("sig").asText(), ring.sig());
-
-        JsonNode rootWritten = named("root", "notAfter written 1798761600000.0").get("signed");
-        assertTrue(rootWritten.get("notAfter").isFloatingPointNumber(), "the file writes it with a fraction");
-        SignedRoot root = SignedRoot.parse(Vectors.json(rootWritten));
-        assertEquals(1_798_761_600_000L, root.notAfter());
-        assertTrue(root.verify(pin));
     }
 
     /** Checks a case's {@code current} answers, if it has any, against {@code isCurrent}. */
@@ -325,7 +285,13 @@ class VectorsV3Test {
         assertTrue(cases != null && cases.size() > 0, "replyCert section");
         for (JsonNode c : cases) {
             String name = c.get("name").asText();
-            ReplyCert cert = ReplyCert.parse(Vectors.json(c.get("cert")));
+            ReplyCert cert;
+            try {
+                cert = ReplyCert.parse(c.get("file").textValue());
+            } catch (IllegalArgumentException e) {
+                refused(c);
+                continue;
+            }
             assertEquals(c.get("signingBytes").asText(), Base64Url.encode(
                     ReplyCert.signingBytes(cert.policy(), cert.svc(), cert.key(), cert.notAfter())), name);
             String pin = vectors.get("keys").get(c.get("pin").asText()).get("pub").asText();
@@ -430,12 +396,12 @@ class VectorsV3Test {
             Set<String> pinned = new LinkedHashSet<>();
             c.get("pinned").forEach(n -> pinned.add(vectors.get("keys").get(n.asText()).get("pub").asText()));
             String serverKey = vectors.get("keys").get(c.get("serverPolicyKey").asText()).get("pub").asText();
-            KeyringFile serverKeyring = KeyringFile.parse(Vectors.json(c.get("serverKeyring")));
+            KeyringFile serverKeyring = KeyringFile.parse(c.get("serverKeyringFile").textValue());
             // the server's own keyring is the one it signed
             assertTrue(serverKeyring.verifies(serverKey), name);
             assertEquals(c.get("expected").asText(), Sessions.status(
                     SessionRequest.parse(Vectors.json(c.get("request"))),
-                    SignedRoot.parse(Vectors.json(c.get("serverRoot"))), serverKeyring,
+                    SignedRoot.parse(c.get("serverRootFile").textValue()), serverKeyring,
                     Crypto.decodePublicKey(Base64Url.decode(serverKey)), pinned, c.get("now").asLong()), name);
         }
     }

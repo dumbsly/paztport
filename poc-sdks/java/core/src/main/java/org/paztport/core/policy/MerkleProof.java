@@ -122,7 +122,7 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
     }
 
     /** The proof's schema, the checks of wire.md's proof object that need no root, in the order they are made. */
-    private static MerkleProof fromTree(JsonValue value) {
+    static MerkleProof fromTree(JsonValue value) {
         JsonValue.Obj o = JsonFields.object(value);
         JsonFields.exactly(o, MEMBERS, Set.of());
         List<String> siblings = new ArrayList<>();

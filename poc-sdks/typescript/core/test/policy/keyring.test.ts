@@ -4,9 +4,14 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { encode } from "../../src/encoding/b64url.ts";
-import { canonicalize } from "../../src/encoding/jcs.ts";
+import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import * as core from "../../src/index.ts";
-import { keyringSigningBytes, signKeyring, verifyKeyring, type SignedKeyring } from "../../src/policy/keyring.ts";
+import {
+  keyringSigningBytes, readKeyring, readKeyringFile, signKeyring, verifyKeyring, type SignedKeyring,
+} from "../../src/policy/keyring.ts";
 import { signRoot, verifyRoot } from "../../src/policy/root.ts";
 import { isCurrent } from "../../src/policy/validity.ts";
 
@@ -117,5 +122,76 @@ describe("keyring", () => {
     const k = unwindowed();
     expect(verifyKeyring(k, POLICY.publicKey)).toBe(false);
     expect(isCurrent(k, 0)).toBe(false);
+  });
+});
+
+describe("readKeyringFile", () => {
+  const malformed = (read: () => unknown) => {
+    try {
+      read();
+    } catch (e) {
+      return e as Error;
+    }
+    throw new Error("read");
+  };
+
+  it("a file in any member order and spacing loads", () => {
+    const k = signed();
+    // JSON.stringify's form, members in the object's order with no newline at the end, and Jackson's pretty form
+    const stringified = JSON.stringify(k, null, 2);
+    const pretty = [
+      "{", '  "services" : {', `    "pi" : "${SERVICES.pi}"`, "  },", `  "policy" : "${k.policy}",`,
+      `  "sig" : "${k.sig}",`, `  "notAfter" : ${NOT_AFTER}`, "}",
+    ].join("\n");
+    for (const text of [stringified, pretty, printFile(k)]) {
+      const read = readKeyringFile(utf8(text));
+      expect(read).toEqual(k);
+      expect(verifyKeyring(read, POLICY.publicKey)).toBe(true);
+    }
+  });
+
+  it("a notAfter written with a fraction is malformed", () => {
+    const text = printFile(signed()).replace(`${NOT_AFTER},`, `${NOT_AFTER}.0,`);
+    expect(text).toContain("1798761600000.0");
+    const e = malformed(() => readKeyringFile(utf8(text)));
+    expect(e).toBeInstanceOf(MalformedJson);
+    expect((e as MalformedJson).step).toBe("parse");
+  });
+
+  it("an extra member is malformed", () => {
+    const text = printFile({ ...signed(), note: "not signed" });
+    expect(malformed(() => readKeyringFile(utf8(text))).message).toBe("a member the object does not define");
+  });
+
+  it("a service name that is not a route node is malformed, without the name", () => {
+    for (const name of ["", ".", "..", "a/b", "a\\b", "a|b"]) {
+      const text = printFile({ ...signed(), services: { [name]: SERVICES.pi } });
+      expect(malformed(() => readKeyringFile(utf8(text))).message, name)
+        .toBe("member services holds a name that is not a route node");
+    }
+  });
+
+  it("refuses each member missing or of another type, naming it", () => {
+    const k = signed();
+    for (const name of ["notAfter", "policy", "services", "sig"]) {
+      const { [name as keyof SignedKeyring]: _gone, ...rest } = k;
+      expect(malformed(() => readKeyringFile(utf8(printFile(rest)))).message, name).toBe(`no member ${name}`);
+    }
+    const read = (v: object) => malformed(() => readKeyringFile(utf8(printFile(v as JsonValue)))).message;
+    expect(read({ ...k, sig: 1 })).toBe("member sig is not a string");
+    expect(read({ ...k, services: [] })).toBe("member services is not an object");
+    expect(read({ ...k, services: { pi: 1 } })).toBe("a map value that is not a string");
+    expect(malformed(() => readKeyringFile(utf8(printFile([k])))).message).toBe("not an object");
+  });
+
+  it("readKeyring reads the token of the object keyring.json holds, and no other spelling of it", () => {
+    const k = signed();
+    expect(readKeyring(writeToken(k))).toEqual(k);
+    const e = malformed(() => readKeyring(encode(utf8(printFile(k)))));
+    expect((e as MalformedJson).step).toBe("canonical");
+  });
+
+  it("are exported from the core", () => {
+    for (const name of ["readKeyringFile", "readKeyring"]) expect(name in core, name).toBe(true);
   });
 });

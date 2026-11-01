@@ -4,10 +4,16 @@
 import { describe, expect, it } from "vitest";
 import { decode, encode } from "../../src/encoding/b64url.ts";
 import { generateKeyPair, sha256, sign, utf8 } from "../../src/crypto/crypto.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import * as core from "../../src/index.ts";
 import { signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
 import { signReplyCert, verifyReplyCert } from "../../src/session/reply-cert.ts";
-import { parseSignedRoot, signRenewedRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot } from "../../src/policy/root.ts";
+import {
+  parseSignedRoot, readRoot, readRootFile, signRenewedRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot,
+} from "../../src/policy/root.ts";
 import { earliestNotAfter, isCurrent, readNotAfter } from "../../src/policy/validity.ts";
 
 const POLICY = generateKeyPair();
@@ -179,5 +185,65 @@ describe("earliestNotAfter", () => {
     expect(earliestNotAfter(MAX_SAFE, 0)).toBe(0);
     expect(earliestNotAfter(NOT_AFTER)).toBe(NOT_AFTER);
     expect(core.earliestNotAfter).toBe(earliestNotAfter);
+  });
+});
+
+describe("readRootFile", () => {
+  const malformed = (read: () => unknown) => {
+    try {
+      read();
+    } catch (e) {
+      return e as Error;
+    }
+    throw new Error("read");
+  };
+
+  it("a file in any member order and spacing loads", () => {
+    const r = signed();
+    // JSON.stringify's form, members in the object's order with no newline at the end, and Jackson's pretty form
+    const stringified = JSON.stringify(r, null, 2);
+    const pretty = [
+      "{", '  "rootId" : "v1",', `  "root" : "${r.root}",`, `  "sig" : "${r.sig}",`, `  "notAfter" : ${NOT_AFTER}`, "}",
+    ].join("\n");
+    for (const text of [stringified, pretty, printFile(r)]) {
+      const read = readRootFile(utf8(text));
+      expect(read).toEqual(r);
+      expect(verifyRoot(read, POLICY.publicKey)).toBe(true);
+    }
+  });
+
+  it("a notAfter written with a fraction is malformed", () => {
+    const text = printFile(signed()).replace(`${NOT_AFTER},`, `${NOT_AFTER}.0,`);
+    expect(text).toContain("1798761600000.0");
+    const e = malformed(() => readRootFile(utf8(text)));
+    expect(e).toBeInstanceOf(MalformedJson);
+    expect((e as MalformedJson).step).toBe("parse");
+  });
+
+  it("an extra member is malformed", () => {
+    const text = printFile({ ...signed(), note: "not signed" });
+    expect(malformed(() => readRootFile(utf8(text))).message).toBe("a member the object does not define");
+  });
+
+  it("refuses each member missing or of another type, naming it", () => {
+    const r = signed();
+    for (const name of ["notAfter", "root", "rootId", "sig"]) {
+      const { [name as keyof SignedRoot]: _gone, ...rest } = r;
+      expect(malformed(() => readRootFile(utf8(printFile(rest)))).message, name).toBe(`no member ${name}`);
+    }
+    const read = (v: object) => malformed(() => readRootFile(utf8(printFile(v as JsonValue)))).message;
+    expect(read({ ...r, rootId: 1 })).toBe("member rootId is not a string");
+    expect(read({ ...r, notAfter: "1" })).toBe("member notAfter is not an integer");
+  });
+
+  it("readRoot reads the root's token, and no other spelling of it", () => {
+    const r = signed();
+    expect(readRoot(writeToken(r))).toEqual(r);
+    const e = malformed(() => readRoot(encode(utf8(printFile(r)))));
+    expect((e as MalformedJson).step).toBe("canonical");
+  });
+
+  it("are exported from the core", () => {
+    for (const name of ["readRootFile", "readRoot"]) expect(name in core, name).toBe(true);
   });
 });

@@ -5,6 +5,8 @@ import { posix } from "node:path";
 import { encode } from "../encoding/b64url.ts";
 import { sha256, utf8 } from "../crypto/crypto.ts";
 import { canonicalize } from "../encoding/jcs.ts";
+import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
+import { array, exactly, object } from "../internal/fields.ts";
 
 export type FolderAccess = "read" | "write" | "exec";
 export type FolderRule = {
@@ -56,7 +58,11 @@ function normalPath(p: string): string {
   return posix.normalize(p);
 }
 
-/** Throws unless value is well-formed local rules; returns a clean copy. */
+/**
+ * Throws unless value is well-formed local rules; returns a clean copy. For rules built in code, such as a policy
+ * tool's from its paths file; rules read from bytes are read by readLocalRulesFile or readLocalRules, which also
+ * refuse a member the rules do not define.
+ */
 export function parseLocalRules(value: unknown): LocalRules {
   if (!isObject(value)) {
     throw bad("rules", "must be an object");
@@ -135,6 +141,27 @@ export function parseLocalRules(value: unknown): LocalRules {
     return p;
   });
   return { v: 1, folders, programs };
+}
+
+/** The rules' schema: exactly `v`, `folders` and `programs`, each folder exactly its members; then parseLocalRules. */
+function localRulesOf(value: JsonValue): LocalRules {
+  const o = object(value);
+  exactly(o, ["v", "folders", "programs"]);
+  for (const folder of array(o, "folders")) exactly(object(folder), ["path", "access"], ["label", "destination"]);
+  return parseLocalRules(o);
+}
+
+/**
+ * Reads a rules file in any member order and spacing: MalformedJson for bytes that do not read, an Error naming the
+ * member for rules the schema or parseLocalRules refuses.
+ */
+export function readLocalRulesFile(bytes: Uint8Array): LocalRules {
+  return localRulesOf(readFile(bytes));
+}
+
+/** Reads local rules from their token, by readLocalRulesFile's rules. */
+export function readLocalRules(token: string): LocalRules {
+  return localRulesOf(readToken(token));
 }
 
 /** Hash that pins a rule set: base64url SHA-256 of "local-rules\n" + JCS(rules). */

@@ -3,22 +3,19 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.core.JacksonException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.Json;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -26,7 +23,8 @@ import org.paztport.core.internal.JsonWriter;
  * The on-disk {@code keyring.json}: every service's public key plus the policy public key, each as a base64url
  * X.509 string, and the policy key's signature over both. Public material only. A verifier pins the policy key
  * out of band and trusts the service keys only if {@link #verifies} says the file was signed under that pin, so
- * the keyring no longer vouches for its own policy key. {@code sig} is null for an unsigned file.
+ * the keyring does not vouch for its own policy key. {@code sig} is null only for a keyring built unsigned in
+ * code: a file always carries one.
  *
  * <p>The policy key stays offline, so a keyring it once signed would otherwise vouch for its service keys for
  * ever, a retired or stolen key among them. A keyring therefore carries {@code notAfter} (milliseconds since the
@@ -42,8 +40,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-keyring\n";
-    private static final ObjectMapper READER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final Set<String> MEMBERS = Set.of("notAfter", "policy", "services", "sig");
 
     public KeyringFile {
         services = Map.copyOf(services);
@@ -113,57 +110,41 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with a string
-     * {@code policy}, a {@code services} object whose every value is a string, a string {@code sig} if one is
-     * present (an unsigned file has none), and a {@code notAfter} that is an integer in [0, 2^53 &minus; 1] judged
-     * by value as a reply certificate's is: {@code 1.0e12} is an integer, while a fraction, a string, {@code null}
-     * or no {@code notAfter} at all is refused. Other fields are ignored and unsigned. Jackson's record binding
-     * would truncate {@code 1.5} to 1, which is why this, not binding, is the reader.
+     * Reads a keyring as a file reads, in any member order and spacing. Throws {@link IllegalArgumentException}
+     * unless {@code json} is an object of exactly a string {@code policy}, a string {@code sig}, a {@code services}
+     * object naming each service by a route node, its every value a string, and an integer {@code notAfter}: a
+     * protocol integer by its text, so {@code 1.0e12} and {@code 1798761600000.0} are refused, as is any other
+     * member. The refusal names the member, or is a {@link MalformedJsonException} for text that does not read.
      */
     public static KeyringFile parse(String json) {
         if (json == null) {
             throw new IllegalArgumentException("a keyring must be a JSON object");
         }
-        return fromTree(Json.tree(json));
+        return fromTree(JsonReader.fileText(json));
     }
 
-    private static KeyringFile fromTree(JsonNode node) {
-        if (node == null || !node.isObject()) {
-            throw new IllegalArgumentException("a keyring must be a JSON object");
-        }
-        JsonNode s = node.get("services");
-        if (s == null || !s.isObject()) {
-            throw new IllegalArgumentException("keyring services must be an object");
-        }
-        Map<String, String> services = new LinkedHashMap<>();
-        s.properties().forEach(e -> {
-            if (!e.getValue().isTextual()) {
-                throw new IllegalArgumentException("keyring service keys must be strings");
-            }
-            services.put(e.getKey(), e.getValue().textValue());
-        });
-        String sig = null;
-        if (node.has("sig")) {
-            sig = text(node, "sig");
-        }
-        Long notAfter = JsonIntegers.notAfter(node.get("notAfter"));
-        if (notAfter == null) {
-            throw new IllegalArgumentException("keyring notAfter must be an integer in [0, 2^53 - 1]");
-        }
-        return new KeyringFile(services, text(node, "policy"), sig, notAfter);
-    }
-
-    /** Reads {@code keyring.json}; malformed content throws {@link IllegalArgumentException}. */
+    /**
+     * Reads {@code keyring.json} by {@link #parse}'s rules; malformed content throws
+     * {@link IllegalArgumentException}, and a file that cannot be read {@link UncheckedIOException}.
+     */
     public static KeyringFile load(Path file) {
-        JsonNode node;
-        try {
-            node = READER.readTree(Files.readAllBytes(file));
-        } catch (JacksonException e) {
-            throw new IllegalArgumentException("malformed keyring " + file, e);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
+        return fromTree(JsonReader.file(file));
+    }
+
+    /** The keyring's schema. A service's name is data, checked by the route-node rule rather than named. */
+    private static KeyringFile fromTree(JsonValue value) {
+        JsonValue.Obj o = JsonFields.object(value);
+        JsonFields.exactly(o, MEMBERS, Set.of());
+        Map<String, String> services = JsonFields.stringMap(JsonFields.object(o, "services"));
+        for (String name : services.keySet()) {
+            try {
+                Routes.requireValidNode(name);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("member services holds a name that is not a route node");
+            }
         }
-        return fromTree(node);
+        return new KeyringFile(services, JsonFields.string(o, "policy"), JsonFields.string(o, "sig"),
+                JsonFields.integer(o, "notAfter"));
     }
 
     /**
@@ -194,13 +175,5 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         Map<String, JsonValue> s = new LinkedHashMap<>();
         services.forEach((name, key) -> s.put(name, new JsonValue.Str(key)));
         return new JsonValue.Obj(s);
-    }
-
-    private static String text(JsonNode node, String field) {
-        JsonNode v = node.get(field);
-        if (v == null || !v.isTextual()) {
-            throw new IllegalArgumentException("keyring " + field + " must be a string");
-        }
-        return v.textValue();
     }
 }

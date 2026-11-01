@@ -10,7 +10,6 @@ import java.util.function.Supplier;
 import org.paztport.core.internal.Json;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 
@@ -48,7 +47,8 @@ public final class RecordedSession {
         SignedRoot clientRoot = request == null ? null : request.clientRoot();
         Long serverRoot = window(tree == null ? null : tree.get("serverRoot"), "notAfter");
         Long serverKeyring = window(tree, "serverKeyringNotAfter");
-        this.attested = attestedAt(earliest(0, certNotAfter(tree), clientRoot == null ? null : clientRoot.notAfter(),
+        Long cert = window(tree == null ? null : tree.get("serverReplyCert"), "notAfter");
+        this.attested = attestedAt(earliest(0, cert, clientRoot == null ? null : clientRoot.notAfter(),
                 request == null ? null : request.clientKeyringNotAfter(), serverRoot, serverKeyring));
         boolean entryKeyForm = tree != null && tree.has("serverKeyringSig");
         this.responseNotAfter = earliest(JsonIntegers.MAX_SAFE, serverRoot, entryKeyForm ? serverKeyring : null);
@@ -99,16 +99,6 @@ public final class RecordedSession {
     /** The earliest of {@code windows}, or {@code none} when none of them is set. */
     private static long earliest(long none, Long... windows) {
         return Arrays.stream(windows).filter(Objects::nonNull).mapToLong(Long::longValue).min().orElse(none);
-    }
-
-    /** The certificate's {@code notAfter} when the reply carries one that reads, else null. */
-    private static Long certNotAfter(JsonNode reply) {
-        JsonNode cert = reply == null ? null : reply.get("serverReplyCert");
-        if (cert == null) {
-            return null;
-        }
-        ReplyCert read = readOrNull(() -> ReplyCert.parse(Json.text(cert)));
-        return read == null ? null : read.notAfter();
     }
 
     /** {@code o}'s own {@code field} when it is a valid {@code notAfter}, else null, a limit the record lacks. */

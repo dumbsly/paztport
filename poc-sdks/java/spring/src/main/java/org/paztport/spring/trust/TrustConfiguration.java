@@ -56,8 +56,8 @@ public class TrustConfiguration {
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
     VerifierV3 verifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
-        KeyringFile keyring = KeyringFile.load(Path.of(props.getKeyringPath()));
-        SignedRoot root = SignedRoot.load(Path.of(props.getRootPath()));
+        KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
+        SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
                 System.currentTimeMillis());

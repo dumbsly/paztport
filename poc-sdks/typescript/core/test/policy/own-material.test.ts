@@ -4,7 +4,9 @@
 import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
-import { signKeyring } from "../../src/policy/keyring.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import { readKeyringFile, signKeyring } from "../../src/policy/keyring.ts";
 import {
   checkOwnMaterial,
   describeNotAfter,
@@ -14,7 +16,8 @@ import {
   type OwnMaterial,
 } from "../../src/policy/own-material.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
-import { signReplyCert } from "../../src/session/reply-cert.ts";
+import { readRootFile } from "../../src/policy/root.ts";
+import { readReplyCertFile, signReplyCert } from "../../src/session/reply-cert.ts";
 import { encode } from "../../src/encoding/b64url.ts";
 
 /** Valid until 2100-01-01. */
@@ -84,6 +87,25 @@ describe("checkOwnMaterial", () => {
       { subject: "keyring", kind: "DOES_NOT_VERIFY" },
       { subject: "root", kind: "DOES_NOT_VERIFY" },
     ]);
+  });
+  it("checksMaterialReadFromItsFilesAsItWasSigned", () => {
+    const { m } = material();
+    const ring = { policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig, notAfter: m.keyringNotAfter };
+    // as a policy tool writes each file, and as JSON.stringify(…, null, 2) wrote one before
+    for (const write of [printFile, (v: object) => JSON.stringify(v, null, 2)]) {
+      const read = readKeyringFile(utf8(write(ring)));
+      const fromFiles: OwnMaterial = {
+        policyPublicKey: m.policyPublicKey,
+        keyring: read.services,
+        keyringSig: read.sig,
+        keyringNotAfter: read.notAfter,
+        signedRoot: readRootFile(utf8(write(m.signedRoot))),
+        replyCert: readReplyCertFile(utf8(write(m.replyCert!))),
+      };
+      expect(checkOwnMaterial(fromFiles, Date.now())).toEqual([]);
+    }
+    // a byte order mark, as an editor may save one, does not read
+    expect(() => readKeyringFile(utf8("\ufeff" + printFile(ring)))).toThrow(MalformedJson);
   });
   it("reportsTheSubjectAndKind", () => {
     const { m } = material({ keyring: 5 });

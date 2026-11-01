@@ -4,6 +4,8 @@
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
+import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
+import { exactly, int, object, str } from "../internal/fields.ts";
 import { isNotAfter, readNotAfter } from "./validity.ts";
 
 /** The policy root signed by the policy key; `notAfter` (ms since the epoch, inclusive) is when the owner stops vouching for its routes. */
@@ -39,6 +41,26 @@ export function parseSignedRoot(v: unknown, what: string): SignedRoot {
     throw new TypeError(`${what}.notAfter must be an integer in [0, 2^53 - 1]`);
   }
   return { rootId: o.rootId as string, root: o.root as string, sig: o.sig as string, notAfter };
+}
+
+/** The root's schema: exactly `notAfter`, `root`, `rootId` and `sig`. */
+function rootOf(value: JsonValue): SignedRoot {
+  const o = object(value);
+  exactly(o, ["notAfter", "root", "rootId", "sig"]);
+  return { rootId: str(o, "rootId"), root: str(o, "root"), sig: str(o, "sig"), notAfter: int(o, "notAfter") };
+}
+
+/**
+ * Reads `root.json` in any member order and spacing: MalformedJson for bytes that do not read, an Error naming the
+ * member for a root the schema refuses. Checks no signature.
+ */
+export function readRootFile(bytes: Uint8Array): SignedRoot {
+  return rootOf(readFile(bytes));
+}
+
+/** Reads a root from its token, by readRootFile's schema. */
+export function readRoot(token: string): SignedRoot {
+  return rootOf(readToken(token));
 }
 
 /** The same root text and rootId signed again until `notAfter`, naming exactly the tree `sr` did; the caller must still allow every route in it, as a narrowed policy needs a new tree, not a renewal. */

@@ -2,7 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { NEVER_PROGRAMS, isNeverProgram, RULES_ROUTE_PREFIX, parseLocalRules, rulesHash } from "../../src/policy/local-rules.ts";
+import { utf8 } from "../../src/crypto/crypto.ts";
+import { encode } from "../../src/encoding/b64url.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import { printFile } from "../../src/encoding/json-file.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
+import * as core from "../../src/index.ts";
+import {
+  NEVER_PROGRAMS, isNeverProgram, RULES_ROUTE_PREFIX, parseLocalRules, readLocalRules, readLocalRulesFile, rulesHash,
+} from "../../src/policy/local-rules.ts";
 
 const demo = () => ({
   v: 1,
@@ -120,5 +129,45 @@ describe("isNeverProgram", () => {
     const ok = demo();
     ok.programs.push("env2x");
     expect(() => parseLocalRules(ok)).not.toThrow();
+  });
+});
+
+describe("readLocalRulesFile", () => {
+  const file = (v: unknown) => utf8(printFile(v as JsonValue));
+
+  it("reads the rules in any member order and spacing, as parseLocalRules reads them", () => {
+    for (const text of [JSON.stringify(demo(), null, 2), printFile(demo() as JsonValue)]) {
+      const read = readLocalRulesFile(utf8(text));
+      expect(read).toEqual(parseLocalRules(demo()));
+      expect(rulesHash(read)).toBe(rulesHash(parseLocalRules(demo())));
+    }
+  });
+
+  it("refuses a member the rules or a folder do not define", () => {
+    expect(() => readLocalRulesFile(file({ ...demo(), note: "x" }))).toThrow("a member the object does not define");
+    const folder = demo();
+    (folder.folders[0] as Record<string, unknown>).owner = "alice";
+    expect(() => readLocalRulesFile(file(folder))).toThrow("a member the object does not define");
+  });
+
+  it("refuses what parseLocalRules refuses", () => {
+    expect(() => readLocalRulesFile(file({ ...demo(), v: 2 }))).toThrow("invalid local rules: v: must be 1");
+    expect(() => readLocalRulesFile(file({ ...demo(), programs: ["bash"] }))).toThrow(/invalid local rules/);
+  });
+
+  it("refuses bytes that do not read", () => {
+    const text = printFile(demo() as JsonValue).replace('"v": 1', '"v": 1.0');
+    expect(() => readLocalRulesFile(utf8(text))).toThrow(MalformedJson);
+  });
+
+  it("readLocalRules reads the rules' token, and no other spelling of them", () => {
+    expect(readLocalRules(writeToken(demo() as JsonValue))).toEqual(parseLocalRules(demo()));
+    expect(() => readLocalRules(encode(file(demo())))).toThrow(MalformedJson);
+  });
+
+  it("are exported from the core", () => {
+    for (const name of ["readLocalRulesFile", "readLocalRules", "parseLocalRules"]) {
+      expect(name in core, name).toBe(true);
+    }
   });
 });

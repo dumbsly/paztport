@@ -3,22 +3,20 @@
 
 package org.paztport.core.session;
 
-import com.fasterxml.jackson.core.JacksonException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PrivateKey;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.internal.Json;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -29,9 +27,9 @@ import org.paztport.core.internal.JsonWriter;
  * signed could otherwise sign accepted replies forever. A certificate expires instead: retiring a key means not
  * reissuing its certificate, and the lifetime is the revocation delay.
  *
- * <p>The signature covers {@code utf8("paztport-reply-cert\n") || JCS({key, notAfter, policy, svc})}; any other
- * field on the wire is ignored and unsigned. {@code notAfter} is an integer in [0, 2^53 &minus; 1], the range both
- * SDKs print the same way, judged by value.
+ * <p>The signature covers {@code utf8("paztport-reply-cert\n") || JCS({key, notAfter, policy, svc})}, and a
+ * certificate has no other member but {@code sig}. {@code notAfter} is an integer in [0, 2^53 &minus; 1], the range
+ * both SDKs print the same way.
  *
  * <p>What the signer must have verified: the policy owner issues a certificate only after checking that
  * {@code key} is {@code svc}'s key in its current keyring, signed by the same policy key.
@@ -42,8 +40,7 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-reply-cert\n";
-    private static final ObjectMapper READER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final Set<String> MEMBERS = Set.of("key", "notAfter", "policy", "sig", "svc");
 
     /**
      * Signs a certificate for {@code svc}'s {@code key} under the policy key. The caller must already have checked
@@ -116,20 +113,40 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     }
 
     /**
-     * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with string
-     * {@code policy}, {@code svc}, {@code key} and {@code sig} and an in-range integer {@code notAfter}.
-     * {@code notAfter} is checked by value, so {@code 1.0} and {@code 1e3} are the integers 1 and 1000 and a reply
-     * gets the verdict the TypeScript SDK gives it; a string or a fraction is refused. The signature covers the plain
-     * digits of that value. Other fields are ignored.
+     * Reads a certificate as a file reads, in any member order and spacing. Throws {@link IllegalArgumentException}
+     * unless {@code json} is an object of exactly string {@code policy}, {@code svc}, {@code key} and {@code sig}
+     * and an integer {@code notAfter}: a protocol integer by its text, so {@code 1.0} and {@code 1e3} are refused,
+     * as is any other member. The refusal names the member, or is a {@link MalformedJsonException} for text that
+     * does not read.
      */
     public static ReplyCert parse(String json) {
         if (json == null) {
             throw new IllegalArgumentException("a reply certificate must be a JSON object");
         }
-        return fromTree(Json.tree(json));
+        return fromTree(JsonReader.fileText(json));
     }
 
-    /** {@link #parse}'s rules over a tree already read, as the certificate inside a session reply is. */
+    /**
+     * Reads {@code reply-cert.json} by {@link #parse}'s rules; malformed content throws
+     * {@link IllegalArgumentException}, and a file that cannot be read {@link UncheckedIOException}.
+     */
+    public static ReplyCert load(Path file) {
+        return fromTree(JsonReader.file(file));
+    }
+
+    /** The certificate's schema. */
+    private static ReplyCert fromTree(JsonValue value) {
+        JsonValue.Obj o = JsonFields.object(value);
+        JsonFields.exactly(o, MEMBERS, Set.of());
+        return new ReplyCert(JsonFields.string(o, "policy"), JsonFields.string(o, "svc"), JsonFields.string(o, "key"),
+                JsonFields.integer(o, "notAfter"), JsonFields.string(o, "sig"));
+    }
+
+    /**
+     * The certificate inside a session reply, read from a Jackson tree: string {@code policy}, {@code svc},
+     * {@code key} and {@code sig}, and a {@code notAfter} judged by value, so {@code 1.0} and {@code 1e3} are the
+     * integers 1 and 1000; other members are ignored. Throws {@link IllegalArgumentException} otherwise.
+     */
     static ReplyCert fromTree(JsonNode node) {
         if (node == null || !node.isObject()) {
             throw new IllegalArgumentException("a reply certificate must be a JSON object");
@@ -140,19 +157,6 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         }
         return new ReplyCert(text(node, "policy"), text(node, "svc"), text(node, "key"), notAfter,
                 text(node, "sig"));
-    }
-
-    /** Reads {@code reply-cert.json}; malformed content throws {@link IllegalArgumentException}. */
-    public static ReplyCert load(Path file) {
-        JsonNode node;
-        try {
-            node = READER.readTree(Files.readAllBytes(file));
-        } catch (JacksonException e) {
-            throw new IllegalArgumentException("malformed reply certificate " + file, e);
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        }
-        return fromTree(node);
     }
 
     private static String text(JsonNode node, String field) {

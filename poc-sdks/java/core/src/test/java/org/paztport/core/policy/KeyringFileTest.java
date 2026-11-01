@@ -11,7 +11,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -21,6 +20,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.encoding.MalformedJsonException.Step;
 
 class KeyringFileTest {
 
@@ -77,12 +78,14 @@ class KeyringFileTest {
     }
 
     @Test
-    void jsonWithAndWithoutSigRoundTrips() {
+    void aSignedKeyringRoundTripsAndAFileWithoutASigIsRefused() {
         KeyringFile f = signed();
         assertEquals(f, KeyringFile.parse(f.toJson()));
-        KeyringFile bare = KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}");
+        KeyringFile bare = new KeyringFile(Map.of(), "p", null, 1);
         assertNull(bare.sig());
         assertEquals("{\"notAfter\":1,\"policy\":\"p\",\"services\":{}}", bare.toJson());
+        assertEquals("no member sig",
+                assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(bare.toJson())).getMessage());
     }
 
     @Test
@@ -111,8 +114,6 @@ class KeyringFileTest {
         KeyringFile parsed = KeyringFile.parse(f.toJson());
         assertEquals(f, parsed);
         assertTrue(parsed.verifies(pub(POLICY)));
-        // The readers that still bind the record keep the window.
-        assertEquals(f, JSON.readValue(JSON.writeValueAsBytes(f), KeyringFile.class));
     }
 
     @Test
@@ -155,16 +156,15 @@ class KeyringFileTest {
     }
 
     @Test
-    void notAfterByValue() throws Exception {
+    void notAfterIsAProtocolInteger() throws Exception {
         KeyringFile f = signedRing();
         String head = "{\"services\":" + JSON.writeValueAsString(SERVICES) + ",\"policy\":\"" + f.policy()
                 + "\",\"sig\":\"" + f.sig() + "\",\"notAfter\":";
-        assertEquals(1_000_000_000_000L, KeyringFile.parse(head + "1.0e12}").notAfter());
         assertEquals(MAX_SAFE, KeyringFile.parse(head + MAX_SAFE + "}").notAfter());
         assertEquals(0L, KeyringFile.parse(head + "0}").notAfter());
-        assertTrue(KeyringFile.parse(head + "1798761600000.0}").verifies(pub(POLICY)));
-        for (String bad : new String[] {"1.5", "-1", String.valueOf(MAX_SAFE + 1), "\"1798761600000\"", "null",
-                "true", "{}", "[]"}) {
+        assertTrue(KeyringFile.parse(head + NOT_AFTER + "}").verifies(pub(POLICY)));
+        for (String bad : new String[] {"1.0e12", "1798761600000.0", "1.5", "-1", String.valueOf(MAX_SAFE + 1),
+                "\"1798761600000\"", "null", "true", "{}", "[]"}) {
             assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(head + bad + "}"), bad);
         }
     }
@@ -180,12 +180,18 @@ class KeyringFileTest {
                 () -> KeyringFile.parse("{\"services\":[],\"policy\":\"p\"}"));
         assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse("{\"services\":{}}"));
         assertThrows(IllegalArgumentException.class,
-                () -> KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"sig\":7}"));
-        // An unsigned file has no sig; an unsigned field is ignored.
-        assertNull(KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"notAfter\":1}").sig());
-        ObjectNode extra = JSON.valueToTree(signedRing());
-        extra.put("note", "unsigned");
-        assertTrue(KeyringFile.parse(extra.toString()).verifies(pub(POLICY)));
+                () -> KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"sig\":7,\"notAfter\":1}"));
+    }
+
+    /** A service's name is data, checked by the route-node rule, and the refusal does not repeat it. */
+    @Test
+    void aServiceNameThatIsNotARouteNodeIsMalformed() {
+        for (String name : new String[] {"", ".", "..", "a/b", "a\\b", "a|b"}) {
+            String text = KeyringFile.sign(Map.of(name, SERVICES.get("pi")), pub(POLICY), NOT_AFTER,
+                    POLICY.getPrivate()).toFile();
+            assertEquals("member services holds a name that is not a route node",
+                    assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text), name).getMessage());
+        }
     }
 
     @Test
@@ -212,11 +218,49 @@ class KeyringFileTest {
                 ("paztport-keyring\n" + body).getBytes(StandardCharsets.UTF_8)));
         String text = body.substring(0, body.length() - 1) + ",\"sig\":\"" + sig + "\"}";
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text));
-        assertEquals("keyring notAfter must be an integer in [0, 2^53 - 1]", e.getMessage());
+        assertEquals("no member notAfter", e.getMessage());
         Path file = dir.resolve("keyring.json");
         Files.writeString(file, text);
         e = assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(file));
-        assertEquals("keyring notAfter must be an integer in [0, 2^53 - 1]", e.getMessage());
+        assertEquals("no member notAfter", e.getMessage());
+    }
+
+    /**
+     * A file is read in any member order and spacing: here as Jackson's pretty printer writes one, members in the
+     * record's order, {@code " : "} between a name and its value, and no newline at the end.
+     */
+    @Test
+    void aFileInAnyMemberOrderAndSpacingLoads(@TempDir Path dir) throws Exception {
+        KeyringFile f = signedRing();
+        String text = "{\n  \"services\" : {\n    \"pi\" : \"" + SERVICES.get("pi") + "\"\n  },\n  \"policy\" : \""
+                + f.policy() + "\",\n  \"sig\" : \"" + f.sig() + "\",\n  \"notAfter\" : " + NOT_AFTER + "\n}";
+        Path file = dir.resolve("keyring.json");
+        Files.writeString(file, text);
+        assertEquals(f, KeyringFile.load(file));
+        assertEquals(f, KeyringFile.parse(text));
+    }
+
+    /** A {@code notAfter} is a protocol integer by its text: {@code 1798761600000.0} does not read, though equal. */
+    @Test
+    void aNotAfterWrittenWithAFractionIsMalformed(@TempDir Path dir) throws Exception {
+        String text = signedRing().toFile().replace(NOT_AFTER + ",", NOT_AFTER + ".0,");
+        assertTrue(text.contains("1798761600000.0"), text);
+        Path file = dir.resolve("keyring.json");
+        Files.writeString(file, text);
+        assertEquals(Step.PARSE, assertThrows(MalformedJsonException.class, () -> KeyringFile.load(file)).step());
+        assertEquals(Step.PARSE, assertThrows(MalformedJsonException.class, () -> KeyringFile.parse(text)).step());
+    }
+
+    /** A member the keyring does not define is refused, not ignored. */
+    @Test
+    void anExtraMemberIsMalformed(@TempDir Path dir) throws Exception {
+        String text = signedRing().toFile().replace("{\n", "{\n  \"note\": \"not signed\",\n");
+        Path file = dir.resolve("keyring.json");
+        Files.writeString(file, text);
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> KeyringFile.load(file)).getMessage());
+        assertEquals("a member the object does not define",
+                assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text)).getMessage());
     }
 
     @Test
