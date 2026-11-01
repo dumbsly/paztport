@@ -45,7 +45,7 @@ export function nodeAtLeast(version: string, floor: string): boolean {
 }
 
 /** Files setup-demo writes that only have to exist; when one is missing the keys are made again. */
-const KEY_FILES = ["client/server-policy.pub", "client/local-tools/rules.json"];
+const KEY_FILES = ["client/server-policy.pub", "client/local-tools/rules.json", "server/client-policy.pub"];
 
 /** Files setup-demo writes that carry a `notAfter`, each with its SDK reader: keyrings, roots, reply certificate. */
 const WINDOWED_FILES: readonly (readonly [string, (bytes: Uint8Array) => { notAfter: number }])[] = [
