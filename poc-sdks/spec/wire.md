@@ -23,7 +23,7 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
 | Signatures | Ed25519 (RFC 8032), pure, with no pre-hash and no context. A signature is 64 bytes. Verifiers SHOULD apply RFC 8032 §5.1.7 in full, including the check that S is below the group order. |
-| Integers | `ts` is an integer number of milliseconds since the Unix epoch. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
+| Integers | `ts` is a number of milliseconds since the Unix epoch, a [protocol integer](#the-grammar): an integer in [0, 2^53 − 1], decided from its text. In signed bytes it is written in decimal, with no leading zeros, no `+` and no exponent. |
 
 `b64url(x)` is the base64url text of `x`, and `utf8(s)` the UTF-8 bytes of `s`. `‖` is byte concatenation,
 and `\n` is the single byte `0x0A`.
@@ -69,6 +69,9 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | Object | Read by | Refusal |
 |---|---|---|
 | An event's envelope; the event | The responder ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_ENVELOPE`; `MALFORMED_EVENT` |
+| A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
+| A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
+| An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
 
 ### The grammar
 
@@ -194,8 +197,8 @@ relies on it MUST check both.
 
 ## Stamps
 
-A stamp is a JSON object. Field order in the JSON is not significant; encoders SHOULD write the fields in the
-order shown.
+A stamp is a JSON object. It travels inside its chain's JCS bytes ([Chains](#chains)), so its members are in JCS
+order, whatever order they are shown in here.
 
 ### Fields and signed bytes
 
@@ -210,7 +213,7 @@ order shown.
 | `svc` | string | The signing service. The verifier looks its key up by this name, and rebuilds the route from it. |
 | `inst` | string | The signer's instance, as the signer reports it. Signed, but only the signer vouches for it. |
 | `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. |
-| `ts` | integer | When this stamp was signed, in ms since the Unix epoch. |
+| `ts` | integer | When this stamp was signed, in ms since the Unix epoch: a protocol integer. |
 | `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
 | `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. See [Receivers](#receivers). |
 | `bind` | string | The binding of what this hop sent. See [Bindings](#bindings). |
@@ -236,21 +239,23 @@ that does, with the code in brackets.
 
 - The chain is a non-empty JSON array of objects (`CHAIN_MISSING`).
 - `v` is exactly `3` (`CHAIN_MISSING`).
-- `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1 (`CHAIN_MISSING`), so
-  every implementation reads and prints it the same way. It is checked by value: `1.0` and `1e3` are the
-  integers 1 and 1000.
+- `ts` is a [protocol integer](#the-grammar) in [0, 2^53 − 1], by text (`CHAIN_MISSING`), so every
+  implementation reads and prints it the same way: `1.0`, `1e3` and `-1` are not protocol integers.
 - Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `infl`, `prev`, `sig`) is a JSON
-  string (`CHAIN_MISSING`) with no lone surrogate (`CHAIN_MISSING`).
+  string (`CHAIN_MISSING`) with no lone surrogate or noncharacter, which no reader reads
+  ([the grammar](#the-grammar)) (`CHAIN_MISSING`).
 - `sig` is canonical base64url, as [Encodings](#encodings) requires of every decoded value (`CHAIN_MISSING`).
 - No signed field holds `|` (`BAD_SIGNATURE`). The fields are joined with `|`, so a field holding it would let
   two different stamps share signed bytes.
 - A stamp without `rcv` does not parse (`CHAIN_MISSING`).
 
-Unknown fields are ignored; they are not signed.
+A stamp with any other member does not parse (`CHAIN_MISSING`).
 
 ## Chains
 
-A chain is an array of stamps, **origin first**.
+A chain is an array of stamps, **origin first**. It travels as its JCS bytes and is read as
+[wire bytes](#reading): a non-empty array whose every element is a stamp with exactly the members in
+[Fields and signed bytes](#fields-and-signed-bytes), each of its type ([Stamp field rules](#stamp-field-rules)).
 
 - **Origin.** The first stamp has `prev = ""`. Its `svc` MUST be one of the verifier's allowed origins: only an
   entry point holds an origin key, so an inner service can't start a chain.
@@ -417,8 +422,9 @@ from a cryptographic random source, never in policy order.
 the left input at level *i*, and `R` when it is the right. A verifier checks a proof for `route` against the
 pinned `root` and `rootId` like this, and any failure is "not proven":
 
-1. The proof is an object whose `leafSalt`, `dirs` and `rootId` are strings and whose `siblings` is an array
-   of strings; `dirs` matches `^[LR]*$` and has as many characters as `siblings` has entries.
+1. The proof is read from its JCS bytes as [wire bytes](#reading), and is an object with exactly the four members
+   shown: `leafSalt`, `dirs` and `rootId` strings and `siblings` an array of strings; `dirs` matches `^[LR]*$` and
+   has as many characters as `siblings` has entries.
 2. `rootId` equals the pinned root's `rootId`.
 3. `leafSalt` decodes to exactly 16 bytes, and each sibling to exactly 32.
 4. Starting from `w = H(0x00 ‖ salt ‖ utf8(route))`, for each level *i*: `w = H(0x01 ‖ w ‖ sibling[i])` when

@@ -46,7 +46,7 @@ disagree.
 | # | Check | Fails with |
 |---|---|---|
 | 0 | `now` is at most `policyNotAfter`. A missing `policyNotAfter`, or one that is not an integer in [0, 2<sup>53</sup> − 1], fails. A non-finite `now` is left to check 7. | `POLICY_EXPIRED` |
-| 1 | The stamps parse: a non-empty array of well-formed v3 stamps ([field rules](wire.md#stamp-field-rules)). A stamp whose `v` is not 3 does not parse. | `CHAIN_MISSING` |
+| 1 | The chain reads from its bytes ([wire.md](wire.md#chains)): the JCS bytes of a non-empty array of v3 stamps, each with exactly a stamp's members ([field rules](wire.md#stamp-field-rules)). A stamp whose `v` is not 3, or that has any other member, does not read. | `CHAIN_MISSING` |
 | 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
 | 4 | For each stamp in order: its `svc` has a key in `keyring` and its signature verifies under it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |

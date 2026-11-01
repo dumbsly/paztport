@@ -71,6 +71,13 @@ reader refuses either, and its signature is never consulted. `current`, when pre
 each `at`. The file writes one `keyring` and one `root` case's `notAfter` as `1798761600000.0`, which a reader must
 read by value as the integer its signature is over, so a replay must read the file's own text.
 
+A case carries an object it says was received as a token, beside the object's readable value, and a replay reads
+only the token. Each `verify` and `offline` case, each call of a `recordedCall` case and each `recordedLocalStep`
+case's `step` carries `chainToken` beside `chain` and `influenceToken` beside `influence`, and each policy carries
+its proofs' tokens once, as `proofTokens.<route>` beside `proofs`, for every case that names the route. A token is
+the base64url of its value's JCS bytes, except in the `verify` case "stamp ts of -2^63", whose chain token spells
+the `ts` exactly as the readable chain does, a number JCS cannot write.
+
 The three record sections read a record set as [verification.md](verification.md#offline-verification) does, from
 the spec's objects and times, never from any implementation's record format:
 

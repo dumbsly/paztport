@@ -354,7 +354,7 @@ every entry until the session is cleared.
 
 ## Entries
 
-An influence entry is a JSON object:
+An influence entry is a JSON object with exactly these members:
 
 | Field | Required | Rule |
 |---|---|---|
@@ -364,11 +364,11 @@ An influence entry is a JSON object:
 | `cid` | no | A string: the content id from the label the entry came from. |
 | `owner` | no | A **non-empty** string: an opaque id of whose data this is. |
 
-A list of entries MUST be rejected when it is not an array, or any entry is not an object, has an unknown
-`cls`, a `src` or `h` that is not a string, a `cid` that is not a string, an `owner` that is not a non-empty
-string, or a lone surrogate in any string. A verifier reports that as `INFLUENCE_MISMATCH`. An empty `owner` is
-rejected, not read as "no owner", so it can never be taken for a known one. Other fields are dropped; they are
-not committed to.
+A list of entries travels as its JCS bytes and is read as [wire bytes](wire.md#reading). It MUST be rejected when
+it is not an array, or any entry is not an object, has a member the table does not name, has an unknown `cls`, a
+`src` or `h` that is not a string, a `cid` that is not a string, or an `owner` that is not a non-empty string. A
+verifier reports that, and bytes that do not read, as `INFLUENCE_MISMATCH`. An empty `owner` is rejected, not read
+as "no owner", so it can never be taken for a known one.
 
 ## Normalisation and commitment
 
