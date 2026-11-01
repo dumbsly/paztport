@@ -154,7 +154,7 @@ class MerkleTreeTest {
 
     @Test
     void dirsOtherThanLAndRDoNotVerify() {
-        // Previously any non-'L' character was read as 'R'.
+        // X where the proof has R: a verify that read every character other than L as R would accept it.
         MerkleTree tree = MerkleTree.build(saltedLeaves(), DEPTH, "v1");
         MerkleProof proof = tree.proofFor("gateway/search"); // index 2: dirs start "R"
         String dirs = "X" + proof.dirs().substring(1);

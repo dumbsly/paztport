@@ -74,11 +74,11 @@ import org.springframework.web.client.RestClient;
  * What the partner does as time passes, through the real container under mutual TLS, with a clock the test moves:
  * the partner's sessions are built as the auto-configuration builds them, by the package's factory, given that
  * clock in place of the system clock, and the filter, gate and handshake endpoint are the auto-configuration's own.
- * Its own root and keyring last three days; the shop's last one day or a
- * month, as each test needs. A handshake judged after the shop's material has lapsed, or from material in the old
- * form, opens an unsafe session; a session attested while it was current is refused {@code POLICY_EXPIRED} once the
- * earlier of its client's two windows has passed; and when the partner's own material lapses it carries on, opening
- * only unsafe sessions, and says so once.
+ * Its own root and keyring last three days; the shop's last one day or a month, as each test needs. A handshake
+ * judged after the shop's material has lapsed opens an unsafe session, and one whose material has no {@code notAfter}
+ * is answered {@code 400 INVALID_PARAMS}; a session attested while it was current is refused {@code POLICY_EXPIRED}
+ * once the earlier of its client's two windows has passed; and when the partner's own material lapses it carries on,
+ * opening only unsafe sessions, and says so once.
  */
 @SpringBootTest(classes = PartnerLifetimeTest.App.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
         properties = {

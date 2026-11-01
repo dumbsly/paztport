@@ -479,7 +479,7 @@ class BoundaryClientTest {
         return egress(partner, tls()).build();
     }
 
-    // A partner signs with its entry key under a certificate, or, as before certificates, with its policy key.
+    // A partner signs with its entry key under a certificate, or with its policy key: the two reply forms.
     @Test
     void acceptsBothReplyForms() throws Exception {
         assertTrue(verified("rid-1", this::charge).attested());

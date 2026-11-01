@@ -64,8 +64,8 @@ describe("demo launcher", () => {
     expect(nodeAtLeast("21.9.0", "22.19")).toBe(false);
   });
 
-  it("demo keys made before the local-tools policy existed are not complete", () => {
-    // keys from an earlier version lack client/local-tools, and the extension then refuses to start
+  it("demo keys without the local-tools policy are not complete", () => {
+    // a local-tools run points the extension at client/local-tools, and the extension refuses to start without it
     const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
     try {
       for (const f of ["client/root.json", "client/server-policy.pub", "server/root.json", "client/keyring.json", "server/keyring.json"]) {
@@ -84,7 +84,7 @@ describe("demo launcher", () => {
   });
 
   it("demo keys without a reply certificate current for a day are not complete", () => {
-    // the mock server refuses to start without one, so keys from an earlier version, or a month old, are made again;
+    // the mock server refuses to start without a current one, so keys with none, or a month old, are made again;
     // and evidence saved near notAfter would fail verify later, so a day short of it they are made again too
     const dir = mkdtempSync(join(tmpdir(), "demo-keys-"));
     try {

@@ -257,7 +257,7 @@ class HttpCallerTest {
         assertEquals("orders", caller.receiver(URI.create("https://ORDERS-internal:8443/x")));
         assertEquals("orders", caller.receiver(URI.create("https://orders-internal/x")));
         assertEquals("Search", caller.receiver(URI.create("https://Search/x")), "an unlisted host, as written");
-        assertNull(caller.receiver(URI.create("file:/x")), "no host, no name, as before");
+        assertNull(caller.receiver(URI.create("file:/x")), "no host, no name");
     }
 
     // The policy name is the response's target too: the nonce key, the service that must attest, and the src.

@@ -320,7 +320,7 @@ class MutualTlsTest {
     /**
      * The starter's client keeps its connections: one client's sequential calls share a pooled connection, rather
      * than each opening a fresh mutual-TLS connection that the server then holds open until its keep-alive runs
-     * out, which once let a busy mesh reach the server's connection limit and freeze. A TCP connection is the
+     * out, which under load fills the server's connection limit and freezes the mesh. A TCP connection is the
      * client's address and port, and no port is reused while its connection is open, so the distinct ports the
      * server saw count the connections; a client that never reuses one leaves all of them open, one per call.
      */

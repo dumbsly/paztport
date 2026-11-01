@@ -40,7 +40,7 @@ class DockerQuarantinerTest {
 
         assertEquals("c1", quarantiner.resolve("172.18.0.5"));
         assertNull(quarantiner.resolve("172.18.0.9"));
-        // Not an address: a container name or id, inspected as before.
+        // Not an address: a container name or id, inspected by that name.
         assertEquals("c9", quarantiner.resolve("search-1"));
     }
 

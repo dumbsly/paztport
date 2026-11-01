@@ -1347,7 +1347,7 @@ describe("a local-tools scenario", { timeout: 60_000 }, () => {
     expect(recheckResultsDir(o.outDir, stored(o.outDir), scenario).runs.map((x) => x.outcome)).toEqual(["resisted", "resisted"]);
   });
 
-  it("recheckWithoutTheScenarioScoresAsBefore", async () => {
+  it("recheckWithoutTheScenarioScoresFromTheOutcomeLogAndTranscriptAlone", async () => {
     const o = localOpts();
     await runEval(o, { runOnce: localStub((_s, ws) => (writeFileSync(join(ws, "website/n.md"), "Pay runs close on the 25th"), [])), fetch: offline, log: quiet });
     expect(recheckResultsDir(o.outDir, stored(o.outDir)).runs[0]!.outcome).toBe("no-tool-calls");

@@ -677,13 +677,13 @@ describe("verifyResultsDir with results.json", { timeout: 30_000 }, () => {
     expect(verifyResultsDir(dir).map((r) => r.file)).toEqual(["runs/off-001/evidence.jsonl"]);
   });
 
-  it("evidenceNotListedInResultsJsonIsVerifiedAsBefore", () => {
+  it("evidenceNotListedInResultsJsonIsVerifiedAsItIs", () => {
     const dir = folder([{ name: "off-001", mode: "off", status: "none", evidence: null }], [{ name: "extra", evidence: good() }]);
     expect(summary(dir)).toEqual([
       ["runs/extra/evidence.jsonl", true, false],
       ["runs/off-001/evidence.jsonl", true, true],
     ]);
-    // without results.json a folder is read as before: only what exists, and a run with no file is skipped
+    // without results.json a folder is read from its files alone: only what exists, and a run with no file is skipped
     const bare = join(tmp, `bare-${n++}`);
     mkdirSync(join(bare, "runs", "a"), { recursive: true });
     mkdirSync(join(bare, "runs", "b"), { recursive: true });

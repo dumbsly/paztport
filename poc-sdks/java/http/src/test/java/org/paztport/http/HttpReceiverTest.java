@@ -476,14 +476,14 @@ class HttpReceiverTest {
     /**
      * {@code OFF} on a verifier is the operator turning Paztport off on that hop: nothing is checked, so nothing is
      * vouched for, even for a chain that would verify. What the handler is given is unchanged, so its own calls are
-     * stamped as before.
+     * stamped as in any other mode.
      */
     @Test
     void aVerifierSwitchedOffVerifiesNothingAndAttestsNothing() {
         Accepted accepted = attesting(paymentVerifier()).accept(
                 paymentRequest(headers("rid-1", "/pay", List.of(WEB)), TO_PAYMENT), null, VerificationMode.OFF);
 
-        assertNull(accepted.refusal(), "served as before");
+        assertNull(accepted.refusal(), "served");
         assertFalse(accepted.attests(), "a chain that would verify, but nothing checked it");
         assertNull(accepted.attest(201, PAID, alicesData()));
         assertNull(accepted.verifiedChain());
@@ -563,7 +563,7 @@ class HttpReceiverTest {
                 "PAZTPORT_TRACE request rid=rid-1 reason=OK receiver=payment ✓ peer=none classes=third-party",
                 "PAZTPORT_TRACE request rid=rid-2 reason=OK receiver=payment ✓ peer=none classes=third-party"),
                 traceLines(), "checked once each, for attestation alone");
-        assertEquals(List.of(WEB), second.influence(), "the influence is carried as before");
+        assertEquals(List.of(WEB), second.influence(), "the influence is still carried");
         assertEquals(2, second.inbound().size());
     }
 

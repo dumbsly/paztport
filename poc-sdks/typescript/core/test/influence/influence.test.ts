@@ -49,7 +49,7 @@ describe("influence", () => {
     const z = { ...x, owner: "alice" };
     expect(normalizeInfluence([y, x, z])).toEqual([x, z, y]);
   });
-  it("an entry with an owner commits differently; entries without one commit as before", () => {
+  it("an entry with an owner commits differently from the same entry without one", () => {
     const e = [{ cls: "private", src: "s", h: "h" }] as InfluenceEntry[];
     expect(commitInfluence(e)).not.toBe(commitInfluence([{ ...e[0]!, owner: "alice" }]));
   });

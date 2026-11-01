@@ -195,7 +195,7 @@ describe("loadClientMaterial", () => {
   });
 
   it("anUnsignedKeyringNamesTheFix", () => {
-    // a keyring.json from before keyrings were signed
+    // a keyring.json with no sig
     const dir = copy();
     const { sig: _sig, ...ring } = json(join(dir, "keyring.json"));
     writeFileSync(join(dir, "keyring.json"), JSON.stringify(ring));

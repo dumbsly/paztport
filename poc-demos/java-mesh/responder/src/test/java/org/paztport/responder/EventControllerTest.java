@@ -59,8 +59,8 @@ class EventControllerTest {
     }
 
     /**
-     * An event the payment key signed but with no {@code reason} once reached the decider as a null reason, and
-     * its deny-list lookup threw. The verifier now refuses it as malformed, so it is a 403 that decides nothing.
+     * An event the payment key signed but with no {@code reason} is malformed: the verifier refuses it, so it is a 403
+     * that decides nothing and never reaches the decider.
      */
     @Test
     void aSignedEventWithNoReasonIsRefusedBeforeTheDecider() throws Exception {

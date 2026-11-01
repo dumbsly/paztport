@@ -208,7 +208,6 @@ class VectorsHttpV3Export {
         responses.add(responseCase("replayed response", sent, okHeader, 200, RESPONSE_BODY, 2,
                 ReasonCode.REPLAY, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
-        // Placed before boundaryInfluence, so the cases recorded earlier keep their bytes, their last line included.
         out.set("rules", VectorsHttpRules.build(out, v3));
 
         out.set("boundaryInfluence", boundaryInfluence());
