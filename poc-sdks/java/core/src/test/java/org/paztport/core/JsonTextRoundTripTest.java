@@ -45,6 +45,7 @@ class JsonTextRoundTripTest {
 
     /** The objects the readers refuse, by case. */
     private static final Set<String> REFUSED = Set.of(
+            "keyring/a keyring name that is not a route node",
             "keyring/no notAfter",
             "keyring/notAfter 2^53",
             "keyring/notAfter not an integer",
@@ -54,6 +55,7 @@ class JsonTextRoundTripTest {
             "root/notAfter 2^53",
             "root/notAfter not an integer",
             // The whole replies refused are exactly the vectors' MALFORMED_REPLY cases.
+            "sessionReply/a keyring name that is not a route node/reply",
             "sessionReply/a member the reply does not have/reply",
             "sessionReply/notAfter not an integer/reply",
             "sessionReply/server root notAfter dropped/reply",
@@ -76,8 +78,8 @@ class JsonTextRoundTripTest {
     private static final Set<String> NORMALISED = Set.of();
 
     /** How many distinct objects of each kind are checked, so a case can't silently fall out of the walk. */
-    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 12, Kind.ROOT, 22, Kind.PROOF, 5,
-            Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 36);
+    private static final Map<Kind, Integer> CASES = Map.of(Kind.KEYRING, 13, Kind.ROOT, 22, Kind.PROOF, 5,
+            Kind.STAMP, 18, Kind.INFLUENCE, 9, Kind.REQUEST, 7, Kind.CERT, 10, Kind.REPLY, 37);
 
     private enum Outcome { SAME, NORMALISED, REFUSED }
 

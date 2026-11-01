@@ -6,6 +6,7 @@ import { concat, randomBytes, sha256, sign, utf8, verify } from "../crypto/crypt
 import { writeWire } from "../encoding/jcs.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, int, object, str, stringMap } from "../internal/fields.ts";
+import { requireRouteNodeNames } from "../internal/keyring-names.ts";
 import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
 import { replyCertOf, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { rootOf, verifyRoot, type SignedRoot } from "../policy/root.ts";
@@ -46,10 +47,10 @@ export type SessionReply = {
 /**
  * Reads a reply from its token: MalformedJson for bytes that are not exactly the canonical bytes of one value, and an
  * Error naming the member for a reply other than exactly its members: `serverRoot` null or a root with exactly its
- * own members, string `serverPolicyKey`, `nonce`, `sess` and `sig`, a `serverKeyring` of strings, `status`
- * "attested" or "unsafe", a `disabled` array of strings, and, each only when present, a string `serverKeyringSig`,
- * which needs `serverKeyringNotAfter` beside it, an integer `serverKeyringNotAfter`, and a `serverReplyCert` with
- * exactly a certificate's members. A member whose value is null is present. Checks no signature.
+ * own members, string `serverPolicyKey`, `nonce`, `sess` and `sig`, a `serverKeyring` of strings under route-node
+ * names, `status` "attested" or "unsafe", a `disabled` array of strings, and, each only when present, a string
+ * `serverKeyringSig`, which needs `serverKeyringNotAfter` beside it, an integer `serverKeyringNotAfter`, and a
+ * `serverReplyCert` with exactly a certificate's members. A member whose value is null is present. Checks no signature.
  */
 export function readSessionReply(token: string): SessionReply {
   const o = object(readToken(token));
@@ -64,10 +65,12 @@ export function readSessionReply(token: string): SessionReply {
     if (typeof d !== "string") throw new Error("member disabled holds a value that is not a string");
     return d;
   });
+  const serverKeyring = stringMap(o, "serverKeyring");
+  requireRouteNodeNames(serverKeyring, "serverKeyring");
   const reply: SessionReply = {
     serverRoot: o.serverRoot === null ? null : rootOf(o.serverRoot!),
     serverPolicyKey: str(o, "serverPolicyKey"),
-    serverKeyring: stringMap(o, "serverKeyring"),
+    serverKeyring,
     nonce: str(o, "nonce"),
     sess: str(o, "sess"),
     status,

@@ -18,6 +18,7 @@ import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.internal.KeyringNames;
 
 /**
  * The on-disk {@code keyring.json}: every service's public key plus the policy public key, each as a base64url
@@ -68,10 +69,13 @@ public record KeyringFile(Map<String, String> services, String policy, String si
 
     /**
      * Signs the keyring, vouching for {@code services} until {@code notAfter}. The caller must already have
-     * checked that each key is that service's current key.
+     * checked that each key is that service's current key. Throws {@link IllegalArgumentException} for a service
+     * name that {@link Routes#requireValidNode} refuses, which every reader refuses, or a {@code notAfter} out of
+     * range, before signing.
      */
     public static KeyringFile sign(Map<String, String> services, String policyPublicKey, long notAfter,
             PrivateKey policyKey) {
+        services.keySet().forEach(Routes::requireValidNode);
         byte[] sig = Crypto.sign(policyKey, signingBytes(policyPublicKey, services, notAfter));
         return new KeyringFile(services, policyPublicKey, Base64Url.encode(sig), notAfter);
     }
@@ -136,13 +140,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         JsonValue.Obj o = JsonFields.object(value);
         JsonFields.exactly(o, MEMBERS, Set.of());
         Map<String, String> services = JsonFields.stringMap(o, "services");
-        for (String name : services.keySet()) {
-            try {
-                Routes.requireValidNode(name);
-            } catch (IllegalArgumentException e) {
-                throw new IllegalArgumentException("member services holds a name that is not a route node");
-            }
-        }
+        KeyringNames.requireRouteNodes(services, "services");
         return new KeyringFile(services, JsonFields.string(o, "policy"), JsonFields.string(o, "sig"),
                 JsonFields.integer(o, "notAfter"));
     }

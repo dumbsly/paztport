@@ -6,6 +6,7 @@ import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
 import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
 import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
+import { requireRouteNodeNames } from "../internal/keyring-names.ts";
 import { requireValidNode } from "./routes.ts";
 import { isNotAfter } from "./validity.ts";
 
@@ -18,8 +19,9 @@ export function keyringSigningBytes(policy: string, services: Record<string, str
   return concat(utf8("paztport-keyring\n"), writeWire({ notAfter, policy, services }));
 }
 
-/** Signs a keyring with its policy key, vouching for it until `notAfter` (throws on one outside [0, 2^53 − 1], an absent one included); the caller must have checked that each key is that service's current key. */
+/** Signs a keyring with its policy key, vouching for it until `notAfter` (throws on one outside [0, 2^53 − 1], an absent one included, and on a service name requireValidNode refuses); the caller must have checked that each key is that service's current key. */
 export function signKeyring(services: Record<string, string>, policyPublicKey: string, policyPrivateKey: string, notAfter: number): SignedKeyring {
+  for (const name of Object.keys(services)) requireValidNode(name);
   const sig = encode(sign(policyPrivateKey, keyringSigningBytes(policyPublicKey, services, notAfter)));
   return { policy: policyPublicKey, services, sig, notAfter };
 }
@@ -43,14 +45,7 @@ function keyringOf(value: JsonValue): SignedKeyring {
   const o = object(value);
   exactly(o, ["notAfter", "policy", "services", "sig"]);
   const services = stringMap(o, "services");
-  for (const name of Object.keys(services)) {
-    try {
-      requireValidNode(name);
-    } catch {
-      // the name is data, so the refusal does not repeat it
-      throw new Error("member services holds a name that is not a route node");
-    }
-  }
+  requireRouteNodeNames(services, "services");
   return { policy: str(o, "policy"), services, sig: str(o, "sig"), notAfter: int(o, "notAfter") };
 }
 

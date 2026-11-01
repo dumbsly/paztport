@@ -13,6 +13,7 @@ import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.internal.KeyringNames;
 import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.SignedRoot;
 
@@ -49,10 +50,10 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
      * not read: a {@link MalformedJsonException} for text that is not exactly the canonical bytes of one value, and
      * otherwise a refusal naming the member. A reply has exactly its members: {@code serverRoot} {@code null} or a
      * root with exactly its own members, string {@code serverPolicyKey}, {@code nonce}, {@code sess} and
-     * {@code sig}, a {@code serverKeyring} of strings, {@code status} {@code "attested"} or {@code "unsafe"}, a
-     * {@code disabled} array of strings, and, each only when present, a string {@code serverKeyringSig}, which
-     * needs {@code serverKeyringNotAfter} beside it, an integer {@code serverKeyringNotAfter}, and a
-     * {@code serverReplyCert} with exactly a certificate's members. A member whose value is {@code null} is present.
+     * {@code sig}, a {@code serverKeyring} of strings under route-node names, {@code status} {@code "attested"} or
+     * {@code "unsafe"}, a {@code disabled} array of strings, and, each only when present, a string
+     * {@code serverKeyringSig}, which needs {@code serverKeyringNotAfter} beside it, an integer
+     * {@code serverKeyringNotAfter}, and a {@code serverReplyCert} with exactly a certificate's members. A member whose value is {@code null} is present.
      * Checks no signature: {@link Sessions#checkReply} reads a reply with this, then checks it.
      */
     public static SessionReply parse(String json) {
@@ -93,8 +94,10 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
                 throw new IllegalArgumentException("no member serverKeyringNotAfter");
             }
         }
+        Map<String, String> keyring = JsonFields.stringMap(o, "serverKeyring");
+        KeyringNames.requireRouteNodes(keyring, "serverKeyring");
         return new SessionReply(root instanceof JsonValue.Null ? null : RootJson.read(root),
-                JsonFields.string(o, "serverPolicyKey"), JsonFields.stringMap(o, "serverKeyring"), ringSig,
+                JsonFields.string(o, "serverPolicyKey"), keyring, ringSig,
                 o.get("serverKeyringNotAfter") == null ? null : JsonFields.integer(o, "serverKeyringNotAfter"),
                 o.get("serverReplyCert") == null ? null : ReplyCert.fromTree(o.get("serverReplyCert")),
                 JsonFields.string(o, "nonce"), JsonFields.string(o, "sess"), status, disabled,

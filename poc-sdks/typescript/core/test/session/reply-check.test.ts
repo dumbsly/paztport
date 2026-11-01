@@ -102,6 +102,7 @@ describe("checkSessionReply", () => {
     const u = handshake("unsafe");
     expect(checkSessionReply(token(u.reply), u.req, u.pin, "mcp-entry", T)).toBe("UNSAFE");
     expect(checkSessionReply(token(h.reply, { disabled: "x" }), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
+    expect(checkSessionReply(token(h.reply, { serverKeyring: { "a/b": "k" } }), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
     expect(checkSessionReply(writeToken(null), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
     expect(checkSessionReply(token(h.reply), h.req, generateKeyPair().publicKey, "mcp-entry", T)).toBe("PIN_MISMATCH");
     expect(checkSessionReply(token(h.reply), h.req, h.pin, "github-tools", T)).toBe("BAD_SIGNATURE");

@@ -197,10 +197,21 @@ class KeyringFileTest {
     @Test
     void aServiceNameThatIsNotARouteNodeIsMalformed() {
         for (String name : new String[] {"", ".", "..", "a/b", "a\\b", "a|b"}) {
-            String text = KeyringFile.sign(Map.of(name, SERVICES.get("pi")), pub(POLICY), NOT_AFTER,
-                    POLICY.getPrivate()).toFile();
+            Map<String, String> services = Map.of(name, SERVICES.get("pi"));
+            String sig = Base64Url.encode(Crypto.sign(POLICY.getPrivate(),
+                    KeyringFile.signingBytes(pub(POLICY), services, NOT_AFTER)));
+            String text = new KeyringFile(services, pub(POLICY), sig, NOT_AFTER).toFile();
             assertEquals("member services holds a name that is not a route node",
                     assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text), name).getMessage());
+        }
+    }
+
+    /** The writer refuses what every reader refuses, before it signs. */
+    @Test
+    void signRefusesAServiceNameThatIsNotARouteNode() {
+        for (String name : new String[] {"", ".", "..", "a/b", "a\\b", "a|b"}) {
+            assertThrows(IllegalArgumentException.class, () -> KeyringFile.sign(Map.of(name, SERVICES.get("pi")),
+                    pub(POLICY), NOT_AFTER, POLICY.getPrivate()), name);
         }
     }
 

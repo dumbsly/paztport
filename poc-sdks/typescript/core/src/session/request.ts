@@ -3,24 +3,27 @@
 
 import { readToken } from "../encoding/json.ts";
 import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
+import { requireRouteNodeNames } from "../internal/keyring-names.ts";
 import { rootOf, type SignedRoot } from "../policy/root.ts";
 import { newNonce, type SessionRequest } from "./session.ts";
 
 /**
  * Reads a request from its token: MalformedJson for bytes that are not exactly the canonical bytes of one value, and
  * an Error naming the member for a request other than exactly its six members: `clientRoot` null or a root with
- * exactly its own members, string `clientPolicyKey` and `nonce`, a `clientKeyring` of strings, a non-empty string
- * `clientKeyringSig`, and an integer `clientKeyringNotAfter`. Checks no signature.
+ * exactly its own members, string `clientPolicyKey` and `nonce`, a `clientKeyring` of strings under route-node
+ * names, a non-empty string `clientKeyringSig`, and an integer `clientKeyringNotAfter`. Checks no signature.
  */
 export function readSessionRequest(token: string): SessionRequest {
   const o = object(readToken(token));
   exactly(o, ["clientKeyring", "clientKeyringNotAfter", "clientKeyringSig", "clientPolicyKey", "clientRoot", "nonce"]);
   const clientKeyringSig = str(o, "clientKeyringSig");
   if (clientKeyringSig === "") throw new Error("member clientKeyringSig is empty");
+  const clientKeyring = stringMap(o, "clientKeyring");
+  requireRouteNodeNames(clientKeyring, "clientKeyring");
   return {
     clientRoot: o.clientRoot === null ? null : rootOf(o.clientRoot!),
     clientPolicyKey: str(o, "clientPolicyKey"),
-    clientKeyring: stringMap(o, "clientKeyring"),
+    clientKeyring,
     clientKeyringSig,
     clientKeyringNotAfter: int(o, "clientKeyringNotAfter"),
     nonce: str(o, "nonce"),

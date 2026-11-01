@@ -197,6 +197,22 @@ class SessionsTest {
                 Sessions.checkReply((text + "\n").getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW));
     }
 
+    /** A keyring names its services by route nodes wherever it is read: the client's in a request, the server's in a reply. */
+    @Test
+    void aKeyringNameThatIsNotARouteNodeIsMalformed() {
+        SessionRequest req = request(clientRoot);
+        JsonValue.Obj reply = entryKeyReply(req, Crypto.generateEd25519KeyPair(), NOW + 1000);
+        for (String name : new String[] {"", ".", "..", "a/b", "a\\b", "a|b"}) {
+            JsonValue.Obj ring = new JsonValue.Obj(Map.of(name, new JsonValue.Str("k")));
+            assertEquals("member clientKeyring holds a name that is not a route node",
+                    assertThrows(IllegalArgumentException.class,
+                            () -> parse(with(tree(req.toJson()), "clientKeyring", ring)), name).getMessage());
+            assertEquals(ReplyCheck.MALFORMED_REPLY,
+                    Sessions.checkReply(JsonWriter.text(with(reply, "serverKeyring", ring)), req, serverKey, "pay",
+                            NOW), name);
+        }
+    }
+
     /**
      * A reply has exactly its members, so one the server signed with a member a reply does not have is malformed,
      * and so is a certificate in it with a member a certificate does not have.

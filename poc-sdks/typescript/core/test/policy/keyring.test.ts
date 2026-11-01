@@ -55,6 +55,12 @@ describe("keyring", () => {
     for (const name of ["signKeyring", "keyringSigningBytes", "verifyKeyring"]) expect(name in core, name).toBe(true);
   });
 
+  it("signKeyring refuses a service name that is not a route node, before signing", () => {
+    for (const name of ["", ".", "..", "a/b", "a\\b", "a|b"]) {
+      expect(() => signKeyring({ [name]: SERVICES.pi }, POLICY.publicKey, POLICY.privateKey, NOT_AFTER), name).toThrow();
+    }
+  });
+
   it("signKeyring signs only with a window", () => {
     for (const bad of [undefined, null, 1.5, -1, MAX_SAFE + 1, "1798761600000"]) {
       expect(() => signKeyring(SERVICES, POLICY.publicKey, POLICY.privateKey, bad as unknown as number), String(bad)).toThrow(TypeError);

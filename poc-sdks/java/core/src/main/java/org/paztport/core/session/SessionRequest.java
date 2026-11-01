@@ -12,6 +12,7 @@ import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
+import org.paztport.core.internal.KeyringNames;
 import org.paztport.core.internal.RootJson;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
@@ -53,8 +54,8 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
      * does not read (the spec's Invalid params): a {@link MalformedJsonException} for text that is not exactly the
      * canonical bytes of one value, and otherwise a refusal naming the member. A request has exactly its six members:
      * {@code clientRoot} {@code null} or a root, whole and with exactly its own members, string
-     * {@code clientPolicyKey} and {@code nonce}, a {@code clientKeyring} of strings, a non-empty string
-     * {@code clientKeyringSig}, and an integer {@code clientKeyringNotAfter}.
+     * {@code clientPolicyKey} and {@code nonce}, a {@code clientKeyring} of strings under route-node names, a
+     * non-empty string {@code clientKeyringSig}, and an integer {@code clientKeyringNotAfter}.
      */
     public static SessionRequest parse(String json) {
         if (json == null) {
@@ -80,8 +81,10 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         if (ringSig.isEmpty()) {
             throw new IllegalArgumentException("member clientKeyringSig is empty");
         }
+        Map<String, String> keyring = JsonFields.stringMap(o, "clientKeyring");
+        KeyringNames.requireRouteNodes(keyring, "clientKeyring");
         return new SessionRequest(root instanceof JsonValue.Null ? null : RootJson.read(root),
-                JsonFields.string(o, "clientPolicyKey"), JsonFields.stringMap(o, "clientKeyring"), ringSig,
+                JsonFields.string(o, "clientPolicyKey"), keyring, ringSig,
                 JsonFields.integer(o, "clientKeyringNotAfter"), JsonFields.string(o, "nonce"));
     }
 

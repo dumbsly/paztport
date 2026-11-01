@@ -40,11 +40,11 @@ A request is read from its bytes as [wire bytes](wire.md#reading), and has exact
 has exactly a [signed root's](wire.md#the-signed-root) members. Over MCP it is read from the JCS bytes of the
 `params` value. A server MUST answer a request that does not read, or that is not an object, has a member the table
 does not list, or whose `clientRoot` is neither `null` nor an object of exactly string `rootId`, `root` and `sig`
-and an integer `notAfter`, whose `clientKeyring` is not an object of strings, whose `clientPolicyKey` or `nonce` is
-not a string, whose `clientKeyringSig` is missing, `null`, not a string or empty, or whose `clientKeyringNotAfter`
-or `clientRoot.notAfter` is missing or not an integer in [0, 2^53 − 1] (`null` included), with JSON-RPC error
-`-32602` (Invalid params), and open no session. It MUST also open none when the
-nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a JSON-RPC error other than
+and an integer `notAfter`, whose `clientKeyring` is not an object of strings or names a service that is not a
+[route node](wire.md#routes), whose `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is
+missing, `null`, not a string or empty, or whose `clientKeyringNotAfter` or `clientRoot.notAfter` is missing or not an
+integer in [0, 2^53 − 1] (`null` included), with JSON-RPC error `-32602` (Invalid params), and open no session. It
+MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a JSON-RPC error other than
 `-32601`, so the client takes its replacement path ([below](#the-clients-check-of-the-reply)). A request that
 opens no session leaves the connection's current session, if any, in place: the TypeScript server fails before it
 replaces it.
@@ -53,8 +53,8 @@ A `clientKeyringSig` that is a string but does not verify is no malformed reques
 offline it is not attested.
 
 `v3.json` pins the reading of a request in `sessionRequest`: a well-formed request, and one whose `clientKeyringSig`
-is missing, `null`, empty or a number, one with no `clientKeyringNotAfter` and one whose client root has no
-`notAfter`, each malformed.
+is missing, `null`, empty or a number, one with no `clientKeyringNotAfter`, one whose client root has no
+`notAfter` and one whose signed keyring names a service that is not a route node, each malformed.
 
 ### The reply
 
@@ -113,9 +113,9 @@ the outcome:
 
 1. The reply reads, with exactly the members above; `serverKeyringSig`, when present, is a string beside a
    `serverKeyringNotAfter`; `serverKeyringNotAfter`, when present, and the `notAfter` of a non-null `serverRoot` are
-   integers in [0, 2^53 − 1]; and `serverReplyCert`, when present, is a
-   [reply certificate](wire.md#the-reply-certificate) with exactly its members. A field whose value is `null` is
-   present (`MALFORMED_REPLY`).
+   integers in [0, 2^53 − 1]; every name in `serverKeyring` is a [route node](wire.md#routes); and
+   `serverReplyCert`, when present, is a [reply certificate](wire.md#the-reply-certificate) with exactly its
+   members. A field whose value is `null` is present (`MALFORMED_REPLY`).
 2. `serverPolicyKey` equals the pinned key (`PIN_MISMATCH`).
 3. The signature, then the roots and the session id (`BAD_SIGNATURE`):
    - When `serverKeyringSig` or `serverReplyCert` is present: both are; the keyring
@@ -163,11 +163,11 @@ other than the keyring's entry key, or signed by another policy key; a reply sig
 altered after signing or signed by another policy key; an entry absent from the keyring; either of
 `serverKeyringSig` and `serverReplyCert` without the other, whichever key signed the reply; neither field, signed
 by a key the reply's own keyring names for the entry; a server root signed by the entry key; an empty and a `null`
-`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not
-have, which is malformed; a pin mismatch; a `serverKeyringNotAfter` moved after signing, which fails the signature, and
-one dropped, one that is not an integer and one that is `null`, which are malformed; and a server root `notAfter`
-moved after signing, which fails the signature, and one dropped and one that is not an integer, which are
-malformed. It pins the judging of the server's material too: a server root at its `notAfter`, and expired (in the
+`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not have
+and a signed keyring that names a service that is not a route node, each malformed; a pin mismatch; a
+`serverKeyringNotAfter` moved after signing, which fails the signature, and one dropped, one that is not an integer
+and one that is `null`, which are malformed; and a server root `notAfter` moved after signing, which fails the
+signature, and one dropped and one that is not an integer, which are malformed. It pins the judging of the server's material too: a server root at its `notAfter`, and expired (in the
 entry-key form, in the policy-key form and in an unsafe reply), and expired with its `notAfter` moved past `now`
 in a reply signed again by the entry key; a server keyring at its `notAfter` and expired; and a
 `serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is valid until long
@@ -186,7 +186,7 @@ session is the same.
 | Part | Rule |
 |---|---|
 | Endpoint | `POST /paztport/session`. The body is the request's JCS bytes, with `Content-Type: application/json`, and a `200` returns the signed reply's JCS bytes. |
-| A body that does not read as a request: bytes that are not its JCS bytes (another member order, or a newline after them, as a file an editor saved ends), and a request [above](#the-request) refuses (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The server reads at most the [wire limit](wire.md#limits), 256 KiB, and answers more than that the same way. |
+| A body that does not read as a request: bytes that are not its JCS bytes (another member order, or a newline after them, as a file an editor saved ends), and a request [above](#the-request) refuses (a `clientKeyringSig` that is missing, `null`, not a string or empty, a `clientKeyring` naming a service that is not a route node, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The server reads at most the [wire limit](wire.md#limits), 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 

@@ -119,6 +119,9 @@ describe("readSessionRequest", () => {
     const refusal = (edit: Record<string, unknown>) => () => readSessionRequest(token(value(), edit));
     expect(refusal({ clientKeyring: [] })).toThrow("member clientKeyring is not an object");
     expect(refusal({ clientKeyring: { a: 1 } })).toThrow("member clientKeyring holds a value that is not a string");
+    for (const name of ["", ".", "..", "a/b", "a\\b", "a|b"]) {
+      expect(refusal({ clientKeyring: { [name]: "k" } }), name).toThrow("member clientKeyring holds a name that is not a route node");
+    }
     expect(refusal({ clientPolicyKey: 1 })).toThrow("member clientPolicyKey is not a string");
     expect(refusal({ nonce: null })).toThrow("member nonce is not a string");
     for (const bad of [null, "7", true, {}, []]) {

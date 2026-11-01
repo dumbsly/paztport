@@ -360,6 +360,8 @@ final class VectorsHttpPartner {
         byte[] noRingWindow = jcs(without(request, "clientKeyringNotAfter"));
         byte[] noRootWindow = jcs(with(request, "clientRoot",
                 without((JsonValue.Obj) request.get("clientRoot"), "notAfter")));
+        byte[] notANode = jcs(with(with(request, "clientKeyring", badNameKeyring(shop)), "clientKeyringSig",
+                new JsonValue.Str(badNameKeyringSig(fx, shop))));
         ArrayNode a = arr();
         a.add(new Script("a body that is not JSON", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8("this is not JSON"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
@@ -375,6 +377,8 @@ final class VectorsHttpPartner {
                 .handshakeBody(NOW, "shop", noRingWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a client root window that is missing", partner(), shop)
                 .handshakeBody(NOW, "shop", noRootWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
+        a.add(new Script("a keyring name that is not a route node", partner(), shop)
+                .handshakeBody(NOW, "shop", notANode, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a nonce of 15 bytes", partner(), shop)
                 .handshake(NOW, "shop", "short-nonce", null, handshakeError(HttpSessions.NO_SESSION)).c);
         a.add(new Script("a client root signature of 63 bytes", partner(), shop)
@@ -388,6 +392,25 @@ final class VectorsHttpPartner {
         a.add(new Script("a request with no client root opens an unsafe session", partner(), shop)
                 .handshake(NOW, "shop", "no-root", "u1", opened("unsafe")).c);
         return a;
+    }
+
+    /** The shop's keyring with one more service, named {@code a/b}: a name that is not a route node. */
+    private static Map<String, String> badNameServices(Material shop) {
+        Map<String, String> services = new TreeMap<>(shop.keyring().services());
+        services.put("a/b", services.values().iterator().next());
+        return services;
+    }
+
+    private static JsonValue.Obj badNameKeyring(Material shop) {
+        Map<String, JsonValue> members = new LinkedHashMap<>();
+        badNameServices(shop).forEach((name, key) -> members.put(name, new JsonValue.Str(key)));
+        return new JsonValue.Obj(members);
+    }
+
+    /** The shop policy key's signature over that keyring: genuine, so only the name rule refuses the request. */
+    private static String badNameKeyringSig(Fixtures fx, Material shop) {
+        return Base64Url.encode(Crypto.sign(fx.privateKey("shop-policy"),
+                KeyringFile.signingBytes(shop.policyKey(), badNameServices(shop), shop.keyring().notAfter())));
     }
 
     private static byte[] jcs(JsonValue.Obj o) {

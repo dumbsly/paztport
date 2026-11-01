@@ -38,6 +38,8 @@ const PKCS8_ED25519_PREFIX = "302e020100300506032b657004220420";
 const POLICY_NOT_AFTER = 1_798_761_600_000;
 /** The keyring and root case whose `file` writes its notAfter `1798761600000.0`, the integer its signature is over. */
 const FRACTION_CASE = "notAfter written 1798761600000.0";
+/** The name of the session request, session reply and keyring cases that name a service by something that is not a route node. */
+const NOT_A_NODE_CASE = "a keyring name that is not a route node";
 const DEPTH = 8;
 /** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsV3Text). */
 const TS_MIN_CASE = "stamp ts of -2^63";
@@ -643,6 +645,13 @@ export function buildVectorsV3(): Record<string, unknown> {
     return { name, policyKey: "client-policy", services, signingBytes, sig, signed, file, verifies, ...current };
   };
   const tamperedServices = { session: "session", pi: "gateway" } as const;
+  // A keyring genuinely signed over a service name that is not a route node. signKeyring refuses it, so the signature is made over
+  // keyringSigningBytes directly: only the name rule, never the signature, refuses what is signed here.
+  const badNameServices = { "a/b": "session", pi: "pi" } as const;
+  const signedOverBadName = (notAfter: number, services: Record<string, KeyName> = badNameServices): SignedKeyring => {
+    const resolved = resolveKeyring(services);
+    return { policy: ringPolicy, services: resolved, sig: encode(sign(keys["client-policy"].priv, keyringSigningBytes(ringPolicy, resolved, notAfter))), notAfter };
+  };
   const keyring = [
     keyringFormCase("signed", newRing(POLICY_NOT_AFTER), true, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
     keyringFormCase("tampered service key", { ...newRing(POLICY_NOT_AFTER), services: resolveKeyring(tamperedServices) }, false, undefined, tamperedServices),
@@ -654,6 +663,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     keyringFormCase("root signature as a keyring signature", { ...newRing(POLICY_NOT_AFTER), sig: newRoot(POLICY_NOT_AFTER).sig }, false),
     keyringFormCase("notAfter 2^53", { ...newRing(POLICY_NOT_AFTER), notAfter: 2 ** 53 }, false),
     keyringFormCase(FRACTION_CASE, newRing(POLICY_NOT_AFTER), false, [POLICY_NOT_AFTER, POLICY_NOT_AFTER + 1]),
+    keyringFormCase(NOT_A_NODE_CASE, signedOverBadName(POLICY_NOT_AFTER), false, undefined, badNameServices),
   ];
 
   // The client policy's signed root, under the client-policy pin; `policy` names the tree.
@@ -732,6 +742,12 @@ export function buildVectorsV3(): Record<string, unknown> {
   const serverRingServices = resolveKeyring({ "mcp-entry": "mcp-entry", "github-tools": "github-tools" });
   const serverRootUntil = (notAfter: number) => signRoot(decode(policies.server.root), policies.server.rootId, keys["server-policy"].priv, notAfter);
   const serverRingUntil = (notAfter: number) => signKeyring(serverRingServices, keys["server-policy"].pub, keys["server-policy"].priv, notAfter);
+  // The server keyring signed over a name that is not a route node (signKeyring refuses it), in an otherwise valid entry-key reply.
+  const badNameReply = () => {
+    const services = { ...serverRingServices, "a/b": keys["github-tools"].pub };
+    const sig = encode(sign(keys["server-policy"].priv, keyringSigningBytes(keys["server-policy"].pub, services, LIVE_NOT_AFTER)));
+    return reply("mcp-entry", { serverKeyring: services, serverKeyringSig: sig });
+  };
   /** A reply signed over whatever it holds: the crafted cases carry values the SDK's signer refuses to write. */
   const signAnyReply = (body: Record<string, unknown>, priv: string): SessionReply =>
     ({ ...body, sig: encode(sign(priv, utf8("paztport-session-reply\n" + canonicalize(body)))) }) as unknown as SessionReply;
@@ -833,6 +849,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionReplyCase("server keyring expired", reply("mcp-entry", { serverKeyringSig: serverRingUntil(NOW - 1).sig, serverKeyringNotAfter: NOW - 1 }), "BAD_SIGNATURE"),
     // A keyring window with no keyring signature: the policy-key form's keyring is signed only through the reply.
     sessionReplyCase("serverKeyringNotAfter in the policy-key form", reply("server-policy", {}, ["serverKeyringSig", "serverReplyCert"]), "BAD_SIGNATURE"),
+    // Signed over the bad name by the server policy key, and the reply by the entry key: only the name rule refuses it.
+    sessionReplyCase(NOT_A_NODE_CASE, badNameReply(), "MALFORMED_REPLY"),
   ];
 
   // The server's status for a request, against its own root and keyring and the client keys it pinned, at `now`:
@@ -887,6 +905,8 @@ export function buildVectorsV3(): Record<string, unknown> {
   const { clientKeyringSig: _unsigned, ...withoutSig } = wireRequest;
   const { clientKeyringNotAfter: _ringWindow, ...withoutRingWindow } = wireRequest;
   const { notAfter: _rootWindow, ...unwindowedClientRoot } = wireRequest.clientRoot as Record<string, unknown>;
+  const badNameRing = signedOverBadName(LIVE_NOT_AFTER);
+  const badNameRequest = { ...wireRequest, clientKeyring: badNameRing.services, clientKeyringSig: badNameRing.sig };
   const sessionRequestCase = (name: string, body: Record<string, unknown>, expected: "OK" | "MALFORMED") => {
     const requestToken = tokenOf(body);
     let got: "OK" | "MALFORMED" = "OK";
@@ -906,6 +926,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionRequestCase("keyring signature a number", { ...withoutSig, clientKeyringSig: 7 }, "MALFORMED"),
     sessionRequestCase("no keyring notAfter", withoutRingWindow, "MALFORMED"),
     sessionRequestCase("client root without notAfter", { ...wireRequest, clientRoot: unwindowedClientRoot }, "MALFORMED"),
+    // Signed over the bad name, so only the name rule refuses it, and before any signature is checked.
+    sessionRequestCase(NOT_A_NODE_CASE, badNameRequest, "MALFORMED"),
   ];
 
 
