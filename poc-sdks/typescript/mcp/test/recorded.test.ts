@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3, writeToken } from "@paztport/core";
+import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStamp, writeToken } from "@paztport/core";
 import type { InfluenceEntry, OfflineConfig } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall } from "../src/index.ts";
 import { retoken, tokenOf } from "./helpers/client.ts";
@@ -34,7 +34,7 @@ function world() {
     rcv = `mcp:github.${TOOL}`,
   ): Record<string, unknown> => {
     const mk = (svc: string, r: string, ts: number, bind: string, i: string, prev: string) =>
-      signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, infl: i, prev }, harness.privateKey);
+      signStamp({ svc, inst: `${svc}-1`, rid: "rid-1", ts, sess: SESS, rcv: r, bind, infl: i, prev }, harness.privateKey);
     const s0 = mk("session", "pi", times.run, bindPrompt(PROMPT), "", "");
     const s1 = mk("pi", rcv, times.call, bindMcpCall(TOOL, callId, args), commitInfluence(infl), s0.sig);
     return {

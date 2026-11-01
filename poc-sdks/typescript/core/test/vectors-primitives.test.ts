@@ -19,7 +19,7 @@ const seq = (start: number, n: number) => encode(Uint8Array.from({ length: n }, 
 const fixed = v.fixedInputs as Record<string, { start: number; length: number; encoded: string }>;
 const input = (name: string) => seq(fixed[name]!.start, fixed[name]!.length);
 
-describe("v3 known-answer vectors: the shared primitives", () => {
+describe("known-answer vectors: the shared primitives", () => {
   it("fixed inputs encode as expected", () => {
     for (const [name, f] of Object.entries(fixed)) {
       expect(input(name), name).toBe(f.encoded);

@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { bindPrompt, encode, mintOrigin, randomBytes, type StampV3 } from "@paztport/core";
+import { bindPrompt, encode, mintOrigin, randomBytes, type Stamp } from "@paztport/core";
 import { ORIGIN_SVC, PI_SVC } from "./keys.ts";
 
 type Run = { rid: string; ts: number; bind: string };
@@ -9,7 +9,7 @@ type Run = { rid: string; ts: number; bind: string };
 /** The current user-prompt run and its per-server-session origin stamps. */
 export class RunState {
   private run: Run | undefined;
-  private origins = new Map<string, StampV3>();
+  private origins = new Map<string, Stamp>();
 
   /** Begins a new run: fresh rid, prompt binding and timestamp. Old origins are dropped. */
   start(prompt: string, now: number): void {
@@ -28,7 +28,7 @@ export class RunState {
   }
 
   /** The run's origin stamp for this run and server session, naming pi as its receiver, minted once per (rid, sess). */
-  origin(serverSess: string, sessionKey: string, inst: string): StampV3 {
+  origin(serverSess: string, sessionKey: string, inst: string): Stamp {
     const run = this.run;
     if (run === undefined) {
       throw new Error("no active run");

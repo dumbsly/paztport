@@ -13,7 +13,7 @@ import { bindResponse, newContentId, verifyResponse } from "../../src/session/at
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
-import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
 import { encode } from "../../src/encoding/b64url.ts";
 import { verifyChainOffline } from "../../src/offline/verify-offline.ts";
@@ -208,13 +208,13 @@ describe("recordedSession: what a recorded handshake opened", () => {
 
 /** A two-stamp call chain in `sess`, its last stamp at `ts`, signed by the handshake's client keys. */
 function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess) {
-  const origin = signStampV3({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: "pi", bind: bindPrompt("p"), infl: "", prev: "" }, h.session.privateKey);
-  const hop = signStampV3({ svc: "pi", inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", infl: "", prev: origin.sig }, h.pi.privateKey);
+  const origin = signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: ts - 1, sess, rcv: "pi", bind: bindPrompt("p"), infl: "", prev: "" }, h.session.privateKey);
+  const hop = signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts, sess, rcv: "orders", bind: "call-bind", infl: "", prev: origin.sig }, h.pi.privateKey);
   return [origin, hop];
 }
 
 /** The offline check of a call recorded in `h`'s session: the client's keyring and root from the request, and the session id. */
-function checkCall(h: ReturnType<typeof handshake>, chain: StampV3[], ts: number, spent: Set<string>) {
+function checkCall(h: ReturnType<typeof handshake>, chain: Stamp[], ts: number, spent: Set<string>) {
   return verifyChainOffline(
     {
       chain: writeToken(chain), expectedBind: "call-bind", influence: writeToken([]),
@@ -308,8 +308,8 @@ function response(h: ReturnType<typeof handshake>) {
   const body: Record<string, unknown> = { content: [{ type: "text", text: "done" }] };
   const resultHash = bindResult(body);
   const labels = [{ cls: "third-party" as const, cid: newContentId() }];
-  const s0 = signStampV3({ svc: ENTRY, inst: "e-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "tools", bind: "b0", infl: "", prev: "" }, h.entry.privateKey);
-  const s1 = signStampV3({ svc: "tools", inst: "t-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "pi", bind: bindResponse(resultHash, "call-1", labels), infl: "", prev: s0.sig }, h.entry.privateKey);
+  const s0 = signStamp({ svc: ENTRY, inst: "e-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "tools", bind: "b0", infl: "", prev: "" }, h.entry.privateKey);
+  const s1 = signStamp({ svc: "tools", inst: "t-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "pi", bind: bindResponse(resultHash, "call-1", labels), infl: "", prev: s0.sig }, h.entry.privateKey);
   const proof = h.serverTree.proofFor("mcp-entry/tools");
   return { body, att: writeToken({ chain: [s0, s1], proof, labels, resultHash }) };
 }

@@ -7,10 +7,10 @@ import {
   readInfluence,
   RUN_MAX_AGE_MS,
   verifyChainOffline,
-  verifyChainV3,
+  verifyChain,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult,
+  InfluenceEntry, OfflineConfig, ReasonCode, VerifierConfig, VerifyInput, VerifyResult,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
@@ -33,7 +33,7 @@ function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
 }
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
-type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult;
+type ChainCheck = (input: Omit<VerifyInput, "peer">, nonceKey: string, callId: string) => VerifyResult;
 
 /**
  * Reads a tools/call params object once: its `_meta` chain, influence and proof are the tokens the verifier reads.
@@ -101,9 +101,9 @@ function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVe
 export function verifyCall(
   params: unknown,
   ctx: { serverId: string },
-  cfg: Omit<V3Config, "nonceKey">,
+  cfg: Omit<VerifierConfig, "nonceKey">,
 ): CallVerification {
-  return checkCall(params, ctx.serverId, (input, nonceKey) => verifyChainV3(input, { ...cfg, nonceKey }));
+  return checkCall(params, ctx.serverId, (input, nonceKey) => verifyChain(input, { ...cfg, nonceKey }));
 }
 
 /** Where a recorded tools/call is filed, and what the record set says about its run. */

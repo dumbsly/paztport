@@ -12,8 +12,8 @@ import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
 import { mintOrigin } from "../../src/stamp/origin.ts";
-import { signStampV3 } from "../../src/stamp/stamp.ts";
-import { verifyChainV3 } from "../../src/verify/verify-v3.ts";
+import { signStamp } from "../../src/stamp/stamp.ts";
+import { verifyChain } from "../../src/verify/verify-chain.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
 const key = (b: number) => encode(Uint8Array.from([...Buffer.from("302e020100300506032b657004220420", "hex"), ...new Array<number>(32).fill(b)]));
@@ -47,15 +47,15 @@ describe("mintOrigin", () => {
     expect(origin.sig).not.toBe(mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, SESSION_KEY).sig);
   });
 
-  it("verifiesAsTheFirstStampOfAV3Chain", () => {
+  it("verifiesAsTheFirstStampOfAChain", () => {
     const session = generateKeyPair();
     const pi = generateKeyPair();
     const receiver = "mcp:github.t";
     const tree = buildTree([`session/pi/${receiver}`].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
     const origin = mintOrigin({ svc: "session", rid: RID, ts: 1000, bind: BIND, sess: SESS, inst: "pi-1", rcv: "pi" }, session.privateKey);
     expect(origin).toMatchObject({ v: 3, rcv: "pi" });
-    const hop = signStampV3({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", infl: "", prev: origin.sig }, pi.privateKey);
-    const r = verifyChainV3(
+    const hop = signStamp({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", infl: "", prev: origin.sig }, pi.privateKey);
+    const r = verifyChain(
       {
         chain: writeToken([origin, hop]), expectedBind: "b1", influence: writeToken([]),
         proof: writeToken(tree.proofFor(`session/pi/${receiver}`)), receiver, receiverInRoute: true,

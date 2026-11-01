@@ -18,7 +18,7 @@ import {
   NONCE_TTL_MS,
   provesPath,
   readSessionRequest,
-  signStampV3,
+  signStamp,
   verifyReplyCert,
   writeToken,
   type ContentLabel,
@@ -362,11 +362,11 @@ export class McpServerSession {
     const labels: ContentLabel[] = [{ cls, cid: newContentId() }];
     const resultHash = bindResult(result);
     const base = { rid: call.rid, ts: this.now(), inst: this.policy.inst, sess: session.sess, infl: "" };
-    const s0 = signStampV3(
+    const s0 = signStamp(
       { ...base, svc: entry, rcv: tools, bind: bindMcpCall(call.name, call.callId, call.args), prev: "" },
       this.policy.signingKeys[entry]!,
     );
-    const s1 = signStampV3(
+    const s1 = signStamp(
       { ...base, svc: tools, rcv: call.caller, bind: bindResponse(resultHash, call.callId, labels), prev: s0.sig },
       this.policy.signingKeys[tools]!,
     );

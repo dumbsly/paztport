@@ -12,12 +12,12 @@ import {
   readSessionReply,
   isCurrent, isNotAfter, printFile, signReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
   readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign, signKeyring,
-  signRoot, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
-  verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
+  signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline,
+  verifyChain, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
 } from "@paztport/core";
-import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
+import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, VerifierConfig, VerifyInput } from "@paztport/core";
 import { InvalidParams, bindMcpCall, readSessionParams, sessionReplyToken } from "../src/index.ts";
-import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
+import { buildVectors, vectorsText } from "./vectors-v3-export.ts";
 
 type Sections =
   | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
@@ -60,10 +60,10 @@ function shared(v: any, c: any) {
 /** Runs a live case `uses` times against one nonce cache; the last result. */
 function replayLive(v: any, c: any) {
   const { cfg, input } = shared(v, c);
-  const live: V3Config = { ...cfg, nonces: new NonceCache(c.nonceTtlMs), now: c.now, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter };
-  const full: V3Input = c.peer === null ? input : { ...input, peer: c.peer };
-  let result = verifyChainV3(full, live);
-  for (let i = 1; i < c.uses; i++) result = verifyChainV3(full, live);
+  const live: VerifierConfig = { ...cfg, nonces: new NonceCache(c.nonceTtlMs), now: c.now, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter };
+  const full: VerifyInput = c.peer === null ? input : { ...input, peer: c.peer };
+  let result = verifyChain(full, live);
+  for (let i = 1; i < c.uses; i++) result = verifyChain(full, live);
   return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst };
 }
 
@@ -152,15 +152,15 @@ function replayResponseAttestation(v: any, c: any) {
   return { reason: r.result.reason };
 }
 
-describe("v3 known-answer vectors", () => {
-  it("the committed file is what the exporter builds", () => expect(buildVectorsV3()).toEqual(committed));
-  it("the committed file is byte for byte what the exporter writes", () => expect(committedText).toBe(vectorsV3Text()));
-  it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s", (_h, c: any) => expect(Buffer.from(signingBytesV3(c.stamp)).toString("hex")).toBe(c.hex));
+describe("known-answer vectors", () => {
+  it("the committed file is what the exporter builds", () => expect(buildVectors()).toEqual(committed));
+  it("the committed file is byte for byte what the exporter writes", () => expect(committedText).toBe(vectorsText()));
+  it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s", (_h, c: any) => expect(Buffer.from(signingBytes(c.stamp)).toString("hex")).toBe(c.hex));
   it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s are the fields joined by |", (_h, c: any) => {
     const s = c.stamp;
     expect(Buffer.from(utf8([3, s.svc, s.inst, s.rid, s.ts, s.sess, s.rcv, s.bind, s.infl, s.prev].join("|"))).toString("hex")).toBe(c.hex);
   });
-  it.each(committed.signatures.map((c: any, i: number): [number, any] => [i, c]))("signature %i", (_i, c: any) => expect(encode(sign(committed.keys[c.key].priv, signingBytesV3({ v: 3, ...c.fields })))).toBe(c.sig));
+  it.each(committed.signatures.map((c: any, i: number): [number, any] => [i, c]))("signature %i", (_i, c: any) => expect(encode(sign(committed.keys[c.key].priv, signingBytes({ v: 3, ...c.fields })))).toBe(c.sig));
   it.each(committed.influence.map((c: any): [string, any] => [c.name, c]))("influence %s", (_n, c: any) => {
     expect(normalizeInfluence(c.entries)).toEqual(c.normalized);
     expect(commitInfluence(c.entries)).toBe(c.commitment);

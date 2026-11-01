@@ -19,7 +19,7 @@ export type Peer = { svc: string; inst: string };
  * What a verifier is handed for one chain: `chain`, `influence` and `proof` are the tokens received, each read only by
  * the verifier.
  */
-export type V3Input = {
+export type VerifyInput = {
   /** The chain's token. */
   chain: string;
   expectedBind: string;
@@ -35,7 +35,7 @@ export type V3Input = {
   peer?: Peer | null;
 };
 
-export type V3Config = {
+export type VerifierConfig = {
   keyring: Record<string, string>;
   root: Uint8Array;
   rootId: string;
@@ -56,7 +56,7 @@ function blame<R extends VerifyResult>(result: R, peer: Peer | null | undefined)
 }
 
 /** Check 0: the window is an integer in [0, 2^53 − 1] and a finite `now` has not passed it; a non-finite `now` is left to check 7, which fails it as EXPIRED. */
-function policyCurrent(cfg: V3Config): boolean {
+function policyCurrent(cfg: VerifierConfig): boolean {
   return isNotAfter(cfg.policyNotAfter) && !(Number.isFinite(cfg.now) && cfg.now > cfg.policyNotAfter);
 }
 
@@ -64,17 +64,17 @@ function policyCurrent(cfg: V3Config): boolean {
 const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
 
 /**
- * A V3Input with what the reader gave for each token: its value, or undefined for one that does not read and for no
+ * A VerifyInput with what the reader gave for each token: its value, or undefined for one that does not read and for no
  * proof.
  */
-export type V3Read = Omit<V3Input, "chain" | "influence" | "proof"> & {
+export type VerifyRead = Omit<VerifyInput, "chain" | "influence" | "proof"> & {
   chain: JsonValue | undefined;
   influence: JsonValue | undefined;
   proof: JsonValue | undefined;
 };
 
 /** Checks 1 to 12 in order; the result before attribution. */
-function check(input: V3Read, cfg: V3Config): VerifyResult {
+function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, shared rid, session.
   const stamps = checkStamps(input.chain, cfg, { receiver: input.receiver });
   if (typeof stamps === "string") {
@@ -138,7 +138,7 @@ function check(input: V3Read, cfg: V3Config): VerifyResult {
  * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
  * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
  */
-export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
+export function verifyChain(input: VerifyInput, cfg: VerifierConfig): VerifyResult {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return verifyChainRead(
     {
@@ -152,10 +152,10 @@ export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
 }
 
 /**
- * verifyChainV3 on what the reader gave for each token, for a caller that has read them already. Internal: index.ts
+ * verifyChain on what the reader gave for each token, for a caller that has read them already. Internal: index.ts
  * does not export it.
  */
-export function verifyChainRead(input: V3Read, cfg: V3Config): VerifyResult {
+export function verifyChainRead(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return blame(check(input, cfg), input.peer);
 }

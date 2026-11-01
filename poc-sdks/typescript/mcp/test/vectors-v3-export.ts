@@ -14,9 +14,9 @@ import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   canonicalize, commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
   printFile, readKeyringFile, readReplyCertFile, readRootFile,
-  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
+  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStamp, signingBytes,
   writeToken,
-  utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
+  utf8, verifyChainOffline, verifyChain, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, readProof, readSessionReply, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
@@ -25,11 +25,11 @@ import {
 import type {
   InfluenceEntry, InfluenceFact, JsonValue, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, Resolved,
   SessionReply, SessionRequest,
-  SignedKeyring, SignedRoot, StampV3,
+  SignedKeyring, SignedRoot, Stamp,
 } from "@paztport/core";
 import { InvalidParams, bindMcpCall, mcpReceiver, readSessionParams, sessionReplyToken } from "../src/index.ts";
 
-const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
+const VECTORS_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
 
 const KEY_NAMES = ["session", "pi", "mcp-entry", "github-tools", "gateway", "orders", "client-policy", "server-policy"] as const;
 type KeyName = (typeof KEY_NAMES)[number];
@@ -41,7 +41,7 @@ const FRACTION_CASE = "notAfter written 1798761600000.0";
 /** The name of the session request, session reply and keyring cases that name a service by something that is not a route node. */
 const NOT_A_NODE_CASE = "a keyring name that is not a route node";
 const DEPTH = 8;
-/** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsV3Text). */
+/** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsText). */
 const TS_MIN_CASE = "stamp ts of -2^63";
 const TS_MIN_TEXT = "-9223372036854775808";
 /** The responseAttestation case whose token spells the attestation's members in wire order, which JCS cannot write. */
@@ -343,7 +343,7 @@ type Expected = { reason: string; suspectSvc: string; suspectInst: string };
 /** What a verify case shares with an offline one. */
 type CaseInputs = {
   name: string;
-  chain: StampV3[];
+  chain: Stamp[];
   expectedBind: string;
   influence: InfluenceEntry[];
   policy: "client" | "server" | "mesh";
@@ -356,9 +356,9 @@ type CaseInputs = {
   nonceKey: string;
 };
 
-export function buildVectorsV3(): Record<string, unknown> {
+export function buildVectors(): Record<string, unknown> {
   const keys = Object.fromEntries(KEY_NAMES.map((n) => [n, vectorKey(n)])) as Record<KeyName, { pub: string; priv: string }>;
-  const v3 = (fields: Omit<StampV3, "v" | "sig">, key: KeyName) => signStampV3(fields, keys[key].priv);
+  const stampBy = (fields: Omit<Stamp, "v" | "sig">, key: KeyName) => signStamp(fields, keys[key].priv);
 
   const TOOL = "create_pull_request";
   const CALL_RCV = mcpReceiver("github", TOOL);
@@ -371,13 +371,13 @@ export function buildVectorsV3(): Record<string, unknown> {
   };
   const [CALL_ROUTE, OTHER_ROUTE, LOCAL_ROUTE] = policies.client.routes as [string, string, string];
 
-  // signingBytesV3: the second pins UTF-8 with a non-ASCII inst.
-  const sbStamps: Omit<StampV3, "sig">[] = [
+  // signingBytes: the second pins UTF-8 with a non-ASCII inst.
+  const sbStamps: Omit<Stamp, "sig">[] = [
     { v: 3, svc: "pi", inst: "pi-1", rid: "rid-1", ts: 1767225600000, sess: "sess-1", rcv: CALL_RCV, bind: "bind-1", infl: "infl-1", prev: "prev-1" },
     { v: 3, svc: "pi", inst: "pi-é", rid: "rid-1", ts: 1767225600000, sess: "", rcv: LOCAL_RCV, bind: "bind-2", infl: "", prev: "prev-2" },
   ];
-  const signingBytesCases = sbStamps.map((stamp) => ({ stamp, hex: Buffer.from(signingBytesV3(stamp)).toString("hex") }));
-  check("signingBytesV3 UTF-8", signingBytesCases[1]!.hex.includes(Buffer.from("|pi-é|", "utf8").toString("hex")), true);
+  const signingBytesCases = sbStamps.map((stamp) => ({ stamp, hex: Buffer.from(signingBytes(stamp)).toString("hex") }));
+  check("signingBytes UTF-8", signingBytesCases[1]!.hex.includes(Buffer.from("|pi-é|", "utf8").toString("hex")), true);
 
   // The client run: one prompt, an mcp call and a local step.
   const NOW = 1_767_225_600_000;
@@ -392,41 +392,41 @@ export function buildVectorsV3(): Record<string, unknown> {
   ];
   const callBind = bindMcpCall(TOOL, CALL_ID, ARGS);
   const originFields = { svc: "session", inst: "pi-1", rid: RID, ts: NOW - 2000, sess: SESS, rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "" };
-  const origin = v3(originFields, "session");
+  const origin = stampBy(originFields, "session");
   const hopFields = (prev: string) => ({ svc: "pi", inst: "pi-1", rid: RID, ts: NOW - 1000, sess: SESS, rcv: CALL_RCV, bind: callBind, infl: commitInfluence(INFLUENCE), prev });
-  const hop = v3(hopFields(origin.sig), "pi");
+  const hop = stampBy(hopFields(origin.sig), "pi");
   const call = [origin, hop];
 
   // The server's response to that call, back to pi.
   const LABELS = [{ cls: "private" as const, cid: "cid-1", owner: "alice" }];
   const respBind = bindResponse(bindResult({ content: [{ type: "text", text: "opened #43" }], isError: false }), CALL_ID, LABELS);
-  const entry = v3({ svc: "mcp-entry", inst: "entry-1", rid: RID, ts: NOW - 800, sess: SESS, rcv: "github-tools", bind: callBind, infl: "", prev: "" }, "mcp-entry");
+  const entry = stampBy({ svc: "mcp-entry", inst: "entry-1", rid: RID, ts: NOW - 800, sess: SESS, rcv: "github-tools", bind: callBind, infl: "", prev: "" }, "mcp-entry");
   const toolsFields = { svc: "github-tools", inst: "gh-1", rid: RID, ts: NOW - 500, sess: SESS, rcv: "pi", bind: respBind, infl: "", prev: entry.sig };
-  const tools = v3(toolsFields, "github-tools");
+  const tools = stampBy(toolsFields, "github-tools");
 
   // A local step: its own chain, with no session.
   const localBind = bindLocalTool("read", { path: "notes.md" }, { callId: "tc-1", verdict: "OK" });
-  const localOrigin = v3({ ...originFields, sess: "" }, "session");
-  const local = [localOrigin, v3({ svc: "pi", inst: "pi-1", rid: RID, ts: NOW - 1000, sess: "", rcv: LOCAL_RCV, bind: localBind, infl: "", prev: localOrigin.sig }, "pi")];
+  const localOrigin = stampBy({ ...originFields, sess: "" }, "session");
+  const local = [localOrigin, stampBy({ svc: "pi", inst: "pi-1", rid: RID, ts: NOW - 1000, sess: "", rcv: LOCAL_RCV, bind: localBind, infl: "", prev: localOrigin.sig }, "pi")];
 
   // Two plain HTTP hops in a mesh.
   const HTTP_BIND = "bind-orders-to-payment";
-  const gateway = v3({ svc: "gateway", inst: "gw-1", rid: "rid-2", ts: NOW - 1500, sess: "sess-2", rcv: "orders", bind: "bind-gateway-to-orders", infl: "", prev: "" }, "gateway");
-  const http = [gateway, v3({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW - 500, sess: "sess-2", rcv: "payment", bind: HTTP_BIND, infl: "", prev: gateway.sig }, "orders")];
+  const gateway = stampBy({ svc: "gateway", inst: "gw-1", rid: "rid-2", ts: NOW - 1500, sess: "sess-2", rcv: "orders", bind: "bind-gateway-to-orders", infl: "", prev: "" }, "gateway");
+  const http = [gateway, stampBy({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW - 500, sess: "sess-2", rcv: "payment", bind: HTTP_BIND, infl: "", prev: gateway.sig }, "orders")];
 
   // Broken variants of the call.
-  const strayOrigin = v3({ ...originFields, rcv: "search" }, "session");
-  const strayCall = [strayOrigin, v3(hopFields(strayOrigin.sig), "pi")];
-  const forgedCall = [origin, v3(hopFields(origin.sig), "session")];
-  const strayForgedCall = [strayOrigin, v3(hopFields(strayOrigin.sig), "session")];
+  const strayOrigin = stampBy({ ...originFields, rcv: "search" }, "session");
+  const strayCall = [strayOrigin, stampBy(hopFields(strayOrigin.sig), "pi")];
+  const forgedCall = [origin, stampBy(hopFields(origin.sig), "session")];
+  const strayForgedCall = [strayOrigin, stampBy(hopFields(strayOrigin.sig), "session")];
   // An origin older than the run's lifetime when the call was made.
-  const staleOrigin = v3({ ...originFields, ts: NOW - 1000 - RUN_MAX_AGE_MS - 1 }, "session");
-  const staleCall = [staleOrigin, v3(hopFields(staleOrigin.sig), "pi")];
-  // Malformed rcv fields, built by hand: signStampV3 refuses the delimiter, and the parse and delimiter checks come before signatures.
+  const staleOrigin = stampBy({ ...originFields, ts: NOW - 1000 - RUN_MAX_AGE_MS - 1 }, "session");
+  const staleCall = [staleOrigin, stampBy(hopFields(staleOrigin.sig), "pi")];
+  // Malformed rcv fields, built by hand: signStamp refuses the delimiter, and the parse and delimiter checks come before signatures.
   const { rcv: _rcv, ...hopWithoutRcv } = hop;
-  const malformed = (last: unknown) => [origin, last] as unknown as StampV3[];
-  // A stamp that is not v3 beside a v3 one.
-  const notV3Call = [origin, { ...hop, v: 2 }] as unknown as StampV3[];
+  const malformed = (last: unknown) => [origin, last] as unknown as Stamp[];
+  // A stamp whose version is not the current one, beside a current one.
+  const wrongVersionCall = [origin, { ...hop, v: 2 }] as unknown as Stamp[];
 
   const clientCall: Omit<CaseInputs, "name"> = {
     chain: call, expectedBind: callBind, influence: INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
@@ -453,8 +453,8 @@ export function buildVectorsV3(): Record<string, unknown> {
       chain: chainToken, expectedBind: c.expectedBind, influence: influenceToken, proof: proofTokenOf(c),
       receiver: c.receiver, receiverInRoute: c.receiverInRoute, ...(c.peer === null ? {} : { peer: c.peer }),
     };
-    let result = verifyChainV3(input, cfg);
-    for (let i = 1; i < c.uses; i++) result = verifyChainV3(input, cfg);
+    let result = verifyChain(input, cfg);
+    for (let i = 1; i < c.uses; i++) result = verifyChain(input, cfg);
     check(`verify ${c.name}`, { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst }, expected);
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey, uses } = c;
     return {
@@ -500,8 +500,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     live(callCase("route fails before peer", { proofRoute: OTHER_ROUTE, peer: { svc: "search", inst: "10.0.0.9" } }), no("PATH_NOT_ALLOWED", "search", "10.0.0.9")),
     live({ ...responseCase, name: "response to wrong receiver", receiver: "other" }, no("BINDING_MISMATCH")),
     // Malformed rcv fields.
-    // A stamp that is not v3 beside a v3 one.
-    live(callCase("a stamp whose v is not 3", { chain: notV3Call }), no("CHAIN_MISSING")),
+    // A stamp whose version is not the current one, beside a current one.
+    live(callCase("a stamp whose v is not 3", { chain: wrongVersionCall }), no("CHAIN_MISSING")),
     live(callCase("v3 stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
     live(callCase("rcv holding the delimiter", { chain: malformed({ ...hop, rcv: "a|b" }) }), no("BAD_SIGNATURE")),
     live(callCase("non-string rcv", { chain: malformed({ ...hop, rcv: 7 }) }), no("CHAIN_MISSING")),
@@ -543,7 +543,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   };
   const offline = [
     offlineCase({ name: "v3 recorded call", ...clientCall }, ok("pi", "pi-1")),
-    offlineCase({ name: "a stamp whose v is not 3", ...clientCall, chain: notV3Call }, no("CHAIN_MISSING")),
+    offlineCase({ name: "a stamp whose v is not 3", ...clientCall, chain: wrongVersionCall }, no("CHAIN_MISSING")),
     offlineCase({ name: "receiver chain broken", ...clientCall, chain: strayCall }, no("BINDING_MISMATCH")),
     offlineCase({ name: "recorded time differs", ...clientCall, recordedTs: { last: hop.ts + 1 } }, no("TIME_MISMATCH")),
     offlineCase({ name: "expired", ...clientCall, chain: staleCall }, no("EXPIRED")),
@@ -556,7 +556,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     { fields: hopFields(origin.sig), key: "pi" },
     { fields: toolsFields, key: "github-tools" },
   ].map((c) => {
-    const sig = encode(sign(keys[c.key as KeyName].priv, signingBytesV3({ v: 3, ...c.fields })));
+    const sig = encode(sign(keys[c.key as KeyName].priv, signingBytes({ v: 3, ...c.fields })));
     check(`signature by ${c.key}`, sig, [origin, hop, tools].find((s) => s.svc === c.fields.svc)!.sig);
     return { ...c, sig };
   });
@@ -1038,8 +1038,8 @@ export function buildVectorsV3(): Record<string, unknown> {
   const callIn = (reply: SessionReply, ts: number, callId: string, o: { forged?: boolean } = {}): RecordedCallInput => {
     const bind = bindMcpCall(TOOL, callId, ARGS);
     const sess = reply.sess;
-    const first = v3({ ...originFields, ts: ts - 1000, sess }, "session");
-    const chain = [first, v3({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
+    const first = stampBy({ ...originFields, ts: ts - 1000, sess }, "session");
+    const chain = [first, stampBy({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
     return {
       handshake: 0, chain, chainToken: tokenOf(chain), expectedBind: bind, influence: INFLUENCE,
       influenceToken: tokenOf(INFLUENCE), policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV,
@@ -1311,8 +1311,8 @@ export function buildVectorsV3(): Record<string, unknown> {
 }
 
 /** v3.json's text: the built vectors as JSON. */
-export function vectorsV3Text(): string {
-  const vectors = buildVectorsV3();
+export function vectorsText(): string {
+  const vectors = buildVectors();
   let text = JSON.stringify(vectors, null, 2) + "\n";
   // JSON.stringify prints −2^63 as -9223372036854776000; the file spells it exactly, so a 64-bit reader meets the long
   // it could take it for
@@ -1327,5 +1327,5 @@ export function vectorsV3Text(): string {
 }
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url) && process.argv.includes("--write")) {
-  writeFileSync(V3_JSON, vectorsV3Text());
+  writeFileSync(VECTORS_JSON, vectorsText());
 }

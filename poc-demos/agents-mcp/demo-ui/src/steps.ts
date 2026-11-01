@@ -7,7 +7,7 @@ import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/sc
 import {
   folderRuleFor, readAttestation, readChain, readInfluence, readLocalDecision, readLocalRules, readProof,
   type InfluenceClass, type InfluenceEntry, type LocalDecision, type LocalRules, type MerkleProof, type ResponseAttestation,
-  type StampV3,
+  type Stamp,
 } from "@paztport/core";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
@@ -36,7 +36,7 @@ export type Step = {
  * attestation, a local record's influence and route proof. `unreadable` names each token that does not read.
  */
 export type Display = {
-  chain?: StampV3[];
+  chain?: Stamp[];
   attestation?: ResponseAttestation;
   influence?: InfluenceEntry[];
   proof?: MerkleProof;

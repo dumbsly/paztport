@@ -19,7 +19,7 @@ import {
   readRootFile,
   signKeyring,
   signRoot,
-  signStampV3,
+  signStamp,
   verifySessionReply,
   writeToken,
   type ContentLabel,
@@ -171,11 +171,11 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
       const now = o.now ?? Date.now();
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
-      const s0 = signStampV3(
+      const s0 = signStamp(
         { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), infl: "", prev: "" },
         session.privateKey,
       );
-      const s1 = signStampV3(
+      const s1 = signStamp(
         {
           svc: "pi",
           inst: "pi-1",

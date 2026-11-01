@@ -21,7 +21,7 @@ writes one and names it, so there it always runs.
 The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonical JSON, v3 stamps and chains,
 the salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay
 cache, prompt binding, influence and the owner-aware influence rule, sessions, local tool rules and the verdict
-for a local tool call, local steps, the live v3 chain verifier (`verifyChainV3`). For responders, `signEvent`
+for a local tool call, local steps, the live v3 chain verifier (`verifyChain`). For responders, `signEvent`
 signs an event, `createEventVerifier` checks a received body (strictly: the envelope and payload must be JCS
 bytes) and `isAttributable` says whether the responder may act on it. Offline verification of a recorded run
 (`verifyChainOffline`) is here too, and shares its checks with the live verifier; the agents demo's
@@ -39,7 +39,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   exactly its members: `readChain`, `readProof`, `readInfluence`, `readAttestation`, `readLocalDecision`,
   `readSessionRequest`, `readSessionReply`, `readKeyring`, `readRoot` and `readLocalRules`, and for files
   `readKeyringFile`, `readRootFile`, `readReplyCertFile`, `readProofBundleFile` and `readLocalRulesFile`. The
-  verifiers take tokens as received (`verifyChainV3`'s chain, proof and influence, `verifyResponse`'s attestation
+  verifiers take tokens as received (`verifyChain`'s chain, proof and influence, `verifyResponse`'s attestation
   and `checkSessionReply`'s reply), so a token that does not read is the typed rejection of the check that reads
   it. `canonicalize` is JCS for content Paztport only hashes, every number written as RFC 8785 writes a binary64.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
@@ -49,7 +49,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   checks it is the last signer (`PEER_MISMATCH`, after every other check) and names it as the suspect in every
   result but `POLICY_EXPIRED`. No transport here supplies one yet: the MCP wrappers (`verifyCall`,
   `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
-  stdio the live order ends at check 11, and the peer check is core's (`verifyChainV3`).
+  stdio the live order ends at check 11, and the peer check is core's (`verifyChain`).
 - **The policy's window.** A live config requires `policyNotAfter`, the earliest `notAfter` of the keyring and
   root it pins (`earliestNotAfter`); past it every chain is `POLICY_EXPIRED`,
   before the live order's checks. Every live verifier here is per session: the server's call check takes the client

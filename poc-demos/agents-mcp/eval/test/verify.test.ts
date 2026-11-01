@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   bindLocalTool, buildTree, commitInfluence, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
-  readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStampV3,
+  readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStamp,
   utf8, writeToken,
 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
@@ -257,7 +257,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     meta["paztport/callId"] = id;
     const [origin, hop] = readChain(meta["paztport/chain"]);
     const { sig: _sig, v: _v, ...fields } = hop!;
-    const resigned = signStampV3(
+    const resigned = signStamp(
       { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, id, late.params.arguments), prev: origin!.sig },
       material().piKey,
     );
@@ -343,9 +343,9 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
       const c = lateCall(rs, ts - callOf(rs, "toolu_a").now, id);
       const [first, second] = readChain(c.params._meta["paztport/chain"]);
       const { sig: _o, v: _ov, ...origin } = first!;
-      const resigned = signStampV3({ ...origin, ts }, material().sessionKey);
+      const resigned = signStamp({ ...origin, ts }, material().sessionKey);
       const { sig: _p, v: _pv, ...hop } = second!;
-      c.params._meta["paztport/chain"] = writeToken([resigned, signStampV3({ ...hop, prev: resigned.sig }, material().piKey)]);
+      c.params._meta["paztport/chain"] = writeToken([resigned, signStamp({ ...hop, prev: resigned.sig }, material().piKey)]);
       return c;
     };
     const notAfter = (rs: any[]) => readSessionReply(rs.find((x) => x.type === "session").reply).serverReplyCert!.notAfter;
@@ -373,7 +373,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
       const meta = callOf(rs, "toolu_a").params._meta;
       meta["paztport/chain"] = changed(meta["paztport/chain"], (c) => {
         const { sig: _sig, v: _v, ...fields } = c[1];
-        c.push(signStampV3({ ...fields, prev: c[1].sig }, material().piKey));
+        c.push(signStamp({ ...fields, prev: c[1].sig }, material().piKey));
       });
     }));
     expect(r.ok).toBe(false);
@@ -825,10 +825,10 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
     meta["paztport/callId"] = id;
     const [first, second] = readChain(meta["paztport/chain"]);
     const { sig: _o, v: _ov, ...origin } = first!;
-    const resigned = signStampV3({ ...origin, ts }, m.sessionKey);
+    const resigned = signStamp({ ...origin, ts }, m.sessionKey);
     const { sig: _p, v: _pv, ...hop } = second!;
     const bind = bindMcpCall(c.params.name, id, c.params.arguments);
-    meta["paztport/chain"] = writeToken([resigned, signStampV3({ ...hop, ts, bind, prev: resigned.sig }, m.piKey)]);
+    meta["paztport/chain"] = writeToken([resigned, signStamp({ ...hop, ts, bind, prev: resigned.sig }, m.piKey)]);
     return c;
   }
   /** The calls of `lines` with two copies of toolu_a after it, at `t` and 1 ms after, reported by call id. */
@@ -945,7 +945,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const [origin, hop] = readChain(rec.chain);
     const { sig: _sig, v: _v, ...fields } = hop!;
     const bind = bindLocalTool(rec.tool, rec.input, readToken(rec.decision));
-    rec.chain = writeToken([origin!, signStampV3({ ...fields, bind }, local.material.piKey)]);
+    rec.chain = writeToken([origin!, signStamp({ ...fields, bind }, local.material.piKey)]);
   }
 
   it("genuineLocalEvidenceVerifies", () => {
@@ -1304,7 +1304,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       const x = localOf(rs, "l_read");
       rechain(x, (c) => {
         const { sig: _sig, v: _v, ...fields } = c[0];
-        c[0] = signStampV3({ ...fields, inst: "pi-2" }, local.material.sessionKey);
+        c[0] = signStamp({ ...fields, inst: "pi-2" }, local.material.sessionKey);
         c[1].prev = c[0].sig;
       });
       resign(x);
@@ -1312,7 +1312,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
   });
 
-  it("aStepWithAStampThatIsNotV3IsChainMissing", () => {
+  it("aStepWithAStampWhoseVersionIsNotThreeIsChainMissing", () => {
     const recs: any[] = localLines.map((l) => JSON.parse(l));
     const client = verifyClient(recs.find((x) => x.type === "client"), []);
     const run = recs.find((x) => x.type === "run");
@@ -1334,7 +1334,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const three = structuredClone(rec);
     rechain(three, (c) => {
       const { sig: _sig, v: _v, ...fields } = c[1];
-      c.push(signStampV3({ ...fields, prev: c[1].sig }, local.material.piKey));
+      c.push(signStamp({ ...fields, prev: c[1].sig }, local.material.piKey));
     });
     expect(verifyLocal(three, client, runOf, new Set())).toBe("BAD_SIGNATURE");
   });

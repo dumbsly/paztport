@@ -9,8 +9,8 @@ import { generateKeyPair, randomBytes, sha256, utf8 } from "../../src/crypto/cry
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
-import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
-import { verifyChainV3, type V3Config, type V3Input } from "../../src/verify/verify-v3.ts";
+import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
+import { verifyChain, type VerifierConfig, type VerifyInput } from "../../src/verify/verify-chain.ts";
 
 const NOW = 10_000_000;
 /** The pinned keyring and root's window: 2100-01-01, past every clock here. */
@@ -20,9 +20,9 @@ const ROUTE = `session/pi/${RECEIVER}`;
 const SESS = "sess-1";
 const infl: InfluenceEntry[] = [{ cls: "third-party", src: "web:example.com", h: "h1" }];
 
-type Fields = Partial<Omit<StampV3, "sig" | "v">>;
+type Fields = Partial<Omit<Stamp, "sig" | "v">>;
 type ChainOpts = { s0?: Fields; s1?: Fields; s0rcv?: string; tamperS1Sig?: boolean; dropRcv?: boolean };
-type Over = Partial<V3Input> & { proofRoute?: string };
+type Over = Partial<VerifyInput> & { proofRoute?: string };
 
 const session = generateKeyPair();
 const pi = generateKeyPair();
@@ -31,8 +31,8 @@ const tree = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(
 const bind = bindPrompt("t call-1");
 const keys: Record<string, string> = { session: session.privateKey, pi: pi.privateKey };
 
-const mk = (svc: string, over: Fields = {}, key = Object.hasOwn(keys, svc) ? keys[svc]! : other.privateKey): StampV3 =>
-  signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, rcv: "", bind: "b0", infl: "", prev: "", ...over }, key);
+const mk = (svc: string, over: Fields = {}, key = Object.hasOwn(keys, svc) ? keys[svc]! : other.privateKey): Stamp =>
+  signStamp({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, rcv: "", bind: "b0", infl: "", prev: "", ...over }, key);
 
 /** Flips the first character: still canonical base64url, no longer the signature. */
 const tamper = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
@@ -52,7 +52,7 @@ function chain(o: ChainOpts = {}): unknown[] {
 /** The same chain whose last stamp names `rcv` as its receiver. */
 const chainEndingAt = (rcv: string) => chain({ s1: { rcv } });
 
-const cfg = (over: Partial<V3Config> = {}): V3Config => ({
+const cfg = (over: Partial<VerifierConfig> = {}): VerifierConfig => ({
   keyring: { session: session.publicKey, pi: pi.publicKey },
   root: tree.root,
   rootId: tree.rootId,
@@ -73,7 +73,7 @@ const token = (value: unknown): string => encode(utf8(canonicalize(value)));
 /** A token holding exactly `text`'s bytes. */
 const raw = (text: string): string => encode(utf8(text));
 
-function input(chain: string, over: Over = {}): V3Input {
+function input(chain: string, over: Over = {}): VerifyInput {
   const { proofRoute, ...rest } = over;
   return {
     chain, expectedBind: bind, influence: writeToken(infl), proof: writeToken(tree.proofFor(proofRoute ?? ROUTE)),
@@ -82,27 +82,27 @@ function input(chain: string, over: Over = {}): V3Input {
 }
 
 /** Verifies the chain `stamps`, carried as the token of its JCS bytes. */
-const verify = (stamps: unknown, over: Over = {}, c: V3Config = cfg()) => verifyChainV3(input(token(stamps), over), c);
+const verify = (stamps: unknown, over: Over = {}, c: VerifierConfig = cfg()) => verifyChain(input(token(stamps), over), c);
 
 /** A stamp's JSON in the wire table's member order, not JCS's. */
-const wireOrder = (s: StampV3): string =>
+const wireOrder = (s: Stamp): string =>
   `{"v":3,"svc":"${s.svc}","inst":"${s.inst}","rid":"${s.rid}","ts":${s.ts},"sess":"${s.sess}","rcv":"${s.rcv}",` +
   `"bind":"${s.bind}","infl":"${s.infl}","prev":"${s.prev}","sig":"${s.sig}"}`;
 
-describe("verifyChainV3", () => {
+describe("verifyChain", () => {
   it("ok names the last signer", () => expect(verify(chain())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" }));
   it("a stamp whose rcv is not the next hop", () => expect(verify(chain({ s0rcv: "orders" })).reason).toBe("BINDING_MISMATCH"));
   it("a chain delivered to another receiver", () => expect(verify(chain(), { receiver: "mcp:github.u" }).reason).toBe("BINDING_MISMATCH"));
   it("a bad signature beats a bad rcv", () => expect(verify(chain({ s0rcv: "orders", tamperS1Sig: true })).reason).toBe("BAD_SIGNATURE"));
   it("a stamp whose v is not 3 is chain missing", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     for (const v of [1, 2, 4]) {
       for (const odd of [[{ ...s0, v }, s1], [s0, { ...s1, v }], [{ ...s0, v }, { ...s1, v }]]) {
         expect(verify(odd).reason).toBe("CHAIN_MISSING");
       }
     }
   });
-  it("a v3 stamp with rcv missing or non-string", () => expect(verify(chain({ dropRcv: true })).reason).toBe("CHAIN_MISSING"));
+  it("a stamp with rcv missing or non-string", () => expect(verify(chain({ dropRcv: true })).reason).toBe("CHAIN_MISSING"));
   it("the receiver can sit off the route", () => expect(verify(chainEndingAt("pi"), { receiver: "pi", receiverInRoute: false, proofRoute: "session/pi" }).reason).toBe("OK"));
   it("a matching peer is named with its address", () => expect(verify(chain(), { peer: { svc: "pi", inst: "10.0.0.7" } })).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "10.0.0.7" }));
   it("a peer other than the last signer", () => expect(verify(chain(), { peer: { svc: "search", inst: "10.0.0.9" } })).toEqual({ ok: false, reason: "PEER_MISMATCH", suspectSvc: "search", suspectInst: "10.0.0.9" }));
@@ -118,49 +118,49 @@ describe("verifyChainV3", () => {
   });
 
   it("an rcv that is not a string", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, rcv: 5 }]).reason).toBe("CHAIN_MISSING");
     expect(verify([s0, { ...s1, rcv: null }]).reason).toBe("CHAIN_MISSING");
   });
   it("the delimiter in rcv is a bad signature, never a throw", () => {
     expect(() => mk("pi", { rcv: "a|b" })).toThrow();
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, rcv: "a|b" }]).reason).toBe("BAD_SIGNATURE");
     expect(verify([{ ...s0, rcv: "a|b" }, s1]).reason).toBe("BAD_SIGNATURE");
   });
   it("a lone surrogate in rcv", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     const text = canonicalize([s0, { ...s1, rcv: "mcp:@" }]).replace('"mcp:@"', '"mcp:\\ud800"');
-    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("aChainTokenInWireMemberOrderIsChainMissing", () => {
-    const stamps = chain() as StampV3[];
-    expect(verifyChainV3(input(raw(`[${stamps.map(wireOrder).join(",")}]`)), cfg()).reason).toBe("CHAIN_MISSING");
-    expect(verifyChainV3(input(raw(` ${canonicalize(stamps)}`)), cfg()).reason).toBe("CHAIN_MISSING");
-    expect(verifyChainV3(input(writeToken(stamps)), cfg()).reason).toBe("OK");
+    const stamps = chain() as Stamp[];
+    expect(verifyChain(input(raw(`[${stamps.map(wireOrder).join(",")}]`)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(raw(` ${canonicalize(stamps)}`)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(writeToken(stamps)), cfg()).reason).toBe("OK");
   });
   it("aStampFieldHoldingANoncharacterIsChainMissing", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, inst: "pi-\uFDD0" }]).reason).toBe("CHAIN_MISSING");
     expect(verify([{ ...s0, rid: "rid-\uFFFF" }, s1]).reason).toBe("CHAIN_MISSING");
   });
   it("aNegativeTsIsChainMissing", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, ts: -1 }]).reason).toBe("CHAIN_MISSING");
     expect(verify([{ ...s0, ts: -(2 ** 63) }, s1]).reason).toBe("CHAIN_MISSING");
   });
   it("aTsOfOnePointZeroIsChainMissing", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     const text = canonicalize([s0, s1]).replace(`"ts":${s1.ts},`, `"ts":${s1.ts}.0,`);
     expect(text).toContain(`"ts":${NOW}.0,`);
-    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("aStampWithAnExtraMemberIsChainMissing", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, extra: true }]).reason).toBe("CHAIN_MISSING");
   });
   it("rcv is signed: altering it is a bad signature", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([s0, { ...s1, rcv: "mcp:github.u" }], { receiver: "mcp:github.u" }).reason).toBe("BAD_SIGNATURE");
   });
   it("the receiver is appended to the route only when it is on it", () => {
@@ -179,7 +179,7 @@ describe("verifyChainV3", () => {
   it("suspectIsEmptyForEveryOtherRejection", () => {
     const spent = cfg();
     verify(chain(), {}, spent);
-    const cases: [string, ReturnType<typeof verifyChainV3>][] = [
+    const cases: [string, ReturnType<typeof verifyChain>][] = [
       ["CHAIN_MISSING", verify([])],
       ["BAD_ORIGIN", verify(chain(), {}, cfg({ allowedOrigins: ["x"] }))],
       ["BAD_SIGNATURE", verify(chain(), {}, cfg({ keyring: { session: session.publicKey, pi: other.publicKey } }))],
@@ -198,14 +198,14 @@ describe("verifyChainV3", () => {
   });
   it("notArray", () => {
     expect(verify({}).reason).toBe("CHAIN_MISSING");
-    expect(verifyChainV3(input("not*base64url"), cfg()).reason).toBe("CHAIN_MISSING");
-    expect(verifyChainV3(input(""), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input("not*base64url"), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(""), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("emptyArray", () => {
     expect(verify([]).reason).toBe("CHAIN_MISSING");
   });
-  it("v1StampMixedIn", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+  it("aStampOfAnotherVersionMixedIn", () => {
+    const [s0, s1] = chain() as [Stamp, Stamp];
     const { v: _v, sess: _s, infl: _i, rcv: _r, ...v1like } = s0;
     expect(verify([v1like, s1]).reason).toBe("CHAIN_MISSING");
     expect(verify([{ ...s0, v: 1 }, s1]).reason).toBe("CHAIN_MISSING");
@@ -213,7 +213,7 @@ describe("verifyChainV3", () => {
   });
   it("pipeInField", () => {
     expect(() => mk("session", { inst: "a|b" })).toThrow();
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([{ ...s0, inst: "a|b" }, s1]).reason).toBe("BAD_SIGNATURE");
   });
   it("wrongOrigin", () => {
@@ -292,7 +292,7 @@ describe("verifyChainV3", () => {
       rootId: serverTree.rootId,
       allowedOrigins: ["mcp-entry"],
     });
-    const r = verifyChainV3(
+    const r = verifyChain(
       {
         chain: writeToken([s0, s1]), expectedBind: "resp", influence: writeToken([]),
         proof: writeToken(serverTree.proofFor("mcp-entry/github-tools")), receiver: "pi", receiverInRoute: false,
@@ -303,12 +303,12 @@ describe("verifyChainV3", () => {
   });
   it("loneSurrogateSwapRejected", () => {
     expect(() => mk("session", { inst: "i\uD800" })).toThrow();
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     const text = canonicalize([{ ...s0, inst: "i@" }, s1]).replace('"i@"', '"i\\ud800"');
-    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChain(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("nonCanonicalSigRejected", () => {
-    const [s0, s1] = chain() as [StampV3, StampV3];
+    const [s0, s1] = chain() as [Stamp, Stamp];
     expect(verify([{ ...s0, sig: s0.sig + "==" }, s1]).reason).toBe("CHAIN_MISSING");
     // 64-byte signature: last char carries 2 unused bits; flip them to a non-canonical variant.
     const alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
@@ -367,7 +367,7 @@ describe("the pinned policy's window", () => {
       expect(verify(chain(), {}, cfg({ policyNotAfter })), String(policyNotAfter)).toEqual(expired);
     }
     const { policyNotAfter: _dropped, ...noWindow } = cfg();
-    expect(verify(chain(), {}, noWindow as V3Config)).toEqual(expired);
+    expect(verify(chain(), {}, noWindow as VerifierConfig)).toEqual(expired);
   });
   it("a non-finite clock is left to freshness, which fails it", () => {
     for (const now of [NaN, Infinity]) expect(verify(chain(), {}, cfg({ now, policyNotAfter: NOW })).reason, String(now)).toBe("EXPIRED");

@@ -11,9 +11,9 @@ import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
 import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
-import { signStampV3 } from "../../src/stamp/stamp.ts";
+import { signStamp } from "../../src/stamp/stamp.ts";
 import type { JsonValue } from "../../src/encoding/json.ts";
-import type { V3Config } from "../../src/verify/verify-v3.ts";
+import type { VerifierConfig } from "../../src/verify/verify-chain.ts";
 
 const tok = (value: unknown): string => writeToken(value as JsonValue);
 
@@ -29,7 +29,7 @@ function world() {
     8,
     "v1",
   );
-  const cfg = (over: Partial<Omit<V3Config, "nonceKey">> = {}): Omit<V3Config, "nonceKey"> => ({
+  const cfg = (over: Partial<Omit<VerifierConfig, "nonceKey">> = {}): Omit<VerifierConfig, "nonceKey"> => ({
     keyring: { "mcp-entry": keys.publicKey, "github-tools": keys.publicKey },
     root: tree.root,
     rootId: tree.rootId,
@@ -46,7 +46,7 @@ function world() {
     const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
     const resultHash = bindResult(body);
     const mk = (svc: string, rcv: string, bind: string, prev: string) =>
-      signStampV3({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: "", prev }, keys.privateKey);
+      signStamp({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: "", prev }, keys.privateKey);
     const s0 = mk("mcp-entry", "github-tools", "b0", "");
     const s1 = mk("github-tools", "pi", bindResponse(resultHash, "call-1", withLabels as ContentLabel[]), s0.sig);
     return { body, att: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels: withLabels, resultHash } };
@@ -82,7 +82,7 @@ describe("verifyResponse", () => {
       expect(verifyResponse(tok(v), { content: [] }, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
     }
   });
-  it("aV3ResponseVerifiesForTheClientItEndsAt", () => {
+  it("aResponseVerifiesForTheClientItEndsAt", () => {
     const w = world();
     const { body, att } = w.response();
     expect(verifyResponse(tok(att), body, { ...CALL, receiver: "pi" }, w.cfg()).result).toEqual({

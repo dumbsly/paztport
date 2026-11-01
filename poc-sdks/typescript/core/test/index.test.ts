@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import * as core from "../src/index.ts";
 
 describe("core exports", () => {
-  it("the v3 verifiers, the response check and the stamp signer are exported", () => {
-    for (const name of ["verifyChainV3", "verifyResponse", "signStampV3", "signingBytesV3"]) {
+  it("the chain verifiers, the response check and the stamp signer are exported", () => {
+    for (const name of ["verifyChain", "verifyResponse", "signStamp", "signingBytes"]) {
       expect(name in core, name).toBe(true);
     }
   });

@@ -3,10 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, readAttestation, signStampV3,
+  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, readAttestation, signStamp,
   writeToken,
 } from "@paztport/core";
-import type { ContentLabel, V3Config } from "@paztport/core";
+import type { ContentLabel, VerifierConfig } from "@paztport/core";
 import { META_ATTESTATION, verifyMcpResponse } from "../src/index.ts";
 import { retoken, tokenOf } from "./helpers/client.ts";
 
@@ -22,7 +22,7 @@ function world() {
     8,
     "v1",
   );
-  const cfg = (over: Partial<Omit<V3Config, "nonceKey">> = {}): Omit<V3Config, "nonceKey"> => ({
+  const cfg = (over: Partial<Omit<VerifierConfig, "nonceKey">> = {}): Omit<VerifierConfig, "nonceKey"> => ({
     keyring: { "mcp-entry": keys.publicKey, "github-tools": keys.publicKey },
     root: tree.root,
     rootId: tree.rootId,
@@ -38,7 +38,7 @@ function world() {
     const body: Record<string, unknown> = { content: [{ type: "text", text: "hello" }] };
     const resultHash = bindResult(body);
     const mk = (svc: string, rcv: string, bind: string, prev: string) =>
-      signStampV3({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: "", prev }, keys.privateKey);
+      signStamp({ svc, inst: svc + "-1", rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: "", prev }, keys.privateKey);
     const s0 = mk("mcp-entry", "github-tools", "b0", "");
     const s1 = mk("github-tools", "pi", bindResponse(resultHash, "call-1", labels), s0.sig);
     return {

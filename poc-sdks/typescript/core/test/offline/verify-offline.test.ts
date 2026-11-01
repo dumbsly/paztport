@@ -9,9 +9,9 @@ import { canonicalize } from "../../src/encoding/jcs.ts";
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
-import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { verifyChainOffline, type OfflineConfig, type OfflineInput } from "../../src/offline/verify-offline.ts";
-import { verifyChainV3 } from "../../src/verify/verify-v3.ts";
+import { verifyChain } from "../../src/verify/verify-chain.ts";
 
 // Recorded long ago: offline there is no clock to be fresh against.
 const RUN_TS = 1_000;
@@ -21,7 +21,7 @@ const RECEIVER = "local:read";
 const ROUTE = `session/pi/${RECEIVER}`;
 const infl: InfluenceEntry[] = [{ cls: "third-party", src: "server:github", h: "h1" }];
 
-type Fields = Partial<Omit<StampV3, "sig" | "v">>;
+type Fields = Partial<Omit<Stamp, "sig" | "v">>;
 /** An input's fields to change, the influence and proof as values. */
 type Over = Partial<Omit<OfflineInput, "influence" | "proof">> & { influence?: unknown; proof?: unknown };
 
@@ -38,9 +38,9 @@ function world() {
   const tree = buildTree([ROUTE, "session/pi/local:write"].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
   const bind = "step-bind";
   const origin = (over: Fields = {}, key = session.privateKey) =>
-    signStampV3({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, key);
-  const step = (o: StampV3, over: Fields = {}, key = pi.privateKey) =>
-    signStampV3({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", rcv: RECEIVER, bind, infl: commitInfluence(infl), prev: o.sig, ...over }, key);
+    signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, key);
+  const step = (o: Stamp, over: Fields = {}, key = pi.privateKey) =>
+    signStamp({ svc: "pi", inst: "pi-1", rid: "rid-1", ts: STEP_TS, sess: "", rcv: RECEIVER, bind, infl: commitInfluence(infl), prev: o.sig, ...over }, key);
   const chain = (stepOver: Fields = {}, originOver: Fields = {}) => {
     const o = origin(originOver);
     return [o, step(o, stepOver)];
@@ -87,7 +87,7 @@ describe("verifyChainOffline", () => {
     const w = world();
     const spent = w.cfg();
     verifyChainOffline(w.input(w.chain()), spent);
-    const [o, s] = w.chain() as [StampV3, StampV3];
+    const [o, s] = w.chain() as [Stamp, Stamp];
     const cases: [string, ReturnType<typeof verifyChainOffline>][] = [
       ["CHAIN_MISSING", verifyChainOffline(w.input([]), w.cfg())],
       ["BAD_SIGNATURE", verifyChainOffline(w.input([{ ...o, inst: "pi|1" }, s]), w.cfg())],
@@ -124,7 +124,7 @@ describe("verifyChainOffline", () => {
 
   it("thePipeDelimiterIsABadSignatureBeforeTheOriginIsLookedAt", () => {
     const w = world();
-    const [o, s] = w.chain() as [StampV3, StampV3];
+    const [o, s] = w.chain() as [Stamp, Stamp];
     // an origin from another instance is BAD_ORIGIN; with the delimiter in that field it is BAD_SIGNATURE first
     expect(verifyChainOffline(w.input([{ ...o, inst: "pi-2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_ORIGIN");
     expect(verifyChainOffline(w.input([{ ...o, inst: "pi|2" }, s]), w.cfg({ signers: SIGNERS })).reason).toBe("BAD_SIGNATURE");
@@ -209,13 +209,13 @@ describe("verifyChainOffline", () => {
     const w = world();
     const live = (stamps: unknown, over: Over = {}) => {
       const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(stamps, over);
-      return verifyChainV3(
+      return verifyChain(
         { chain, expectedBind, influence, proof, receiver, receiverInRoute },
         { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
       ).reason;
     };
     const offline = (stamps: unknown, over: Over = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
-    const [o, s] = w.chain() as [StampV3, StampV3];
+    const [o, s] = w.chain() as [Stamp, Stamp];
     const inputs: [unknown, Over][] = [
       [{}, {}],
       [[{ ...o, v: 1 }, s], {}],
@@ -241,15 +241,15 @@ describe("verifyChainOffline", () => {
     }
   });
 
-  it("aStampThatIsNotV3IsChainMissing", () => {
+  it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
     const w = world();
-    const [o, s] = w.chain() as [StampV3, StampV3];
+    const [o, s] = w.chain() as [Stamp, Stamp];
     for (const v of [1, 2, 4]) {
       for (const odd of [[{ ...o, v }, s], [o, { ...s, v }], [{ ...o, v }, { ...s, v }]]) {
         expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING" });
         const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(odd);
         expect(
-          verifyChainV3(
+          verifyChain(
             { chain, expectedBind, influence, proof, receiver, receiverInRoute },
             { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
           ).reason,

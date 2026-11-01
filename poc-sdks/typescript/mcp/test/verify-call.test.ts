@@ -3,10 +3,10 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, randomBytes, readChain, readProof, signStampV3,
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, randomBytes, readChain, readProof, signStamp,
   writeToken,
 } from "@paztport/core";
-import type { InfluenceEntry, V3Config } from "@paztport/core";
+import type { InfluenceEntry, VerifierConfig } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
 import { tokenOf } from "./helpers/client.ts";
 
@@ -24,7 +24,7 @@ function world(extraRoutes: string[] = []) {
     8,
     "v1",
   );
-  const cfg = (over: Partial<Omit<V3Config, "nonceKey">> = {}): Omit<V3Config, "nonceKey"> => ({
+  const cfg = (over: Partial<Omit<VerifierConfig, "nonceKey">> = {}): Omit<VerifierConfig, "nonceKey"> => ({
     keyring: { session: harness.publicKey, pi: harness.publicKey },
     root: tree.root,
     rootId: tree.rootId,
@@ -47,7 +47,7 @@ function world(extraRoutes: string[] = []) {
     const callId = signed.callId ?? "call-1";
     const args = signed.args ?? { title: "t" };
     const mk = (svc: string, rcv: string, bind: string, i: string, prev: string) => {
-      return signStampV3({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: i, prev }, harness.privateKey);
+      return signStamp({ svc, inst: `${svc}-1`, rid: "rid-1", ts: NOW, sess: SESS, rcv, bind, infl: i, prev }, harness.privateKey);
     };
     const s0 = mk("session", "pi", "b0", "", "");
     const s1 = mk("pi", signed.rcv ?? `mcp:github.${name}`, bindMcpCall(name, callId, args), commitInfluence(infl), s0.sig);

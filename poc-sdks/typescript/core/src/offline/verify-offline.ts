@@ -7,7 +7,7 @@ import {
   checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers,
 } from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
-import type { V3Config, V3Input } from "../verify/verify-v3.ts";
+import type { VerifierConfig, VerifyInput } from "../verify/verify-chain.ts";
 
 export type { Signers };
 
@@ -19,7 +19,7 @@ export type RecordedTimes = {
   run?: ReadonlySet<number>;
 };
 
-export type OfflineInput = Omit<V3Input, "peer"> & {
+export type OfflineInput = Omit<VerifyInput, "peer"> & {
   /** The rid the record files the chain under: every stamp must carry it. Defaults to the origin's. */
   rid?: string;
   /** Omitted, no time is compared. */
@@ -28,7 +28,7 @@ export type OfflineInput = Omit<V3Input, "peer"> & {
   prompt?: string;
 };
 
-export type OfflineConfig = Pick<V3Config, "keyring" | "root" | "rootId" | "allowedOrigins" | "sess" | "nonceKey"> & {
+export type OfflineConfig = Pick<VerifierConfig, "keyring" | "root" | "rootId" | "allowedOrigins" | "sess" | "nonceKey"> & {
   /** Every nonce key spent so far anywhere in the record set. A chain that reaches the replay check adds its own. */
   seen: Set<string>;
   /** For a chain that never leaves one process, such as a client's local steps: who signs it and from which instance. */

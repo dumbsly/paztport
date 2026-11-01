@@ -18,7 +18,7 @@ import {
   readToken,
   signKeyring,
   signRoot,
-  signStampV3,
+  signStamp,
   utf8,
   writeToken,
   type ContentLabel,
@@ -174,11 +174,11 @@ export function makeClient(
       const now = o.now ?? Date.now();
       const rid = o.rid ?? `rid-${++seq}`;
       const callId = o.callId ?? `call-${seq}`;
-      const s0 = signStampV3(
+      const s0 = signStamp(
         { svc: "session", inst: "session-1", rid, ts: now, sess, rcv: "pi", bind: bindPrompt("test prompt"), infl: "", prev: "" },
         session.privateKey,
       );
-      const s1 = signStampV3(
+      const s1 = signStamp(
         {
           svc: "pi",
           inst: "pi-1",

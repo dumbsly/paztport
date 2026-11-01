@@ -24,10 +24,10 @@ import {
   NONCE_TTL_MS,
   parseLocalRules,
   rulesHash,
-  verifyChainV3,
+  verifyChain,
   writeToken,
   type InfluenceEntry,
-  type StampV3,
+  type Stamp,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
@@ -349,7 +349,7 @@ describe("LocalGate evidence", () => {
     const rid = runs.current()!.rid;
     for (const rec of recs) {
       expect(rec).toMatchObject({ v: 1, type: "local", rid, now: 2_000 });
-      const [origin, pi] = rec.chain as [StampV3, StampV3];
+      const [origin, pi] = rec.chain as [Stamp, Stamp];
       expect([origin.v, pi.v]).toEqual([3, 3]);
       expect(origin.rcv).toBe("pi");
       expect(pi.rcv).toBe(`local:${rec.tool}`);
@@ -373,7 +373,7 @@ describe("LocalGate evidence", () => {
 
     // the full v3 chain check of the recorded tokens, with the route as receiver
     for (const [i, rec] of recs.slice(0, 2).entries()) {
-      const v = verifyChainV3(
+      const v = verifyChain(
         {
           chain: raw[i]!.chain,
           expectedBind: bindLocalTool(rec.tool, rec.input, {

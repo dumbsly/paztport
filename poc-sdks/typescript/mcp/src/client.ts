@@ -11,7 +11,7 @@ import {
   routeOf,
   sanitiseVerdictReason,
   serverPolicyNotAfter,
-  signStampV3,
+  signStamp,
   writeToken,
   type ContentLabel,
   type InfluenceEntry,
@@ -19,7 +19,7 @@ import {
   type NonceCache,
   type SessionReply,
   type SessionRequest,
-  type StampV3,
+  type Stamp,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT } from "./meta.ts";
@@ -157,7 +157,7 @@ export function toolCallProof(
 /** What the calling hop signs a tools/call with. */
 export type ToolCallStamp = {
   /** The run's origin stamp for this session, naming `svc` as its receiver; the call's stamp continues its rid, session and chain. */
-  origin: StampV3;
+  origin: Stamp;
   svc: string;
   inst: string;
   privateKey: string;
@@ -175,7 +175,7 @@ export type ToolCallStamp = {
  * stamp cannot be signed or a token written.
  */
 export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
-  const hop = signStampV3(
+  const hop = signStamp(
     {
       svc: s.svc,
       inst: s.inst,

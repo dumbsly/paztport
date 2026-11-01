@@ -11,7 +11,7 @@ import { commitInfluence, influenceOf } from "../influence/influence.ts";
 import { parseProof, provesPath } from "../policy/merkle.ts";
 import type { ReasonCode, VerifyResult } from "../verify/reason.ts";
 import { routeOf } from "../policy/routes.ts";
-import { chainOf, signingBytesV3, type StampV3 } from "../stamp/stamp.ts";
+import { chainOf, signingBytes, type Stamp } from "../stamp/stamp.ts";
 
 /**
  * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
@@ -47,13 +47,13 @@ export type Signers = { svcs: readonly string[]; inst: string };
 export type StampShape = { receiver?: string; rid?: string; signers?: Signers };
 
 /** A stamp's signed string fields. */
-function signedFields(s: StampV3): string[] {
+function signedFields(s: Stamp): string[] {
   return [s.svc, s.inst, s.rid, s.sess, s.rcv, s.bind, s.infl, s.prev];
 }
 
-function signatureValid(publicKey: string, s: StampV3): boolean {
+function signatureValid(publicKey: string, s: Stamp): boolean {
   try {
-    return verify(publicKey, signingBytesV3(s), decode(s.sig));
+    return verify(publicKey, signingBytes(s), decode(s.sig));
   } catch {
     return false;
   }
@@ -72,13 +72,13 @@ export function checkStamps(
   value: JsonValue | undefined,
   cfg: { keyring: Record<string, string>; allowedOrigins: readonly string[]; sess: string },
   shape: StampShape,
-): StampV3[] | ReasonCode {
+): Stamp[] | ReasonCode {
   const { rid, signers } = shape;
   // 1. The chain, by its schema.
   if (value === undefined) {
     return "CHAIN_MISSING";
   }
-  let stamps: StampV3[];
+  let stamps: Stamp[];
   try {
     stamps = chainOf(value);
   } catch {
@@ -130,7 +130,7 @@ export function checkStamps(
  * (INFLUENCE_MISMATCH).
  */
 export function checkCommitments(
-  last: StampV3,
+  last: Stamp,
   expectedBind: string,
   influence: JsonValue | undefined,
 ): ReasonCode | undefined {
@@ -160,7 +160,7 @@ export function checkCommitments(
  * read (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
  */
 export function checkRoute(
-  stamps: StampV3[],
+  stamps: Stamp[],
   receiver: string | undefined,
   proof: JsonValue | undefined,
   cfg: { root: Uint8Array; rootId: string },

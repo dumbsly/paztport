@@ -7,7 +7,7 @@ import { readToken, type JsonValue } from "../encoding/json.ts";
 import { isProtocolText } from "../encoding/json-rules.ts";
 import { array, exactly, int, object, str } from "../internal/fields.ts";
 
-export type StampV3 = {
+export type Stamp = {
   v: 3;
   svc: string;
   inst: string;
@@ -21,11 +21,11 @@ export type StampV3 = {
   sig: string;
 };
 
-const V3_STRING_FIELDS = ["svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev"] as const;
+const STRING_FIELDS = ["svc", "inst", "rid", "sess", "rcv", "bind", "infl", "prev"] as const;
 
 /** The exact bytes covered by a v3 stamp's signature; throws if any string field contains the delimiter, a lone surrogate or a noncharacter. */
-export function signingBytesV3(s: Omit<StampV3, "sig">): Uint8Array {
-  for (const f of V3_STRING_FIELDS) {
+export function signingBytes(s: Omit<Stamp, "sig">): Uint8Array {
+  for (const f of STRING_FIELDS) {
     if (s[f].includes("|")) {
       throw new Error(`stamp field ${f} must not contain '|'`);
     }
@@ -37,7 +37,7 @@ export function signingBytesV3(s: Omit<StampV3, "sig">): Uint8Array {
 }
 
 /** Signs a v3 stamp, the one every live producer makes; throws if a field holds the delimiter, a lone surrogate or a noncharacter, or `ts` is outside [0, 2^53 − 1]. */
-export function signStampV3(fields: Omit<StampV3, "sig" | "v">, privateKey: string): StampV3 {
+export function signStamp(fields: Omit<Stamp, "sig" | "v">, privateKey: string): Stamp {
   if (!Number.isSafeInteger(fields.ts) || fields.ts < 0) {
     throw new Error("stamp ts must be an integer in [0, 2^53 - 1]");
   }
@@ -53,13 +53,13 @@ export function signStampV3(fields: Omit<StampV3, "sig" | "v">, privateKey: stri
     infl: fields.infl,
     prev: fields.prev,
   };
-  return { ...base, sig: encode(sign(privateKey, signingBytesV3(base))) };
+  return { ...base, sig: encode(sign(privateKey, signingBytes(base))) };
 }
 
 const MEMBERS = ["v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig"];
 
 /** One stamp by the stamp's schema; throws naming the member it refuses. */
-function stampOf(item: JsonValue): StampV3 {
+function stampOf(item: JsonValue): Stamp {
   const o = object(item);
   exactly(o, MEMBERS);
   if (int(o, "v") !== 3) {
@@ -91,7 +91,7 @@ function stampOf(item: JsonValue): StampV3 {
  * `v` 3, `ts` a protocol integer, the rest strings and `sig` canonical base64url. Throws an Error naming what it
  * refuses. Internal: index.ts exports readChain.
  */
-export function chainOf(value: JsonValue): StampV3[] {
+export function chainOf(value: JsonValue): Stamp[] {
   const items = array(value);
   if (items.length === 0) {
     throw new Error("a chain with no stamps");
@@ -103,6 +103,6 @@ export function chainOf(value: JsonValue): StampV3[] {
  * Reads a chain from its token: MalformedJson for bytes that do not read, an Error naming the member for a stamp the
  * schema refuses.
  */
-export function readChain(token: string): StampV3[] {
+export function readChain(token: string): Stamp[] {
   return chainOf(readToken(token));
 }

@@ -12,7 +12,7 @@ import { parseLocalRules, rulesHash, type LocalRules } from "../../src/policy/lo
 import { writeToken } from "../../src/encoding/jcs.ts";
 import { buildTree, type MerkleProof } from "../../src/policy/merkle.ts";
 import { bindPrompt } from "../../src/stamp/binding.ts";
-import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
 import { verifyRecordedLocalStep, type LocalStepClient, type RecordedLocalStep } from "../../src/offline/local-step.ts";
 
 const RUN_TS = 1_000;
@@ -45,11 +45,11 @@ function world() {
     rules: RULES,
     ...over,
   });
-  const origin = (over: Partial<Omit<StampV3, "v" | "sig">> = {}) =>
-    signStampV3({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, session.privateKey);
+  const origin = (over: Partial<Omit<Stamp, "v" | "sig">> = {}) =>
+    signStamp({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, session.privateKey);
   /** A step the gate signed for `d`, its proof the tree's for the tool's route when `routeAllowed`. */
   type StepOver = {
-    key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<StampV3, "v" | "sig">>;
+    key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<Stamp, "v" | "sig">>;
   };
   const step = (d: Partial<Decision> = {}, o: StepOver = {}): RecordedLocalStep => {
     const decision: Decision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(RULES), ...d };

@@ -385,7 +385,7 @@ describe("isAttestedSession", () => {
       expect(isAttestedSession(w.req, token(reply), w.serverPolicy.publicKey, ENTRY, NOW)).toBe(false);
     }
   });
-  it("aV3RequestWhoseKeyringSignatureFailsIsNotAttested", () => {
+  it("aRequestWhoseKeyringSignatureFailsIsNotAttested", () => {
     const w = world();
     const reply = signSessionReply(w.body(), w.serverPolicy.privateKey);
     // the session id binds the keyring but not its signature, so only the keyring check catches this

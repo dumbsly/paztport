@@ -10,12 +10,12 @@ import { readToken, type JsonObject, type JsonValue } from "../encoding/json.ts"
 import { array, exactly, object, str } from "../internal/fields.ts";
 import { parseProof, type MerkleProof } from "../policy/merkle.ts";
 import type { VerifyResult } from "../verify/reason.ts";
-import { chainOf, type StampV3 } from "../stamp/stamp.ts";
-import { verifyChainRead, type V3Config } from "../verify/verify-v3.ts";
+import { chainOf, type Stamp } from "../stamp/stamp.ts";
+import { verifyChainRead, type VerifierConfig } from "../verify/verify-chain.ts";
 
 export type ContentLabel = { cls: InfluenceClass; cid: string; owner?: string };
 /** A response's attestation: the server's stamps, the last naming the calling client as its receiver. */
-export type ResponseAttestation = { chain: StampV3[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
+export type ResponseAttestation = { chain: Stamp[]; proof: MerkleProof; labels: ContentLabel[]; resultHash: string };
 /** The call a response answers, and the client it was sent to: the service that made the call. */
 type ResponseCall = { rid: string; toolCallId: string; receiver: string };
 
@@ -82,7 +82,7 @@ export function verifyResponse(
   attestation: string,
   result: Record<string, unknown>,
   call: ResponseCall,
-  cfg: Omit<V3Config, "nonceKey">,
+  cfg: Omit<VerifierConfig, "nonceKey">,
 ): { result: VerifyResult; labels: ContentLabel[] } {
   const fail = (reason: VerifyResult["reason"]) => ({ result: { ok: false as const, reason, suspectSvc: "", suspectInst: "" }, labels: [] });
   try {

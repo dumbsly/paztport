@@ -518,7 +518,7 @@ describe("response attestation", () => {
       expect(att.chain.map((s: any) => s.svc)).toEqual(["mcp-entry", "github-tools"]);
     }
   });
-  it("theResponseChainIsV3AndEndsAtTheCaller", () => {
+  it("theResponseChainEndsAtTheCaller", () => {
     const { srv } = setup();
     const att = readAttestation((srv.attest(srv.session()!, RESULT, { ...CALL, caller: "pi" }, "public")._meta as Record<string, string>)[META_ATTESTATION]!);
     expect(att.chain.map((s: any) => s.rcv)).toEqual(["github-tools", "pi"]);

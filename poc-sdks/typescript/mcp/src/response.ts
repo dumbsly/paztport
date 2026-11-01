@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { verifyResponse } from "@paztport/core";
-import type { ContentLabel, V3Config, VerifyResult } from "@paztport/core";
+import type { ContentLabel, VerifierConfig, VerifyResult } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 import { readVerdict, type Verdict } from "./verdict.ts";
 
@@ -26,7 +26,7 @@ function metaOf(result: Record<string, unknown>, name: string): unknown {
 export function verifyMcpResponse(
   result: Record<string, unknown>,
   call: { rid: string; toolCallId: string; receiver: string },
-  cfg: Omit<V3Config, "nonceKey">,
+  cfg: Omit<VerifierConfig, "nonceKey">,
 ): { result: VerifyResult; labels: ContentLabel[] } {
   const attestation = metaOf(result, META_ATTESTATION);
   if (typeof attestation !== "string") {
