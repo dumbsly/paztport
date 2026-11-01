@@ -74,6 +74,7 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([verification.md](verification.md#http-requests-and-responses)) | `CHAIN_MISSING` |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
+| A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | The file is malformed: a service does not start, a policy tool writes nothing and exits as for any malformed input, and both name the file |
 
 ### The grammar
 
@@ -174,8 +175,8 @@ exactly sees two.
 
 The policy tools write these files, except the pins of the other side of a session, which whoever onboards that
 side writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding
-whitespace. Each JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `proofs-<svc>.json`) is in the
-[file format](#files).
+whitespace. Each JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `proofs-<svc>.json`) is written in
+the [file format](#files), and read as [Files](#files) says: strictly, in any member order and spacing.
 
 | File | Holds | Secret |
 |---|---|---|
@@ -192,10 +193,10 @@ whitespace. Each JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `
 **Expiry.** The policy key stays offline, so a root or keyring it once signed can't be withdrawn, only left to
 lapse. Each therefore carries `notAfter`, the time after which the policy owner no longer vouches for it, and its
 signature covers that value. `notAfter` follows the reply certificate's rule: an integer number of milliseconds
-since the Unix epoch, in [0, 2^53 − 1], checked by value and written as plain decimal digits. A reader MUST
-refuse, as malformed, a keyring or root whose own `notAfter` is missing or is not such an integer. A root or
-keyring is valid at time `t` when `t <= notAfter`; verifying its signature says nothing about time, so whoever
-relies on it MUST check both.
+since the Unix epoch, a [protocol integer](#the-grammar) by its text, so `1798761600000.0` is refused though its
+value is an integer. A reader MUST refuse, as malformed, a keyring or root whose own `notAfter` is missing or is
+not such an integer. A root or keyring is valid at time `t` when `t <= notAfter`; verifying its signature says
+nothing about time, so whoever relies on it MUST check both.
 
 ## Stamps
 
@@ -494,7 +495,7 @@ utf8( "paztport-root\n" ‖ JCS({ "notAfter": notAfter, "root": root, "rootId": 
 
 with `root` as its base64url text. When it is valid is set out under [Expiry](#keys-and-files). A widened policy
 can't be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy
-key before using the root. Any other field is ignored and not signed.
+key before using the root. A reader refuses a root with any member but these four.
 
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
 vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
@@ -507,9 +508,9 @@ renewing: it needs a new tree, a new `rootId` and new proof bundles.
 pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
 tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a `notAfter` that is
 not an integer, a root signed by another policy key and a keyring signature offered as a root signature, which
-fail; a root with no `notAfter` and one of 2^53, which a reader refuses, the first though its signature is the
-policy key's over `utf8(rootId ‖ "|" ‖ root)`; and one written `1798761600000.0`, which a reader reads by value,
-as the integer its signature is over.
+fail; and a root with no `notAfter`, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader
+refuses, the first though its signature is the policy key's over `utf8(rootId ‖ "|" ‖ root)` and the last though
+its value is the integer its signature is over.
 
 ## The signed keyring
 
@@ -525,7 +526,9 @@ as the integer its signature is over.
 utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "services": services }) )
 ```
 
-When it is valid is set out under [Expiry](#keys-and-files).
+When it is valid is set out under [Expiry](#keys-and-files). A reader refuses a keyring with any member but these
+four. `services` is a map: each name in it is a service, held to the [route node](#routes) rules, and each value a
+string.
 
 A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
 The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the
@@ -536,9 +539,9 @@ current key; `notAfter` is when it stops vouching for them. A retired key needs 
 `v3.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
 and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
 signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))`, a `notAfter`
-that is not an integer and a root signature offered as a keyring signature, which fail; a keyring with no
-`notAfter` and one of 2^53, which a reader refuses, the first though its signature is the policy key's over those
-same bytes; and one written `1798761600000.0`, which a reader reads by value.
+that is not an integer and a root signature offered as a keyring signature, which fail; and a keyring with no
+`notAfter`, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader refuses, the first though its
+signature is the policy key's over those same bytes.
 
 Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
 default valid for seven days. The policy tools also re-sign the keyring on every rebuild and renew.
@@ -562,9 +565,8 @@ utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "polic
 `notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], and is written as plain
 decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader MUST
 refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a string,
-or whose `notAfter` is missing, not a JSON number, not an integer, negative, or greater than 2^53 − 1. `notAfter`
-is checked by value: `1.0` and `1e3` are the integers 1 and 1000. The signature covers the plain digits of that
-value. Any other field is ignored and not signed.
+whose `notAfter` is missing or not a [protocol integer](#the-grammar), so `1.0` and `1e3` are refused, or that has
+any other member.
 
 A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
 under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
@@ -591,8 +593,8 @@ print only the file, the service and `notAfter`.
 
 `v3.json` pins the signed bytes and signatures in `replyCert`: a certificate for `mcp-entry` under the
 `server-policy` pin, and, against the same pin, one with a tampered `notAfter`, one signed by `client-policy`,
-and one that names `client-policy`, all of which fail, one with an extra field, which is ignored, and one with
-the largest `notAfter`.
+and one that names `client-policy`, all of which fail, one with an extra field, whose file a reader refuses, and
+one with the largest `notAfter`.
 
 ## Events
 
@@ -684,6 +686,10 @@ refusal, so the answer tells a sender nothing about the allowed signers, the key
 ```json
 { "service": "<svc>", "rootId": "...", "proofs": { "<route>": { /* proof object */ }, ... } }
 ```
+
+A reader refuses a bundle with any member but these three, or whose `service` or `rootId` is not a string.
+`proofs` is a map: each name in it is a [route](#routes), at least two route nodes joined by `/`, and each value a
+[proof object](#proof-object), held to those of its checks that need no root.
 
 A route's proof is held by its caller, the node before the last, since that is the hop that sends the request
 the proof travels with.
