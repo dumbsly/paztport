@@ -157,10 +157,10 @@ Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.
 (Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
 have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
 
-No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime scope, so
-it works beside whichever Jackson the application uses: Boot 4's web layer and `RestClient`
-use Jackson 3 (`tools.jackson`). An SDK value's JSON, such as `Opening.toJson()`, goes to
-Spring MVC or a `RestClient` as that `String`,
+No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime
+scope, so it works beside whichever Jackson the application uses: Boot 4's web
+layer and `RestClient` use Jackson 3 (`tools.jackson`). An SDK value's JSON, such
+as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
 labelled `application/json`, so it is written exactly as it stands; a body goes to
 the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
 hands a session request's body to `HttpSessions.serve`.

@@ -137,7 +137,6 @@ public final class HttpV3 {
         return Base64Url.encode(jcsText.getBytes(StandardCharsets.UTF_8));
     }
 
-
     /** What a caller learns from a response. {@code labels} is empty unless the result is {@code OK}. */
     public record ResponseCheck(VerifyResult result, List<ContentLabel> labels, String resultHash) {
     }
