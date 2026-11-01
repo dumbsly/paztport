@@ -478,7 +478,7 @@ class PolicyToolMainTest {
         Map<Path, String> before = snapshot(keys, out);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
-        assertEquals(out.resolve("root.json") + " is missing or not a signed root", e.getMessage());
+        assertEquals(out.resolve("root.json") + " is missing or not a signed root: no member notAfter", e.getMessage());
         assertEquals(before, snapshot(keys, out));
 
         Files.writeString(out.resolve("root.json"), rootFile);
@@ -489,7 +489,8 @@ class PolicyToolMainTest {
         before = snapshot(keys, out);
         e = assertThrows(IllegalArgumentException.class,
                 () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
-        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring", e.getMessage());
+        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring: no member notAfter",
+                e.getMessage());
         assertEquals(before, snapshot(keys, out));
     }
 
@@ -506,7 +507,8 @@ class PolicyToolMainTest {
         Map<Path, String> before = snapshot(keys, out);
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> PolicyToolMain.renew(keys, out, KEYRING_NOT_AFTER, null, 0));
-        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring", e.getMessage());
+        assertEquals(keys.resolve("keyring.json") + " is missing or not a keyring: "
+                + "JSON refused: a number that is not an integer, at byte 29", e.getMessage());
         assertEquals(before, snapshot(keys, out));
     }
 

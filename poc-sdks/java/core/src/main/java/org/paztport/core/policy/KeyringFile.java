@@ -155,7 +155,10 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         return JsonWriter.text(tree());
     }
 
-    /** The keyring as a file: {@link #toJson()}'s object in the spec's file format. */
+    /**
+     * The keyring as a file: {@link #toJson()}'s object in the spec's file format. A keyring without a {@code sig}
+     * is written without one, and {@link #parse} and {@link #load} refuse that file.
+     */
     public String toFile() {
         return JsonWriter.file(tree());
     }

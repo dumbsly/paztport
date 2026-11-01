@@ -38,6 +38,7 @@ class JcsTest {
         assertThrows(MalformedJsonException.class, () -> Jcs.canonicalize("9007199254740992"));
         assertThrows(MalformedJsonException.class, () -> Jcs.canonicalize("-9007199254740992"));
         assertThrows(MalformedJsonException.class, () -> Jcs.canonicalize("-1"));
+        assertThrows(MalformedJsonException.class, () -> Jcs.canonicalize("{\"a\":1,\"a\":2}"));
         assertThrows(MalformedJsonException.class, () -> Jcs.canonicalize("123456789012345678901234567890"));
     }
 

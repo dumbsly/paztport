@@ -7,6 +7,9 @@ import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -78,9 +81,18 @@ public final class Vectors {
         return JsonWriter.text(value(node));
     }
 
-    /** A case's token, the bytes it says were received, as the JSON text they are, for the SDK's text API. */
+    /**
+     * A case's token, the bytes it says were received, as the JSON text they are, for the SDK's text API. Bytes that
+     * are not UTF-8 throw, so the replay never repairs them on the way.
+     */
     public static String tokenText(JsonNode token) {
-        return new String(Base64Url.decode(token.textValue()), StandardCharsets.UTF_8);
+        try {
+            return StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(Base64Url.decode(token.textValue()))).toString();
+        } catch (CharacterCodingException e) {
+            throw new IllegalArgumentException("a token whose bytes are not UTF-8: " + token, e);
+        }
     }
 
     /** The tree of a vector file's text. */

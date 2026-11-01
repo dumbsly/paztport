@@ -133,8 +133,10 @@ public final class PolicyToolMain {
         SignedRoot root;
         try {
             root = SignedRoot.load(rootFile);
-        } catch (UncheckedIOException | IllegalArgumentException e) {
+        } catch (UncheckedIOException e) {
             throw new IllegalArgumentException(rootFile + " is missing or not a signed root", e);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(rootFile + " is missing or not a signed root: " + e.getMessage(), e);
         }
         ReplyCert cert = replyCertSvc == null ? null
                 : issueReplyCert(keyringFile, ring, replyCertSvc, replyCertNotAfter, policyKey);
@@ -164,8 +166,10 @@ public final class PolicyToolMain {
         KeyringFile ring;
         try {
             ring = KeyringFile.load(keyringFile);
-        } catch (UncheckedIOException | IllegalArgumentException e) {
+        } catch (UncheckedIOException e) {
             throw new IllegalArgumentException(keyringFile + " is missing or not a keyring", e);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(keyringFile + " is missing or not a keyring: " + e.getMessage(), e);
         }
         try {
             return PolicyOwner.renewKeyring(ring, notAfter, policyKey);
