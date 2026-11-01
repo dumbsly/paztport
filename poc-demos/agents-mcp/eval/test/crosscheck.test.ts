@@ -131,7 +131,7 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
   });
 
   it("aSignedStepCopiedUnderANewCallIdFails", () => {
-    // review probe dupcall.ts, evidence and events edited to match
+    // the same signed step again, evidence and events edited to match
     const v = check({
       evidencePath: write(evidence, (rs) => rs.push({ ...structuredClone(localEvent(rs, "l_leak")), callId: "l_leak_dup" })),
       eventsPath: write(events, (rs) => rs.push({ ...structuredClone(localEvent(rs, "l_leak")), callId: "l_leak_dup" })),
@@ -179,7 +179,7 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
   });
 
   it("aLocalStepCopiedFromAnotherRunFails", () => {
-    // review probe: another run's signed refusal (with its run record) moved into this run's evidence and events
+    // another run's signed refusal (with its run record) moved into this run's evidence and events
     const P = (path: string) => jsonLines(path).map((l) => JSON.parse(l));
     const theirs = P(other.evidencePath);
     const leak = theirs.find((x) => x.type === "local" && x.callId === "l_leak");

@@ -1257,7 +1257,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("theDecisionIsSigned", () => {
-    // review probe: an allowed write recorded as an unlisted route (proof dropped, verdict changed)
+    // an allowed write recorded as an unlisted route (proof dropped, verdict changed)
     const downgraded = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; decide(x, (d) => { d.verdict = "PATH_NOT_ALLOWED"; }); }));
     expect(downgraded.ok).toBe(false);
     expect(localResult(downgraded, "l_note")).toBe("BINDING_MISMATCH");
@@ -1267,7 +1267,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       decide(x, (d) => { d.routeAllowed = false; d.verdict = "PATH_NOT_ALLOWED"; });
     }));
     expect(localResult(both, "l_note")).toBe("BINDING_MISMATCH");
-    // review probe: the rules removed and every step turned into a scope refusal
+    // the rules removed and every step turned into a scope refusal
     const nullRules = verifyEvidence(write(localLines, (rs) => {
       const c = rs.find((x) => x.type === "client");
       c.rules = null;
@@ -1353,7 +1353,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("aSignedStepCopiedUnderANewCallIdIsAReplay", () => {
-    // review probe dupcall.ts: the same signed step again under a new call id, in the same file
+    // the same signed step again under a new call id, in the same file
     const r = verifyEvidence(write(localLines, (rs) => rs.push({ ...structuredClone(localOf(rs, "l_leak")), callId: "l_leak_dup" })));
     expect(r.ok).toBe(false);
     expect(localResult(r, "l_leak")).toBe("REFUSED");

@@ -175,7 +175,7 @@ describe("LocalGate verdicts", () => {
   });
 
   it("aSingleCallCopyingPrivateToPublicCountsItsOwnPrivateReads", () => {
-    // review probe: one bash call that reads a private folder and writes a public one
+    // one bash call that reads a private folder and writes a public one
     const rules = parseLocalRules({
       v: 1,
       folders: [

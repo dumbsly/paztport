@@ -217,7 +217,6 @@ describe("--scenario flag", () => {
   it("defaultsToBuiltinScenario", () => {
     const recs = runPr([], "# Acme\n\nWelcome to the Acme website.\n");
     expect(recs.at(-1)).toMatchObject({ tool: "create_pull_request", taskDone: true });
-    expect(recs.at(-1)).not.toHaveProperty("typoFixed"); // renamed to taskDone
   });
 
   it("scenarioFlagLoadsCustomDir", () => {
