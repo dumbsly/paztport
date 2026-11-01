@@ -11,7 +11,8 @@
 // run's outcome log (off-001) and the results.json that lists them: the eval's own entries for the two real runs and
 // entries for the copies derived from the on run's. recorded-on-run/ (demo-ui) holds the on run with the
 // transcript's thinking and answer text deltas dropped; nothing depends on them and they are most of its size, and
-// the `*_start` events give the same activity. Nothing else is edited.
+// the `*_start` events give the same activity. Every evidence record is written in the evidence format, each
+// Paztport object as its token (tokenForm); a record already in that form is copied as it is. Nothing else is edited.
 //
 // The script writes only those files. The expected reports and stdout files beside them are left as they are, and
 // are rebuilt from `npm run verify` after the files above change, in each fixture set:
@@ -23,6 +24,71 @@
 
 import { cpSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { writeToken, type JsonValue } from "@paztport/core";
+
+type Rec = Record<string, any>;
+
+/** The tokens of the `_meta` members `names`, the other members as they are. */
+const metaTokens = (meta: Rec, names: string[]): Rec =>
+  Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, names.includes(k) ? writeToken(v as JsonValue) : v]));
+
+/**
+ * A record in the evidence format, each Paztport object it holds written as its token, the token of exactly the object
+ * the record holds. The signed bytes are unchanged: a stamp signs the join of its fields, a session reply the JCS of
+ * itself less `sig`, a local step the JCS of its input and decision, and a keyring its window, policy key and services.
+ * A record already in the token form, and a run record, come back as they are.
+ */
+function tokenForm(r: Rec): Rec {
+  switch (r.type) {
+    case "session":
+      if (typeof r.request === "string") return r;
+      return { ...r, request: writeToken(r.request), reply: r.reply === null ? null : writeToken(r.reply) };
+    case "call":
+      if (typeof r.params._meta["paztport/chain"] === "string") return r;
+      return { ...r, params: { ...r.params, _meta: metaTokens(r.params._meta, ["paztport/chain", "paztport/proof", "paztport/influence"]) } };
+    case "response": {
+      const meta = r.result?._meta;
+      const names = ["paztport/attestation", "paztport/verdict"].filter((k) => meta !== undefined && Object.hasOwn(meta, k));
+      if (names.length === 0 || names.every((k) => typeof meta[k] === "string")) return r;
+      return { ...r, result: { ...r.result, _meta: metaTokens(meta, names) } };
+    }
+    case "client":
+      if (typeof r.keyring === "string") return r;
+      return {
+        v: r.v,
+        type: r.type,
+        keyring: writeToken({ notAfter: r.keyringNotAfter, policy: r.policyPublicKey, services: r.keyring, sig: r.keyringSig }),
+        root: writeToken(r.signedRoot),
+        rules: r.rules === null ? null : writeToken(r.rules),
+        rulesProof: r.rulesProof === null ? null : writeToken(r.rulesProof),
+      };
+    case "local": {
+      if (typeof r.decision === "string") return r;
+      const { callId, resolved, verdict, routeAllowed, rulesHash } = r;
+      return {
+        v: r.v,
+        type: r.type,
+        tool: r.tool,
+        callId,
+        rid: r.rid,
+        now: r.now,
+        input: r.input,
+        decision: writeToken({ callId, resolved, verdict, routeAllowed, rulesHash }),
+        chain: writeToken(r.chain),
+        proof: r.proof === null ? null : writeToken(r.proof),
+        influence: writeToken(r.influence),
+      };
+    }
+  }
+  return r;
+}
+
+/** An evidence line in the token form: the line itself when its record is in that form already. */
+function tokenLine(line: string): string {
+  const rec = JSON.parse(line);
+  const out = tokenForm(rec);
+  return out === rec ? line : JSON.stringify(out);
+}
 
 const [folder, onName, offName] = process.argv.slice(2);
 if (folder === undefined || onName === undefined || offName === undefined) {
@@ -40,9 +106,10 @@ const results = join(here, "eval-results");
 rmSync(join(results, "runs"), { recursive: true, force: true });
 const on1 = join(results, "runs/on-001");
 mkdirSync(on1, { recursive: true });
-for (const f of ["events.jsonl", "evidence.jsonl", "outcome.jsonl"]) cpSync(join(onDir, f), join(on1, f));
+for (const f of ["events.jsonl", "outcome.jsonl"]) cpSync(join(onDir, f), join(on1, f));
+const evidence = lines(join(onDir, "evidence.jsonl")).map(tokenLine);
+writeFileSync(join(on1, "evidence.jsonl"), evidence.join("\n") + "\n");
 
-const evidence = lines(join(onDir, "evidence.jsonl"));
 let tampered = false;
 const changed = evidence.map((l) => {
   const rec = JSON.parse(l);
@@ -94,7 +161,8 @@ writeFileSync(
 // demo-ui's recorded run
 const rec = join(here, "../../../demo-ui/test/fixtures/recorded-on-run");
 mkdirSync(rec, { recursive: true });
-for (const f of ["canary.txt", "events.jsonl", "evidence.jsonl", "outcome.jsonl", "run.json"]) cpSync(join(onDir, f), join(rec, f));
+for (const f of ["canary.txt", "events.jsonl", "outcome.jsonl", "run.json"]) cpSync(join(onDir, f), join(rec, f));
+writeFileSync(join(rec, "evidence.jsonl"), evidence.join("\n") + "\n");
 const kept = lines(join(onDir, "transcript.jsonl")).filter((l) => {
   const t = JSON.parse(l).assistantMessageEvent?.type;
   return t !== "thinking_delta" && t !== "text_delta";
