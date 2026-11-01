@@ -422,7 +422,8 @@ What any design of this kind meets, and what this one has not yet tackled.
   route, `<egress>/<partner entry>`, never the internal one. Hiding a request's
   own route from its verifier is not what the proof is for.
 - **A binding binds the value read, not its text.** A tool's arguments and
-  result are hashed as RFC 8785 JCS, which reads every number as a 64-bit float.
+  result are hashed as RFC 8785 JCS, which treats every number as the 64-bit
+  float a JSON parser reads.
   So `9007199254740993` and `9007199254740992` share one binding, though a tool
   that reads integers exactly sees two (see
   [Hashed content](poc-sdks/spec/wire.md#hashed-content)).

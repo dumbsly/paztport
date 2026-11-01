@@ -18,7 +18,7 @@ Contents: [Encodings](#encodings) · [JSON](#json) · [Keys and files](#keys-and
 | What | Rule |
 |---|---|
 | Text | Every string that is hashed or signed is encoded as UTF-8. A string that holds a lone surrogate has no UTF-8 form, so it MUST be rejected wherever this spec says so, and MUST NOT be signed. |
-| Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST accept only the canonical encoding of RFC 4648 §3.5, and so MUST reject `=`, any character outside `A–Z a–z 0–9 - _` (whitespace included), a length that is 1 more than a multiple of 4, and non-zero unused bits in the last character. |
+| Binary values | **base64url without padding** (RFC 4648 §5). Encoders MUST NOT emit `=`. Decoders MUST accept only the canonical encoding of RFC 4648 §3.5, and so MUST reject `=`, any character outside `A–Z a–z 0–9 - _` (whitespace included), a length that is 1 more than a multiple of 4, and non-zero unused bits in the last character. `json.json`'s `base64url` section pins each case. |
 | Canonical encoding | Where this spec compares encoded values, it compares the text, so a value with two encodings matches only one of them. This covers every base64url value that is decoded (a token, a `sig`, a `nonce`, a key, a salt, a root, a Merkle sibling, an event payload), not only `sig`; a value that is only compared as text, such as an influence entry's `h` and `cid` or a stamp's `bind` and `infl`, is not decoded and not checked. A stamp whose `sig` is not canonical does not parse (see [Stamp field rules](#stamp-field-rules)). |
 | Canonical JSON | **JCS**, RFC 8785: object keys sorted by their UTF-16 code units, no whitespace, numbers in the ECMAScript shortest form, strings escaped as RFC 8785 §3.2.2.2 says ([Canonical bytes](#canonical-bytes)). JCS MUST fail on a lone surrogate, a non-finite number, or anything that is not plain JSON. Arrays keep their order. |
 | Hash | SHA-256. `H(x)` below is SHA-256 of the bytes `x`. |
@@ -43,8 +43,9 @@ implementation accepts and refuses the same bytes. An object's **wire bytes** ar
 Paztport only hashes, such as a tool's arguments, is not one of its objects ([Hashed content](#hashed-content)).
 
 `json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
-one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Its
-`about` says how to replay each section.
+one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Two more
+sections pin neighbours of JSON: `base64url` the [binary values](#encodings) a token is decoded from, and `bindings`
+the [bindings](#bindings) that refuse a lone surrogate. Its `about` says how to replay each section.
 
 ### Reading
 
