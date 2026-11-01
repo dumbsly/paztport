@@ -364,6 +364,11 @@ changed it to, which is what the tool runs with.
   through them; in `off` mode, or through a tool the gate does not cover (another extension's), it
   can. Steering messages sent mid-run keep the current run's rid and origin. Only a
   new user prompt starts a new run.
+- **A result that cannot be recorded is withheld.** Influence is recorded against a hash of the result's
+  content, and content that cannot be hashed (text with a lone surrogate, say) has none. The model gets an
+  error result saying `Paztport could not record this tool result, so it was withheld.` in its place, and
+  nothing is added to the influence, because the model never saw the content. A restored session cannot be
+  withheld from, so a restored result like that counts as `private` and `local-untrusted`.
 - **Influence from local reads.** A read adds the label of the folder it read from, as the policy
   gives it. A folder with no label, or a read the rules do not place in a folder, counts as
   `local-untrusted`. A `bash` result adds the labels of the folders it read plus `local-untrusted`,

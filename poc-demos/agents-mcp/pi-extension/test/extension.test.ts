@@ -18,7 +18,7 @@ import { SessionManager } from "@earendil-works/pi-coding-agent";
 import type { ToolResultMessage } from "@earendil-works/pi-ai";
 import type { ServerSpec } from "../src/config.ts";
 import type { CallOutcome } from "../src/connection.ts";
-import paztport, { mcpToolName } from "../src/index.ts";
+import paztport, { mcpToolName, UNRECORDABLE_TEXT } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
 import { POLICY_EXPIRED_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
 import { CANARY, DOCS, githubArgs, readLocalRecord, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
@@ -380,10 +380,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const result = (toolName: string, text: string) =>
       pi.emit("tool_result", { toolName, toolCallId: id(), input: {}, content: [{ type: "text", text }], isError: false, details: undefined });
     await result("mcp__other__fetch", "from a built-in MCP server");
-    await result("mcp__other__fetch", "bad \ud800 text"); // JCS rejects it; still recorded
     await result("read_mcp_resource", "a built-in MCP resource");
-    // a result with no content at all is still recorded, not a throw
-    await pi.emit("tool_result", { toolName: "mcp__other__empty", toolCallId: id(), input: {}, content: undefined, isError: false });
     await result("bash", "local output");
     await result("read", "a local file");
     // this extension's own call, seen again by tool_result under the same toolCallId: not relabelled
@@ -394,8 +391,35 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     // this extension never executed is still recorded
     await result("mcp__github__list_issues", "from the built-in MCP github server");
     const out = await pi.execute("mcp__github__list_issues", LIST, id());
-    // two list_issues results (each labelled), five built-in MCP results
-    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 5 });
+    // two list_issues results (each labelled), three built-in MCP results
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 2, "local-untrusted": 3 });
+  });
+
+  it("aToolResultThatCannotBeHashedIsWithheld", async () => {
+    const { pi } = setup([github()]);
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    for (const toolName of ["mcp__other__fetch", "read_mcp_resource"]) {
+      const content = [{ type: "text", text: "secret \ud800 text" }];
+      const r = (await pi.call("tool_result", { toolName, toolCallId: id(), input: {}, content, isError: false, details: undefined })) as
+        | { content: unknown; isError: boolean }
+        | undefined;
+      expect(r).toEqual({ content: [{ type: "text", text: UNRECORDABLE_TEXT }], isError: true, details: undefined });
+      expect(JSON.stringify(r)).not.toContain("secret");
+    }
+    // nothing was recorded for either result
+    const out = await pi.execute("mcp__github__list_issues", LIST, id());
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
+  });
+
+  it("aRestoredResultThatCannotBeHashedCountsAsUnknown", async () => {
+    const s = setup([github(), docs()]);
+    s.pi.branch = [toolResultEntry("read", [{ type: "text", text: "lone \ud800 surrogate" }], { paztport: { labels: ["public"] } })];
+    await s.pi.emit("session_start", { reason: "resume" });
+    // the docs server is unattested: its live result adds one local-untrusted entry. The saved label does not
+    // count: the content could not be hashed, so it may hold anything.
+    const out = await s.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
+    expect(out.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
   });
 
   it("parallelCallsKeepInfluence", async () => {
@@ -552,6 +576,7 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
       toolResultEntry("mcp__github__list_issues", [{ type: "text", text: "built-in github" }], { server: "github", tool: "list_issues" }),
       toolResultEntry("mcp__other__fetch", [{ type: "text", text: "built-in other" }], { server: "other", tool: "fetch" }),
       toolResultEntry("read_mcp_resource", [{ type: "text", text: "a resource" }], { server: "other", tool: "read_mcp_resource" }),
+      // content that cannot be hashed (here, none at all) may hold anything: private and local-untrusted
       toolResultEntry("mcp__other__empty", undefined),
       // a built-in result with no labels: it may hold anything (private and local-untrusted)
       toolResultEntry("bash", [{ type: "text", text: "local output" }]),
@@ -562,18 +587,18 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const enforce = setup([github(), docs()]);
     enforce.pi.branch = branch;
     await enforce.pi.emit("session_start", { reason: "reload" });
-    // two unsafe results of ours, four built-in MCP results and the unlabelled bash result (private
-    // too), plus the live docs result (the docs server is unattested)
+    // two unsafe results of ours, four built-in MCP results (one unhashable, so private too) and the
+    // unlabelled bash result (private too), plus the live docs result (the docs server is unattested)
     const a = await enforce.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
-    expect(a.details.influence).toEqual({ ...ZERO, private: 2, "local-untrusted": 8 });
+    expect(a.details.influence).toEqual({ ...ZERO, private: 3, "local-untrusted": 8 });
 
     // off mode records none of this extension's results (restored or live); the four built-in MCP
-    // results still count
+    // results still count (the unhashable one as unknown)
     const off = setup([github(), docs()], { mode: "off" });
     off.pi.branch = branch;
     await off.pi.emit("session_start", { reason: "resume" });
     const b = await off.pi.execute("mcp__docs__fetch_docs", { page: "contributing" }, id());
-    expect(b.details.influence).toEqual({ ...ZERO, "local-untrusted": 4 });
+    expect(b.details.influence).toEqual({ ...ZERO, private: 1, "local-untrusted": 4 });
 
     // a local error is not recorded either, as live: only the live docs result counts
     const local = setup([github(), docs()]);

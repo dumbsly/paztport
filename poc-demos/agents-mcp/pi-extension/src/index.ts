@@ -86,15 +86,18 @@ function annotationsOf(tool: Tool): ToolAnnotations | undefined {
   return out;
 }
 
-/**
- * Hash of a tool result's content as pi holds it. Content JCS rejects (a lone surrogate, or none at
- * all) is hashed through its JSON text instead, so it is still recorded.
- */
-function hashContent(content: unknown): string {
+/** What the model sees in place of a tool result this extension cannot record. */
+export const UNRECORDABLE_TEXT = "Paztport could not record this tool result, so it was withheld.";
+
+/** The hash restore records for content it cannot hash: that of the text the live path puts in its place. */
+const UNRECORDABLE_HASH = contentHash({ content: [{ type: "text", text: UNRECORDABLE_TEXT }] });
+
+/** Hash of a tool result's content as pi holds it; undefined when JCS refuses it (a lone surrogate, or none at all). */
+function hashContent(content: unknown): string | undefined {
   try {
     return contentHash({ content });
   } catch {
-    return contentHash({ content: [{ type: "text", text: JSON.stringify(content ?? null) }] });
+    return undefined;
   }
 }
 
@@ -231,6 +234,10 @@ export default function paztport(pi: ExtensionAPI): void {
     const p = isObject(d) ? d.paztport : undefined;
     const classes = isObject(p) ? classesOf(p.labels) : undefined;
     const hash = hashContent(m.content);
+    if (hash === undefined) {
+      influence.recordUnknown(`builtin:${toolName}`, UNRECORDABLE_HASH);
+      return;
+    }
     if (classes !== undefined) {
       influence.recordClasses(`local:${toolName}`, classes, hash);
       return;
@@ -255,7 +262,7 @@ export default function paztport(pi: ExtensionAPI): void {
     if (nested && mode !== "off") {
       // pi saves no result for a nested call (ctx.executeTool), only this record on the parent, so what the
       // nested calls returned (any built-in or MCP tool) is unknown, whatever the parent's name
-      influence.recordUnknown(`builtin:${m.toolName}`, hashContent(m.content));
+      influence.recordUnknown(`builtin:${m.toolName}`, hashContent(m.content) ?? UNRECORDABLE_HASH);
     }
     if (!isMcpTool(m.toolName)) {
       restoreLocal(m.toolName, m, mode, nested);
@@ -267,13 +274,21 @@ export default function paztport(pi: ExtensionAPI): void {
         return;
       }
       const classes = classesOf(d.labels);
-      if (classes !== undefined) {
-        influence.recordClasses(d.server, classes, hashContent(m.content));
+      const h = hashContent(m.content);
+      if (h === undefined) {
+        influence.recordUnknown(`server:${d.server}`, UNRECORDABLE_HASH);
+      } else if (classes !== undefined) {
+        influence.recordClasses(d.server, classes, h);
       } else {
-        influence.recordUntrusted(`server:${d.server}`, hashContent(m.content));
+        influence.recordUntrusted(`server:${d.server}`, h);
       }
     } else {
-      influence.recordUntrusted(`builtin:${m.toolName}`, hashContent(m.content));
+      const h = hashContent(m.content);
+      if (h === undefined) {
+        influence.recordUnknown(`builtin:${m.toolName}`, UNRECORDABLE_HASH);
+      } else {
+        influence.recordUntrusted(`builtin:${m.toolName}`, h);
+      }
     }
   }
 
@@ -312,7 +327,7 @@ export default function paztport(pi: ExtensionAPI): void {
       // nothing either, while built-in MCP results on a resolved branch still count (as on the path
       // and live). Harmless: off mode sends no influence to any server.
       if (!abandoned.complete && config.mode !== "off") {
-        influence.recordUnknown("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]));
+        influence.recordUnknown("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]) ?? UNRECORDABLE_HASH);
       }
       for (const e of abandoned.entries) {
         if (!seen.has(e.id)) {
@@ -470,6 +485,11 @@ export default function paztport(pi: ExtensionAPI): void {
     return r.block ? { block: true, reason: r.reason } : undefined;
   });
 
+  /** A tool result that cannot be recorded reaches the model as this error, and adds no influence. */
+  function withheld(details: unknown) {
+    return { content: text(UNRECORDABLE_TEXT), isError: true, details };
+  }
+
   pi.on("tool_result", (event) => {
     if (ownCalls.delete(event.toolCallId)) {
       return undefined; // recorded (or not) by its ServerConnection
@@ -478,14 +498,22 @@ export default function paztport(pi: ExtensionAPI): void {
     // taken for every result, so labels of a call whose result is handled below are not kept
     const labels = gate?.labelsFor(event.toolCallId);
     if (isMcpTool(name)) {
-      influence.recordUntrusted(`builtin:${name}`, hashContent(event.content));
+      const h = hashContent(event.content);
+      if (h === undefined) {
+        return withheld(event.details);
+      }
+      influence.recordUntrusted(`builtin:${name}`, h);
       return undefined;
     }
     // undefined: refused (pi emits no tool_result for a blocked call), off mode, or no config
     if (labels === undefined || name === "write" || name === "edit") {
       return undefined;
     }
-    influence.recordClasses(`local:${name}`, labels, hashContent(event.content));
+    const h = hashContent(event.content);
+    if (h === undefined) {
+      return withheld(event.details);
+    }
+    influence.recordClasses(`local:${name}`, labels, h);
     return { details: { ...(isObject(event.details) ? event.details : {}), paztport: { labels } } };
   });
 
