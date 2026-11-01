@@ -13,7 +13,7 @@
 
     <artifactId>bench</artifactId>
     <name>Bench</name>
-    <description>JMH micro-benchmarks of the primitives a verifying hop pays for: the Merkle proof walk, SHA-256 and Ed25519.</description>
+    <description>JMH micro-benchmarks of the primitives a verifying hop pays for: the Merkle proof walk, the request binding and Ed25519.</description>
 
     <properties>
         <jmh.version>1.37</jmh.version>

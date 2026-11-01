@@ -533,8 +533,9 @@ service.
 
 [JMH](https://github.com/openjdk/jmh) micro-benchmarks of the primitives a verifying hop pays for, the timed rows
 of the mesh demo's [cost table](../../poc-demos/java-mesh/README.md#measurements): the depth-8 Merkle proof walk
-(`MerkleProof.verify`), SHA-256 of one stamp's signed bytes (`Crypto.sha256`), and Ed25519 signing and
-verifying of them (`Crypto.sign`, `Crypto.verify`). The inputs are built as the mesh builds them at `payment`: a
+(`MerkleProof.verify`), the request binding of the `POST /pay` that `orders` sends (`RequestBinding.compute`,
+SHA-256 over the method, target and body), and Ed25519 signing and verifying of one stamp's signed bytes
+(`Crypto.sign`, `Crypto.verify`). The inputs are built as the mesh builds them at `payment`: a
 keyring the policy key signs, a root over the mesh's routes at the policy tool's default depth, and the two-stamp
 chain `gateway` and `orders` sign, with its proof. The setup checks that the keyring, the root, the proof and the
 signature all verify, so every benchmark times the path a legitimate request takes.

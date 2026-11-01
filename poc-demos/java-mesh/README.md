@@ -692,7 +692,7 @@ headers on the mesh's request to `payment`, measured in the mesh.
 | Operation | Cost |
 |---|---|
 | Merkle proof verify (depth 8) | **2.3 µs** |
-| SHA-256 of one stamp's signed bytes (213 B) | 0.11 µs |
+| Request binding, SHA-256 (the `POST /pay` request) | 0.07 µs |
 | Ed25519 sign / verify of one stamp (stock JDK) | ~230 / ~237 µs |
 | Request headers at chain depth 2 | 924 B chain + 615 B proof = **1.5 KB** |
 
@@ -739,9 +739,9 @@ Caveats:
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
   outside the mesh, on the same host but not during this run.
   `JAVA_HOME=<a JDK 25> ./run bench` reproduces them; absolute numbers vary by
-  host and JDK. The primitives they time (the Merkle walk, SHA-256 and the JDK's
-  Ed25519) are the ones the mesh runs. Cold starts pay JIT and class-loading
-  costs that aren't reflected here.
+  host and JDK. The primitives they time (the Merkle walk, the request binding
+  and the JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
+  class-loading costs that aren't reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
 

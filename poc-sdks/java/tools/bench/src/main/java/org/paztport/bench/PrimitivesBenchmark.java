@@ -36,8 +36,8 @@ import org.paztport.core.stamp.Stamper;
 import org.paztport.http.wire.RequestBinding;
 
 /**
- * The primitives a verifying hop pays for, each timed on its own: one benchmark per row of the cost table in the
- * mesh demo's README. The inputs are built as the mesh builds them, at {@code payment} on the legitimate path
+ * The primitives a verifying hop pays for, each timed on its own: one benchmark per timed figure in the cost table
+ * of the mesh demo's README. The inputs are built as the mesh builds them, at {@code payment} on the legitimate path
  * {@code gateway -> orders -> payment}: a keyring signed by a policy key, a root over the mesh's routes at the
  * mesh's proof depth, and the two-stamp chain {@code gateway} and {@code orders} sign, with its proof.
  *
@@ -69,6 +69,9 @@ public class PrimitivesBenchmark {
 
     private static final long DAY_MS = 24L * 60 * 60 * 1000;
 
+    private String payMethod;
+    private String payTarget;
+    private byte[] payBody;
     private String route;
     private byte[] root;
     private MerkleProof proof;
@@ -104,8 +107,11 @@ public class PrimitivesBenchmark {
         Stamper ordersStamper = stamper("orders", orders.getPrivate(), false);
         Stamper.Stamped toOrders = gatewayStamper.next(List.of(), "orders",
                 RequestBinding.compute("POST", "/orders", utf8("{\"item\":\"widget\"}")), List.of(), gatewayBundle);
+        payMethod = "POST";
+        payTarget = "/pay";
+        payBody = utf8("{\"amount\":100}");
         Stamper.Stamped toPayment = ordersStamper.next(toOrders.chain(), "payment",
-                RequestBinding.compute("POST", "/pay", utf8("{\"amount\":100}")), List.of(), ordersBundle);
+                RequestBinding.compute(payMethod, payTarget, payBody), List.of(), ordersBundle);
         require(toPayment.chain().size() == 2, "the chain at payment has two stamps");
 
         route = Routes.join(List.of("gateway", "orders", "payment"));
@@ -126,10 +132,13 @@ public class PrimitivesBenchmark {
         return proof.verify(route, root);
     }
 
-    /** SHA-256 of one stamp's signed bytes: those of the stamp {@code orders} signs for {@code payment}. */
+    /**
+     * The request binding, SHA-256 over the method, target and body, of the {@code POST /pay} that {@code orders}
+     * sends: what the caller computes to stamp the request and {@code payment} recomputes to check it.
+     */
     @Benchmark
-    public byte[] sha256OneStamp() {
-        return Crypto.sha256(stampBytes);
+    public String requestBinding() {
+        return RequestBinding.compute(payMethod, payTarget, payBody);
     }
 
     /** Ed25519 sign of one stamp's signed bytes, with the JDK's provider. */
