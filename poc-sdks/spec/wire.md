@@ -74,6 +74,9 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([verification.md](verification.md#http-requests-and-responses)) | `CHAIN_MISSING` |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
+| A session request | A server, over MCP or HTTP ([sessions-and-influence.md](sessions-and-influence.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
+| A session reply | A client, live ([its check](sessions-and-influence.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions-and-influence.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
+| A refusal `{"reason"}`, or a handshake's error `{"error"}` | An egress reading its partner's answer ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None: the answer gives no reason |
 | A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | Malformed, and each reader names the file: a service does not start, a policy tool writes nothing and exits as for any malformed input, and a client does not load its rules |
 
 ### The grammar

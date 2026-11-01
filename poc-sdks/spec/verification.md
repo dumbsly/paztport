@@ -173,8 +173,9 @@ The influence is returned only when the call verifies. Then the server decides o
 with `isError: true` and `paztport/verdict`, and is not signed.
 
 **A response, on the client.** The client checks a response only in an attested session, against the server's
-root and keyring from the signed handshake reply, with `allowedOrigins` = the server's entry service as the
-client's own configuration names it (`["mcp-entry"]` in the agents demo), never a value from the reply,
+root and keyring from the signed handshake reply as read
+([sessions-and-influence.md](sessions-and-influence.md#the-reply)), with `allowedOrigins` = the server's entry
+service as the client's own configuration names it (`["mcp-entry"]` in the agents demo), never a value from the reply,
 `receiver` = the client's own `svc`,
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
 
@@ -375,7 +376,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 
 | Transport | A refusal |
 |---|---|
-| HTTP | Status `403`; or `400` for influence that does not parse where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as UTF-8, as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| HTTP | Status `403`; or `400` for influence that does not parse where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
 | MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"] = { "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
@@ -415,12 +416,14 @@ Each kind of record is checked this way:
   MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step signed MUST be the client's
   (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those signed rules
   (`VERDICT_MISMATCH`).
-- **A recorded handshake**: attested only when the reply is attested and verifies against the pin, both roots
-  verify against their sides' policy keys, and the client keyring's signature verifies. It is judged at the time of
-  each call that relies on it: a root or keyring, on either side, counts only up to its `notAfter`, as the reply
-  certificate does ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on
-  it too, but is limited only by the server's root window and, in the entry-key form, the server keyring's; the
-  client's windows and the certificate do not limit it.
+- **A recorded handshake**: attested only when the request and the reply read from their tokens
+  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), the reply is attested and verifies
+  against the pin, both roots verify against their sides' policy keys, and the client keyring's signature verifies.
+  It is judged at the time of each call that relies on it: a root or keyring, on either side, counts only up to its
+  `notAfter`, as the reply certificate does
+  ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but is
+  limited only by the server's root window and, in the entry-key form, the server keyring's; the client's windows
+  and the certificate do not limit it.
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
 or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it

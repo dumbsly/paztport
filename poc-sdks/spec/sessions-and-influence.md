@@ -36,11 +36,14 @@ classes, so calls signed for the old session are refused.
 its own `notAfter` member, as for any [signed root or keyring](wire.md#keys-and-files). A window moved in transit
 therefore fails its signature.
 
-A server MUST answer a request that is not an object, or whose `clientRoot` is neither `null` nor an object with
-string `rootId`, `root` and `sig` and a `notAfter`, whose `clientKeyring` is not an object of strings, whose
-`clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is missing, `null`, not a string or empty,
-or whose `clientKeyringNotAfter` or `clientRoot.notAfter` is missing or not an integer in [0, 2^53 − 1] (`null`
-included), with JSON-RPC error `-32602` (Invalid params), and open no session. It MUST also open none when the
+A request is read from its bytes as [wire bytes](wire.md#reading), and has exactly the members above; a client root
+has exactly a [signed root's](wire.md#the-signed-root) members. Over MCP it is read from the JCS bytes of the
+`params` value. A server MUST answer a request that does not read, or that is not an object, has a member the table
+does not list, or whose `clientRoot` is neither `null` nor an object of exactly string `rootId`, `root` and `sig`
+and an integer `notAfter`, whose `clientKeyring` is not an object of strings, whose `clientPolicyKey` or `nonce` is
+not a string, whose `clientKeyringSig` is missing, `null`, not a string or empty, or whose `clientKeyringNotAfter`
+or `clientRoot.notAfter` is missing or not an integer in [0, 2^53 − 1] (`null` included), with JSON-RPC error
+`-32602` (Invalid params), and open no session. It MUST also open none when the
 nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a JSON-RPC error other than
 `-32601`, so the client takes its replacement path ([below](#the-clients-check-of-the-reply)). A request that
 opens no session leaves the connection's current session, if any, in place: the TypeScript server fails before it
@@ -69,6 +72,11 @@ is missing, `null`, empty or a number, one with no `clientKeyringNotAfter` and o
 | `disabled` | array of strings | The tools refused in this session: the server's unsafe-session list when `status` is `"unsafe"`, and `[]` when it is `"attested"`. |
 | `sig` | string | The signature over the reply's other fields: by the entry service's key in the entry-key form, by the server policy key in the policy-key form. |
 
+A reply is read from its bytes as [wire bytes](wire.md#reading), and has exactly the members above, the three of
+the entry-key form each only when present; a non-null `serverRoot` has exactly a
+[signed root's](wire.md#the-signed-root) members, and a `serverReplyCert` exactly a
+[reply certificate's](wire.md#the-reply-certificate). Over MCP it is read from the JCS bytes of the `result` value.
+
 A reply is in one of two forms, told apart only by which fields are present:
 
 - **The entry-key form** carries both `serverKeyringSig` and `serverReplyCert`, and `sig` is made with the key the
@@ -86,10 +94,9 @@ The reply's signed bytes are:
 utf8( "paztport-session-reply\n" ‖ JCS(reply without its "sig" field) )
 ```
 
-That is the reply as parsed, every field but `sig`: `serverKeyringSig`, `serverReplyCert` and any field the client
-does not know included. A certificate in the reply is covered as its parsed JSON value, like any other field,
-never as the raw text it arrived in; so are `serverKeyringNotAfter` and the root's `notAfter`, so a value written
-`4.1024448e12` is covered as the integer `4102444800000`.
+That is the reply as read, every member but `sig`: `serverKeyringSig`, `serverKeyringNotAfter` and
+`serverReplyCert` included when present. A reply reads only from its canonical bytes, so these are the JCS bytes of
+the object received, less its `sig`.
 
 That one signature covers the server's root, keyring, nonce, session id, status and disabled list. In the
 policy-key form the keyring is therefore signed by the policy key through the reply. In the entry-key form the
@@ -104,11 +111,11 @@ A client pins the server's policy key in advance, and knows the name of the serv
 time `now`, in milliseconds since the Unix epoch: live, the client's current time. In order, the first failure is
 the outcome:
 
-1. The reply has the shape above; `serverKeyringSig`, when present, is a string beside a `serverKeyringNotAfter`;
-   `serverKeyringNotAfter`, when present, and the `notAfter` of a non-null `serverRoot` are integers in
-   [0, 2^53 − 1]; and `serverReplyCert`, when present, is a well-formed
-   [reply certificate](wire.md#the-reply-certificate). A field whose value is `null` is present
-   (`MALFORMED_REPLY`).
+1. The reply reads, with exactly the members above; `serverKeyringSig`, when present, is a string beside a
+   `serverKeyringNotAfter`; `serverKeyringNotAfter`, when present, and the `notAfter` of a non-null `serverRoot` are
+   integers in [0, 2^53 − 1]; and `serverReplyCert`, when present, is a
+   [reply certificate](wire.md#the-reply-certificate) with exactly its members. A field whose value is `null` is
+   present (`MALFORMED_REPLY`).
 2. `serverPolicyKey` equals the pinned key (`PIN_MISMATCH`).
 3. The signature, then the roots and the session id (`BAD_SIGNATURE`):
    - When `serverKeyringSig` or `serverReplyCert` is present: both are; the keyring
@@ -156,8 +163,8 @@ other than the keyring's entry key, or signed by another policy key; a reply sig
 altered after signing or signed by another policy key; an entry absent from the keyring; either of
 `serverKeyringSig` and `serverReplyCert` without the other, whichever key signed the reply; neither field, signed
 by a key the reply's own keyring names for the entry; a server root signed by the entry key; an empty and a `null`
-`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; an entry named in the reply,
-which is ignored; a pin mismatch; a `serverKeyringNotAfter` moved after signing, which fails the signature, and
+`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not
+have, which is malformed; a pin mismatch; a `serverKeyringNotAfter` moved after signing, which fails the signature, and
 one dropped, one that is not an integer and one that is `null`, which are malformed; and a server root `notAfter`
 moved after signing, which fails the signature, and one dropped and one that is not an integer, which are
 malformed. It pins the judging of the server's material too: a server root at its `notAfter`, and expired (in the
@@ -178,8 +185,8 @@ session is the same.
 
 | Part | Rule |
 |---|---|
-| Endpoint | `POST /paztport/session`. The body is the request's JSON, and a `200` returns the signed reply's JSON. |
-| Not JSON, or not a readable request (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The Java server reads at most 256 KiB, and answers more than that the same way. |
+| Endpoint | `POST /paztport/session`. The body is the request's JCS bytes, with `Content-Type: application/json`, and a `200` returns the signed reply's JCS bytes. |
+| A body that does not read as a request: bytes that are not its JCS bytes (another member order, or a newline after them, as a file an editor saved ends), and a request [above](#the-request) refuses (a `clientKeyringSig` that is missing, `null`, not a string or empty, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The server reads at most the [wire limit](wire.md#limits), 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
 | `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
 
@@ -211,7 +218,9 @@ So the server keeps at most N sessions for each peer its CAs vouch for.
   the same name's id under another issuer (issuers are told apart by their distinguished name, not by the CA's
   key), an evicted or expired id, and one from before the server restarted.
   The server MUST NOT take it as unsafe, or a caller refused in an attested session could step down to an unsafe
-  one by naming a wrong id. A client that gets it drops the session and opens a new one on its next call.
+  one by naming a wrong id. A client that gets it drops the session and opens a new one on its next call. A client
+  reads a refusal from its [wire bytes](wire.md#reading), `{"reason":"<code>"}` and no other member; any other body
+  gives no reason, and the session is kept.
 - **Otherwise** the call is in that session, attested or unsafe as the handshake said, and the session's idle
   period starts again.
 
@@ -314,10 +323,14 @@ for a call that verified.
 
 ## Recorded handshakes
 
+A record keeps the request and the reply as their tokens, the base64url of the bytes received, and a verifier reads
+each as [wire bytes](wire.md#reading), as [above](#the-handshake).
+
 Offline, a recorded handshake opened an attested session only when the reply's `status` is `"attested"`, the
 reply passes the client's check against the recorded pin and the server's entry service from the verifier's own
 configuration, both roots verify against their sides' policy keys, and the keyring signature verifies. A recorded
-request that is not a well-formed request, a missing `clientKeyringSig` included, opened no attested session.
+request that is not a well-formed request, a missing `clientKeyringSig` or a member a request does not have
+included, opened no attested session.
 
 The handshake record carries no signed time, so it is judged at each call's recorded time, the call's last stamp's
 `ts`, which the client signed: `now` in the check is the time of the record being judged. One session can therefore
