@@ -327,6 +327,7 @@ describe("runEval", { timeout: 60_000 }, () => {
       payload: { kind: "reference", sha256: "ab" },
       model: { provider: "p", id: "m" },
       versions: { pi: "1", extension: "2", mockServer: "3", node: "v4" },
+      environment: { os: { platform: "linux", release: "6.1" }, arch: "x64", cpu: null, memoryGb: 16, node: "v22.19.0" },
       tools: "mcp__github__*",
       runs: [],
       summary: [],

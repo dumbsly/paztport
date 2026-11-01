@@ -16,9 +16,8 @@ export type Environment = {
    * `contextLength` is the context window Ollama gives the model, when it can be read: the model's num_ctx
    * parameter, else OLLAMA_CONTEXT_LENGTH as set where the eval ran (Ollama uses that only if it was started
    * with the same setting). null when neither is known; Ollama's own default then applies.
-   * Absent in folders written before it was recorded.
    */
-  ollama?: { version: string | null; digest: string | null; contextLength?: { tokens: number; source: string } | null };
+  ollama?: { version: string | null; digest: string | null; contextLength: { tokens: number; source: string } | null };
 };
 
 const OLLAMA = "http://127.0.0.1:11434";

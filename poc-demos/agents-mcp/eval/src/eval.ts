@@ -44,7 +44,7 @@ export type ResultsFile = {
   command: string;
   /**
    * With --agent-dir: which of the files pi applies to every run (SYSTEM.md, APPEND_SYSTEM.md, settings.json)
-   * that folder holds, by name only. Absent without --agent-dir, and in folders written before it was recorded.
+   * that folder holds, by name only. Absent without --agent-dir.
    */
   agentDirFiles?: string[];
   scenario: { id: string; title: string };
@@ -55,8 +55,8 @@ export type ResultsFile = {
   payload: { kind: "reference" | "custom"; sha256: string };
   model: ModelRef;
   versions: { pi: string; extension: string; mockServer: string; node: string };
-  /** The machine and, for an ollama model, Ollama's version and the model's digest. Absent in folders written before it was recorded. */
-  environment?: Environment;
+  /** The machine and, for an ollama model, Ollama's version and the model's digest. */
+  environment: Environment;
   tools: string;
   warning?: { source: string; url: string; retrieved: string; placement: string; note?: string };
   runs: StoredRun[];

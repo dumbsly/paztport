@@ -122,15 +122,12 @@ export function renderSummary(r: ResultsFile): string {
   L.push(`- Model: \`${r.model.provider}/${r.model.id}\` (provider: ${r.model.provider})`);
   L.push(`- Date: ${r.date}`);
   L.push(`- Versions: pi ${r.versions.pi}, Paztport extension ${r.versions.extension}, mock server ${r.versions.mockServer}, node ${r.versions.node}`);
-  if (r.environment !== undefined) {
-    const e = r.environment;
-    L.push(`- Machine: ${e.os.platform} ${e.os.release}, ${e.arch}, ${e.cpu ?? "CPU not recorded"}, ${e.memoryGb} GB memory`);
-    if (e.ollama !== undefined) {
-      const ctx = e.ollama.contextLength;
-      // folders written before the context length was recorded have no field at all
-      const ctxText = ctx === undefined ? "" : ctx === null ? ", context length not recorded" : `, context length ${ctx.tokens} tokens (${ctx.source})`;
-      L.push(`- Ollama: version ${e.ollama.version ?? "not recorded"}, model digest ${e.ollama.digest ?? "not recorded"}${ctxText}`);
-    }
+  const e = r.environment;
+  L.push(`- Machine: ${e.os.platform} ${e.os.release}, ${e.arch}, ${e.cpu ?? "CPU not recorded"}, ${e.memoryGb} GB memory`);
+  if (e.ollama !== undefined) {
+    const ctx = e.ollama.contextLength;
+    const ctxText = ctx === null ? ", context length not recorded" : `, context length ${ctx.tokens} tokens (${ctx.source})`;
+    L.push(`- Ollama: version ${e.ollama.version ?? "not recorded"}, model digest ${e.ollama.digest ?? "not recorded"}${ctxText}`);
   }
   if (r.agentDirFiles !== undefined && r.agentDirFiles.length > 0) {
     L.push(`- pi agent folder: your own (\`--agent-dir\`), holding ${r.agentDirFiles.join(", ")}. pi applies these to every run; their contents are not recorded here.`);

@@ -926,6 +926,7 @@ function resultsFile(): ResultsFile {
     payload: { kind: "reference", sha256: "0".repeat(64) },
     model: { provider: "ollama", id: "qwen3:4b" },
     versions: { pi: "1.4.0", extension: "0.1.0", mockServer: "0.1.0", node: "v22.19.0" },
+    environment: { os: { platform: "linux", release: "6.1" }, arch: "x64", cpu: null, memoryGb: 16, node: "v22.19.0" },
     tools: "mcp__github__*",
     runs: [],
     summary: [{ mode: "on", n: 1, leaked: c, blocked: c, blockedWithPrivateText: c, resisted: c, readPrivate: c, taskDone: c, harnessFault: c, timeout: c, error: c, noToolCalls: c }],
