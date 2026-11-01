@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Fails if a pre-rename runtime name survives in any tracked file, Markdown included.
-# Wire names (X-Path-Chain, X-Path-Proof) are deliberately not matched, and nor is
-# prose such as "path attestation" or "path-attestation".
+# Fails if a tracked file names the private workspace or the process artefacts (its folder, the tool that
+# drives the work, the design-document folders). The repo never names them. Case does not matter.
+# Each name is written with one letter in a bracket, so this file does not contain the names it looks for
+# and needs no exclusion of its own.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-pattern='PATH_ATTEST|path-attest([^a-z]|$)|path_attest|[Pp]athAttest|(^|[^A-Za-z0-9_])PA_[A-Z_]+'
+pattern='paztport[_]claude|super[p]owers|docs/(spec[s]|plan[s])/'
 
-if git grep -nE "$pattern" -- . ':!poc-sdks/scripts/check-names.sh'; then
-  echo "check-names: old runtime names remain (see file:line above)" >&2
+if git grep -n -i -E "$pattern" -- .; then
+  echo "check-names: a tracked file names the private workspace or a process artefact (see file:line above)" >&2
   exit 1
 fi
