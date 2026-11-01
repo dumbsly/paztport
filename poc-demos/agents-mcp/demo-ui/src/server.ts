@@ -152,10 +152,10 @@ export function refusedStartOf(runDir: string): { code: string; reason?: string 
 }
 
 /**
- * The run's evidence file and the command that checks it, when it holds something signed to check: a run with
- * Paztport off, or one that ended before a session, has only unsigned records. For a saved single run (its folder
- * has demo-run.json) the command names the folder, so verify also cross-checks the evidence with the events and
- * outcome logs; for a run inside an eval folder it names the file.
+ * The run's evidence file and the command that checks it, when it holds something signed to check: a run that
+ * ended before a session has only its unsigned run record, and a run with Paztport off has no evidence file.
+ * For a saved single run (its folder has demo-run.json) the command names the folder, so verify also cross-checks
+ * the evidence with the events and outcome logs; for a run inside an eval folder it names the file.
  */
 function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: string } {
   const file = join(runDir, "evidence.jsonl");
@@ -314,7 +314,7 @@ export const RECORDED_NOTE = "Recorded by the eval that wrote this folder.";
 export const CHECKED_NOTE =
   "Checked now, from the files in this folder: each run re-scored from its outcome log and transcript, its evidence verified and compared with the outcome log and the server key, and the counts recomputed.";
 export const DISAGREE_NOTE =
-  "Where results.json and the files disagree, the table shows what the files say. A difference can mean a file was edited.";
+  "Where results.json and the files disagree, the table shows what the files say. The files are scored again with this checkout's scorer and scenario, so a difference can mean a file was edited, or that the folder was scored under other rules.";
 
 type Checked = { recheck: Recheck; verifyStatus: VerifyStatus; verifyLine: string } | { error: string };
 /** The folder checked again now (see recheckResultsDir), reused until one of the files it reads changes. */
