@@ -64,6 +64,12 @@ A reader reads an object from bytes in four steps, and refuses it at the first s
 Steps 1 to 3 are the same for every object, and step 4 is each object's own section. The parse takes a JSON value
 of any type; the schema says which type each object is.
 
+Each object's reader gives one answer for an object it refuses, whichever step refuses it:
+
+| Object | Read by | Refusal |
+|---|---|---|
+| An event's envelope; the event | The responder ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_ENVELOPE`; `MALFORMED_EVENT` |
+
 ### The grammar
 
 The bytes are JSON text (RFC 8259) within I-JSON (RFC 7493). Anything RFC 8259's grammar does not produce is
@@ -591,7 +597,7 @@ signed it. [verification.md](verification.md#receiving-an-event) says how the re
 | Field | Type | Meaning |
 |---|---|---|
 | `signer` | string | The service that signed the event. The responder looks its key up by this name. |
-| `payload` | string | `b64url(utf8(event))`: [the event](#the-event), as the JSON text the signer wrote. |
+| `payload` | string | `b64url` of [the event](#the-event)'s JCS bytes. |
 | `sig` | string | `b64url` of the Ed25519 signature, by `signer`'s key, over the signed bytes. |
 
 The signed bytes are:
@@ -600,14 +606,12 @@ The signed bytes are:
 utf8( "paztport-event\n" ‖ payload )
 ```
 
-with `payload` the base64url text exactly as sent. The signature covers that text, not a JSON form of the event,
-so the responder verifies the bytes it was given and never canonicalises JSON. The event's JSON therefore need not
-be JCS: a signer SHOULD write the fields in the order shown below, with no whitespace, and a responder MUST read
-the event from the payload it verified, never from a form written again. `signer` is not signed, but a name other
-than the signer's own looks up another key, and the signature fails. The body is exactly one JSON object, with
-nothing but JSON whitespace (RFC 8259 `ws`) before or after it and no byte order mark, and it has exactly these
-three members, each a string. The prefix keeps an event signature from being read as a stamp, or as anything else
-the same key signs ([Encodings](#encodings)).
+with `payload` the base64url text exactly as sent. The signature covers that text, so the responder verifies the
+bytes it was given, and MUST read the event from the payload it verified, never from a form written again.
+`signer` is not signed, but a name other than the signer's own looks up another key, and the signature fails. The
+body is the envelope's JCS bytes ([Canonical bytes](#canonical-bytes)), read as [wire bytes](#reading), and the
+envelope has exactly these three members, each a string. The prefix keeps an event signature from being read as a
+stamp, or as anything else the same key signs ([Encodings](#encodings)).
 
 `events.json` pins the signed bytes and signatures in `envelope`: an attributed refusal, an audit event that
 names no one, and one with non-ASCII text.
@@ -624,16 +628,14 @@ names no one, and one with non-ASCII text.
 | `suspectSvc`, `suspectInst` | string | The suspect that result names ([attribution](verification.md#receivers-the-peer-and-attribution)), or `""` for none. |
 | `rid` | string | The `rid` of the refused chain's origin stamp, as received, or `""` when no chain parsed. It is the sender's text, not verified, so it is for matching the event with the signer's own logs only. |
 | `audit` | boolean | `true` when the signer runs in audit mode, so it reported the failure but did not refuse the request. |
-| `ts` | integer | When the event was signed, in ms since the Unix epoch. |
+| `ts` | integer | When the event was signed, in ms since the Unix epoch: a protocol integer. |
 | `eventId` | string | This event's id. It MUST NOT be `""`; any other string is an id, one of only spaces included. A signer MUST NOT reuse one. It SHOULD be a random UUID (RFC 9562, version 4): one responder remembers the ids of every signer together, so a guessable id would let one signer spend another's. |
 
-The payload is the UTF-8 encoding (RFC 3629) of exactly one JSON object, with nothing but JSON whitespace before
-or after it and no byte order mark. The
-object has exactly these seven members, and each is of the type shown, so no member is `null`: nothing is
-converted from another type or filled in when absent, so that every implementation reads the same event from the
-same bytes. `ts` is a JSON number that is an integer with an absolute value of at most 2^53 − 1, checked by value
-as a stamp's `ts` is ([Stamp field rules](#stamp-field-rules)): `1767225600000.0` is the integer 1767225600000,
-and `1767225600000.5` is not an integer.
+The payload is the event's JCS bytes, read as [wire bytes](#reading). The event has exactly these seven members,
+and each is of the type shown, so no member is `null`: nothing is converted from another type or filled in when
+absent, so that every implementation reads the same event from the same bytes. `ts` is a
+[protocol integer](#the-grammar), decided from its text: `1767225600000.0`, `1.7672256E12` and `-1` are not
+protocol integers, so a payload holding one is not an event.
 
 **Attributable events.** A responder MUST NOT act against a suspect on an event that is not attributable. An
 event is attributable when all of these hold:
@@ -653,8 +655,8 @@ on a request, and `OK` refuses nothing.
 
 ### Carrying an event
 
-Over HTTP a service sends an event as a `POST` to its responder's `/events` path, with the envelope as a UTF-8 JSON
-body and `Content-Type: application/json`. An event MUST NOT change the verdict it reports: a responder that is
+Over HTTP a service sends an event as a `POST` to its responder's `/events` path, with the envelope's JCS bytes as
+the body and `Content-Type: application/json`. An event MUST NOT change the verdict it reports: a responder that is
 down, slow or refuses the event leaves the refusal as it was. A sender that waits for the responder before
 answering the refusal SHOULD bound that wait, so that a slow responder cannot hold refusals up (the Java SDK
 waits at most `paztport.event-timeout-ms`; see the [Java SDK README](../java/README.md#paztport-spring)). The
