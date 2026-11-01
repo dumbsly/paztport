@@ -70,10 +70,10 @@ has one, the authenticated peer.
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
   `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks
   before the policy owner signs), `Routes`, and `EventVerifier` for events sent to a
-  responder, with `AttestationEvent`, the verdict before it is signed. A service's own files are read by `KeyringFile.load`,
-  `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin` and
-  `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say what it
-  may start with and when to warn that it is ending.
+  responder, with `AttestationEvent`, the verdict before it is signed. A service's own files
+  are read by `KeyringFile.load`, `SignedRoot.load`, `ProofBundle.load`,
+  `KeyFiles.loadPolicyPin` and `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and
+  `expiringSoon` say what it may start with and when to warn that it is ending.
 
 ## paztport-http
 

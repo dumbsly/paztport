@@ -31,8 +31,8 @@ import java.util.stream.Stream;
 
 /**
  * The walk behind each module's {@code PublicApiTest}: what a user of a module can name, and whether any of it
- * names a JSON library or one of the SDK's own {@code internal} types. Shared with the http module's tests through core's test jar, so both modules are held to
- * one walk.
+ * names a JSON library or one of the SDK's own {@code internal} types. Shared with the http module's tests through
+ * core's test jar, so both modules are held to one walk.
  *
  * <p>For every class a user can name in a module's exported packages (every package but {@code internal}), it
  * reads the supertype and interfaces, the type parameters and their bounds, the record components, and each public
