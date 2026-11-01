@@ -74,7 +74,7 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([verification.md](verification.md#http-requests-and-responses)) | `CHAIN_MISSING` |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
-| A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | The file is malformed: a service does not start, a policy tool writes nothing and exits as for any malformed input, and both name the file |
+| A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | Malformed, and each reader names the file: a service does not start, a policy tool writes nothing and exits as for any malformed input, and a client does not load its rules |
 
 ### The grammar
 
@@ -506,9 +506,9 @@ renewing: it needs a new tree, a new `rootId` and new proof bundles.
 
 `v3.json` pins the signed bytes and signatures in `root`, all for the client policy under the `client-policy`
 pin: a signed root, at its `notAfter` and 1 ms after, the largest `notAfter` and a renewed root, which verify; a
-tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a `notAfter` that is
-not an integer, a root signed by another policy key and a keyring signature offered as a root signature, which
-fail; and a root with no `notAfter`, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader
+tampered `notAfter`, a `notAfter` added to a signature made over `utf8(rootId ‖ "|" ‖ root)`, a root signed by
+another policy key and a keyring signature offered as a root signature, which fail; and a root with no `notAfter`,
+one whose `notAfter` is not an integer, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader
 refuses, the first though its signature is the policy key's over `utf8(rootId ‖ "|" ‖ root)` and the last though
 its value is the integer its signature is over.
 
@@ -538,9 +538,9 @@ current key; `notAfter` is when it stops vouching for them. A retired key needs 
 
 `v3.json` pins the signed bytes and signatures in `keyring`: a signed keyring, at its `notAfter` and 1 ms after,
 and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
-signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))`, a `notAfter`
-that is not an integer and a root signature offered as a keyring signature, which fail; and a keyring with no
-`notAfter`, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader refuses, the first though its
+signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))` and a root
+signature offered as a keyring signature, which fail; and a keyring with no `notAfter`, one whose `notAfter` is not
+an integer, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader refuses, the first though its
 signature is the policy key's over those same bytes.
 
 Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
