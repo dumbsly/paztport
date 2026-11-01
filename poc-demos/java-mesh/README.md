@@ -5,7 +5,7 @@ A small mesh of Spring Boot services that uses the Java SDK
 quarantines offending containers. The idea and the concepts are in the
 [root README](../../README.md).
 
-Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [What building it taught us](#what-building-it-taught-us) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
+Contents: [The system at a glance](#the-system-at-a-glance) · [A request, end to end](#a-request-end-to-end) · [The support-assistant storyline](#the-support-assistant-storyline) · [Least knowledge](#least-knowledge-who-holds-what) · [The verification pipeline](#the-verification-pipeline) · [Response attestation](#response-attestation) · [Threat model](#threat-model) · [Response](#response-quarantine-not-deletion) · [Modes and rollout](#modes-and-rollout) · [Design choices](#design-choices-and-the-failures-they-avoid) · [Measurements](#measurements) · [Running it](#running-it) · [Configuration](#configuration)
 
 ## The system at a glance
 
@@ -605,48 +605,52 @@ measure how often retries, health checks, and batch jobs trip it, fix the policy
 then flip individual endpoints to `enforce`. The responder ignores audit events, so
 nothing gets quarantined while you're learning.
 
-## What building it taught us
+## Design choices and the failures they avoid
 
-Some of the most useful results came from running the system live, not from the
-unit tests. Each of these was root-caused before it was fixed:
+Each of these choices avoids a failure, most of them failures that show only
+when the whole mesh runs:
 
-- **The quarantine severed the request that triggered it.** The first responder
-  acted synchronously inside the event POST. But the suspect was *part of the
-  call chain* that produced the event (`demo → search → payment → responder`), so
-  pulling it off the network mid-request meant `payment`'s 403 could never be
-  delivered back. The triggering call hung. Fix: decide synchronously, act
-  asynchronously after a short grace period. The general lesson: **a response
-  system must never sit inside the path of the thing it's responding to.**
-- **Fresh salts mean fresh root bytes, so every holder reloads together.** The
-  `rootId` is a fresh label per build, and each `policy-tool` run also draws new
-  salts, so the root bytes change. If you restart only the verifier, the callers
-  still hold proofs for the old tree and every legitimate request fails. Policy
-  rollout has to be atomic across every holder. That's a miniature of the "policy
-  drift" problem real deployments will face.
-- **Control-plane endpoints must bypass the data-plane check.** The inbound filter
-  first verified *every* path, including the admin and debug endpoints, and
-  rejected them for lacking a chain. Attestation applies to the attested data path,
-  not to the control plane.
-- **An SSL bundle changed the HTTP client.** On Spring Boot 3.3, giving
-  `RestClient` an SSL bundle switched it to `HttpURLConnection`, which hands over
-  an error response's body only once the status has been read, and otherwise
-  throws. Every refusal seen through a stamping client became an exception until
-  the interceptor read the status first. Only the live mesh showed it: scenario 4
-  answered 500 instead of mirroring `payment`'s 403.
-- **An SSL bundle's client silently defeated keep-alive.** On Spring Boot 3.3,
-  the client an SSL bundle gives `RestClient` installs a new socket factory on
-  every connection, and the JDK only reuses a kept-alive connection for the socket
-  factory that opened it. So every inter-service call opened a fresh mutual-TLS
-  connection, and the receiving server held each one open for a minute. No
-  test noticed, since every call still worked; under load, `orders` and `payment`
-  reached Tomcat's connection limit within seconds and the whole mesh froze until
-  old connections timed out, which first looked like the host's networking. The
-  starter now builds one pooled JDK `HttpClient` per bundle, and a test counts the
-  connections behind 50 calls.
-- **Infrastructure the responder needs has to be created by the responder.**
-  Compose doesn't create a network that no service joins, and a container created
-  with networking disabled can't then join a network. Both were caught only by
-  watching real Docker API errors.
+- **The responder decides at once and acts later.** It answers the event POST
+  with its decision and quarantines on another thread, after a 750 ms grace
+  period. The suspect is *part of the call chain* that produced the event
+  (`demo → search → payment → responder`), so pulling it off the network inside
+  the POST would cut the path `payment`'s 403 travels back on, and the triggering
+  call would hang. The general rule: **a response system must never sit inside
+  the path of the thing it's responding to.**
+- **Every holder of a root reloads together.** Each `policy-tool` run draws a new
+  `rootId` and new salts, so the root bytes change with every build. A verifier
+  restarted alone loads the new root while its callers still send proofs for the
+  old tree, and every legitimate request fails. So `demo.sh` recreates every
+  service that pins a root or holds proofs after each build: policy rollout is
+  atomic across its holders, a miniature of the "policy drift" problem real
+  deployments face.
+- **The control plane is outside the data-plane check.** The inbound filter
+  skips `/admin`, `/debug` and `/actuator`, matched as a whole first path segment,
+  and verifies everything else. A filter that verified every path would refuse
+  the admin and debug endpoints for lacking a chain: attestation applies to the
+  attested data path, not to the control plane. `/admin/mode` checks its own
+  token instead.
+- **The starter brings its own HTTP client for an SSL bundle.** It builds one
+  pooled JDK `HttpClient` per bundle and shares it across every `RestClient`
+  built over it, so calls to a service reuse open mutual-TLS connections. A
+  client that opens a new connection per call still answers every call, so no
+  functional test notices it; but the receiving server holds each connection
+  open for a minute, so under load `orders` and `payment` reach Tomcat's
+  connection limit within seconds and the whole mesh freezes until connections
+  time out, which looks like a fault in the host's networking. A test counts the
+  connections behind 50 sequential calls and allows at most two.
+- **The stamping interceptor reads a response's status before its body.**
+  `HttpURLConnection`, behind Spring's simple request factory, hands over an
+  error response's body only once its status has been read, and otherwise
+  throws, so every refusal seen through a stamping client would become an
+  exception: a 403 the caller should mirror would come back as a 500. The
+  starter's own client has no such order, but an application may give the
+  builder either.
+- **The responder creates the infrastructure it needs.** Compose doesn't create
+  a network that no service joins, so the responder creates the quarantine
+  network itself at startup. A container created with networking disabled can't
+  then join a network, so a replacement is created straight onto the mesh
+  network under the service's alias, in one step.
 
 ## Measurements
 
@@ -670,10 +674,7 @@ The services call each other over pooled mutual-TLS connections, so these number
 don't include a handshake per hop per request. In steady load a connection is
 replaced, with a new handshake, mostly when the server it goes to retires it after
 its 100th request (Tomcat's default); the client also opens more as concurrency
-rises and closes those left idle. Earlier measurements were distorted by a
-connection leak in the inter-service client, now fixed: it opened a new
-connection for every call and left each one open for a minute, which under load
-filled the receiving server's connection limit and stalled the mesh.
+rises and closes those left idle.
 
 | Operation | Cost |
 |---|---|
@@ -719,11 +720,11 @@ Caveats:
 - **A maximum is one request.** It moves more from run to run than the
   percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to
   35.19 ms), so read it as this run's slowest request, not as a cost.
-- **The primitive costs are JIT-warmed micro-benchmarks from an earlier
-  measurement**, made on an earlier mesh that ran over plain HTTP, and not repeated
-  for this run. The primitives they time (the Merkle walk, SHA-256 and the JDK's
-  Ed25519) are the same. Cold starts pay JIT and class-loading costs that aren't
-  reflected here.
+- **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
+  outside the mesh and not repeated for this run; the benchmark code is not in
+  this repository. The primitives they time (the Merkle walk, SHA-256 and the
+  JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
+  class-loading costs that aren't reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
 
@@ -756,14 +757,16 @@ switch is refused. `demo.sh` generates its own token on every run and leaves
 has your `PAZTPORT_ADMIN_TOKEN` (or re-run `docker compose up -d`) before `measure.sh`.
 
 `docker compose run` reuses an existing image and never rebuilds it. If you
-change and rebuild the Java code, run `docker compose build keygen policy-tool`
-again before generating keys or policy. Otherwise the old jars run, and you get
-output in the old format, for example private keys that aren't owner-only.
-`up --build` rebuilds the mesh services itself. Private key files, the TLS keys
-and the CA's included, are written owner-read/write only (`0600`). `demo.sh`
-regenerates the keys when `policy.pub`, `tls/ca.crt` or `keyring.json` is missing,
-so keys from before mutual TLS are replaced. A keyring that has expired is not a
-reason to regenerate: each run's policy tools re-sign it.
+change and rebuild the Java code, run `docker compose build keygen policy-tool
+keygen-psp policy-tool-psp` before generating keys or policy: the tools run from
+the jars copied into their images, so until then they run without your change.
+`demo.sh` rebuilds those four images itself, and `up --build` rebuilds the mesh
+services. Private key files, the TLS keys and the CA's included, are written
+owner-read/write only (`0600`). `demo.sh` regenerates the keys when any of
+`policy.pub`, `tls/ca.crt`, `mailer.key`, `boundary.key` or `keyring.json` in
+`out/keys`, or `policy.pub` or `keyring.json` in `out/psp-keys`, is missing. A
+keyring that has expired is not a reason to regenerate: each run's policy tools
+re-sign it.
 
 ### Lifetimes and renewal
 

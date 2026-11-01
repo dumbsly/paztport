@@ -50,12 +50,10 @@ The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
   (`.demo/server/client-policy.pub`) and opens attested sessions only for it, as the extension pins the
   server's (`.demo/client/server-policy.pub`).
 
-**Upgrading an existing `.demo`.** Keys made before signed keyrings have no keyring `sig` and no
-`client-policy.pub`, and the server and the extension refuse to start with them. Regenerate them:
+**Remaking `.demo`.** `./run agents-mcp` sets up the demo keys only when `.demo` does not exist. The server and
+the extension refuse to start when a file there is missing or does not read, when the keyring has no `sig` or
+`client-policy.pub` is missing, or when a keyring, root or the reply certificate has expired. Make them again with:
 
 ```bash
 npm run setup-demo -- --force
 ```
-
-`./run agents-mcp` sets up the demo keys only when `.demo` does not exist, so run that once by hand after
-upgrading.

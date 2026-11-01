@@ -143,14 +143,14 @@ wait_ready() {
 echo "== Paztport demo =="
 echo "bringing up the mesh..."
 # `docker compose run` never rebuilds an image, so the tools are rebuilt here from the freshly
-# built jars; otherwise an old keygen would write keys in its old layout.
+# built jars; otherwise keygen and the policy tools would run the jars their images were last
+# built with.
 quietly "building the keygen and policy-tool images" \
   docker compose build keygen policy-tool keygen-psp policy-tool-psp
-# Keys from before mutual TLS have no policy pin and no certificates, keys from before the support
-# services have no mailer key, and keys from before the PSP have no PSP keys, so all are replaced;
-# so are keys with no boundary key (keygen keeps an existing one, so later runs never rotate it),
-# and keys with no keyring, which the policy tools need to re-sign. A keyring past its notAfter is
-# not a reason to regenerate: the policy tools re-sign both keyrings on every run.
+# Both keygens run when any of these is missing: the policy pin, the CA certificate, the mailer
+# key, the boundary key (keygen keeps an existing one, so later runs never rotate it), the keyring
+# the policy tools re-sign, or the PSP's pin or keyring. A keyring past its notAfter is not a
+# reason to regenerate: the policy tools re-sign both keyrings on every run.
 # A bind-mount source Docker created as an empty directory (see below) would block keygen, or the
 # policy tool's write of the keyring.
 for p in out/keys/policy.pub out/keys/boundary.key out/keys/keyring.json out/keys/tls/* out/psp-keys/policy.pub \

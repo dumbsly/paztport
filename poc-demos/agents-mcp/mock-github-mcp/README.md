@@ -81,9 +81,9 @@ signed the server root, keyring and `reply-cert.json`, a certificate for `mcp-en
 The server signs its session replies with `mcp-entry.key`, so a `.demo` older than 30 days must be
 regenerated with `npm run setup-demo -- --force`. The keyring's `sig` is the policy key's signature over
 it, sent in the session request. The server side, `.demo/server`, also holds `client-policy.pub`, the
-client policy key the server pins: it opens attested sessions only for that key. A `.demo` from before
-signed keyrings lacks both, and the server and extension refuse to start until you run
-`npm run setup-demo -- --force`.
+client policy key the server pins: it opens attested sessions only for that key. Without a keyring `sig` the
+server and the extension refuse to start, and without `client-policy.pub` the server does;
+`npm run setup-demo -- --force` makes both.
 
 `node mock-github-mcp/src/docs-main.ts [--payload <file>]` runs a second, plain MCP server with one
 read tool, `fetch_docs`. It knows nothing of Paztport; its `contributing` page carries a payload
