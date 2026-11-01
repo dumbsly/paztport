@@ -572,10 +572,9 @@ utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "se
 
 When it is valid is set out under [Expiry](#keys-and-files). A keyring is read as a [file](#files) or as a
 [token](#reading) (a record that holds it keeps it so), and a reader refuses one with any member but these four.
-`services` is a map: each name in it is a service, held to the
-[route node](#routes) rules, and each value a string. The rule holds wherever a keyring is read, as a file or as the
-`clientKeyring` and `serverKeyring` of the session handshake, and a signer MUST refuse to sign a keyring with a
-name the rule refuses.
+`services` is a map: each name in it is a service, held to the [route node](#routes) rules, and each value a
+string. The rule holds wherever a keyring is read, as a file or as the `clientKeyring` and `serverKeyring` of the
+session handshake, and a signer MUST refuse to sign a keyring with a name the rule refuses.
 
 A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
 The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the

@@ -50,9 +50,12 @@ The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
   (`.demo/server/client-policy.pub`) and opens attested sessions only for it, as the extension pins the
   server's (`.demo/client/server-policy.pub`).
 
-**Remaking `.demo`.** `./run agents-mcp` sets up the demo keys only when `.demo` does not exist. The server and
-the extension refuse to start when a file there is missing or does not read, when the keyring has no `sig` or
-`client-policy.pub` is missing, or when a keyring, root or the reply certificate has expired. Make them again with:
+**Remaking `.demo`.** `./run agents-mcp` sets up the demo keys when `.demo` does not exist, and the demo checks
+`.demo` each time it starts: it remakes the keys when a file is missing, does not read, or has a keyring, root or the
+reply certificate within a day of expiring. The server and the extension refuse to start when a file there is missing
+or does not read, when the keyring has no `sig` or `client-policy.pub` is missing, or when a keyring, root or the
+reply certificate has expired. A server or extension started by hand is not checked that way; make the keys again
+with:
 
 ```bash
 npm run setup-demo -- --force

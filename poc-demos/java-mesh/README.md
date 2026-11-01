@@ -617,13 +617,13 @@ when the whole mesh runs:
   the POST would cut the path `payment`'s 403 travels back on, and the triggering
   call would hang. The general rule: **a response system must never sit inside
   the path of the thing it's responding to.**
-- **Every holder of a root reloads together.** Each `policy-tool` run draws a new
-  `rootId` and new salts, so the root bytes change with every build. A verifier
-  restarted alone loads the new root while its callers still send proofs for the
-  old tree, and every legitimate request fails. So `demo.sh` recreates every
-  service that pins a root or holds proofs after each build: policy rollout is
-  atomic across its holders, a miniature of the "policy drift" problem real
-  deployments face.
+- **Every holder of a root reloads together.** Each rebuild of the policy (the
+  `policy-tool` default) draws a new `rootId` and new salts, so the root bytes
+  change with every build. A verifier restarted alone loads the new root while
+  its callers still send proofs for the old tree, and every legitimate request
+  fails. So `demo.sh` recreates every service that pins a root or holds proofs
+  after each build: policy rollout is atomic across its holders, a miniature of
+  the "policy drift" problem real deployments face.
 - **The control plane is outside the data-plane check.** The inbound filter
   skips `/admin`, `/debug` and `/actuator`, matched as a whole first path segment,
   and verifies everything else. A filter that verified every path would refuse
