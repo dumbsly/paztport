@@ -287,6 +287,11 @@ describe("session handshake", () => {
       const root = { ...good.clientRoot!, notAfter: bad };
       expect(() => srv.openSession({ ...good, clientRoot: root }), `root ${String(bad)}`).toThrow(InvalidParams);
     }
+    // a value the token cannot hold is refused without repeating it
+    for (const bad of [1.5, -1, 2 ** 53]) {
+      const refused = () => srv.openSession({ ...good, clientKeyringNotAfter: bad });
+      expect(refused, String(bad)).toThrow(new InvalidParams("a value a request cannot hold"));
+    }
     const ring = { ...good, clientKeyringNotAfter: "x" };
     expect(() => srv.openSession(ring)).toThrow("member clientKeyringNotAfter is not an integer");
     const root = { ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } };

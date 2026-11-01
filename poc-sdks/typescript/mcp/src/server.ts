@@ -13,6 +13,7 @@ import {
   earliestNotAfter,
   expiryWarnings,
   keyPairMatches,
+  MalformedJson,
   newContentId,
   NonceCache,
   NONCE_TTL_MS,
@@ -268,14 +269,16 @@ export class McpServerSession {
    * keyring once it has expired, so a server left running past its material degrades to unattested sessions rather
    * than stopping. A request whose client root or keyring has no `notAfter` is malformed. The reply carries the
    * keyring's window as `serverKeyringNotAfter`. The params value is read as the request's token: a value that
-   * token cannot hold, or a request other than exactly its members, is malformed.
+   * token cannot hold, or a request other than exactly its members, is malformed. The message names a member the
+   * request lacks or holds wrongly, never a value the client sent.
    */
   openSession(params: unknown): SessionReply {
     let request: SessionRequest;
     try {
       request = readSessionRequest(writeToken(params as JsonValue));
     } catch (e) {
-      throw new InvalidParams((e as Error).message);
+      const unwritable = e instanceof MalformedJson && e.step === "write";
+      throw new InvalidParams(unwritable ? "a value a request cannot hold" : (e as Error).message);
     }
     const reply = buildSessionReply(
       { ...this.policy, entryPrivateKey: this.policy.signingKeys[this.policy.hops[0]]! },

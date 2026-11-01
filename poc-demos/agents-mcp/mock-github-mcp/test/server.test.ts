@@ -717,7 +717,7 @@ describe("composed github server", () => {
       [{ ...good, clientRoot: { rootId: "v" } }, /no member notAfter/],
       // a window that is missing or not an integer is malformed
       [noWindow, /no member clientKeyringNotAfter/],
-      [{ ...good, clientKeyringNotAfter: 1.5 }, /1\.5 is not a protocol integer/],
+      [{ ...good, clientKeyringNotAfter: 1.5 }, /^Invalid params: a value a request cannot hold$/],
       [{ ...good, clientKeyringNotAfter: null }, /member clientKeyringNotAfter is not an integer/],
       [{ ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } }, /member notAfter is not an integer/],
     ];
