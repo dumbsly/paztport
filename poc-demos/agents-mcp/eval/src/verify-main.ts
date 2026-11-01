@@ -17,8 +17,7 @@
 // A demo single-run folder (demo-run.json and the run's files at the top, no runs/ folder) is checked as the
 // eval checks each of its runs: its evidence.jsonl is verified, then one more line says whether the events log,
 // the outcome log and the evidence agree, and whether the evidence is pinned to the server key demo-run.json
-// records. A demo-run.json written before the demo recorded the server key has none; the pins are then not
-// compared, and when the evidence has pins a line says so.
+// records. A demo-run.json that records none fails that line: the pins can't be compared with it.
 // The run is also scored again from its files, as the demo scored it; an outcome in demo-run.json that the files
 // don't give is one more FAIL line. When the scenario it names is not in poc-demos/agents-mcp/scenarios, a NOTE says the
 // outcome was not scored again.
@@ -62,9 +61,8 @@ try {
   // a missing path is reported as an unreadable file below
 }
 if (isDir && isSingleRunDir(target)) {
-  const { report, crossCheck, noServerKey, outcome } = verifySingleRunDir(target);
+  const { report, crossCheck, outcome } = verifySingleRunDir(target);
   process.stdout.write(line(report) + "\n");
-  if (noServerKey) process.stdout.write("NOTE demo-run.json records no server key fingerprint, so the evidence pin was not compared with one\n");
   const cross =
     crossCheck.status === "ok"
       ? "OK  cross-check (events, outcome log and evidence agree)"

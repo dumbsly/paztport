@@ -1585,21 +1585,17 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     expect(r.status).toBe(1);
   });
 
-  it("an older demo-run.json with no server key is checked without the pin comparison, and says so", () => {
+  it("a demo-run.json with no server key fails the cross-check, since the evidence pin can't be compared", () => {
     const r = cli(single({ serverKey: undefined }));
     const lines = r.stdout.trim().split("\n");
-    expect(lines).toHaveLength(3);
+    expect(lines).toHaveLength(2);
     expect(lines[0]).toMatch(/^OK {2}evidence\.jsonl/);
-    expect(lines[1]).toBe("NOTE demo-run.json records no server key fingerprint, so the evidence pin was not compared with one");
-    expect(lines[2]).toBe(CROSS_OK);
-    expect(r.status).toBe(0);
-    // evidence with no pin has nothing to compare, so there is no note
-    const empty = cli(single({ serverKey: undefined, scored: { outcome: "error" } }, (d) => {
-      for (const f of ["evidence.jsonl", "outcome.jsonl", "events.jsonl"]) writeFileSync(join(d, f), "");
-      writeFileSync(join(d, "run.json"), JSON.stringify({ status: "error", exitCode: 143, mode: "on" }));
-    }));
-    expect(empty.stdout).not.toContain("NOTE");
-    expect(empty.status).toBe(0);
+    expect(lines[1]).toBe("FAIL cross-check: demo-run.json records no server key fingerprint, so the evidence pins can't be compared with it");
+    expect(r.status).toBe(1);
+    // a fingerprint that is not text is no fingerprint
+    const odd = cli(single({ serverKey: { fingerprint: 7 } }));
+    expect(odd.stdout).toMatch(/^FAIL cross-check: demo-run\.json records no server key fingerprint/m);
+    expect(odd.status).toBe(1);
   });
 
   it("a local-tools run is known from config.json or the scenario, not only from demo-run.json", () => {
