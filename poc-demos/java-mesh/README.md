@@ -706,12 +706,15 @@ What the numbers say:
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
-  1.4 ms of Ed25519, half the difference; the rest is likely contention among the
-  10 users, which isn't measured separately. Both ran on this host, the benchmark
-  natively and the services under Docker Desktop, so the split is an estimate.
+  1.4 ms of Ed25519, half the difference. The rest isn't broken down. It holds the
+  other work `enforce` adds (reading the chain and proof headers, the nonce check,
+  encoding the response stamp and `orders`' parse of it), any queueing among the
+  10 users, and any gap between the benchmark, run natively, and the same work in
+  Docker Desktop's VM on this host. The request binding's hash, at 0.07 µs, is
+  too small to count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
-  Ed25519 verify. Of the primitives, all the cost is in the signature chain, one
-  Ed25519 verify per stamp.
+  Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
+  stamp, and a signature per stamp a hop adds.
 - **Stock JDK Ed25519 is the slow part.** Optimized native implementations, which
   this repository doesn't benchmark, do tens of microseconds, about 5–10× faster.
   A hot-path deployment would swap the signature implementation; the Merkle
@@ -737,11 +740,10 @@ Caveats:
   percentiles do (`enforce`'s ran from 14.20 to 26.43 ms, `off`'s from 11.76 to
   16.98 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
-  outside the mesh, on the same host but not during this run.
-  `JAVA_HOME=<a JDK 25> ./run bench` reproduces them; absolute numbers vary by
-  host and JDK. The primitives they time (the Merkle walk, the request binding
-  and the JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
-  class-loading costs that aren't reflected here.
+  outside the mesh, on the same host but not during this run; absolute numbers
+  vary by host and JDK. The primitives they time (the Merkle walk, the request
+  binding and the JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT
+  and class-loading costs that aren't reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
 
