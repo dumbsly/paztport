@@ -597,9 +597,10 @@ always derive it again.
 An opening is read as [wire bytes](wire.md#reading): the JCS bytes of an object with exactly `cls`, `salt` and
 `originals`, and `owner` when the entry has one, a non-empty string. A checker MUST answer "does not open" for
 anything else, and MUST NOT fail in any other way. A checker that answers over a service, such as the PSP demo's
-`/debug/check-opening`, answers bytes that do not read (whitespace around the opening, members out of JCS order, a
-number that is not a protocol integer) or that are not one JSON object with `400 {"reason":"MALFORMED_OPENING"}`,
-and an object that is not an opening, or does not open, with `200 {"opens":false}`.
+`/debug/check-opening`, first reads the request body. It refuses a body that does not read (whitespace around the
+opening, members out of JCS order, a number that is not a protocol integer) or that is not one JSON object with
+`400 {"reason":"MALFORMED_OPENING"}`: that is the service declining the request, not the check failing. It answers
+an object that is not an opening, or does not open, with `200 {"opens":false}`.
 
 Revealing one salt opens only that entry: every other group, request and partner has its own salt. Two calls to
 one partner in one request are the exception, below.
