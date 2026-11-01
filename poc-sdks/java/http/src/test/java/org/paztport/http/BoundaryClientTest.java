@@ -819,6 +819,18 @@ class BoundaryClientTest {
         assertEquals(List.of(), partner.received());
     }
 
+    // The replacement's reply is read as any reply is: one that does not read, here with a status a reply cannot have,
+    // gives no session, so the call fails and nothing of it is sent.
+    @Test
+    void aReplacementReplyThatDoesNotReadOpensNoSession() throws Exception {
+        partner.failNextHandshake(404);
+        partner.replacementStatus("other");
+
+        assertThrows(IllegalStateException.class, () -> verified("rid-1", this::charge));
+        assertEquals(2, partner.handshakes().size(), "the full handshake, then the replacement");
+        assertEquals(List.of(), partner.calls(), "no call is sent");
+    }
+
     @Test
     void failedReplacementThrows() throws Exception {
         partner.close();

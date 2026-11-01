@@ -351,8 +351,10 @@ final class VectorsHttpPartner {
     /** sessions-and-influence.md, over HTTP: the handshake endpoint's errors, and the peer it needs. */
     static ArrayNode handshakeErrors(Fixtures fx) {
         Material shop = fx.material("shop");
-        // Each body is in JCS member order, so its order is never what the reader refuses.
+        // Each body is the shop's request in JCS member order but for the one flaw its case names, so that flaw is what
+        // the reader refuses.
         JsonValue.Obj request = (JsonValue.Obj) JsonReader.wire(fx.handshake("shop"));
+        byte[] stringRoot = jcs(with(request, "clientRoot", new JsonValue.Str("root")));
         byte[] nullWindow = jcs(with(request, "clientKeyringNotAfter", new JsonValue.Null()));
         byte[] unsigned = jcs(without(request, "clientKeyringSig"));
         byte[] noRingWindow = jcs(without(request, "clientKeyringNotAfter"));
@@ -364,8 +366,7 @@ final class VectorsHttpPartner {
         a.add(new Script("a JSON array", partner(), shop)
                 .handshakeBody(NOW, "shop", utf8("[]"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a client root that is a string", partner(), shop)
-                .handshakeBody(NOW, "shop", utf8("{\"clientKeyring\":{},\"clientPolicyKey\":\"k\","
-                        + "\"clientRoot\":\"root\",\"nonce\":\"n\"}"), handshakeError(HttpSessions.INVALID_PARAMS)).c);
+                .handshakeBody(NOW, "shop", stringRoot, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring window that is null", partner(), shop)
                 .handshakeBody(NOW, "shop", nullWindow, handshakeError(HttpSessions.INVALID_PARAMS)).c);
         a.add(new Script("a keyring signature that is missing", partner(), shop)
