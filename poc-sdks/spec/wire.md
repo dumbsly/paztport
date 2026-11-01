@@ -552,11 +552,11 @@ utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "polic
 ```
 
 `notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], and is written as plain
-decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader
-MUST refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a
-string, or whose `notAfter` is missing, not a JSON number, not an integer, negative, or greater than 2^53 − 1.
-`notAfter` is checked by value, as a stamp's `ts` is: `1.0` and `1e3` are the integers 1 and 1000. The
-signature covers the plain digits of that value. Any other field is ignored and not signed.
+decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader MUST
+refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a string,
+or whose `notAfter` is missing, not a JSON number, not an integer, negative, or greater than 2^53 − 1. `notAfter`
+is checked by value: `1.0` and `1e3` are the integers 1 and 1000. The signature covers the plain digits of that
+value. Any other field is ignored and not signed.
 
 A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
 under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
