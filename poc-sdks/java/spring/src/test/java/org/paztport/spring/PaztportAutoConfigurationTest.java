@@ -288,6 +288,47 @@ class PaztportAutoConfigurationTest {
         });
     }
 
+    /**
+     * A proof bundle with a member it does not define is malformed: the caller does not start, and the refusal names
+     * the property, the reader's reason and the file, with no reader exception under it.
+     */
+    @Test
+    void aProofBundleWithAnExtraMemberIsMalformed(@TempDir Path dir) throws Exception {
+        writeWorld(dir);
+        Path proofs = dir.resolve("proofs-gateway.json");
+        ObjectNode bundle = (ObjectNode) JSON.readTree(proofs.toFile());
+        bundle.put("note", "x");
+        JSON.writeValue(proofs.toFile(), bundle);
+        runner.withPropertyValues("paztport.service-name=gateway", "paztport.origin=true",
+                        "paztport.key-path=" + dir.resolve("gateway.key"), "paztport.proofs-path=" + proofs)
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                            .hasMessage("paztport.proofs-path is malformed (a member the object does not define): "
+                                    + proofs);
+                });
+    }
+
+    /** A partner's reply certificate saved with a byte order mark is malformed, refused as a keyring is. */
+    @Test
+    void aReplyCertificateWithAByteOrderMarkIsMalformed(@TempDir Path dir) throws Exception {
+        writePartner(dir);
+        Path cert = dir.resolve("reply-cert.json");
+        byte[] text = Files.readAllBytes(cert);
+        byte[] marked = new byte[text.length + 3];
+        marked[0] = (byte) 0xEF;
+        marked[1] = (byte) 0xBB;
+        marked[2] = (byte) 0xBF;
+        System.arraycopy(text, 0, marked, 3, text.length);
+        Files.write(cert, marked);
+        runner.withPropertyValues(partner(dir)).run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).rootCause().isInstanceOf(IllegalStateException.class)
+                    .hasMessage("paztport.partner.reply-cert-path is malformed (JSON refused: no value, at byte 0): "
+                            + cert);
+        });
+    }
+
     private static void dropNotAfter(Path file) throws IOException {
         ObjectNode o = (ObjectNode) JSON.readTree(file.toFile());
         o.remove("notAfter");
@@ -585,14 +626,15 @@ class PaztportAutoConfigurationTest {
         Files.delete(dir.resolve("reply-cert.json"));
         partnerFails(dir, "paztport.partner.reply-cert-path could not be read");
         Files.writeString(dir.resolve("reply-cert.json"), "{\"svc\":\"psp\"}");
-        partnerFails(dir, "paztport.partner.reply-cert-path is not a reply certificate");
-        // A key file named in its place: the refusal must not quote it. A JSON parser's error quotes the file's
-        // first token, the key text up to its first '-' or '_', which starts with the fixed Ed25519 PKCS#8 header.
+        partnerFails(dir, "paztport.partner.reply-cert-path is malformed (no member key): "
+                + dir.resolve("reply-cert.json"));
+        // A key file named in its place: the refusal must not quote it. The key text starts with the fixed Ed25519
+        // PKCS#8 header, so that header must not appear anywhere in the failure.
         runner.withPropertyValues(partner(dir))
                 .withPropertyValues("paztport.partner.reply-cert-path=" + dir.resolve("psp.key"))
                 .run(context -> {
                     assertThat(context).hasFailed().getFailure()
-                            .hasStackTraceContaining("paztport.partner.reply-cert-path is not a reply certificate");
+                            .hasStackTraceContaining("paztport.partner.reply-cert-path is malformed");
                     assertThat(stackTrace(context.getStartupFailure())).doesNotContain("MC4CAQAwBQYDK2VwBCIEI");
                 });
     }

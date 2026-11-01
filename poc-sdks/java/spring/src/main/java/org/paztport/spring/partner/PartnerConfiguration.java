@@ -219,12 +219,9 @@ public class PartnerConfiguration {
         PrivateKey serviceKey = KeyFiles.loadPrivateKey(Path.of(props.getKeyPath()));
         ReplyCert cert;
         try {
-            cert = ReplyCert.load(Path.of(p.getReplyCertPath()));
+            cert = OwnMaterial.loadReplyCert(Path.of(p.getReplyCertPath()));
         } catch (UncheckedIOException e) {
             throw new IllegalStateException("paztport.partner.reply-cert-path could not be read", e);
-        } catch (IllegalArgumentException e) {
-            // Without the reader's exception under it: one line names the property, as for the keyring and root.
-            throw new IllegalStateException("paztport.partner.reply-cert-path is not a reply certificate");
         }
         Set<String> clientKeys = new LinkedHashSet<>();
         p.getClientPolicyKeyPaths().forEach(path -> clientKeys.add(KeyFiles.loadPolicyPin(Path.of(path))));

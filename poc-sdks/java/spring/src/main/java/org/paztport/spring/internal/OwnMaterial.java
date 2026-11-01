@@ -9,7 +9,9 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.OwnMaterial.Kind;
 import org.paztport.core.policy.OwnMaterial.Problem;
 import org.paztport.core.policy.OwnMaterial.Subject;
+import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.session.ReplyCert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,6 +30,10 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Material that is still current but close to its end is warned about, once, at startup, since a service is
  * restarted far more rarely than a week goes by and this is the last moment the operator is certain to be looking.
+ *
+ * <p>It also reads the service's other files, its proof bundle and a partner's reply certificate, so that a file
+ * that does not read fails the startup in one way whichever it is: one line naming the property, the reader's reason
+ * and the file.
  */
 public final class OwnMaterial {
 
@@ -40,6 +46,8 @@ public final class OwnMaterial {
 
     private static final String KEYRING = "paztport.keyring-path";
     private static final String ROOT = "paztport.root-path";
+    private static final String PROOFS = "paztport.proofs-path";
+    private static final String REPLY_CERT = "paztport.partner.reply-cert-path";
 
     private OwnMaterial() {
     }
@@ -63,6 +71,30 @@ public final class OwnMaterial {
             return SignedRoot.load(file);
         } catch (IllegalArgumentException e) {
             throw malformed(ROOT, e, file);
+        }
+    }
+
+    /**
+     * Reads {@code paztport.proofs-path}, refusing a file that does not read as a proof bundle as
+     * {@link #loadKeyring} does.
+     */
+    public static ProofBundle loadProofs(Path file) {
+        try {
+            return ProofBundle.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(PROOFS, e, file);
+        }
+    }
+
+    /**
+     * Reads {@code paztport.partner.reply-cert-path}, refusing a file that does not read as a certificate as
+     * {@link #loadKeyring} does.
+     */
+    public static ReplyCert loadReplyCert(Path file) {
+        try {
+            return ReplyCert.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(REPLY_CERT, e, file);
         }
     }
 

@@ -49,7 +49,7 @@ public class TrustConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.proofs-path")
     ProofBundle proofBundle(PaztportProperties props) {
-        return ProofBundle.load(Path.of(props.getProofsPath()));
+        return OwnMaterial.loadProofs(Path.of(props.getProofsPath()));
     }
 
     @Bean
