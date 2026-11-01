@@ -80,4 +80,13 @@ describe("fields", () => {
       expect(() => stringMap(read(json)), json).toThrow();
     }
   });
+
+  it("aStringMapMemberNamesItsMemberAndNothingTheInputChose", () => {
+    expect(stringMap(obj('{"m":{"y":"2","x":"1"}}'), "m")).toEqual({ y: "2", x: "1" });
+    expect(Object.getPrototypeOf(stringMap(obj('{"m":{}}'), "m"))).toBeNull();
+    expect(() => stringMap(obj('{"m":{"secret":1}}'), "m")).toThrow(/^member m holds a value that is not a string$/);
+    for (const json of ['{"m":[]}', '{"m":"x"}', "{}"]) {
+      expect(() => stringMap(obj(json), "m"), json).toThrow(/^member m is not an object$/);
+    }
+  });
 });

@@ -76,13 +76,21 @@ export function bool(o: JsonObject, name: string): boolean {
 }
 
 /** A map by definition, such as a keyring's `services`: an object whose every value is a string. Its names are data, so the caller checks them by its section's rules. */
-export function stringMap(v: JsonValue): Readonly<Record<string, string>> {
-  const o = object(v);
+export function stringMap(v: JsonValue): Readonly<Record<string, string>>;
+/**
+ * The map member `name`, read as stringMap reads one; absent, of another type, or holding a value that is not a
+ * string is refused, naming `name`.
+ */
+export function stringMap(o: JsonObject, name: string): Readonly<Record<string, string>>;
+export function stringMap(v: JsonValue, name?: string): Readonly<Record<string, string>> {
+  const map = name === undefined ? object(v) : object(v as JsonObject, name);
+  const refusal =
+    name === undefined ? "a map value that is not a string" : `member ${name} holds a value that is not a string`;
   const out: Record<string, string> = Object.create(null);
-  for (const name of Object.keys(o)) {
-    const value = o[name];
-    if (typeof value !== "string") throw new Error("a map value that is not a string");
-    out[name] = value;
+  for (const key of Object.keys(map)) {
+    const value = map[key];
+    if (typeof value !== "string") throw new Error(refusal);
+    out[key] = value;
   }
   return out;
 }

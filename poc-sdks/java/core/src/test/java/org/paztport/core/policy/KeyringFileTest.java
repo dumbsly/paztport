@@ -183,6 +183,16 @@ class KeyringFileTest {
                 () -> KeyringFile.parse("{\"services\":{},\"policy\":\"p\",\"sig\":7,\"notAfter\":1}"));
     }
 
+    /** Each refusal names the member at fault: a service key that is not a string names {@code services}. */
+    @Test
+    void aServiceKeyThatIsNotAStringNamesServices() {
+        String text = "{\"notAfter\":1,\"policy\":\"p\",\"services\":{\"pi\":1},\"sig\":\"s\"}";
+        assertEquals("member services holds a value that is not a string",
+                assertThrows(IllegalArgumentException.class, () -> KeyringFile.parse(text)).getMessage());
+        assertEquals("member services is not an object", assertThrows(IllegalArgumentException.class,
+                () -> KeyringFile.parse(text.replace("{\"pi\":1}", "[]"))).getMessage());
+    }
+
     /** A service's name is data, checked by the route-node rule, and the refusal does not repeat it. */
     @Test
     void aServiceNameThatIsNotARouteNodeIsMalformed() {

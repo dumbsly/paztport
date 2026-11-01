@@ -123,4 +123,16 @@ class JsonFieldsTest {
             assertThrows(IllegalArgumentException.class, () -> JsonFields.stringMap(read(json)), json);
         }
     }
+
+    @Test
+    void aStringMapMemberNamesItsMemberAndNothingTheInputChose() {
+        Map<String, String> m = JsonFields.stringMap(obj("{\"m\":{\"y\":\"2\",\"x\":\"1\"}}"), "m");
+        assertEquals(List.of("y", "x"), List.copyOf(m.keySet()));
+        assertEquals("member m holds a value that is not a string", assertThrows(IllegalArgumentException.class,
+                () -> JsonFields.stringMap(obj("{\"m\":{\"secret\":1}}"), "m")).getMessage());
+        for (String json : List.of("{\"m\":[]}", "{\"m\":\"x\"}", "{}")) {
+            assertEquals("member m is not an object", assertThrows(IllegalArgumentException.class,
+                    () -> JsonFields.stringMap(obj(json), "m"), json).getMessage());
+        }
+    }
 }

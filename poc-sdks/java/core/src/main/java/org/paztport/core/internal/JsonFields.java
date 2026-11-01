@@ -99,10 +99,22 @@ public final class JsonFields {
      * order read. Its names are data, so the caller checks them by its section's rules.
      */
     public static Map<String, String> stringMap(JsonValue v) {
+        return strings(object(v), "a map value that is not a string");
+    }
+
+    /**
+     * The map member {@code name}, read as {@link #stringMap(JsonValue)} reads one; absent, of another type, or
+     * holding a value that is not a string is refused, naming {@code name}.
+     */
+    public static Map<String, String> stringMap(JsonValue.Obj o, String name) {
+        return strings(object(o, name), "member " + name + " holds a value that is not a string");
+    }
+
+    private static Map<String, String> strings(JsonValue.Obj map, String refusal) {
         Map<String, String> out = new LinkedHashMap<>();
-        object(v).members().forEach((name, value) -> {
+        map.members().forEach((name, value) -> {
             if (!(value instanceof JsonValue.Str s)) {
-                throw new IllegalArgumentException("a map value that is not a string");
+                throw new IllegalArgumentException(refusal);
             }
             out.put(name, s.value());
         });

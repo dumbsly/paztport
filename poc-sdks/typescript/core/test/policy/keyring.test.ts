@@ -180,7 +180,7 @@ describe("readKeyringFile", () => {
     const read = (v: object) => malformed(() => readKeyringFile(utf8(printFile(v as JsonValue)))).message;
     expect(read({ ...k, sig: 1 })).toBe("member sig is not a string");
     expect(read({ ...k, services: [] })).toBe("member services is not an object");
-    expect(read({ ...k, services: { pi: 1 } })).toBe("a map value that is not a string");
+    expect(read({ ...k, services: { pi: 1 } })).toBe("member services holds a value that is not a string");
     expect(malformed(() => readKeyringFile(utf8(printFile([k])))).message).toBe("not an object");
   });
 

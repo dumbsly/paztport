@@ -42,7 +42,7 @@ export function verifyKeyring(k: SignedKeyring, policyKey: string): boolean {
 function keyringOf(value: JsonValue): SignedKeyring {
   const o = object(value);
   exactly(o, ["notAfter", "policy", "services", "sig"]);
-  const services = stringMap(object(o, "services"));
+  const services = stringMap(o, "services");
   for (const name of Object.keys(services)) {
     try {
       requireValidNode(name);

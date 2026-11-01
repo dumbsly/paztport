@@ -135,7 +135,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
     private static KeyringFile fromTree(JsonValue value) {
         JsonValue.Obj o = JsonFields.object(value);
         JsonFields.exactly(o, MEMBERS, Set.of());
-        Map<String, String> services = JsonFields.stringMap(JsonFields.object(o, "services"));
+        Map<String, String> services = JsonFields.stringMap(o, "services");
         for (String name : services.keySet()) {
             try {
                 Routes.requireValidNode(name);
