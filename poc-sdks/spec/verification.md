@@ -179,8 +179,9 @@ client's own configuration names it (`["mcp-entry"]` in the agents demo), never 
 `receiverInRoute = false`, `influence = []` and `nonceKey = <rid>|<callId>|resp`. In order:
 
 1. The call's `rid` and `callId` are strings, `callId` holds no `\n`, and the attestation reads from the JCS bytes
-   of the `_meta` value ([wire.md](wire.md#mcp-v3)): an object with exactly a `chain` of stamps, a `proof`, a string
-   `resultHash` and an array of well-formed `labels` (`CHAIN_MISSING`).
+   of the `_meta` value ([wire.md](wire.md#mcp-v3)): an object with exactly a `chain` of stamps, a `proof` that reads as
+   a [proof object](wire.md#proof-object), a string `resultHash` and an array of well-formed `labels`
+   (`CHAIN_MISSING`); a proof that does not read is not taken as no proof.
 2. The first stamp's `rid` is the call's (`RID_MISMATCH`).
 3. `resultHash` equals the result binding of the result received (`BINDING_MISMATCH`).
 4. The live order, 0 to 12, with `expectedBind` = the response binding of `resultHash`, the call id and the
