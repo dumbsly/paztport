@@ -531,14 +531,15 @@ service.
 
 ## tools/bench
 
-[JMH](https://github.com/openjdk/jmh) micro-benchmarks of the primitives a verifying hop pays for, the timed rows
-of the mesh demo's [cost table](../../poc-demos/java-mesh/README.md#measurements): the depth-8 Merkle proof walk
-(`MerkleProof.verify`), the request binding of the `POST /pay` that `orders` sends (`RequestBinding.compute`,
-SHA-256 over the method, target and body), and Ed25519 signing and verifying of one stamp's signed bytes
-(`Crypto.sign`, `Crypto.verify`). The inputs are built as the mesh builds them at `payment`: a
-keyring the policy key signs, a root over the mesh's routes at the policy tool's default depth, and the two-stamp
-chain `gateway` and `orders` sign, with its proof. The setup checks that the keyring, the root, the proof and the
-signature all verify, so every benchmark times the path a legitimate request takes.
+[JMH](https://github.com/openjdk/jmh) micro-benchmarks of the primitives a verifying hop pays for, the timed rows of
+the mesh demo's [cost table](../../poc-demos/java-mesh/README.md#measurements): the depth-8 Merkle proof walk
+(`MerkleProof.verify`), the request binding of the `POST /pay` that `orders` sends (`RequestBinding.compute`: method
+and target checked as well-formed, joined with the body by newlines, hashed with SHA-256 and base64url encoded), and
+Ed25519 signing and verifying of one stamp's signed bytes (`Crypto.sign`, `Crypto.verify`). The inputs are built as
+the mesh builds them at `payment`: a keyring the policy key signs, a root over the mesh's routes at the policy tool's
+default depth, and the two-stamp chain `gateway` and `orders` sign, with its proof. The setup checks that the
+keyring, the root, the proof and the signature all verify, so every benchmark times the path a legitimate request
+takes.
 
 `./run bench` from the repository root builds `target/bench.jar` and runs it on the JDK Maven uses, so the mesh
 demo's figures, taken on JDK 25, the services' runtime (`eclipse-temurin:25-jre`), are reproduced with

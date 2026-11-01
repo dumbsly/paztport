@@ -133,8 +133,9 @@ public class PrimitivesBenchmark {
     }
 
     /**
-     * The request binding, SHA-256 over the method, target and body, of the {@code POST /pay} that {@code orders}
-     * sends: what the caller computes to stamp the request and {@code payment} recomputes to check it.
+     * The request binding of the {@code POST /pay} that {@code orders} sends, the base64url SHA-256 of its method,
+     * target and body joined by newlines: what the caller computes to stamp the request and {@code payment}
+     * recomputes to check it.
      */
     @Benchmark
     public String requestBinding() {

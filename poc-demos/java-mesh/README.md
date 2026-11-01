@@ -692,7 +692,7 @@ headers on the mesh's request to `payment`, measured in the mesh.
 | Operation | Cost |
 |---|---|
 | Merkle proof verify (depth 8) | **2.3 µs** |
-| Request binding, SHA-256 (the `POST /pay` request) | 0.07 µs |
+| Request binding of the `POST /pay` request (base64url SHA-256 of method, target and body, newline-joined) | 0.07 µs |
 | Ed25519 sign / verify of one stamp (stock JDK) | ~230 / ~237 µs |
 | Request headers at chain depth 2 | 924 B chain + 615 B proof = **1.5 KB** |
 
@@ -706,11 +706,11 @@ What the numbers say:
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
-  1.4 ms of Ed25519, half the difference. The rest isn't broken down. It holds the
-  other work `enforce` adds (reading the chain and proof headers, the nonce check,
-  encoding the response stamp and `orders`' parse of it), any queueing among the
-  10 users, and any gap between the benchmark, run natively, and the same work in
-  Docker Desktop's VM on this host. The request binding's hash, at 0.07 µs, is
+  1.4 ms of Ed25519, half the difference. The rest isn't broken down. Candidates
+  are the other work `enforce` adds (reading the chain and proof headers, the
+  nonce check, encoding the response stamp and `orders`' parse of it), queueing
+  among the 10 users, and a gap between the benchmark, run natively, and the same
+  work in Docker Desktop's VM on this host. The request binding, at 0.07 µs, is
   too small to count.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
   Ed25519 verify. Of the primitives, nearly all the cost is Ed25519: a verify per
