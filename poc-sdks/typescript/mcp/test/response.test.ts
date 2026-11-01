@@ -89,6 +89,7 @@ describe("verifyMcpResponse", () => {
       { ...good, labels: [null] },
       { ...good, resultHash: 5 },
       { ...good, extra: 1 },
+      { ...good, proof: { ...good.proof, dirs: "X" } },
       { ...good, extra: 1.5 },
     ];
     for (const v of variants) {

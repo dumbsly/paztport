@@ -147,6 +147,27 @@ describe("verifyResponse", () => {
     expect(r.labels).toEqual([]);
     expect(verifyResponse(tok(att), body, CALL, w.cfg()).result.ok).toBe(true);
   });
+  it("aProofThatDoesNotReadIsChainMissing", () => {
+    const w = world();
+    const { body, att } = w.response();
+    const bad = { ...(att as { proof: object }).proof, dirs: "X" };
+    const r = verifyResponse(tok({ ...(att as object), proof: bad }), body, CALL, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+    expect(r.labels).toEqual([]);
+  });
+  it("aStampThatDoesNotReadIsChainMissingBeforeRidMismatch", () => {
+    const w = world();
+    const { body, att } = w.response();
+    const chain = (att as { chain: Record<string, unknown>[] }).chain;
+    const unread = [{ ...chain[0]!, extra: 1 }, chain[1]];
+    const wrongRid = { ...CALL, rid: "rid-2" };
+    expect(verifyResponse(tok({ ...(att as object), chain: unread }), body, wrongRid, w.cfg()).result.reason)
+      .toBe("CHAIN_MISSING");
+    expect(verifyResponse(tok(att), body, wrongRid, w.cfg()).result.reason).toBe("RID_MISMATCH");
+    const expired = w.cfg({ policyNotAfter: NOW - 1 });
+    expect(verifyResponse(tok({ ...(att as object), chain: unread }), body, CALL, expired).result.reason)
+      .toBe("CHAIN_MISSING");
+  });
   it("readsAnAttestationFromItsToken", () => {
     const w = world();
     const { att } = w.response();

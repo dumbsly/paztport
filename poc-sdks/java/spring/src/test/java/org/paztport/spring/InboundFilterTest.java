@@ -36,6 +36,9 @@ import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
@@ -446,7 +449,8 @@ class InboundFilterTest {
         assertEquals(201, response.getStatus());
         assertEquals("paid", response.getContentAsString(), "the body still reaches the caller");
         JsonNode attestation = decodeAttestation(response);
-        List<ContentLabel> labels = ContentLabel.parseAll(attestation.get("labels").toString());
+        List<ContentLabel> labels = ContentLabel.parseAll(JsonWriter.text(
+                JsonFields.object(JsonReader.token(response.getHeader(PaztportHeaders.RESPONSE))).get("labels")));
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());

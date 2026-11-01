@@ -35,6 +35,9 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
@@ -190,6 +193,11 @@ class HttpReceiverTest {
 
     private static JsonNode decodeAttestation(String header) throws Exception {
         return new ObjectMapper().readTree(HttpV3.decodeChain(header));
+    }
+
+    /** The attestation's labels as the SDK reads them from the header token: their JCS text. */
+    private static String labelsText(String header) {
+        return JsonWriter.text(JsonFields.object(JsonReader.token(header)).get("labels"));
     }
 
     private static StampV3 responseStamp(String header) throws Exception {
@@ -520,8 +528,7 @@ class HttpReceiverTest {
 
         assertTrue(accepted.attests());
         String header = accepted.attest(201, PAID, alicesData());
-        JsonNode attestation = decodeAttestation(header);
-        List<ContentLabel> labels = ContentLabel.parseAll(attestation.get("labels").toString());
+        List<ContentLabel> labels = ContentLabel.parseAll(labelsText(header));
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
