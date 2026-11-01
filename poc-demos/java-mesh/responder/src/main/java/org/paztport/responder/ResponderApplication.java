@@ -56,8 +56,8 @@ public class ResponderApplication {
 
     /**
      * Reads the mounted keyring with the strict reader, so a {@code notAfter} that is not an integer fails startup
-     * rather than being truncated. The keyring is trusted as mounted, as before: neither its signature nor its
-     * window is checked here.
+     * rather than being truncated. The keyring is trusted as mounted: neither its signature nor its window is
+     * checked here.
      */
     @Bean
     EventVerifier eventVerifier(

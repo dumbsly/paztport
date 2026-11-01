@@ -512,7 +512,7 @@ function hasSignedCalls(steps) {
 const SIGNED_BUT_MISSING = "The outcome log shows signed calls, but the evidence file has no signed records.";
 const VERIFY_FILE_NOTE = "Run it in the poc-demos/agents-mcp folder. It checks the signatures, links and bindings in this run's evidence file, offline. It does not compare the evidence with the outcome log.";
 const VERIFY_RUN_FOLDER_NOTE =
-  "Run it in the poc-demos/agents-mcp folder. It checks the signatures, links and bindings in this run's evidence file, offline, and that the evidence agrees with the events log, the outcome log and the server key the run recorded (an older run recorded none).";
+  "Run it in the poc-demos/agents-mcp folder. It checks the signatures, links and bindings in this run's evidence file, offline, and that the evidence agrees with the events log, the outcome log and the server key the run recorded.";
 /** A run inside an eval folder is checked by its evidence file; a single run by its folder, which adds the cross-check. */
 const namesEvidenceFile = (command) => /evidence\.jsonl'?$/.test(command);
 

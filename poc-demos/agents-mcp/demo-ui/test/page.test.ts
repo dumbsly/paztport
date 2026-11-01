@@ -117,7 +117,7 @@ describe("demo page", () => {
       "Server's reply",
       "For a folder it also checks that every run whose outcome log shows signed calls has signed evidence.",
       "The outcome log shows signed calls, but the evidence file has no signed records.",
-      "and that the evidence agrees with the events log, the outcome log and the server key the run recorded (an older run recorded none).",
+      "and that the evidence agrees with the events log, the outcome log and the server key the run recorded.",
       "nothing signed to check",
       "The page itself loads nothing from the internet",
       "results.json disagrees with the files",

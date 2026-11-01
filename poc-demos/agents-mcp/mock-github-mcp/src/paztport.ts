@@ -18,7 +18,7 @@ import { checkServerPolicy, type ServerPolicy } from "@paztport/mcp";
 /** The two simulated services this server signs every response as, entry first. */
 const HOPS = ["mcp-entry", "github-tools"] as const;
 const ROUTE = routeOf(HOPS);
-/** The fix for files from an older setup, or ones that no longer hold together. */
+/** The fix for files that are missing, malformed, expired, or that do not agree with each other. */
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
 
 function readText(path: string): string {

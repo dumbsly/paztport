@@ -570,9 +570,9 @@ export function verifyResultsDir(dir: string): VerifyReport[] {
     } else if (expect !== undefined || report !== undefined) {
       reports.push(report ?? nothingToCheck(rel));
     } else if (size === 0) {
-      reports.push(verifyFile(join(dir, rel), rel)); // as before: an empty file verifies nothing
+      reports.push(verifyFile(join(dir, rel), rel)); // an empty file verifies nothing, and is reported so
     }
-    // else: not listed and no file, as before nothing to report
+    // else: not listed and no file, so nothing to report
   }
   return reports;
 }

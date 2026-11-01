@@ -94,8 +94,8 @@ public final class BoundaryInfluence {
     /**
      * The entries to send in place of {@code entries}: normalised, one per (class, owner) group of the normalised
      * input, as {@code {cls, src: "boundary:<egress>", h: commitment, owner?}} with no {@code cid}. No influence
-     * gives no entries, whose commitment is {@code ""} as before. The caller passes only influence held after the
-     * internal chain verified at this hop.
+     * gives no entries, whose commitment is {@code ""}. The caller passes only influence held after the internal
+     * chain verified at this hop.
      */
     public static List<InfluenceEntry> reduce(List<InfluenceEntry> entries, byte[] key, String rid,
             String partnerEntry, String egress) {

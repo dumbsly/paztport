@@ -37,7 +37,7 @@ import org.springframework.http.client.ClientHttpResponse;
  * <p>So the request body is buffered, and the response's is read whole, and held in memory, before the caller sees
  * either. Stamped calls lose nothing by it, since the stamping interceptor reads every response whole anyway, to bind
  * the result hash, and holds the request body to bind the request; an unstamped call through
- * {@link PooledTlsClient#builder()} can no longer stream its response. The status code, the headers and the body come
+ * {@link PooledTlsClient#builder()} cannot stream its response. The status code, the headers and the body come
  * back as the peer sent them, error statuses and empty bodies included; the status text is {@code HttpStatus}'s
  * reason phrase for the code, or empty for a code it does not know, since the JDK client does not expose the peer's.
  */

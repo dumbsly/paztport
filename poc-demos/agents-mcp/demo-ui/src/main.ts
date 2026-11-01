@@ -44,7 +44,7 @@ export function nodeAtLeast(version: string, floor: string): boolean {
   return true;
 }
 
-/** Files setup-demo writes that only have to exist. Keys made by an earlier version can lack some, such as the local-tools policy. */
+/** Files setup-demo writes that only have to exist; when one is missing the keys are made again. */
 const KEY_FILES = ["client/server-policy.pub", "client/local-tools/rules.json"];
 
 /** Files setup-demo writes that carry a `notAfter`, each with its SDK reader: keyrings, roots, reply certificate. */

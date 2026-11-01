@@ -117,7 +117,7 @@ public final class DockerQuarantiner implements Quarantiner {
     /**
      * The container {@code suspectInst} names, or null when there is none. Under mutual TLS the instance is the
      * address the request came from, which only the mesh network can map to a container; anything else is a
-     * container name or id, inspected as before. Docker lists a member's address with its prefix length.
+     * container name or id, inspected by that name. Docker lists a member's address with its prefix length.
      */
     String resolve(String suspectInst) {
         if (IPV4.matcher(suspectInst).matches()) {

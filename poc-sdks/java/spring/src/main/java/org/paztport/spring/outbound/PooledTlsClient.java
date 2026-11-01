@@ -24,10 +24,7 @@ import org.springframework.web.client.RestClient;
  * Apache, Jetty or Reactor client on the classpath, Spring Boot 4 builds the JDK's {@link HttpClient} for an SSL
  * bundle, but afresh each time the bundle is applied to a {@code RestClient} builder: the {@code RestClient}s built
  * from one builder share its pool, and each further builder gets a pool of its own. One client is made here per
- * bundle and shared by every {@code RestClient} built over it. (Spring Boot 3.3's client for an SSL bundle was worse:
- * {@code HttpURLConnection}, given a new socket factory on every connection, while the JDK's keep-alive cache
- * reuses a connection only for the socket factory that opened it, so every call opened a fresh connection and left
- * it open at the server until its keep-alive timed out.)
+ * bundle and shared by every {@code RestClient} built over it.
  *
  * <p>It speaks HTTP/1.1 only, as Spring Boot's servers do unless configured for HTTP/2, so the connection
  * behaviour stays the same whatever a server offers over ALPN. The server's certificate is checked against the

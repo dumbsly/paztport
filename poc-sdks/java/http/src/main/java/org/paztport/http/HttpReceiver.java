@@ -39,7 +39,7 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>{@code OFF}: Paztport is off on this hop. Nothing is verified, not even to decide attestation, nothing is
  *       published, and the response is not attested. The chain and influence are still carried, so the handler's own
- *       calls are stamped as before, and unreadable influence is still refused 400.</li>
+ *       calls are stamped as in any other mode, and unreadable influence is still refused 400.</li>
  *   <li>{@code AUDIT}: verify, publish an event on failure, and pass, unless the influence cannot be read: that is
  *       refused 400 in every mode, as below.</li>
  *   <li>{@code ENFORCE}: verify, publish an event and refuse {@code 403 {"reason":"<code>"}} on failure.</li>

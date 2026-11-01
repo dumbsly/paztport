@@ -75,8 +75,8 @@ function compareSummaries(stored: unknown, now: ModeSummary[], out: string[]): v
     }
     if (a.n !== b.n) out.push(`results.json says "${label}" has ${String(a.n)} runs; the files say ${b.n}`);
     for (const d of DEFINITIONS) {
-      // a column an older folder does not have, or that this table has no longer, is not a disagreement; the page
-      // shows the recomputed one
+      // the columns follow the scenario (only a local-tools table has "refused by scope"), so a column only one
+      // side has is not a disagreement; the page shows the recomputed one
       if (!(d.key in a) || !(d.key in b)) continue;
       const k = isObj(a[d.key]) ? (a[d.key] as Obj).k : undefined;
       const want = (b[d.key] as Count).k;
@@ -88,8 +88,8 @@ function compareSummaries(stored: unknown, now: ModeSummary[], out: string[]): v
 /**
  * Checks a results folder again from its files. `results` is its parsed results.json (an object with a runs
  * list). `scenario` is the scenario the folder was run with; when it has local tools, each run's workspace and
- * events log are read again for local leaks, blocks and scope refusals. Without it (or for an older folder
- * whose results.json does not name that scenario) runs are scored as before, from the outcome log and transcript.
+ * events log are read again for local leaks, blocks and scope refusals. Without it, or when results.json names
+ * another scenario, runs are scored from the outcome log and transcript alone.
  */
 export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario): Recheck {
   const localScenario = scenario?.localTools === true && isObj(results.scenario) && results.scenario.id === scenario.id ? scenario : undefined;
