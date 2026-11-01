@@ -270,7 +270,7 @@ class HttpReceiverTest {
         assertEquals("CHAIN_MISSING", events.all.get(0).reason());
     }
 
-    /** A stamp's JSON in the member order of the wire table, not JCS's, as a service on an older SDK writes it. */
+    /** A stamp's JSON in the wire table's member order, not JCS's. */
     private static String wireOrder(StampV3 s) {
         return "{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
                 + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv()

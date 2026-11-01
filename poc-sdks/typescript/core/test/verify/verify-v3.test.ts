@@ -65,7 +65,10 @@ const cfg = (over: Partial<V3Config> = {}): V3Config => ({
   ...over,
 });
 
-/** A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches the reader. */
+/**
+ * A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches
+ * the reader.
+ */
 const token = (value: unknown): string => encode(utf8(canonicalize(value)));
 /** A token holding exactly `text`'s bytes. */
 const raw = (text: string): string => encode(utf8(text));
@@ -73,14 +76,15 @@ const raw = (text: string): string => encode(utf8(text));
 function input(chain: string, over: Over = {}): V3Input {
   const { proofRoute, ...rest } = over;
   return {
-    chain, expectedBind: bind, influence: writeToken(infl), proof: writeToken(tree.proofFor(proofRoute ?? ROUTE)), receiver: RECEIVER, receiverInRoute: true, ...rest,
+    chain, expectedBind: bind, influence: writeToken(infl), proof: writeToken(tree.proofFor(proofRoute ?? ROUTE)),
+    receiver: RECEIVER, receiverInRoute: true, ...rest,
   };
 }
 
 /** Verifies the chain `stamps`, carried as the token of its JCS bytes. */
 const verify = (stamps: unknown, over: Over = {}, c: V3Config = cfg()) => verifyChainV3(input(token(stamps), over), c);
 
-/** A stamp's JSON in the member order of the wire table, not JCS's, as a sender on an older SDK writes it. */
+/** A stamp's JSON in the wire table's member order, not JCS's. */
 const wireOrder = (s: StampV3): string =>
   `{"v":3,"svc":"${s.svc}","inst":"${s.inst}","rid":"${s.rid}","ts":${s.ts},"sess":"${s.sess}","rcv":"${s.rcv}",` +
   `"bind":"${s.bind}","infl":"${s.infl}","prev":"${s.prev}","sig":"${s.sig}"}`;
@@ -275,7 +279,8 @@ describe("verifyChainV3", () => {
     expect(verify(chain(), { proof: null }).reason).toBe("PATH_NOT_ALLOWED");
     const p = { ...tree.proofFor(ROUTE), rootId: "v-OLD" };
     expect(verify(chain(), { proof: writeToken(p) }).reason).toBe("PATH_NOT_ALLOWED");
-    expect(verify(chain(), { proof: writeToken({ ...tree.proofFor(ROUTE), extra: "x" }) }).reason).toBe("PATH_NOT_ALLOWED");
+    const extra = writeToken({ ...tree.proofFor(ROUTE), extra: "x" });
+    expect(verify(chain(), { proof: extra }).reason).toBe("PATH_NOT_ALLOWED");
   });
   it("responseChainWithoutReceiver", () => {
     const serverTree = buildTree([{ salt: randomBytes(16), path: "mcp-entry/github-tools" }], 8, "v1");
@@ -289,8 +294,8 @@ describe("verifyChainV3", () => {
     });
     const r = verifyChainV3(
       {
-        chain: writeToken([s0, s1]), expectedBind: "resp", influence: writeToken([]), proof: writeToken(serverTree.proofFor("mcp-entry/github-tools")),
-        receiver: "pi", receiverInRoute: false,
+        chain: writeToken([s0, s1]), expectedBind: "resp", influence: writeToken([]),
+        proof: writeToken(serverTree.proofFor("mcp-entry/github-tools")), receiver: "pi", receiverInRoute: false,
       },
       c,
     );
@@ -313,8 +318,11 @@ describe("verifyChainV3", () => {
   });
   it("malformedInfluenceIsInfluenceMismatch", () => {
     const bad = [
-      writeToken(null), raw('[{"cls":"third-party","h":"h","src":"\\ud800"}]'), writeToken([{ cls: "bogus", src: "s", h: "h" }]),
-      writeToken([{ cls: "third-party", extra: 1, src: "web:example.com", h: "h1" }]), raw('[{"cls":"third-party","src":"web:example.com","h":"h1"}]'),
+      writeToken(null),
+      raw('[{"cls":"third-party","h":"h","src":"\\ud800"}]'),
+      writeToken([{ cls: "bogus", src: "s", h: "h" }]),
+      writeToken([{ cls: "third-party", extra: 1, src: "web:example.com", h: "h1" }]),
+      raw('[{"cls":"third-party","src":"web:example.com","h":"h1"}]'),
       "not*base64url",
     ];
     for (const influence of bad) {

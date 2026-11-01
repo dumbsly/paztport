@@ -8,21 +8,25 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.offline.OfflineConfig;
 import org.paztport.core.offline.OfflineInput;
 import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.OfflineVerifier;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.offline.Signers;
+import org.paztport.core.stamp.Chains;
 import org.paztport.core.verify.ReasonCode;
 
 /** Offline-only behaviour the vectors do not pin: totality, the optional inputs and the age-limit pair. */
@@ -52,23 +56,31 @@ class OfflineVerifierTest {
                 i.receiverInRoute(), nonce, i.rid(), t, prompt);
     }
 
-    /** The good call's chain with {@code v} set to {@code version} on the stamps at {@code positions}. */
-    private static OfflineResult withVersions(int version, int... positions) throws Exception {
+    /**
+     * The good call's chain with {@code v} set to {@code version} on the stamps at {@code positions}, written as its
+     * JCS text, so a stamp is refused for its version alone.
+     */
+    private static OfflineResult withVersions(int version, int... positions) {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        JsonNode chain = new ObjectMapper().readTree(in.stamps());
+        List<Map<String, JsonValue>> stamps = new ArrayList<>();
+        Chains.parse(in.stamps()).stamps().forEach(s -> stamps.add(new LinkedHashMap<>(s.tree().members())));
         for (int i : positions) {
-            ((ObjectNode) chain.get(i)).put("v", version);
+            stamps.get(i).put("v", new JsonValue.Int(version));
         }
-        return run(with(in, chain.toString(), in.recordedTs(), in.prompt(), in.nonceKey()),
+        String chain = JsonWriter.text(new JsonValue.Arr(stamps.stream().map(s -> (JsonValue) new JsonValue.Obj(s))
+                .toList()));
+        return run(with(in, chain, in.recordedTs(), in.prompt(), in.nonceKey()),
                 VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c)));
     }
 
     @Test
-    void aStampThatIsNotV3IsChainMissing() throws Exception {
+    void aStampThatIsNotV3IsChainMissing() {
         int last = VectorsV3Test.offlineCase("v3 recorded call").get("chain").size() - 1;
+        int[] all = IntStream.rangeClosed(0, last).toArray();
+        assertEquals(ReasonCode.OK, withVersions(3, all).reason(), "the same chain, written the same way, with v 3");
         for (int version : new int[] {1, 2, 4}) {
-            for (int[] positions : new int[][] {{0}, {last}, IntStream.rangeClosed(0, last).toArray()}) {
+            for (int[] positions : new int[][] {{0}, {last}, all}) {
                 assertEquals(ReasonCode.CHAIN_MISSING, withVersions(version, positions).reason(),
                         "v " + version + " at " + Arrays.toString(positions));
             }
