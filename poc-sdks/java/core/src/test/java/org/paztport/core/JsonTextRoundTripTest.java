@@ -36,11 +36,11 @@ import org.paztport.core.stamp.ParsedChain;
  * outcomes stay fixed, and only the adapters at the bottom follow the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
- * malformed inputs. The rest are normalised: an extra field of a session reply dropped by the reply built from it;
- * writing those back again changes nothing. Each object is read from its own
- * text in the file, so two that differ only in how they are written are two cases. A whole session reply has no reader
- * in the SDK, since the client checks a reply as received, so a reply is built here from its fields and written back
- * with {@code SessionReply.toJson()}, which pins the reply's wire form as well.
+ * malformed inputs. The rest are normalised: a session reply's extra field, which the reply built from it drops;
+ * writing those back again changes nothing. Each object is read from its own text in the file, so two that differ
+ * only in how they are written are two cases. A whole session reply has no reader in the SDK, since the client checks
+ * a reply as received, so a reply is built here from its fields and written back with {@code SessionReply.toJson()},
+ * which pins the reply's wire form as well.
  */
 class JsonTextRoundTripTest {
 

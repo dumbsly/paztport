@@ -91,7 +91,7 @@ describe("checkOwnMaterial", () => {
   it("checksMaterialReadFromItsFilesAsItWasSigned", () => {
     const { m } = material();
     const ring = { policy: m.policyPublicKey, services: m.keyring, sig: m.keyringSig, notAfter: m.keyringNotAfter };
-    // as a policy tool writes each file, and as JSON.stringify(…, null, 2) wrote one before
+    // in the file format, and in JSON.stringify(…, null, 2)'s form: object order, no newline at the end
     for (const write of [printFile, (v: object) => JSON.stringify(v, null, 2)]) {
       const read = readKeyringFile(utf8(write(ring)));
       const fromFiles: OwnMaterial = {
