@@ -317,6 +317,11 @@ The rest of the principles follow the same discipline:
 
 - **Fail closed.** Any parse error, missing header, unknown key, or expired stamp
   is a rejection. Stripping the header must never become an escape hatch.
+- **One byte form, read strictly.** Every Paztport object travels as its canonical
+  JSON bytes (RFC 8785), or their base64url, and each SDK reads it from those
+  bytes with its own strict reader, never through the transport's JSON parser. So
+  every implementation accepts and refuses the same bytes, and one signed object
+  has one form ([JSON](poc-sdks/spec/wire.md#json)).
 - **Only entry points start chains.** The first stamp must come from a key only
   real ingress holds. A compromised internal service can't forge the gateway's
   signature.
@@ -421,11 +426,12 @@ What any design of this kind meets, and what this one has not yet tackled.
   request, so a partner can count and cluster requests by route. It sees one
   route, `<egress>/<partner entry>`, never the internal one. Hiding a request's
   own route from its verifier is not what the proof is for.
-- **A binding binds the value read, not its text.** A tool's arguments and
-  result are hashed as RFC 8785 JCS, which treats every number as the 64-bit
-  float a JSON parser reads.
-  So `9007199254740993` and `9007199254740992` share one binding, though a tool
-  that reads integers exactly sees two (see
+- **A binding binds the value read, not its text.** Paztport's own objects are
+  read from their bytes, but a tool's arguments and result are the transport's
+  content: its JSON parser reads them, and they are hashed as RFC 8785 JCS, which
+  treats every number as the 64-bit float that parser reads. So
+  `9007199254740993` and `9007199254740992` share one binding, though a tool that
+  reads integers exactly sees two (see
   [Hashed content](poc-sdks/spec/wire.md#hashed-content)).
 - **What a partner must learn.** To apply the owner-aware rule, a partner must
   learn each influence entry's class and owner, and match those against the

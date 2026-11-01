@@ -26,10 +26,10 @@ the verifier the binding of what was received, the receiver's name and, when it
 has one, the authenticated peer.
 
 - **Stamps and chains.** `StampV3` signs and refuses a field holding `|`, a lone
-  surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a chain off the wire
-  strictly, from its bytes, as checks 1 and 2 of the live order, and never throws; a
-  `ts` is a protocol integer, so `1.0` is refused. A stamp whose `v` is not 3 is
-  `CHAIN_MISSING`.
+  surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a
+  chain off the wire strictly, from its bytes, as checks 1 and 2 of the live order,
+  and never throws; a `ts` is a protocol integer, so `1.0` is refused. A stamp whose
+  `v` is not 3 is `CHAIN_MISSING`.
 - **Verifying.** `VerifierV3` runs the live order: first its own policy's window
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
@@ -53,9 +53,11 @@ has one, the authenticated peer.
   whose own material has expired opens every session unsafe. `attestedOffline`
   reads a recorded handshake instead, at the time of the record judged. A root or
   keyring without a `notAfter` is malformed, refused by its reader.
-- **JSON in and out.** The SDK has no JSON library, and no public signature names one. Each value type
-  writes its wire form with `toJson()` and reads it with a static `parse(String)` on
-  the type, such as `KeyringFile.parse` or `SessionRequest.parse`, which throws
+- **JSON in and out.** The SDK has no JSON library, and no public signature names
+  one: it reads and writes JSON with its own strict reader and writer, by the
+  spec's rules ([wire.md](../spec/wire.md#json)). Each value type writes its wire
+  form with `toJson()` and reads it with a static `parse(String)` on the type, such
+  as `KeyringFile.parse` or `SessionRequest.parse`, which throws
   `IllegalArgumentException` for anything malformed, text that is not one JSON value
   included. A reader of a whole HTTP body also takes its bytes, `parse(byte[])`. A
   list is read and written by the class that owns it (`Influence.parse`,
@@ -66,14 +68,15 @@ has one, the authenticated peer.
   the stamps, influence and proof as the JSON text received and read it themselves,
   so text that is not JSON is a typed rejection at the check that reads it. `Jcs`
   canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
-- **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
-  `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
-  `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks
-  before the policy owner signs), `Routes`, and `EventVerifier` for events sent to a
-  responder, with `AttestationEvent`, the verdict before it is signed. A service's own files
-  are read by `KeyringFile.load`, `SignedRoot.load`, `ProofBundle.load`,
-  `KeyFiles.loadPolicyPin` and `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and
-  `expiringSoon` say what it may start with and when to warn that it is ending.
+- **Encodings and keys.** `Base64Url` (the canonical encoding only, as the spec's
+  encodings require), `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert`
+  (`reply-cert.json`), `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`,
+  `PolicyOwner` (the checks before the policy owner signs), `Routes`, and
+  `EventVerifier` for events sent to a responder, with `AttestationEvent`, the
+  verdict before it is signed. A service's own files are read by
+  `KeyringFile.load`, `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin`
+  and `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say
+  what it may start with and when to warn that it is ending.
 
 ## paztport-http
 

@@ -54,7 +54,7 @@ disagree.
 | 6 | Every stamp carries `sess`. | `SESSION_UNKNOWN` |
 | 7 | Freshness: the last stamp's `ts` is within `CALL_MAX_AGE_MS` of `now`, either way; the origin's `ts` is at most `RUN_MAX_AGE_MS` before `now` and at most `CALL_MAX_AGE_MS` after it. A non-finite `now` or limit fails. | `EXPIRED` |
 | 8 | The last stamp's `bind` equals `expectedBind`. | `BINDING_MISMATCH` |
-| 9 | The influence parses, and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
+| 9 | The influence reads from its bytes ([sessions-and-influence.md](sessions-and-influence.md#entries)), and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
 | 10 | The nonce cache remembers keys for at least 2 × `CALL_MAX_AGE_MS`, and `nonceKey` is new to it. A new key is recorded. | `REPLAY` |
 | 11 | The route, the stamps' `svc` values then `receiver` when `receiverInRoute`, is proven against the root ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
 | 12 | With a `peer`, `peer.svc` equals the last stamp's `svc`. | `PEER_MISMATCH` |
@@ -64,7 +64,7 @@ Otherwise the result is `OK`.
 Why this order:
 
 - **The verifier's own policy first.** Check 0 is about the verifier's configuration, not the request, so it
-  precedes even parsing the stamps: past `policyNotAfter` the keyring and root no longer say which keys and
+  precedes even reading the stamps: past `policyNotAfter` the keyring and root no longer say which keys and
   routes the policy owner allows, and no later check means anything against them. It names no one (see
   attribution below). It also spends no nonce key.
 - **Receivers after the signature loop.** A bad signature or link anywhere always beats a bad `rcv`, so a
@@ -354,7 +354,7 @@ result other than `OK`, with `audit: true` in audit mode. An audit event is neve
 server also puts `"audit": true` in the verdict of the call's `paztport/verdict` ([wire.md](wire.md#mcp-v3)), and a
 client does not read that as a refusal ([the verdict rule](#the-mcp-server-and-client)).
 
-**The one exception.** In audit mode, a request whose influence does not parse is still refused, with
+**The one exception.** In audit mode, a request whose influence does not read is still refused, with
 `400 {"reason":"INFLUENCE_MISMATCH"}`, and is not served. A receiver MUST NOT drop influence it can't read
 ([HTTP requests](#http-requests-and-responses)), in any mode, and serving the request without that influence would
 hide `private` content from [the owner-aware rule](sessions-and-influence.md#the-owner-aware-rule). In enforce mode
@@ -380,7 +380,7 @@ suspect is usually the caller itself, and telling it would tip it off before the
 
 | Transport | A refusal |
 |---|---|
-| HTTP | Status `403`; or `400` for influence that does not parse where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
+| HTTP | Status `403`; or `400` for influence that does not read where verification has not refused the request first, which is in audit mode ([the one exception](#modes-and-refusals)) or at a service that verifies no requests ([HTTP requests](#http-requests-and-responses)). Either way with `Content-Type: application/json`, which MUST carry no parameters, and the body `{"reason":"<code>"}`, sent as UTF-8: one JSON object whose only member is `reason`, a string, written with no whitespace, so that every implementation sends the same bytes for the same code. A reader MUST ignore any media-type parameter, `charset` included, and read the body as its [wire bytes](wire.md#reading), which are UTF-8 as [RFC 8259](https://www.rfc-editor.org/rfc/rfc8259#section-8.1) §8.1 requires of JSON exchanged between systems; the `application/json` registration defines no `charset` parameter (§11). A body that does not read, or has any member but `reason`, gives no reason. The handshake endpoint's own errors, `400 {"error":"<code>"}` ([sessions-and-influence.md](sessions-and-influence.md#over-http)), answer a handshake, not a call, and are not refusals. |
 | MCP ([profile](README.md#the-mcp-profile)) | A result with `isError: true` and `_meta["paztport/verdict"]` the token of `{ "reason": "<code>" }` ([wire.md](wire.md#mcp-v3)). An audit verdict adds `"audit": true`, and is not a refusal: the tool ran. |
 
 ## Offline verification
@@ -438,7 +438,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | Code | Given by | Meaning |
 |---|---|---|
 | `OK` | live, offline | Every check held. |
-| `CHAIN_MISSING` | live, offline | No chain, or one that does not parse, or a malformed transport field around it, a response attestation that does not read included. |
+| `CHAIN_MISSING` | live, offline | No chain, or one that does not read, or a malformed transport field around it, a response attestation that does not read included. |
 | `BAD_ORIGIN` | live, offline | The origin is not an allowed origin (or, offline, not the expected instance). |
 | `BAD_SIGNATURE` | live, offline | A field holds `\|`, a key is unknown, or a signature fails. |
 | `BROKEN_LINK` | live, offline | A `prev` does not match. |
@@ -448,7 +448,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `REPLAY` | live, offline | The nonce key was seen before. |
 | `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against the root. Also the local gate's verdict for a tool its route list doesn't have. |
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
-| `INFLUENCE_MISMATCH` | live, offline | The influence does not parse, or the last stamp does not commit to it. |
+| `INFLUENCE_MISMATCH` | live, offline | The influence does not read, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
 | `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |

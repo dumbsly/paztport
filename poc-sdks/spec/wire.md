@@ -37,13 +37,16 @@ and stamps `3|`.
 
 Paztport's own objects are JSON: stamps and chains, proofs, influence entries, content labels, the attestation,
 keyrings, roots, reply certificates, session requests and replies, verdicts and refusals, events and their
-envelopes, proof bundles and local rules. This section says how they are read and written, so that every
-implementation accepts and refuses the same bytes. An object's **wire bytes** are the bytes it travels as, and a
-**file** is one of the files under [Keys and files](#keys-and-files) or a client's local `rules.json`. Content
-Paztport only hashes, such as a tool's arguments, is not one of its objects ([Hashed content](#hashed-content)).
+envelopes, proof bundles, local rules, a local tool's decision and a boundary opening. This section says how they
+are read and written, so that every implementation accepts and refuses the same bytes. An object's **wire bytes**
+are the bytes it travels as, and a **file** is one of the files under [Keys and files](#keys-and-files) or a
+client's local `rules.json`. Content Paztport only hashes, such as a tool's arguments, is not one of its objects
+([Hashed content](#hashed-content)).
 
 Every Paztport object is read and written by these rules, and none passes through a transport's JSON parser: a
-transport carries an object's wire bytes, or their token, and the object is read from those.
+transport carries an object's wire bytes, or their token, and the object is read from those. Where this spec lists
+an object's members, in a table, an example or a sentence, it says which members the object has, not their order:
+its bytes hold them in JCS order ([Canonical bytes](#canonical-bytes)).
 
 `json.json` pins all of it: `wire` reads bytes as a base64url token, `file` reads them as a file, `fileFormat` holds
 one file of each kind as it is written, and `jcs` (the MCP profile) holds hashed content as JCS writes it. Two more
@@ -56,8 +59,9 @@ An object travels as its wire bytes, or as its **token**, the base64url of its w
 
 - **HTTP headers.** A chain, a proof, influence entries and a response's attestation each travel as a token, one
   header each ([HTTP (v3)](#http-v3)).
-- **HTTP bodies.** A session request and its reply ([sessions-and-influence.md](sessions-and-influence.md#over-http)),
-  a refusal `{"reason"}` and an event's envelope ([Events](#events)) travel as their wire bytes, the whole body.
+- **HTTP bodies.** A session request, its reply and a handshake error `{"error"}`
+  ([sessions-and-influence.md](sessions-and-influence.md#over-http)), a refusal `{"reason"}`, an event's envelope
+  ([Events](#events)) and, in the PSP demo, a boundary opening travel as their wire bytes, the whole body.
 - **MCP** ([the MCP profile](README.md#the-mcp-profile)). Each value under `_meta` but `paztport/callId` is a
   token ([MCP (v3)](#mcp-v3)), and so are the `request` of `paztport/session`'s params and the `reply` of its
   result ([sessions-and-influence.md](sessions-and-influence.md#the-handshake)). The JSON-RPC message around them is
@@ -83,11 +87,14 @@ A reader reads an object from bytes in four steps, and refuses it at the first s
 Steps 1 to 3 are the same for every object, and step 4 is each object's own section. The parse takes a JSON value
 of any type; the schema says which type each object is.
 
-Each object's reader gives one answer for an object it refuses, whichever step refuses it:
+Each object's reader gives one answer for an object it refuses, whichever step refuses it. An object inside
+another, such as a stamp in a chain or a root in a session request, is read as part of its parent, and refused with
+the parent's answer.
 
 | Object | Read by | Refusal |
 |---|---|---|
-| An event's envelope; the event | The responder ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_ENVELOPE`; `MALFORMED_EVENT` |
+| An event's envelope | The responder ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_ENVELOPE` |
+| An event | The responder, from the envelope's `payload` ([Receiving an event](verification.md#receiving-an-event)) | `MALFORMED_EVENT`; an event whose only fault is an absent or `null` `eventId` is `NO_EVENT_ID` |
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
 | A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
@@ -100,8 +107,9 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | A session reply | A client, live ([its check](sessions-and-influence.md#the-clients-check-of-the-reply)); a verifier of a [recorded handshake](sessions-and-influence.md#recorded-handshakes) | `MALFORMED_REPLY`; not attested |
 | A `paztport/session` result (MCP profile) | A client ([the handshake](sessions-and-influence.md#the-handshake)) | `MALFORMED_REPLY` |
 | A refusal `{"reason"}` | An egress reading its partner's `403` to a call ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None: the refusal gives no reason |
+| A handshake error `{"error"}` | No one: a client takes any answer but a `200` as a failed handshake ([sessions-and-influence.md](sessions-and-influence.md#over-http)) | None |
 | A boundary opening | A checker ([Opening an entry](sessions-and-influence.md#blinded-influence)) | Does not open; the PSP demo's check answers `400 {"reason":"MALFORMED_OPENING"}` for bytes that do not read or are not one JSON object |
-| A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service at startup, a policy tool, the client that loads its rules | Malformed, and each reader names the file: a service does not start, a policy tool writes nothing and exits as for any malformed input, and a client does not load its rules |
+| A keyring, root, reply certificate, proof bundle or local rules, as a [file](#files) | A service or client at startup, a policy tool | Malformed, and each reader names the file: a service or client does not start, and a policy tool writes nothing and exits as for any malformed input |
 
 ### The grammar
 
@@ -185,7 +193,8 @@ and never writes U+FFFD, `?` or an escape in place of what it refuses.
 ### Hashed content
 
 Content Paztport only hashes, such as a tool's arguments and result or a local tool's input, is not Paztport's to
-define, and the [bindings](#bindings) that hash it as JCS belong to [the MCP profile](README.md#the-mcp-profile). Its
+define, and the [bindings](#bindings) that hash it as JCS belong to [the MCP profile](README.md#the-mcp-profile). It
+travels in the transport's own JSON, read by the transport's parser, and is hashed as the value that parser read. Its
 JCS is RFC 8785's in full: each number is read as the nearest IEEE 754 binary64 value and written in ECMAScript's
 shortest form (RFC 8785 §3.2.2.3), so `-0` is written `0` and `1E30` is written `1e+30`. It refuses what the
 [Encodings](#encodings) table's Canonical JSON row says JCS fails on, and allows noncharacters, which belong to the
@@ -272,14 +281,14 @@ that does, with the code in brackets.
 - `ts` is a [protocol integer](#the-grammar) in [0, 2^53 − 1], by text (`CHAIN_MISSING`), so every
   implementation reads and prints it the same way: `1.0`, `1e3` and `-1` are not protocol integers.
 - Every string field (`svc`, `inst`, `rid`, `sess`, `rcv`, `bind`, `infl`, `prev`, `sig`) is a JSON
-  string (`CHAIN_MISSING`) with no lone surrogate or noncharacter, which no reader reads
-  ([the grammar](#the-grammar)) (`CHAIN_MISSING`).
+  string (`CHAIN_MISSING`). None holds a lone surrogate or a noncharacter, since [the grammar](#the-grammar)
+  refuses both (`CHAIN_MISSING`).
 - `sig` is canonical base64url, as [Encodings](#encodings) requires of every decoded value (`CHAIN_MISSING`).
 - No signed field holds `|` (`BAD_SIGNATURE`). The fields are joined with `|`, so a field holding it would let
   two different stamps share signed bytes.
-- A stamp without `rcv` does not parse (`CHAIN_MISSING`).
+- A stamp without `rcv` does not read (`CHAIN_MISSING`).
 
-A stamp with any other member does not parse (`CHAIN_MISSING`).
+A stamp with any other member does not read (`CHAIN_MISSING`).
 
 ## Chains
 
@@ -341,15 +350,15 @@ Rules:
   verifier that cannot compute a binding answers as the rule above says. A binding over hashed content binds the
   value read, not its text ([Hashed content](#hashed-content)).
 - `labels` in the response binding is the attestation's label array in its own order, each label written as
-  `{ cls, cid }` or `{ cls, cid, owner }`, the members a label has ([Carrying a chain](#carrying-a-chain)).
+  `{ cid, cls }` or `{ cid, cls, owner }`, the members a label has ([Carrying a chain](#carrying-a-chain)).
 - In an MCP response chain (the MCP profile) the first stamp, by the server's entry service, binds the call it
   took (the `tools/call` binding), and the last binds the response.
 - The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
-  `{ "callId": ..., "resolved": { "paths": [{ "need", "at" }], "programs": [{ "name", "via" }], "parse": "ok" | "error", "readOnly": bool }, "verdict": ..., "routeAllowed": bool, "rulesHash": string | null }`.
+  `{ "callId": ..., "resolved": { "parse": "ok" | "error", "paths": [{ "at", "need" }], "programs": [{ "name", "via" }], "readOnly": bool }, "routeAllowed": bool, "rulesHash": string | null, "verdict": ... }`.
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
-  are all covered by the stamp. A recorded step carries the decision as a token, which a reader reads as a wire
-  object with exactly these members, and `callId` the step's own; `verdict` is one of the local verdicts, `need` one
-  of `read`, `write` and `exec`, and `via` one of `list`, `folder`, `never`, `missing` and `uncheckable`.
+  are all covered by the stamp. A recorded step carries the decision as a token, read as [wire bytes](#reading),
+  with exactly these members, and `callId` the step's own; `verdict` is one of the local verdicts, `need` one of
+  `read`, `write` and `exec`, and `via` one of `list`, `folder`, `never`, `missing` and `uncheckable`.
 
 `v3.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
 and `bindResponse`, and a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP
@@ -377,8 +386,8 @@ A member that is not a string is read as a token that does not read, and gets it
 `result._meta["paztport/attestation"]`:
 
 ```json
-{ "chain": [ /* the response chain, v3 */ ], "proof": { /* proof for the server's route */ },
-  "labels": [{ "cls": "private", "cid": "<b64url>", "owner": "..." }], "resultHash": "<b64url>" }
+{ "chain": [ /* the response chain, v3 */ ], "labels": [{ "cid": "<b64url>", "cls": "private", "owner": "..." }],
+  "proof": { /* proof for the server's route */ }, "resultHash": "<b64url>" }
 ```
 
 `resultHash` is the result binding of the result it rides on. The attestation is a wire object with exactly the
@@ -395,8 +404,8 @@ JSON-RPC method `paztport/session`, whose params and result each carry one token
 
 ### HTTP (v3)
 
-A request carries Paztport in three headers, each the base64url of the object's JCS bytes, and names its session
-in a fourth, which is plain text:
+A request carries Paztport in three headers, each a token, the base64url of the object's JCS bytes, read as
+[wire bytes](#reading), and names its session in a fourth, which is plain text:
 
 | Header | Value |
 |---|---|
@@ -408,7 +417,7 @@ in a fourth, which is plain text:
 A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
 suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
 
-A response carries the answering service's attestation in one header, also the base64url of the object's JCS bytes:
+A response carries the answering service's attestation in one header, also a token:
 
 | Header | Value |
 |---|---|
@@ -449,14 +458,15 @@ The allowed routes are the leaves of a salted Merkle tree. A verifier pins only 
 
 Why: the `0x00` and `0x01` prefixes stop a 64-byte node from passing as a leaf (the second-preimage attack). A
 real route space is small, so an unsalted leaf could be confirmed by hashing a few guesses: the salt is a
-secret, not extra effort. A fixed depth means a proof's length says nothing about how many routes exist, and random slots mean its `dirs` say nothing about where in the policy a route sits.
-A builder MUST NOT build a tree with an unsalted leaf, MUST NOT reuse salts across builds, and MUST choose slots
-from a cryptographic random source, never in policy order.
+secret, not extra effort. A fixed depth means a proof's length says nothing about how many routes exist, and
+random slots mean its `dirs` say nothing about where in the policy a route sits. A builder MUST NOT build a tree
+with an unsalted leaf, MUST NOT reuse salts across builds, and MUST choose slots from a cryptographic random
+source, never in policy order.
 
 ### Proof object
 
 ```json
-{ "leafSalt": "<b64url, 16 bytes>", "siblings": ["<b64url, 32 bytes>", ...], "dirs": "LRL...", "rootId": "..." }
+{ "dirs": "LRL...", "leafSalt": "<b64url, 16 bytes>", "rootId": "...", "siblings": ["<b64url, 32 bytes>", ...] }
 ```
 
 `siblings` runs from the leaf's level up to the level below the root. `dirs[i]` is `L` when the working hash is
@@ -507,16 +517,16 @@ The verifier always rebuilds the route from the stamps' authenticated `svc` fiel
   [the MCP profile](README.md#the-mcp-profile).
 - A client's local folder rules (the MCP profile again) are pinned as one more route,
   `session/pi/rules:<rulesHash>`, where `rulesHash = b64url(H(utf8("local-rules\n" ‖ JCS(rules))))` and `rules` is
-  the parsed rule set `{ "v": 1, "folders": [...], "programs": [...] }` (its format is in the
-  [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A client MUST NOT
-  apply rules that the signed root does not cover.
+  the rule set `{ "folders": [...], "programs": [...], "v": 1 }` as read from the [file](#files) `rules.json` (its
+  format is in the [pi-extension README](../../poc-demos/agents-mcp/pi-extension/README.md#local-tool-gating)). A
+  client MUST NOT apply rules that the signed root does not cover.
 
 ## The signed root
 
 `root.json`, the value verifiers pin:
 
 ```json
-{ "rootId": "...", "root": "<b64url, 32 bytes>", "sig": "<b64url>", "notAfter": <integer> }
+{ "notAfter": <integer>, "root": "<b64url, 32 bytes>", "rootId": "...", "sig": "<b64url>" }
 ```
 
 `sig` is the policy key's Ed25519 signature over:
@@ -527,7 +537,8 @@ utf8( "paztport-root\n" ‖ JCS({ "notAfter": notAfter, "root": root, "rootId": 
 
 with `root` as its base64url text. When it is valid is set out under [Expiry](#keys-and-files). A widened policy
 can't be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy
-key before using the root. A reader refuses a root with any member but these four.
+key before using the root. A root is read as a [file](#files), or as part of a session message's
+[wire bytes](#reading), and a reader refuses one with any member but these four.
 
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
 vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
@@ -549,7 +560,7 @@ its value is the integer its signature is over.
 `keyring.json` names the policy key and every service's public key, and is signed by the policy key:
 
 ```json
-{ "services": { "<svc>": "<public key>", ... }, "policy": "<policy public key>", "sig": "<b64url>", "notAfter": <integer> }
+{ "notAfter": <integer>, "policy": "<policy public key>", "services": { "<svc>": "<public key>", ... }, "sig": "<b64url>" }
 ```
 
 `sig` is the policy key's Ed25519 signature over:
@@ -558,10 +569,11 @@ its value is the integer its signature is over.
 utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "services": services }) )
 ```
 
-When it is valid is set out under [Expiry](#keys-and-files). A reader refuses a keyring with any member but these
-four. `services` is a map: each name in it is a service, held to the [route node](#routes) rules, and each value a
-string. The rule holds wherever a keyring is read, as a file or as the `clientKeyring` and `serverKeyring` of the
-session handshake, and a signer MUST refuse to sign a keyring with a name the rule refuses.
+When it is valid is set out under [Expiry](#keys-and-files). A keyring is read as a [file](#files), and a reader
+refuses one with any member but these four. `services` is a map: each name in it is a service, held to the
+[route node](#routes) rules, and each value a string. The rule holds wherever a keyring is read, as a file or as the
+`clientKeyring` and `serverKeyring` of the session handshake, and a signer MUST refuse to sign a keyring with a
+name the rule refuses.
 
 A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
 The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the
@@ -586,7 +598,7 @@ key sign what the policy key would otherwise have to sign online, a
 [session reply](sessions-and-influence.md#the-reply), while the policy key stays offline:
 
 ```json
-{ "policy": "<policy public key>", "svc": "<service>", "key": "<that service's public key>", "notAfter": <integer>, "sig": "<b64url>" }
+{ "key": "<that service's public key>", "notAfter": <integer>, "policy": "<policy public key>", "sig": "<b64url>", "svc": "<service>" }
 ```
 
 `sig` is the policy key's Ed25519 signature over:
@@ -596,10 +608,10 @@ utf8( "paztport-reply-cert\n" ‖ JCS({ "key": key, "notAfter": notAfter, "polic
 ```
 
 `notAfter` is an integer number of milliseconds since the Unix epoch, in [0, 2^53 − 1], and is written as plain
-decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A reader MUST
-refuse a certificate that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a string,
-whose `notAfter` is missing or not a [protocol integer](#the-grammar), so `1.0` and `1e3` are refused, or that has
-any other member.
+decimal digits in the signed bytes. A writer MUST write it in the file as plain decimal digits too. A certificate
+is read as a [file](#files), or as part of a session reply's [wire bytes](#reading), and a reader MUST refuse one
+that is not a JSON object, whose `policy`, `svc`, `key` or `sig` is missing or not a string, whose `notAfter` is
+missing or not a [protocol integer](#the-grammar), so `1.0` and `1e3` are refused, or that has any other member.
 
 A certificate verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies
 under it. It is valid at time `t`, in milliseconds since the Unix epoch, when `t <= notAfter`. Verifying it says
@@ -640,7 +652,7 @@ signed it. [verification.md](verification.md#receiving-an-event) says how the re
 ### The envelope
 
 ```json
-{ "signer": "<service>", "payload": "<b64url>", "sig": "<b64url>" }
+{ "payload": "<b64url>", "sig": "<b64url>", "signer": "<service>" }
 ```
 
 | Field | Type | Meaning |
@@ -668,21 +680,22 @@ names no one, and one with non-ASCII text.
 ### The event
 
 ```json
-{ "reason": "...", "suspectSvc": "...", "suspectInst": "...", "rid": "...", "audit": false, "ts": 0, "eventId": "..." }
+{ "audit": false, "eventId": "...", "reason": "...", "rid": "...", "suspectInst": "...", "suspectSvc": "...", "ts": 0 }
 ```
 
 | Field | Type | Meaning |
 |---|---|---|
 | `reason` | string | The [reason code](verification.md#reason-codes) the signer's verifier gave the request. |
 | `suspectSvc`, `suspectInst` | string | The suspect that result names ([attribution](verification.md#receivers-the-peer-and-attribution)), or `""` for none. |
-| `rid` | string | The `rid` of the refused chain's origin stamp, as received, or `""` when no chain parsed. It is the sender's text, not verified, so it is for matching the event with the signer's own logs only. |
+| `rid` | string | The `rid` of the refused chain's origin stamp, as received, or `""` when no chain was read. It is the sender's text, not verified, so it is for matching the event with the signer's own logs only. |
 | `audit` | boolean | `true` when the signer runs in audit mode, so it reported the failure but did not refuse the request. |
 | `ts` | integer | When the event was signed, in ms since the Unix epoch: a protocol integer. |
 | `eventId` | string | This event's id. It MUST NOT be `""`; any other string is an id, one of only spaces included. A signer MUST NOT reuse one. It SHOULD be a random UUID (RFC 9562, version 4): one responder remembers the ids of every signer together, so a guessable id would let one signer spend another's. |
 
 The payload is the event's JCS bytes, read as [wire bytes](#reading). The event has exactly these seven members,
 and each is of the type shown, so no member is `null`: nothing is converted from another type or filled in when
-absent, so that every implementation reads the same event from the same bytes. `ts` is a
+absent, so that every implementation reads the same event from the same bytes. An event whose `eventId` alone is
+absent or `null` is refused as having no id ([Receiving an event](verification.md#receiving-an-event)). `ts` is a
 [protocol integer](#the-grammar), decided from its text: `1767225600000.0`, `1.7672256E12` and `-1` are not
 protocol integers, so a payload holding one is not an event.
 
@@ -717,10 +730,11 @@ refusal, so the answer tells a sender nothing about the allowed signers, the key
 `proofs-<svc>.json` holds the proofs a service attaches to the requests it sends:
 
 ```json
-{ "service": "<svc>", "rootId": "...", "proofs": { "<route>": { /* proof object */ }, ... } }
+{ "proofs": { "<route>": { /* proof object */ }, ... }, "rootId": "...", "service": "<svc>" }
 ```
 
-A reader refuses a bundle with any member but these three, or whose `service` or `rootId` is not a string.
+A bundle is read as a [file](#files), and a reader refuses one with any member but these three, or whose `service`
+or `rootId` is not a string.
 `proofs` is a map: each name in it is a [route](#routes), at least two route nodes joined by `/`, and each value a
 [proof object](#proof-object), held to those of its checks that need no root.
 

@@ -29,12 +29,13 @@ node mock-github-mcp/src/main.ts --mode enforce --outcome-log run.jsonl --canary
   `mcp-entry.key` also signs session replies), and `client-policy.pub`, the one client policy key it opens
   attested sessions for. It reads no policy private key. It refuses to start, with a message naming
   `npm run setup-demo -- --force`, when `client-policy.pub` is missing or unusable, `reply-cert.json` is missing or
-  malformed, or `keyring.json` or `root.json` has a `notAfter` that is missing or not an integer, and otherwise on
-  whatever the SDK's `checkServerPolicy` refuses: a keyring or root expired or not signed by the policy key; a
-  signing key that is not its service's keyring key (`mcp-entry` or `github-tools`);
-  a route proof for `mcp-entry/github-tools` that does not prove against the root; or a certificate that does not
-  verify under the policy key, names another service or key, or has expired. When the keyring, root or certificate
-  is current but has 42 hours or less left, it prints one warning each to stderr, naming the item and its `notAfter`.
+  malformed, or `keyring.json`, `root.json` or `proofs-mcp-entry.json` does not read as its file (a `notAfter` that
+  is missing or not an integer included), and otherwise on whatever the SDK's `checkServerPolicy` refuses: a
+  keyring or root expired or not signed by the policy key; a signing key that is not its service's keyring key
+  (`mcp-entry` or `github-tools`); a route proof for `mcp-entry/github-tools` that does not prove against the root;
+  or a certificate that does not verify under the policy key, names another service or key, or has expired. When
+  the keyring, root or certificate is current but has 42 hours or less left, it prints one warning each to stderr,
+  naming the item and its `notAfter`.
 - `--outcome-log <file>`: JSONL outcome log (appended; without it records stay in memory)
 - `--canary <s>`: the secret placed in both private READMEs (default: random)
 - `--scenario <dir>`: the scenario folder to load (default `poc-demos/agents-mcp/scenarios/github-issue-replay`; see below)

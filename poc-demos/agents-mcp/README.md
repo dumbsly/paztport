@@ -38,6 +38,10 @@ The SDK and this demo speak protocol v3 ([spec](../../poc-sdks/spec/README.md)):
 - **Every stamp names its receiver.** The run's origin names `pi`, a call names `mcp:<server>.<tool>`, a
   response chain ends at `pi`, the client that made the call, and a local step names `local:<tool>`. A chain
   sent anywhere else is refused `BINDING_MISMATCH`.
+- **Objects as tokens.** A call's chain, proof and influence, the attestation or verdict on its result, and the
+  handshake's request and reply each travel as a token, the base64url of the object's JCS bytes, and the SDK reads
+  each from those bytes, never through the MCP transport's JSON parser. The evidence file keeps each token as sent
+  or received, so `npm run verify` reads the bytes the live check read.
 - **No transport peer here.** The SDK's verifier checks the sender a transport authenticated, and names it in
   every result. The MCP servers here run over stdio, which has no TLS, so there is no peer, and the peer check
   doesn't apply: attribution falls back to the chain's own rule.

@@ -25,6 +25,10 @@ What v3 does, deliberately:
   unchanged does not blame its last signer.
 - **One version.** A verifier, live or offline, takes only stamps whose `v` is 3. A chain holding any other `v`
   is `CHAIN_MISSING`.
+- **One byte form.** Every Paztport object travels as its JCS bytes, or as their base64url, its token, and is
+  read strictly from those bytes by the implementation's own reader, never by a transport's JSON parser
+  ([wire.md](wire.md#json)). So every implementation accepts and refuses the same bytes, and one signed object has
+  one token. A record keeps each object as the token received.
 - **The signed keyring.** A keyring is signed by its policy key, and the session request carries that
   signature as `clientKeyringSig`, which is required: a request without it, or with one that is `null`, not a
   string or empty, is malformed and opens no session (JSON-RPC `-32602` over MCP, `400 INVALID_PARAMS` over
@@ -164,7 +168,7 @@ among them, is sent with `Content-Type: application/json` and no parameters
 | Kind | Shape | What it pins |
 |---|---|---|
 | `requests` | receiver | A request at the receiver ([verification.md](verification.md#http-requests-and-responses)): the nonce key `<rid>\|<last svc>\|req`, which other directions' and hops' keys do not spend, and each unreadable header: a chain (`CHAIN_MISSING`), a proof (no proof, so `PATH_NOT_ALLOWED`) and influence (`INFLUENCE_MISMATCH`). |
-| `unreadableInfluence` | receiver | Influence that does not parse is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
+| `unreadableInfluence` | receiver | Influence that does not read is never dropped: `403` where verification refuses first, otherwise `400 INFLUENCE_MISMATCH`, in audit mode too, at a service that verifies only to attest and at one with no verifier; an origin carries none, so has none to drop ([verification.md](verification.md#modes-and-refusals)). |
 | `attestation` | receiver | Who attests: only a chain that passed the live order at that service, whether or not it verifies requests under a mode; never a refusal, an audit failure, a forged or unsigned chain, a service with no verifier, a hop that is off, or an origin. |
 | `peerCertificates` | table | The peer under mTLS: `svc` is the subject's one common name, a UTF8String or PrintableString, read as encoded and compared as it is, else `""`; `inst` is the address the connection came from. |
 | `sessionHeader` | partner | `X-Path-Session` ([sessions-and-influence.md](sessions-and-influence.md#over-http)): no header is an unsafe session that believes nothing; an id is the call's only when the same issuer and name opened it, so an unknown id, another peer's, the same name under another issuer, no certificate, one naming no single service and a stamp made in another session are `SESSION_UNKNOWN`. |

@@ -31,6 +31,17 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
 
 - **v3 only.** The live and offline chain verifiers take v3 stamps only; a chain holding any other `v` is
   `CHAIN_MISSING`.
+- **Tokens in, tokens out.** The SDK has no JSON library: it reads every Paztport object from bytes with its own
+  strict reader, and writes it as its JCS bytes ([wire.md](../spec/wire.md#json)). `writeToken` writes an
+  object's token, the base64url of those bytes, and `readToken` reads one; `readWireBytes` reads wire bytes,
+  `readFile` a file, and `printFile` writes the file format. The three readers throw `MalformedJson`, naming the
+  reading `step`, for bytes they refuse. Each object has a reader that takes its token and refuses anything but
+  exactly its members: `readChain`, `readProof`, `readInfluence`, `readAttestation`, `readLocalDecision`,
+  `readSessionRequest`, `readSessionReply`, `readKeyring`, `readRoot` and `readLocalRules`, and for files
+  `readKeyringFile`, `readRootFile`, `readReplyCertFile`, `readProofBundleFile` and `readLocalRulesFile`. The
+  verifiers take tokens as received (`verifyChainV3`'s chain, proof and influence, `verifyResponse`'s attestation
+  and `checkSessionReply`'s reply), so a token that does not read is the typed rejection of the check that reads
+  it. `canonicalize` is JCS for content Paztport only hashes, every number written as RFC 8785 writes a binary64.
 - **The receiver.** Every v3 stamp names the hop it was handed to, and the verifier checks each `rcv` against
   the next stamp and the last against `receiver`. A live call or chain stamped for a different receiver is
   `BINDING_MISMATCH`, not a route failure, so a forwarded chain does not blame its last signer.
@@ -96,13 +107,13 @@ A server opens an attested session only for a client policy key in its `pinnedCl
 service's key (`hops[0]`), with the `ServerPolicy`'s `keyringSig` and `replyCert`.
 Its constructor refuses to start, through the exported `checkServerPolicy` (core's `checkOwnMaterial` for the
 keyring and root, then this server's own checks), with a policy that does not hold together at the session's
-clock, lifetime included: no `clientOrigins`, an empty list or a blank name in it; a keyring or root in the old
-form, expired, or not signed by its policy key; a `signingKeys[hops[0]]` that is not the entry's keyring key, or a
-`signingKeys[hops[1]]` that is not the tools hop's own keyring key; a route proof for `hops[0]/hops[1]` that does
-not prove against the root; or a certificate that does not verify under its policy key, names another service or
-key, or has expired. Material that is current but has 42 hours (a quarter of the default lifetime) or less left is
-warned about once per item (keyring, root, certificate) at construction, naming its `notAfter`, through the
-constructor's `warn` argument, `console.error` by default.
+clock, lifetime included: no `clientOrigins`, an empty list or a blank name in it; a keyring or root whose
+`notAfter` is missing or not an integer, expired, or not signed by its policy key; a `signingKeys[hops[0]]` that is
+not the entry's keyring key, or a `signingKeys[hops[1]]` that is not the tools hop's own keyring key; a route proof
+for `hops[0]/hops[1]` that does not prove against the root; or a certificate that does not verify under its policy
+key, names another service or key, or has expired. Material that is current but has 42 hours (a quarter of the
+default lifetime) or less left is warned about once per item (keyring, root, certificate) at construction, naming
+its `notAfter`, through the constructor's `warn` argument, `console.error` by default.
 
 ## policy-tool
 

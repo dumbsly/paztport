@@ -33,14 +33,16 @@ A v3 stamp is a JSON object, and a chain is an array of them, origin first:
   `bind` binds what the hop sent.
 - `prev` is the previous stamp's `sig`, or the empty string at the origin.
 
-Over MCP (the TypeScript SDK), the chain, the route proof, the influence and the call id travel in the
-`tools/call` request's `_meta`, and a result carries the server's response chain and content labels. Over HTTP
-(the Java SDK), the chain, the proof and the influence travel in the `X-Path-Chain`, `X-Path-Proof` and
-`X-Path-Influence` headers, and a response carries one more stamp on the request chain, back to the caller, in
-`X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier accepts v3 stamps only. Binary values are base64url
-without padding.
+Every Paztport object travels as its JCS bytes, or as their base64url, its token, and each SDK reads it from
+those bytes with its own strict reader, never through a transport's JSON parser ([wire.md](spec/wire.md#json)).
+Over MCP (the TypeScript SDK), the chain, the route proof and the influence travel as tokens in the `tools/call`
+request's `_meta`, beside the call id, and a result carries the token of the server's attestation: its response
+chain and content labels. Over HTTP (the Java SDK), the chain, the proof and the influence travel as tokens in the
+`X-Path-Chain`, `X-Path-Proof` and `X-Path-Influence` headers, and a response carries one more stamp on the request
+chain, back to the caller, in `X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier accepts v3 stamps
+only. Binary values are base64url without padding.
 
-The signed root (`root.json`) that verifiers pin is `{ "rootId", "root", "sig", "notAfter" }`, where `sig` is the
+The signed root (`root.json`) that verifiers pin is `{ "notAfter", "root", "rootId", "sig" }`, where `sig` is the
 policy key's Ed25519 signature over the root, its `rootId` and `notAfter`, the time after which the policy owner no
 longer vouches for it ([wire.md](spec/wire.md#the-signed-root)). A keyring (`keyring.json`) is signed by the same
 key, with its own `notAfter`, by both SDKs' tools.

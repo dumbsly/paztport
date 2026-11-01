@@ -241,13 +241,15 @@ salt and the originals of that group, `GET /debug/boundary-opening`), and the PS
 checks it against the entry it received for that `rid`
 (`POST /debug/check-opening`): it opens. The same opening with one original's `h`
 zeroed (`tamper=true`) does not.
-The check reads the body strictly: exactly one JSON object in UTF-8, with only
-whitespace after it, or it answers `400 {"reason":"MALFORMED_OPENING"}`. An
-object that is not an opening (another member, a missing one, or one the SDK
-refuses) does not open, `200 {"opens": false}`, whatever the `rid`. Only a valid
-opening is looked up: for an unknown `rid`, or no entry of its class and owner,
-that is `404`. An opening proves what the shop committed to when
-it sent the entry, not that the originals were true.
+The check reads the body strictly, as the SDK reads any Paztport object: it must
+be exactly the JCS bytes of one JSON object, or the check answers
+`400 {"reason":"MALFORMED_OPENING"}`, so whitespace around it or members out of
+JCS order are refused that way too. An object that is not an opening (another
+member, a missing one, or one the SDK refuses) does not open,
+`200 {"opens": false}`, whatever the `rid`. Only a valid opening is looked up:
+for an unknown `rid`, or no entry of its class and owner, that is `404`. An
+opening proves what the shop committed to when it sent the entry, not that the
+originals were true.
 
 The salt, the opening and the check are the SDK's (`BoundaryClient.opening`,
 `BoundaryInfluence.opens`). The demo only keeps what they need: `payment` keeps

@@ -396,10 +396,9 @@ as "no owner", so it can never be taken for a known one.
 
 `normalise(entries)`:
 
-1. Rebuild each entry with only `cls`, `src`, `h`, and `cid` and `owner` when present.
-2. Sort by `h`, then `cls`, then `src`, then `cid`, then `owner`, comparing strings by UTF-16 code units (the
+1. Sort by `h`, then `cls`, then `src`, then `cid`, then `owner`, comparing strings by UTF-16 code units (the
    order JCS uses for keys). For `cid` and `owner`, an absent value sorts before any present one.
-3. Remove exact duplicates: entries whose JCS forms are equal. An entry with an owner and the same entry without
+2. Remove exact duplicates: entries whose JCS forms are equal. An entry with an owner and the same entry without
    one are different, and both stay.
 
 The commitment is `""` when there are no entries, and otherwise:
@@ -414,7 +413,7 @@ the owner's sort position and the with-and-without case.
 
 ## Content labels
 
-A server labels the content of each result it attests. A label is `{ "cls": ..., "cid": ..., "owner": ... }`:
+A server labels the content of each result it attests. A label is `{ "cid": ..., "cls": ..., "owner": ... }`:
 
 - `cls` is one of the four classes, and `cid` a fresh content id (both SDKs use 16 random bytes, base64url);
 - `owner`, when present, MUST be non-empty, and the server MUST take it from its own records of whose data it
@@ -595,8 +594,8 @@ content, or confirm a guess at it. It is derived, so the sender stores nothing p
 always derive it again.
 
 **Opening an entry.** To show what one sent entry stood for, the sender reveals an opening:
-`{ "cls", "owner", "salt", "originals" }`, with `owner` left out when the entry has none, `salt` base64url and
-`originals` a list of entries. An opening opens a sent entry only when all of these hold:
+`{ "cls", "originals", "owner", "salt" }`, with `originals` a list of entries, `owner` left out when the entry has
+none, and `salt` base64url. An opening opens a sent entry only when all of these hold:
 
 1. `originals` is not empty.
 2. The opening's `cls` and `owner` are the sent entry's, and so are every original's: both absent, or equal.
