@@ -292,7 +292,8 @@ function crossCheck(records: OutcomeRecord[], report: VerifyReport, evidencePath
  * Decides one run's verification status.
  * @param records the run's outcome records, or null when the log could not be read or used
  * @param report the verify report for the run's evidence file, or undefined when it is missing or empty
- * @param expectedPin the fingerprint of this eval's server policy public key
+ * @param expectedPin the fingerprint of this eval's server policy public key, or undefined when none is recorded:
+ *   the pins are then not compared, and the caller reports that nothing was there to compare them with
  * @param eventsPath the run's events log. Read only in the modes with Paztport on, as the score reads it: its
  *   local lines are cross-checked against the evidence's local records (see crossCheckLocal).
  */
@@ -304,7 +305,7 @@ export function checkRun(input: {
   evidencePath: string;
   eventsPath: string;
   report: VerifyReport | undefined;
-  expectedPin: string;
+  expectedPin: string | undefined;
   /** The scenario gives the model local tools: a run with Paztport on must then have a verified client record with local rules. */
   localTools?: boolean;
   /** Whose server key the expected pin is, as a failure names it. Default "this eval's"; a demo single run is "the demo's". */
@@ -336,7 +337,7 @@ export function checkRun(input: {
     problems.push(bad === undefined ? "evidence.jsonl did not verify" : `evidence.jsonl line ${bad.line}: ${bad.type} ${bad.result}`);
   }
   for (const p of report.pins) {
-    if (p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not ${input.pinOwner ?? "this eval's"} server key ${expectedPin}`);
+    if (expectedPin !== undefined && p !== expectedPin) problems.push(`evidence.jsonl is pinned to server key ${p}, not ${input.pinOwner ?? "this eval's"} server key ${expectedPin}`);
   }
   if (report.pins.length === 0 && (attested || EXPECT_EVIDENCE.includes(mode))) problems.push("evidence.jsonl has no verified session");
   if (records === null) problems.push("the outcome log could not be used, so the evidence could not be compared with it");
@@ -454,9 +455,6 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
   }
   const key = obj.serverKey;
   const fingerprint = typeof key === "object" && key !== null ? (key as Record<string, unknown>).fingerprint : undefined;
-  if (typeof fingerprint !== "string") {
-    return { report, crossCheck: { status: "failed", problems: ["demo-run.json records no server key fingerprint, so the evidence pins can't be compared with it"] } };
-  }
   const scenarioId = typeof obj.scenario === "object" && obj.scenario !== null ? (obj.scenario as Record<string, unknown>).id : undefined;
   const scenario = typeof scenarioId === "string" ? findScenario(scenarioId) : undefined;
   const config = readObject(join(dir, "config.json"));
@@ -468,7 +466,7 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     evidencePath,
     eventsPath: join(dir, "events.jsonl"),
     report: report.nothingToCheck === true ? undefined : report,
-    expectedPin: fingerprint,
+    expectedPin: typeof fingerprint === "string" ? fingerprint : undefined,
     // demo-run.json can be edited: the runner's config (a client policy for local tools) and the scenario say so too
     localTools: obj.localTools === true || typeof config?.clientPolicyDir === "string" || scenario?.localTools === true,
     pinOwner: "the demo's",
@@ -478,7 +476,9 @@ export function verifySingleRunDir(dir: string): SingleRunCheck {
     const need = signedEvidenceNeeded(dir);
     if (need !== undefined) crossCheck = { status: "failed", problems: [need] };
   }
-  crossCheck = withProblems(crossCheck, modeDisagreements(dir, obj.mode as RunMode, config, records));
+  // without a fingerprint the pins have nothing to be compared with, which fails the run; its other checks still report
+  const noKey = typeof fingerprint === "string" ? [] : ["demo-run.json records no server key fingerprint, so the evidence pins can't be compared with it"];
+  crossCheck = withProblems(crossCheck, [...noKey, ...modeDisagreements(dir, obj.mode as RunMode, config, records)]);
   const again = rescore(dir, scenarioId, scenario, obj.mode as RunMode);
   return {
     report,

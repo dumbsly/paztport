@@ -163,7 +163,7 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       evidencePath,
       eventsPath: join(runDir, "events.jsonl"),
       report: run.evidenceFile ? reports.get(file) : undefined,
-      expectedPin: pin ?? "",
+      expectedPin: pin,
       // results.json can be edited: the scenario the folder is checked with also says whether it has local tools
       localTools: results.localTools === true || localScenario !== undefined,
     });
@@ -173,7 +173,9 @@ export function recheckResultsDir(dir: string, results: Obj, scenario?: Scenario
       const why = vr.problem ?? vr.items.find((x) => !NOT_FAILURES.includes(x.result))?.result ?? "it does not verify";
       run.verify = { status: "failed", problems: [`npm run verify fails ${file}: ${why}`] };
     }
-    run.verify = withProblems(run.verify, reused.get(rel));
+    // the pins of a run are not compared without a recorded key, so a run that has them can't be shown to match it
+    const unpinned = pin === undefined && (reports.get(file)?.pins.length ?? 0) > 0 ? ["evidence.jsonl is pinned to a server key, and results.json records none to compare it with"] : [];
+    run.verify = withProblems(run.verify, [...unpinned, ...(reused.get(rel) ?? [])]);
     runs.push(run);
 
     if (raw.outcome !== run.outcome) disagreements.push(`results.json says ${name} was ${String(raw.outcome ?? "not scored")}; the files say ${run.outcome}`);

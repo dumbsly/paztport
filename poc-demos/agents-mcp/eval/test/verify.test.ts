@@ -1598,6 +1598,20 @@ describe("verify CLI: a demo single-run folder", { timeout: 60_000 }, () => {
     expect(odd.status).toBe(1);
   });
 
+  it("a demo-run.json with no server key still reports the run's other problems", () => {
+    // the same folder with a local event that has no evidence record
+    const dir = single({ serverKey: undefined }, (d) => {
+      const events = jsonLines(join(d, "events.jsonl")).map((l) => JSON.parse(l));
+      const leak = events.find((e) => e.type === "local" && e.callId === "l_leak");
+      events.push({ ...leak, callId: "l_forged" });
+      writeFileSync(join(d, "events.jsonl"), events.map((e) => JSON.stringify(e)).join("\n") + "\n");
+    });
+    const r = cli(dir);
+    expect(r.stdout).toMatch(/^FAIL cross-check: .*demo-run\.json records no server key fingerprint/m);
+    expect(r.stdout).toMatch(/the events log shows local call l_forged/);
+    expect(r.status).toBe(1);
+  });
+
   it("a local-tools run is known from config.json or the scenario, not only from demo-run.json", () => {
     // evidence whose client record has no local rules is accepted for a run without local tools
     const why = "a local-tools run with Paztport on, but evidence.jsonl has no verified client record with local rules";

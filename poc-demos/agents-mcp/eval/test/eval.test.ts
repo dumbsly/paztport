@@ -1221,6 +1221,8 @@ describe("recheckResultsDir", { timeout: 120_000 }, () => {
     const rc = recheckResultsDir(o.outDir, rj);
     expect(rc.problems.join(" ")).toMatch(/no server key fingerprint/);
     expect(rc.runs[0]!.verify!.status).toBe("failed");
+    // the run's own line names what is missing, not an empty key
+    expect(rc.runs[0]!.verify!.problems).toEqual(["evidence.jsonl is pinned to a server key, and results.json records none to compare it with"]);
   });
 });
 
