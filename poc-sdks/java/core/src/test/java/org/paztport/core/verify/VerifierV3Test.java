@@ -7,8 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.PublicKey;
@@ -27,6 +25,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleLeaf;
 import org.paztport.core.policy.MerkleTree;
 import org.paztport.core.policy.SignedRoot;
+import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.StampV3;
 
 /** The edges of the v3 live verifier that the shared vectors do not reach: hostile input, a null peer, the pin. */
@@ -63,7 +62,7 @@ class VerifierV3Test {
 
     private static VerifyInputV3 input(String stamps, String bind, String influence, String proof, Peer peer) {
         JsonNode policy = vectors.get("policies").get(peerOk.get("policy").asText());
-        String good = Vectors.json(policy.get("proofs").get(peerOk.get("proofRoute").asText()));
+        String good = Vectors.tokenText(policy.get("proofTokens").get(peerOk.get("proofRoute").asText()));
         return new VerifyInputV3(stamps, bind, influence, proof == null ? good : proof, peerOk.get("receiver").asText(),
                 peerOk.get("receiverInRoute").asBoolean(), peerOk.get("nonceKey").asText(), peer);
     }
@@ -74,8 +73,8 @@ class VerifierV3Test {
 
     @Test
     void neverThrows() {
-        String chain = Vectors.json(peerOk.get("chain"));
-        String infl = Vectors.json(peerOk.get("influence"));
+        String chain = Vectors.tokenText(peerOk.get("chainToken"));
+        String infl = Vectors.tokenText(peerOk.get("influenceToken"));
         assertEquals(ReasonCode.CHAIN_MISSING,
                 verifier().verify(input("\"x\"", bind(), infl, null, null)).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(input(null, bind(), infl, null, null)).reason());
@@ -95,8 +94,8 @@ class VerifierV3Test {
 
     @Test
     void nullPeerIsNoPeer() {
-        VerifyResult r = verifier().verify(input(Vectors.json(peerOk.get("chain")), bind(),
-                Vectors.json(peerOk.get("influence")), null, null));
+        VerifyResult r = verifier().verify(input(Vectors.tokenText(peerOk.get("chainToken")), bind(),
+                Vectors.tokenText(peerOk.get("influenceToken")), null, null));
         assertEquals(new VerifyResult(ReasonCode.OK, "pi", "pi-1"), r);
     }
 
@@ -121,8 +120,8 @@ class VerifierV3Test {
 
     @Test
     void nullInputsAreRejectionsNotExceptions() {
-        String chain = Vectors.json(peerOk.get("chain"));
-        String infl = Vectors.json(peerOk.get("influence"));
+        String chain = Vectors.tokenText(peerOk.get("chainToken"));
+        String infl = Vectors.tokenText(peerOk.get("influenceToken"));
         VerifyInputV3 good = input(chain, bind(), infl, null, null);
         assertEquals(ReasonCode.CHAIN_MISSING, verifier().verify(null).reason());
         assertEquals(ReasonCode.BINDING_MISMATCH, verifier().verify(new VerifyInputV3(chain, bind(), infl,
@@ -180,18 +179,11 @@ class VerifierV3Test {
         }
     }
 
-    private static JsonNode wire(StampV3 s) {
-        return JsonNodeFactory.instance.objectNode().put("v", 3).put("svc", s.svc()).put("inst", s.inst())
-                .put("rid", s.rid()).put("ts", s.ts()).put("sess", s.sess()).put("rcv", s.rcv())
-                .put("bind", s.bind()).put("infl", s.infl()).put("prev", s.prev()).put("sig", s.sig());
-    }
-
     private static String chain(Case c) {
         StampV3 a = StampV3.sign(c.origin(), "i", "r", c.originTs(), "s", "pi", "b", "", "", SESSION.getPrivate());
         StampV3 b = StampV3.sign("pi", "i", c.rid(), c.lastTs(), c.sess(), "target", "b", "",
                 c.prev() == null ? a.sig() : c.prev(), PI.getPrivate());
-        ObjectMapper m = new ObjectMapper();
-        return m.createArrayNode().add(wire(a)).add(wire(b)).toString();
+        return Chains.toJson(List.of(a, b));
     }
 
     private static VerifierV3 boundary(NonceCache cache, long callMax, long runMax) {

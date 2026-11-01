@@ -5,8 +5,10 @@ package org.paztport.core.internal;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * The schema step of reading an object (the spec's JSON reading, step 4), for a value {@link JsonReader} has read:
@@ -27,9 +29,20 @@ public final class JsonFields {
         throw new IllegalArgumentException("not an object");
     }
 
-    /** Refuses {@code o} unless it has every member in {@code required} and none outside it and {@code optional}. */
+    /** {@code v} as an array's items; anything else is refused. */
+    public static List<JsonValue> array(JsonValue v) {
+        if (v instanceof JsonValue.Arr a) {
+            return a.items();
+        }
+        throw new IllegalArgumentException("not an array");
+    }
+
+    /**
+     * Refuses {@code o} unless it has every member in {@code required} and none outside it and {@code optional}. A
+     * missing member is named, the first in sorted order when more than one is missing.
+     */
     public static void exactly(JsonValue.Obj o, Set<String> required, Set<String> optional) {
-        for (String name : required) {
+        for (String name : new TreeSet<>(required)) {
             if (o.get(name) == null) {
                 throw new IllegalArgumentException("no member " + name);
             }
@@ -55,6 +68,22 @@ public final class JsonFields {
             return i.value();
         }
         throw new IllegalArgumentException("member " + name + " is not an integer");
+    }
+
+    /** The object member {@code name}; absent or of another type is refused. */
+    public static JsonValue.Obj object(JsonValue.Obj o, String name) {
+        if (o.get(name) instanceof JsonValue.Obj v) {
+            return v;
+        }
+        throw new IllegalArgumentException("member " + name + " is not an object");
+    }
+
+    /** The array member {@code name}, as its items; absent or of another type is refused. */
+    public static List<JsonValue> array(JsonValue.Obj o, String name) {
+        if (o.get(name) instanceof JsonValue.Arr a) {
+            return a.items();
+        }
+        throw new IllegalArgumentException("member " + name + " is not an array");
     }
 
     /** The boolean member {@code name}; absent or of another type is refused. */

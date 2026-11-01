@@ -148,7 +148,7 @@ class VectorsHttpV3Export {
         PrivateKey gatewayKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("gateway").get("priv").asText()));
         PrivateKey ordersKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("orders").get("priv").asText()));
         JsonNode proof = v3.get("policies").get("mesh").get("proofs").get(ROUTE);
-        MerkleProof sentProof = MerkleProof.parse(Vectors.json(proof));
+        MerkleProof sentProof = MerkleProof.parse(Vectors.text(proof));
 
         // The request chain gateway -> orders -> payment, exactly as StamperV3 builds it in a mesh.
         StamperV3.Stamped toOrders = new StamperV3("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
@@ -275,7 +275,7 @@ class VectorsHttpV3Export {
         byte[] key = Base64Url.decode(b.get("key").asText());
         String rid = b.get("rid").asText();
         String rcv = b.get("rcv").asText();
-        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(Vectors.json(b.get("input"))), key,
+        List<InfluenceEntry> reduced = BoundaryInfluence.reduce(Influence.parse(Vectors.text(b.get("input"))), key,
                 rid, rcv, b.get("egress").asText());
         assertEquals(b.get("reduced"), tree(Influence.toJson(reduced)), "boundary reduced");
         assertEquals(b.get("salts").size(), reduced.size(), "a salt per group");
@@ -286,7 +286,7 @@ class VectorsHttpV3Export {
                     "boundary salt " + s);
         }
         for (JsonNode c : b.get("openings")) {
-            InfluenceEntry sent = Influence.parse("[" + Vectors.json(c.get("sent")) + "]").get(0);
+            InfluenceEntry sent = Influence.parse("[" + Vectors.text(c.get("sent")) + "]").get(0);
             assertEquals(c.get("opens").asBoolean(),
                     BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(Vectors.json(c.get("opening")))),
                     c.get("name").asText());
@@ -372,7 +372,7 @@ class VectorsHttpV3Export {
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
         List<StampV3> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));
-        MerkleProof proof = MerkleProof.parse(Vectors.json(policy.get("proofs").get(c.get("proofRoute").asText())));
+        MerkleProof proof = MerkleProof.parse(Vectors.text(policy.get("proofs").get(c.get("proofRoute").asText())));
         JsonNode header = c.get("responseHeader");
         HttpV3.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {

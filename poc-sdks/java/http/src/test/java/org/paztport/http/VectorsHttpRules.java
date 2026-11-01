@@ -198,7 +198,7 @@ final class VectorsHttpRules {
     }
 
     static List<InfluenceEntry> entries(JsonNode n) {
-        return Influence.parse(Vectors.json(n));
+        return Influence.parse(Vectors.text(n));
     }
 
     static ArrayNode texts(String... values) {
@@ -274,7 +274,7 @@ final class VectorsHttpRules {
             JsonNode m = rules.get("material").get(name);
             Map<String, MerkleProof> proofs = new LinkedHashMap<>();
             m.get("proofs").properties()
-                    .forEach(e -> proofs.put(e.getKey(), MerkleProof.parse(Vectors.json(e.getValue()))));
+                    .forEach(e -> proofs.put(e.getKey(), MerkleProof.parse(Vectors.text(e.getValue()))));
             return new Material(publicKey(m.get("policyKey").asText()), SignedRoot.parse(Vectors.json(m.get("root"))),
                     KeyringFile.parse(Vectors.json(m.get("keyring"))), proofs,
                     m.has("entry") ? m.get("entry").asText() : null,

@@ -3,16 +3,17 @@
 
 package org.paztport.core.policy;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
-import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -30,6 +31,7 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
     /** Every leaf salt is exactly this long; see {@link #verify}. */
     public static final int SALT_BYTES = 16;
     private static final int HASH_BYTES = 32;
+    private static final Set<String> MEMBERS = Set.of("leafSalt", "siblings", "dirs", "rootId");
 
     public MerkleProof {
         Objects.requireNonNull(leafSalt, "leafSalt");
@@ -100,44 +102,41 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
         return new JsonValue.Obj(o);
     }
 
+    /** Reads the header form: a token of the proof's JCS bytes, by {@link #parse}'s checks. */
     public static MerkleProof decode(String header) {
-        return Json.read(Base64Url.decode(header), MerkleProof.class);
+        return fromTree(JsonReader.token(header));
     }
 
     /**
-     * Reads a proof object off the wire: the proof-object checks that need no root. All four fields must be
-     * strings (siblings an array of them), {@code dirs} only {@code L}/{@code R} with one per sibling, the salt
-     * exactly {@link #SALT_BYTES} and each sibling exactly one hash. Anything else throws
-     * {@link IllegalArgumentException}, which a verifier turns into "not proven". Unknown fields are ignored,
-     * as in the TypeScript SDK.
+     * Reads a proof object off the wire from its bytes: the proof-object checks that need no root. {@code json} must
+     * be the JCS text of an object with exactly the proof's four members, all strings but {@code siblings}, an
+     * array of them; {@code dirs} only {@code L}/{@code R} with one per sibling, the salt exactly
+     * {@link #SALT_BYTES} and each sibling exactly one hash. Anything else throws {@link IllegalArgumentException},
+     * which a verifier turns into "not proven".
      */
     public static MerkleProof parse(String json) {
         if (json == null) {
             throw new IllegalArgumentException("proof must be an object");
         }
-        JsonNode node = Json.tree(json);
-        if (!node.isObject()) {
-            throw new IllegalArgumentException("proof must be an object");
-        }
-        JsonNode salt = node.get("leafSalt");
-        JsonNode dirs = node.get("dirs");
-        JsonNode rootId = node.get("rootId");
-        JsonNode siblings = node.get("siblings");
-        if (salt == null || !salt.isTextual() || dirs == null || !dirs.isTextual() || rootId == null
-                || !rootId.isTextual() || siblings == null || !siblings.isArray()) {
-            throw new IllegalArgumentException("malformed proof");
-        }
-        List<String> out = new ArrayList<>();
-        for (JsonNode s : siblings) {
-            if (!s.isTextual() || Base64Url.decode(s.textValue()).length != HASH_BYTES) {
+        return fromTree(JsonReader.wireText(json));
+    }
+
+    private static MerkleProof fromTree(JsonValue value) {
+        JsonValue.Obj o = JsonFields.object(value);
+        JsonFields.exactly(o, MEMBERS, Set.of());
+        List<String> siblings = new ArrayList<>();
+        for (JsonValue s : JsonFields.array(o, "siblings")) {
+            if (!(s instanceof JsonValue.Str sibling) || Base64Url.decode(sibling.value()).length != HASH_BYTES) {
                 throw new IllegalArgumentException("malformed proof sibling");
             }
-            out.add(s.textValue());
+            siblings.add(sibling.value());
         }
-        if (!dirs.textValue().matches("[LR]*") || dirs.textValue().length() != out.size()
-                || Base64Url.decode(salt.textValue()).length != SALT_BYTES) {
+        String salt = JsonFields.string(o, "leafSalt");
+        String dirs = JsonFields.string(o, "dirs");
+        if (!dirs.matches("[LR]*") || dirs.length() != siblings.size()
+                || Base64Url.decode(salt).length != SALT_BYTES) {
             throw new IllegalArgumentException("malformed proof");
         }
-        return new MerkleProof(salt.textValue(), out, dirs.textValue(), rootId.textValue());
+        return new MerkleProof(salt, siblings, dirs, JsonFields.string(o, "rootId"));
     }
 }

@@ -6,11 +6,12 @@
 
 import { decode } from "../encoding/b64url.ts";
 import { verify } from "../crypto/crypto.ts";
-import { commitInfluence, parseInfluence, type InfluenceEntry } from "../influence/influence.ts";
-import { provesPath } from "../policy/merkle.ts";
+import { readToken, type JsonValue } from "../encoding/json.ts";
+import { commitInfluence, influenceOf } from "../influence/influence.ts";
+import { parseProof, provesPath } from "../policy/merkle.ts";
 import type { ReasonCode, VerifyResult } from "../verify/reason.ts";
 import { routeOf } from "../policy/routes.ts";
-import { parseStampsV3, signingBytesV3, type StampV3 } from "../stamp/stamp.ts";
+import { chainOf, signingBytesV3, type StampV3 } from "../stamp/stamp.ts";
 
 /**
  * Only OK and PATH_NOT_ALLOWED name a suspect: by then the signatures, links, times, binding and replay
@@ -21,6 +22,18 @@ import { parseStampsV3, signingBytesV3, type StampV3 } from "../stamp/stamp.ts";
  */
 export function reject(reason: ReasonCode): VerifyResult {
   return { ok: false, reason, suspectSvc: "", suspectInst: "" };
+}
+
+/**
+ * What the reader gives for a token: its value, or undefined for no token (null) and for one that does not read.
+ * Each check then refuses undefined as its own: CHAIN_MISSING, INFLUENCE_MISMATCH, or not proven.
+ */
+export function readOrUndefined(token: string | null): JsonValue | undefined {
+  try {
+    return token === null ? undefined : readToken(token);
+  } catch {
+    return undefined;
+  }
 }
 
 /** The services that sign a chain that never leaves one process, in order, and the instance they all report. */
@@ -47,24 +60,27 @@ function signatureValid(publicKey: string, s: StampV3): boolean {
 }
 
 /**
- * Checks 1 to 6: the stamps parse, all v3 (CHAIN_MISSING), no field holds the delimiter, rcv included
- * (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed by its service's key and links to
- * the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next stamp's service and the
- * last's names `receiver` (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session
- * (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not one the
- * expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the first
- * failure.
+ * Checks 1 to 6: the chain was read and its stamps are all v3 by the stamp's schema (CHAIN_MISSING), no field
+ * holds the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed by
+ * its service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next
+ * stamp's service and the last's names `receiver` (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH),
+ * and the session (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not
+ * one the expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the
+ * first failure.
  */
 export function checkStamps(
-  value: unknown,
+  value: JsonValue | undefined,
   cfg: { keyring: Record<string, string>; allowedOrigins: readonly string[]; sess: string },
   shape: StampShape,
 ): StampV3[] | ReasonCode {
   const { rid, signers } = shape;
-  // 1. Parse.
+  // 1. The chain, by its schema.
+  if (value === undefined) {
+    return "CHAIN_MISSING";
+  }
   let stamps: StampV3[];
   try {
-    stamps = parseStampsV3(value);
+    stamps = chainOf(value);
   } catch {
     return "CHAIN_MISSING";
   }
@@ -109,17 +125,20 @@ export function checkStamps(
   return stamps;
 }
 
-/** Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence (INFLUENCE_MISMATCH). */
-export function checkCommitments(last: StampV3, expectedBind: string, influence: InfluenceEntry[]): ReasonCode | undefined {
+/** Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence read (INFLUENCE_MISMATCH). */
+export function checkCommitments(last: StampV3, expectedBind: string, influence: JsonValue | undefined): ReasonCode | undefined {
   // 8. Binding.
   if (last.bind !== expectedBind) {
     return "BINDING_MISMATCH";
   }
 
   // 9. Influence commitment.
+  if (influence === undefined) {
+    return "INFLUENCE_MISMATCH";
+  }
   let committed: string;
   try {
-    committed = commitInfluence(parseInfluence(influence));
+    committed = commitInfluence(influenceOf(influence));
   } catch {
     return "INFLUENCE_MISMATCH";
   }
@@ -129,14 +148,27 @@ export function checkCommitments(last: StampV3, expectedBind: string, influence:
   return undefined;
 }
 
-/** Check 11 and the result: the chain's services, then the receiver when given, proven against the root (PATH_NOT_ALLOWED). */
-export function checkRoute(stamps: StampV3[], receiver: string | undefined, proof: unknown, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
+/**
+ * Check 11 and the result: the chain's services, then the receiver when given, proven against the root by the proof
+ * read (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
+ */
+export function checkRoute(stamps: StampV3[], receiver: string | undefined, proof: JsonValue | undefined, cfg: { root: Uint8Array; rootId: string }): VerifyResult {
   const last = stamps[stamps.length - 1]!;
   // 11. Route proven against the root.
   const svcs = stamps.map((s) => s.svc);
   const route = routeOf(receiver !== undefined ? [...svcs, receiver] : svcs);
-  if (!provesPath(proof, route, cfg.root, cfg.rootId)) {
+  if (!proven(proof, route, cfg)) {
     return { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: last.svc, suspectInst: last.inst };
   }
   return { ok: true, reason: "OK", suspectSvc: last.svc, suspectInst: last.inst };
+}
+
+/** Whether the proof read is, by its schema, a proof for this root of `route`. */
+function proven(proof: JsonValue | undefined, route: string, cfg: { root: Uint8Array; rootId: string }): boolean {
+  if (proof === undefined) return false;
+  try {
+    return provesPath(parseProof(proof), route, cfg.root, cfg.rootId);
+  } catch {
+    return false;
+  }
 }

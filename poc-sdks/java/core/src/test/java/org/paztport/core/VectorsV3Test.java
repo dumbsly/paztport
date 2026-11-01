@@ -78,10 +78,10 @@ class VectorsV3Test {
     void influence() throws IOException {
         for (JsonNode c : vectors.get("influence")) {
             String name = c.get("name").asText();
-            List<InfluenceEntry> normalised = Influence.normalise(Influence.parse(Vectors.json(c.get("entries"))));
+            List<InfluenceEntry> normalised = Influence.normalise(Influence.parse(Vectors.text(c.get("entries"))));
             assertEquals(c.get("normalized"), MAPPER.readTree(Influence.toJson(normalised)), name);
             assertEquals(c.get("commitment").asText(),
-                    Influence.commit(Influence.parse(Vectors.json(c.get("entries")))), name);
+                    Influence.commit(Influence.parse(Vectors.text(c.get("entries")))), name);
         }
     }
 
@@ -114,7 +114,7 @@ class VectorsV3Test {
     @Test
     void commitInfluence() {
         JsonNode c = vectors.get("commitInfluence");
-        assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(Vectors.json(c.get("entries")))));
+        assertEquals(c.get("expected").asText(), Influence.commit(Influence.parse(Vectors.text(c.get("entries")))));
     }
 
     @Test
@@ -175,7 +175,7 @@ class VectorsV3Test {
         int proofs = 0;
         for (var e : m.get("proofs").properties()) {
             String path = e.getKey();
-            MerkleProof proof = MerkleProof.parse(Vectors.json(e.getValue()));
+            MerkleProof proof = MerkleProof.parse(Vectors.text(e.getValue()));
             assertTrue(proof.verify(path, root), path);
             String header = m.get("proofHeaders").get(path).asText();
             assertEquals(proof, MerkleProof.decode(header), path);
@@ -456,6 +456,11 @@ class VectorsV3Test {
         }
     }
 
+    /** The policy's proof for {@code route}, from its token, or null for no proof. */
+    static String proof(JsonNode policy, JsonNode route) {
+        return route.isNull() ? null : Vectors.tokenText(policy.get("proofTokens").get(route.asText()));
+    }
+
     static Keyring keyring(JsonNode names) {
         Map<String, PublicKey> keys = new LinkedHashMap<>();
         names.properties().forEach(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
@@ -478,11 +483,9 @@ class VectorsV3Test {
                     c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
             JsonNode route = c.get("proofRoute");
             JsonNode peer = c.get("peer");
-            VerifyInputV3 in = new VerifyInputV3(Vectors.json(c.get("chain")), c.get("expectedBind").asText(),
-                    Vectors.json(c.get("influence")),
-                    route.isNull() ? null : Vectors.json(policy.get("proofs").get(route.asText())),
-                    c.get("receiver").asText(),
-                    c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
+            VerifyInputV3 in = new VerifyInputV3(Vectors.tokenText(c.get("chainToken")),
+                    c.get("expectedBind").asText(), Vectors.tokenText(c.get("influenceToken")), proof(policy, route),
+                    c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
                     peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
             VerifierV3 verifier = new VerifierV3(cfg);
             VerifyResult result = null;
@@ -505,12 +508,10 @@ class VectorsV3Test {
                 run.add(r.asLong());
             }
         }
-        JsonNode route = c.get("proofRoute");
-        return new OfflineInput(Vectors.json(c.get("chain")), c.get("expectedBind").asText(),
-                Vectors.json(c.get("influence")),
-                route.isNull() ? null : Vectors.json(policy.get("proofs").get(route.asText())),
-                c.get("receiver").asText(),
-                c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(), c.get("rid").asText(),
+        return new OfflineInput(Vectors.tokenText(c.get("chainToken")), c.get("expectedBind").asText(),
+                Vectors.tokenText(c.get("influenceToken")), proof(policy, c.get("proofRoute")),
+                c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
+                c.get("rid").asText(),
                 new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
     }
 

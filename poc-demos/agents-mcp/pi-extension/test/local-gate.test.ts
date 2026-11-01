@@ -25,7 +25,9 @@ import {
   parseLocalRules,
   rulesHash,
   verifyChainV3,
+  writeToken,
   type InfluenceEntry,
+  type JsonValue,
   type StampV3,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
@@ -362,7 +364,14 @@ describe("LocalGate evidence", () => {
     // the full v3 chain check, with the route as receiver
     for (const rec of recs.slice(0, 2)) {
       const v = verifyChainV3(
-        { stamps: rec.chain, expectedBind: bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }), influence: rec.influence, proof: rec.proof, receiver: `local:${rec.tool}`, receiverInRoute: true },
+        {
+          chain: writeToken(rec.chain as JsonValue),
+          expectedBind: bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash }),
+          influence: writeToken(rec.influence as JsonValue),
+          proof: rec.proof === null ? null : writeToken(rec.proof as JsonValue),
+          receiver: `local:${rec.tool}`,
+          receiverInRoute: true,
+        },
         {
           keyring: material.keyring,
           root: decode(material.signedRoot.root),

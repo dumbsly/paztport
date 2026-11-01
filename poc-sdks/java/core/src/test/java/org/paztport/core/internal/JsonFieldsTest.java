@@ -38,6 +38,14 @@ class JsonFieldsTest {
     }
 
     @Test
+    void anArrayIsAnArrayAndNothingElseIs() {
+        assertEquals(List.of(), JsonFields.array(read("[]")));
+        for (String json : List.of("{}", "\"a\"", "1", "null", "true")) {
+            assertThrows(IllegalArgumentException.class, () -> JsonFields.array(read(json)), json);
+        }
+    }
+
+    @Test
     void exactlyTakesTheRequiredMembersAndTheOptionalOnes() {
         for (String json : List.of("{\"one\":1,\"two\":2}", "{\"one\":1,\"three\":3,\"two\":2}",
                 "{\"one\":null,\"two\":2}")) {
@@ -50,6 +58,13 @@ class JsonFieldsTest {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> JsonFields.exactly(obj("{\"one\":1,\"three\":3}"), REQUIRED, OPTIONAL));
         assertTrue(e.getMessage().contains("two"), e.getMessage());
+    }
+
+    @Test
+    void exactlyNamesTheFirstMissingMemberInSortedOrder() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> JsonFields.exactly(obj("{}"), Set.of("two", "one", "three"), Set.of()));
+        assertEquals("no member one", e.getMessage());
     }
 
     @Test
@@ -78,6 +93,21 @@ class JsonFieldsTest {
         }
         for (String name : List.of("count", "text", "nothing", "absent")) {
             assertTrue(assertThrows(IllegalArgumentException.class, () -> JsonFields.bool(o, name)).getMessage()
+                    .contains(name));
+        }
+    }
+
+    @Test
+    void anObjectOrArrayMemberIsReadAsItsTypeOnly() {
+        JsonValue.Obj o = obj("{\"inner\":{\"a\":1},\"list\":[1,\"x\"],\"nothing\":null,\"text\":\"x\"}");
+        assertEquals(Set.of("a"), JsonFields.object(o, "inner").names());
+        assertEquals(List.of(new JsonValue.Int(1), new JsonValue.Str("x")), JsonFields.array(o, "list"));
+        for (String name : List.of("list", "text", "nothing", "absent")) {
+            assertTrue(assertThrows(IllegalArgumentException.class, () -> JsonFields.object(o, name)).getMessage()
+                    .contains(name));
+        }
+        for (String name : List.of("inner", "text", "nothing", "absent")) {
+            assertTrue(assertThrows(IllegalArgumentException.class, () -> JsonFields.array(o, name)).getMessage()
                     .contains(name));
         }
     }

@@ -2,7 +2,14 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { commitInfluence, influenceClasses, normalizeInfluence, parseInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
+import { encode } from "../../src/encoding/b64url.ts";
+import { utf8 } from "../../src/crypto/crypto.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import { commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
+
+/** A token holding exactly `text`'s bytes. */
+const raw = (text: string): string => encode(utf8(text));
 
 const a: InfluenceEntry = { cls: "third-party", src: "web:example.com", h: "hhh1" };
 const b: InfluenceEntry = { cls: "private", src: "file:notes", h: "hhh2" };
@@ -44,10 +51,32 @@ describe("influence", () => {
     const e = [{ cls: "private", src: "s", h: "h" }] as InfluenceEntry[];
     expect(commitInfluence(e)).not.toBe(commitInfluence([{ ...e[0]!, owner: "alice" }]));
   });
-  it("parseInfluence keeps a string owner and rejects an empty, non-string or lone-surrogate one", () => {
-    expect(parseInfluence([{ cls: "private", src: "s", h: "h", owner: "alice" }])[0]!.owner).toBe("alice");
-    for (const owner of ["", 7, "\uD800"]) {
-      expect(() => parseInfluence([{ cls: "private", src: "s", h: "h", owner }])).toThrow();
+  it("readInfluence keeps a string owner and refuses an empty or non-string one, naming it", () => {
+    expect(readInfluence(writeToken([{ cls: "private", src: "s", h: "h", owner: "alice" }]))[0]!.owner).toBe("alice");
+    for (const owner of ["", 7]) {
+      expect(() => readInfluence(writeToken([{ cls: "private", src: "s", h: "h", owner }])), String(owner)).toThrow("owner");
     }
+  });
+  it("readInfluence refuses what is not a list of entries", () => {
+    const bad = [{}, "x", [1], [[]], [{ cls: "nope", src: "s", h: "x" }], [{ src: "s", h: "x" }], [{ cls: "public", src: 1, h: "x" }],
+      [{ cls: "public", src: "s", h: 2 }], [{ cls: "public", src: "s", h: "x", cid: 3 }], [{ cls: "public", src: "s", h: "x", cid: null }]];
+    for (const value of bad) {
+      expect(() => readInfluence(writeToken(value)), JSON.stringify(value)).toThrow(Error);
+    }
+    const good = [{ cid: "c", cls: "private", h: "x", owner: "o", src: "s" }];
+    expect(readInfluence(writeToken(good))).toEqual(good);
+  });
+  it("readInfluence refuses bytes that do not read, a lone surrogate or a noncharacter among them", () => {
+    for (const token of [raw('[{"cls":"public","h":"x","src":"\\ud800"}]'), raw('[{"cls":"public","h":"x","src":"\uFDD0"}]'), "not*base64url", ""]) {
+      expect(() => readInfluence(token), token).toThrow(MalformedJson);
+    }
+  });
+  it("anEntryWithAnExtraMemberIsRefused", () => {
+    expect(() => readInfluence(writeToken([{ cls: "public", extra: 1, h: "x", src: "s" }]))).toThrow("a member the object does not define");
+  });
+  it("aListInWireMemberOrderIsRefused", () => {
+    expect(() => readInfluence(raw('[{"cls":"public","src":"s","h":"x"}]'))).toThrow(MalformedJson);
+    expect(() => readInfluence(raw('[ {"cls":"public","h":"x","src":"s"}]'))).toThrow(MalformedJson);
+    expect(readInfluence(raw('[{"cls":"public","h":"x","src":"s"}]'))).toEqual([{ cls: "public", src: "s", h: "x" }]);
   });
 });

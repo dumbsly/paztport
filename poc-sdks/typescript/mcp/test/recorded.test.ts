@@ -94,6 +94,20 @@ describe("verifyRecordedCall", () => {
     expect(verifyRecordedCall({}, w.call, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
 
+  it("aRecordedValueNoWriterWritesGetsItsReadersRefusal", () => {
+    const w = world();
+    const meta = (p: Record<string, unknown>) => p._meta as Record<string, unknown>;
+    const reason = (edit: (m: Record<string, unknown>) => void) => {
+      const p = w.params();
+      edit(meta(p));
+      return verifyRecordedCall(p, w.call, w.cfg()).result.reason;
+    };
+    expect(reason((m) => { (m[META_CHAIN] as Record<string, unknown>[])[1]!.ts = -1; })).toBe("CHAIN_MISSING");
+    expect(reason((m) => { (m[META_CHAIN] as Record<string, unknown>[])[1]!.extra = 1; })).toBe("CHAIN_MISSING");
+    expect(reason((m) => { m[META_INFLUENCE] = [{ ...infl[0], owner: "" }]; })).toBe("INFLUENCE_MISMATCH");
+    expect(reason((m) => { m[META_PROOF] = { ...(m[META_PROOF] as object), extra: 1 }; })).toBe("PATH_NOT_ALLOWED");
+  });
+
   it("aCallIsAReplayAnywhereInTheRecordSet", () => {
     const w = world();
     const seen = new Set<string>();

@@ -7,7 +7,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
-  bindPrompt, bindResponse, commitInfluence, decode, decodeProof, deriveSessionId, encode, encodeProof, leafHash, nodeHash, verifyProof,
+  bindPrompt, bindResponse, commitInfluence, decode, deriveSessionId, encode, encodeProof, leafHash, nodeHash, readProof, verifyProof,
 } from "../src/index.ts";
 
 const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8"));
@@ -54,7 +54,7 @@ describe("v3 known-answer vectors: the shared primitives", () => {
     const root = decode(m.root);
     for (const p of Object.keys(m.proofs)) {
       expect(verifyProof(m.proofs[p], p, root)).toBe(true);
-      expect(decodeProof(m.proofHeaders[p])).toEqual(m.proofs[p]);
+      expect(readProof(m.proofHeaders[p])).toEqual(m.proofs[p]);
       expect(encodeProof(m.proofs[p])).toBe(m.proofHeaders[p]);
     }
   });

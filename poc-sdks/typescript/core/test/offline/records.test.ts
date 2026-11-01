@@ -13,7 +13,8 @@ import { bindResponse, newContentId, verifyResponse } from "../../src/session/at
 import { signReplyCert } from "../../src/session/reply-cert.ts";
 import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
-import { signStampV3 } from "../../src/stamp/stamp.ts";
+import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
 import { verifyChainOffline } from "../../src/offline/verify-offline.ts";
 import { callInSession, newRecordSet, recordedSession, type RecordedHandshake } from "../../src/offline/records.ts";
 
@@ -190,9 +191,12 @@ function call(h: ReturnType<typeof handshake>, ts: number, sess = h.reply.sess) 
 }
 
 /** The offline check of a call recorded in `h`'s session: the client's keyring and root from the request, and the session id. */
-function checkCall(h: ReturnType<typeof handshake>, chain: unknown, ts: number, spent: Set<string>) {
+function checkCall(h: ReturnType<typeof handshake>, chain: StampV3[], ts: number, spent: Set<string>) {
   return verifyChainOffline(
-    { stamps: chain, expectedBind: "call-bind", influence: [], proof: h.clientTree.proofFor("session/pi/orders"), receiver: "orders", receiverInRoute: true, rid: "rid-1", recordedTs: { last: ts }, prompt: "p" },
+    {
+      chain: writeToken(chain), expectedBind: "call-bind", influence: writeToken([]), proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders",
+      receiverInRoute: true, rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
+    },
     { keyring: h.request.clientKeyring, root: h.clientTree.root, rootId: "c1", allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req" },
   );
 }

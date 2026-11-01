@@ -4,10 +4,9 @@
 import {
   canonicalize,
   decode,
-  parseInfluence,
   parseLocalRules,
+  parseProof,
   parseSignedRoot,
-  parseStampsV3,
   provesPath,
   readNotAfter,
   rulesHash,
@@ -15,7 +14,8 @@ import {
   verifyKeyring,
   verifyRecordedLocalStep,
   verifyRoot,
-  type InfluenceEntry,
+  writeToken,
+  type JsonValue,
   type LocalRules,
   type LocalStepClient,
   type LocalVerdict,
@@ -39,16 +39,16 @@ import {
  * (where the server's signed reply binds it); verify pins no client key of its own.
  *
  * A local record is checked against the latest client record before it, the first failure being its result: its
- * fields are well formed, and its chain is an origin and a step (UNREADABLE); there is a verified client record
- * (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep (verification.md §Offline
- * verification, MCP profile), with this demo's signers: the origin is svc "session" and the step svc "pi", both on
- * inst "pi-1". That check's order is in its own comment: the binding of the call and the decision
- * (BINDING_MISMATCH), the chain with every offline check (the run's recorded prompt and start times, and the
- * file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
- * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
- * as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and REFUSED when
- * it was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its stamps naming pi
- * and then `local:<tool>` as their receivers (BINDING_MISMATCH).
+ * fields are well formed, and its chain, proof and influence are values a token can carry (UNREADABLE); there is
+ * a verified client record (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep
+ * (verification.md §Offline verification, MCP profile), with this demo's signers: the origin is svc "session" and
+ * the step svc "pi", both on inst "pi-1". That check's order is in its own comment: the binding of the call and
+ * the decision (BINDING_MISMATCH), the chain with every offline check (the run's recorded prompt and start times,
+ * and the file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
+ * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on
+ * it, as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and
+ * REFUSED when it was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its
+ * stamps naming pi and then `local:<tool>` as their receivers (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
@@ -117,7 +117,7 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     if (r.rules !== null) {
       rules = parseLocalRules(r.rules); // throws on rules that don't parse
       hash = rulesHash(rules);
-      if (!provesPath(r.rulesProof, rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
+      if (!provesPath(parseProof(r.rulesProof), rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
         return undefined;
       }
     } else if (r.rulesProof !== null) {
@@ -167,12 +167,14 @@ export function verifyLocal(
   if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
     return "UNREADABLE";
   }
-  let influence: InfluenceEntry[];
+  // The record holds values; the SDK reads tokens, so each is written as the token it would have been sent as.
+  let chain: string;
+  let influence: string;
+  let proof: string | null;
   try {
-    influence = parseInfluence(r.influence);
-    if (parseStampsV3(r.chain).length !== 2) {
-      return "UNREADABLE";
-    }
+    chain = writeToken(r.chain as JsonValue);
+    influence = writeToken(r.influence as JsonValue);
+    proof = r.proof === null ? null : writeToken(r.proof as JsonValue);
   } catch {
     return "UNREADABLE";
   }
@@ -181,7 +183,7 @@ export function verifyLocal(
   }
   const step = {
     tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, resolved: r.resolved, verdict: r.verdict as LocalVerdict,
-    routeAllowed: r.routeAllowed, rulesHash: r.rulesHash, chain: r.chain, proof: r.proof, influence,
+    routeAllowed: r.routeAllowed, rulesHash: r.rulesHash, chain, proof, influence,
   };
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });

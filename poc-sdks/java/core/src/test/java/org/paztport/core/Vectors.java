@@ -20,7 +20,9 @@ import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * Finds and loads a committed vector file from {@code spec/vectors/} by walking up from the working directory,
@@ -93,6 +95,19 @@ public final class Vectors {
             return new JsonValue.Int(node.longValue());
         }
         throw new IllegalArgumentException("not a value the SDK reads: " + node);
+    }
+
+    /**
+     * The JCS text of a vector's value, for an input a test builds from a vector's structure (material, a proof,
+     * an influence list), never for an object the case says was received, which it carries as a token.
+     */
+    public static String text(JsonNode node) {
+        return JsonWriter.text(value(node));
+    }
+
+    /** A case's token, the bytes it says were received, as the JSON text they are, for the SDK's text API. */
+    public static String tokenText(JsonNode token) {
+        return new String(Base64Url.decode(token.textValue()), StandardCharsets.UTF_8);
     }
 
     /** The tree of a vector file's text, with each value's text recorded as it is read. */

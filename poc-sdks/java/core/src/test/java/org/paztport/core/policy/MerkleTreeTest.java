@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -181,6 +182,23 @@ class MerkleTreeTest {
         MerkleProof decoded = MerkleProof.decode(proof.encode());
         assertEquals(proof, decoded);
         assertTrue(decoded.verify("gateway/orders/payment", tree.root()));
+    }
+
+    @Test
+    void aProofIsReadOnlyFromItsJcsBytes() {
+        MerkleProof proof = MerkleTree.build(saltedLeaves(), DEPTH, "v1").proofFor("gateway/orders/payment");
+        String jcs = proof.toJson();
+        assertEquals(proof, MerkleProof.parse(jcs));
+        String wireOrder = "{\"leafSalt\":\"" + proof.leafSalt() + "\",\"siblings\":[\""
+                + String.join("\",\"", proof.siblings()) + "\"],\"dirs\":\"" + proof.dirs() + "\",\"rootId\":\""
+                + proof.rootId() + "\"}";
+        // in JCS order, so it is refused for the member alone
+        String extra = jcs.replace(",\"leafSalt\"", ",\"extra\":1,\"leafSalt\"");
+        for (String bad : new String[] {wireOrder, " " + jcs, extra}) {
+            assertThrows(IllegalArgumentException.class, () -> MerkleProof.parse(bad), bad);
+            assertThrows(IllegalArgumentException.class,
+                    () -> MerkleProof.decode(Base64Url.encode(bad.getBytes(StandardCharsets.UTF_8))), bad);
+        }
     }
 
     @Test

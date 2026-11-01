@@ -4,6 +4,8 @@
 import { decode, encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
 import { writeToken } from "../encoding/jcs.ts";
+import { readToken, type JsonValue } from "../encoding/json.ts";
+import { array, exactly, object, str } from "../internal/fields.ts";
 
 export type MerkleProof = { leafSalt: string; siblings: string[]; dirs: string; rootId: string };
 
@@ -113,39 +115,33 @@ export function verifyProof(proof: MerkleProof, path: string, root: Uint8Array):
   }
 }
 
-/** Throws unless value is an object with exactly-typed proof fields. */
+/** Throws unless value is an object with exactly the proof's members: strings, but `siblings` an array of them, and `dirs` only L and R. */
 export function parseProof(value: unknown): MerkleProof {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("proof must be an object");
+  const o = object(value as JsonValue);
+  exactly(o, ["leafSalt", "siblings", "dirs", "rootId"]);
+  const siblings = array(o, "siblings").map((s) => {
+    if (typeof s !== "string") {
+      throw new Error("member siblings holds a value that is not a string");
+    }
+    return s;
+  });
+  const dirs = str(o, "dirs");
+  if (!DIRS.test(dirs)) {
+    throw new Error("member dirs is not L and R");
   }
-  const v = value as Record<string, unknown>;
-  if (
-    typeof v.leafSalt !== "string" ||
-    typeof v.dirs !== "string" ||
-    typeof v.rootId !== "string" ||
-    !Array.isArray(v.siblings) ||
-    !v.siblings.every((s) => typeof s === "string") ||
-    !DIRS.test(v.dirs)
-  ) {
-    throw new Error("malformed proof");
-  }
-  return { leafSalt: v.leafSalt, siblings: [...(v.siblings as string[])], dirs: v.dirs, rootId: v.rootId };
+  return { leafSalt: str(o, "leafSalt"), siblings, dirs, rootId: str(o, "rootId") };
 }
 
-/** Whether `value` is a proof for the root named `rootId` that proves `path` against `root`. Never throws. */
-export function provesPath(value: unknown, path: string, root: Uint8Array, rootId: string): boolean {
-  try {
-    const proof = parseProof(value);
-    return proof.rootId === rootId && verifyProof(proof, path, root);
-  } catch {
-    return false;
-  }
+/** Reads a proof from its token: MalformedJson for bytes that do not read, an Error naming the member for a proof the schema refuses. */
+export function readProof(token: string): MerkleProof {
+  return parseProof(readToken(token));
+}
+
+/** Whether `proof` is for the root named `rootId` and proves `path` against `root`. */
+export function provesPath(proof: MerkleProof, path: string, root: Uint8Array, rootId: string): boolean {
+  return proof.rootId === rootId && verifyProof(proof, path, root);
 }
 
 export function encodeProof(p: MerkleProof): string {
   return writeToken({ leafSalt: p.leafSalt, siblings: p.siblings, dirs: p.dirs, rootId: p.rootId });
-}
-
-export function decodeProof(text: string): MerkleProof {
-  return parseProof(JSON.parse(Buffer.from(decode(text)).toString("utf8")));
 }

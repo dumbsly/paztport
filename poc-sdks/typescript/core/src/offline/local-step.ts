@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { canonicalize } from "../encoding/jcs.ts";
-import { influenceClasses, type InfluenceEntry } from "../influence/influence.ts";
+import { influenceClasses, readInfluence } from "../influence/influence.ts";
 import { decideLocalCall, type LocalVerdict, type Resolved } from "../influence/local-decision.ts";
 import { localReceiver, localStepBind } from "../influence/local-step.ts";
 import { isNotAfter } from "../policy/validity.ts";
@@ -24,10 +24,12 @@ export type RecordedLocalStep = {
   routeAllowed: boolean;
   /** The hash of the rules that decided, null with none. */
   rulesHash: string | null;
-  chain: unknown;
-  /** The route's proof, null when the route is not listed. */
-  proof: unknown;
-  influence: InfluenceEntry[];
+  /** The chain's token. */
+  chain: string;
+  /** The route's proof's token, null when the route is not listed. */
+  proof: string | null;
+  /** The influence list's token. */
+  influence: string;
 };
 
 /** The client's material a step is checked against, which the caller has already checked under the client policy key. */
@@ -85,7 +87,7 @@ export function verifyRecordedLocalStep(
   }
   const chain = verifyChainOffline(
     {
-      stamps: step.chain,
+      chain: step.chain,
       expectedBind: bind,
       influence: step.influence,
       proof: step.proof,
@@ -122,7 +124,9 @@ export function verifyRecordedLocalStep(
   }
   // the gate's own rule, applied to what it recorded: with the route not listed or no rules it resolves nothing
   const resolved = step.resolved;
-  const expected = decideLocalCall({ routeAllowed: step.routeAllowed, rules: client.rules, classes: influenceClasses(step.influence), resolve: () => resolved });
+  // the chain committed to the influence, so its token reads
+  const classes = influenceClasses(readInfluence(step.influence));
+  const expected = decideLocalCall({ routeAllowed: step.routeAllowed, rules: client.rules, classes, resolve: () => resolved });
   if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== step.verdict) {
     return fail("VERDICT_MISMATCH");
   }

@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 import { bindPrompt, bindResult } from "../../src/stamp/binding.ts";
 import { encode } from "../../src/encoding/b64url.ts";
+import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
 import { generateKeyPair, randomBytes, sha256, utf8 } from "../../src/crypto/crypto.ts";
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
@@ -64,12 +65,25 @@ const cfg = (over: Partial<V3Config> = {}): V3Config => ({
   ...over,
 });
 
-function input(stamps: unknown, over: Over = {}): V3Input {
+/** A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches the reader. */
+const token = (value: unknown): string => encode(utf8(canonicalize(value)));
+/** A token holding exactly `text`'s bytes. */
+const raw = (text: string): string => encode(utf8(text));
+
+function input(chain: string, over: Over = {}): V3Input {
   const { proofRoute, ...rest } = over;
-  return { stamps, expectedBind: bind, influence: infl, proof: tree.proofFor(proofRoute ?? ROUTE), receiver: RECEIVER, receiverInRoute: true, ...rest };
+  return {
+    chain, expectedBind: bind, influence: writeToken(infl), proof: writeToken(tree.proofFor(proofRoute ?? ROUTE)), receiver: RECEIVER, receiverInRoute: true, ...rest,
+  };
 }
 
-const verify = (stamps: unknown, over: Over = {}, c: V3Config = cfg()) => verifyChainV3(input(stamps, over), c);
+/** Verifies the chain `stamps`, carried as the token of its JCS bytes. */
+const verify = (stamps: unknown, over: Over = {}, c: V3Config = cfg()) => verifyChainV3(input(token(stamps), over), c);
+
+/** A stamp's JSON in the member order of the wire table, not JCS's, as a sender on an older SDK writes it. */
+const wireOrder = (s: StampV3): string =>
+  `{"v":3,"svc":"${s.svc}","inst":"${s.inst}","rid":"${s.rid}","ts":${s.ts},"sess":"${s.sess}","rcv":"${s.rcv}",` +
+  `"bind":"${s.bind}","infl":"${s.infl}","prev":"${s.prev}","sig":"${s.sig}"}`;
 
 describe("verifyChainV3", () => {
   it("ok names the last signer", () => expect(verify(chain())).toEqual({ ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" }));
@@ -112,7 +126,34 @@ describe("verifyChainV3", () => {
   });
   it("a lone surrogate in rcv", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
-    expect(verify([s0, { ...s1, rcv: "mcp:\uD800" }]).reason).toBe("CHAIN_MISSING");
+    const text = canonicalize([s0, { ...s1, rcv: "mcp:@" }]).replace('"mcp:@"', '"mcp:\\ud800"');
+    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
+  });
+  it("aChainTokenInWireMemberOrderIsChainMissing", () => {
+    const stamps = chain() as StampV3[];
+    expect(verifyChainV3(input(raw(`[${stamps.map(wireOrder).join(",")}]`)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChainV3(input(raw(` ${canonicalize(stamps)}`)), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChainV3(input(writeToken(stamps)), cfg()).reason).toBe("OK");
+  });
+  it("aStampFieldHoldingANoncharacterIsChainMissing", () => {
+    const [s0, s1] = chain() as [StampV3, StampV3];
+    expect(verify([s0, { ...s1, inst: "pi-\uFDD0" }]).reason).toBe("CHAIN_MISSING");
+    expect(verify([{ ...s0, rid: "rid-\uFFFF" }, s1]).reason).toBe("CHAIN_MISSING");
+  });
+  it("aNegativeTsIsChainMissing", () => {
+    const [s0, s1] = chain() as [StampV3, StampV3];
+    expect(verify([s0, { ...s1, ts: -1 }]).reason).toBe("CHAIN_MISSING");
+    expect(verify([{ ...s0, ts: -(2 ** 63) }, s1]).reason).toBe("CHAIN_MISSING");
+  });
+  it("aTsOfOnePointZeroIsChainMissing", () => {
+    const [s0, s1] = chain() as [StampV3, StampV3];
+    const text = canonicalize([s0, s1]).replace(`"ts":${s1.ts},`, `"ts":${s1.ts}.0,`);
+    expect(text).toContain(`"ts":${NOW}.0,`);
+    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
+  });
+  it("aStampWithAnExtraMemberIsChainMissing", () => {
+    const [s0, s1] = chain() as [StampV3, StampV3];
+    expect(verify([s0, { ...s1, extra: true }]).reason).toBe("CHAIN_MISSING");
   });
   it("rcv is signed: altering it is a bad signature", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
@@ -144,7 +185,7 @@ describe("verifyChainV3", () => {
       ["SESSION_UNKNOWN", verify(chain(), {}, cfg({ sess: "other" }))],
       ["EXPIRED", verify(chain(), {}, cfg({ now: NOW + 10 * 60_000 * 60 }))],
       ["BINDING_MISMATCH", verify(chain(), { expectedBind: "zz" })],
-      ["INFLUENCE_MISMATCH", verify(chain(), { influence: [] })],
+      ["INFLUENCE_MISMATCH", verify(chain(), { influence: writeToken([]) })],
       ["REPLAY", verify(chain(), {}, spent)],
     ];
     for (const [reason, r] of cases) {
@@ -153,7 +194,8 @@ describe("verifyChainV3", () => {
   });
   it("notArray", () => {
     expect(verify({}).reason).toBe("CHAIN_MISSING");
-    expect(verify(undefined).reason).toBe("CHAIN_MISSING");
+    expect(verifyChainV3(input("not*base64url"), cfg()).reason).toBe("CHAIN_MISSING");
+    expect(verifyChainV3(input(""), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("emptyArray", () => {
     expect(verify([]).reason).toBe("CHAIN_MISSING");
@@ -215,8 +257,8 @@ describe("verifyChainV3", () => {
   });
   it("influenceSetDiffersFromInfl", () => {
     const more = [...infl, { cls: "private" as const, src: "file:x", h: "h2" }];
-    expect(verify(chain(), { influence: more }).reason).toBe("INFLUENCE_MISMATCH");
-    expect(verify(chain(), { influence: [] }).reason).toBe("INFLUENCE_MISMATCH");
+    expect(verify(chain(), { influence: writeToken(more) }).reason).toBe("INFLUENCE_MISMATCH");
+    expect(verify(chain(), { influence: writeToken([]) }).reason).toBe("INFLUENCE_MISMATCH");
   });
   it("replayedNonceKey", () => {
     const c = cfg();
@@ -228,9 +270,12 @@ describe("verifyChainV3", () => {
     expect(r.reason).toBe("PATH_NOT_ALLOWED");
   });
   it("badProofShapeOrRootId", () => {
-    expect(verify(chain(), { proof: "junk" }).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verify(chain(), { proof: writeToken("junk") }).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verify(chain(), { proof: "not*base64url" }).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verify(chain(), { proof: null }).reason).toBe("PATH_NOT_ALLOWED");
     const p = { ...tree.proofFor(ROUTE), rootId: "v-OLD" };
-    expect(verify(chain(), { proof: p }).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verify(chain(), { proof: writeToken(p) }).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verify(chain(), { proof: writeToken({ ...tree.proofFor(ROUTE), extra: "x" }) }).reason).toBe("PATH_NOT_ALLOWED");
   });
   it("responseChainWithoutReceiver", () => {
     const serverTree = buildTree([{ salt: randomBytes(16), path: "mcp-entry/github-tools" }], 8, "v1");
@@ -243,7 +288,10 @@ describe("verifyChainV3", () => {
       allowedOrigins: ["mcp-entry"],
     });
     const r = verifyChainV3(
-      { stamps: [s0, s1], expectedBind: "resp", influence: [], proof: serverTree.proofFor("mcp-entry/github-tools"), receiver: "pi", receiverInRoute: false },
+      {
+        chain: writeToken([s0, s1]), expectedBind: "resp", influence: writeToken([]), proof: writeToken(serverTree.proofFor("mcp-entry/github-tools")),
+        receiver: "pi", receiverInRoute: false,
+      },
       c,
     );
     expect(r.reason).toBe("OK");
@@ -251,7 +299,8 @@ describe("verifyChainV3", () => {
   it("loneSurrogateSwapRejected", () => {
     expect(() => mk("session", { inst: "i\uD800" })).toThrow();
     const [s0, s1] = chain() as [StampV3, StampV3];
-    expect(verify([{ ...s0, inst: "i\uD800" }, s1]).reason).toBe("CHAIN_MISSING");
+    const text = canonicalize([{ ...s0, inst: "i@" }, s1]).replace('"i@"', '"i\\ud800"');
+    expect(verifyChainV3(input(raw(text)), cfg()).reason).toBe("CHAIN_MISSING");
   });
   it("nonCanonicalSigRejected", () => {
     const [s0, s1] = chain() as [StampV3, StampV3];
@@ -263,9 +312,13 @@ describe("verifyChainV3", () => {
     expect(verify([{ ...s0, sig: variant }, s1]).reason).toBe("CHAIN_MISSING");
   });
   it("malformedInfluenceIsInfluenceMismatch", () => {
-    const bad = [null, [{ cls: "third-party", src: "\uD800", h: "h" }], [{ cls: "bogus", src: "s", h: "h" }]];
+    const bad = [
+      writeToken(null), raw('[{"cls":"third-party","h":"h","src":"\\ud800"}]'), writeToken([{ cls: "bogus", src: "s", h: "h" }]),
+      writeToken([{ cls: "third-party", extra: 1, src: "web:example.com", h: "h1" }]), raw('[{"cls":"third-party","src":"web:example.com","h":"h1"}]'),
+      "not*base64url",
+    ];
     for (const influence of bad) {
-      expect(verify(chain(), { influence: influence as never }).reason).toBe("INFLUENCE_MISMATCH");
+      expect(verify(chain(), { influence }).reason, influence).toBe("INFLUENCE_MISMATCH");
     }
   });
   it("nonFiniteNowIsExpired", () => {

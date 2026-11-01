@@ -197,33 +197,48 @@ class JsonTextRoundTripTest {
         if (node == null || node.isMissingNode()) {
             return;
         }
-        String json = Vectors.json(node);
+        String json = kind.fromBytes ? bytes(node) : Vectors.json(node);
         if (seen.add(kind + " " + json) && out.put(name, new Case(name, kind, json)) != null) {
             throw new IllegalStateException("two objects named " + name);
+        }
+    }
+
+    /**
+     * The JCS text of an object read from its bytes. A value no JSON value holds, the stamp ts of &minus;2^63, keeps
+     * the file's text, which its reader refuses as it refuses the bytes.
+     */
+    private static String bytes(JsonNode node) {
+        try {
+            return Vectors.text(node);
+        } catch (IllegalArgumentException e) {
+            return Vectors.json(node);
         }
     }
 
     // --- Adapters: JSON text in, JSON text out, through each value type's own reader and writer. ---
 
     private enum Kind {
-        KEYRING(json -> KeyringFile.parse(json).toJson()),
-        ROOT(json -> SignedRoot.parse(json).toJson()),
-        PROOF(json -> MerkleProof.parse(json).toJson()),
-        STAMP(json -> {
+        KEYRING(false, json -> KeyringFile.parse(json).toJson()),
+        ROOT(false, json -> SignedRoot.parse(json).toJson()),
+        PROOF(true, json -> MerkleProof.parse(json).toJson()),
+        STAMP(true, json -> {
             ParsedChain parsed = Chains.parse("[" + json + "]");
             if (!parsed.ok()) {
                 throw new IllegalArgumentException(parsed.failure().name());
             }
             return parsed.stamps().get(0).toJson();
         }),
-        INFLUENCE(json -> Influence.toJson(Influence.parse(json))),
-        REQUEST(json -> SessionRequest.parse(json).toJson()),
-        CERT(json -> ReplyCert.parse(json).toJson()),
-        REPLY(json -> reply(json).toJson());
+        INFLUENCE(true, json -> Influence.toJson(Influence.parse(json))),
+        REQUEST(false, json -> SessionRequest.parse(json).toJson()),
+        CERT(false, json -> ReplyCert.parse(json).toJson()),
+        REPLY(false, json -> reply(json).toJson());
 
+        /** Whether the type's reader takes only an object's JCS bytes, so its case is given those. */
+        final boolean fromBytes;
         final UnaryOperator<String> roundTrip;
 
-        Kind(UnaryOperator<String> roundTrip) {
+        Kind(boolean fromBytes, UnaryOperator<String> roundTrip) {
+            this.fromBytes = fromBytes;
             this.roundTrip = roundTrip;
         }
     }

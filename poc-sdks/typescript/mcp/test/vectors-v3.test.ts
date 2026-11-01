@@ -27,10 +27,10 @@ function shared(v: any, c: any) {
   const keyring = Object.fromEntries(Object.entries(c.keyring as Record<string, string>).map(([svc, name]) => [svc, v.keys[name].pub as string]));
   const cfg = { keyring, root: decode(policy.root), rootId: policy.rootId as string, allowedOrigins: c.allowedOrigins, sess: c.sess, nonceKey: c.nonceKey };
   const input = {
-    stamps: c.chain,
+    chain: c.chainToken,
     expectedBind: c.expectedBind,
-    influence: c.influence,
-    proof: c.proofRoute === null ? null : policy.proofs[c.proofRoute],
+    influence: c.influenceToken,
+    proof: c.proofRoute === null ? null : policy.proofTokens[c.proofRoute],
     receiver: c.receiver,
     receiverInRoute: c.receiverInRoute,
   };
@@ -75,8 +75,8 @@ function replayRecordedCalls(v: any, c: any) {
     const policy = v.policies[call.policy];
     const result = verifyChainOffline(
       {
-        stamps: call.chain, expectedBind: call.expectedBind, influence: call.influence, proof: call.proofRoute === null ? null : policy.proofs[call.proofRoute],
-        receiver: call.receiver, receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
+        chain: call.chainToken, expectedBind: call.expectedBind, influence: call.influenceToken,
+        proof: call.proofRoute === null ? null : policy.proofTokens[call.proofRoute], receiver: call.receiver, receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
       },
       {
         keyring: h.request.clientKeyring, root: decode(h.request.clientRoot.root), rootId: h.request.clientRoot.rootId, allowedOrigins: c.allowedOrigins,
@@ -90,7 +90,7 @@ function replayRecordedCalls(v: any, c: any) {
 
 /** A recorded local step case (MCP profile), against its client's keyring and root and its signed rules. */
 function replayLocalStep(v: any, c: any) {
-  const { proofRoute, ...step } = c.step;
+  const { proofRoute, chain: _chain, chainToken, influence: _influence, influenceToken, ...step } = c.step;
   const policy = v.policies[c.client.policy];
   const keyring = Object.fromEntries(Object.entries(c.client.keyring as Record<string, string>).map(([svc, name]) => [svc, v.keys[name].pub as string]));
   const client = {
@@ -98,7 +98,7 @@ function replayLocalStep(v: any, c: any) {
     rootNotAfter: c.client.rootNotAfter, keyringNotAfter: c.client.keyringNotAfter,
   };
   const result = verifyRecordedLocalStep(
-    { ...step, proof: proofRoute === null ? null : policy.proofs[proofRoute] },
+    { ...step, chain: chainToken, influence: influenceToken, proof: proofRoute === null ? null : policy.proofTokens[proofRoute] },
     { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
   );
   return { reason: result.reason, verdict: result.verdict ?? null };
@@ -171,7 +171,36 @@ describe("v3 known-answer vectors", () => {
     const c = committed.verify.find((x: any) => x.name === "stamp ts of -2^63");
     expect(c.expected.reason).toBe("CHAIN_MISSING");
     const at = committedText.indexOf('"name": "stamp ts of -2^63"');
-    expect(committedText.slice(at, committedText.indexOf('"expectedBind"', at))).toContain('"ts": -9223372036854775808,\n');
+    expect(committedText.slice(at, committedText.indexOf('"chainToken"', at))).toContain('"ts": -9223372036854775808,\n');
+    expect(Buffer.from(decode(c.chainToken)).toString("utf8")).toContain('"ts":-9223372036854775808,');
+  });
+
+  // A replay reads only the tokens; each is the base64url of its readable value's JCS bytes, but for the one case
+  // whose ts JCS cannot write.
+  it("every token is the JCS bytes of its value", () => {
+    let tokens = 0;
+    for (const section of ["verify", "offline"] as const) {
+      for (const c of committed[section]) {
+        if (c.name !== "stamp ts of -2^63") expect(c.chainToken, c.name).toBe(encode(utf8(canonicalize(c.chain))));
+        expect(c.influenceToken, c.name).toBe(encode(utf8(canonicalize(c.influence))));
+        tokens += 2;
+      }
+    }
+    for (const c of committed.recordedCall) {
+      for (const call of c.calls) {
+        expect([call.chainToken, call.influenceToken], c.name).toEqual([encode(utf8(canonicalize(call.chain))), encode(utf8(canonicalize(call.influence)))]);
+        tokens += 2;
+      }
+    }
+    for (const c of committed.recordedLocalStep) {
+      expect([c.step.chainToken, c.step.influenceToken], c.name).toEqual([encode(utf8(canonicalize(c.step.chain))), encode(utf8(canonicalize(c.step.influence)))]);
+      tokens += 2;
+    }
+    for (const [name, policy] of Object.entries(committed.policies as Record<string, any>)) {
+      expect(Object.keys(policy.proofTokens), name).toEqual(Object.keys(policy.proofs));
+      for (const route of Object.keys(policy.proofs)) expect(policy.proofTokens[route], route).toBe(encode(utf8(canonicalize(policy.proofs[route]))));
+    }
+    expect(tokens).toBeGreaterThan(0);
   });
 
   it.each(["recordedHandshake", "recordedCall", "recordedLocalStep"] as const)("%s section", (section) => expect(committed[section].length).toBeGreaterThan(0));

@@ -24,8 +24,9 @@
  * arrived in, so {@code Sessions.checkReply} takes its text or bytes, and the server only ever writes one. A
  * responder event is another: {@code EventVerifier.accept} takes the body's text, and a sender writes it with
  * {@code ResponderEvent.toJson} and {@code EventEnvelope.toJson}.
- * <li>The verifiers take the stamps, influence and proof as the JSON text received, and read each at the check
- * that needs it, so text that is not JSON is a rejection there like any other malformed input.
+ * <li>The verifiers take the stamps, influence and proof as the JSON text received, and read each from its bytes
+ * at the check that needs it, so text that is not the JCS text of what it holds is a rejection there like any
+ * other malformed input.
  * <li>{@link Jcs} canonicalises JSON text.
  * </ul>
  */

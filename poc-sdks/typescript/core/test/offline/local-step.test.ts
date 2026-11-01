@@ -9,7 +9,8 @@ import { commitInfluence, type InfluenceEntry } from "../../src/influence/influe
 import type { LocalVerdict, Resolved } from "../../src/influence/local-decision.ts";
 import { localStepBind, stampLocalStep } from "../../src/influence/local-step.ts";
 import { parseLocalRules, rulesHash, type LocalRules } from "../../src/policy/local-rules.ts";
-import { buildTree } from "../../src/policy/merkle.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import { buildTree, type MerkleProof } from "../../src/policy/merkle.ts";
 import { bindPrompt } from "../../src/stamp/binding.ts";
 import { signStampV3, type StampV3 } from "../../src/stamp/stamp.ts";
 import { verifyRecordedLocalStep, type LocalStepClient, type RecordedLocalStep } from "../../src/offline/local-step.ts";
@@ -41,7 +42,7 @@ function world() {
   const origin = (over: Partial<Omit<StampV3, "v" | "sig">> = {}) =>
     signStampV3({ svc: "session", inst: "pi-1", rid: "rid-1", ts: RUN_TS, sess: "", rcv: "pi", bind: bindPrompt(PROMPT), infl: "", prev: "", ...over }, session.privateKey);
   /** A step the gate signed for `d`, its proof the tree's for the tool's route when `routeAllowed`. */
-  const step = (d: Partial<Decision> = {}, o: { key?: string; ts?: number; proof?: unknown; originOver?: Partial<Omit<StampV3, "v" | "sig">> } = {}): RecordedLocalStep => {
+  const step = (d: Partial<Decision> = {}, o: { key?: string; ts?: number; proof?: MerkleProof | null; originOver?: Partial<Omit<StampV3, "v" | "sig">> } = {}): RecordedLocalStep => {
     const decision: Decision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(RULES), ...d };
     const first = origin(o.originOver);
     const ts = o.ts ?? STEP_TS;
@@ -52,8 +53,8 @@ function world() {
       },
       o.key ?? pi.privateKey,
     );
-    const proof = Object.hasOwn(o, "proof") ? o.proof : decision.routeAllowed ? tree.proofFor(`session/pi/local:${decision.tool}`) : null;
-    return { ...decision, rid: "rid-1", now: ts, chain: [first, stamp], proof, influence: INFLUENCE };
+    const proof = Object.hasOwn(o, "proof") ? o.proof! : decision.routeAllowed ? tree.proofFor(`session/pi/local:${decision.tool}`) : null;
+    return { ...decision, rid: "rid-1", now: ts, chain: writeToken([first, stamp]), proof: proof === null ? null : writeToken(proof), influence: writeToken(INFLUENCE) };
   };
   const run = { prompt: PROMPT, ts: new Set([RUN_TS]) };
   const check = (s: RecordedLocalStep, c: LocalStepClient = client(), seen = new Set<string>()) => verifyRecordedLocalStep(s, { client: c, signers: SIGNERS, run, seen });

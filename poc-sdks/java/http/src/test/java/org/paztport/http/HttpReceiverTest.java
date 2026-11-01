@@ -270,6 +270,32 @@ class HttpReceiverTest {
         assertEquals("CHAIN_MISSING", events.all.get(0).reason());
     }
 
+    /** A stamp's JSON in the member order of the wire table, not JCS's, as a service on an older SDK writes it. */
+    private static String wireOrder(StampV3 s) {
+        return "{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
+                + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv()
+                + "\",\"bind\":\"" + s.bind() + "\",\"infl\":\"" + s.infl() + "\",\"prev\":\"" + s.prev()
+                + "\",\"sig\":\"" + s.sig() + "\"}";
+    }
+
+    @Test
+    void aChainInWireMemberOrderIsChainMissing() {
+        Headers valid = validHeaders();
+        List<StampV3> sent = Chains.parse(HttpV3.decodeChain(valid.chain())).stamps();
+        String text = "[" + String.join(",", sent.stream().map(HttpReceiverTest::wireOrder).toList()) + "]";
+        Headers h = new Headers(Base64Url.encode(text.getBytes(StandardCharsets.UTF_8)), valid.proof(),
+                valid.influence());
+
+        Accepted accepted = verifying(null).accept(paymentRequest(h, TO_PAYMENT), null, VerificationMode.ENFORCE);
+
+        assertEquals(403, accepted.refusal().status());
+        assertEquals("{\"reason\":\"CHAIN_MISSING\"}", text(accepted.refusal()));
+        assertEquals("CHAIN_MISSING", events.all.get(0).reason());
+        assertEquals(List.of(
+                "PAZTPORT_TRACE request rid=- reason=CHAIN_MISSING receiver=payment ✗ peer=none classes=-"),
+                traceLines());
+    }
+
     @Test
     void auditModePassesATamperedRequestWithTheReceivedInfluence() {
         Accepted accepted = verifying(null).accept(

@@ -3,13 +3,14 @@
 
 import {
   CALL_MAX_AGE_MS,
-  parseInfluence,
-  parseStampsV3,
+  readChain,
+  readInfluence,
   RUN_MAX_AGE_MS,
   verifyChainOffline,
   verifyChainV3,
+  writeToken,
 } from "@paztport/core";
-import type { InfluenceEntry, OfflineConfig, ReasonCode, StampV3, V3Config, V3Input, VerifyResult } from "@paztport/core";
+import type { InfluenceEntry, JsonValue, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
 
@@ -25,18 +26,26 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** Reads a call's chain, throwing on one the verifier would not take. */
-type StampParser = (value: unknown) => StampV3[];
+/** `value`'s token, or `none` for a value no writer writes: "" is a token that does not read. */
+function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
+  try {
+    return writeToken(value as JsonValue);
+  } catch {
+    return none;
+  }
+}
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
 type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult;
 
 /**
- * Reads a tools/call params object once, parses its chain with `parse`, derives the binding, the receiver
- * `mcp:<serverId>.<name>` (on the route) and the nonce key `rid|callId|req`, and hands them to `check`. Never
+ * Reads a tools/call params object once, turns its `_meta` chain, influence and proof into the tokens the verifier
+ * reads, reads the chain for its rid, derives the binding, the receiver `mcp:<serverId>.<name>` (on the route) and
+ * the nonce key `rid|callId|req`, and hands them to `check`. A value no writer writes gets its reader's refusal: the
+ * chain CHAIN_MISSING, the influence INFLUENCE_MISMATCH in the verifier's own check order, the proof none. Never
  * throws; influence is returned only when the call verifies.
  */
-function checkCall(params: unknown, serverId: string, parse: StampParser, check: ChainCheck): CallVerification {
+function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVerification {
   let rid = "";
   let callId = "";
   const fail = (reason: ReasonCode): CallVerification => ({
@@ -59,17 +68,10 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
       return fail("CHAIN_MISSING");
     }
     callId = id;
-    // Read each _meta field once and parse once; the chain verifier re-parsing parsed values is idempotent.
-    const stamps = parse(meta[META_CHAIN]);
-    rid = stamps[0]!.rid;
-    const rawInfluence = meta[META_INFLUENCE];
-    const proof = meta[META_PROOF];
-    let influence: InfluenceEntry[] | undefined;
-    try {
-      influence = parseInfluence(rawInfluence);
-    } catch {
-      // unparsable influence is rejected by the chain verifier in its own check order
-    }
+    const chain = tokenOr(meta[META_CHAIN], "");
+    rid = readChain(chain)[0]!.rid;
+    const influence = tokenOr(meta[META_INFLUENCE], "");
+    const proof = tokenOr(meta[META_PROOF], null);
     let expectedBind: string;
     try {
       expectedBind = bindMcpCall(params.name, callId, params.arguments ?? {});
@@ -78,9 +80,9 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
     }
     const result = check(
       {
-        stamps,
+        chain,
         expectedBind,
-        influence: influence ?? (rawInfluence as InfluenceEntry[]),
+        influence,
         proof,
         receiver: mcpReceiver(serverId, params.name),
         receiverInRoute: true,
@@ -88,7 +90,7 @@ function checkCall(params: unknown, serverId: string, parse: StampParser, check:
       `${rid}|${callId}|req`,
       callId,
     );
-    return { result, rid, callId, influence: result.ok ? influence! : [] };
+    return { result, rid, callId, influence: result.ok ? readInfluence(influence) : [] };
   } catch {
     return fail("CHAIN_MISSING");
   }
@@ -104,7 +106,7 @@ export function verifyCall(
   ctx: { serverId: string },
   cfg: Omit<V3Config, "nonceKey">,
 ): CallVerification {
-  return checkCall(params, ctx.serverId, parseStampsV3, (input, nonceKey) => verifyChainV3(input, { ...cfg, nonceKey }));
+  return checkCall(params, ctx.serverId, (input, nonceKey) => verifyChainV3(input, { ...cfg, nonceKey }));
 }
 
 /** Where a recorded tools/call is filed, and what the record set says about its run. */
@@ -127,7 +129,7 @@ export type RecordedCall = {
  * call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
-  return checkCall(params, call.serverId, parseStampsV3, (input, nonceKey, callId) => {
+  return checkCall(params, call.serverId, (input, nonceKey, callId) => {
     const result = verifyChainOffline(
       { ...input, rid: call.rid, recordedTs: { last: call.stampedAt }, prompt: call.prompt },
       { ...cfg, runMaxAgeMs: cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS, callMaxAgeMs: cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS, nonceKey },

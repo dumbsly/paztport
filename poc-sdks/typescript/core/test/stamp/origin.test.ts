@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
 import { bindPrompt } from "../../src/stamp/binding.ts";
 import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
@@ -55,7 +56,7 @@ describe("mintOrigin", () => {
     expect(origin).toMatchObject({ v: 3, rcv: "pi" });
     const hop = signStampV3({ svc: "pi", inst: "pi-1", rid: RID, ts: 1000, sess: SESS, rcv: receiver, bind: "b1", infl: "", prev: origin.sig }, pi.privateKey);
     const r = verifyChainV3(
-      { stamps: [origin, hop], expectedBind: "b1", influence: [], proof: tree.proofFor(`session/pi/${receiver}`), receiver, receiverInRoute: true },
+      { chain: writeToken([origin, hop]), expectedBind: "b1", influence: writeToken([]), proof: writeToken(tree.proofFor(`session/pi/${receiver}`)), receiver, receiverInRoute: true },
       {
         keyring: { session: session.publicKey, pi: pi.publicKey },
         root: tree.root,

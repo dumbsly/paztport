@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkCommitments, checkRoute, checkStamps, reject } from "../internal/chain-checks.ts";
-import type { InfluenceEntry } from "../influence/influence.ts";
+import { checkCommitments, checkRoute, checkStamps, readOrUndefined, reject } from "../internal/chain-checks.ts";
+import type { JsonValue } from "../encoding/json.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
 import { isNotAfter } from "../policy/validity.ts";
@@ -15,11 +15,15 @@ export const NONCE_TTL_MS = 15_000;
 /** The authenticated transport peer, supplied by the transport extension (e.g. from mTLS): its service name and its address. */
 export type Peer = { svc: string; inst: string };
 
+/** What a verifier is handed for one chain: `chain`, `influence` and `proof` are the tokens received, each read only by the verifier. */
 export type V3Input = {
-  stamps: unknown;
+  /** The chain's token. */
+  chain: string;
   expectedBind: string;
-  influence: InfluenceEntry[];
-  proof: unknown;
+  /** The influence list's token. */
+  influence: string;
+  /** The route proof's token; null when none was received. */
+  proof: string | null;
   /** Who received the chain: the last stamp's rcv must name it. */
   receiver: string;
   /** Whether the route ends at the receiver: true for a call, false for a response, whose receiver is off the sender's route. */
@@ -56,10 +60,17 @@ function policyCurrent(cfg: V3Config): boolean {
 /** Check 0's refusal: about the verifier's own config, not the request, so it names no suspect, not even a peer; expiry is not the sender's fault. */
 const POLICY_EXPIRED: VerifyResult = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
 
+/** A V3Input with what the reader gave for each token: its value, or undefined for one that does not read and for no proof. */
+export type V3Read = Omit<V3Input, "chain" | "influence" | "proof"> & {
+  chain: JsonValue | undefined;
+  influence: JsonValue | undefined;
+  proof: JsonValue | undefined;
+};
+
 /** Checks 1 to 12 in order; the result before attribution. */
-function check(input: V3Input, cfg: V3Config): VerifyResult {
+function check(input: V3Read, cfg: V3Config): VerifyResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, shared rid, session.
-  const stamps = checkStamps(input.stamps, cfg, { receiver: input.receiver });
+  const stamps = checkStamps(input.chain, cfg, { receiver: input.receiver });
   if (typeof stamps === "string") {
     return reject(stamps);
   }
@@ -102,9 +113,9 @@ function check(input: V3Input, cfg: V3Config): VerifyResult {
 
 /**
  * Verifies a v3 chain received live. The first failure is the result:
- * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any stamp work: past it the keyring and root
+ * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any token is read: past it the keyring and root
  *    no longer say what the policy owner allows, so no later check means anything; it names no one, peer included;
- * 1. the stamps parse, all v3 (CHAIN_MISSING);
+ * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN);
  * 4. each stamp is signed by its service's key and links to the one before, over the whole chain
@@ -114,14 +125,26 @@ function check(input: V3Input, cfg: V3Config): VerifyResult {
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. the last stamp is within the call window of now, and the origin within the run's lifetime (EXPIRED);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
- * 9. and commits to the influence (INFLUENCE_MISMATCH);
+ * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key is new to the cache (REPLAY);
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root
- *     (PATH_NOT_ALLOWED);
+ * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root by the
+ *     proof its token holds (PATH_NOT_ALLOWED);
  * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
  * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
  */
 export function verifyChainV3(input: V3Input, cfg: V3Config): VerifyResult {
+  if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
+  return verifyChainRead(
+    { ...input, chain: readOrUndefined(input.chain), influence: readOrUndefined(input.influence), proof: readOrUndefined(input.proof) },
+    cfg,
+  );
+}
+
+/**
+ * verifyChainV3 on what the reader gave for each token, for a caller that has read them already. Internal: index.ts
+ * does not export it.
+ */
+export function verifyChainRead(input: V3Read, cfg: V3Config): VerifyResult {
   if (!policyCurrent(cfg)) return { ...POLICY_EXPIRED };
   return blame(check(input, cfg), input.peer);
 }

@@ -12,14 +12,41 @@ function isObject(v: JsonValue): v is JsonObject {
 }
 
 /** `v` as an object; anything else is refused. */
-export function object(v: JsonValue): JsonObject {
-  if (!isObject(v)) throw new Error("not an object");
-  return v;
+export function object(v: JsonValue): JsonObject;
+/** The object member `name`; absent or of another type is refused. */
+export function object(o: JsonObject, name: string): JsonObject;
+export function object(v: JsonValue, name?: string): JsonObject {
+  if (name === undefined) {
+    if (!isObject(v)) throw new Error("not an object");
+    return v;
+  }
+  const o = v as JsonObject;
+  const member = Object.hasOwn(o, name) ? o[name] : undefined;
+  if (member === undefined || !isObject(member)) throw new Error(`member ${name} is not an object`);
+  return member;
 }
 
-/** Refuses `o` unless it has every member in `required` and none outside it and `optional`. */
+/** `v` as an array's items; anything else is refused. */
+export function array(v: JsonValue): readonly JsonValue[];
+/** The array member `name`, as its items; absent or of another type is refused. */
+export function array(o: JsonObject, name: string): readonly JsonValue[];
+export function array(v: JsonValue, name?: string): readonly JsonValue[] {
+  if (name === undefined) {
+    if (!Array.isArray(v)) throw new Error("not an array");
+    return v;
+  }
+  const o = v as JsonObject;
+  const member = Object.hasOwn(o, name) ? o[name] : undefined;
+  if (!Array.isArray(member)) throw new Error(`member ${name} is not an array`);
+  return member;
+}
+
+/**
+ * Refuses `o` unless it has every member in `required` and none outside it and `optional`. A missing member is
+ * named, the first in sorted order when more than one is missing.
+ */
 export function exactly(o: JsonObject, required: readonly string[], optional: readonly string[] = []): void {
-  for (const name of required) {
+  for (const name of [...required].sort()) {
     if (!Object.hasOwn(o, name)) throw new Error(`no member ${name}`);
   }
   for (const name of Object.keys(o)) {

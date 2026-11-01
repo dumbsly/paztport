@@ -231,16 +231,16 @@ class HttpV3Test {
     void responseCheckMalformedLabels() {
         StamperV3.Stamped s = sent(List.of());
         StampV3 stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpV3.resultHash(200, BODY), RID, List.of());
-        String header = Base64Url.encode(("{\"stamp\":" + stamp.toJson() + ",\"labels\":[{\"cls\":\"nope\",\"cid\":\"c\"}]}")
-                .getBytes(StandardCharsets.UTF_8));
+        String header = Base64Url.encode(
+                ("{\"labels\":[{\"cid\":\"c\",\"cls\":\"nope\"}],\"stamp\":" + stamp.toJson() + "}")
+                        .getBytes(StandardCharsets.UTF_8));
         assertEquals(ReasonCode.CHAIN_MISSING,
                 HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason());
     }
 
     /**
-     * The response stamp reaches the verifier as the text it arrived in. A number too large for a double, where a
-     * string belongs, is CHAIN_MISSING; a tree written back out would have turned it into the string
-     * {@code "Infinity"}, which the field check accepts. A repeated name's last value is the one judged.
+     * The response header is read from its bytes: only the JCS bytes of {@code {labels, stamp}} read. A number where
+     * a string belongs, a repeated name, or the members in another order is CHAIN_MISSING.
      */
     @Test
     void responseStampIsJudgedAsSent() {
@@ -250,11 +250,11 @@ class HttpV3Test {
         String good = stamp.toJson();
         String huge = good.replace("\"svc\":\"payment\"", "\"svc\":1e400");
         String labels = ContentLabel.toJson(LABELS);
-        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, "{\"stamp\":" + huge + ",\"labels\":" + labels + "}"));
-        assertEquals(ReasonCode.OK, responseReason(s,
-                "{\"stamp\":" + huge + ",\"labels\":" + labels + ",\"stamp\":" + good + "}"));
+        assertEquals(ReasonCode.OK, responseReason(s, "{\"labels\":" + labels + ",\"stamp\":" + good + "}"));
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, "{\"labels\":" + labels + ",\"stamp\":" + huge + "}"));
         assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s,
-                "{\"stamp\":" + good + ",\"labels\":" + labels + ",\"stamp\":" + huge + "}"));
+                "{\"labels\":" + labels + ",\"stamp\":" + huge + ",\"stamp\":" + good + "}"));
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, "{\"stamp\":" + good + ",\"labels\":" + labels + "}"));
     }
 
     private ReasonCode responseReason(StamperV3.Stamped s, String envelope) {
@@ -271,18 +271,24 @@ class HttpV3Test {
                 new String(Base64Url.decode(HttpV3.encodeInfluence(List.of(e))), StandardCharsets.UTF_8));
     }
 
-    /** A decoder hands on the header's JSON exactly as it was sent, spacing and escapes included. */
+    /**
+     * A decoder hands on the header's JSON exactly as it was sent, which is the JCS text of what it holds; anything
+     * else, spacing, an escape JCS does not write or another member order among it, does not read.
+     */
     @Test
     void decodersKeepTheTextAsSent() {
-        String text = " [ {\"a\" : \"\\u0041\"} ] ";
+        String text = "[{\"a\":\"A\",\"b\":1}]";
         String header = Base64Url.encode(text.getBytes(StandardCharsets.UTF_8));
         assertEquals(text, HttpV3.decodeChain(header));
         assertEquals(text, HttpV3.decodeInfluence(header));
         assertEquals(text, HttpV3.decodeProof(header));
-        String trailing = Base64Url.encode("[] []".getBytes(StandardCharsets.UTF_8));
-        assertEquals("\"malformed\"", HttpV3.decodeChain(trailing));
-        assertEquals("\"malformed\"", HttpV3.decodeInfluence(trailing));
-        assertNull(HttpV3.decodeProof(trailing));
+        for (String unread : new String[] {"[] []", " [{\"a\":\"A\",\"b\":1}] ", "[{\"a\":\"\\u0041\",\"b\":1}]",
+                "[{\"b\":1,\"a\":\"A\"}]"}) {
+            String h = Base64Url.encode(unread.getBytes(StandardCharsets.UTF_8));
+            assertEquals("\"malformed\"", HttpV3.decodeChain(h), unread);
+            assertEquals("\"malformed\"", HttpV3.decodeInfluence(h), unread);
+            assertNull(HttpV3.decodeProof(h), unread);
+        }
     }
 
     @Test

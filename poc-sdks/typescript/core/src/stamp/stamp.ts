@@ -2,36 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode, encode } from "../encoding/b64url.ts";
-import { isWellFormed, sign, utf8 } from "../crypto/crypto.ts";
+import { sign, utf8 } from "../crypto/crypto.ts";
+import { readToken, type JsonValue } from "../encoding/json.ts";
 import { isProtocolText } from "../encoding/json-rules.ts";
-
-/** Checks one stamp object's typed fields; returns it as a record. */
-function checkStamp(item: unknown): Record<string, unknown> {
-  if (typeof item !== "object" || item === null || Array.isArray(item)) {
-    throw new Error("stamp must be an object");
-  }
-  const o = item as Record<string, unknown>;
-  if (o.v !== 3 || typeof o.ts !== "number" || !Number.isSafeInteger(o.ts)) {
-    throw new Error("malformed stamp");
-  }
-  for (const f of [...V3_STRING_FIELDS, "sig"]) {
-    if (typeof o[f] !== "string") {
-      throw new Error(`malformed stamp field ${f}`);
-    }
-    if (!isWellFormed(o[f] as string)) {
-      throw new Error(`lone surrogate in stamp field ${f}`);
-    }
-  }
-  decode(o.sig as string);
-  return o;
-}
-
-function nonEmptyArray(value: unknown): unknown[] {
-  if (!Array.isArray(value) || value.length === 0) {
-    throw new Error("stamps must be a non-empty array");
-  }
-  return value;
-}
+import { array, exactly, int, object, str } from "../internal/fields.ts";
 
 export type StampV3 = {
   v: 3;
@@ -82,23 +56,46 @@ export function signStampV3(fields: Omit<StampV3, "sig" | "v">, privateKey: stri
   return { ...base, sig: encode(sign(privateKey, signingBytesV3(base))) };
 }
 
-function toV3(o: Record<string, unknown>): StampV3 {
+const MEMBERS = ["v", "svc", "inst", "rid", "ts", "sess", "rcv", "bind", "infl", "prev", "sig"];
+
+/** One stamp by the stamp's schema; throws naming the member it refuses. */
+function stampOf(item: JsonValue): StampV3 {
+  const o = object(item);
+  exactly(o, MEMBERS);
+  if (int(o, "v") !== 3) {
+    throw new Error("member v is not 3");
+  }
+  const sig = str(o, "sig");
+  decode(sig);
   return {
     v: 3,
-    svc: o.svc as string,
-    inst: o.inst as string,
-    rid: o.rid as string,
-    ts: o.ts as number,
-    sess: o.sess as string,
-    rcv: o.rcv as string,
-    bind: o.bind as string,
-    infl: o.infl as string,
-    prev: o.prev as string,
-    sig: o.sig as string,
+    svc: str(o, "svc"),
+    inst: str(o, "inst"),
+    rid: str(o, "rid"),
+    ts: int(o, "ts"),
+    sess: str(o, "sess"),
+    rcv: str(o, "rcv"),
+    bind: str(o, "bind"),
+    infl: str(o, "infl"),
+    prev: str(o, "prev"),
+    sig,
   };
 }
 
-/** Throws unless value is a non-empty array of well-formed v3 stamps. */
-export function parseStampsV3(value: unknown): StampV3[] {
-  return nonEmptyArray(value).map((item) => toV3(checkStamp(item)));
+/**
+ * The stamps of a chain the reader has read: a non-empty array of stamps, each with exactly the stamp's members,
+ * `v` 3, `ts` a protocol integer, the rest strings and `sig` canonical base64url. Throws an Error naming what it
+ * refuses. Internal: index.ts exports readChain.
+ */
+export function chainOf(value: JsonValue): StampV3[] {
+  const items = array(value);
+  if (items.length === 0) {
+    throw new Error("a chain with no stamps");
+  }
+  return items.map(stampOf);
+}
+
+/** Reads a chain from its token: MalformedJson for bytes that do not read, an Error naming the member for a stamp the schema refuses. */
+export function readChain(token: string): StampV3[] {
+  return chainOf(readToken(token));
 }

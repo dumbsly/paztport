@@ -4,8 +4,9 @@
 import { describe, expect, it } from "vitest";
 import { concat, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { decode, encode } from "../../src/encoding/b64url.ts";
-import { canonicalize } from "../../src/encoding/jcs.ts";
-import { buildTree, decodeProof, encodeProof, leafHash, nodeHash, parseProof, provesPath, verifyProof } from "../../src/policy/merkle.ts";
+import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
+import { buildTree, encodeProof, leafHash, nodeHash, parseProof, provesPath, readProof, verifyProof } from "../../src/policy/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
@@ -70,7 +71,7 @@ describe("merkle", () => {
   it("encodeDecodeRoundTrip", () => {
     const t = buildTree(leaves(), 8, "v1");
     const proof = t.proofFor("a/c");
-    const decoded = decodeProof(encodeProof(proof));
+    const decoded = readProof(encodeProof(proof));
     expect(decoded).toEqual(proof);
     expect(Buffer.from(decode(encodeProof(proof))).toString()).toBe(canonicalize(proof));
     expect(Object.keys(JSON.parse(Buffer.from(decode(encodeProof(proof))).toString()))).toEqual([
@@ -80,10 +81,19 @@ describe("merkle", () => {
       "siblings",
     ]);
   });
-  it("decodeRejectsGarbage", () => {
-    expect(() => decodeProof("!!!")).toThrow();
-    expect(() => decodeProof(encode(utf8("not json")))).toThrow();
-    expect(() => decodeProof(encode(utf8('{"leafSalt":1}')))).toThrow();
+  it("readProofRefusesGarbage", () => {
+    expect(() => readProof("!!!")).toThrow(MalformedJson);
+    expect(() => readProof(encode(utf8("not json")))).toThrow(MalformedJson);
+    expect(() => readProof(writeToken({ leafSalt: 1 }))).toThrow("no member dirs");
+  });
+  it("readProofTakesExactlyTheProofsMembersFromItsBytes", () => {
+    const proof = buildTree(leaves(), 8, "v1").proofFor("a/b");
+    expect(() => readProof(writeToken({ ...proof, extra: "x" }))).toThrow("a member the object does not define");
+    expect(() => readProof(writeToken({ ...proof, siblings: [1] }))).toThrow("siblings");
+    expect(() => readProof(writeToken({ ...proof, siblings: "x" }))).toThrow("member siblings");
+    const wireOrder = `{"leafSalt":"${proof.leafSalt}","siblings":${canonicalize(proof.siblings)},"dirs":"${proof.dirs}","rootId":"${proof.rootId}"}`;
+    expect(() => readProof(encode(utf8(wireOrder)))).toThrow(MalformedJson);
+    expect(readProof(encode(utf8(canonicalize(proof))))).toEqual(proof);
   });
   it("leafAndNodeAreDomainSeparated", () => {
     const salt = randomBytes(16);
@@ -125,14 +135,12 @@ describe("merkle", () => {
     expect(() => parseProof({ ...proof, dirs: proof.dirs.toLowerCase() })).toThrow();
     expect(parseProof(proof)).toEqual(proof);
   });
-  it("provesPathChecksTheRootIdAndNeverThrows", () => {
+  it("provesPathChecksTheRootId", () => {
     const t = buildTree(leaves(), 8, "v1");
     const proof = t.proofFor("a/b");
     expect(provesPath(proof, "a/b", t.root, "v1")).toBe(true);
     expect(provesPath(proof, "a/c", t.root, "v1")).toBe(false);
     expect(provesPath(proof, "a/b", t.root, "v2")).toBe(false);
-    for (const junk of [null, undefined, "junk", [], { ...proof, dirs: "X" }]) {
-      expect(provesPath(junk, "a/b", t.root, "v1")).toBe(false);
-    }
+    expect(provesPath({ ...proof, dirs: "X" }, "a/b", t.root, "v1")).toBe(false);
   });
 });

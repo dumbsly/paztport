@@ -90,6 +90,11 @@
           "dirs": "LRLLLLLL",
           "rootId": "v128498df6662"
         }
+      },
+      "proofTokens": {
+        "session/pi/mcp:github.create_pull_request": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6IjUxd3VzNC00YjhmVHdMSW1raGpWN1EiLCJyb290SWQiOiJ2MTI4NDk4ZGY2NjYyIiwic2libGluZ3MiOlsiXzJ2ODdMMnNJR2JfZk92U3JtWERKSWxMOVVKSXE4c1JySzF4YlBZenZfcyIsInVPdzJyTlJYaUtkWHBZTWtUUEp4S0p1X0Z4WVlHS3FfUU56SWtWM2NfTFkiLCJfR2p1S29VMlRhQmJsZTYzQmFjWFdWMGpnTkh6S0dLWXctRFNqTWRpYjhzIiwiQlFMRHBDbURBLUlQZmpZdFdOS1pwdUllSXcxMDlpMUY0WDRmM3ZHWU9sYyIsIm40RkRJdU5Gd1lERkVyOWhHd3ZHN1Jfa0ZCQTNHMlN5dUphLWcyYVlBcjgiLCJQOTVHM0RwdVBWYWNCYzhQbG9EUnFTSnEtQUcwZE9YblhIYk1RcVJhNDVnIiwiVEVvcHJGZzhuTE40NmtXbHdIeWtEZmtIZEp2Yl9WcUxWQ19BMm9ZRnhmQSIsIkthOVF0YzAtUWRMTDBnUUFDdkhWUnhwS2g1d0djRU1uVnZ3NjA3eXdlYWMiXX0",
+        "session/pi/mcp:github.add_issue_comment": "eyJkaXJzIjoiUkxMTExMTEwiLCJsZWFmU2FsdCI6IjI5MDllWmR6SnJuUFhzRFJYbmxMOGciLCJyb290SWQiOiJ2MTI4NDk4ZGY2NjYyIiwic2libGluZ3MiOlsieERheUhrMnRmSnZvV3l0QmRtaUtOWXo5Q2c4ZDcwcVpLZzVPT0VPWmRDUSIsInVPdzJyTlJYaUtkWHBZTWtUUEp4S0p1X0Z4WVlHS3FfUU56SWtWM2NfTFkiLCJfR2p1S29VMlRhQmJsZTYzQmFjWFdWMGpnTkh6S0dLWXctRFNqTWRpYjhzIiwiQlFMRHBDbURBLUlQZmpZdFdOS1pwdUllSXcxMDlpMUY0WDRmM3ZHWU9sYyIsIm40RkRJdU5Gd1lERkVyOWhHd3ZHN1Jfa0ZCQTNHMlN5dUphLWcyYVlBcjgiLCJQOTVHM0RwdVBWYWNCYzhQbG9EUnFTSnEtQUcwZE9YblhIYk1RcVJhNDVnIiwiVEVvcHJGZzhuTE40NmtXbHdIeWtEZmtIZEp2Yl9WcUxWQ19BMm9ZRnhmQSIsIkthOVF0YzAtUWRMTDBnUUFDdkhWUnhwS2g1d0djRU1uVnZ3NjA3eXdlYWMiXX0",
+        "session/pi/local:read": "eyJkaXJzIjoiTFJMTExMTEwiLCJsZWFmU2FsdCI6Imw0SlVkeTl0VC14dUVBSHR0OVNvWEEiLCJyb290SWQiOiJ2MTI4NDk4ZGY2NjYyIiwic2libGluZ3MiOlsidUFIZmVHd1BsYWdqT1VGQnphY21iRzJqNmJZREhmamhaUEtvZDVaNVo5TSIsIkJQcmE5aGNYSlgzNi1FQmxObW1mWXpHMEFyRlZfWHJ1c3dpMFV1Q21YdG8iLCJfR2p1S29VMlRhQmJsZTYzQmFjWFdWMGpnTkh6S0dLWXctRFNqTWRpYjhzIiwiQlFMRHBDbURBLUlQZmpZdFdOS1pwdUllSXcxMDlpMUY0WDRmM3ZHWU9sYyIsIm40RkRJdU5Gd1lERkVyOWhHd3ZHN1Jfa0ZCQTNHMlN5dUphLWcyYVlBcjgiLCJQOTVHM0RwdVBWYWNCYzhQbG9EUnFTSnEtQUcwZE9YblhIYk1RcVJhNDVnIiwiVEVvcHJGZzhuTE40NmtXbHdIeWtEZmtIZEp2Yl9WcUxWQ19BMm9ZRnhmQSIsIkthOVF0YzAtUWRMTDBnUUFDdkhWUnhwS2g1d0djRU1uVnZ3NjA3eXdlYWMiXX0"
       }
     },
     "server": {
@@ -115,6 +120,9 @@
           "dirs": "LLLLLLLL",
           "rootId": "v33dc7a7d5de4"
         }
+      },
+      "proofTokens": {
+        "mcp-entry/github-tools": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6Ii1PSUJObk1naVA0S3B2Z1ZGZndILUEiLCJyb290SWQiOiJ2MzNkYzdhN2Q1ZGU0Iiwic2libGluZ3MiOlsiWDlGc1J4ZVdHWWpySS1yWnppWlNxeVJqNDJhUVk3RGNVWkl0a2hWdmQ0OCIsIlB4ZGkyNUhpekxMckhzbC1JdkVWUm5YekdEMzE0UFBUQllocjdMZC1GSWMiLCJKR1E2dlUyaU5EVW41RWhhVktjYkpGQ2FfTV9MalRBeFBOUFFFODRYdjZzIiwibVpycEM1RFo1dFJsekhYR1pab1o5SnJpaGgtNHZydDhyeFNYUy0zT2NtVSIsIk1BdzYyMTB6UUlQRnRMZm1heDB2Zl9nTjMxaGV6cjZnWjNhbG9icnI0VE0iLCJMa0Y3MWdFNFBLNmF1ZW16YVF1eGl2cmp0cE5QRWYzMGh5R1Z6NElpNnVzIiwiRWQ4NjJKZnI0ZHRYajBvTk9xb1B2bHFuLWZLaV9YRFZNSzY0ZnRXWElBSSIsInNqR3NHUnRKamVZMkxjMkhtMXNCNGEycG93b01hRUI1OVA3ZTkxWm1rbG8iXX0"
       }
     },
     "mesh": {
@@ -140,6 +148,9 @@
           "dirs": "LLLLLLLL",
           "rootId": "v4f4ba0e4e25a"
         }
+      },
+      "proofTokens": {
+        "gateway/orders/payment": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6IkN1dXVnUzJlZkhaTzZwSFRQZXNPZ3ciLCJyb290SWQiOiJ2NGY0YmEwZTRlMjVhIiwic2libGluZ3MiOlsia3ZVV1ZnT21GMEI1U01BQkJCU05wOWlOR3hCVjMzRXFMTGZrMVdlWTNsbyIsIklVU0VaY01qWnItUHVhdUZIUTJuZXNtRDBBZWlIbEpjakZpOEJfUE9DeU0iLCIzQmxjblZ5UXhsNUJwa05vcEh0a0tIMGJTSHk4QXlycmZjZGR3czIxTDBRIiwiN3diVDltdWVYcF9MZy1kcjZiRWRzNmhNS3NvQnhmQ1pUMzAxSV9ETFJSbyIsIjhiSmNmcW1GcnZvbVdVZU1EekRDRzlWbE1jd1VVVGJyUDd2cHNzUUtUc00iLCJYVm5pTlBYWENKMFZlOXRjX1BpX2Fza1E0ZEVuamV6OGVYX202R3otVUM4IiwiMjE3T2VHTUJFcFphQjZuTWRpaHJjVGZuVzdEcjROcFVPZk1YYlRCMjJQQSIsIl9GYXBwVVhDeXRCT2ZzZkxweFNIVXBoOUE4c0NXczR6MTBubVYzOEFGYUkiXX0"
       }
     }
   },
@@ -989,6 +1000,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1004,6 +1016,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1060,8 +1073,10 @@
           "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
         }
       ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
       "expectedBind": "bind-orders-to-payment",
       "influence": [],
+      "influenceToken": "W10",
       "policy": "mesh",
       "proofRoute": "gateway/orders/payment",
       "receiver": "payment",
@@ -1118,8 +1133,10 @@
           "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
         }
       ],
+      "chainToken": "W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31d",
       "expectedBind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
       "influence": [],
+      "influenceToken": "W10",
       "policy": "server",
       "proofRoute": "mcp-entry/github-tools",
       "receiver": "pi",
@@ -1176,8 +1193,10 @@
           "sig": "Sx7m_Kg_J_3I3cIOj_F5EIk9DzVadsyellsaO4gTjTz4ZSq_PKGCd7qSrcXRVLNd4kYb14HNT3WHpdJGEDOUBQ"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiY0lmLVhwMHZ5bTIzMVF2c1pjRnM3R18zWkw3RE9DRy1ZUEtQT2Q2anB2VSIsImluZmwiOiIiLCJpbnN0IjoicGktMSIsInByZXYiOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInJjdiI6ImxvY2FsOnJlYWQiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiJTeDdtX0tnX0pfM0kzY0lPal9GNUVJazlEelZhZHN5ZWxsc2FPNGdUalR6NFpTcV9QS0dDZDdxU3JjWFJWTE5kNGtZYjE0SE5UM1dIcGRKR0VET1VCUSIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "cIf-Xp0vym231QvsZcFs7G_3ZL7DOCG-YPKPOd6jpvU",
       "influence": [],
+      "influenceToken": "W10",
       "policy": "client",
       "proofRoute": "session/pi/local:read",
       "receiver": "local:read",
@@ -1234,6 +1253,7 @@
           "sig": "MUFwg3GTiy5ZXTor233TT3vLwCJ2MBI9Xard2aVJvZNRBQs_57_cYK-rYof6ILK9UbxTBB6kDiQgkHkEL1uWBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2Ijoic2VhcmNoIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiLVpmVHhSN0dhR1U2RWdqc3VjRmJTNDNlWWFiUE9lcGl0ZEZ4NVVyT1RoMXFjTEprc041dXdRb294VE9uZXZ5cXVjUGYwWkNLMFdWTzFudGtxYjFuQVEiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTgwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Ii1aZlR4UjdHYUdVNkVnanN1Y0ZiUzQzZVlhYlBPZXBpdGRGeDVVck9UaDFxY0xKa3NONXV3UW9veFRPbmV2eXF1Y1BmMFpDSzBXVk8xbnRrcWIxbkFRIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiTVVGd2czR1RpeTVaWFRvcjIzM1RUM3ZMd0NKMk1CSTlYYXJkMmFWSnZaTlJCUXNfNTdfY1lLLXJZb2Y2SUxLOVVieFRCQjZrRGlRZ2tIa0VMMXVXQnciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1249,6 +1269,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1305,6 +1326,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1320,6 +1342,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.add_issue_comment",
@@ -1376,6 +1399,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1391,6 +1415,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1450,6 +1475,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1465,6 +1491,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1524,6 +1551,7 @@
           "sig": "tkStSYKIQ-OqpfbJ5IF8XFimwp_pjRZ-sbFGaxzcbCj00P1BJiZuMrgE4C89pO5acRIKU-hUuZw3TwFWBtg3DQ"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ0a1N0U1lLSVEtT3FwZmJKNUlGOFhGaW13cF9walJaLXNiRkdheHpjYkNqMDBQMUJKaVp1TXJnRTRDODlwTzVhY1JJS1UtaFV1WnczVHdGV0J0ZzNEUSIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1539,6 +1567,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1598,6 +1627,7 @@
           "sig": "tkStSYKIQ-OqpfbJ5IF8XFimwp_pjRZ-sbFGaxzcbCj00P1BJiZuMrgE4C89pO5acRIKU-hUuZw3TwFWBtg3DQ"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ0a1N0U1lLSVEtT3FwZmJKNUlGOFhGaW13cF9walJaLXNiRkdheHpjYkNqMDBQMUJKaVp1TXJnRTRDODlwTzVhY1JJS1UtaFV1WnczVHdGV0J0ZzNEUSIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1613,6 +1643,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1669,6 +1700,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1684,6 +1716,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.add_issue_comment",
       "receiver": "mcp:github.create_pull_request",
@@ -1740,6 +1773,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1755,6 +1789,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1811,6 +1846,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1826,6 +1862,7 @@
           "owner": "bob"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYm9iIiwic3JjIjoiZ2l0aHViOmFjbWUvYXBwIzQyIn1d",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1882,6 +1919,7 @@
           "sig": "UGn9c8OCKSpQsF_YORD9v5ISImgxnlwlCKk0FLrSkyKok20rZ0A2Y2E_wt1WnDAW2J7-N7qFQXcFtfw1ON44Dw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2Ijoic2VhcmNoIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiLVpmVHhSN0dhR1U2RWdqc3VjRmJTNDNlWWFiUE9lcGl0ZEZ4NVVyT1RoMXFjTEprc041dXdRb294VE9uZXZ5cXVjUGYwWkNLMFdWTzFudGtxYjFuQVEiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTgwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Ii1aZlR4UjdHYUdVNkVnanN1Y0ZiUzQzZVlhYlBPZXBpdGRGeDVVck9UaDFxY0xKa3NONXV3UW9veFRPbmV2eXF1Y1BmMFpDSzBXVk8xbnRrcWIxbkFRIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiVUduOWM4T0NLU3BRc0ZfWU9SRDl2NUlTSW1neG5sd2xDS2swRkxyU2t5S29rMjByWjBBMlkyRV93dDFXbkRBVzJKNy1ON3FGUVhjRnRmdzFPTjQ0RHciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1897,6 +1935,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -1953,6 +1992,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -1968,6 +2008,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.add_issue_comment",
       "receiver": "mcp:github.create_pull_request",
@@ -2027,8 +2068,10 @@
           "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
         }
       ],
+      "chainToken": "W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31d",
       "expectedBind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
       "influence": [],
+      "influenceToken": "W10",
       "policy": "server",
       "proofRoute": "mcp-entry/github-tools",
       "receiver": "other",
@@ -2085,6 +2128,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjJ9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2100,6 +2144,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2155,6 +2200,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2170,6 +2216,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2226,6 +2273,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJhfGIiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2241,6 +2289,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2297,6 +2346,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOjcsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMSIsInNpZyI6InlySEdZQ0lmcHI1YVA1Z3RVenV3VEtOTHdmYmhTYXdzak9qSUZuaHVKWkd0M0xLUGZmV1FQLWYzRmtTUEtmS1hILUVmaEVDQ1NPRUZ5SV91QlJBYkJ3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTU5OTAwMCwidiI6M31d",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2312,6 +2362,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2368,6 +2419,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOi05MjIzMzcyMDM2ODU0Nzc1ODA4LCJ2IjozfV0",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2383,6 +2435,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2439,6 +2492,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2454,6 +2508,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2510,6 +2565,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2525,6 +2581,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2581,6 +2638,7 @@
           "sig": "tkStSYKIQ-OqpfbJ5IF8XFimwp_pjRZ-sbFGaxzcbCj00P1BJiZuMrgE4C89pO5acRIKU-hUuZw3TwFWBtg3DQ"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ0a1N0U1lLSVEtT3FwZmJKNUlGOFhGaW13cF9walJaLXNiRkdheHpjYkNqMDBQMUJKaVp1TXJnRTRDODlwTzVhY1JJS1UtaFV1WnczVHdGV0J0ZzNEUSIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2596,6 +2654,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2628,6 +2687,7 @@
     {
       "name": "policy expired beats a malformed chain",
       "chain": [],
+      "chainToken": "W10",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2643,6 +2703,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2699,6 +2760,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2714,6 +2776,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2772,6 +2835,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2787,6 +2851,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2844,6 +2909,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjJ9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2859,6 +2925,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2916,6 +2983,7 @@
           "sig": "MUFwg3GTiy5ZXTor233TT3vLwCJ2MBI9Xard2aVJvZNRBQs_57_cYK-rYof6ILK9UbxTBB6kDiQgkHkEL1uWBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2Ijoic2VhcmNoIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiLVpmVHhSN0dhR1U2RWdqc3VjRmJTNDNlWWFiUE9lcGl0ZEZ4NVVyT1RoMXFjTEprc041dXdRb294VE9uZXZ5cXVjUGYwWkNLMFdWTzFudGtxYjFuQVEiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTgwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Ii1aZlR4UjdHYUdVNkVnanN1Y0ZiUzQzZVlhYlBPZXBpdGRGeDVVck9UaDFxY0xKa3NONXV3UW9veFRPbmV2eXF1Y1BmMFpDSzBXVk8xbnRrcWIxbkFRIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiTVVGd2czR1RpeTVaWFRvcjIzM1RUM3ZMd0NKMk1CSTlYYXJkMmFWSnZaTlJCUXNfNTdfY1lLLXJZb2Y2SUxLOVVieFRCQjZrRGlRZ2tIa0VMMXVXQnciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -2931,6 +2999,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -2988,6 +3057,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -3003,6 +3073,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -3060,6 +3131,7 @@
           "sig": "v0v9iS_xcD-DdmOhGcDOozkpSOOuPcNxTIPbuj6ESpWFW-Uxiwh_siOP16jynhlVmQvSM9M9cR5j5tYbISF8Ag"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJNNXpaZEc0eDhSaEFLVFdEZ3kwcjVjSGNhT2RGdlA5VFBoTG5LTHd4NG83aUpzOE9oYjNPelI4SkxIcUx3UkFieW5CUWpQN2RiUDBYa1ludG1yeUlEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyMzc5ODk5OSwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiTTV6WmRHNHg4UmhBS1RXRGd5MHI1Y0hjYU9kRnZQOVRQaExuS0x3eDRvN2lKczhPaGIzT3pSOEpMSHFMd1JBYnluQlFqUDdkYlAwWGtZbnRtcnlJREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ2MHY5aVNfeGNELURkbU9oR2NET296a3BTT091UGNOeFRJUGJ1ajZFU3BXRlctVXhpd2hfc2lPUDE2anluaGxWbVF2U005TTljUjVqNXRZYklTRjhBZyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -3075,6 +3147,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -3132,6 +3205,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -3147,6 +3221,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -3204,6 +3279,7 @@
           "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
         }
       ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
       "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
       "influence": [
         {
@@ -3219,6 +3295,7 @@
           "owner": "alice"
         }
       ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
       "policy": "client",
       "proofRoute": "session/pi/mcp:github.create_pull_request",
       "receiver": "mcp:github.create_pull_request",
@@ -4328,6 +4405,7 @@
               "sig": "vCls__lIXnesUFgeAsnn6Cr0bZYEgZuuE8-vnsft3IQc7TG-iv5SOxkaVMxX77hhN3mA69b7HUJvthbVjtmTCQ"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiNkRCUlJoQXJJRnZGaHdsWFZNOG1CWTRuazlXdHJYRlpiNGt0ZzVCWmR4SlBzNWFZZnBwa2RfM1Eza0EwRnNOMV9pbU9XYUVZb2pkU3NPYW5oSWJVRGciLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3OTg3NjE1OTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6IjZEQlJSaEFySUZ2Rmh3bFhWTThtQlk0bms5V3RyWEZaYjRrdGc1QlpkeEpQczVhWWZwcGtkXzNRM2tBMEZzTjFfaW1PV2FFWW9qZFNzT2FuaEliVURnIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6InZDbHNfX2xJWG5lc1VGZ2VBc25uNkNyMGJaWUVnWnV1RTgtdm5zZnQzSVFjN1RHLWl2NVNPeGthVk14WDc3aGhOM21BNjliN0hVSnZ0aGJWanRtVENRIiwic3ZjIjoicGkiLCJ0cyI6MTc5ODc2MTYwMDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4343,6 +4421,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4448,6 +4527,7 @@
               "sig": "_X4xE7d8bgzoEsoBK4CjotVtlp2IOynhVXrEYgL1K-ykl6wBxP2X64jJN9urK9RWWNR8Lyw1CtMoiqv9Ej4hAA"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiN0YxZl9kWk5PVFp3blRmZUIycGpKS2s1M0ZYNUhHcW5DNVFqZ1RFcjVwWmdyTERaSlBtdmVnZ1JPZzFQSXNPM0gzNFA1Wi1PTzlPOW5hRjZCTlVyQlEiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3OTg3NjE1OTkwMDEsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6IjdGMWZfZFpOT1Rad25UZmVCMnBqSktrNTNGWDVIR3FuQzVRamdURXI1cFpnckxEWkpQbXZlZ2dST2cxUElzTzNIMzRQNVotT085TzluYUY2Qk5VckJRIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6Il9YNHhFN2Q4Ymd6b0Vzb0JLNENqb3RWdGxwMklPeW5oVlhyRVlnTDFLLXlrbDZ3QnhQMlg2NGpKTjl1cks5UldXTlI4THl3MUN0TW9pcXY5RWo0aEFBIiwic3ZjIjoicGkiLCJ0cyI6MTc5ODc2MTYwMDAwMSwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4463,6 +4543,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4568,6 +4649,7 @@
               "sig": "SWzBqOZsJvSNcrsvqmgwhZy5JOp1iClb9MgChZ9Z51THfMiX5Ov3WnAH0ABYEgmQavdzpoqHu-RoiDXqTnzECg"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJUMXhCZS0wUEZPdWpJNE9BeHJSc3RfajlWWGNqcUVYWWZTd3BZTFJnVi1nIiwic2lnIjoiSjhzREZTd1NlYkt4eWdnamkwZzRJaExPWnphdlpIYThaSGZEYnZKZkxzM3VEckhCdHoyNmp0LXZzQmNwNC12cTkxUHFxNlk4Z2k1QkppaUR3enJWQ3ciLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Iko4c0RGU3dTZWJLeHlnZ2ppMGc0SWhMT1p6YXZaSGE4WkhmRGJ2SmZMczN1RHJIQnR6MjZqdC12c0JjcDQtdnE5MVBxcTZZOGdpNUJKaWlEd3pyVkN3IiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiVDF4QmUtMFBGT3VqSTRPQXhyUnN0X2o5VlhjanFFWFlmU3dwWUxSZ1YtZyIsInNpZyI6IlNXekJxT1pzSnZTTmNyc3ZxbWd3aFp5NUpPcDFpQ2xiOU1nQ2haOVo1MVRIZk1pWDVPdjNXbkFIMEFCWUVnbVFhdmR6cG9xSHUtUm9pRFhxVG56RUNnIiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4583,6 +4665,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4624,6 +4707,7 @@
               "sig": "0IXdjdHeXXrJwko_Xzrfaxc6eCQlq01Ne1JlGp9Ef0DFFBdjrEciZJCK-KWP70djm0pJoAcitfppnF7SuJblBQ"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJUMXhCZS0wUEZPdWpJNE9BeHJSc3RfajlWWGNqcUVYWWZTd3BZTFJnVi1nIiwic2lnIjoiTXFxbm9ic3J1Wk1XbmdZVWJKb196Z2RlZjVQcV95UzlEYXFxekJKQXM5TjZIM084OFFwUVFxdW1tTUo3ZFFmbEpaYzBzZ1JsTVVOckdXb2ZPSzE0QnciLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDEsInYiOjN9LHsiYmluZCI6InBMdDFYZFVPbU5YOE41OVdJaGtZd2piZVJCaHNNLUI4T2Y4RUktbEwxS28iLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Ik1xcW5vYnNydVpNV25nWVViSm9femdkZWY1UHFfeVM5RGFxcXpCSkFzOU42SDNPODhRcFFRcXVtbU1KN2RRZmxKWmMwc2dSbE1VTnJHV29mT0sxNEJ3IiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiVDF4QmUtMFBGT3VqSTRPQXhyUnN0X2o5VlhjanFFWFlmU3dwWUxSZ1YtZyIsInNpZyI6IjBJWGRqZEhlWFhySndrb19YenJmYXhjNmVDUWxxMDFOZTFKbEdwOUVmMERGRkJkanJFY2laSkNLLUtXUDcwZGptMHBKb0FjaXRmcHBuRjdTdUpibEJRIiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMSwidiI6M31d",
           "expectedBind": "pLt1XdUOmNX8N59WIhkYwjbeRBhsM-B8Of8EI-lL1Ko",
           "influence": [
             {
@@ -4639,6 +4723,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4747,6 +4832,7 @@
               "sig": "mrC7fIVs5NmCXTassOgpo-Wzauee_WjSOTl0XrPcxPuQUsi_WVCn2bYrchlngYuoPBcVoXfooMMbtTdtMMdHDA"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJUMXhCZS0wUEZPdWpJNE9BeHJSc3RfajlWWGNqcUVYWWZTd3BZTFJnVi1nIiwic2lnIjoiTXFxbm9ic3J1Wk1XbmdZVWJKb196Z2RlZjVQcV95UzlEYXFxekJKQXM5TjZIM084OFFwUVFxdW1tTUo3ZFFmbEpaYzBzZ1JsTVVOckdXb2ZPSzE0QnciLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDEsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Ik1xcW5vYnNydVpNV25nWVViSm9femdkZWY1UHFfeVM5RGFxcXpCSkFzOU42SDNPODhRcFFRcXVtbU1KN2RRZmxKWmMwc2dSbE1VTnJHV29mT0sxNEJ3IiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiVDF4QmUtMFBGT3VqSTRPQXhyUnN0X2o5VlhjanFFWFlmU3dwWUxSZ1YtZyIsInNpZyI6Im1yQzdmSVZzNU5tQ1hUYXNzT2dwby1XemF1ZWVfV2pTT1RsMFhyUGN4UHVRVXNpX1dWQ24yYllyY2hsbmdZdW9QQmNWb1hmb29NTWJ0VGR0TU1kSERBIiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMSwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4762,6 +4848,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4867,6 +4954,7 @@
               "sig": "eQA9SD8MhMzevJwGLlUSXxuQpIMEbOzZuYawrOqk3GZrhtV5XIQGVYLH5eFx6kTkBh7-yx7GRTIonF4N12EqCw"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiSjVXT1hpWWR1OVNPZlZ5b0FYaXNjbVJiRGFyTmYyTThCR2ZyRmpMLVZmQXNNSXhXeHBUX3NGRWdyTnhWRW9rZDdGTkFVT21PR3k3NFhuZDhnUFNfQ0EiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Iko1V09YaVlkdTlTT2ZWeW9BWGlzY21SYkRhck5mMk04QkdmckZqTC1WZkFzTUl4V3hwVF9zRkVnck54VkVva2Q3Rk5BVU9tT0d5NzRYbmQ4Z1BTX0NBIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6ImVRQTlTRDhNaE16ZXZKd0dMbFVTWHh1UXBJTUViT3padVlhd3JPcWszR1pyaHRWNVhJUUdWWUxINWVGeDZrVGtCaDcteXg3R1JUSW9uRjROMTJFcUN3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4882,6 +4970,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -4923,6 +5012,7 @@
               "sig": "kCJg3sslbC0PyU-nsHUz22FWP286BE8e5WrdV0xicC_TO117PVx7a4ryxh4DPAWZ4feC97jKkEKzCrJNcSMLDQ"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiVzJVdEdUOEh6aW9sUmg0TXIwRFNncVBLdC14QlR0NFVCVUNFRmV2S1M5cE9XaHcxWVVidzJsTnNicVZNZEVYMkRuWTlTd25aTXd5akI2Znc3QTQ5RHciLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU2NTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6IlcyVXRHVDhIemlvbFJoNE1yMERTZ3FQS3QteEJUdDRVQlVDRUZldktTOXBPV2h3MVlVYncybE5zYnFWTWRFWDJEblk5U3duWk13eWpCNmZ3N0E0OUR3IiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6ImtDSmczc3NsYkMwUHlVLW5zSFV6MjJGV1AyODZCRThlNVdyZFYweGljQ19UTzExN1BWeDdhNHJ5eGg0RFBBV1o0ZmVDOTdqS2tFS3pDckpOY1NNTERRIiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTY2MDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -4938,6 +5028,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -5093,6 +5184,7 @@
               "sig": "eQA9SD8MhMzevJwGLlUSXxuQpIMEbOzZuYawrOqk3GZrhtV5XIQGVYLH5eFx6kTkBh7-yx7GRTIonF4N12EqCw"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiSjVXT1hpWWR1OVNPZlZ5b0FYaXNjbVJiRGFyTmYyTThCR2ZyRmpMLVZmQXNNSXhXeHBUX3NGRWdyTnhWRW9rZDdGTkFVT21PR3k3NFhuZDhnUFNfQ0EiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Iko1V09YaVlkdTlTT2ZWeW9BWGlzY21SYkRhck5mMk04QkdmckZqTC1WZkFzTUl4V3hwVF9zRkVnck54VkVva2Q3Rk5BVU9tT0d5NzRYbmQ4Z1BTX0NBIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6ImVRQTlTRDhNaE16ZXZKd0dMbFVTWHh1UXBJTUViT3padVlhd3JPcWszR1pyaHRWNVhJUUdWWUxINWVGeDZrVGtCaDcteXg3R1JUSW9uRjROMTJFcUN3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -5108,6 +5200,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -5149,6 +5242,7 @@
               "sig": "eQA9SD8MhMzevJwGLlUSXxuQpIMEbOzZuYawrOqk3GZrhtV5XIQGVYLH5eFx6kTkBh7-yx7GRTIonF4N12EqCw"
             }
           ],
+          "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJqalFIUTRZLVB0cm1yaGhjRlI3a210eWJ5NEYxN09zQWQwdWN1NnQ2Vlc0Iiwic2lnIjoiSjVXT1hpWWR1OVNPZlZ5b0FYaXNjbVJiRGFyTmYyTThCR2ZyRmpMLVZmQXNNSXhXeHBUX3NGRWdyTnhWRW9rZDdGTkFVT21PR3k3NFhuZDhnUFNfQ0EiLCJzdmMiOiJzZXNzaW9uIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9LHsiYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiT1UtVTh6YXVPWkpVdVAteXhWT0lWcjRoTmUxTklVOGJta3lvS1Z4TUE2ZyIsImluc3QiOiJwaS0xIiwicHJldiI6Iko1V09YaVlkdTlTT2ZWeW9BWGlzY21SYkRhck5mMk04QkdmckZqTC1WZkFzTUl4V3hwVF9zRkVnck54VkVva2Q3Rk5BVU9tT0d5NzRYbmQ4Z1BTX0NBIiwicmN2IjoibWNwOmdpdGh1Yi5jcmVhdGVfcHVsbF9yZXF1ZXN0IiwicmlkIjoicmlkLTEiLCJzZXNzIjoiampRSFE0WS1QdHJtcmhoY0ZSN2ttdHlieTRGMTdPc0FkMHVjdTZ0NlZXNCIsInNpZyI6ImVRQTlTRDhNaE16ZXZKd0dMbFVTWHh1UXBJTUViT3padVlhd3JPcWszR1pyaHRWNVhJUUdWWUxINWVGeDZrVGtCaDcteXg3R1JUSW9uRjROMTJFcUN3Iiwic3ZjIjoicGkiLCJ0cyI6MTc2NzIyNTYwMDAwMCwidiI6M31d",
           "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
           "influence": [
             {
@@ -5164,6 +5258,7 @@
               "owner": "alice"
             }
           ],
+          "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
           "policy": "client",
           "proofRoute": "session/pi/mcp:github.create_pull_request",
           "receiver": "mcp:github.create_pull_request",
@@ -5267,6 +5362,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5281,7 +5377,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5375,6 +5472,7 @@
             "sig": "HyE6OlV5uXsHhskprvTKSDAcTeaqGqAgcxsp-vNz1Xv8aIR2JmHUQ1ActqMevyAzhaaZVXUwhOenCgByMsk6Bg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiY1BrX25yc01OeW51dXJVdHNuNVU3M09uYTkyd3plaG5LQ0FNUWNsQjJkOCIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiSHlFNk9sVjV1WHNIaHNrcHJ2VEtTREFjVGVhcUdxQWdjeHNwLXZOejFYdjhhSVIySm1IVVExQWN0cU1ldnlBemhhYVpWWFV3aE9lbkNnQnlNc2s2QmciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5389,7 +5487,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5478,6 +5577,7 @@
             "sig": "arZd9zsUX_pQb15PNzNDWzXXhkdswznaCf9PtqAdksAyaRLbz4Ve8PnJyM1c0e-eFNpeQZ3SI_Nw3wn1rcJ2Aw"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiQUF2dDVHejFCSHRxMzhsYUVET3dMTE1hVUxtc0tfZ3dTZE9fMEVfYmZFdyIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpiYXNoIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiYXJaZDl6c1VYX3BRYjE1UE56TkRXelhYaGtkc3d6bmFDZjlQdHFBZGtzQXlhUkxiejRWZThQbkp5TTFjMGUtZUZOcGVRWjNTSV9OdzN3bjFyY0oyQXciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": null,
         "influence": [
           {
@@ -5492,7 +5592,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5570,6 +5671,7 @@
             "sig": "asLZzf8LH5IrVTVulifeFbsUjQBsN84mS2d2NZTLmfbM5Nc0uHhfFCi26KxBwomR8Z6EyNLye1IkRqz8TNCeAw"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiOElGOWh4al9KYXdoOGNOVVM1aVZoX0EtMlFXdHByeGdZSUFYLTcyLXZGNCIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiYXNMWnpmOExINUlyVlRWdWxpZmVGYnNValFCc044NG1TMmQyTlpUTG1mYk01TmMwdUhoZkZDaTI2S3hCd29tUjhaNkV5Tkx5ZTFJa1JxejhUTkNlQXciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5584,7 +5686,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5678,6 +5781,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5692,7 +5796,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5786,6 +5891,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5800,7 +5906,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -5894,6 +6001,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -5908,7 +6016,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6002,6 +6111,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6016,7 +6126,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6110,6 +6221,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/mcp:github.create_pull_request",
         "influence": [
           {
@@ -6124,7 +6236,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6213,6 +6326,7 @@
             "sig": "GoiXgTSWM9tlRkNxTAjTIhEcLaxmqLUnkxhNgxvXSZMs-IAHgo93ko6cv-aNl5MAgoMPh8cH9-hKzf0j6gWrAw"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiZUlBWEFUOENEdl94TmZoVjJhcXBTSWtHOHFNSm1mbnFfX0RSZzVka0ZmWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiR29pWGdUU1dNOXRsUmtOeFRBalRJaEVjTGF4bXFMVW5reGhOZ3h2WFNaTXMtSUFIZ285M2tvNmN2LWFObDVNQWdvTVBoOGNIOS1oS3pmMGo2Z1dyQXciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6227,7 +6341,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6316,6 +6431,7 @@
             "sig": "GoiXgTSWM9tlRkNxTAjTIhEcLaxmqLUnkxhNgxvXSZMs-IAHgo93ko6cv-aNl5MAgoMPh8cH9-hKzf0j6gWrAw"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiZUlBWEFUOENEdl94TmZoVjJhcXBTSWtHOHFNSm1mbnFfX0RSZzVka0ZmWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiR29pWGdUU1dNOXRsUmtOeFRBalRJaEVjTGF4bXFMVW5reGhOZ3h2WFNaTXMtSUFIZ285M2tvNmN2LWFObDVNQWdvTVBoOGNIOS1oS3pmMGo2Z1dyQXciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6330,7 +6446,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6424,6 +6541,7 @@
             "sig": "quDyiQKL7iOD8FLAc1QB_uGTrHE_2gxsZ64abG9ffgSgwl_hTXp58VU0hciJF6_8BAsRe-mjycLddpe6d7IxCA"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiQXA2d2g3R01BYzRSSVFINm90QV9zUHpQSVAzcmVWa0hJd25CcGh2TkplNCIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoicXVEeWlRS0w3aU9EOEZMQWMxUUJfdUdUckhFXzJneHNaNjRhYkc5ZmZnU2d3bF9oVFhwNThWVTBoY2lKRjZfOEJBc1JlLW1qeWNMZGRwZTZkN0l4Q0EiLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6438,7 +6556,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6532,6 +6651,7 @@
             "sig": "GQAqmeCuHrTn8vMLUK4GFhWJJXtc482Kr_x4BkUpvti9CYQPVvoUbBpwaa9EZDJHMBXdnrg873Fmlel8LHQkDA"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiUWhhUXVJVHRCMUgyM3dhN255U0JISG82Y2RrUzd2VmhZWl9ic1g2SEt6dyIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiR1FBcW1lQ3VIclRuOHZNTFVLNEdGaFdKSlh0YzQ4MktyX3g0QmtVcHZ0aTlDWVFQVnZvVWJCcHdhYTlFWkRKSE1CWGRucmc4NzNGbWxlbDhMSFFrREEiLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6546,7 +6666,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6640,6 +6761,7 @@
             "sig": "PTO11n2N8VdwR1LMi4PV_ymVllFrlQBRj5JP0597ysuegxja7aI0G_P6gCXl2Xv62ErM7D3E90iQuCy6_jaHAA"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiVy1GNXhYQzEwUVoyLTM4cWpYeDdZUEJ6T1JqQ19Hc3lyQUltSE05R0lwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpiYXNoIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiUFRPMTFuMk44VmR3UjFMTWk0UFZfeW1WbGxGcmxRQlJqNUpQMDU5N3lzdWVneGphN2FJMEdfUDZnQ1hsMlh2NjJFck03RDNFOTBpUXVDeTZfamFIQUEiLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": null,
         "influence": [
           {
@@ -6654,7 +6776,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6748,6 +6871,7 @@
             "sig": "OVCu_Uqvt2ZFs6Qcd2Ey-u_mfU6kD22aUr6nQ0i56RQKaIRxIoydsd7VhYgwO2G0Na2MJO9WVveKJfX5Qs0CCw"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiU1BlR1pxbGNPWmdWaUVLemRVYzVQNURtektaTkgwNENscU5EZHRjZnAxSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiT1ZDdV9VcXZ0MlpGczZRY2QyRXktdV9tZlU2a0QyMmFVcjZuUTBpNTZSUUthSVJ4SW95ZHNkN1ZoWWd3TzJHME5hMk1KTzlXVnZlS0pmWDVRczBDQ3ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6762,7 +6886,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",
@@ -6856,6 +6981,7 @@
             "sig": "md1WCdq4Ap1TZeiXDyLdWsuD62hMAkVMi9xDgn0V6bTx-RYOxATSyuXah5qDcUd3oOM6NhWqlwNL0YnVUMdxCg"
           }
         ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoibWQxV0NkcTRBcDFUWmVpWER5TGRXc3VENjJoTUFrVk1pOXhEZ24wVjZiVHgtUllPeEFUU3l1WGFoNXFEY1VkM29PTTZOaFdxbHdOTDBZblZVTWR4Q2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI1NTk5MDAwLCJ2IjozfV0",
         "proofRoute": "session/pi/local:read",
         "influence": [
           {
@@ -6870,7 +6996,8 @@
             "cid": "cid-1",
             "owner": "alice"
           }
-        ]
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
       },
       "run": {
         "prompt": "open a PR for issue #42",

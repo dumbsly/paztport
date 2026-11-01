@@ -4,16 +4,11 @@
 package org.paztport.http.wire;
 
 import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.JsonToken;
 import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -24,6 +19,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.MerkleProof;
@@ -43,9 +39,9 @@ import org.paztport.http.internal.VerifyInputs;
  *
  * <p>Every header holds the base64url of an object's JCS bytes, and a decoder hands on the text of the JSON it holds
  * exactly as it arrived. The decoders never throw. A header that is absent decodes to {@code null} (or {@code []} for
- * influence), and one that is present but unreadable decodes to the JSON string {@code "malformed"}, which no verifier
- * check accepts, so the verifier names the reason ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this
- * layer guessing at it.
+ * influence), and one that is present but unreadable, its bytes not the JCS bytes of one JSON value, decodes to the
+ * JSON string {@code "malformed"}, which no verifier check accepts, so the verifier names the reason
+ * ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this layer guessing at it.
  *
  * <p>A response is attested by one more stamp on the request chain the responder received, naming the caller as
  * receiver and binding the result hash, the request's {@code rid} and the content labels. The caller already holds
@@ -100,19 +96,13 @@ public final class HttpV3 {
     }
 
     /**
-     * The header's JSON text exactly as it arrived, once it is known to be base64url of UTF-8 holding one JSON value;
-     * otherwise null. The text, not a tree, is handed on, so the verifier reads exactly what was sent.
+     * The header's JSON text, once the header is known to be a token: the base64url of an object's JCS bytes; otherwise
+     * null. Those bytes are the only text of the value they hold, so the verifier reads exactly what was sent.
      */
     private static String decodeJson(String header) {
         try {
-            byte[] bytes = Base64Url.decode(header.strip());
-            String text = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes)).toString();
-            JsonNode node = MAPPER.readTree(text);
-            return node == null || node.isMissingNode() ? null : text;
-        } catch (IllegalArgumentException | CharacterCodingException | JsonProcessingException e) {
+            return JsonWriter.text(JsonReader.token(header.strip()));
+        } catch (IllegalArgumentException e) {
             return null;
         }
     }

@@ -1150,7 +1150,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
   });
 
-  it("aStepWithAStampThatIsNotV3IsUnreadable", () => {
+  it("aStepWithAStampThatIsNotV3IsChainMissing", () => {
     const recs: any[] = localLines.map((l) => JSON.parse(l));
     const client = verifyClient(recs.find((x) => x.type === "client"), []);
     const run = recs.find((x) => x.type === "run");
@@ -1160,9 +1160,13 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
         for (const i of at) odd.chain[i].v = v;
-        expect(verifyLocal(odd, client, runOf, new Set())).toBe("UNREADABLE");
+        expect(verifyLocal(odd, client, runOf, new Set())).toBe("CHAIN_MISSING");
       }
     }
+    // a value no token carries is not read at all
+    const negative = structuredClone(rec);
+    negative.chain[1].ts = -1;
+    expect(verifyLocal(negative, client, runOf, new Set())).toBe("UNREADABLE");
   });
 
   it("aRepeatedLocalRecordIsAReplay", () => {

@@ -3,7 +3,7 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, parseInfluence, parseStampsV3, randomBytes, signStampV3,
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3,
 } from "@paztport/core";
 import type { InfluenceEntry, V3Config } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
@@ -208,12 +208,20 @@ describe("verifyCall", () => {
     expect(reads[META_CHAIN]).toBe(1);
     expect(reads[META_INFLUENCE]).toBe(1);
   });
-  it("parsingParsedInputIsIdempotent", () => {
+  it("aMetaValueNoWriterWritesGetsItsReadersRefusal", () => {
     const w = world();
-    const meta = w.params()._meta as Record<string, unknown>;
-    const stamps = parseStampsV3(meta[META_CHAIN]);
-    expect(parseStampsV3(stamps)).toEqual(stamps);
-    const parsed = parseInfluence(meta[META_INFLUENCE]);
-    expect(parseInfluence(parsed)).toEqual(parsed);
+    const p = w.params();
+    const meta = p._meta as Record<string, unknown>;
+    const [s0, s1] = meta[META_CHAIN] as Record<string, unknown>[];
+    const proof = meta[META_PROOF] as Record<string, unknown>;
+    const withMeta = (m: Record<string, unknown>) => verifyCall({ ...p, _meta: { ...meta, ...m } }, SERVER, w.cfg()).result.reason;
+    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, ts: -1 }] })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, inst: "pi-\uFDD0" }] })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, extra: true }] })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_INFLUENCE]: [{ ...infl[0], src: "web:\uFFFE" }] })).toBe("INFLUENCE_MISMATCH");
+    expect(withMeta({ [META_INFLUENCE]: undefined })).toBe("INFLUENCE_MISMATCH");
+    expect(withMeta({ [META_PROOF]: { ...proof, rootId: 1.5 } })).toBe("PATH_NOT_ALLOWED");
+    expect(withMeta({ [META_PROOF]: undefined })).toBe("PATH_NOT_ALLOWED");
+    expect(withMeta({})).toBe("OK");
   });
 });

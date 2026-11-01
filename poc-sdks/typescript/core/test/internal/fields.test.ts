@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 import { utf8 } from "../../src/crypto/crypto.ts";
 import { readFile, type JsonValue } from "../../src/encoding/json.ts";
-import { bool, exactly, int, object, str, stringMap } from "../../src/internal/fields.ts";
+import { array, bool, exactly, int, object, str, stringMap } from "../../src/internal/fields.ts";
 
 const REQUIRED = ["one", "two"];
 const OPTIONAL = ["three"];
@@ -22,6 +22,13 @@ describe("fields", () => {
     }
   });
 
+  it("anArrayIsAnArrayAndNothingElseIs", () => {
+    expect(array(read("[]"))).toEqual([]);
+    for (const json of ["{}", '"a"', "1", "null", "true"]) {
+      expect(() => array(read(json)), json).toThrow();
+    }
+  });
+
   it("exactlyTakesTheRequiredMembersAndTheOptionalOnes", () => {
     for (const json of ['{"one":1,"two":2}', '{"one":1,"three":3,"two":2}', '{"one":null,"two":2}']) {
       expect(() => exactly(obj(json), REQUIRED, OPTIONAL), json).not.toThrow();
@@ -30,6 +37,10 @@ describe("fields", () => {
 
   it("exactlyRefusesAMissingMemberByName", () => {
     expect(() => exactly(obj('{"one":1,"three":3}'), REQUIRED, OPTIONAL)).toThrow(/two/);
+  });
+
+  it("exactlyNamesTheFirstMissingMemberInSortedOrder", () => {
+    expect(() => exactly(obj("{}"), ["two", "one", "three"])).toThrow(new Error("no member one"));
   });
 
   it("exactlyRefusesAMemberTheSchemaDoesNotDefineWithoutEchoingIt", () => {
@@ -50,6 +61,15 @@ describe("fields", () => {
     for (const name of ["count", "text", "nothing", "absent"]) expect(() => bool(o, name)).toThrow(name);
     // An inherited name is not a member.
     expect(() => str(obj("{}"), "toString")).toThrow("toString");
+  });
+
+  it("anObjectOrArrayMemberIsReadAsItsTypeOnly", () => {
+    const o = obj('{"inner":{"a":1},"list":[1,"x"],"nothing":null,"text":"x"}');
+    expect(object(o, "inner")).toEqual({ a: 1 });
+    expect(array(o, "list")).toEqual([1, "x"]);
+    for (const name of ["list", "text", "nothing", "absent"]) expect(() => object(o, name)).toThrow(name);
+    for (const name of ["inner", "text", "nothing", "absent"]) expect(() => array(o, name)).toThrow(name);
+    expect(() => object(obj("{}"), "constructor")).toThrow("constructor");
   });
 
   it("aStringMapHoldsStringsOnly", () => {

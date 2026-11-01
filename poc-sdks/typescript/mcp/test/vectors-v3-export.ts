@@ -13,9 +13,9 @@ import { isDeepStrictEqual } from "node:util";
 import {
   CALL_MAX_AGE_MS, NONCE_TTL_MS, NonceCache, RUN_MAX_AGE_MS, SALT_BYTES, bindLocalTool, buildTree, bindPrompt, bindResponse, bindResult,
   canonicalize, commitInfluence, concat, decode, encode, keyPairMatches, keyringSigningBytes, leafHash, localReceiver, nodeHash,
-  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
+  normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3, writeToken,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, decodeProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
+  checkSessionReply, readProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
 } from "@paztport/core";
 import type {
@@ -74,7 +74,15 @@ function salt(route: string): Uint8Array {
   return sha256(utf8("paztport-v3-vector-salt:" + route)).slice(0, SALT_BYTES);
 }
 
-type Policy = { routes: string[]; depth: number; rootId: string; root: string; proofs: Record<string, MerkleProof> };
+type Policy = {
+  routes: string[];
+  depth: number;
+  rootId: string;
+  root: string;
+  proofs: Record<string, MerkleProof>;
+  /** Each proof's token, as a case that names its route receives it. */
+  proofTokens: Record<string, string>;
+};
 
 /** "v" + first 12 hex of SHA-256(routes joined by newline): the vectors' fixed rootId, not how real builds label a tree. */
 function deriveRootId(routes: string[]): string {
@@ -114,12 +122,56 @@ function policy(routes: string[]): Policy {
     const { leafSalt, dirs: libraryDirs } = library.proofFor(route);
     check(`proof layout for ${route}`, { leafSalt, dirs: libraryDirs }, { leafSalt: proofs[route].leafSalt, dirs });
   });
-  return { routes, depth: DEPTH, rootId, root: encode(root), proofs };
+  const proofTokens = Object.fromEntries(routes.map((route) => [route, writeToken(proofs[route]!)]));
+  return { routes, depth: DEPTH, rootId, root: encode(root), proofs, proofTokens };
 }
 
 function check(what: string, got: unknown, want: unknown): void {
   if (!isDeepStrictEqual(got, want)) {
     throw new Error(`${what}: the library gives ${JSON.stringify(got)}, the vector says ${JSON.stringify(want)}`);
+  }
+}
+
+/** The token a case carries for a value it says was received: the base64url of the value's JCS bytes. */
+const tokenOf = (value: unknown): string => encode(utf8(canonicalize(value)));
+
+/**
+ * A verify or offline case's chain token: tokenOf the chain, except in TS_MIN_CASE, whose bytes spell its ts exactly,
+ * as the readable chain does, where JCS would write −2^63 as -9223372036854776000.
+ */
+function chainTokenOf(name: string, chain: unknown): string {
+  if (name !== TS_MIN_CASE) return tokenOf(chain);
+  const jcs = `"ts":${String(-(2 ** 63))}`;
+  const text = canonicalize(chain);
+  if (text.split(jcs).length !== 2) throw new Error(`no ts in the chain of ${TS_MIN_CASE}`);
+  return encode(utf8(text.replace(jcs, `"ts":${TS_MIN_TEXT}`)));
+}
+
+/**
+ * Every token in the vectors is tokenOf its readable sibling, `<m>Token` of `<m>` and `proofTokens` of `proofs`,
+ * except the chain token TS_MIN_CASE crafts; that one holds the ts exactly.
+ */
+function checkTokens(value: unknown, path = ""): void {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => checkTokens(item, `${path}[${i}]`));
+    return;
+  }
+  if (typeof value !== "object" || value === null) return;
+  const o = value as Record<string, unknown>;
+  for (const [k, v] of Object.entries(o)) {
+    const at = `${path}.${k}`;
+    if (k.endsWith("Token") && Object.hasOwn(o, k.slice(0, -5))) {
+      if (o.name === TS_MIN_CASE && k === "chainToken") {
+        check(`${at} spells its ts exactly`, Buffer.from(decode(v as string)).toString("utf8").includes(`"ts":${TS_MIN_TEXT},`), true);
+      } else {
+        check(`${at} is the token of its value`, v, tokenOf(o[k.slice(0, -5)]));
+      }
+    } else if (k === "proofTokens") {
+      for (const [route, t] of Object.entries(v as Record<string, string>)) {
+        check(`${at}.${route} is the token of its proof`, t, tokenOf((o.proofs as Record<string, unknown>)[route]));
+      }
+    }
+    checkTokens(v, at);
   }
 }
 
@@ -207,7 +259,7 @@ function sharedPrimitives() {
       throw new Error(`merkle proof for ${l.path} does not verify`);
     }
     proofHeaders[l.path] = encodeProof(proofs[l.path]!);
-    check(`merkle proof header for ${l.path}`, decodeProof(proofHeaders[l.path]!), proofs[l.path]);
+    check(`merkle proof header for ${l.path}`, readProof(proofHeaders[l.path]!), proofs[l.path]);
   });
   const merkle = {
     leaves: MERKLE.leaves.map((l, i) => ({ ...l, hash: encode(leafHashes[i]!) })),
@@ -324,7 +376,7 @@ export function buildVectorsV3(): Record<string, unknown> {
   };
   const resolveKeyring = (k: Record<string, KeyName>) => Object.fromEntries(Object.entries(k).map(([svc, name]) => [svc, keys[name].pub]));
   const rootOf = (name: CaseInputs["policy"]) => decode(policies[name].root);
-  const proofOf = (c: CaseInputs) => (c.proofRoute === null ? null : policies[c.policy].proofs[c.proofRoute]);
+  const proofTokenOf = (c: { policy: CaseInputs["policy"]; proofRoute: string | null }) => (c.proofRoute === null ? null : policies[c.policy].proofTokens[c.proofRoute]!);
 
   /** A verify case's pinned policy window unless it sets its own: 2100-01-01, far past `now`. */
   const PINNED_NOT_AFTER = 4_102_444_800_000;
@@ -336,8 +388,10 @@ export function buildVectorsV3(): Record<string, unknown> {
       keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins,
       sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, policyNotAfter,
     };
+    const chainToken = chainTokenOf(c.name, c.chain);
+    const influenceToken = tokenOf(c.influence);
     const input = {
-      stamps: c.chain, expectedBind: c.expectedBind, influence: c.influence, proof: proofOf(c), receiver: c.receiver,
+      chain: chainToken, expectedBind: c.expectedBind, influence: influenceToken, proof: proofTokenOf(c), receiver: c.receiver,
       receiverInRoute: c.receiverInRoute, ...(c.peer === null ? {} : { peer: c.peer }),
     };
     let result = verifyChainV3(input, cfg);
@@ -345,8 +399,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     check(`verify ${c.name}`, { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst }, expected);
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey, uses } = c;
     return {
-      name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey,
-      now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, nonceTtlMs: NONCE_TTL_MS, policyNotAfter, uses, expected,
+      name, chain, chainToken, expectedBind, influence, influenceToken, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins,
+      sess, nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, nonceTtlMs: NONCE_TTL_MS, policyNotAfter, uses, expected,
     };
   };
   const ok = (svc: string, inst: string): Expected => ({ reason: "OK", suspectSvc: svc, suspectInst: inst });
@@ -407,10 +461,12 @@ export function buildVectorsV3(): Record<string, unknown> {
     const recordedTs = c.recordedTs ?? { last: c.chain[c.chain.length - 1]!.ts };
     const prompt = c.prompt ?? PROMPT;
     const seen = c.seen ?? [];
+    const chainToken = chainTokenOf(c.name, c.chain);
+    const influenceToken = tokenOf(c.influence);
     const result = verifyChainOffline(
       {
-        stamps: c.chain, expectedBind: c.expectedBind, influence: c.influence, proof: proofOf(c), receiver: c.receiver, receiverInRoute: c.receiverInRoute,
-        rid: RID, recordedTs, prompt,
+        chain: chainToken, expectedBind: c.expectedBind, influence: influenceToken, proof: proofTokenOf(c), receiver: c.receiver,
+        receiverInRoute: c.receiverInRoute, rid: RID, recordedTs, prompt,
       },
       {
         keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins, sess: c.sess,
@@ -420,8 +476,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     check(`offline ${c.name}`, { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst }, expected);
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, keyring, allowedOrigins, sess, nonceKey } = c;
     return {
-      name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, keyring, allowedOrigins, sess, nonceKey,
-      seen, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, rid: RID, recordedTs, prompt, expected,
+      name, chain, chainToken, expectedBind, influence, influenceToken, policy: p, proofRoute, receiver, receiverInRoute, keyring, allowedOrigins, sess,
+      nonceKey, seen, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, rid: RID, recordedTs, prompt, expected,
     };
   };
   const offline = [
@@ -858,6 +914,8 @@ export function buildVectorsV3(): Record<string, unknown> {
   // session id, then limited to the session (OUTSIDE_SESSION). The calls are one record set, in order: one set of spent
   // nonce keys for them all, whatever handshakes the set holds.
   type RecordedCallInput = Omit<CaseInputs, "name" | "keyring" | "sess" | "allowedOrigins"> & {
+    chainToken: string;
+    influenceToken: string;
     handshake: number;
     rid: string;
     recordedTs: { last: number };
@@ -869,8 +927,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     const first = v3({ ...originFields, ts: ts - 1000, sess }, "session");
     const chain = [first, v3({ ...hopFields(first.sig), ts, sess, bind }, o.forged === true ? "session" : "pi")];
     return {
-      handshake: 0, chain, expectedBind: bind, influence: INFLUENCE, policy: "client", proofRoute: CALL_ROUTE, receiver: CALL_RCV, receiverInRoute: true,
-      nonceKey: `${RID}|${callId}|req`, rid: RID, recordedTs: { last: ts }, prompt: PROMPT,
+      handshake: 0, chain, chainToken: tokenOf(chain), expectedBind: bind, influence: INFLUENCE, influenceToken: tokenOf(INFLUENCE), policy: "client",
+      proofRoute: CALL_ROUTE, receiver: CALL_RCV, receiverInRoute: true, nonceKey: `${RID}|${callId}|req`, rid: RID, recordedTs: { last: ts }, prompt: PROMPT,
     };
   };
   const recordedCallCase = (name: string, handshakes: { request: SessionRequest; reply: SessionReply }[], calls: RecordedCallInput[]) => {
@@ -881,7 +939,10 @@ export function buildVectorsV3(): Record<string, unknown> {
       const h = recorded[c.handshake]!;
       const clientRoot = h.request.clientRoot!;
       const v = verifyChainOffline(
-        { stamps: c.chain, expectedBind: c.expectedBind, influence: c.influence, proof: c.proofRoute === null ? null : policies[c.policy].proofs[c.proofRoute]!, receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: c.rid, recordedTs: c.recordedTs, prompt: c.prompt },
+        {
+          chain: c.chainToken, expectedBind: c.expectedBind, influence: c.influenceToken, proof: proofTokenOf(c), receiver: c.receiver,
+          receiverInRoute: c.receiverInRoute, rid: c.rid, recordedTs: c.recordedTs, prompt: c.prompt,
+        },
         {
           keyring: h.request.clientKeyring, root: decode(clientRoot.root), rootId: clientRoot.rootId, allowedOrigins: ["session"], sess: h.reply.sess,
           nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
@@ -944,11 +1005,11 @@ export function buildVectorsV3(): Record<string, unknown> {
       ),
     ];
     const proofRoute = Object.hasOwn(o, "proofRoute") ? o.proofRoute! : decision.routeAllowed ? routeOf(["session", "pi", localReceiver(decision.tool)]) : null;
-    const step = { ...decision, rid: RID, now: STEP_TS, chain, proofRoute, influence: INFLUENCE };
+    const step = { ...decision, rid: RID, now: STEP_TS, chain, chainToken: tokenOf(chain), proofRoute, influence: INFLUENCE, influenceToken: tokenOf(INFLUENCE) };
     const run = { prompt: PROMPT, ts: [localOrigin.ts] };
     const seen = o.seen ?? [];
     const result = verifyRecordedLocalStep(
-      { ...step, proof: proofRoute === null ? null : policies.client.proofs[proofRoute]! },
+      { ...decision, rid: step.rid, now: step.now, chain: step.chainToken, proof: proofTokenOf({ policy: "client", proofRoute }), influence: step.influenceToken },
       {
         client: {
           keyring: resolveKeyring(client.keyring), root: rootOf(client.policy), rootId: policies[client.policy].rootId,
@@ -998,7 +1059,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["replay in the record set", "REPLAY", null],
   ]);
 
-  return {
+  const vectors = {
     about: ABOUT,
     keys,
     policies,
@@ -1019,6 +1080,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionRequest: sessionRequestCases,
     ...primitives,
   };
+  checkTokens(vectors);
+  return vectors;
 }
 
 /**

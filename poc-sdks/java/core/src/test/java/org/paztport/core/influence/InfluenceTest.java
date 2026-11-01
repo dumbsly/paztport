@@ -6,8 +6,6 @@ package org.paztport.core.influence;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -20,32 +18,38 @@ class InfluenceTest {
             "\"x\"",
             "[1]",
             "[[]]",
-            "[{\"cls\":\"nope\",\"src\":\"s\",\"h\":\"x\"}]",
-            "[{\"src\":\"s\",\"h\":\"x\"}]",
-            "[{\"cls\":\"public\",\"src\":1,\"h\":\"x\"}]",
-            "[{\"cls\":\"public\",\"src\":\"s\",\"h\":2}]",
-            "[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"cid\":3}]",
-            "[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"cid\":null}]",
-            "[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"x\",\"owner\":\"\"}]",
-            "[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"x\",\"owner\":5}]",
+            "[{\"cls\":\"nope\",\"h\":\"x\",\"src\":\"s\"}]",
+            "[{\"h\":\"x\",\"src\":\"s\"}]",
+            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":1}]",
+            "[{\"cls\":\"public\",\"h\":2,\"src\":\"s\"}]",
+            "[{\"cid\":3,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]",
+            "[{\"cid\":null,\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]",
+            "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":\"\",\"src\":\"s\"}]",
+            "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":5,\"src\":\"s\"}]",
+            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ud800\"}]",
+            "[{\"cls\":\"public\",\"h\":\"x\",\"src\":\"\ufdd0\"}]",
         };
         for (String b : bad) {
             assertThrows(IllegalArgumentException.class, () -> Influence.parse(b), b);
         }
         assertThrows(IllegalArgumentException.class, () -> Influence.parse(null));
         assertThrows(IllegalArgumentException.class, () -> Influence.parse("[{\"cls\""));
-        ObjectNode lone = JsonNodeFactory.instance.objectNode();
-        lone.put("cls", "public");
-        lone.put("src", "\ud800");
-        lone.put("h", "x");
-        String withLone = JsonNodeFactory.instance.arrayNode().add(lone).toString();
-        assertThrows(IllegalArgumentException.class, () -> Influence.parse(withLone));
+        String good = "[{\"cid\":\"c\",\"cls\":\"private\",\"h\":\"x\",\"owner\":\"o\",\"src\":\"s\"}]";
+        assertEquals(good, Influence.toJson(Influence.parse(good)));
     }
 
     @Test
-    void dropsUnknownFields() {
-        List<InfluenceEntry> e = Influence.parse("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\",\"extra\":1}]");
-        assertEquals("{\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}", e.get(0).toJson());
+    void anEntryWithAnExtraMemberIsRefused() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Influence.parse("[{\"cls\":\"public\",\"extra\":1,\"h\":\"x\",\"src\":\"s\"}]"));
+    }
+
+    @Test
+    void aListInWireMemberOrderIsRefused() {
+        assertThrows(IllegalArgumentException.class,
+                () -> Influence.parse("[{\"cls\":\"public\",\"src\":\"s\",\"h\":\"x\"}]"));
+        assertThrows(IllegalArgumentException.class,
+                () -> Influence.parse("[ {\"cls\":\"public\",\"h\":\"x\",\"src\":\"s\"}]"));
     }
 
     @Test

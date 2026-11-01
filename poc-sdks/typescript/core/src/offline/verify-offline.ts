@@ -3,7 +3,7 @@
 
 import { isWellFormed } from "../crypto/crypto.ts";
 import { bindPrompt } from "../stamp/binding.ts";
-import { checkCommitments, checkRoute, checkStamps, reject, type Signers } from "../internal/chain-checks.ts";
+import { checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers } from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
 import type { V3Config, V3Input } from "../verify/verify-v3.ts";
 
@@ -46,7 +46,7 @@ export type OfflineResult = VerifyResult;
 /**
  * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3
  * verifier's checks in the live order. The first failure is the result:
- * 1. the stamps parse, all v3 (CHAIN_MISSING);
+ * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN); with `signers`, it reports their instance too;
  * 4. each stamp is signed by its service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK);
@@ -59,17 +59,17 @@ export type OfflineResult = VerifyResult;
  *    with age limits, the last stamp is within the run's lifetime of the origin, and the origin not more than
  *    the call window after it (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
- * 9. and commits to the influence (INFLUENCE_MISMATCH);
+ * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
  *     after its window cannot show;
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root
- *     (PATH_NOT_ALLOWED).
+ * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root by the
+ *     proof its token holds (PATH_NOT_ALLOWED).
  * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
  * Omitting `recordedTs` skips the recorded-time check (TIME_MISMATCH), leaving only `cfg`'s age limits on the times.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
-  const stamps = checkStamps(input.stamps, cfg, { receiver: input.receiver, rid: input.rid, signers: cfg.signers });
+  const stamps = checkStamps(readOrUndefined(input.chain), cfg, { receiver: input.receiver, rid: input.rid, signers: cfg.signers });
   if (typeof stamps === "string") {
     return reject(stamps);
   }
@@ -93,7 +93,7 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   }
 
   // 8-9. Binding and influence commitment.
-  const commitment = checkCommitments(last, input.expectedBind, input.influence);
+  const commitment = checkCommitments(last, input.expectedBind, readOrUndefined(input.influence));
   if (commitment !== undefined) {
     return reject(commitment);
   }
@@ -105,5 +105,5 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   cfg.seen.add(cfg.nonceKey);
 
   // 11. Route proven against the root.
-  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, cfg);
+  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, readOrUndefined(input.proof), cfg);
 }

@@ -5,7 +5,7 @@ import { encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
 import { bindResult } from "../stamp/binding.ts";
 import type { InfluenceClass } from "../influence/influence.ts";
-import { writeWire } from "../encoding/jcs.ts";
+import { writeToken, writeWire } from "../encoding/jcs.ts";
 import type { JsonValue } from "../encoding/json.ts";
 import type { MerkleProof } from "../policy/merkle.ts";
 import type { VerifyResult } from "../verify/reason.ts";
@@ -58,6 +58,15 @@ function parseAttestation(att: unknown): (Omit<ResponseAttestation, "chain"> & {
   return { chain: a.chain, proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
 }
 
+/** `value`'s token, or `none` for a value no writer writes: "" is a token that does not read. */
+function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
+  try {
+    return writeToken(value as JsonValue);
+  } catch {
+    return none;
+  }
+}
+
 /**
  * Verifies a response received live: v3 only, its last stamp naming `call.receiver`, the client that made the
  * call. The route is the server's own, so the receiver is off it. Never throws; labels are returned only when
@@ -93,10 +102,10 @@ export function verifyResponse(
     }
     const r = verifyChainV3(
       {
-        stamps: att.chain,
+        chain: tokenOr(att.chain, ""),
         expectedBind,
-        influence: [],
-        proof: att.proof,
+        influence: writeToken([]),
+        proof: tokenOr(att.proof, null),
         receiver: call.receiver,
         receiverInRoute: false,
       },

@@ -3,7 +3,9 @@
 
 import { describe, expect, it } from "vitest";
 import { bindPrompt } from "../../src/stamp/binding.ts";
-import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
+import { encode } from "../../src/encoding/b64url.ts";
+import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
+import { canonicalize } from "../../src/encoding/jcs.ts";
 import { commitInfluence, type InfluenceEntry } from "../../src/influence/influence.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
@@ -20,6 +22,11 @@ const ROUTE = `session/pi/${RECEIVER}`;
 const infl: InfluenceEntry[] = [{ cls: "third-party", src: "server:github", h: "h1" }];
 
 type Fields = Partial<Omit<StampV3, "sig" | "v">>;
+/** An input's fields to change, the influence and proof as values. */
+type Over = Partial<Omit<OfflineInput, "influence" | "proof">> & { influence?: unknown; proof?: unknown };
+
+/** A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches the reader. */
+const token = (value: unknown): string => encode(utf8(canonicalize(value)));
 
 function world() {
   const session = generateKeyPair();
@@ -45,18 +52,22 @@ function world() {
     nonceKey: "rid-1|call-1|local",
     ...over,
   });
-  const input = (stamps: unknown, over: Partial<OfflineInput> = {}): OfflineInput => ({
-    stamps,
-    expectedBind: bind,
-    influence: infl,
-    proof: tree.proofFor(ROUTE),
-    receiver: RECEIVER,
-    receiverInRoute: true,
-    rid: "rid-1",
-    recordedTs: { last: STEP_TS, run: new Set([RUN_TS]) },
-    prompt: PROMPT,
-    ...over,
-  });
+  /** The chain `stamps` as recorded, its influence and proof each carried as its token. */
+  const input = (stamps: unknown, over: Over = {}): OfflineInput => {
+    const { influence = infl, proof = tree.proofFor(ROUTE), ...rest } = over;
+    return {
+      chain: token(stamps),
+      expectedBind: bind,
+      influence: token(influence),
+      proof: proof === null ? null : token(proof),
+      receiver: RECEIVER,
+      receiverInRoute: true,
+      rid: "rid-1",
+      recordedTs: { last: STEP_TS, run: new Set([RUN_TS]) },
+      prompt: PROMPT,
+      ...rest,
+    };
+  };
   return { session, pi, other, tree, bind, origin, step, chain, cfg, input };
 }
 
@@ -193,14 +204,16 @@ describe("verifyChainOffline", () => {
 
   it("theSharedChecksGiveTheLiveVerifiersCodes", () => {
     const w = world();
-    const live = (stamps: unknown, over: { expectedBind?: string; influence?: InfluenceEntry[]; proof?: unknown; receiver?: string } = {}) =>
-      verifyChainV3(
-        { stamps, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true, ...over },
+    const live = (stamps: unknown, over: Over = {}) => {
+      const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(stamps, over);
+      return verifyChainV3(
+        { chain, expectedBind, influence, proof, receiver, receiverInRoute },
         { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
       ).reason;
-    const offline = (stamps: unknown, over: Partial<OfflineInput> = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
+    };
+    const offline = (stamps: unknown, over: Over = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
     const [o, s] = w.chain() as [StampV3, StampV3];
-    const inputs: [unknown, { expectedBind?: string; influence?: InfluenceEntry[]; proof?: unknown; receiver?: string }][] = [
+    const inputs: [unknown, Over][] = [
       [{}, {}],
       [[{ ...o, v: 1 }, s], {}],
       [[{ ...o, inst: "a|b" }, s], {}],
@@ -214,7 +227,7 @@ describe("verifyChainOffline", () => {
       [w.chain({ rid: "rid-2" }), {}],
       [w.chain({ sess: "s" }), {}],
       [w.chain(), { expectedBind: "zz" }],
-      [w.chain(), { influence: null as never }],
+      [w.chain(), { influence: null }],
       [w.chain(), { proof: "junk" }],
       [w.chain(), { receiver: "local:bash" }],
       [w.chain({ rcv: "local:bash" }), { receiver: "local:bash" }],
@@ -231,9 +244,10 @@ describe("verifyChainOffline", () => {
     for (const v of [1, 2, 4]) {
       for (const odd of [[{ ...o, v }, s], [o, { ...s, v }], [{ ...o, v }, { ...s, v }]]) {
         expect(verifyChainOffline(w.input(odd), w.cfg())).toMatchObject({ reason: "CHAIN_MISSING" });
+        const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(odd);
         expect(
           verifyChainV3(
-            { stamps: odd, expectedBind: w.bind, influence: infl, proof: w.tree.proofFor(ROUTE), receiver: RECEIVER, receiverInRoute: true },
+            { chain, expectedBind, influence, proof, receiver, receiverInRoute },
             { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
           ).reason,
         ).toBe("CHAIN_MISSING");
