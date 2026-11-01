@@ -52,7 +52,7 @@ public class OpeningCheckController {
         BoundaryInfluence.Opening opening;
         try {
             opening = BoundaryInfluence.Opening.parse(body);
-        } catch (MalformedJsonException e) {
+        } catch (MalformedJsonException | BoundaryInfluence.Opening.NotAnObjectException e) {
             return malformed();
         } catch (IllegalArgumentException e) {
             return ResponseEntity.ok(Map.of("opens", false));

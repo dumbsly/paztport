@@ -22,7 +22,6 @@ import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.MalformedJsonException;
-import org.paztport.core.encoding.MalformedJsonException.Step;
 import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
@@ -222,7 +221,8 @@ public final class BoundaryInfluence {
         /**
          * Reads the wire form from its text, as the wire bytes of its UTF-8. See {@link #parse(byte[])}.
          *
-         * @throws MalformedJsonException if {@code json} is not the JCS text of one object
+         * @throws MalformedJsonException if {@code json} is not the JCS text of one value
+         * @throws NotAnObjectException if the value is not an object
          * @throws IllegalArgumentException if the object is not a well-formed opening
          */
         public static Opening parse(String json) {
@@ -238,7 +238,8 @@ public final class BoundaryInfluence {
          * {@code owner}, a {@code salt} that is base64url of 16 bytes and well-formed {@code originals}. Whether it
          * opens anything is {@link #opens}'s question, not this one's.
          *
-         * @throws MalformedJsonException if {@code body} is not the JCS bytes of one object
+         * @throws MalformedJsonException if {@code body} is not the JCS bytes of one value
+         * @throws NotAnObjectException if the value is not an object
          * @throws IllegalArgumentException if the object is not a well-formed opening
          */
         public static Opening parse(byte[] body) {
@@ -248,9 +249,21 @@ public final class BoundaryInfluence {
             return fromValue(JsonReader.wire(body));
         }
 
+        /**
+         * A value that reads, as wire bytes, but is not a JSON object, so no schema applies to it. It is an
+         * {@link IllegalArgumentException} like any other refusal of the schema, and apart from the others so that a
+         * caller that tells "not an object" from "an object that is not an opening" can.
+         */
+        public static final class NotAnObjectException extends IllegalArgumentException {
+
+            NotAnObjectException() {
+                super("an opening must be one JSON object");
+            }
+        }
+
         private static Opening fromValue(JsonValue value) {
             if (!(value instanceof JsonValue.Obj o)) {
-                throw new MalformedJsonException(Step.PARSE, "an opening must be one JSON object");
+                throw new NotAnObjectException();
             }
             JsonFields.exactly(o, REQUIRED, OPTIONAL);
             InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(o, "cls"));

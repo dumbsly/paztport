@@ -318,10 +318,11 @@ class BoundaryInfluenceTest {
     }
 
     @Test
-    void aValueThatIsNotAnObjectIsMalformedJson() {
+    void aValueThatIsNotAnObjectIsNotAnObject() {
         for (String body : List.of("[]", "42", "\"x\"", "true", "null")) {
-            assertThrows(MalformedJsonException.class, () -> BoundaryInfluence.Opening.parse(body), body);
-            assertThrows(MalformedJsonException.class,
+            assertThrows(BoundaryInfluence.Opening.NotAnObjectException.class,
+                    () -> BoundaryInfluence.Opening.parse(body), body);
+            assertThrows(BoundaryInfluence.Opening.NotAnObjectException.class,
                     () -> BoundaryInfluence.Opening.parse(body.getBytes(StandardCharsets.UTF_8)), body);
         }
     }

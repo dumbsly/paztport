@@ -141,12 +141,14 @@ class OpeningCheckControllerTest {
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
-    /** The same members in the order the SDK's own readers refuse are malformed too. */
+    /** The members once each, but in the order a wire-order writer uses: not JCS order, so not canonical. */
     @Test
     void anOpeningInWireMemberOrderIsMalformed() throws Exception {
-        String wireOrder = JSON.readTree(aliceOpening(ORIGINALS).toJson()).toString();
-        String reordered = "{\"salt\":" + JSON.readTree(wireOrder).get("salt") + "," + wireOrder.substring(1);
-        check(RID, reordered).andExpect(status().isBadRequest())
+        BoundaryInfluence.Opening opening = aliceOpening(ORIGINALS);
+        String members = JSON.readTree(opening.toJson()).get("originals").toString();
+        String wireOrder = "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + opening.salt()
+                + "\",\"originals\":" + members + "}";
+        check(RID, wireOrder).andExpect(status().isBadRequest())
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
