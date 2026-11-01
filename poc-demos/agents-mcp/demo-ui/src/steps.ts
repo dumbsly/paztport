@@ -1,6 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readOr } from "../../eval/src/verify.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import {
@@ -357,15 +358,6 @@ function clientRules(evidence: unknown[]): LocalRules | undefined {
     return typeof r.rules === "string" ? readOr(() => readLocalRules(r.rules as string)) : undefined;
   }
   return undefined;
-}
-
-/** What `read` gives, or undefined when it throws. */
-function readOr<T>(read: () => T): T | undefined {
-  try {
-    return read();
-  } catch {
-    return undefined;
-  }
 }
 
 /** A token an evidence record holds: the name the page shows for it, its reader, and where the display keeps its value. */
