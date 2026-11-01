@@ -87,6 +87,11 @@ describe("loadServerConfig", () => {
     expect(client.verify(out, { rid: CALL.rid, toolCallId: CALL.callId }, reply.serverKeyring, reply.serverRoot!).reason).toBe("OK");
   });
 
+  /** The proof bundle file the policy tool writes for mcp-entry, holding `proof` for the server's route. */
+  const bundleOf = (cfg: ServerPolicy, proof: unknown) => ({
+    service: "mcp-entry", rootId: cfg.signedRoot.rootId, proofs: { "mcp-entry/github-tools": proof },
+  });
+
   /** Writes cfg in the policy-tool file layout, after `tweak` edits the file contents. */
   function writeDir(cfg: ServerPolicy, tweak: (files: Record<string, unknown>) => void = () => {}): string {
     const dir = mkdtempSync(join(tmpdir(), "paztport-cfg-"));
@@ -99,7 +104,7 @@ describe("loadServerConfig", () => {
       "mcp-entry.key": cfg.signingKeys["mcp-entry"],
       "github-tools.key": cfg.signingKeys["github-tools"],
       "root.json": cfg.signedRoot,
-      "proofs-mcp-entry.json": { proofs: { "mcp-entry/github-tools": cfg.routeProof } },
+      "proofs-mcp-entry.json": bundleOf(cfg, cfg.routeProof),
       "client-policy.pub": cfg.pinnedClientKeys[0],
     };
     tweak(files);
@@ -133,7 +138,9 @@ describe("loadServerConfig", () => {
     const unsigned = writeDir(cfg, (f) => {
       delete (f["keyring.json"] as { sig?: string }).sig;
     });
-    expect(() => loadServerConfig(unsigned)).toThrow(`server policy refused: the keyring is not signed by policyPublicKey (loaded from ${unsigned}): ${REGENERATE}`);
+    expect(() => loadServerConfig(unsigned)).toThrow(
+      `malformed keyring.json in ${unsigned}: no member sig: ${REGENERATE}`,
+    );
     const other = writeDir(cfg, (f) => {
       (f["keyring.json"] as { sig: string }).sig = signKeyring(cfg.keyring, cfg.policyPublicKey, generateKeyPair().privateKey, NOT_AFTER).sig;
     });
@@ -148,11 +155,11 @@ describe("loadServerConfig", () => {
     const ring = writeDir(serverConfig(), (f) => {
       (f["keyring.json"] as { notAfter: unknown }).notAfter = bad;
     });
-    expect(() => loadServerConfig(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    expect(() => loadServerConfig(ring)).toThrow(`malformed keyring.json in ${ring}: `);
     const root = writeDir(serverConfig(), (f) => {
       f["root.json"] = { ...(f["root.json"] as object), notAfter: bad };
     });
-    expect(() => loadServerConfig(root)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    expect(() => loadServerConfig(root)).toThrow(`malformed root.json in ${root}: `);
   });
   it("theLoaderDelegatesEveryJudgementToTheSdkCheck", () => {
     const source = readFileSync(join(import.meta.dirname, "../src/paztport.ts"), "utf8");
@@ -170,11 +177,15 @@ describe("loadServerConfig", () => {
       delete k.notAfter;
       k.sig = encode(sign(policyPrivateKey, utf8("paztport-keyring\n" + canonicalize({ policy: cfg.policyPublicKey, services: cfg.keyring }))));
     });
-    expect(() => loadServerConfig(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    expect(() => loadServerConfig(ring)).toThrow(
+      `malformed keyring.json in ${ring}: no member notAfter: ${REGENERATE}`,
+    );
     const rootDir = writeDir(cfg, (f) => {
       f["root.json"] = { rootId, root, sig: encode(sign(policyPrivateKey, utf8(`${rootId}|${root}`))) };
     });
-    expect(() => loadServerConfig(rootDir)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: ${REGENERATE}`);
+    expect(() => loadServerConfig(rootDir)).toThrow(
+      `malformed root.json in ${rootDir}: no member notAfter: ${REGENERATE}`,
+    );
   });
   it("loadServerConfigRefusesAnExpiredRootWithTheFix", () => {
     const { cfg, policyPrivateKey } = serverSetup();
@@ -257,16 +268,17 @@ describe("loadServerConfig", () => {
     }
   });
   it("loadServerConfigRejectsMalformedProof", () => {
-    const dir = writeDir(serverConfig(), (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { leafSalt: 1 } } };
+    const cfg = serverConfig();
+    const dir = writeDir(cfg, (f) => {
+      f["proofs-mcp-entry.json"] = bundleOf(cfg, { leafSalt: 1 });
     });
-    expect(() => loadServerConfig(dir)).toThrow(/route proof/);
+    expect(() => loadServerConfig(dir)).toThrow(`malformed proofs-mcp-entry.json in ${dir}: `);
   });
   it("loadServerConfigRejectsProofForOtherRoute", () => {
     const { cfg, policyPrivateKey } = serverSetup();
     const other = buildPolicy([["mcp-entry", "elsewhere"]], 8, policyPrivateKey, NOT_AFTER);
     const dir = writeDir(cfg, (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": other.bundles["mcp-entry"]!.proofs["mcp-entry/elsewhere"] } };
+      f["proofs-mcp-entry.json"] = bundleOf(cfg, other.bundles["mcp-entry"]!.proofs["mcp-entry/elsewhere"]);
     });
     expect(() => loadServerConfig(dir)).toThrow(/route proof/);
   });
@@ -276,11 +288,11 @@ describe("loadServerConfig", () => {
     const p = cfg.routeProof;
     const flipped = (p.leafSalt[0] === "A" ? "B" : "A") + p.leafSalt.slice(1);
     const wrongProof = writeDir(cfg, (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, leafSalt: flipped } } };
+      f["proofs-mcp-entry.json"] = bundleOf(cfg, { ...p, leafSalt: flipped });
     });
     expect(() => loadServerConfig(wrongProof)).toThrow(message.replace("DIR", wrongProof));
     const wrongRoot = writeDir(cfg, (f) => {
-      f["proofs-mcp-entry.json"] = { proofs: { "mcp-entry/github-tools": { ...p, rootId: "vother" } } };
+      f["proofs-mcp-entry.json"] = bundleOf(cfg, { ...p, rootId: "vother" });
     });
     expect(() => loadServerConfig(wrongRoot)).toThrow(message.replace("DIR", wrongRoot));
   });

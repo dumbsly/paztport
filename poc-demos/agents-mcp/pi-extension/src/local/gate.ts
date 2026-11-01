@@ -189,7 +189,8 @@ export class LocalGate {
         verdict,
       });
     } catch {
-      // a call that cannot be bound or signed (input JCS rejects, a tool name that cannot be bound) is refused unsigned
+      // a call that cannot be bound or signed (input JCS rejects, a tool name that cannot be bound) is refused
+      // unsigned
       verdict = "UNCHECKABLE";
     }
     emit(verdict);

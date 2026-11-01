@@ -7,11 +7,11 @@ import {
   decode,
   describeNotAfter,
   keyPairMatches,
-  parseLocalRules,
-  parseProof,
-  parseSignedRoot,
   provesPath,
-  readNotAfter,
+  readKeyringFile,
+  readLocalRulesFile,
+  readProofBundleFile,
+  readRootFile,
   rulesHash,
   rulesRoute,
   verifyKeyring,
@@ -70,23 +70,19 @@ function readText(dir: string, name: string): string {
   }
 }
 
-function readJson(dir: string, name: string): unknown {
+/** The file `name` in `dir` as `read` reads it; a file that does not read is refused naming the file and the fix. */
+function readAs<T>(dir: string, name: string, read: (bytes: Uint8Array) => T): T {
+  let bytes: Uint8Array;
   try {
-    return JSON.parse(readText(dir, name));
+    bytes = readFileSync(join(dir, name));
   } catch (e) {
-    throw new Error(`cannot parse ${name} in ${dir}: ${(e as Error).message}`);
+    throw new Error(`cannot read ${name} in ${dir}: ${(e as Error).message}`);
   }
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function str(v: unknown, what: string): string {
-  if (typeof v !== "string") {
-    throw new Error(`${what} must be a string`);
+  try {
+    return read(bytes);
+  } catch (e) {
+    throw new Error(`malformed ${name} in ${dir}: ${(e as Error).message}: ${REGENERATE}`);
   }
-  return v;
 }
 
 /** Returns the trimmed key text of a pin file (the server policy public key). */
@@ -111,35 +107,12 @@ export function readPin(path: string): string {
  * naming the file and its notAfter. The windows are what later checks rely on: the local gate re-reads them per call.
  */
 export function loadClientMaterial(dir: string, policyDir: string = dir, now: number = Date.now(), warn: (message: string) => void = console.error): ClientMaterial {
-  const ring = readJson(dir, "keyring.json");
-  if (!isObject(ring) || !isObject(ring.services)) {
-    throw new Error("malformed keyring.json");
-  }
-  const keyring = Object.fromEntries(Object.entries(ring.services).map(([k, v]) => [k, str(v, `keyring.json entry ${k}`)]));
-  const policyPublicKey = str(ring.policy, "keyring.json policy");
-  if (ring.sig === undefined) {
-    throw new Error(`${join(dir, "keyring.json")} has no sig: ${REGENERATE}`);
-  }
-  if (typeof ring.sig !== "string") {
-    throw new Error(`keyring.json sig must be a string: ${REGENERATE}`);
-  }
+  const ring = readAs(dir, "keyring.json", readKeyringFile);
+  const keyring = Object.fromEntries(Object.entries(ring.services));
+  const policyPublicKey = ring.policy;
   const keyringSig = ring.sig;
-  let keyringNotAfter: number;
-  try {
-    keyringNotAfter = readNotAfter(ring, "notAfter");
-  } catch (e) {
-    throw new Error(`keyring.json ${(e as Error).message}: ${REGENERATE}`);
-  }
-  const root = readJson(policyDir, "root.json");
-  if (!isObject(root)) {
-    throw new Error("malformed root.json");
-  }
-  let signedRoot: SignedRoot;
-  try {
-    signedRoot = parseSignedRoot(root, "root.json");
-  } catch (e) {
-    throw new Error(`${(e as Error).message}: ${REGENERATE}`);
-  }
+  const keyringNotAfter = ring.notAfter;
+  const signedRoot = readAs(policyDir, "root.json", readRootFile);
   const m = {
     sessionKey: readText(dir, "session.key"),
     piKey: readText(dir, "pi.key"),
@@ -170,18 +143,9 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
   } catch {
     throw new Error("root.json root is not valid base64url");
   }
-  const bundle = readJson(policyDir, "proofs-pi.json");
-  if (!isObject(bundle) || !isObject(bundle.proofs)) {
-    throw new Error("malformed proofs-pi.json");
-  }
+  const bundle = readAs(policyDir, "proofs-pi.json", readProofBundleFile);
   const proofs: Record<string, MerkleProof> = {};
-  for (const [route, raw] of Object.entries(bundle.proofs)) {
-    let proof: MerkleProof;
-    try {
-      proof = parseProof(raw);
-    } catch (e) {
-      throw new Error(`malformed proof for ${route} in proofs-pi.json: ${(e as Error).message}`);
-    }
+  for (const [route, proof] of Object.entries(bundle.proofs)) {
     if (!provesPath(proof, route, rootBytes, signedRoot.rootId)) {
       throw new Error(`proof for ${route} in proofs-pi.json does not verify against root.json`);
     }
@@ -189,12 +153,7 @@ export function loadClientMaterial(dir: string, policyDir: string = dir, now: nu
   }
   const material: ClientMaterial = { ...m, policyPublicKey, keyring, keyringSig, keyringNotAfter, signedRoot, proofs };
   if (existsSync(join(policyDir, "rules.json"))) {
-    let rules: LocalRules;
-    try {
-      rules = parseLocalRules(readJson(policyDir, "rules.json"));
-    } catch (e) {
-      throw new Error(`malformed rules.json in ${policyDir}: ${(e as Error).message}`);
-    }
+    const rules: LocalRules = readAs(policyDir, "rules.json", readLocalRulesFile);
     // proofs were verified above, so a present key is a proof against the signed root
     if (!Object.hasOwn(proofs, rulesRoute(CLIENT_CHAIN, rulesHash(rules)))) {
       throw new Error("rules.json is not covered by the signed client root");

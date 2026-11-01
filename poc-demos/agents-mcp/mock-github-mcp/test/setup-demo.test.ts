@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { verifyKeyring, verifyReplyCert } from "@paztport/core";
+import { readKeyringFile, readReplyCertFile, readRootFile, verifyKeyring, verifyReplyCert } from "@paztport/core";
 import { loadClientMaterial } from "../../pi-extension/src/keys.ts";
 import { loadServerConfig } from "../src/paztport.ts";
 import { afterAll, describe, expect, it } from "vitest";
@@ -15,9 +15,9 @@ const tmp = mkdtempSync(join(tmpdir(), "paztport-setup-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
 const setup = (...args: string[]) => spawnSync(process.execPath, [SETUP, ...args], { encoding: "utf8" });
-const serverPolicy = (out: string) => (JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8")) as { policy: string }).policy;
+const serverPolicy = (out: string) => readKeyringFile(readFileSync(join(out, "server/keyring.json"))).policy;
 const pin = (out: string) => readFileSync(join(out, "client/server-policy.pub"), "utf8");
-const clientPolicy = (out: string) => (JSON.parse(readFileSync(join(out, "client/keyring.json"), "utf8")) as { policy: string }).policy;
+const clientPolicy = (out: string) => readKeyringFile(readFileSync(join(out, "client/keyring.json"))).policy;
 const clientPin = (out: string) => readFileSync(join(out, "server/client-policy.pub"), "utf8");
 
 describe("setup-demo", () => {
@@ -45,9 +45,9 @@ describe("setup-demo", () => {
     expect(existsSync(join(out, "client/policy.key"))).toBe(false);
     // the root, keyring and certificate were all signed before the key went
     const serverPin = pin(out).trim();
-    const ring = JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8"));
+    const ring = readKeyringFile(readFileSync(join(out, "server/keyring.json")));
     expect(verifyKeyring(ring, serverPin)).toBe(true);
-    const cert = JSON.parse(readFileSync(join(out, "server/reply-cert.json"), "utf8"));
+    const cert = readReplyCertFile(readFileSync(join(out, "server/reply-cert.json")));
     expect(verifyReplyCert(cert, serverPin)).toBe(true);
     expect(cert).toMatchObject({ policy: serverPin, svc: "mcp-entry", key: ring.services["mcp-entry"] });
     const DAYS_30 = 30 * 86_400_000;
@@ -65,14 +65,21 @@ describe("setup-demo", () => {
     const after = Date.now();
     expect(r.status, r.stderr).toBe(0);
     const DAYS_30 = 30 * 86_400_000;
-    const read = (f: string) => JSON.parse(readFileSync(join(out, f), "utf8")) as { notAfter?: number };
-    for (const f of ["server/keyring.json", "server/root.json", "client/keyring.json", "client/root.json", "client/local-tools/root.json"]) {
-      const { notAfter } = read(f);
+    const ringAt = (f: string) => readKeyringFile(readFileSync(join(out, f)));
+    const rootAt = (f: string) => readRootFile(readFileSync(join(out, f)));
+    const windows: [string, number][] = [
+      ["server/keyring.json", ringAt("server/keyring.json").notAfter],
+      ["server/root.json", rootAt("server/root.json").notAfter],
+      ["client/keyring.json", ringAt("client/keyring.json").notAfter],
+      ["client/root.json", rootAt("client/root.json").notAfter],
+      ["client/local-tools/root.json", rootAt("client/local-tools/root.json").notAfter],
+    ];
+    for (const [f, notAfter] of windows) {
       expect(notAfter, f).toBeGreaterThanOrEqual(before + DAYS_30);
       expect(notAfter, f).toBeLessThanOrEqual(after + DAYS_30);
     }
     // the client keyring is re-signed beside the local-tools root with the same window
-    expect(verifyKeyring(read("client/keyring.json") as never, clientPolicy(out))).toBe(true);
+    expect(verifyKeyring(ringAt("client/keyring.json"), clientPolicy(out))).toBe(true);
   });
 
   it("setupBuildsLocalToolsPolicy", () => {

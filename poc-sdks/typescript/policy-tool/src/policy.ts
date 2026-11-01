@@ -5,12 +5,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
-  buildPolicy, DEFAULT_DEPTH, describeNotAfter, issueReplyCert, parseLocalRules, parseSignedRoot, renewKeyring, renewRoot, requireValidNode, rulesHash,
-  rulesRouteNodes,
+  buildPolicy, DEFAULT_DEPTH, describeNotAfter, issueReplyCert, parseLocalRules, readKeyringFile, readRootFile,
+  renewKeyring, renewRoot, requireValidNode, rulesHash, rulesRouteNodes,
 } from "@paztport/core";
 import type { SignedKeyring, SignedRoot } from "@paztport/core";
 import { parse } from "yaml";
-import { notAfterInDays, readJson, readKey, readKeyring, writeJson, writeKeyring } from "./files.ts";
+import { notAfterInDays, readKey, writeJson, writeKeyring } from "./files.ts";
 
 const USAGE =
   "Usage: node policy.ts --paths <yaml> --policy-key <file> --keyring <keyring.json> --out <dir> [--depth 8] [--policy-days 7] " +
@@ -47,14 +47,14 @@ function checked<T>(file: string, step: () => T): T {
  * has been retired since is the policy owner's to ensure. Refuses, writing nothing, when any check fails.
  */
 function renewedKeyring(keyringPath: string, notAfter: number, privateKey: string): SignedKeyring {
-  let ring: ReturnType<typeof readKeyring>;
+  let ring: SignedKeyring;
   try {
-    ring = readKeyring(keyringPath);
+    ring = readKeyringFile(readFileSync(keyringPath));
   } catch {
     return refuse(`${keyringPath} is missing or not a keyring`);
   }
   // read whole, so the signature is checked over its notAfter
-  return checked(keyringPath, () => renewKeyring(ring as SignedKeyring, notAfter, privateKey));
+  return checked(keyringPath, () => renewKeyring(ring, notAfter, privateKey));
 }
 
 /** The routes in the paths file, plus the rules route under `clientChain` when it has a `local:` block (which needs one); exits 2 on a malformed file. */
@@ -95,7 +95,7 @@ function renewedRoot(out: string, ring: SignedKeyring, notAfter: number, private
   const rootPath = join(out, "root.json");
   let root: SignedRoot;
   try {
-    root = parseSignedRoot(readJson<unknown>(rootPath), "root.json");
+    root = readRootFile(readFileSync(rootPath));
   } catch {
     return refuse(`${rootPath} is missing or not a signed root`);
   }

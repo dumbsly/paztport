@@ -13,6 +13,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { readKeyringFile } from "@paztport/core";
 
 const AGENTS = join(import.meta.dirname, "..");
 const KEYGEN = join(AGENTS, "node_modules/@paztport/policy-tool/src/keygen.ts");
@@ -72,12 +73,12 @@ run(POLICY, [
   "--client-chain", "session,pi",
 ]);
 // the server opens attested sessions only for the client policy key it pins
-const clientRing = JSON.parse(readFileSync(join(out, "client/keyring.json"), "utf8")) as { policy: string };
+const clientRing = readKeyringFile(readFileSync(join(out, "client/keyring.json")));
 const clientPin = join(out, "server/client-policy.pub");
 writeFileSync(clientPin, clientRing.policy + "\n");
 console.log(clientPin);
 rmSync(join(out, "client/policy.key"));
-const serverRing = JSON.parse(readFileSync(join(out, "server/keyring.json"), "utf8")) as { policy: string };
+const serverRing = readKeyringFile(readFileSync(join(out, "server/keyring.json")));
 const pin = join(out, "client/server-policy.pub");
 writeFileSync(pin, serverRing.policy + "\n");
 console.log(pin);

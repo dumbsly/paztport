@@ -3,7 +3,9 @@
 
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
-import { folderRuleFor, parseLocalRules, type InfluenceClass, type LocalRules, type Resolved } from "@paztport/core";
+import {
+  folderRuleFor, readLocalRules, writeToken, type InfluenceClass, type JsonValue, type LocalRules, type Resolved,
+} from "@paztport/core";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
 export type Step = {
@@ -333,7 +335,7 @@ function clientRules(evidence: unknown[]): LocalRules | undefined {
     const r = evidence[i];
     if (!isObj(r) || r.type !== "client") continue;
     try {
-      return r.rules === null || r.rules === undefined ? undefined : parseLocalRules(r.rules);
+      return r.rules === null || r.rules === undefined ? undefined : readLocalRules(writeToken(r.rules as JsonValue));
     } catch {
       return undefined;
     }

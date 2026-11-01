@@ -6,14 +6,12 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   decode,
-  isReplyCert,
-  parseProof,
-  parseSignedRoot,
-  readNotAfter,
+  readKeyringFile,
+  readProofBundleFile,
+  readReplyCertFile,
+  readRootFile,
   routeOf,
-  type MerkleProof,
   type ReplyCert,
-  type SignedRoot,
 } from "@paztport/core";
 import { checkServerPolicy, type ServerPolicy } from "@paztport/mcp";
 
@@ -25,26 +23,6 @@ const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force"
 
 function readText(path: string): string {
   return readFileSync(path, "utf8").trim();
-}
-
-function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-function str(v: unknown, what: string): string {
-  if (typeof v !== "string") {
-    throw new Error(`${what} must be a string`);
-  }
-  return v;
-}
-
-/** Copies a string map into an object whose keys (even "__proto__") are ordinary own properties. */
-function stringMap(v: Record<string, unknown>, what: string): Record<string, string> {
-  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, str(x, `${what} entry ${k}`)]));
 }
 
 /** Whether `key` decodes as an Ed25519 SPKI public key, the form the policy-tool writes; never throws. */
@@ -65,29 +43,25 @@ function validateServerConfig(cfg: ServerPolicy, dir: string, now: number): void
   }
 }
 
+/** The file `name` in `dir` as `read` reads it; a file that does not read is refused naming the file and the fix. */
+function readAs<T>(dir: string, name: string, read: (bytes: Uint8Array) => T): T {
+  const bytes = readFileSync(join(dir, name));
+  try {
+    return read(bytes);
+  } catch (e) {
+    throw new Error(`malformed ${name} in ${dir}: ${(e as Error).message}: ${REGENERATE}`);
+  }
+}
+
 /** Reads reply-cert.json; a missing or malformed one throws naming the fix. */
 function readReplyCert(path: string): ReplyCert {
   if (!existsSync(path)) {
     throw new Error(`${path} is missing: ${REGENERATE}`);
   }
-  let cert: unknown;
   try {
-    cert = readJson(path);
+    return readReplyCertFile(readFileSync(path));
   } catch {
-    cert = undefined;
-  }
-  if (!isReplyCert(cert)) {
     throw new Error(`${path} is not a reply certificate: ${REGENERATE}`);
-  }
-  return cert;
-}
-
-/** Runs `read`, passing on its error after `prefix` and with the fix: a damaged keyring or root window is one regenerating repairs. */
-function withFix<T>(read: () => T, prefix = ""): T {
-  try {
-    return read();
-  } catch (e) {
-    throw new Error(`${prefix}${(e as Error).message}: ${REGENERATE}`);
   }
 }
 
@@ -99,27 +73,12 @@ function withFix<T>(read: () => T, prefix = ""): T {
  * not an integer is refused.
  */
 export function loadServerConfig(dir: string, now: number = Date.now()): ServerPolicy {
-  const ring = readJson(join(dir, "keyring.json"));
-  if (!isObject(ring) || !isObject(ring.services)) {
-    throw new Error("malformed keyring.json");
-  }
-  const keyring = stringMap(ring.services, "keyring");
-  const keyringNotAfter = withFix(() => readNotAfter(ring, "notAfter"), "keyring.json ");
-  const root = readJson(join(dir, "root.json"));
-  if (!isObject(root)) {
-    throw new Error("malformed root.json");
-  }
-  const signedRoot: SignedRoot = withFix(() => parseSignedRoot(root, "root.json"));
-  const bundle = readJson(join(dir, "proofs-mcp-entry.json"));
-  const rawProof = isObject(bundle) && isObject(bundle.proofs) && Object.hasOwn(bundle.proofs, ROUTE) ? bundle.proofs[ROUTE] : undefined;
-  if (rawProof === undefined) {
+  const ring = readAs(dir, "keyring.json", readKeyringFile);
+  const signedRoot = readAs(dir, "root.json", readRootFile);
+  const bundle = readAs(dir, "proofs-mcp-entry.json", readProofBundleFile);
+  const routeProof = Object.hasOwn(bundle.proofs, ROUTE) ? bundle.proofs[ROUTE] : undefined;
+  if (routeProof === undefined) {
     throw new Error(`proofs-mcp-entry.json has no proof for ${ROUTE}`);
-  }
-  let routeProof: MerkleProof;
-  try {
-    routeProof = parseProof(rawProof);
-  } catch (e) {
-    throw new Error(`malformed route proof for ${ROUTE} in proofs-mcp-entry.json: ${(e as Error).message}`);
   }
   const certPath = join(dir, "reply-cert.json");
   const replyCert = readReplyCert(certPath);
@@ -132,12 +91,11 @@ export function loadServerConfig(dir: string, now: number = Date.now()): ServerP
     throw new Error(`${pinPath} is not a public key: regenerate the demo keys with npm run setup-demo -- --force`);
   }
   const cfg: ServerPolicy = {
-    policyPublicKey: str(ring.policy, "keyring policy"),
+    policyPublicKey: ring.policy,
     signingKeys: { "mcp-entry": readText(join(dir, "mcp-entry.key")), "github-tools": readText(join(dir, "github-tools.key")) },
-    keyring,
-    // an unsigned keyring reads as "", which never verifies
-    keyringSig: typeof ring.sig === "string" ? ring.sig : "",
-    keyringNotAfter,
+    keyring: Object.fromEntries(Object.entries(ring.services)),
+    keyringSig: ring.sig,
+    keyringNotAfter: ring.notAfter,
     replyCert,
     signedRoot,
     routeProof,

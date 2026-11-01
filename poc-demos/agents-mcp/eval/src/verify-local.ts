@@ -4,11 +4,11 @@
 import {
   canonicalize,
   decode,
-  parseLocalRules,
-  parseProof,
-  parseSignedRoot,
   provesPath,
+  readLocalRules,
   readNotAfter,
+  readProof,
+  readRoot,
   rulesHash,
   rulesRoute,
   verifyKeyring,
@@ -88,7 +88,7 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     if (!isObject(keyring) || !Object.values(keyring).every(isString) || !isString(r.policyPublicKey)) {
       return undefined;
     }
-    const signedRoot = parseSignedRoot(sr, "signedRoot"); // throws on a malformed root or window
+    const signedRoot = readRoot(writeToken(sr as JsonValue)); // throws on a root or window that does not read
     if (!verifyRoot(signedRoot, r.policyPublicKey)) {
       return undefined;
     }
@@ -115,9 +115,10 @@ export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
     let rules: LocalRules | null = null;
     let hash: string | null = null;
     if (r.rules !== null) {
-      rules = parseLocalRules(r.rules); // throws on rules that don't parse
+      rules = readLocalRules(writeToken(r.rules as JsonValue)); // throws on rules that do not read
       hash = rulesHash(rules);
-      if (!provesPath(parseProof(r.rulesProof), rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
+      const rulesProof = readProof(writeToken(r.rulesProof as JsonValue));
+      if (!provesPath(rulesProof, rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
         return undefined;
       }
     } else if (r.rulesProof !== null) {

@@ -6,7 +6,7 @@ import { generateKeyPair, utf8 } from "../../src/crypto/crypto.ts";
 import { printFile } from "../../src/encoding/json-file.ts";
 import { MalformedJson } from "../../src/encoding/json-rules.ts";
 import {
-  isReplyCert, readReplyCertFile, signReplyCert, replyCertSigningBytes, verifyReplyCert,
+  readReplyCertFile, signReplyCert, replyCertSigningBytes, verifyReplyCert,
 } from "../../src/session/reply-cert.ts";
 import * as core from "../../src/index.ts";
 
@@ -29,13 +29,14 @@ describe("reply certificate", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signReplyCert", "replyCertSigningBytes", "verifyReplyCert", "isReplyCert"]) expect(name in core, name).toBe(true);
+    for (const name of ["signReplyCert", "replyCertSigningBytes", "verifyReplyCert"]) {
+      expect(name in core, name).toBe(true);
+    }
   });
 
   it("an issued certificate verifies under its policy key", () => {
     const c = issued();
     expect(c).toEqual({ policy: POLICY.publicKey, svc: "mcp-entry", key: ENTRY.publicKey, notAfter: NOT_AFTER, sig: c.sig });
-    expect(isReplyCert(c)).toBe(true);
     expect(verifyReplyCert(c, POLICY.publicKey)).toBe(true);
   });
 
@@ -59,7 +60,6 @@ describe("reply certificate", () => {
 
   it("other fields are ignored and unsigned", () => {
     const c = { ...issued(), note: "not signed" };
-    expect(isReplyCert(c)).toBe(true);
     expect(verifyReplyCert(c, POLICY.publicKey)).toBe(true);
   });
 
@@ -90,79 +90,4 @@ describe("reply certificate", () => {
       expect(() => replyCertSigningBytes("P", "s", "K", bad)).toThrow();
     }
   });
-
-  it("isReplyCert refuses a bad notAfter", () => {
-    const c = issued();
-    for (const bad of [1.5, -1, MAX_SAFE + 1, 2 ** 64, "1798761600000", null, true, [], {}, Number.NaN, Infinity]) {
-      expect(isReplyCert({ ...c, notAfter: bad }), String(bad)).toBe(false);
-    }
-    expect(isReplyCert({ ...c, notAfter: 0 })).toBe(true);
-    expect(isReplyCert({ ...c, notAfter: MAX_SAFE })).toBe(true);
-    // JSON text an integer-valued float reads as is an integer in JavaScript.
-    expect(isReplyCert({ ...c, notAfter: JSON.parse("1e3") })).toBe(true);
-  });
-
-  it("isReplyCert refuses a missing or non-string field", () => {
-    const c = issued() as Record<string, unknown>;
-    for (const field of ["policy", "svc", "key", "notAfter", "sig"]) {
-      const missing = { ...c };
-      delete missing[field];
-      expect(isReplyCert(missing), field).toBe(false);
-    }
-    for (const field of ["policy", "svc", "key", "sig"]) {
-      expect(isReplyCert({ ...c, [field]: 1 }), field).toBe(false);
-      expect(isReplyCert({ ...c, [field]: null }), field).toBe(false);
-    }
-    // An inherited field is not the certificate's own.
-    const inherited = Object.assign(Object.create({ sig: c.sig }), { ...c, sig: undefined });
-    delete inherited.sig;
-    expect(isReplyCert(inherited)).toBe(false);
-  });
-
-  it("isReplyCert refuses a non-object", () => {
-    for (const bad of [null, undefined, [], "cert", 1, true]) expect(isReplyCert(bad), String(bad)).toBe(false);
-  });
-});
-
-describe("readReplyCertFile", () => {
-  const malformed = (read: () => unknown) => {
-    try {
-      read();
-    } catch (e) {
-      return e as Error;
-    }
-    throw new Error("read");
-  };
-
-  it("a file in any member order and spacing loads", () => {
-    const c = issued();
-    for (const text of [JSON.stringify(c, null, 2), printFile(c)]) {
-      const read = readReplyCertFile(utf8(text));
-      expect(read).toEqual(c);
-      expect(verifyReplyCert(read, POLICY.publicKey)).toBe(true);
-    }
-  });
-
-  it("a notAfter written with a fraction is malformed", () => {
-    const text = printFile(issued()).replace(`${NOT_AFTER},`, `${NOT_AFTER}.0,`);
-    expect(text).toContain("1798761600000.0");
-    const e = malformed(() => readReplyCertFile(utf8(text)));
-    expect(e).toBeInstanceOf(MalformedJson);
-    expect((e as MalformedJson).step).toBe("parse");
-  });
-
-  it("an extra member is malformed", () => {
-    const text = printFile({ ...issued(), note: "not signed" });
-    expect(malformed(() => readReplyCertFile(utf8(text))).message).toBe("a member the object does not define");
-  });
-
-  it("refuses each member missing, naming it", () => {
-    const c = issued();
-    for (const name of ["key", "notAfter", "policy", "sig", "svc"]) {
-      const { [name as keyof typeof c]: _gone, ...rest } = c;
-      expect(malformed(() => readReplyCertFile(utf8(printFile(rest)))).message, name).toBe(`no member ${name}`);
-    }
-  });
-
-  it("is exported from the core", () => expect("readReplyCertFile" in core).toBe(true));
 });

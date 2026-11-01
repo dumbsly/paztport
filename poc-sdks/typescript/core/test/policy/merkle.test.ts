@@ -8,7 +8,7 @@ import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
 import type { JsonValue } from "../../src/encoding/json.ts";
 import { MalformedJson } from "../../src/encoding/json-rules.ts";
 import {
-  buildTree, encodeProof, leafHash, nodeHash, parseProof, provesPath, readProof, verifyProof,
+  buildTree, encodeProof, leafHash, nodeHash, provesPath, readProof, verifyProof,
 } from "../../src/policy/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
@@ -136,9 +136,9 @@ describe("merkle", () => {
     expect(proof.dirs[0]).toBe("R");
     const bad = { ...proof, dirs: "X" + proof.dirs.slice(1) };
     expect(verifyProof(bad, "a/c", t.root)).toBe(false);
-    expect(() => parseProof(bad)).toThrow();
-    expect(() => parseProof({ ...proof, dirs: proof.dirs.toLowerCase() })).toThrow();
-    expect(parseProof(proof)).toEqual(proof);
+    expect(() => readProof(writeToken(bad))).toThrow();
+    expect(() => readProof(writeToken({ ...proof, dirs: proof.dirs.toLowerCase() }))).toThrow();
+    expect(readProof(writeToken(proof))).toEqual(proof);
   });
   it("aProofsLengthsAreCheckedWhenItIsRead", () => {
     // the checks Java's MerkleProof.parse makes, in its order, so both SDKs refuse the same proofs

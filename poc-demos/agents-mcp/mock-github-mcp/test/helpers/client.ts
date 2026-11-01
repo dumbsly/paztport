@@ -12,9 +12,11 @@ import {
   decode,
   generateKeyPair,
   newNonce,
-  parseProof,
   NonceCache,
   NONCE_TTL_MS,
+  readKeyringFile,
+  readProofBundleFile,
+  readRootFile,
   signKeyring,
   signRoot,
   signStampV3,
@@ -108,17 +110,17 @@ function generatedMaterial(tools: string[]): ClientMaterial {
 /** Loads what `setup-demo.ts` wrote into `<out>/client`: session/pi keys, keyring, root and pi's proofs. */
 function loadMaterial(dir: string): ClientMaterial {
   const text = (f: string) => readFileSync(join(dir, f), "utf8").trim();
-  const json = (f: string) => JSON.parse(text(f)) as any;
-  const ring = json("keyring.json");
-  const bundle = json("proofs-pi.json");
+  const bytes = (f: string) => readFileSync(join(dir, f));
+  const ring = readKeyringFile(bytes("keyring.json"));
+  const bundle = readProofBundleFile(bytes("proofs-pi.json"));
   return {
     policyPublicKey: ring.policy,
     session: { privateKey: text("session.key"), publicKey: ring.services.session },
     pi: { privateKey: text("pi.key"), publicKey: ring.services.pi },
     keyringSig: ring.sig,
     keyringNotAfter: ring.notAfter,
-    signedRoot: json("root.json"),
-    proofFor: (tool) => parseProof(bundle.proofs[`session/pi/mcp:github.${tool}`]),
+    signedRoot: readRootFile(bytes("root.json")),
+    proofFor: (tool) => bundle.proofs[`session/pi/mcp:github.${tool}`]!,
   };
 }
 

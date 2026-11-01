@@ -75,10 +75,10 @@ describe("loadClientMaterial", () => {
   it.each([1.5, -1, 2 ** 53, "x", null, true])("aWindowThatIsNotAnIntegerIsRefused %j", (bad) => {
     const ringDir = copy();
     writeFileSync(join(ringDir, "keyring.json"), JSON.stringify({ ...json(join(ringDir, "keyring.json")), notAfter: bad }));
-    expect(() => loadClientMaterial(ringDir)).toThrow("keyring.json notAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => loadClientMaterial(ringDir)).toThrow(`malformed keyring.json in ${ringDir}`);
     const rootDir = copy();
     writeFileSync(join(rootDir, "root.json"), JSON.stringify({ ...json(join(rootDir, "root.json")), notAfter: bad }));
-    expect(() => loadClientMaterial(rootDir)).toThrow("root.json.notAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => loadClientMaterial(rootDir)).toThrow(`malformed root.json in ${rootDir}`);
     expect(() => loadClientMaterial(rootDir)).toThrow("npm run setup-demo -- --force");
   });
 
@@ -116,14 +116,17 @@ describe("loadClientMaterial", () => {
   it("clientRefusesMaterialWithoutAWindowAsMalformed", () => {
     // a keyring or root with no notAfter is refused at startup as one whose window is not an integer is, with the fix
     const ring = resigned({ ring: "none" });
-    expect(() => loadClientMaterial(ring)).toThrow(`keyring.json notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
+    expect(() => loadClientMaterial(ring)).toThrow(`malformed keyring.json in ${ring}: no member notAfter: regenerate`);
     expect(() => loadClientMaterial(ring)).toThrow(FIX);
     const root = resigned({ root: "none" });
-    expect(() => loadClientMaterial(root)).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
+    expect(() => loadClientMaterial(root)).toThrow(`malformed root.json in ${root}: no member notAfter: regenerate`);
     expect(() => loadClientMaterial(root)).toThrow(FIX);
     const local = resigned({ localRoot: "none" });
     expect(() => loadClientMaterial(local)).not.toThrow();
-    expect(() => loadClientMaterial(local, join(local, "local-tools"))).toThrow(`root.json.notAfter must be an integer in [0, 2^53 - 1]: regenerate`);
+    const localTools = join(local, "local-tools");
+    expect(() => loadClientMaterial(local, localTools)).toThrow(
+      `malformed root.json in ${localTools}: no member notAfter: regenerate`,
+    );
   });
 
   it("clientRefusesExpiredOwnRoot", () => {
@@ -173,6 +176,24 @@ describe("loadClientMaterial", () => {
     expect(load(max, max, top)).toEqual([expect.stringContaining(`expires soon (notAfter ${top})`), expect.stringContaining(`expires soon (notAfter ${top})`)]);
   });
 
+  it("aKeyringWithAByteOrderMarkIsMalformed", () => {
+    const dir = copy();
+    const file = join(dir, "keyring.json");
+    writeFileSync(file, Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), readFileSync(file)]));
+    expect(() => loadClientMaterial(dir)).toThrow(`malformed keyring.json in ${dir}`);
+    expect(() => loadClientMaterial(dir)).toThrow(FIX);
+  });
+
+  it("aRootWithAFractionalNotAfterIsMalformed", () => {
+    const dir = copy();
+    const file = join(dir, "root.json");
+    const text = readFileSync(file, "utf8").replace(/("notAfter": ?)(\d+)/, "$1$2.0");
+    expect(text).toMatch(/"notAfter": ?\d+\.0/);
+    writeFileSync(file, text);
+    expect(() => loadClientMaterial(dir)).toThrow(`malformed root.json in ${dir}`);
+    expect(() => loadClientMaterial(dir)).toThrow(FIX);
+  });
+
   it("anUnsignedKeyringNamesTheFix", () => {
     // a keyring.json from before keyrings were signed
     const dir = copy();
@@ -194,7 +215,7 @@ describe("loadClientMaterial", () => {
     const dir = copy();
     const ring = json(join(dir, "keyring.json"));
     writeFileSync(join(dir, "keyring.json"), JSON.stringify({ ...ring, sig }));
-    expect(() => loadClientMaterial(dir)).toThrow("keyring.json sig must be a string");
+    expect(() => loadClientMaterial(dir)).toThrow(`malformed keyring.json in ${dir}: member sig is not a string`);
     expect(() => loadClientMaterial(dir)).toThrow("npm run setup-demo -- --force");
   });
 
@@ -242,7 +263,7 @@ describe("loadClientMaterial", () => {
     const bundle = json(join(dir, "proofs-pi.json"));
     bundle.proofs["session/pi/mcp:github.list_issues"].siblings = "nope";
     writeFileSync(join(dir, "proofs-pi.json"), JSON.stringify(bundle));
-    expect(() => loadClientMaterial(dir)).toThrow(/mcp:github\.list_issues/);
+    expect(() => loadClientMaterial(dir)).toThrow(`malformed proofs-pi.json in ${dir}`);
   });
 
   it("missingFileNamed", () => {

@@ -7,8 +7,12 @@ export { canonicalize, writeToken, writeWire } from "./encoding/jcs.ts";
 export * from "./encoding/json.ts";
 export { JSON_LIMITS, MalformedJson, isProtocolText, type JsonStep } from "./encoding/json-rules.ts";
 export * from "./encoding/json-file.ts";
-export * from "./policy/merkle.ts";
-export * from "./policy/root.ts";
+export {
+  buildTree, encodeProof, leafHash, nodeHash, provesPath, readProof, SALT_BYTES, verifyProof, type MerkleProof,
+} from "./policy/merkle.ts";
+export {
+  readRoot, readRootFile, rootSigningBytes, signRenewedRoot, signRoot, verifyRoot, type SignedRoot,
+} from "./policy/root.ts";
 export * from "./policy/policy.ts";
 export * from "./verify/reason.ts";
 export { readChain, signStampV3, signingBytesV3, type StampV3 } from "./stamp/stamp.ts";
@@ -25,7 +29,9 @@ export * from "./offline/records.ts";
 export * from "./offline/local-step.ts";
 export * from "./policy/keyring.ts";
 export * from "./policy/policy-owner.ts";
-export * from "./session/reply-cert.ts";
+export {
+  readReplyCertFile, replyCertSigningBytes, signReplyCert, verifyReplyCert, type ReplyCert,
+} from "./session/reply-cert.ts";
 export * from "./policy/validity.ts";
 export * from "./session/session.ts";
 export * from "./session/request.ts";

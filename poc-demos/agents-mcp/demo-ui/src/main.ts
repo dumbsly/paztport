@@ -13,6 +13,7 @@ import { randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { readKeyringFile, readReplyCertFile, readRootFile } from "@paztport/core";
 import { startDemoServer, type DemoServer } from "./server.ts";
 
 const AGENTS = join(import.meta.dirname, "../..");
@@ -46,25 +47,26 @@ export function nodeAtLeast(version: string, floor: string): boolean {
 /** Files setup-demo writes that only have to exist. Keys made by an earlier version can lack some, such as the local-tools policy. */
 const KEY_FILES = ["client/server-policy.pub", "client/local-tools/rules.json"];
 
-/** Files setup-demo writes that carry a `notAfter`: each keyring, root and the server's reply certificate. */
-const WINDOWED_FILES = [
-  "server/keyring.json",
-  "server/root.json",
-  "client/keyring.json",
-  "client/root.json",
-  "client/local-tools/root.json",
-  "server/reply-cert.json",
+/** Files setup-demo writes that carry a `notAfter`, each with its SDK reader: keyrings, roots, reply certificate. */
+const WINDOWED_FILES: readonly (readonly [string, (bytes: Uint8Array) => { notAfter: number }])[] = [
+  ["server/keyring.json", readKeyringFile],
+  ["server/root.json", readRootFile],
+  ["client/keyring.json", readKeyringFile],
+  ["client/root.json", readRootFile],
+  ["client/local-tools/root.json", readRootFile],
+  ["server/reply-cert.json", readReplyCertFile],
 ];
 
 /** How long each keyring, root and the reply certificate must still have to run, so evidence a run saves still verifies afterwards. */
 const POLICY_MARGIN_MS = 86_400_000;
 
-/** Whether `file` in `dir` names a `notAfter` at least POLICY_MARGIN_MS from now: the mock server refuses expired material, and material without one. */
-function windowCurrent(dir: string, file: string): boolean {
+/**
+ * Whether `file` in `dir` reads, by `read`, and names a `notAfter` at least POLICY_MARGIN_MS from now: the mock server
+ * refuses expired material, and material that does not read.
+ */
+function windowCurrent(dir: string, file: string, read: (bytes: Uint8Array) => { notAfter: number }): boolean {
   try {
-    const x: unknown = JSON.parse(readFileSync(join(dir, file), "utf8"));
-    const notAfter = typeof x === "object" && x !== null ? (x as { notAfter?: unknown }).notAfter : undefined;
-    return typeof notAfter === "number" && Date.now() + POLICY_MARGIN_MS <= notAfter;
+    return Date.now() + POLICY_MARGIN_MS <= read(readFileSync(join(dir, file))).notAfter;
   } catch {
     return false;
   }
@@ -72,7 +74,9 @@ function windowCurrent(dir: string, file: string): boolean {
 
 /** True when `dir` holds every file setup-demo writes, with every keyring, root and the reply certificate current for a day more, so the keys there can be used as they are. */
 export function keysComplete(dir: string): boolean {
-  return KEY_FILES.every((f) => existsSync(join(dir, f))) && WINDOWED_FILES.every((f) => windowCurrent(dir, f));
+  return (
+    KEY_FILES.every((f) => existsSync(join(dir, f))) && WINDOWED_FILES.every(([f, read]) => windowCurrent(dir, f, read))
+  );
 }
 
 function defaultEnsureKeys(dir: string): void {

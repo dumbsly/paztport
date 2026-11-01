@@ -12,7 +12,7 @@ import * as core from "../../src/index.ts";
 import { signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
 import { signReplyCert, verifyReplyCert } from "../../src/session/reply-cert.ts";
 import {
-  parseSignedRoot, readRoot, readRootFile, signRenewedRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot,
+  readRoot, readRootFile, signRenewedRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot,
 } from "../../src/policy/root.ts";
 import { earliestNotAfter, isCurrent, readNotAfter } from "../../src/policy/validity.ts";
 
@@ -36,32 +36,15 @@ describe("signed root", () => {
   });
 
   it("is exported from the core", () => {
-    for (const name of ["signRoot", "signRenewedRoot", "rootSigningBytes", "verifyRoot", "parseSignedRoot", "isCurrent"]) expect(name in core, name).toBe(true);
+    for (const name of ["signRoot", "signRenewedRoot", "rootSigningBytes", "verifyRoot", "isCurrent"]) {
+      expect(name in core, name).toBe(true);
+    }
   });
 
   it("signRoot signs only with a window", () => {
     for (const bad of [undefined, null, 1.5, -1, MAX_SAFE + 1, "1798761600000"]) {
       expect(() => signRoot(ROOT, "v1", POLICY.privateKey, bad as unknown as number), String(bad)).toThrow(TypeError);
     }
-  });
-
-  it("parseSignedRoot keeps the root whole, its notAfter included, and refuses a damaged or missing window", () => {
-    const r = signed();
-    expect(parseSignedRoot(JSON.parse(JSON.stringify(r)), "clientRoot")).toEqual(r);
-    expect(parseSignedRoot(JSON.parse(JSON.stringify(r).replace('"notAfter":1798761600000', '"notAfter":1798761600000.0')), "clientRoot")).toEqual(r);
-    // extra members are dropped, as the signature does not cover them
-    expect(parseSignedRoot({ ...r, note: "x" }, "clientRoot")).toEqual(r);
-    for (const bad of [1.5, -1, MAX_SAFE + 1, "x", null, true, {}, []]) {
-      expect(() => parseSignedRoot({ ...r, notAfter: bad }, "clientRoot"), String(bad)).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
-    }
-    expect(() => parseSignedRoot({ ...r, rootId: 1 }, "clientRoot")).toThrow("clientRoot.rootId must be a string");
-    expect(() => parseSignedRoot({ ...r, root: undefined }, "clientRoot")).toThrow("clientRoot.root must be a string");
-    expect(() => parseSignedRoot({ ...r, sig: null }, "clientRoot")).toThrow("clientRoot.sig must be a string");
-    for (const bad of [null, "x", [], 1]) expect(() => parseSignedRoot(bad, "clientRoot"), String(bad)).toThrow("clientRoot must be an object");
-    // a missing notAfter is refused, and so is an inherited one, which is not the root's own
-    const { notAfter: _w, ...stripped } = r;
-    expect(() => parseSignedRoot(stripped, "clientRoot")).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
-    expect(() => parseSignedRoot(Object.assign(Object.create({ notAfter: NOT_AFTER }), stripped), "clientRoot")).toThrow("clientRoot.notAfter must be an integer in [0, 2^53 - 1]");
   });
 
   it("roundTrip", () => {
@@ -158,7 +141,7 @@ describe("signed root", () => {
   });
   it("a root without notAfter is refused when read and never verifies, though signed over rootId|root", () => {
     const sr = unwindowed();
-    expect(() => parseSignedRoot(sr, "root.json")).toThrow("root.json.notAfter must be an integer in [0, 2^53 - 1]");
+    expect(() => readRoot(writeToken(sr as unknown as JsonValue))).toThrow("no member notAfter");
     expect(verifyRoot(sr, POLICY.publicKey)).toBe(false);
     expect(isCurrent(sr, 0)).toBe(false);
   });

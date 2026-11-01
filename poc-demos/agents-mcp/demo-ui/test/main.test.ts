@@ -9,6 +9,14 @@ import { OFF_MODE_COPY } from "../../eval/src/runner.ts";
 import { BUILTIN_SCENARIO_DIR } from "../../mock-github-mcp/src/scenario.ts";
 import { keysComplete, launch, nodeAtLeast, type LaunchDeps, type Launched } from "../src/main.ts";
 
+/** The text of a keyring, root or reply certificate file `file`, with its window `notAfter` (left out if undefined). */
+function windowed(file: string, notAfter?: unknown): string {
+  const window = notAfter === undefined ? {} : { notAfter };
+  if (file.endsWith("keyring.json")) return JSON.stringify({ policy: "p", services: {}, sig: "s", ...window });
+  if (file.endsWith("root.json")) return JSON.stringify({ root: "r", rootId: "v", sig: "s", ...window });
+  return JSON.stringify({ key: "k", policy: "p", sig: "s", svc: "orders", ...window });
+}
+
 let tmp: string;
 let n = 0;
 const open: Launched[] = [];
@@ -62,13 +70,13 @@ describe("demo launcher", () => {
     try {
       for (const f of ["client/root.json", "client/server-policy.pub", "server/root.json", "client/keyring.json", "server/keyring.json"]) {
         mkdirSync(join(dir, f, ".."), { recursive: true });
-        writeFileSync(join(dir, f), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
+        writeFileSync(join(dir, f), windowed(f, Date.now() + 2 * 86_400_000));
       }
-      writeFileSync(join(dir, "server/reply-cert.json"), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
+      writeFileSync(join(dir, "server/reply-cert.json"), windowed("reply-cert.json", Date.now() + 2 * 86_400_000));
       expect(keysComplete(dir)).toBe(false);
       mkdirSync(join(dir, "client/local-tools"), { recursive: true });
       writeFileSync(join(dir, "client/local-tools/rules.json"), "{}");
-      writeFileSync(join(dir, "client/local-tools/root.json"), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
+      writeFileSync(join(dir, "client/local-tools/root.json"), windowed("root.json", Date.now() + 2 * 86_400_000));
       expect(keysComplete(dir)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -82,18 +90,18 @@ describe("demo launcher", () => {
     try {
       for (const f of ["client/root.json", "client/server-policy.pub", "client/local-tools/rules.json", "client/local-tools/root.json", "server/root.json", "client/keyring.json", "server/keyring.json"]) {
         mkdirSync(join(dir, f, ".."), { recursive: true });
-        writeFileSync(join(dir, f), JSON.stringify({ notAfter: Date.now() + 2 * 86_400_000 }));
+        writeFileSync(join(dir, f), windowed(f, Date.now() + 2 * 86_400_000));
       }
       const cert = join(dir, "server/reply-cert.json");
       expect(keysComplete(dir)).toBe(false);
       const day = 86_400_000;
       for (const notAfter of ["later", Date.now() - 1, Date.now() + 60_000, Date.now() + day - 60_000]) {
-        for (const text of ["", "{}", JSON.stringify({ notAfter })]) {
+        for (const text of ["", "{}", windowed("reply-cert.json", notAfter)]) {
           writeFileSync(cert, text);
           expect(keysComplete(dir), text).toBe(false);
         }
       }
-      writeFileSync(cert, JSON.stringify({ notAfter: Date.now() + day + 60_000 }));
+      writeFileSync(cert, windowed("reply-cert.json", Date.now() + day + 60_000));
       expect(keysComplete(dir)).toBe(true);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -106,7 +114,7 @@ describe("demo launcher", () => {
     const files = ["server/keyring.json", "server/root.json", "client/keyring.json", "client/root.json", "client/local-tools/root.json", "server/reply-cert.json"];
     const write = (f: string, notAfter: unknown) => {
       mkdirSync(join(dir, f, ".."), { recursive: true });
-      writeFileSync(join(dir, f), JSON.stringify(notAfter === undefined ? {} : { notAfter }));
+      writeFileSync(join(dir, f), f.endsWith(".json") && !f.endsWith("rules.json") ? windowed(f, notAfter) : "");
     };
     try {
       for (const f of ["client/server-policy.pub", "client/local-tools/rules.json"]) write(f, undefined);

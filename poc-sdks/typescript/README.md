@@ -54,7 +54,7 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   has expired degrades to unsafe sessions. `verifySessionReply` (the client's live check) refuses the server's
   root, and in the entry-key form its keyring, when expired, as `BAD_SIGNATURE`. `isAttestedSession` checks a
   recorded handshake offline at the record's time: each root and keyring, on either side, counts only up to its
-  `notAfter`. A root or keyring without a `notAfter` is malformed: `parseSignedRoot` and `parseSessionRequest`
+  `notAfter`. A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile` and `parseSessionRequest`
   refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
 - **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
   (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with.
