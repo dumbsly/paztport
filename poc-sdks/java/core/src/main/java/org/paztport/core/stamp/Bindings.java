@@ -36,9 +36,9 @@ public final class Bindings {
 
     /**
      * The response binding: {@code b64url(SHA-256(utf8(resultHash + "\n" + callId + "\n" + JCS(labels))))}, the
-     * labels written by {@link ContentLabel#toJson(List)}. A newline
-     * in the call id would let two (hash, id) pairs share bytes, and a lone surrogate would encode as {@code ?}, so
-     * both are refused with {@link IllegalArgumentException}.
+     * labels written by {@link ContentLabel#toJson(List)}. A newline in
+     * the call id would let two (hash, id) pairs share bytes, and a lone surrogate would encode as {@code ?}, so both
+     * are refused with {@link IllegalArgumentException}.
      */
     public static String response(String resultHash, String callId, List<ContentLabel> labels) {
         if (!Text.isWellFormed(resultHash) || !Text.isWellFormed(callId)) {

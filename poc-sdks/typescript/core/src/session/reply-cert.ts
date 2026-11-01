@@ -27,8 +27,8 @@ export function signReplyCert(policyPublicKey: string, svc: string, key: string,
 }
 
 /**
- * True when `v` has own string policy, svc, key and sig and a notAfter that is an integer in [0, 2^53 − 1],
- * checked by value (1.0 and 1e3 are 1 and 1000); other fields are ignored.
+ * True when `v` has own string policy, svc, key and sig and a notAfter that is an in-memory integer in
+ * [0, 2^53 − 1]. Members other than these five are not examined.
  */
 export function isReplyCert(v: unknown): v is ReplyCert {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return false;

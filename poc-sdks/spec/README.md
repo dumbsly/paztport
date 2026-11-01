@@ -76,7 +76,7 @@ step also carries `decisionToken`, the token of its `callId`, `resolved`, `verdi
 together, and each policy carries its proofs' tokens once, as `proofTokens.<route>` beside `proofs`, for every case
 that names the route. A token is the base64url of its value's JCS bytes, except in the `verify` case "stamp ts of
 -2^63", whose chain token spells the `ts` exactly as the readable chain does, a number JCS cannot write. Each
-`responseAttestation` case carries `attestationToken` beside `attestation`, the token of its readable value but in
+`responseAttestation` case carries `attestationToken` beside `attestation`, the token of its readable value except in
 the case "an attestation in wire member order", whose token writes the members as `chain`, `proof`, `labels`,
 `resultHash`. Each `sessionReply` case, and each handshake of a `recordedHandshake` or `recordedCall` case, carries
 `requestToken` beside `request` and `replyToken` beside `reply`, and each `sessionStatus` and `sessionRequest` case

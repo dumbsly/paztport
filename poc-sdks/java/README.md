@@ -25,8 +25,8 @@ The protocol, with no transport. It never touches TLS or HTTP: a transport hands
 the verifier the binding of what was received, the receiver's name and, when it
 has one, the authenticated peer.
 
-- **Stamps and chains.** `StampV3` signs and refuses a field holding `|` or a lone
-  surrogate, or a `ts` outside ±(2^53 − 1). `Chains` reads a chain off the wire
+- **Stamps and chains.** `StampV3` signs and refuses a field holding `|`, a lone
+  surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a chain off the wire
   strictly, from its bytes, as checks 1 and 2 of the live order, and never throws; a
   `ts` is a protocol integer, so `1.0` is refused. A stamp whose `v` is not 3 is
   `CHAIN_MISSING`.
@@ -68,9 +68,9 @@ has one, the authenticated peer.
   canonicalises JSON text. The `org.paztport.core.encoding` package states the rule.
 - **Encodings and keys.** `Base64Url` (the TypeScript SDK's decode rule exactly),
   `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert` (`reply-cert.json`),
-  `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks before the policy owner signs), `Routes`,
-  and `EventVerifier` for events sent to a responder, with `AttestationEvent`, the verdict
-  before it is signed. A service's own files are read by `KeyringFile.load`,
+  `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`, `PolicyOwner` (the checks
+  before the policy owner signs), `Routes`, and `EventVerifier` for events sent to a
+  responder, with `AttestationEvent`, the verdict before it is signed. A service's own files are read by `KeyringFile.load`,
   `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin` and
   `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say what it
   may start with and when to warn that it is ending.
@@ -157,10 +157,10 @@ Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.
 (Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
 have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
 
-No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime scope, so it works
-beside whichever Jackson the application uses: Boot 4's web layer and `RestClient` use Jackson 3
-(`tools.jackson`). An SDK value's JSON,
-such as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
+No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime scope, so
+it works beside whichever Jackson the application uses: Boot 4's web layer and `RestClient`
+use Jackson 3 (`tools.jackson`). An SDK value's JSON, such as `Opening.toJson()`, goes to
+Spring MVC or a `RestClient` as that `String`,
 labelled `application/json`, so it is written exactly as it stands; a body goes to
 the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
 hands a session request's body to `HttpSessions.serve`.

@@ -22,8 +22,8 @@ The protocol, with no transport: base64url, Ed25519 and SHA-256 helpers, canonic
 the salted Merkle tree, signed roots and keyrings, reply certificates, policy building, reason codes, the replay
 cache, prompt binding, influence and the owner-aware influence rule, sessions, local tool rules and the verdict
 for a local tool call, local steps, the live v3 chain verifier (`verifyChainV3`). For responders, `signEvent`
-signs an event, `createEventVerifier` checks a received body (strictly, with `ts` read by value) and
-`isAttributable` says whether the responder may act on it. Offline verification of a recorded run
+signs an event, `createEventVerifier` checks a received body (strictly: the envelope and payload must be JCS
+bytes) and `isAttributable` says whether the responder may act on it. Offline verification of a recorded run
 (`verifyChainOffline`) is here too, and shares its checks with the live verifier; the agents demo's
 `npm run verify` uses it.
 
