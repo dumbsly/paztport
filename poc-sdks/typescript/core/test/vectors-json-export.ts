@@ -441,6 +441,23 @@ const FILE_FORMAT: FileFormatCase[] = [
 `,
   },
   {
+    name: "a value whose members are given out of JCS order, written in it",
+    kind: null,
+    value: new Ordered([
+      ["b", 1],
+      ["a", 2],
+      ["10", 3],
+      ["2", 4],
+    ]),
+    file: `{
+  "10": 3,
+  "2": 4,
+  "a": 2,
+  "b": 1
+}
+`,
+  },
+  {
     name: "an empty object and an empty array",
     kind: null,
     value: { a: {}, b: [] },

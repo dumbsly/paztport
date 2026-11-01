@@ -1176,6 +1176,17 @@
       "file": "{\n  \"1\": 3,\n  \"10\": 1,\n  \"2\": 2\n}\n"
     },
     {
+      "name": "a value whose members are given out of JCS order, written in it",
+      "kind": null,
+      "value": {
+        "b": 1,
+        "a": 2,
+        "10": 3,
+        "2": 4
+      },
+      "file": "{\n  \"10\": 3,\n  \"2\": 4,\n  \"a\": 2,\n  \"b\": 1\n}\n"
+    },
+    {
       "name": "an empty object and an empty array",
       "kind": null,
       "value": {

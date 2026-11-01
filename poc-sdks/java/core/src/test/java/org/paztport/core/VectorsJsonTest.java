@@ -36,8 +36,8 @@ import org.paztport.core.stamp.Bindings;
  * {@code file}, {@code fileFormat} and {@code base64url}, and the {@code prompt}, {@code response} and
  * {@code merkleLeaf} cases of {@code bindings}; the {@code http} cases are replayed in the http module. The
  * {@code jcs} section is not replayed: it is hashed content, which belongs to the MCP profile, and this SDK does not
- * implement it, nor the {@code bindings} that hash it. The file's own structure is read
- * with Jackson, only to find each case and build its expected value; every input reaches the SDK as bytes.
+ * implement it, nor the {@code bindings} that hash it. The file's own structure is read with Jackson, only to find
+ * each case and build its expected value; every input reaches the SDK as bytes.
  */
 class VectorsJsonTest {
 
