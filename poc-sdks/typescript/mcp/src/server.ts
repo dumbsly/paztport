@@ -123,10 +123,10 @@ export function refusedToolResult(reason: string): RefusedToolResult {
 export class InvalidParams extends Error {}
 
 /**
- * Reads paztport/session params: exactly a `request`, the request's token, plus an optional `_meta`, which MCP allows on
- * every request and which is ignored. Throws InvalidParams for any other member, a `request` that is missing or not a
- * string, or one that does not read (readSessionRequest). The message names a member the params or the request lack or
- * hold wrongly, never a value the client sent.
+ * Reads paztport/session params: exactly a `request`, the request's token, plus an optional `_meta`, which MCP allows
+ * on every request and which is ignored. Throws InvalidParams for any other member, a `request` that is missing or not
+ * a string, or one that does not read (readSessionRequest). The message names a member the params or the request lack
+ * or hold wrongly, never a value the client sent.
  */
 export function readSessionParams(params: unknown): SessionRequest {
   if (typeof params !== "object" || params === null || Array.isArray(params)) {
@@ -213,10 +213,11 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
  * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
  * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
  * verdict other than OK gives an `isError` result carrying the verdict token of `{reason}` and `run` is not called; in
- * audit `run` is called anyway and its result carries the verdict token of `{reason, audit: true}`. `run` gets the verdict and returns the result with
- * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
- * is returned unattested. A null `server` is a deployment with no Paztport material: no handshake, so every call is
- * in an unsafe session under `rules`. The `off` switch is not a protocol mode; a deployment that has one does not call this.
+ * audit `run` is called anyway and its result carries the verdict token of `{reason, audit: true}`. `run` gets the
+ * verdict and returns the result with the class of its content. Only a verified call's result is attested; an unsafe
+ * session's, or one whose chain failed, is returned unattested. A null `server` is a deployment with no Paztport
+ * material: no handshake, so every call is in an unsafe session under `rules`. The `off` switch is not a protocol
+ * mode; a deployment that has one does not call this.
  */
 export async function handleToolCall<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }, D = undefined>(
   server: McpServerSession | null,
@@ -349,8 +350,8 @@ export class McpServerSession {
 
   /**
    * Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current
-   * one), and carries the attestation's token. The chain runs entry, then tools, then back to `call.caller`, checkCall's
-   * caller: the client that made the call.
+   * one), and carries the attestation's token. The chain runs entry, then tools, then back to `call.caller`,
+   * checkCall's caller: the client that made the call.
    */
   attest<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
     session: Session,

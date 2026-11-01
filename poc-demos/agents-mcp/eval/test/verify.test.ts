@@ -971,9 +971,10 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("aRecordWhoseObjectsAreNotTokensFailsClosed", () => {
-    // A file in which a session, a call and a local step hold each object as the value its token holds. Each fails as
-    // a malformed record does, and the others are still judged. The session copy names another server: verify judges
-    // a call in the latest session record for its server, which for this call stays the file's own verified one.
+    // A file in which a session, a call, two responses, a local step and a client record hold each object as the value
+    // its token holds. Each fails as a malformed record does, and the others are still judged. The session copy names
+    // another server: verify judges a call in the latest session record for its server, which for this call stays the
+    // file's own verified one. The client copy comes last, so the local steps are judged against the file's own.
     const valueOf = (v: unknown) => (typeof v === "string" ? readToken(v) : v);
     const rs = localLines.map((l) => JSON.parse(l));
     const session = rs.find((x) => x.type === "session");
@@ -982,17 +983,30 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const meta = Object.entries(call.params._meta as Record<string, unknown>).map(([k, v]) => [k, k === "paztport/callId" ? v : valueOf(v)]);
     const valueCall = { ...call, params: { ...call.params, _meta: Object.fromEntries(meta) } };
     const { decision, ...local } = localOf(rs, "l_read");
-    const { callId: _id, ...decided } = (decision === undefined ? {} : valueOf(decision)) as Record<string, unknown>;
+    const { callId: _id, ...decided } = readToken(decision) as Record<string, unknown>;
     const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), influence: valueOf(local.influence) };
-    const lines = rs.flatMap((x) =>
-      x === session ? [x, valueSession] : [x === call ? valueCall : x.type === "local" && x.callId === "l_read" ? valueLocal : x],
-    );
+    // the attestation of toolu_c's response and the verdict of toolu_d's refusal, each as its value
+    const valueResult = (x: any) => ({
+      ...x,
+      result: { ...x.result, _meta: Object.fromEntries(Object.entries(x.result._meta).map(([k, v]) => [k, valueOf(v)])) },
+    });
+    const responses = new Set(rs.filter((x) => x.type === "response" && ["toolu_c", "toolu_d"].includes(x.callId)));
+    const client = rs.find((x) => x.type === "client");
+    const ring = readKeyring(client.keyring);
+    const valueClient = {
+      v: 1, type: "client", keyring: ring.services, keyringSig: ring.sig, keyringNotAfter: ring.notAfter, policyPublicKey: ring.policy,
+      signedRoot: readRoot(client.root), rules: valueOf(client.rules), rulesProof: valueOf(client.rulesProof),
+    };
+    const inValueForm = (x: any) =>
+      x === call ? valueCall : responses.has(x) ? valueResult(x) : x.type === "local" && x.callId === "l_read" ? valueLocal : x;
+    const lines = [...rs.flatMap((x) => (x === session ? [x, valueSession] : [inValueForm(x)])), valueClient];
     let r: ReturnType<typeof verifyEvidence> | undefined;
     expect(() => { r = verifyEvidence(write(lines.map((x) => JSON.stringify(x)))); }).not.toThrow();
     expect(r!.ok).toBe(false);
     expect(results(r!.items, "session")).toEqual(["OK", "BAD_SESSION"]);
     expect(r!.items.filter((i) => i.type === "call").map((i) => [i.callId, i.result])).toEqual([["toolu_a", "CHAIN_MISSING"], ["toolu_c", "OK"], ["toolu_d", "OK"]]);
-    expect(r!.items.filter((i) => i.type === "response").map((i) => [i.callId, i.result])).toEqual([["toolu_a", "NO_CALL"], ["toolu_c", "OK"], ["toolu_d", "REFUSED"]]);
+    // a refusal whose verdict is no token has no refusal shape, so it is judged as a response, and has no attestation
+    expect(r!.items.filter((i) => i.type === "response").map((i) => [i.callId, i.result])).toEqual([["toolu_a", "NO_CALL"], ["toolu_c", "CHAIN_MISSING"], ["toolu_d", "CHAIN_MISSING"]]);
     expect(r!.items.filter((i) => i.type === "local").map((i) => [i.callId, i.result])).toEqual([
       ["l_read", "BINDING_MISMATCH"],
       ["l_outside", "REFUSED"],
@@ -1001,7 +1015,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       ["l_uncheck", "REFUSED"],
       ["l_leak", "REFUSED"],
     ]);
-    expect(results(r!.items, "client")).toEqual(["OK"]);
+    expect(results(r!.items, "client")).toEqual(["OK", "BAD_CLIENT"]);
   });
 
   it("aRunWithOnlyLocalStepsIsBound", () => {

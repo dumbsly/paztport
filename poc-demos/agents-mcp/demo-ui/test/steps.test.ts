@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
-import { buildTree, encode, randomBytes, utf8, writeToken, type JsonValue } from "@paztport/core";
+import { buildTree, encode, randomBytes, readAttestation, readChain, utf8, writeToken, type JsonValue } from "@paztport/core";
 import { buildSteps, finalAnswer, PLAIN_CLASS, PLAIN_REASON, PLAIN_RULE, plainReason } from "../src/steps.ts";
 
 const scenario = loadScenario(BUILTIN_SCENARIO_DIR);
@@ -399,17 +399,19 @@ describe("local tool rows", () => {
     expect(steps[2]!.evidence.evidence.map((e) => (e as any).type)).toEqual(["local"]);
   });
 
-  it("each evidence record a row shows carries its tokens decoded, and names a token that does not read", () => {
-    const steps = buildSteps(local, run(), { complete: true });
-    expect(steps[2]!.evidence.evidence[0]!.display).toEqual({
+  it("a local record's tokens are decoded beside it, and a token that does not read is named", () => {
+    const logs = run();
+    const steps = buildSteps(local, logs, { complete: true });
+    // the record as the evidence file holds it, and its tokens decoded beside it
+    expect(steps[2]!.evidence.evidence).toEqual([logs.evidence[2]]);
+    expect(steps[2]!.evidence.displays).toEqual([{
       chain: [stamp("session", "pi"), stamp("pi", "local:bash")],
       influence: [{ cls: "private", src: "mcp:github.get_file_contents", h: "x" }],
       proof: PROOF,
-    });
-    const logs = run();
+    }]);
     const l1 = logs.evidence[1] as Record<string, unknown>;
     logs.evidence[1] = { ...l1, chain: "not a token", influence: [] } as never;
-    expect(buildSteps(local, logs, { complete: true })[0]!.evidence.evidence[0]!.display).toEqual({ proof: PROOF, unreadable: ["chain", "influence"] });
+    expect(buildSteps(local, logs, { complete: true })[0]!.evidence.displays).toEqual([{ proof: PROOF, unreadable: ["chain", "influence"] }]);
   });
 
   it("a local tool that errored is an error row; a call with no answer is left out until the run is complete", () => {
@@ -433,3 +435,37 @@ describe("local tool rows", () => {
   });
 });
 
+describe("the tokens of a row's MCP records", () => {
+  /** The recorded run's row for `callId`, with its records and their displays. */
+  const rowOf = (logs: ReturnType<typeof recorded>, callId: string) => buildSteps(scenario, logs, { complete: true }).find((s) => s.evidence.callId === callId)!;
+  const recordsOf = (logs: ReturnType<typeof recorded>, callId: string) => logs.evidence.filter((r) => r.callId === callId);
+
+  it("a call's chain and a response's attestation are decoded beside the records, which are as the file holds them", () => {
+    const logs = recorded();
+    const [call, response] = recordsOf(logs, "call_0716zl9y");
+    const row = rowOf(logs, "call_0716zl9y");
+    expect(row.evidence.evidence).toEqual([call, response]);
+    expect(row.evidence.evidence.every((r) => !Object.hasOwn(r as object, "display"))).toBe(true);
+    expect(row.evidence.displays).toEqual([
+      { chain: readChain(call.params._meta["paztport/chain"]) },
+      { attestation: readAttestation(response.result._meta["paztport/attestation"]) },
+    ]);
+  });
+
+  it("a refusal carries no attestation, so its response has nothing to decode", () => {
+    const logs = recorded();
+    const row = rowOf(logs, "call_46fyq3ur");
+    expect(row.result).toBe("refused");
+    expect(row.evidence.displays).toEqual([{ chain: expect.any(Array) }, {}]);
+  });
+
+  it("a token that does not read is named, and the record is still shown as the file holds it", () => {
+    const logs = recorded();
+    const [call, response] = recordsOf(logs, "call_0716zl9y");
+    call.params._meta["paztport/chain"] = "not a token";
+    response.result._meta["paztport/attestation"] = { chain: [] };
+    const row = rowOf(logs, "call_0716zl9y");
+    expect(row.evidence.evidence).toEqual([call, response]);
+    expect(row.evidence.displays).toEqual([{ unreadable: ["paztport/chain"] }, { unreadable: ["paztport/attestation"] }]);
+  });
+});

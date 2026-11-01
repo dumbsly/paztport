@@ -33,37 +33,62 @@ const metaTokens = (meta: Rec, names: string[]): Rec =>
   Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, names.includes(k) ? writeToken(v as JsonValue) : v]));
 
 /**
- * A record in the evidence format, each Paztport object it holds written as its token, the token of exactly the object
- * the record holds. The signed bytes are unchanged: a stamp signs the join of its fields, a session reply the JCS of
- * itself less `sig`, a local step the JCS of its input and decision, and a keyring its window, policy key and services.
- * A record already in the token form, and a run record, come back as they are.
+ * Whether a record's Paztport fields, `fields` by name, are tokens: true when every one is a string, false when none
+ * is. A record with some of each is neither form, and throws, naming the record's type and a field that is no token.
+ */
+function inTokenForm(type: string, fields: [name: string, value: unknown][]): boolean {
+  const values = fields.filter(([, v]) => typeof v !== "string");
+  if (values.length === 0) return true;
+  if (values.length === fields.length) return false;
+  throw new Error(`a ${type} record whose ${values[0]![0]} is not a token, beside fields that are`);
+}
+
+/** The fields of `o` among `names` that it has and that are not null. */
+const present = (o: Rec, names: string[]): [string, unknown][] =>
+  names.filter((k) => Object.hasOwn(o, k) && o[k] !== null).map((k) => [k, o[k]]);
+
+const CALL_TOKENS = ["paztport/chain", "paztport/proof", "paztport/influence"];
+const RESULT_TOKENS = ["paztport/attestation", "paztport/verdict"];
+
+/**
+ * A record in the evidence format, each Paztport object it holds written as its token, the token of exactly the
+ * object the record holds. The signed bytes are unchanged: a stamp signs the join of its fields, a session reply the
+ * JCS of itself less `sig`, a local step the JCS of its input and decision, and a keyring its window, policy key and
+ * services. A record already in the token form, and a run record, come back as they are. A record partly in each
+ * form, or of a type the format does not have, throws.
  */
 function tokenForm(r: Rec): Rec {
   switch (r.type) {
+    case "run":
+      return r;
     case "session":
-      if (typeof r.request === "string") return r;
+      if (inTokenForm("session", present(r, ["request", "reply"]))) return r;
       return { ...r, request: writeToken(r.request), reply: r.reply === null ? null : writeToken(r.reply) };
-    case "call":
-      if (typeof r.params._meta["paztport/chain"] === "string") return r;
-      return { ...r, params: { ...r.params, _meta: metaTokens(r.params._meta, ["paztport/chain", "paztport/proof", "paztport/influence"]) } };
-    case "response": {
-      const meta = r.result?._meta;
-      const names = ["paztport/attestation", "paztport/verdict"].filter((k) => meta !== undefined && Object.hasOwn(meta, k));
-      if (names.length === 0 || names.every((k) => typeof meta[k] === "string")) return r;
-      return { ...r, result: { ...r.result, _meta: metaTokens(meta, names) } };
+    case "call": {
+      const meta = r.params._meta;
+      if (inTokenForm("call", present(meta, CALL_TOKENS))) return r;
+      return { ...r, params: { ...r.params, _meta: metaTokens(meta, CALL_TOKENS) } };
     }
-    case "client":
-      if (typeof r.keyring === "string") return r;
+    case "response": {
+      const meta = r.result?._meta ?? {};
+      const fields = present(meta, RESULT_TOKENS);
+      if (fields.length === 0 || inTokenForm("response", fields)) return r;
+      return { ...r, result: { ...r.result, _meta: metaTokens(meta, RESULT_TOKENS) } };
+    }
+    case "client": {
+      if (inTokenForm("client", present(r, ["keyring", "root", "signedRoot", "rules", "rulesProof"]))) return r;
+      const ring = { notAfter: r.keyringNotAfter, policy: r.policyPublicKey, services: r.keyring, sig: r.keyringSig };
       return {
         v: r.v,
         type: r.type,
-        keyring: writeToken({ notAfter: r.keyringNotAfter, policy: r.policyPublicKey, services: r.keyring, sig: r.keyringSig }),
+        keyring: writeToken(ring),
         root: writeToken(r.signedRoot),
         rules: r.rules === null ? null : writeToken(r.rules),
         rulesProof: r.rulesProof === null ? null : writeToken(r.rulesProof),
       };
+    }
     case "local": {
-      if (typeof r.decision === "string") return r;
+      if (inTokenForm("local", present(r, ["decision", "chain", "proof", "influence"]))) return r;
       const { callId, resolved, verdict, routeAllowed, rulesHash } = r;
       return {
         v: r.v,
@@ -80,7 +105,7 @@ function tokenForm(r: Rec): Rec {
       };
     }
   }
-  return r;
+  throw new Error("a record of a type the evidence format does not have");
 }
 
 /** An evidence line in the token form: the line itself when its record is in that form already. */

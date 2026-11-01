@@ -7,7 +7,7 @@ import { readChain, readLocalDecision } from "@paztport/core";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import { readLocalFacts, scoreRunFile, usableRecords } from "./score.ts";
-import { NOT_FAILURES, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
+import { NOT_FAILURES, readOr, signedEvidenceNeeded, verifyEvidence, type VerifyReport } from "./verify.ts";
 import type { RunMode, RunResult } from "./runner.ts";
 
 /**
@@ -23,15 +23,6 @@ export type RunVerify = { status: "ok" | "failed" | "none" | "not-recorded"; pro
 /** `verify` reads what is in an evidence file; it cannot see a file that was removed or emptied. These checks can. */
 const EXPECT_EVIDENCE: readonly RunMode[] = ["on", "clean-on"];
 const MAX_PROBLEMS = 10;
-
-/** What `read` gives, or undefined when it throws. */
-function readOr<T>(read: () => T): T | undefined {
-  try {
-    return read();
-  } catch {
-    return undefined;
-  }
-}
 
 /**
  * True when the file exists, has bytes in it, and is not one `verify` reports as NOTHING TO CHECK (only the

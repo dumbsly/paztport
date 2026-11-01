@@ -23,7 +23,6 @@ import {
   signSessionReply,
   writeToken,
   type InfluenceEntry,
-  type JsonValue,
   type SessionRequest,
   type ReplyCert,
   type SessionReply,
@@ -323,7 +322,7 @@ describe("classifySessionReply: the result", () => {
       Date.now(),
     );
     const classify = (result: unknown) => classifySessionReply(result, req, policy.policyPublicKey, "mcp-entry", Date.now());
-    return { token: writeToken(reply as unknown as JsonValue), reply, classify };
+    return { token: writeToken(reply), reply, classify };
   }
   it("aResultWithAReplyTokenIsAttested", () => {
     const { token, reply, classify } = replyToken();
@@ -498,7 +497,7 @@ describe("readToolResult", () => {
     }
   });
   it("aVerdictThatIsNotATokenIsAnUnknownRefusal", () => {
-    // an older server's verdict, the object itself: withheld, never success or an audit note
+    // a verdict sent as the object itself, not its token: withheld, never success or an audit note
     for (const verdict of [{ reason: "PATH_NOT_ALLOWED" }, { reason: "INFLUENCE_DENIED", audit: true }]) {
       const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, { session: "unsafe" });
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });

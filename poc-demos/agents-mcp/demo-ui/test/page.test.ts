@@ -308,6 +308,10 @@ describe("demo page", () => {
       expect(app, read).toContain(read);
     }
     expect(app).toContain("function unreadable(record, name)");
+    // the decoded tokens sit beside each record, and the raw pane prints the records as the file holds them
+    expect(app).toContain("records.map((record, i) => ({ record, display: displays[i] }))");
+    expect(app).toContain("const evidence = shown.map((s) => s.record);");
+    expect(app).toContain('rawLines("Evidence lines", evidence)');
     for (const check of ['unreadable(call, "paztport/chain")', 'unreadable(reply, "paztport/attestation")', 'unreadable(record, "chain")', 'unreadable(record, "influence")', 'unreadable(record, "proof")']) {
       expect(app, check).toContain(check);
     }

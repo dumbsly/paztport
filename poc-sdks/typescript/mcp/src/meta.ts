@@ -1,8 +1,8 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-// The `_meta` names Paztport uses on MCP messages. Every value but META_CALL_ID's is a token: the base64url of the
-// object's JCS bytes (spec wire.md, JSON).
+// The names Paztport uses on MCP messages: its `_meta` members, each of whose values but META_CALL_ID's is a token,
+// the base64url of the object's JCS bytes (spec wire.md, JSON), and its handshake method, SESSION_METHOD.
 
 export const META_CHAIN = "paztport/chain";
 export const META_PROOF = "paztport/proof";

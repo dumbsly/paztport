@@ -830,7 +830,10 @@ function chainList(chain) {
   );
 }
 
-/** Whether the record's token `name` did not read: the server decoded each record's tokens into its `display`. */
+/**
+ * Whether the record's token `name` did not read. `record` is a shown record, `{ record, display }`: the record as the
+ * evidence file holds it, and its tokens as the server decoded them.
+ */
 function unreadable(record, name) {
   return Array.isArray(record?.display?.unreadable) && record.display.unreadable.includes(name);
 }
@@ -915,10 +918,14 @@ function rawLines(title, lines) {
 
 function openDrawer(step, ctx, opener) {
   const ev = step.evidence ?? {};
-  const evidence = Array.isArray(ev.evidence) ? ev.evidence.filter(isObj) : [];
+  // each record as the evidence file holds it, beside its tokens as the server decoded them
+  const records = Array.isArray(ev.evidence) ? ev.evidence : [];
+  const displays = Array.isArray(ev.displays) ? ev.displays : [];
+  const shown = records.map((record, i) => ({ record, display: displays[i] })).filter((s) => isObj(s.record));
+  const evidence = shown.map((s) => s.record);
   const events = Array.isArray(ev.events) ? ev.events.filter(isObj) : [];
-  const call = evidence.find((r) => r.type === "call");
-  const reply = evidence.find((r) => r.type === "response");
+  const call = shown.find((s) => s.record.type === "call");
+  const reply = shown.find((s) => s.record.type === "response");
   const chain = call?.display?.chain;
   const attestation = reply?.display?.attestation;
   const attested = attestedMode(ctx.mode);
@@ -951,7 +958,7 @@ function openDrawer(step, ctx, opener) {
     );
   }
 
-  const local = step.local ? evidence.find((r) => r.type === "local") : undefined;
+  const local = step.local ? shown.find((s) => s.record.type === "local") : undefined;
   if (step.local) sections.push(...localSections(step, local, plain, attested));
 
   // labels: from the signed reply when there is one, else what the logs recorded

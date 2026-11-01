@@ -348,7 +348,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     const collect = (v: unknown, take: boolean): void => {
       if (typeof v === "string") {
         if (take && v.length >= 16) secrets.add(v);
-        // a token: the object it holds is collected too, as it would have been sent as a value
+        // a token: the object it holds is collected too, its signatures and keys among them
         const held = readTokenOr(v);
         if (typeof held === "object" && held !== null) collect(held, take);
       } else if (Array.isArray(v)) {

@@ -24,7 +24,11 @@ export type Step = {
   rule?: string;
   /** A local tool call (pi's built-in tools): the rule that decided it, in plain words. */
   local?: LocalDetail;
-  evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: ShownRecord[] };
+  /**
+   * `evidence` holds the step's records as the evidence file holds them, and `displays[i]` the tokens of `evidence[i]`
+   * decoded.
+   */
+  evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: unknown[]; displays: Display[] };
 };
 /**
  * What the page shows of an evidence record's tokens, decoded: a call's or a local record's chain, a response's
@@ -37,8 +41,7 @@ export type Display = {
   proof?: MerkleProof;
   unreadable?: string[];
 };
-/** An evidence record as a step shows it: the record, and its tokens decoded. */
-export type ShownRecord = Record<string, unknown> & { display: Display };
+
 /** What decided a local call, from the call's own evidence record and the rules in the evidence file's client record. */
 export type LocalDetail = {
   verdict: string;
@@ -330,6 +333,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       reason = "no answer was recorded before the run ended";
     }
     const rid = str(o?.rid) ?? str(response?.rid) ?? str((evs[0] as Obj | undefined)?.rid);
+    const records = evidence.get(row.id) ?? [];
     steps.push({
       index: i + 1,
       tool: row.tool,
@@ -339,7 +343,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       ...(reason !== undefined ? { reason } : {}),
       ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: row.local && code === "INFLUENCE_DENIED" ? LOCAL_INFLUENCE_RULE : PLAIN_RULE[code] } : {}) } : {}),
       ...(row.local ? { local: localDetail(localEvent, localRecord, rules) } : {}),
-      evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: (evidence.get(row.id) ?? []).map(shown) },
+      evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: records, displays: records.map((r) => display(r as Obj)) },
     });
   });
   return steps;
@@ -397,12 +401,6 @@ function display(r: Obj): Display {
     else out[into] = value;
   }
   return { ...(out as Display), ...(unreadable.length > 0 ? { unreadable } : {}) };
-}
-
-/** An evidence record as a step shows it. */
-function shown(r: unknown): ShownRecord {
-  const rec = r as Obj;
-  return { ...rec, display: display(rec) };
 }
 
 /** A local record's decision, or undefined when it does not read. */

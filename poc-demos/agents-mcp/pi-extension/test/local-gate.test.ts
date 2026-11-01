@@ -446,6 +446,23 @@ describe("LocalGate evidence", () => {
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["UNCHECKABLE"]);
   });
 
+  it("aCallTheGateCannotRecordIsRefusedUnsigned", () => {
+    // the path resolves to one holding a noncharacter: the stamp can bind it, as hashed content, but no decision token
+    // can hold it, so nothing is signed or recorded and the call is refused
+    const { gate, evidencePath, eventsPath } = rig("enforce");
+    const input = { path: "website/\uFDD0.md" };
+    const out = gate.check("read", input, "c1");
+    expect(out).toEqual({ block: true, reason: UNCHECKABLE_TEXT });
+    expect(lines(evidencePath)).toEqual([]);
+    expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["UNCHECKABLE"]);
+    // a refused call's input is never frozen for the tool, and it records no labels
+    expect(Object.isFrozen(input)).toBe(false);
+    expect(gate.labelsFor("c1")).toBeUndefined();
+    // the same read of a path a token can hold is allowed and recorded
+    expect(gate.check("read", { path: "website/README.md" }, "c2")).toEqual({ block: false });
+    expect(locals(evidencePath).map((r) => [r.callId, r.verdict])).toEqual([["c2", "OK"]]);
+  });
+
   it("aHomeThatCannotBeResolvedStillSigns", () => {
     // a dangling home folder is named by its given spelling instead of refusing every call
     const dangling = join(tmp, "dangling-home");

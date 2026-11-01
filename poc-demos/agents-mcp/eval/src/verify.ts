@@ -50,10 +50,10 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * - DUPLICATE_RESPONSE: a second response record for a call that already has one.
  * - REFUSED: the server refused a call that itself verified. A refusal carries no signature or
  *   attestation by design, so verify cannot check it: it checks only that the response has the
- *   server's refusal shape (isError, and a `_meta` holding only the verdict) and answers a verified
- *   call. It is reported, not counted as a failure. A refusal-looking response that carries an
- *   attestation, or any other `_meta`, is verified as an ordinary response. A local step that verified but was
- *   refused is REFUSED too.
+ *   server's refusal shape (isError, and a `_meta` holding only a verdict token that reads and is not an audit
+ *   note) and answers a verified call. It is reported, not counted as a failure. A refusal-looking response that
+ *   carries an attestation, any other `_meta`, or a verdict that does not read is verified as an ordinary response.
+ *   A local step that verified but was refused is REFUSED too.
  * - NO_RESPONSE: a call with no response record (for example a run that was stopped). Reported, not
  *   counted as a failure.
  * - UNBOUND: a run record that no verified call or local step refers to, so its prompt is not tied to
@@ -124,8 +124,8 @@ type Rec = Record<string, unknown>;
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
-/** What `read` gives, or undefined when it throws. */
-function readOr<T>(read: () => T): T | undefined {
+/** What `read` gives, or undefined when it throws: a reader's answer for a token that may not read. */
+export function readOr<T>(read: () => T): T | undefined {
   try {
     return read();
   } catch {

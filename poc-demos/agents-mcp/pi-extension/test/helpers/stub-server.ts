@@ -51,10 +51,11 @@ createInterface({ input: process.stdin }).on("line", (line) => {
         case "infinity":
           return send(`{"jsonrpc":"2.0","id":${JSON.stringify(m.id)},"result":{"content":[{"type":"text","text":"big"}],"n":1e400}}`);
         case "verdict":
+          if (p.arguments?.reason === undefined) throw new Error("the verdict tool needs arguments.reason");
           return result(m.id, {
             content: [{ type: "text", text: "server-chosen refusal text" }],
             isError: true,
-            _meta: { "paztport/verdict": writeToken({ reason: p.arguments?.reason ?? null }) },
+            _meta: { "paztport/verdict": writeToken({ reason: p.arguments.reason }) },
           });
       }
   }
