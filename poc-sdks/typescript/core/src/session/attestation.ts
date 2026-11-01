@@ -81,11 +81,11 @@ export function verifyResponse(
     if (typeof head === "object" && head !== null && (head as Record<string, unknown>).rid !== call.rid) {
       return fail("RID_MISMATCH");
     }
-    if (att.resultHash !== bindResult(result)) {
-      return fail("BINDING_MISMATCH");
-    }
     let expectedBind: string;
     try {
+      if (att.resultHash !== bindResult(result)) {
+        return fail("BINDING_MISMATCH");
+      }
       expectedBind = bindResponse(att.resultHash, call.toolCallId, att.labels);
     } catch {
       return fail("BINDING_MISMATCH");

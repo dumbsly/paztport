@@ -87,6 +87,13 @@ describe("verifyResponse", () => {
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.labels).toEqual([]);
   });
+  it("aResultHoldingALoneSurrogateIsBindingMismatch", () => {
+    const w = world();
+    const { att } = w.response();
+    const r = verifyResponse(att, { content: [{ type: "text", text: "\ud800" }] }, CALL, w.cfg());
+    expect(r.result.reason).toBe("BINDING_MISMATCH");
+    expect(r.labels).toEqual([]);
+  });
   it("aNonStringReceiverIsChainMissing", () => {
     const w = world();
     const { body, att } = w.response();

@@ -166,7 +166,7 @@ class Parser {
     for (;;) {
       if (this.bytes[this.pos] !== QUOTE) this.fail("no member name");
       const name = this.string();
-      // Compared after unescaping, so "a" and "a" are one name (RFC 7493 §2.3).
+      // Compared after unescaping, so "\u0061" and "a" are one name (RFC 7493 §2.3).
       if (Object.hasOwn(out, name)) this.fail("a repeated member name");
       this.whitespace();
       this.expect(0x3a, "colon after a member name");
