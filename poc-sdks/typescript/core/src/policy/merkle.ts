@@ -115,24 +115,44 @@ export function verifyProof(proof: MerkleProof, path: string, root: Uint8Array):
   }
 }
 
-/** Throws unless value is an object with exactly the proof's members: strings, but `siblings` an array of them, and `dirs` only L and R. */
+/**
+ * Throws unless value is an object with exactly the proof's members: `siblings` an array of strings each 32 bytes
+ * of base64url, `leafSalt` a string of 16 bytes of base64url, `dirs` one L or R per sibling and `rootId` a string.
+ * These are the checks of wire.md's proof object that need no root, made in this order, each naming its member.
+ */
 export function parseProof(value: unknown): MerkleProof {
   const o = object(value as JsonValue);
   exactly(o, ["leafSalt", "siblings", "dirs", "rootId"]);
   const siblings = array(o, "siblings").map((s) => {
-    if (typeof s !== "string") {
-      throw new Error("member siblings holds a value that is not a string");
+    if (typeof s !== "string" || decodedLength(s) !== HASH_BYTES) {
+      throw new Error("member siblings holds a value that is not 32 bytes of base64url");
     }
     return s;
   });
-  const dirs = str(o, "dirs");
-  if (!DIRS.test(dirs)) {
-    throw new Error("member dirs is not L and R");
+  const leafSalt = str(o, "leafSalt");
+  if (decodedLength(leafSalt) !== SALT_BYTES) {
+    throw new Error("member leafSalt is not 16 bytes of base64url");
   }
-  return { leafSalt: str(o, "leafSalt"), siblings, dirs, rootId: str(o, "rootId") };
+  const dirs = str(o, "dirs");
+  if (!DIRS.test(dirs) || dirs.length !== siblings.length) {
+    throw new Error("member dirs is not one L or R per sibling");
+  }
+  return { leafSalt, siblings, dirs, rootId: str(o, "rootId") };
 }
 
-/** Reads a proof from its token: MalformedJson for bytes that do not read, an Error naming the member for a proof the schema refuses. */
+/** The length of what canonical base64url `text` decodes to, or -1 when it does not decode. */
+function decodedLength(text: string): number {
+  try {
+    return decode(text).length;
+  } catch {
+    return -1;
+  }
+}
+
+/**
+ * Reads a proof from its token: MalformedJson for bytes that do not read, an Error naming the member for a proof the
+ * schema refuses.
+ */
 export function readProof(token: string): MerkleProof {
   return parseProof(readToken(token));
 }

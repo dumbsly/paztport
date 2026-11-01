@@ -76,7 +76,11 @@ public final class Chains {
             throw new IllegalArgumentException("member v is not 3");
         }
         String sig = JsonFields.string(o, "sig");
-        Base64Url.decode(sig);
+        try {
+            Base64Url.decode(sig);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("member sig is not canonical base64url");
+        }
         return new StampV3(JsonFields.string(o, "svc"), JsonFields.string(o, "inst"), JsonFields.string(o, "rid"),
                 JsonFields.integer(o, "ts"), JsonFields.string(o, "sess"), JsonFields.string(o, "rcv"),
                 JsonFields.string(o, "bind"), JsonFields.string(o, "infl"), JsonFields.string(o, "prev"), sig);

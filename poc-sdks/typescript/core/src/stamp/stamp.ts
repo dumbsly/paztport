@@ -66,7 +66,11 @@ function stampOf(item: JsonValue): StampV3 {
     throw new Error("member v is not 3");
   }
   const sig = str(o, "sig");
-  decode(sig);
+  try {
+    decode(sig);
+  } catch {
+    throw new Error("member sig is not canonical base64url");
+  }
   return {
     v: 3,
     svc: str(o, "svc"),
@@ -95,7 +99,10 @@ export function chainOf(value: JsonValue): StampV3[] {
   return items.map(stampOf);
 }
 
-/** Reads a chain from its token: MalformedJson for bytes that do not read, an Error naming the member for a stamp the schema refuses. */
+/**
+ * Reads a chain from its token: MalformedJson for bytes that do not read, an Error naming the member for a stamp the
+ * schema refuses.
+ */
 export function readChain(token: string): StampV3[] {
   return chainOf(readToken(token));
 }

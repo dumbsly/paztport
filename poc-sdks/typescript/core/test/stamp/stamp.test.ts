@@ -12,7 +12,10 @@ const key = generateKeyPair().privateKey;
 const F = { svc: "pi", inst: "pi-1", rid: "rid-1", ts: 1767225600000, sess: "sess-1", rcv: "mcp:github.create_pull_request", bind: "bind-1", infl: "infl-1", prev: "prev-1" };
 const v3stamp = signStampV3(F, key);
 
-/** A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches the reader. */
+/**
+ * A token of `value`'s JCS bytes, written by the hashing rules, so a value no protocol writer writes still reaches
+ * the reader.
+ */
 const token = (value: unknown): string => encode(utf8(canonicalize(value)));
 
 describe("stamp v3", () => {
@@ -44,6 +47,9 @@ describe("stamp v3", () => {
     expect(() => readChain(writeToken([noRcv]))).toThrow("no member rcv");
     expect(() => readChain(writeToken([{ ...s, rcv: 1 }]))).toThrow("member rcv");
     expect(() => readChain(writeToken([{ ...s, extra: 1 }]))).toThrow("a member the object does not define");
+    for (const sig of [`${s.sig}=`, "!!!", s.sig.slice(0, -1)]) {
+      expect(() => readChain(writeToken([{ ...s, sig }])), sig).toThrow("member sig is not canonical base64url");
+    }
   });
   it("readChain refuses a stamp whose v is not 3, an empty chain and a non-array", () => {
     for (const v of [1, 2, 4]) {
@@ -54,8 +60,11 @@ describe("stamp v3", () => {
     expect(() => readChain(writeToken([]))).toThrow();
     expect(() => readChain(writeToken("x"))).toThrow();
   });
-  it("readChain refuses bytes that do not read: a negative or fractional ts, a noncharacter, a member order not JCS's", () => {
-    for (const t of [token([{ ...v3stamp, ts: -1 }]), token([{ ...v3stamp, ts: 1.5 }]), token([{ ...v3stamp, inst: "pi-\uFDD0" }])]) {
+  it("readChain refuses bytes that do not read: a negative or fractional ts, a noncharacter, a non-JCS order", () => {
+    const tokens = [
+      token([{ ...v3stamp, ts: -1 }]), token([{ ...v3stamp, ts: 1.5 }]), token([{ ...v3stamp, inst: "pi-\uFDD0" }]),
+    ];
+    for (const t of tokens) {
       expect(() => readChain(t)).toThrow(MalformedJson);
     }
     const reordered = `[{"v":3,${canonicalize(v3stamp).slice(1).replace(',"v":3}', "}")}]`;

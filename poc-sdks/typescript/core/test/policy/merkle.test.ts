@@ -5,8 +5,11 @@ import { describe, expect, it } from "vitest";
 import { concat, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { decode, encode } from "../../src/encoding/b64url.ts";
 import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import { MalformedJson } from "../../src/encoding/json-rules.ts";
-import { buildTree, encodeProof, leafHash, nodeHash, parseProof, provesPath, readProof, verifyProof } from "../../src/policy/merkle.ts";
+import {
+  buildTree, encodeProof, leafHash, nodeHash, parseProof, provesPath, readProof, verifyProof,
+} from "../../src/policy/merkle.ts";
 
 const paths = ["a/b", "a/c", "a/d"];
 const leaves = () => paths.map((path) => ({ salt: randomBytes(16), path }));
@@ -91,7 +94,9 @@ describe("merkle", () => {
     expect(() => readProof(writeToken({ ...proof, extra: "x" }))).toThrow("a member the object does not define");
     expect(() => readProof(writeToken({ ...proof, siblings: [1] }))).toThrow("siblings");
     expect(() => readProof(writeToken({ ...proof, siblings: "x" }))).toThrow("member siblings");
-    const wireOrder = `{"leafSalt":"${proof.leafSalt}","siblings":${canonicalize(proof.siblings)},"dirs":"${proof.dirs}","rootId":"${proof.rootId}"}`;
+    const wireOrder =
+      `{"leafSalt":"${proof.leafSalt}","siblings":${canonicalize(proof.siblings)},"dirs":"${proof.dirs}",` +
+      `"rootId":"${proof.rootId}"}`;
     expect(() => readProof(encode(utf8(wireOrder)))).toThrow(MalformedJson);
     expect(readProof(encode(utf8(canonicalize(proof))))).toEqual(proof);
   });
@@ -134,6 +139,22 @@ describe("merkle", () => {
     expect(() => parseProof(bad)).toThrow();
     expect(() => parseProof({ ...proof, dirs: proof.dirs.toLowerCase() })).toThrow();
     expect(parseProof(proof)).toEqual(proof);
+  });
+  it("aProofsLengthsAreCheckedWhenItIsRead", () => {
+    // the checks Java's MerkleProof.parse makes, in its order, so both SDKs refuse the same proofs
+    const proof = buildTree(leaves(), 8, "v1").proofFor("a/b");
+    const read = (p: unknown) => () => readProof(writeToken(p as JsonValue));
+    expect(read({ ...proof, dirs: proof.dirs.slice(1) })).toThrow("member dirs is not one L or R per sibling");
+    expect(read({ ...proof, siblings: proof.siblings.slice(1) })).toThrow("member dirs is not one L or R per sibling");
+    const shortSalt = encode(randomBytes(8));
+    expect(read({ ...proof, leafSalt: shortSalt })).toThrow("member leafSalt is not 16 bytes of base64url");
+    expect(read({ ...proof, leafSalt: proof.leafSalt + "A" })).toThrow("member leafSalt");
+    for (const n of [31, 33]) {
+      const siblings = [encode(randomBytes(n)), ...proof.siblings.slice(1)];
+      expect(read({ ...proof, siblings })).toThrow("member siblings holds a value that is not 32 bytes of base64url");
+    }
+    expect(read({ ...proof, siblings: ["!!", ...proof.siblings.slice(1)] })).toThrow("member siblings");
+    expect(read(proof)()).toEqual(proof);
   });
   it("provesPathChecksTheRootId", () => {
     const t = buildTree(leaves(), 8, "v1");

@@ -121,22 +121,34 @@ public record MerkleProof(String leafSalt, List<String> siblings, String dirs, S
         return fromTree(JsonReader.wireText(json));
     }
 
+    /** The proof's schema, the checks of wire.md's proof object that need no root, in the order they are made. */
     private static MerkleProof fromTree(JsonValue value) {
         JsonValue.Obj o = JsonFields.object(value);
         JsonFields.exactly(o, MEMBERS, Set.of());
         List<String> siblings = new ArrayList<>();
         for (JsonValue s : JsonFields.array(o, "siblings")) {
-            if (!(s instanceof JsonValue.Str sibling) || Base64Url.decode(sibling.value()).length != HASH_BYTES) {
-                throw new IllegalArgumentException("malformed proof sibling");
+            if (!(s instanceof JsonValue.Str sibling) || decodedLength(sibling.value()) != HASH_BYTES) {
+                throw new IllegalArgumentException("member siblings holds a value that is not 32 bytes of base64url");
             }
             siblings.add(sibling.value());
         }
         String salt = JsonFields.string(o, "leafSalt");
+        if (decodedLength(salt) != SALT_BYTES) {
+            throw new IllegalArgumentException("member leafSalt is not 16 bytes of base64url");
+        }
         String dirs = JsonFields.string(o, "dirs");
-        if (!dirs.matches("[LR]*") || dirs.length() != siblings.size()
-                || Base64Url.decode(salt).length != SALT_BYTES) {
-            throw new IllegalArgumentException("malformed proof");
+        if (!dirs.matches("[LR]*") || dirs.length() != siblings.size()) {
+            throw new IllegalArgumentException("member dirs is not one L or R per sibling");
         }
         return new MerkleProof(salt, siblings, dirs, JsonFields.string(o, "rootId"));
+    }
+
+    /** The length of what canonical base64url {@code text} decodes to, or -1 when it does not decode. */
+    private static int decodedLength(String text) {
+        try {
+            return Base64Url.decode(text).length;
+        } catch (IllegalArgumentException e) {
+            return -1;
+        }
     }
 }

@@ -201,6 +201,36 @@ class MerkleTreeTest {
         }
     }
 
+    /** The checks the TypeScript SDK's readProof makes, in its order, so both SDKs refuse the same proofs. */
+    @Test
+    void aProofsLengthsAreCheckedWhenItIsRead() {
+        MerkleProof proof = MerkleTree.build(saltedLeaves(), DEPTH, "v1").proofFor("gateway/orders/payment");
+        List<String> rest = proof.siblings().subList(1, proof.siblings().size());
+        assertRefused("member dirs is not one L or R per sibling",
+                new MerkleProof(proof.leafSalt(), proof.siblings(), proof.dirs().substring(1), proof.rootId()));
+        assertRefused("member dirs is not one L or R per sibling",
+                new MerkleProof(proof.leafSalt(), rest, proof.dirs(), proof.rootId()));
+        assertRefused("member leafSalt is not 16 bytes of base64url", new MerkleProof(
+                Base64Url.encode(Crypto.randomBytes(8)), proof.siblings(), proof.dirs(), proof.rootId()));
+        assertRefused("member leafSalt is not 16 bytes of base64url",
+                new MerkleProof(proof.leafSalt() + "A", proof.siblings(), proof.dirs(), proof.rootId()));
+        for (int n : new int[] {31, 33}) {
+            List<String> siblings = new ArrayList<>(List.of(Base64Url.encode(Crypto.randomBytes(n))));
+            siblings.addAll(rest);
+            assertRefused("member siblings holds a value that is not 32 bytes of base64url",
+                    new MerkleProof(proof.leafSalt(), siblings, proof.dirs(), proof.rootId()));
+        }
+        assertEquals(proof, MerkleProof.decode(proof.encode()));
+    }
+
+    /** {@code proof}'s JCS text and its token are both refused, with {@code message}. */
+    private static void assertRefused(String message, MerkleProof proof) {
+        assertEquals(message, assertThrows(IllegalArgumentException.class,
+                () -> MerkleProof.parse(proof.toJson())).getMessage());
+        assertEquals(message, assertThrows(IllegalArgumentException.class,
+                () -> MerkleProof.decode(proof.encode())).getMessage());
+    }
+
     @Test
     void buildRejectsMoreLeavesThanDepthAllows() {
         // depth 1 -> 2 slots; three routes do not fit.
