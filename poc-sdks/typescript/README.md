@@ -89,10 +89,12 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
 
 ## @paztport/mcp
 
-MCP transport on top of core: the `tools/call` binding, the `_meta` keys
-(`paztport/chain`, `paztport/proof`, `paztport/influence` and the rest, each value but
-`paztport/callId`'s a token), the client side and the server side. A call names `mcp:<serverId>.<tool>` as its
-receiver, and a response chain ends at the client that made the call.
+MCP transport on top of core: the `tools/call` binding, the `_meta` keys (`paztport/chain`, `paztport/proof`,
+`paztport/influence` and the rest, each value but `paztport/callId`'s a token), the client side and the server
+side. A call names `mcp:<serverId>.<tool>` as its receiver, and a response chain ends at the client that made the
+call. The handshake's params are `{request}` and its result `{reply}`, each a token: `readSessionParams` reads the
+params into a request and `sessionReplyToken` takes the reply token from a result, and a refusal's verdict is a
+token that `readVerdict` reads.
 
 The client side opens a session with `openSession` (which sends the replacement request when the reply warrants
 one), stamps a tool call, and reads a tool result's attestation. The server side is `McpServerSession`, and

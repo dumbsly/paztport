@@ -287,11 +287,10 @@ export class McpServerSession {
    * token as `{reply}`. There is one session per connection: a new handshake replaces the current session (its
    * keyring, nonces and served classes), so calls signed for the old session are refused afterwards. Malformed params
    * throw InvalidParams and leave the current session in place. The reply is in the entry-key form, signed by the
-   * entry's key; only the key changed: "attested" is said only after sessionStatus's checks, at `now()`: an expired
-   * client root or keyring makes the session unsafe, and so does this server's own root or keyring once it has
-   * expired, so a server left running past its material degrades to unattested sessions rather than stopping. A
-   * request whose client root or keyring has no `notAfter` is malformed. The reply carries the keyring's window as
-   * `serverKeyringNotAfter`.
+   * entry's key. "attested" is said only after sessionStatus's checks, at `now()`: an expired client root or keyring
+   * makes the session unsafe, and so does this server's own root or keyring once it has expired, so a server left
+   * running past its material degrades to unattested sessions rather than stopping. A request whose client root or
+   * keyring has no `notAfter` is malformed. The reply carries the keyring's window as `serverKeyringNotAfter`.
    */
   openSession(params: unknown): { reply: string } {
     const request = readSessionParams(params);

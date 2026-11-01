@@ -537,8 +537,8 @@ utf8( "paztport-root\n" ‖ JCS({ "notAfter": notAfter, "root": root, "rootId": 
 
 with `root` as its base64url text. When it is valid is set out under [Expiry](#keys-and-files). A widened policy
 can't be swapped in without the policy private key. A verifier MUST check the signature against the pinned policy
-key before using the root. A root is read as a [file](#files), or as part of a session message's
-[wire bytes](#reading), and a reader refuses one with any member but these four.
+key before using the root. A root is read as a [file](#files), as a [token](#reading) (a record that holds it keeps it so), or as part of a
+session message's [wire bytes](#reading), and a reader refuses one with any member but these four.
 
 The policy owner MUST sign a root only over a tree whose routes it currently allows; `notAfter` is when it stops
 vouching for them. Renewing a root signs the same `root` text under the same `rootId` again, with a new
@@ -569,7 +569,7 @@ its value is the integer its signature is over.
 utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "services": services }) )
 ```
 
-When it is valid is set out under [Expiry](#keys-and-files). A keyring is read as a [file](#files), and a reader
+When it is valid is set out under [Expiry](#keys-and-files). A keyring is read as a [file](#files) or as a [token](#reading) (a record that holds it keeps it so), and a reader
 refuses one with any member but these four. `services` is a map: each name in it is a service, held to the
 [route node](#routes) rules, and each value a string. The rule holds wherever a keyring is read, as a file or as the
 `clientKeyring` and `serverKeyring` of the session handshake, and a signer MUST refuse to sign a keyring with a
