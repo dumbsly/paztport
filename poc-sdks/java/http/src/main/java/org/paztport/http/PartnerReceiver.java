@@ -8,14 +8,14 @@ import java.util.Objects;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.VerifyInputs;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -76,9 +76,9 @@ public final class PartnerReceiver {
         String chainHeader = request.header(PaztportHeaders.CHAIN);
         Peer sender = peer == null ? null : peer.peer();
         // Read once: for the trace line, and then for the call, but nothing is taken from it until it has verified.
-        String chain = HttpV3.decodeChain(chainHeader);
+        String chain = HttpWire.decodeChain(chainHeader);
         ParsedChain parsed = Chains.parse(chain);
-        List<StampV3> received = HttpReceiver.stamps(parsed);
+        List<Stamp> received = HttpReceiver.stamps(parsed);
         String rid = received != null ? received.get(0).rid() : "";
 
         PartnerSessions.Session session = null;
@@ -98,7 +98,7 @@ public final class PartnerReceiver {
             return PartnerAccepted.unsafe();
         }
 
-        VerifyInputV3 input = VerifyInputs.request(chain, parsed, request.header(PaztportHeaders.PROOF),
+        VerifyInput input = VerifyInputs.request(chain, parsed, request.header(PaztportHeaders.PROOF),
                 request.header(PaztportHeaders.INFLUENCE), request.method(), request.target(), request.body(),
                 receiver, sender);
         VerifyResult result = session.verifier().verify(input);

@@ -41,12 +41,12 @@ import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.PartnerSessions;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.PartnerFilter;
@@ -262,16 +262,16 @@ class PartnerLifetimeTest {
 
     /** The headers of a boundary call in {@code sess}, stamped by the moved clock and carrying the {@code built} proofs. */
     private static Map<String, String> boundary(String sess, String rid, PolicyBuilder.Result built) {
-        List<StampV3> chain = new StamperV3("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid,
+        List<Stamp> chain = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid,
                 CLOCK::millis).next(null, "orders", "unused", List.of(), null).chain();
-        StamperV3.Stamped stamped = new StamperV3("orders", "orders-1", SHOP_KEY.getPrivate(), false, () -> "unused",
+        Stamper.Stamped stamped = new Stamper("orders", "orders-1", SHOP_KEY.getPrivate(), false, () -> "unused",
                 CLOCK::millis).boundary(chain, sess, PARTNER, RequestBinding.compute("POST", "/refund", REFUND),
                         INFLUENCE, built.bundles().get("orders"));
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put(PaztportHeaders.SESSION, sess);
-        headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
-        headers.put(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
-        headers.put(PaztportHeaders.INFLUENCE, HttpV3.encodeInfluence(INFLUENCE));
+        headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
+        headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
+        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(INFLUENCE));
         return headers;
     }
 

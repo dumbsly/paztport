@@ -26,7 +26,7 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.boundary.BoundaryClient;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 import org.springframework.http.MediaType;
@@ -62,7 +62,7 @@ class OpeningControllerTest {
                 Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(payment.getPublic()))), policyPub, NOT_AFTER,
                 policy.getPrivate());
         client = BoundaryClient.builder()
-                .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                .stamper(new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis))
                 .bundle(built.bundles().get("payment"))
                 .ownRoot(built.signedRoot())

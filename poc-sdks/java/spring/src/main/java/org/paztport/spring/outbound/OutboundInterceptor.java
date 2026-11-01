@@ -7,8 +7,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
 import org.paztport.http.wire.PaztportHeaders;
@@ -43,7 +43,7 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
      * A caller that names each receiver by its URI host. {@code verifier} is null where responses cannot be checked;
      * {@code caller} is this service's name.
      */
-    public OutboundInterceptor(StamperV3 stamper, ProofBundle bundle, VerifierV3 verifier, String caller) {
+    public OutboundInterceptor(Stamper stamper, ProofBundle bundle, Verifier verifier, String caller) {
         this(HttpCaller.builder(caller, stamper).bundle(bundle).verifier(verifier).build());
     }
 

@@ -34,13 +34,13 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.RequestContext;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.springframework.boot.SpringBootConfiguration;
@@ -109,7 +109,7 @@ class AttestationRuleTest {
         /** What the handler was given: the inbound chain's length (-1 for none) and the influence classes. */
         @GetMapping("/seen")
         Map<String, Object> seen() {
-            List<StampV3> chain = RequestContext.inboundChain();
+            List<Stamp> chain = RequestContext.inboundChain();
             return Map.of("chain", chain == null ? -1 : chain.size(),
                     "influence", RequestContext.influence().stream().map(e -> e.cls().wire()).toList());
         }
@@ -186,12 +186,12 @@ class AttestationRuleTest {
 
     /** The test's own client, an origin with its own trust material and replay cache, plus {@code extra}. */
     private static RestClient caller(ClientHttpRequestInterceptor... extra) {
-        VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(
+        Verifier verifier = new Verifier(new VerifierConfig(
                 Keyring.of(Map.of("localhost", APP.getPublic())), built.signedRoot().rootBytes(),
                 built.signedRoot().rootId(), built.signedRoot().notAfter(), Set.of("localhost"), "",
                 new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000));
         RestClient.Builder b = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
-                new StamperV3("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
+                new Stamper("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), built.bundles().get("localhost"), verifier, "localhost"));
         for (ClientHttpRequestInterceptor i : extra) {
             b.requestInterceptor(i);
@@ -244,9 +244,9 @@ class AttestationRuleTest {
             // Runs after the stamping interceptor and swaps the chain for one anyone could write: an origin stamp
             // with no real signature.
             Answer answer = get(caller((request, body, execution) -> {
-                StampV3 forged = new StampV3("localhost", "x", UUID.randomUUID().toString(),
+                Stamp forged = new Stamp("localhost", "x", UUID.randomUUID().toString(),
                         System.currentTimeMillis(), "", "localhost", "b", Influence.commit(List.of()), "", sig);
-                request.getHeaders().set(PaztportHeaders.CHAIN, HttpV3.encodeChain(List.of(forged)));
+                request.getHeaders().set(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(forged)));
                 return execution.execute(request, body);
             }), hop, "/labelled");
 

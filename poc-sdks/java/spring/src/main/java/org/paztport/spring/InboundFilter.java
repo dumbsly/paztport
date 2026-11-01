@@ -14,9 +14,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.Accepted;
 import org.paztport.http.HttpReceiver;
 import org.paztport.http.InboundRequest;
@@ -79,8 +79,8 @@ public final class InboundFilter extends OncePerRequestFilter {
      * @param stamper this service's stamper, or null where it has no stamp key and so cannot attest
      */
     public InboundFilter(
-            VerifierV3 verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
-            EventPublisher publisher, ReceivedRequestListener listener, StamperV3 stamper) {
+            Verifier verifier, boolean verifyRequests, boolean origin, String receiver, ModeHolder modeHolder,
+            EventPublisher publisher, ReceivedRequestListener listener, Stamper stamper) {
         if (verifyRequests && (verifier == null || modeHolder == null || publisher == null)) {
             throw new IllegalArgumentException("verifying requests needs a verifier, a mode holder and a publisher");
         }

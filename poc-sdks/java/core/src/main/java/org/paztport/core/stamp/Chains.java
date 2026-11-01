@@ -36,7 +36,7 @@ public final class Chains {
         if (json == null) {
             return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
         }
-        List<StampV3> out = new ArrayList<>();
+        List<Stamp> out = new ArrayList<>();
         try {
             List<JsonValue> stamps = JsonFields.array(JsonReader.wireText(json));
             if (stamps.isEmpty()) {
@@ -48,7 +48,7 @@ public final class Chains {
         } catch (IllegalArgumentException e) {
             return ParsedChain.fail(ReasonCode.CHAIN_MISSING);
         }
-        for (StampV3 s : out) {
+        for (Stamp s : out) {
             try {
                 s.signingBytes();
             } catch (IllegalArgumentException e) {
@@ -58,18 +58,18 @@ public final class Chains {
         return new ParsedChain(out, null);
     }
 
-    /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link StampV3#toJson()}. */
-    public static String toJson(List<StampV3> chain) {
+    /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link Stamp#toJson()}. */
+    public static String toJson(List<Stamp> chain) {
         return JsonWriter.text(tree(chain));
     }
 
     /** The chain as a JSON value. */
-    static JsonValue.Arr tree(List<StampV3> chain) {
+    static JsonValue.Arr tree(List<Stamp> chain) {
         return new JsonValue.Arr(chain.stream().map(s -> (JsonValue) s.tree()).toList());
     }
 
     /** One stamp by the stamp's schema; throws {@link IllegalArgumentException} naming the member it refuses. */
-    private static StampV3 stamp(JsonValue item) {
+    private static Stamp stamp(JsonValue item) {
         JsonValue.Obj o = JsonFields.object(item);
         JsonFields.exactly(o, MEMBERS, Set.of());
         if (JsonFields.integer(o, "v") != 3) {
@@ -81,7 +81,7 @@ public final class Chains {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("member sig is not canonical base64url");
         }
-        return new StampV3(JsonFields.string(o, "svc"), JsonFields.string(o, "inst"), JsonFields.string(o, "rid"),
+        return new Stamp(JsonFields.string(o, "svc"), JsonFields.string(o, "inst"), JsonFields.string(o, "rid"),
                 JsonFields.integer(o, "ts"), JsonFields.string(o, "sess"), JsonFields.string(o, "rcv"),
                 JsonFields.string(o, "bind"), JsonFields.string(o, "infl"), JsonFields.string(o, "prev"), sig);
     }

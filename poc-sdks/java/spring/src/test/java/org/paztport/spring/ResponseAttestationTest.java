@@ -38,12 +38,12 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.slf4j.LoggerFactory;
@@ -180,7 +180,7 @@ class ResponseAttestationTest {
     private int port;
 
     @Autowired
-    private VerifierV3 verifier;
+    private Verifier verifier;
 
     @Autowired
     private ProofBundle bundle;
@@ -191,7 +191,7 @@ class ResponseAttestationTest {
     /** The origin's client: it starts each chain, and checks each answer with the app's own trust material. */
     private RestClient.Builder origin() {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
-                new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
+                new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), bundle, verifier, "localhost"));
     }
 
@@ -235,7 +235,7 @@ class ResponseAttestationTest {
 
     private static InfluenceEntry untrusted(Answer answer) {
         return new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:localhost",
-                HttpV3.resultHash(answer.status(), answer.body()), null, null);
+                HttpWire.resultHash(answer.status(), answer.body()), null, null);
     }
 
     private List<String> responseTraces() {
@@ -255,7 +255,7 @@ class ResponseAttestationTest {
         assertEquals(InfluenceClass.PRIVATE, entry.cls());
         assertEquals("alice", entry.owner());
         assertEquals("http:localhost", entry.src());
-        assertEquals(HttpV3.resultHash(200, answer.body()), entry.h());
+        assertEquals(HttpWire.resultHash(200, answer.body()), entry.h());
         assertFalse(entry.cid() == null || entry.cid().isEmpty(), "the label's content id travels with it");
         assertEquals(1, responseTraces().size());
         assertTrue(responseTraces().get(0).matches(
@@ -311,7 +311,7 @@ class ResponseAttestationTest {
         // Runs after the stamping interceptor and claims influence the stamp never committed to, so the
         // verifying filter refuses the request.
         RestClient client = origin().requestInterceptor((request, body, execution) -> {
-            request.getHeaders().set(PaztportHeaders.INFLUENCE, HttpV3.encodeInfluence(List.of(
+            request.getHeaders().set(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(List.of(
                     new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null))));
             return execution.execute(request, body);
         }).build();

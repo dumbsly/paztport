@@ -114,7 +114,7 @@ sequenceDiagram
 ```
 
 Application code never touches any of this. The Spring outbound interceptor
-stamps every `RestClient` call through core's `StamperV3`. It takes the target
+stamps every `RestClient` call through core's `Stamper`. It takes the target
 service from the request URI host (Compose service names double as hostnames),
 takes the inbound chain and the influence so far from a request-scoped context,
 and attaches the proof for `(chain so far) + target` if this hop holds one. The

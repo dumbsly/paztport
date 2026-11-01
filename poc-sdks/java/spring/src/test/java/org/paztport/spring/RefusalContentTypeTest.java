@@ -29,12 +29,12 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,7 +138,7 @@ class RefusalContentTypeTest {
     private int port;
 
     @Autowired
-    private VerifierV3 verifier;
+    private Verifier verifier;
 
     @Autowired
     private ProofBundle bundle;
@@ -154,7 +154,7 @@ class RefusalContentTypeTest {
     /** The origin's client, claiming influence the stamp never committed to, or none that parses, as given. */
     private RestClient client(String influenceHeader) {
         return TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
-                new StamperV3("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
+                new Stamper("localhost", "origin-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),
                         System::currentTimeMillis), bundle, verifier, "localhost"))
                 .requestInterceptor((request, body, execution) -> {
                     request.getHeaders().set(PaztportHeaders.INFLUENCE, influenceHeader);
@@ -176,7 +176,7 @@ class RefusalContentTypeTest {
 
     @Test
     void anEnforcedMeshRefusalIsPlainApplicationJson() {
-        String claimed = HttpV3.encodeInfluence(List.of(
+        String claimed = HttpWire.encodeInfluence(List.of(
                 new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null)));
 
         Answer refused = call(claimed);

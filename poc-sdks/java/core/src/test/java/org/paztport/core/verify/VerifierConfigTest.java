@@ -16,8 +16,8 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
-/** What {@link VerifierConfigV3#pinned} refuses at build time: a keyring or root past its window. */
-class VerifierConfigV3Test {
+/** What {@link VerifierConfig#pinned} refuses at build time: a keyring or root past its window. */
+class VerifierConfigTest {
 
     private static final long NOW = 1_800_000_000_000L;
     private static final KeyPair POLICY = Crypto.generateEd25519KeyPair();
@@ -34,8 +34,8 @@ class VerifierConfigV3Test {
         return SignedRoot.sign(ROOT, "v1", notAfter, POLICY.getPrivate());
     }
 
-    private static VerifierConfigV3 pinned(KeyringFile keyring, SignedRoot root, long now) {
-        return VerifierConfigV3.pinned(keyring, root, PIN, Set.of("session"), "s", new InMemoryNonceCache(), () -> now,
+    private static VerifierConfig pinned(KeyringFile keyring, SignedRoot root, long now) {
+        return VerifierConfig.pinned(keyring, root, PIN, Set.of("session"), "s", new InMemoryNonceCache(), () -> now,
                 5000, 5000);
     }
 
@@ -78,8 +78,8 @@ class VerifierConfigV3Test {
 
     @Test
     void aNonceCacheRemembersForAtLeastTwiceTheCallWindow() {
-        assertEquals(VerifierConfigV3.NONCE_TTL_MS, VerifierConfigV3.nonceTtlFor(VerifierConfigV3.CALL_MAX_AGE_MS));
-        assertEquals(VerifierConfigV3.NONCE_TTL_MS, VerifierConfigV3.nonceTtlFor(0));
-        assertEquals(60_000, VerifierConfigV3.nonceTtlFor(30_000));
+        assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(VerifierConfig.CALL_MAX_AGE_MS));
+        assertEquals(VerifierConfig.NONCE_TTL_MS, VerifierConfig.nonceTtlFor(0));
+        assertEquals(60_000, VerifierConfig.nonceTtlFor(30_000));
     }
 }

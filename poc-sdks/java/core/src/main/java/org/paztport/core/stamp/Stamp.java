@@ -20,20 +20,20 @@ import org.paztport.core.internal.JsonWriter;
  * surrogate, which has no UTF-8 bytes) would let two stamps share signed bytes; {@link #sign} refuses both, and a
  * noncharacter too, which no reader reads.
  */
-public record StampV3(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
+public record Stamp(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
         String infl, String prev, String sig) {
 
     /**
      * Signs a stamp; throws {@link IllegalArgumentException} if a signed field holds the delimiter, a lone surrogate
      * or a noncharacter, or ts is outside [0, 2^53 &minus; 1].
      */
-    public static StampV3 sign(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
+    public static Stamp sign(String svc, String inst, String rid, long ts, String sess, String rcv, String bind,
             String infl, String prev, PrivateKey key) {
         if (!JsonIntegers.inRange(ts)) {
             throw new IllegalArgumentException("stamp ts must be an integer in [0, 2^53 - 1]");
         }
         byte[] bytes = join("3", svc, inst, rid, Long.toString(ts), sess, rcv, bind, infl, prev);
-        return new StampV3(svc, inst, rid, ts, sess, rcv, bind, infl, prev,
+        return new Stamp(svc, inst, rid, ts, sess, rcv, bind, infl, prev,
                 Base64Url.encode(Crypto.sign(key, bytes)));
     }
 

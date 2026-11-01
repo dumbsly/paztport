@@ -4,7 +4,7 @@
 package org.paztport.http;
 
 import java.util.List;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 
 /**
  * Test access to what only {@link RequestContext#accept} may do with the context: mark a chain verified at this hop,
@@ -18,7 +18,7 @@ public final class ContextAccess {
     }
 
     /** As the binding does once a chain has verified at this hop; only inside an open scope. */
-    public static void markVerified(List<StampV3> chain) {
+    public static void markVerified(List<Stamp> chain) {
         RequestContext.markVerified(chain);
     }
 

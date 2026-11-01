@@ -25,14 +25,14 @@ The protocol, with no transport. It never touches TLS or HTTP: a transport hands
 the verifier the binding of what was received, the receiver's name and, when it
 has one, the authenticated peer.
 
-- **Stamps and chains.** `StampV3` signs and refuses a field holding `|`, a lone
+- **Stamps and chains.** `Stamp` signs and refuses a field holding `|`, a lone
   surrogate or a noncharacter, or a `ts` outside [0, 2^53 − 1]. `Chains` reads a
   chain off the wire strictly, from its bytes, as checks 1 and 2 of the live order,
   and never throws; a `ts` is a protocol integer, so `1.0` is refused. A stamp whose
   `v` is not 3 is `CHAIN_MISSING`.
-- **Verifying.** `VerifierV3` runs the live order: first its own policy's window
+- **Verifying.** `Verifier` runs the live order: first its own policy's window
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
-  its keyring and root), then the twelve checks. `VerifierConfigV3.pinned` checks the
+  its keyring and root), then the twelve checks. `VerifierConfig.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
   either fails or has expired. `OfflineVerifier` re-checks a recorded chain.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request
@@ -41,7 +41,7 @@ has one, the authenticated peer.
   `RecordSet` holds a record set's spent nonce keys and a response cache that never
   forgets, and `RecordSet.callInSession` limits a recorded call to its session
   (`OUTSIDE_SESSION`).
-- **Stamping.** `StamperV3` stamps a hop's outbound call, starting a chain only at
+- **Stamping.** `Stamper` stamps a hop's outbound call, starting a chain only at
   an origin, and stamps a response as one more stamp on the request chain, back to
   the caller.
 - **Bindings, influence and labels.** `Bindings` (the prompt and response
@@ -84,7 +84,7 @@ v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
 `X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
 `X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call
 is in. `RequestBinding` computes `bind` over the method, the raw path plus `?` and
-the raw query when there is one, and the body. `HttpV3` encodes the headers and
+the raw query when there is one, and the body. `HttpWire` encodes the headers and
 decodes them to the JSON text they carry, builds a request's verify input (nonce
 key `<rid>|<last svc>|req`), computes a response's result hash over its status and
 body, and checks a response's attestation against the chain the caller sent (nonce

@@ -22,11 +22,11 @@ import org.paztport.core.verify.ReasonCode;
 class ChainsTest {
 
     private static final KeyPair KEY = Crypto.generateEd25519KeyPair();
-    private static final StampV3 SIGNED =
-            StampV3.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate());
+    private static final Stamp SIGNED =
+            Stamp.sign("pi", "pi-1", "rid-1", 1000, "s", "next", "b", "", "", KEY.getPrivate());
 
     /** The signed stamp's members, to change before writing them out. */
-    private static Map<String, JsonValue> v3() {
+    private static Map<String, JsonValue> signedStamp() {
         return new LinkedHashMap<>(SIGNED.tree().members());
     }
 
@@ -39,7 +39,7 @@ class ChainsTest {
 
     /** A one-stamp chain's JCS text with the member {@code name}'s value written as {@code text}. */
     private static String chainWith(String name, String text) {
-        Map<String, JsonValue> s = v3();
+        Map<String, JsonValue> s = signedStamp();
         s.put(name, new JsonValue.Str("@"));
         return chain(s).replace("\"" + name + "\":\"@\"", "\"" + name + "\":" + text);
     }
@@ -61,13 +61,13 @@ class ChainsTest {
 
     @Test
     void versionMustBeExactlyThree() {
-        Map<String, JsonValue> none = v3();
+        Map<String, JsonValue> none = signedStamp();
         none.remove("v");
         rejects(ReasonCode.CHAIN_MISSING, chain(none));
-        Map<String, JsonValue> text = v3();
+        Map<String, JsonValue> text = signedStamp();
         text.put("v", new JsonValue.Str("3"));
         rejects(ReasonCode.CHAIN_MISSING, chain(text));
-        Map<String, JsonValue> four = v3();
+        Map<String, JsonValue> four = signedStamp();
         four.put("v", new JsonValue.Int(4));
         rejects(ReasonCode.CHAIN_MISSING, chain(four));
     }
@@ -80,11 +80,11 @@ class ChainsTest {
                 "-9223372036854775808", "9223372036854775807"}) {
             rejects(ReasonCode.CHAIN_MISSING, chainWith("ts", bad));
         }
-        Map<String, JsonValue> missing = v3();
+        Map<String, JsonValue> missing = signedStamp();
         missing.remove("ts");
         rejects(ReasonCode.CHAIN_MISSING, chain(missing));
         for (long ok : new long[] {0, 9007199254740991L}) {
-            Map<String, JsonValue> s = v3();
+            Map<String, JsonValue> s = signedStamp();
             s.put("ts", new JsonValue.Int(ok));
             ParsedChain p = Chains.parse(chain(s));
             assertTrue(p.ok(), Long.toString(ok));
@@ -106,12 +106,12 @@ class ChainsTest {
 
     @Test
     void stringFieldsMustBeWellFormedStrings() {
-        Map<String, JsonValue> num = v3();
+        Map<String, JsonValue> num = signedStamp();
         num.put("inst", new JsonValue.Int(7));
         rejects(ReasonCode.CHAIN_MISSING, chain(num));
         rejects(ReasonCode.CHAIN_MISSING, chainWith("inst", "\"\\ud800\""));
         rejects(ReasonCode.CHAIN_MISSING, chainWith("inst", "\"\ud800\""));
-        Map<String, JsonValue> nul = v3();
+        Map<String, JsonValue> nul = signedStamp();
         nul.put("sess", new JsonValue.Null());
         rejects(ReasonCode.CHAIN_MISSING, chain(nul));
     }
@@ -125,78 +125,78 @@ class ChainsTest {
     @Test
     void sigMustBeCanonicalBase64Url() {
         String sig = SIGNED.sig();
-        Map<String, JsonValue> padded = v3();
+        Map<String, JsonValue> padded = signedStamp();
         padded.put("sig", new JsonValue.Str(sig + "="));
         rejects(ReasonCode.CHAIN_MISSING, chain(padded));
         // The decoder reads only the canonical unpadded encoding (RFC 4648 §3.5), so padding and non-zero trailing
         // bits in the last character are refused wherever the text is decoded.
         String canonical = sig.substring(0, sig.length() - 1);
-        Map<String, JsonValue> doublePadded = v3();
+        Map<String, JsonValue> doublePadded = signedStamp();
         doublePadded.put("sig", new JsonValue.Str(canonical + "=="));
         rejects(ReasonCode.CHAIN_MISSING, chain(doublePadded));
         String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
         int last = alphabet.indexOf(sig.charAt(sig.length() - 1));
         String tweaked = canonical + alphabet.charAt(last ^ 1);
         assertThrows(IllegalArgumentException.class, () -> Base64Url.decode(tweaked));
-        Map<String, JsonValue> trailing = v3();
+        Map<String, JsonValue> trailing = signedStamp();
         trailing.put("sig", new JsonValue.Str(tweaked));
         rejects(ReasonCode.CHAIN_MISSING, chain(trailing));
-        Map<String, JsonValue> junk = v3();
+        Map<String, JsonValue> junk = signedStamp();
         junk.put("sig", new JsonValue.Str("!!!"));
         rejects(ReasonCode.CHAIN_MISSING, chain(junk));
-        Map<String, JsonValue> absent = v3();
+        Map<String, JsonValue> absent = signedStamp();
         absent.remove("sig");
         rejects(ReasonCode.CHAIN_MISSING, chain(absent));
     }
 
     @Test
     void delimiterIsABadSignatureNotAParseError() {
-        Map<String, JsonValue> inst = v3();
+        Map<String, JsonValue> inst = signedStamp();
         inst.put("inst", new JsonValue.Str("a|b"));
         rejects(ReasonCode.BAD_SIGNATURE, chain(inst));
-        Map<String, JsonValue> rcv = v3();
+        Map<String, JsonValue> rcv = signedStamp();
         rcv.put("rcv", new JsonValue.Str("x|y"));
         rejects(ReasonCode.BAD_SIGNATURE, chain(rcv));
     }
 
     @Test
     void structuralFailureOutranksDelimiter() {
-        Map<String, JsonValue> bar = v3();
+        Map<String, JsonValue> bar = signedStamp();
         bar.put("inst", new JsonValue.Str("a|b"));
-        Map<String, JsonValue> broken = v3();
+        Map<String, JsonValue> broken = signedStamp();
         broken.put("ts", new JsonValue.Str("1"));
         rejects(ReasonCode.CHAIN_MISSING, chain(bar, broken));
     }
 
     @Test
-    void v3NeedsRcv() {
-        Map<String, JsonValue> s = v3();
+    void aStampNeedsRcv() {
+        Map<String, JsonValue> s = signedStamp();
         s.remove("rcv");
         rejects(ReasonCode.CHAIN_MISSING, chain(s));
     }
 
     @Test
-    void aStampThatIsNotV3DoesNotParse() {
+    void aStampWhoseVersionIsNotThreeDoesNotParse() {
         for (int version : new int[] {1, 2, 4}) {
-            Map<String, JsonValue> odd = v3();
+            Map<String, JsonValue> odd = signedStamp();
             odd.put("v", new JsonValue.Int(version));
             rejects(ReasonCode.CHAIN_MISSING, chain(odd));
-            rejects(ReasonCode.CHAIN_MISSING, chain(odd, v3()));
-            rejects(ReasonCode.CHAIN_MISSING, chain(v3(), odd));
+            rejects(ReasonCode.CHAIN_MISSING, chain(odd, signedStamp()));
+            rejects(ReasonCode.CHAIN_MISSING, chain(signedStamp(), odd));
         }
     }
 
     @Test
     void aStampWithAnExtraMemberIsChainMissing() {
-        Map<String, JsonValue> s = v3();
+        Map<String, JsonValue> s = signedStamp();
         s.put("extra", new JsonValue.Bool(true));
         rejects(ReasonCode.CHAIN_MISSING, chain(s));
-        assertTrue(Chains.parse(chain(v3())).ok());
+        assertTrue(Chains.parse(chain(signedStamp())).ok());
     }
 
     @Test
     void aChainInWireMemberOrderIsChainMissing() {
-        StampV3 s = SIGNED;
+        Stamp s = SIGNED;
         String wireOrder = "[{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
                 + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv() + "\",\"bind\":\""
                 + s.bind() + "\",\"infl\":\"" + s.infl() + "\",\"prev\":\"" + s.prev() + "\",\"sig\":\"" + s.sig()

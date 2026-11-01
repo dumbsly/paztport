@@ -13,7 +13,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerifiedChains;
@@ -125,8 +125,8 @@ class PspControllerTest {
             new InfluenceEntry(InfluenceClass.PRIVATE, "http:orders", "b3JkZXI", null, "alice");
 
     /** The boundary stamp the partner filter verified: only its rid matters here. */
-    private static List<StampV3> verifiedChain(String rid) {
-        return List.of(new StampV3("payment", "payment-1", rid, 0, "sess", "psp", "bind", "", "", "sig"));
+    private static List<Stamp> verifiedChain(String rid) {
+        return List.of(new Stamp("payment", "payment-1", rid, 0, "sess", "psp", "bind", "", "", "sig"));
     }
 
     // The refused refund is recorded too: the record is written before the rule decides, so the shop can later show

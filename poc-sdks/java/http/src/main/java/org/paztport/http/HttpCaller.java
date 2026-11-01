@@ -16,11 +16,11 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.internal.LogSafe;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.Logger;
@@ -61,9 +61,9 @@ public final class HttpCaller {
     private static final Logger TRACE = LoggerFactory.getLogger("PAZTPORT_TRACE");
 
     private final String caller;
-    private final StamperV3 stamper;
+    private final Stamper stamper;
     private final ProofBundle bundle;
-    private final VerifierV3 verifier;
+    private final Verifier verifier;
     private final Map<String, String> receivers;
 
     private HttpCaller(Builder b) {
@@ -79,7 +79,7 @@ public final class HttpCaller {
      * stamp must be addressed to; a caller with nothing else names each receiver by its host, attaches no proof, and
      * checks no response.
      */
-    public static Builder builder(String caller, StamperV3 stamper) {
+    public static Builder builder(String caller, Stamper stamper) {
         return new Builder(caller, stamper);
     }
 
@@ -87,12 +87,12 @@ public final class HttpCaller {
     public static final class Builder {
 
         private final String caller;
-        private final StamperV3 stamper;
+        private final Stamper stamper;
         private ProofBundle bundle;
-        private VerifierV3 verifier;
+        private Verifier verifier;
         private Map<String, String> receivers = Map.of();
 
-        private Builder(String caller, StamperV3 stamper) {
+        private Builder(String caller, Stamper stamper) {
             this.caller = caller;
             this.stamper = Objects.requireNonNull(stamper, "stamper");
         }
@@ -107,7 +107,7 @@ public final class HttpCaller {
          * This service's verifier, where it holds a keyring, a root and a pin; without one no response is checked, so
          * every response is one {@code local-untrusted} entry.
          */
-        public Builder verifier(VerifierV3 verifier) {
+        public Builder verifier(Verifier verifier) {
             this.verifier = verifier;
             return this;
         }
@@ -162,7 +162,7 @@ public final class HttpCaller {
     public static final class Outbound {
 
         private final Map<String, String> headers;
-        private final StamperV3.Stamped sent;
+        private final Stamper.Stamped sent;
         private final String receiver;
         /**
          * The scope {@link #stampFromContext} stamped this call in, or null where it was stamped outside one or by
@@ -170,7 +170,7 @@ public final class HttpCaller {
          */
         final RequestContext.Scope scope;
 
-        private Outbound(Map<String, String> headers, StamperV3.Stamped sent, String receiver,
+        private Outbound(Map<String, String> headers, Stamper.Stamped sent, String receiver,
                 RequestContext.Scope scope) {
             this.headers = headers;
             this.sent = sent;
@@ -187,7 +187,7 @@ public final class HttpCaller {
         }
 
         /** The chain sent, ending in this call's stamp, and the proof sent with it, if any. */
-        public StamperV3.Stamped sent() {
+        public Stamper.Stamped sent() {
             return sent;
         }
 
@@ -202,7 +202,7 @@ public final class HttpCaller {
      * was checked, and the influence entries it adds. A response that verifies adds one entry per label, so none
      * where it verified with no labels; any other adds exactly one {@code local-untrusted} entry.
      */
-    public record Received(HttpV3.ResponseCheck check, List<InfluenceEntry> influence) {
+    public record Received(HttpWire.ResponseCheck check, List<InfluenceEntry> influence) {
 
         public Received {
             influence = List.copyOf(influence);
@@ -219,7 +219,7 @@ public final class HttpCaller {
      * @param inbound the chain this request received, or null where there is none (an origin, or no request)
      * @param influence what has shaped the call so far; empty for none
      */
-    public Outbound stamp(String method, URI uri, byte[] body, List<StampV3> inbound,
+    public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence) {
         return stamp(method, uri, body, inbound, influence, null);
     }
@@ -236,20 +236,20 @@ public final class HttpCaller {
                 scope != null ? RequestContext.influence() : List.of(), scope);
     }
 
-    private Outbound stamp(String method, URI uri, byte[] body, List<StampV3> inbound,
+    private Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence, RequestContext.Scope scope) {
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
         String receiver = receiver(uri);
-        StamperV3.Stamped stamped = stamper.next(inbound, receiver, RequestBinding.compute(method, target, body),
+        Stamper.Stamped stamped = stamper.next(inbound, receiver, RequestBinding.compute(method, target, body),
                 influence, bundle);
 
         Map<String, String> headers = new LinkedHashMap<>();
-        headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
+        headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
         if (stamped.proof() != null) {
-            headers.put(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
+            headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
         }
-        String influenceHeader = HttpV3.encodeInfluence(influence);
+        String influenceHeader = HttpWire.encodeInfluence(influence);
         if (influenceHeader != null) {
             headers.put(PaztportHeaders.INFLUENCE, influenceHeader);
         }
@@ -268,14 +268,14 @@ public final class HttpCaller {
      */
     public Received check(Outbound sent, int status, String xPathResponse, byte[] body) {
         String src = "http:" + sent.receiver;
-        HttpV3.ResponseCheck check = null;
+        HttpWire.ResponseCheck check = null;
         String hash;
         if (verifier != null) {
-            check = HttpV3.verifyResponse(verifier, sent.sent.chain(), sent.sent.proof(), xPathResponse, status,
+            check = HttpWire.verifyResponse(verifier, sent.sent.chain(), sent.sent.proof(), xPathResponse, status,
                     body, caller);
             hash = check.resultHash();
         } else {
-            hash = HttpV3.resultHash(status, body);
+            hash = HttpWire.resultHash(status, body);
         }
         List<InfluenceEntry> influence;
         if (check != null && check.result().ok()) {
@@ -307,7 +307,7 @@ public final class HttpCaller {
      * @throws IllegalStateException when {@code sent} was not stamped in the scope open now, and either a scope is
      *     open or it was stamped in one
      */
-    public HttpV3.ResponseCheck recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
+    public HttpWire.ResponseCheck recordToContext(Outbound sent, int status, String xPathResponse, byte[] body) {
         RequestContext.Scope current = RequestContext.current();
         if (sent.scope == null && current != null) {
             throw new IllegalStateException("this call was not stamped from the request's context, so its response"
@@ -332,7 +332,7 @@ public final class HttpCaller {
      * nothing was checked, so the reason is {@code -}. The labels are the verified ones' classes; every value goes
      * through {@link LogSafe}, since the target and the labels come from outside.
      */
-    static String traceLine(String rid, String from, HttpV3.ResponseCheck check, String receiver) {
+    static String traceLine(String rid, String from, HttpWire.ResponseCheck check, String receiver) {
         TreeSet<String> classes = new TreeSet<>();
         if (check != null) {
             check.labels().stream().map(ContentLabel::cls).forEach(c -> classes.add(c.wire()));

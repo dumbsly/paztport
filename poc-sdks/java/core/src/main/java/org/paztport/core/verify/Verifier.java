@@ -8,24 +8,24 @@ import java.util.Objects;
 import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 
 /**
- * Verifies a v3 chain received live: the checks of the live order, the first failure being the result. Every
+ * Verifies a chain received live: the checks of the live order, the first failure being the result. Every
  * branch fails closed, and {@link #verify} never throws on malformed input; it is a typed rejection.
  *
  * <p>Check 0, before any stamp work: {@code policyNotAfter} is a window, an integer in [0, 2^53 &minus; 1], and the
  * clock has not passed it (POLICY_EXPIRED). It is about the verifier's own configuration, not the request, so it
  * comes first: past that moment the keyring and root no longer say which keys and routes the policy owner allows,
  * and no later check means anything against them. It names no suspect, not even a peer, because expiry is not the
- * sender's fault; a responder acting on it would quarantine every honest caller. {@link VerifierConfigV3#pinned}
+ * sender's fault; a responder acting on it would quarantine every honest caller. {@link VerifierConfig#pinned}
  * only ever records a window it read from signed material, which is in range; a config built directly with one out
  * of range (2^53 would otherwise be a window that never closes) is refused here, per request, rather than by the
  * constructor, so that it fails exactly as the TypeScript verifier does and as the spec's check 0 says, and one
  * vector pins the answer for both.
  *
  * <ol>
- * <li>the stamps parse, all v3 (CHAIN_MISSING);
+ * <li>the stamps parse, all with v 3 (CHAIN_MISSING);
  * <li>no signed field holds {@code |}, {@code rcv} included (BAD_SIGNATURE);
  * <li>the origin's service is allowed (BAD_ORIGIN);
  * <li>each stamp is signed by its service's key and links to the one before, then each {@code rcv} names the
@@ -45,13 +45,13 @@ import org.paztport.core.stamp.StampV3;
  * the signatures, receivers, times, binding and replay checks held; any earlier name would be unsigned, or belong
  * to a replayed or forwarded capture.
  */
-public final class VerifierV3 {
+public final class Verifier {
 
     private static final String NO_INFLUENCE = "[]";
 
-    private final VerifierConfigV3 cfg;
+    private final VerifierConfig cfg;
 
-    public VerifierV3(VerifierConfigV3 cfg) {
+    public Verifier(VerifierConfig cfg) {
         this.cfg = Objects.requireNonNull(cfg, "cfg");
     }
 
@@ -73,7 +73,7 @@ public final class VerifierV3 {
      * a fault in what the verifier was given (a nonce cache or clock that throws) is not input and propagates,
      * rather than being hidden as a rejection.
      */
-    public VerifyResult verify(VerifyInputV3 in) {
+    public VerifyResult verify(VerifyInput in) {
         long now = cfg.clock().getAsLong();
         // 0. The pinned policy is still vouched for; first, and blaming no one (see the class comment).
         if (!JsonIntegers.inRange(cfg.policyNotAfter()) || now > cfg.policyNotAfter()) {
@@ -87,16 +87,16 @@ public final class VerifierV3 {
         return peer == null ? result : new VerifyResult(result.reason(), peer.svc(), peer.inst());
     }
 
-    private VerifyResult check(VerifyInputV3 in, long now) {
+    private VerifyResult check(VerifyInput in, long now) {
         // 1-6. Parse, delimiter, origin, signatures and links, then receivers, shared rid, session.
         ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), cfg.keyring(), cfg.allowedOrigins(), cfg.sess(),
                 ChainChecks.Shape.live(in.receiver()));
         if (!parsed.ok()) {
             return VerifyResult.reject(parsed.failure());
         }
-        List<StampV3> stamps = parsed.stamps();
-        StampV3 first = stamps.get(0);
-        StampV3 last = stamps.get(stamps.size() - 1);
+        List<Stamp> stamps = parsed.stamps();
+        Stamp first = stamps.get(0);
+        Stamp last = stamps.get(stamps.size() - 1);
 
         // 7. Freshness: the call stamp is recent; the run (origin) is not too old nor from the future.
         if (!fresh(now, first.ts(), last.ts())) {

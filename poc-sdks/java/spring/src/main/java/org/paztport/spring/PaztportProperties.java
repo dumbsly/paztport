@@ -24,7 +24,7 @@ public class PaztportProperties {
     /** True only for ingress services allowed to start chains. */
     private boolean origin = false;
 
-    /** True for verifying services; the inbound filter then verifies every request with the VerifierV3. */
+    /** True for verifying services; the inbound filter then verifies every request with the Verifier. */
     private boolean verify = false;
 
     /** Verification mode for verifying services: off, audit, or enforce. */

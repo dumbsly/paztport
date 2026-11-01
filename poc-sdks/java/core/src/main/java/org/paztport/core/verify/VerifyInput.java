@@ -15,7 +15,7 @@ package org.paztport.core.verify;
  * the last stamp does not match it (BINDING_MISMATCH). {@code receiver} is what the last stamp's {@code rcv} must
  * name, and {@code receiverInRoute} says whether the route ends there: true for a call, false for a response.
  */
-public record VerifyInputV3(
+public record VerifyInput(
         String stamps,
         String expectedBind,
         String influence,

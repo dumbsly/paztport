@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Timeout;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.RequestContext;
 import org.paztport.http.SilentPeer;
 import org.springframework.boot.ssl.SslBundle;
@@ -175,7 +175,7 @@ class PooledTlsClientTest {
     @Test
     void theStampingClientGetsEveryAnswerOverOnePooledConnection() throws Exception {
         String url = serve();
-        StamperV3 gateway = new StamperV3("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
+        Stamper gateway = new Stamper("gateway", "gw-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
                 () -> "rid-1", System::currentTimeMillis);
         RestClient client = pooled(SslBundle.of(stores("gateway"))).builder()
                 .requestInterceptor(new OutboundInterceptor(gateway, null, null, "gateway"))

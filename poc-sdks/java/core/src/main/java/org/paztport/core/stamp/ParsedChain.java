@@ -10,7 +10,7 @@ import org.paztport.core.verify.ReasonCode;
  * The outcome of reading a chain off the wire: the stamps, or the one reason the input was refused. A verifier
  * returns this instead of throwing, so malformed input is a typed rejection.
  */
-public record ParsedChain(List<StampV3> stamps, ReasonCode failure) {
+public record ParsedChain(List<Stamp> stamps, ReasonCode failure) {
 
     public ParsedChain {
         stamps = List.copyOf(stamps);

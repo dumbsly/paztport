@@ -11,9 +11,9 @@ import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
 import org.paztport.core.crypto.KeyFiles;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.http.RequestContext;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -73,23 +73,23 @@ public class AttackController {
     @PostMapping("/attack/forge-gateway")
     public ResponseEntity<String> forgeGateway() {
         String bind = RequestBinding.compute("POST", "/pay", BODY);
-        StampV3 forged = StampV3.sign("gateway", inst, UUID.randomUUID().toString(), System.currentTimeMillis(), "",
+        Stamp forged = Stamp.sign("gateway", inst, UUID.randomUUID().toString(), System.currentTimeMillis(), "",
                 "payment", bind, "", "", searchKey);
-        String chain = HttpV3.encodeChain(List.of(forged));
+        String chain = HttpWire.encodeChain(List.of(forged));
         return callPayment(rawClient, chain, null, null, BODY);
     }
 
     /** Scenario 4 / 10: forward a real gateway->search chain on to payment. */
     @PostMapping("/attack/forward-stolen")
     public ResponseEntity<String> forwardStolen() {
-        List<StampV3> stolen = stolenChains.last();
+        List<Stamp> stolen = stolenChains.last();
         if (stolen == null) {
             return ResponseEntity.status(428)
                     .body("{\"reason\":\"NO_STOLEN_CHAIN\",\"hint\":\"call gateway /find first\"}");
         }
         // Let the normal interceptor append search's own stamp to the stolen chain. The rest of the context
         // belongs to the filter serving this request, so only the chain is swapped, and it is put back after.
-        List<StampV3> previous = RequestContext.inboundChain();
+        List<Stamp> previous = RequestContext.inboundChain();
         RequestContext.setInboundChain(stolen);
         try {
             return callPayment(stampedClient, null, null, null, BODY);

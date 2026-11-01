@@ -77,7 +77,7 @@ class OfflineVerifierTest {
     }
 
     @Test
-    void aStampThatIsNotV3IsChainMissing() {
+    void aStampWhoseVersionIsNotThreeIsChainMissing() {
         int last = VectorsV3Test.offlineCase("v3 recorded call").get("chain").size() - 1;
         int[] all = IntStream.rangeClosed(0, last).toArray();
         assertEquals(ReasonCode.OK, withVersions(3, all).reason(), "the same chain, written the same way, with v 3");

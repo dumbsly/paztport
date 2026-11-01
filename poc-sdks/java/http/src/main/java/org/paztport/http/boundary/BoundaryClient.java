@@ -37,14 +37,14 @@ import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.RequestContext;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.WholeExchange;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.Logger;
@@ -158,7 +158,7 @@ public final class BoundaryClient implements AutoCloseable {
     public record Response(int status, byte[] body, boolean attested) {
     }
 
-    private final StamperV3 stamper;
+    private final Stamper stamper;
     private final ProofBundle bundle;
     private final SignedRoot ownRoot;
     private final KeyringFile ownKeyring;
@@ -219,7 +219,7 @@ public final class BoundaryClient implements AutoCloseable {
      */
     public Response post(String path, byte[] json) {
         // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
-        List<StampV3> verified = RequestContext.isOpen() ? RequestContext.verifiedChain() : null;
+        List<Stamp> verified = RequestContext.isOpen() ? RequestContext.verifiedChain() : null;
         if (verified == null || verified.isEmpty()) {
             throw new IllegalStateException(NO_VERIFIED_CHAIN);
         }
@@ -243,12 +243,12 @@ public final class BoundaryClient implements AutoCloseable {
                 // Before anything of the request goes: if the shop can't keep the originals, nothing is sent.
                 listener.sent(rid, partner, List.copyOf(Influence.normalise(influence)), sent);
             }
-            StamperV3.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
-            request.header(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()));
+            Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
+            request.header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
             if (stamped.proof() != null) {
-                request.header(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
+                request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
             }
-            String influenceHeader = HttpV3.encodeInfluence(sent);
+            String influenceHeader = HttpWire.encodeInfluence(sent);
             if (influenceHeader != null) {
                 request.header(PaztportHeaders.INFLUENCE, influenceHeader);
             }
@@ -264,7 +264,7 @@ public final class BoundaryClient implements AutoCloseable {
         byte[] body = response.body() == null ? new byte[0] : response.body();
         // The partner does not attest its answers, so what it says counts as untrusted content.
         RequestContext.addInfluence(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:" + partner,
-                HttpV3.resultHash(status, body), null, null));
+                HttpWire.resultHash(status, body), null, null));
         // And so does whatever this request answers, since a handler may relay it; the guard ensured a scope.
         RequestContext.label(InfluenceClass.LOCAL_UNTRUSTED, null);
         String reason = status == 403 ? reason(body) : null;
@@ -533,7 +533,7 @@ public final class BoundaryClient implements AutoCloseable {
      */
     public static final class Builder {
 
-        private StamperV3 stamper;
+        private Stamper stamper;
         private ProofBundle bundle;
         private SignedRoot ownRoot;
         private KeyringFile ownKeyring;
@@ -554,7 +554,7 @@ public final class BoundaryClient implements AutoCloseable {
         }
 
         /** This service's stamper; the boundary stamp is signed with its key. */
-        public Builder stamper(StamperV3 stamper) {
+        public Builder stamper(Stamper stamper) {
             this.stamper = stamper;
             return this;
         }

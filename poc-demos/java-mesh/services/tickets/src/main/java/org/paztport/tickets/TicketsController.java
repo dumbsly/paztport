@@ -15,7 +15,7 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.http.RequestContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
@@ -89,7 +89,7 @@ public class TicketsController {
 
     /** The request's rid, from the chain the gateway started; null only outside a verified request. */
     private static String rid() {
-        List<StampV3> chain = RequestContext.inboundChain();
+        List<Stamp> chain = RequestContext.inboundChain();
         return chain == null || chain.isEmpty() ? null : chain.get(0).rid();
     }
 

@@ -12,17 +12,17 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.internal.LogSafe;
 import org.paztport.http.internal.VerifyInputs;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -91,13 +91,13 @@ public final class HttpReceiver {
 
     private static final HttpAnswer UNREADABLE_INFLUENCE = HttpAnswer.refusal(400, ReasonCode.INFLUENCE_MISMATCH);
 
-    private final VerifierV3 verifier;
+    private final Verifier verifier;
     private final boolean verifyRequests;
     private final boolean origin;
     private final String receiver;
     private final EventPublisher publisher;
     private final ReceivedRequestListener listener;
-    private final StamperV3 stamper;
+    private final Stamper stamper;
 
     private HttpReceiver(Builder b) {
         this.verifier = b.verifier;
@@ -125,12 +125,12 @@ public final class HttpReceiver {
     public static final class Builder {
 
         private final String receiver;
-        private VerifierV3 verifier;
+        private Verifier verifier;
         private boolean verifyRequests;
         private boolean origin;
         private EventPublisher publisher;
         private ReceivedRequestListener listener;
-        private StamperV3 stamper;
+        private Stamper stamper;
 
         private Builder(String receiver) {
             this.receiver = receiver;
@@ -140,7 +140,7 @@ public final class HttpReceiver {
          * This service's verifier, where it holds a keyring, a root and a pin; without one it neither verifies nor
          * attests.
          */
-        public Builder verifier(VerifierV3 verifier) {
+        public Builder verifier(Verifier verifier) {
             this.verifier = verifier;
             return this;
         }
@@ -173,7 +173,7 @@ public final class HttpReceiver {
         }
 
         /** This service's stamper, where it has a stamp key; without one it cannot attest. */
-        public Builder stamper(StamperV3 stamper) {
+        public Builder stamper(Stamper stamper) {
             this.stamper = stamper;
             return this;
         }
@@ -206,7 +206,7 @@ public final class HttpReceiver {
      * as soon as it is read, before the listener is offered the request. A binding uses it to hold that chain for
      * everything the receiver calls out to, as it will for the handler; the receiver itself holds nothing.
      */
-    Accepted accept(InboundRequest request, Peer peer, VerificationMode mode, Consumer<List<StampV3>> carried) {
+    Accepted accept(InboundRequest request, Peer peer, VerificationMode mode, Consumer<List<Stamp>> carried) {
         Objects.requireNonNull(mode, "mode");
         if (!verifyRequests && mode != VerificationMode.OFF) {
             throw new IllegalArgumentException("a receiver that does not verify requests has no mode but OFF");
@@ -216,10 +216,10 @@ public final class HttpReceiver {
         String influenceHeader = request.header(PaztportHeaders.INFLUENCE);
 
         // An origin starts a new request tree, so whatever chain came with the request is not carried.
-        String chain = HttpV3.decodeChain(chainHeader);
+        String chain = HttpWire.decodeChain(chainHeader);
         ParsedChain parsed = Chains.parse(chain);
-        List<StampV3> received = stamps(parsed);
-        List<StampV3> inbound = origin ? null : received;
+        List<Stamp> received = stamps(parsed);
+        List<Stamp> inbound = origin ? null : received;
         String rid = received != null ? received.get(0).rid() : "";
         carried.accept(inbound);
         if (listener != null) {
@@ -234,7 +234,7 @@ public final class HttpReceiver {
         VerifyResult checked = null;
         boolean verified = false;
         if (mode != VerificationMode.OFF) {
-            VerifyInputV3 input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
+            VerifyInput input = VerifyInputs.request(chain, parsed, proofHeader, influenceHeader, request.method(),
                     request.target(), request.body(), receiver, peer);
             checked = verifier.verify(input);
             // On OK these are the entries the last stamp committed to; otherwise what was received.
@@ -250,7 +250,7 @@ public final class HttpReceiver {
                 verified = true;
             }
         } else {
-            influence = parseInfluence(HttpV3.decodeInfluence(influenceHeader));
+            influence = parseInfluence(HttpWire.decodeInfluence(influenceHeader));
         }
         // An origin starts the tree with no influence: what a client claims is not carried, so it cannot hide
         // anything by being unreadable either.
@@ -276,8 +276,8 @@ public final class HttpReceiver {
         }
     }
 
-    /** The received chain as v3 stamps, or null when there is none or it does not parse. */
-    static List<StampV3> stamps(ParsedChain parsed) {
+    /** The received chain as stamps, or null when there is none or it does not parse. */
+    static List<Stamp> stamps(ParsedChain parsed) {
         return parsed.ok() ? parsed.stamps() : null;
     }
 

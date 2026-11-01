@@ -27,8 +27,8 @@ import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.NonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -88,7 +88,7 @@ public final class PartnerSessions {
      * A session a peer opened; {@code verifier} is null when it is unsafe. Only the partner's receiver
      * ({@link PartnerReceiver}) reads it.
      */
-    record Session(String sess, boolean attested, VerifierV3 verifier) {
+    record Session(String sess, boolean attested, Verifier verifier) {
     }
 
     /** The authenticated peer a session belongs to: the client certificate's issuer, RFC 2253, and common name. */
@@ -196,14 +196,14 @@ public final class PartnerSessions {
         if (sess == null) {
             throw new IllegalArgumentException("request does not open a session");
         }
-        VerifierV3 verifier = null;
+        Verifier verifier = null;
         // Judged now: client material past its window, or this side's own once it has expired, opens an unsafe
         // session.
         if (Sessions.status(req, ownRoot, ownKeyring, ownPolicyPublic, pinnedClientKeys, clock.getAsLong())
                 .equals("attested")) {
             try {
                 // The client's keyring whole, its window included, so its signature is checked over its window.
-                verifier = new VerifierV3(VerifierConfigV3.pinned(req.clientKeyringFile(), req.clientRoot(),
+                verifier = new Verifier(VerifierConfig.pinned(req.clientKeyringFile(), req.clientRoot(),
                         req.clientPolicyKey(), clientOrigins, sess, nonces, clock, callMaxAgeMs, runMaxAgeMs));
             } catch (IllegalArgumentException e) {
                 verifier = null;
@@ -385,7 +385,7 @@ public final class PartnerSessions {
      * Builds a registry once its material is checked. The partner's own material is required, as are at least one
      * pinned client policy key and one client origin; the rest have defaults: no operations switched off in unsafe
      * sessions, {@link #DEFAULT_MAX_SESSIONS_PER_PEER}, {@link #DEFAULT_SESSION_IDLE_MS}, the system clock, a run
-     * age equal to the call age, and a replay cache that remembers for {@link VerifierConfigV3#nonceTtlFor}.
+     * age equal to the call age, and a replay cache that remembers for {@link VerifierConfig#nonceTtlFor}.
      */
     public static final class Builder {
 
@@ -552,7 +552,7 @@ public final class PartnerSessions {
                 throw new InvalidMaterial(Fault.CERT_EXPIRED);
             }
             NonceCache cache = nonces != null
-                    ? nonces : new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(callMaxAgeMs));
+                    ? nonces : new InMemoryNonceCache(VerifierConfig.nonceTtlFor(callMaxAgeMs));
             return new PartnerSessions(ownRoot, ownKeyring, ownPolicyKey, ownService, ownServiceKey, ownReplyCert,
                     pinnedClientKeys, clientOrigins, unsafeDisabled, cache, clock, callMaxAgeMs,
                     runMaxAgeMs != null ? runMaxAgeMs : callMaxAgeMs, maxSessionsPerPeer, sessionIdleMs);

@@ -4,7 +4,7 @@
 package org.paztport.http;
 
 import java.util.List;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 
 /**
  * Test access to what only the partner filter may do: mark a chain as verified at this hop. The PSP's handlers
@@ -17,7 +17,7 @@ public final class VerifiedChains {
     }
 
     /** As the partner filter does after the call verified; only inside an open scope. */
-    public static void mark(List<StampV3> chain) {
+    public static void mark(List<Stamp> chain) {
         RequestContext.markVerified(chain);
     }
 }

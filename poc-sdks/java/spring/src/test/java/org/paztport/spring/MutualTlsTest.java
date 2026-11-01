@@ -32,9 +32,9 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Peer;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.internal.PeerIdentity;
@@ -229,19 +229,19 @@ class MutualTlsTest {
     /** Sends a chain stamped gateway, then orders, for payment, over {@code client}. */
     private Answer sendOrdersChain(RestClient client) {
         String rid = UUID.randomUUID().toString();
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", GATEWAY.getPrivate(), true, () -> rid,
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", GATEWAY.getPrivate(), true, () -> rid,
                 System::currentTimeMillis)
                 .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
                         BUILT.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", "ord-1", ORDERS.getPrivate(), false, () -> "x",
+        Stamper.Stamped ord = new Stamper("orders", "ord-1", ORDERS.getPrivate(), false, () -> "x",
                 System::currentTimeMillis)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
                         BUILT.bundles().get("orders"));
         return client.post()
                 .uri("https://127.0.0.1:" + port + "/pay")
                 .contentType(MediaType.APPLICATION_JSON)
-                .header(PaztportHeaders.CHAIN, HttpV3.encodeChain(ord.chain()))
-                .header(PaztportHeaders.PROOF, HttpV3.encodeProof(ord.proof()))
+                .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(ord.chain()))
+                .header(PaztportHeaders.PROOF, HttpWire.encodeProof(ord.proof()))
                 .body(TO_PAYMENT)
                 .exchange((request, response) -> new Answer(response.getStatusCode().value(),
                         new String(response.getBody().readAllBytes(), StandardCharsets.UTF_8)));
@@ -299,7 +299,7 @@ class MutualTlsTest {
     void aRefusalThroughTheStampingClientIsAnsweredNotThrown() {
         for (RestClient client : List.of(client("gateway"), urlConnectionClient("gateway"))) {
             RestClient stamping = client.mutate()
-                    .requestInterceptor(new OutboundInterceptor(new StamperV3("gateway", "gw-1",
+                    .requestInterceptor(new OutboundInterceptor(new Stamper("gateway", "gw-1",
                             GATEWAY.getPrivate(), true, () -> UUID.randomUUID().toString(), System::currentTimeMillis),
                             BUILT.bundles().get("gateway"), null, "gateway"))
                     .build();

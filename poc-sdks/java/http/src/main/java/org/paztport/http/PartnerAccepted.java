@@ -5,7 +5,7 @@ package org.paztport.http;
 
 import java.util.List;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 
 /**
  * What {@link PartnerReceiver#accept} decided about another organisation's call: a refusal to send in place of the
@@ -20,10 +20,10 @@ public final class PartnerAccepted {
     private static final PartnerAccepted UNSAFE = new PartnerAccepted(null, null, List.of());
 
     private final HttpAnswer refusal;
-    private final List<StampV3> chain;
+    private final List<Stamp> chain;
     private final List<InfluenceEntry> influence;
 
-    private PartnerAccepted(HttpAnswer refusal, List<StampV3> chain, List<InfluenceEntry> influence) {
+    private PartnerAccepted(HttpAnswer refusal, List<Stamp> chain, List<InfluenceEntry> influence) {
         this.refusal = refusal;
         this.chain = chain;
         this.influence = influence;
@@ -37,7 +37,7 @@ public final class PartnerAccepted {
         return UNSAFE;
     }
 
-    static PartnerAccepted attested(List<StampV3> chain, List<InfluenceEntry> influence) {
+    static PartnerAccepted attested(List<Stamp> chain, List<InfluenceEntry> influence) {
         return new PartnerAccepted(null, List.copyOf(chain), List.copyOf(influence));
     }
 
@@ -55,7 +55,7 @@ public final class PartnerAccepted {
     }
 
     /** The chain that verified in the session, or null unless {@link #attested}. */
-    public List<StampV3> verifiedChain() {
+    public List<Stamp> verifiedChain() {
         return chain;
     }
 

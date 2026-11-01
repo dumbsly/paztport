@@ -21,11 +21,11 @@ import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.internal.VerifyInputs;
 
@@ -45,18 +45,18 @@ import org.paztport.http.internal.VerifyInputs;
  * {@code <rid>|<target>|resp} for a response; a service calls a given receiver at most once per request
  * tree.
  */
-public final class HttpV3 {
+public final class HttpWire {
 
     /** What an unreadable header decodes to: the JSON string {@code "malformed"}, which no verifier check accepts. */
     private static final String MALFORMED = "\"malformed\"";
     private static final String NONE = "[]";
 
-    private HttpV3() {
+    private HttpWire() {
     }
 
     // --- Header encodings ---
 
-    public static String encodeChain(List<StampV3> chain) {
+    public static String encodeChain(List<Stamp> chain) {
         return token(Chains.toJson(chain));
     }
 
@@ -108,7 +108,7 @@ public final class HttpV3 {
      * {@link RequestBinding} binds it. The nonce key is read from the chain when it parses, else empty: such a
      * chain is rejected before the nonce is consulted.
      */
-    public static VerifyInputV3 request(String chainHeader, String proofHeader, String influenceHeader, String method,
+    public static VerifyInput request(String chainHeader, String proofHeader, String influenceHeader, String method,
             String target, byte[] body, String receiver, Peer peer) {
         String chain = decodeChain(chainHeader);
         return VerifyInputs.request(chain, Chains.parse(chain), proofHeader, influenceHeader, method, target,
@@ -127,7 +127,7 @@ public final class HttpV3 {
     }
 
     /** The response header: the base64url of the JCS bytes of {@code {labels, stamp}}. */
-    public static String encodeResponse(StampV3 stamp, List<ContentLabel> labels) {
+    public static String encodeResponse(Stamp stamp, List<ContentLabel> labels) {
         return JsonWriter.token(new JsonValue.Obj(Map.of("stamp", JsonReader.wireText(stamp.toJson()),
                 "labels", JsonReader.wireText(ContentLabel.toJson(labels)))));
     }
@@ -148,7 +148,7 @@ public final class HttpV3 {
      * {@code rid} the binding cannot carry is {@code BINDING_MISMATCH}, as the spec asks of a verifier that cannot
      * compute a binding. Labels are returned only when the stamp commits to them.
      */
-    public static ResponseCheck verifyResponse(VerifierV3 verifier, List<StampV3> sent, MerkleProof sentProof,
+    public static ResponseCheck verifyResponse(Verifier verifier, List<Stamp> sent, MerkleProof sentProof,
             String responseHeader, int status, byte[] body, String caller) {
         String hash = resultHash(status, body);
         JsonValue.Obj attestation = sent.isEmpty() ? null : attestation(responseHeader);
@@ -172,7 +172,7 @@ public final class HttpV3 {
         sent.forEach(s -> chain.add(s.toJson()));
         chain.add(JsonWriter.text(attestation.get("stamp")));
         String target = sent.get(sent.size() - 1).rcv();
-        VerifyResult result = verifier.verify(new VerifyInputV3("[" + String.join(",", chain) + "]", bind, NONE,
+        VerifyResult result = verifier.verify(new VerifyInput("[" + String.join(",", chain) + "]", bind, NONE,
                 sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + target + "|resp", null));
         return new ResponseCheck(result, result.ok() ? List.copyOf(labels) : List.of(), hash);
     }

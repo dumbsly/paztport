@@ -15,7 +15,7 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.SignedRoot;
 
 /**
- * Everything a v3 verifier pins at startup. Build it with {@link #pinned} so the keyring and the signed root
+ * Everything a verifier pins at startup. Build it with {@link #pinned} so the keyring and the signed root
  * are checked against the pinned policy key once, up front; a bad signature fails fast rather than per request.
  * Freshness is explicit: {@code callMaxAgeMs} bounds the last stamp's age, {@code runMaxAgeMs} the origin's.
  *
@@ -26,7 +26,7 @@ import org.paztport.core.policy.SignedRoot;
  * not range-check it: the verifier's check 0 refuses every request under a window outside [0, 2^53 &minus; 1], as the
  * spec and the TypeScript verifier do, so a vector pins one answer for both.
  */
-public record VerifierConfigV3(
+public record VerifierConfig(
         Keyring keyring,
         byte[] root,
         String rootId,
@@ -54,7 +54,7 @@ public record VerifierConfigV3(
         return Math.max(NONCE_TTL_MS, 2 * callMaxAgeMs);
     }
 
-    public VerifierConfigV3 {
+    public VerifierConfig {
         Objects.requireNonNull(keyring, "keyring");
         Objects.requireNonNull(root, "root");
         Objects.requireNonNull(rootId, "rootId");
@@ -72,7 +72,7 @@ public record VerifierConfigV3(
      * or the root, so a verifier is never built on material the pin does not vouch for now. The earlier of the two
      * windows is recorded as {@code policyNotAfter}.
      */
-    public static VerifierConfigV3 pinned(
+    public static VerifierConfig pinned(
             KeyringFile keyring,
             SignedRoot root,
             String pinnedPolicyKey,
@@ -108,7 +108,7 @@ public record VerifierConfigV3(
         } catch (RuntimeException e) {
             throw new IllegalArgumentException("root is not base64url", e);
         }
-        return new VerifierConfigV3(Keyring.fromFile(keyring), rootBytes, root.rootId(),
+        return new VerifierConfig(Keyring.fromFile(keyring), rootBytes, root.rootId(),
                 Math.min(keyring.notAfter(), root.notAfter()), allowedOrigins, sess, nonces, clock, callMaxAgeMs,
                 runMaxAgeMs);
     }

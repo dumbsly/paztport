@@ -35,14 +35,14 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.StubPartner;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.boundary.BoundaryAccess;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryListener;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.PaztportAutoConfiguration;
@@ -195,15 +195,15 @@ class BoundaryGuardTest {
     /** POSTs {@code /pay} as the gateway would, with a one-stamp chain signed by {@code key}. */
     private HttpResponse<byte[]> pay(KeyPair key) throws Exception {
         String rid = UUID.randomUUID().toString();
-        StamperV3.Stamped stamped = new StamperV3("gateway", "gw-1", key.getPrivate(), true, () -> rid,
+        Stamper.Stamped stamped = new Stamper("gateway", "gw-1", key.getPrivate(), true, () -> rid,
                 System::currentTimeMillis).next(null, "payment", RequestBinding.compute("POST", "/pay", BODY),
                         List.of(), BUILT.bundles().get("gateway"));
         HttpRequest.Builder request = TestHttp.request(URI.create("http://localhost:" + port + "/pay"))
                 .header("Content-Type", "application/json")
-                .header(PaztportHeaders.CHAIN, HttpV3.encodeChain(stamped.chain()))
+                .header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()))
                 .POST(HttpRequest.BodyPublishers.ofByteArray(BODY));
         if (stamped.proof() != null) {
-            request.header(PaztportHeaders.PROOF, HttpV3.encodeProof(stamped.proof()));
+            request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
         }
         try (HttpClient http = TestHttp.newClient()) {
             return http.send(request.build(), HttpResponse.BodyHandlers.ofByteArray());
@@ -243,7 +243,7 @@ class BoundaryGuardTest {
         List<StubPartner.Received> calls = partner.calls();
         assertEquals(before + 1, calls.size());
         StubPartner.Received call = calls.get(calls.size() - 1);
-        JsonNode chain = JSON.readTree(HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN)));
+        JsonNode chain = JSON.readTree(HttpWire.decodeChain(call.header(PaztportHeaders.CHAIN)));
         assertEquals(1, chain.size());
         assertEquals("payment", chain.get(0).get("svc").textValue());
         assertEquals("psp", chain.get(0).get("rcv").textValue());
@@ -251,7 +251,7 @@ class BoundaryGuardTest {
         assertThat(call.header(PaztportHeaders.PROOF)).isNotNull();
         // The auto-configured client reports to the listener bean what it sent.
         assertThat(SENT).isNotEmpty();
-        assertEquals(Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))).stream()
+        assertEquals(Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))).stream()
                 .map(e -> e.src()).toList(), SENT.get(SENT.size() - 1));
     }
 

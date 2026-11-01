@@ -9,7 +9,7 @@ import java.util.function.Supplier;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.Peer;
 import org.paztport.http.internal.LogSafe;
 import org.slf4j.Logger;
@@ -39,8 +39,8 @@ public final class RequestContext {
 
     private static final Logger LOG = LoggerFactory.getLogger(RequestContext.class);
 
-    private static final ThreadLocal<List<StampV3>> INBOUND = new ThreadLocal<>();
-    private static final ThreadLocal<List<StampV3>> VERIFIED = new ThreadLocal<>();
+    private static final ThreadLocal<List<Stamp>> INBOUND = new ThreadLocal<>();
+    private static final ThreadLocal<List<Stamp>> VERIFIED = new ThreadLocal<>();
     private static final ThreadLocal<List<InfluenceEntry>> INFLUENCE = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<List<ContentLabel>> LABELS = ThreadLocal.withInitial(ArrayList::new);
     private static final ThreadLocal<Scope> CURRENT = new ThreadLocal<>();
@@ -48,12 +48,12 @@ public final class RequestContext {
     private RequestContext() {
     }
 
-    public static void setInboundChain(List<StampV3> chain) {
+    public static void setInboundChain(List<Stamp> chain) {
         INBOUND.set(chain);
     }
 
     /** The inbound chain for this request, or null if none was received or it did not parse (e.g. at the origin). */
-    public static List<StampV3> inboundChain() {
+    public static List<Stamp> inboundChain() {
         return INBOUND.get();
     }
 
@@ -62,7 +62,7 @@ public final class RequestContext {
      * result of the receiver it has just run, so that anything which later signs on the strength of it (the
      * boundary signer) can rely on it never being set by a chain that failed, was not checked, or came to an origin.
      */
-    static void markVerified(List<StampV3> chain) {
+    static void markVerified(List<Stamp> chain) {
         VERIFIED.set(chain);
     }
 
@@ -70,7 +70,7 @@ public final class RequestContext {
      * The request's inbound chain when it passed the live order at this hop, otherwise null: a chain that failed in
      * audit, a hop that is switched off, an origin, and a request outside any scope all give null.
      */
-    public static List<StampV3> verifiedChain() {
+    public static List<Stamp> verifiedChain() {
         return VERIFIED.get();
     }
 

@@ -22,9 +22,9 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryListener;
@@ -65,7 +65,7 @@ public class PartnerConfiguration {
      */
     @Bean
     @ConditionalOnProperty("paztport.boundary.url")
-    BoundaryClient paztportBoundaryClient(PaztportProperties props, ObjectProvider<StamperV3> stamper,
+    BoundaryClient paztportBoundaryClient(PaztportProperties props, ObjectProvider<Stamper> stamper,
             ObjectProvider<ProofBundle> bundle, ObjectProvider<SslBundles> ssl,
             ObjectProvider<BoundaryListener> listener) {
         PaztportProperties.Boundary b = props.getBoundary();
@@ -104,7 +104,7 @@ public class PartnerConfiguration {
         String ownPin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(ownKeyring, Path.of(props.getKeyringPath()), ownRoot, Path.of(props.getRootPath()),
                 ownPin, System.currentTimeMillis());
-        StamperV3 stamping = stamper.getObject();
+        Stamper stamping = stamper.getObject();
         ProofBundle proofs = bundle.getObject();
         String partnerPin = KeyFiles.loadPolicyPin(Path.of(b.getPartnerPolicyKeyPath()));
         BoundaryListener told = listener.getIfAvailable();
@@ -237,7 +237,7 @@ public class PartnerConfiguration {
                     .pinnedClientKeys(clientKeys)
                     .clientOrigins(Set.copyOf(p.getClientOrigins()))
                     .unsafeDisabled(p.getUnsafeDisabled())
-                    .nonces(new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())))
+                    .nonces(new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())))
                     .clock(clock)
                     .callMaxAgeMs(props.getMaxAgeMs())
                     .runMaxAgeMs(runMaxAgeMs)

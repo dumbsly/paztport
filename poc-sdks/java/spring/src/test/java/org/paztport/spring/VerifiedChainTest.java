@@ -21,16 +21,16 @@ import org.paztport.core.crypto.Crypto;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ContextAccess;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.springframework.mock.web.MockFilterChain;
@@ -63,8 +63,8 @@ class VerifiedChainTest {
 
     /** Captures, inside the handler, what the context says was verified. */
     private static final class Capture extends HttpServlet {
-        List<StampV3> verified;
-        List<StampV3> inbound;
+        List<Stamp> verified;
+        List<Stamp> inbound;
 
         @Override
         protected void service(HttpServletRequest req, HttpServletResponse res) {
@@ -73,8 +73,8 @@ class VerifiedChainTest {
         }
     }
 
-    private VerifierV3 verifier(KeyPair ordersKey) {
-        return new VerifierV3(new VerifierConfigV3(
+    private Verifier verifier(KeyPair ordersKey) {
+        return new Verifier(new VerifierConfig(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", ordersKey.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "",
@@ -88,24 +88,24 @@ class VerifiedChainTest {
 
     private InboundFilter attestOnly() {
         return new InboundFilter(verifier(orders), false, false, "payment", null, null, null,
-                new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW));
+                new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW));
     }
 
     /** A chain gateway to orders to payment, the last stamp signed by {@code ordersKey}. */
     private MockHttpServletRequest request(KeyPair ordersKey) {
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
                 .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
                         policy.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", "ord-1", ordersKey.getPrivate(), false, () -> "x", () -> NOW)
+        Stamper.Stamped ord = new Stamper("orders", "ord-1", ordersKey.getPrivate(), false, () -> "x", () -> NOW)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", BODY), List.of(),
                         policy.bundles().get("orders"));
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
-        request.addHeader(PaztportHeaders.CHAIN, HttpV3.encodeChain(ord.chain()));
-        String proof = HttpV3.encodeProof(ord.proof());
+        request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(ord.chain()));
+        String proof = HttpWire.encodeProof(ord.proof());
         if (proof != null) {
             request.addHeader(PaztportHeaders.PROOF, proof);
         }
-        String influence = HttpV3.encodeInfluence(List.of());
+        String influence = HttpWire.encodeInfluence(List.of());
         if (influence != null) {
             request.addHeader(PaztportHeaders.INFLUENCE, influence);
         }
@@ -115,7 +115,7 @@ class VerifiedChainTest {
 
     private static MockHttpServletRequest forged() {
         MockHttpServletRequest request = new MockHttpServletRequest("POST", "/pay");
-        request.addHeader(PaztportHeaders.CHAIN, HttpV3.encodeChain(List.of(new StampV3("gateway", "gw-1", "rid-f",
+        request.addHeader(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(new Stamp("gateway", "gw-1", "rid-f",
                 NOW, "", "payment", RequestBinding.compute("POST", "/pay", BODY), Influence.commit(List.of()), "",
                 ""))));
         request.setContent(BODY);

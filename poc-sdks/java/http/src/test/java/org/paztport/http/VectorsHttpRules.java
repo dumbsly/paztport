@@ -45,15 +45,15 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.boundary.BoundaryClient;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 
@@ -237,25 +237,25 @@ final class VectorsHttpRules {
         }
 
         String proofHeader(String route) {
-            return HttpV3.encodeProof(proofs.get(route));
+            return HttpWire.encodeProof(proofs.get(route));
         }
     }
 
-    /** The keys and material a case names, found in {@code rules}, then {@code http}, then {@code v3}. */
+    /** The keys and material a case names, found in {@code rules}, then {@code http}, then {@code core}. */
     static final class Fixtures {
 
         final JsonNode rules;
         final JsonNode http;
-        final JsonNode v3;
+        final JsonNode core;
 
-        Fixtures(JsonNode rules, JsonNode http, JsonNode v3) {
+        Fixtures(JsonNode rules, JsonNode http, JsonNode core) {
             this.rules = rules;
             this.http = http;
-            this.v3 = v3;
+            this.core = core;
         }
 
         private JsonNode key(String name) {
-            for (JsonNode keys : List.of(rules.get("keys"), http.get("keys"), v3.get("keys"))) {
+            for (JsonNode keys : List.of(rules.get("keys"), http.get("keys"), core.get("keys"))) {
                 if (keys.has(name)) {
                     return keys.get(name);
                 }
@@ -365,8 +365,8 @@ final class VectorsHttpRules {
         return Base64Url.encode(Arrays.copyOf(Crypto.sha256(utf8("paztport-http-v3-vector-nonce:" + name)), bytes));
     }
 
-    /** Builds the section; {@code http} supplies the top-level keys, {@code v3} the rest. */
-    static ObjectNode build(JsonNode http, JsonNode v3) {
+    /** Builds the section; {@code http} supplies the top-level keys, {@code core} the rest. */
+    static ObjectNode build(JsonNode http, JsonNode core) {
         ObjectNode rules = obj();
         rules.put("about", ABOUT);
         ObjectNode keys = rules.putObject("keys");
@@ -378,7 +378,7 @@ final class VectorsHttpRules {
             o.put("pub", pub(k));
             o.put("priv", Base64Url.encode(Crypto.encodePrivateKey(k.getPrivate())));
         }
-        Fixtures base = new Fixtures(rules, http, v3);
+        Fixtures base = new Fixtures(rules, http, core);
         Map<String, String> shopServices = new TreeMap<>();
         for (String svc : List.of("gateway", "orders", "payment")) {
             shopServices.put(svc, base.publicKey(svc));
@@ -391,11 +391,11 @@ final class VectorsHttpRules {
                 shopServices, EXPIRES));
         material.set("psp", partnerMaterial(made.get("psp-policy"), made.get("psp"), NOT_AFTER));
         material.set("psp-expiring", partnerMaterial(made.get("psp-policy"), made.get("psp"), EXPIRES));
-        rules.set("handshakes", handshakes(new Fixtures(reread(rules), http, v3)));
+        rules.set("handshakes", handshakes(new Fixtures(reread(rules), http, core)));
         rules.set("handshakeBodies", handshakeBodies(rules.get("handshakes")));
         rules.set("peers", peers(made.get("shop-ca")));
         // The cases are built from the fixtures as the file holds them, as a replay reads them.
-        Fixtures fx = new Fixtures(reread(rules), http, v3);
+        Fixtures fx = new Fixtures(reread(rules), http, core);
 
         Chains chains = new Chains(fx);
         rules.set("requests", requests(chains));
@@ -446,49 +446,49 @@ final class VectorsHttpRules {
 
         final Fixtures fx;
         final Material shop;
-        final List<StampV3> toOrders;
+        final List<Stamp> toOrders;
         /** gateway, orders, payment, committing to no influence. */
-        final List<StampV3> clean;
+        final List<Stamp> clean;
         /** The same, committing to {@link #OWNED}. */
-        final List<StampV3> owned;
+        final List<Stamp> owned;
         /** The same, committing to {@link #STEERED}. */
-        final List<StampV3> steered;
+        final List<Stamp> steered;
         /** orders' stamp signed with the gateway's key. */
-        final List<StampV3> forged;
+        final List<Stamp> forged;
         /** One origin stamp from the gateway straight to payment, a route the policy does not hold. */
-        final List<StampV3> direct;
+        final List<Stamp> direct;
         /** orders' stamp signed with the gateway's key, committing to {@link #STEERED}. */
-        final List<StampV3> forgedSteered;
+        final List<Stamp> forgedSteered;
         /** One gateway stamp to payment with an empty signature. */
-        final List<StampV3> unsigned;
+        final List<Stamp> unsigned;
 
         Chains(Fixtures fx) {
             this.fx = fx;
             this.shop = fx.material("shop");
-            StamperV3 gateway = new StamperV3("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
+            Stamper gateway = new Stamper("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
                     () -> GATEWAY_TS);
             this.toOrders = gateway.next(List.of(), "orders", "bind-gateway-to-orders", List.of(), null).chain();
-            StamperV3 orders = new StamperV3("orders", "ord-1", fx.privateKey("orders"), false, () -> RID,
+            Stamper orders = new Stamper("orders", "ord-1", fx.privateKey("orders"), false, () -> RID,
                     () -> ORDERS_TS);
             String bind = RequestBinding.compute("POST", "/pay", PAY);
             this.clean = orders.next(toOrders, "payment", bind, List.of(), null).chain();
             this.owned = orders.next(toOrders, "payment", bind, OWNED, null).chain();
             this.steered = orders.next(toOrders, "payment", bind, STEERED, null).chain();
-            this.forged = new StamperV3("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
+            this.forged = new Stamper("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
                     () -> ORDERS_TS).next(toOrders, "payment", bind, List.of(), null).chain();
-            this.forgedSteered = new StamperV3("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
+            this.forgedSteered = new Stamper("orders", "ord-1", fx.privateKey("gateway"), false, () -> RID,
                     () -> ORDERS_TS).next(toOrders, "payment", bind, STEERED, null).chain();
-            this.direct = new StamperV3("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
+            this.direct = new Stamper("gateway", "gw-1", fx.privateKey("gateway"), true, () -> RID,
                     () -> ORDERS_TS).next(List.of(), "payment", bind, List.of(), null).chain();
-            this.unsigned = List.of(new StampV3("gateway", "gw-1", RID, ORDERS_TS, "", "payment", bind, "", "", ""));
+            this.unsigned = List.of(new Stamp("gateway", "gw-1", RID, ORDERS_TS, "", "payment", bind, "", "", ""));
         }
 
         /** {@code POST /pay} with the chain, the mesh route's proof and the influence it commits to, when any. */
-        ObjectNode request(List<StampV3> chain, List<InfluenceEntry> influence) {
+        ObjectNode request(List<Stamp> chain, List<InfluenceEntry> influence) {
             ObjectNode headers = obj();
-            headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(chain));
+            headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
             headers.put(PaztportHeaders.PROOF, shop.proofHeader(MESH_ROUTE));
-            String influenceHeader = HttpV3.encodeInfluence(influence);
+            String influenceHeader = HttpWire.encodeInfluence(influence);
             if (influenceHeader != null) {
                 headers.put(PaztportHeaders.INFLUENCE, influenceHeader);
             }
@@ -542,9 +542,9 @@ final class VectorsHttpRules {
         c.set("request", request);
         c.putNull("peer");
         c.put("now", NOW);
-        c.put("callMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
-        c.put("runMaxAgeMs", VerifierConfigV3.RUN_MAX_AGE_MS);
-        c.put("nonceTtlMs", VerifierConfigV3.NONCE_TTL_MS);
+        c.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
+        c.put("runMaxAgeMs", VerifierConfig.RUN_MAX_AGE_MS);
+        c.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
         c.set("spent", arr());
         c.put("uses", 1);
         c.set("read", arr());
@@ -604,7 +604,7 @@ final class VectorsHttpRules {
 
     /** verification.md, a request at the receiver: the nonce key and how each unreadable header is read. */
     private static ArrayNode requests(Chains ch) {
-        String chain = HttpV3.encodeChain(ch.clean);
+        String chain = HttpWire.encodeChain(ch.clean);
         String proof = ch.shop.proofHeader(MESH_ROUTE);
         ArrayNode a = arr();
         a.add(expect(receiverCase("verified", Service.PAYMENT, "enforce", ch.request(ch.clean, List.of())),
@@ -641,15 +641,15 @@ final class VectorsHttpRules {
                 Chains.request(headers(chain, proof, "not*base64url"), PAY)),
                 refused(403, ReasonCode.INFLUENCE_MISMATCH)));
         a.add(expect(receiverCase("no influence header where the stamp commits to some", Service.PAYMENT,
-                "enforce", Chains.request(headers(HttpV3.encodeChain(ch.owned), proof, null), PAY)),
+                "enforce", Chains.request(headers(HttpWire.encodeChain(ch.owned), proof, null), PAY)),
                 refused(403, ReasonCode.INFLUENCE_MISMATCH)));
         return a;
     }
 
     /** verification.md: unreadable influence is never dropped, so it is answered 400 wherever nothing refused first. */
     private static ArrayNode unreadableInfluence(Chains ch) {
-        String chain = HttpV3.encodeChain(ch.clean);
-        String forged = HttpV3.encodeChain(ch.forged);
+        String chain = HttpWire.encodeChain(ch.clean);
+        String forged = HttpWire.encodeChain(ch.forged);
         String proof = ch.shop.proofHeader(MESH_ROUTE);
         String garbled = "not*base64url";
         ArrayNode a = arr();
@@ -706,7 +706,7 @@ final class VectorsHttpRules {
     private static ArrayNode refusals(Chains ch) {
         ArrayNode a = arr();
         a.add(expect(receiverCase("a route not allowed names its last signer, but not to the caller",
-                Service.PAYMENT, "enforce", Chains.request(headers(HttpV3.encodeChain(ch.direct), null, null), PAY)),
+                Service.PAYMENT, "enforce", Chains.request(headers(HttpWire.encodeChain(ch.direct), null, null), PAY)),
                 refused(403, ReasonCode.PATH_NOT_ALLOWED)));
         ObjectNode peer = receiverCase("a peer that is not the last signer is named, but not to the caller",
                 Service.PAYMENT, "enforce", ch.request(ch.clean, List.of()));
@@ -718,12 +718,12 @@ final class VectorsHttpRules {
                 ch.request(ch.clean, List.of()));
         late.put("now", NOW + 10_000);
         a.add(expect(late, refused(403, ReasonCode.EXPIRED)));
-        ObjectNode altered = Chains.request(headers(HttpV3.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
+        ObjectNode altered = Chains.request(headers(HttpWire.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
                 null), utf8("{\"amount\":999}"));
         a.add(expect(receiverCase("a body altered in transit", Service.PAYMENT, "enforce", altered),
                 refused(403, ReasonCode.BINDING_MISMATCH)));
         a.add(expect(receiverCase("unreadable influence in audit mode", Service.PAYMENT, "audit",
-                Chains.request(headers(HttpV3.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
+                Chains.request(headers(HttpWire.encodeChain(ch.clean), ch.shop.proofHeader(MESH_ROUTE),
                         "not*base64url"), PAY)), refused(400, ReasonCode.INFLUENCE_MISMATCH)));
         return a;
     }
@@ -816,11 +816,11 @@ final class VectorsHttpRules {
             Material m = fx.material(c.get("material").asText());
             InMemoryNonceCache nonces = new InMemoryNonceCache(c.get("nonceTtlMs").asLong());
             c.get("spent").forEach(k -> nonces.seenBefore(k.asText(), now));
-            b.verifier(new VerifierV3(VerifierConfigV3.pinned(m.keyring(), m.root(), m.policyKey(),
+            b.verifier(new Verifier(VerifierConfig.pinned(m.keyring(), m.root(), m.policyKey(),
                     textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
                     c.get("runMaxAgeMs").asLong())));
         }
-        return b.stamper(new StamperV3(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
+        return b.stamper(new Stamper(svc, s.get("inst").asText(), fx.privateKey(svc), origin, () -> "unused",
                 () -> now)).build();
     }
 
@@ -1066,21 +1066,21 @@ final class VectorsHttpRules {
         }
         response.put("body", hex(body));
         c.put("now", NOW);
-        c.put("callMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
-        c.put("runMaxAgeMs", VerifierConfigV3.RUN_MAX_AGE_MS);
-        c.put("nonceTtlMs", VerifierConfigV3.NONCE_TTL_MS);
+        c.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
+        c.put("runMaxAgeMs", VerifierConfig.RUN_MAX_AGE_MS);
+        c.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
         return c;
     }
 
-    static ArrayNode stamps(List<StampV3> chain) {
+    static ArrayNode stamps(List<Stamp> chain) {
         ArrayNode a = arr();
         chain.forEach(s -> a.add(tree(s.toJson())));
         return a;
     }
 
-    static List<StampV3> stamps(JsonNode a) {
-        List<StampV3> out = new ArrayList<>();
-        a.forEach(s -> out.add(new StampV3(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
+    static List<Stamp> stamps(JsonNode a) {
+        List<Stamp> out = new ArrayList<>();
+        a.forEach(s -> out.add(new Stamp(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(),
                 s.get("ts").asLong(), s.get("sess").asText(), s.get("rcv").asText(), s.get("bind").asText(),
                 s.get("infl").asText(), s.get("prev").asText(), s.get("sig").asText())));
         return out;
@@ -1100,12 +1100,12 @@ final class VectorsHttpRules {
 
     /** payment's attestation of {@code status} and {@code body} with {@code labels}, over what orders sent. */
     private static String attestation(Chains ch, int status, byte[] body, List<ContentLabel> labels) {
-        List<StampV3> sent = new StamperV3("orders", "ord-1", ch.fx.privateKey("orders"), false, () -> RID,
+        List<Stamp> sent = new Stamper("orders", "ord-1", ch.fx.privateKey("orders"), false, () -> RID,
                 () -> ORDERS_TS).next(ch.toOrders, "payment", RequestBinding.compute("POST", "/pay", PAY), OWNED,
                 null).chain();
-        StampV3 stamp = new StamperV3("payment", "pay-1", ch.fx.privateKey("payment"), false, () -> RID,
-                () -> RESPONSE_TS).respond(sent, HttpV3.resultHash(status, body), RID, labels);
-        return HttpV3.encodeResponse(stamp, labels);
+        Stamp stamp = new Stamper("payment", "pay-1", ch.fx.privateKey("payment"), false, () -> RID,
+                () -> RESPONSE_TS).respond(sent, HttpWire.resultHash(status, body), RID, labels);
+        return HttpWire.encodeResponse(stamp, labels);
     }
 
     /** verification.md, a response at the caller: what a response adds to the request's influence. */
@@ -1113,7 +1113,7 @@ final class VectorsHttpRules {
         List<ContentLabel> labels = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-receipt-1", "alice"),
                 new ContentLabel(InfluenceClass.PUBLIC, "cid-terms-1", null));
         String ok = attestation(ch, 200, PAID, labels);
-        String okHash = HttpV3.resultHash(200, PAID);
+        String okHash = HttpWire.resultHash(200, PAID);
         String uri = "https://payment/pay";
         List<InfluenceEntry> labelled = List.of(
                 new InfluenceEntry(InfluenceClass.PRIVATE, "http:payment", okHash, "cid-receipt-1", "alice"),
@@ -1127,12 +1127,12 @@ final class VectorsHttpRules {
                 attestation(ch, 200, PAID, List.of()), PAID, ch).set("expected", callerExpected("OK", List.of())));
         a.add(callerCase("unattested", true, Map.of(), uri, 200, null, PAID, ch).set("expected",
                 callerExpected("CHAIN_MISSING", List.of(untrusted(okHash)))));
-        String hash500 = HttpV3.resultHash(500, PAID);
+        String hash500 = HttpWire.resultHash(500, PAID);
         a.add(callerCase("failing: the attestation is for another status", true, Map.of(), uri, 500, ok, PAID, ch)
                 .set("expected", callerExpected("BINDING_MISMATCH", List.of(untrusted(hash500)))));
         byte[] refusalBody = utf8("{\"reason\":\"BAD_SIGNATURE\"}");
         a.add(callerCase("a refusal", true, Map.of(), uri, 403, null, refusalBody, ch).set("expected",
-                callerExpected("CHAIN_MISSING", List.of(untrusted(HttpV3.resultHash(403, refusalBody))))));
+                callerExpected("CHAIN_MISSING", List.of(untrusted(HttpWire.resultHash(403, refusalBody))))));
         a.add(callerCase("a caller with no verifier checks nothing", false, Map.of(), uri, 200, ok, PAID, ch)
                 .set("expected", callerExpected(null, List.of(untrusted(okHash)))));
         return a;
@@ -1148,13 +1148,13 @@ final class VectorsHttpRules {
         long now = c.get("now").asLong();
         long ts = c.get("ts").asLong();
         Material m = fx.material(c.get("material").asText());
-        StamperV3 stamper = new StamperV3(svc, s.get("inst").asText(), fx.privateKey(svc), false, () -> "unused",
+        Stamper stamper = new Stamper(svc, s.get("inst").asText(), fx.privateKey(svc), false, () -> "unused",
                 () -> ts);
         Map<String, String> receivers = new LinkedHashMap<>();
         s.get("receivers").properties().forEach(e -> receivers.put(e.getKey(), e.getValue().asText()));
         HttpCaller.Builder b = HttpCaller.builder(svc, stamper).bundle(m.bundle(svc)).receivers(receivers);
         if (s.get("verifier").asBoolean()) {
-            b.verifier(new VerifierV3(VerifierConfigV3.pinned(m.keyring(), m.root(), m.policyKey(),
+            b.verifier(new Verifier(VerifierConfig.pinned(m.keyring(), m.root(), m.policyKey(),
                     textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),
                     () -> now, c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong())));
         }
@@ -1166,7 +1166,7 @@ final class VectorsHttpRules {
         HttpCaller.Received received = caller.check(sent, r.get("status").asInt(),
                 r.get("header").isNull() ? null : r.get("header").asText(), unhex(r.get("body")));
         ObjectNode e = obj();
-        List<StampV3> chain = sent.sent().chain();
+        List<Stamp> chain = sent.sent().chain();
         e.put("rcv", chain.get(chain.size() - 1).rcv());
         if (received.check() == null) {
             e.putNull("reason");
@@ -1180,8 +1180,8 @@ final class VectorsHttpRules {
     // --- Replay ---
 
     /** Replays every kind in {@code rules}. */
-    static void assertAll(JsonNode rules, JsonNode http, JsonNode v3) {
-        Fixtures fx = new Fixtures(rules, http, v3);
+    static void assertAll(JsonNode rules, JsonNode http, JsonNode core) {
+        Fixtures fx = new Fixtures(rules, http, core);
         for (String kind : List.of("requests", "unreadableInfluence", "attestation", "refusals", "trustedRecord")) {
             for (JsonNode c : rules.get(kind)) {
                 assertEquals(c.get("expected"), runReceiver(c, fx), kind + ": " + c.get("name").asText());

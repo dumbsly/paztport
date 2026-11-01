@@ -42,16 +42,16 @@ import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyResult;
 import org.paztport.http.event.EventPublisher;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -99,8 +99,8 @@ class HttpReceiverTest {
         traceLog.setAdditive(true);
     }
 
-    private VerifierV3 paymentVerifier() {
-        return new VerifierV3(new VerifierConfigV3(
+    private Verifier paymentVerifier() {
+        return new Verifier(new VerifierConfig(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "",
@@ -118,12 +118,12 @@ class HttpReceiverTest {
         return HttpReceiver.builder("payment").build();
     }
 
-    private StamperV3 paymentStamper() {
-        return new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW);
+    private Stamper paymentStamper() {
+        return new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW);
     }
 
     /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
-    private HttpReceiver attesting(VerifierV3 verifier) {
+    private HttpReceiver attesting(Verifier verifier) {
         return HttpReceiver.builder("payment").verifier(verifier).verifyRequests(true).publisher(events)
                 .stamper(paymentStamper()).build();
     }
@@ -132,13 +132,13 @@ class HttpReceiverTest {
      * Payment not verifying requests ({@code paztport.verify=false}) but holding a verifier and a stamp key, as
      * orders and search do in the mesh: it checks a chain only to decide whether to attest.
      */
-    private HttpReceiver nonEnforcing(VerifierV3 verifier) {
+    private HttpReceiver nonEnforcing(Verifier verifier) {
         return HttpReceiver.builder("payment").verifier(verifier).stamper(paymentStamper()).build();
     }
 
     /** A one-stamp chain claiming to come from the origin {@code gateway}, for {@code payment}, under {@code sig}. */
     private static String forgedChain(String rid, String sig) {
-        return HttpV3.encodeChain(List.of(new StampV3("gateway", "gw-1", rid, NOW, "", "payment",
+        return HttpWire.encodeChain(List.of(new Stamp("gateway", "gw-1", rid, NOW, "", "payment",
                 RequestBinding.compute("POST", "/pay", TO_PAYMENT), Influence.commit(List.of()), "", sig)));
     }
 
@@ -149,14 +149,14 @@ class HttpReceiverTest {
     }
 
     private Headers headers(String rid, String target, List<InfluenceEntry> influence) {
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
                 .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
                         policy.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
+        Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), influence,
                         policy.bundles().get("orders"));
-        return new Headers(HttpV3.encodeChain(ord.chain()), HttpV3.encodeProof(ord.proof()),
-                HttpV3.encodeInfluence(influence));
+        return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
+                HttpWire.encodeInfluence(influence));
     }
 
     private Headers validHeaders() {
@@ -192,7 +192,7 @@ class HttpReceiverTest {
     }
 
     private static JsonNode decodeAttestation(String header) throws Exception {
-        return new ObjectMapper().readTree(HttpV3.decodeChain(header));
+        return new ObjectMapper().readTree(HttpWire.decodeChain(header));
     }
 
     /** The attestation's labels as the SDK reads them from the header token: their JCS text. */
@@ -200,7 +200,7 @@ class HttpReceiverTest {
         return JsonWriter.text(JsonFields.object(JsonReader.token(header)).get("labels"));
     }
 
-    private static StampV3 responseStamp(String header) throws Exception {
+    private static Stamp responseStamp(String header) throws Exception {
         return Chains.parse(new ObjectMapper().createArrayNode()
                 .add(decodeAttestation(header).get("stamp")).toString()).stamps().get(0);
     }
@@ -259,7 +259,7 @@ class HttpReceiverTest {
     @Test
     void enforceAlteredInfluenceIsRefusedWithInfluenceMismatch() {
         Headers h = headers("rid-1", "/pay", List.of(MINE));
-        Headers altered = new Headers(h.chain(), h.proof(), HttpV3.encodeInfluence(List.of(WEB)));
+        Headers altered = new Headers(h.chain(), h.proof(), HttpWire.encodeInfluence(List.of(WEB)));
 
         Accepted accepted = verifying(null).accept(paymentRequest(altered, TO_PAYMENT), null,
                 VerificationMode.ENFORCE);
@@ -279,7 +279,7 @@ class HttpReceiverTest {
     }
 
     /** A stamp's JSON in the wire table's member order, not JCS's. */
-    private static String wireOrder(StampV3 s) {
+    private static String wireOrder(Stamp s) {
         return "{\"v\":3,\"svc\":\"" + s.svc() + "\",\"inst\":\"" + s.inst() + "\",\"rid\":\"" + s.rid()
                 + "\",\"ts\":" + s.ts() + ",\"sess\":\"" + s.sess() + "\",\"rcv\":\"" + s.rcv()
                 + "\",\"bind\":\"" + s.bind() + "\",\"infl\":\"" + s.infl() + "\",\"prev\":\"" + s.prev()
@@ -289,7 +289,7 @@ class HttpReceiverTest {
     @Test
     void aChainInWireMemberOrderIsChainMissing() {
         Headers valid = validHeaders();
-        List<StampV3> sent = Chains.parse(HttpV3.decodeChain(valid.chain())).stamps();
+        List<Stamp> sent = Chains.parse(HttpWire.decodeChain(valid.chain())).stamps();
         String text = "[" + String.join(",", sent.stream().map(HttpReceiverTest::wireOrder).toList()) + "]";
         Headers h = new Headers(Base64Url.encode(text.getBytes(StandardCharsets.UTF_8)), valid.proof(),
                 valid.influence());
@@ -438,15 +438,15 @@ class HttpReceiverTest {
     @Test
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() {
         String inst = "ord\"1\\";
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
                 .next(null, "orders", "b", List.of(), policy.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
+        Stamper.Stamped ord = new Stamper("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
                         policy.bundles().get("orders"));
 
         // No proof, so the route is unproven and the last signer, with its chosen inst, is the suspect.
         Accepted accepted = verifying(null).accept(
-                paymentRequest(new Headers(HttpV3.encodeChain(ord.chain()), null, null), TO_PAYMENT), null,
+                paymentRequest(new Headers(HttpWire.encodeChain(ord.chain()), null, null), TO_PAYMENT), null,
                 VerificationMode.ENFORCE);
 
         assertEquals(403, accepted.refusal().status());
@@ -532,11 +532,11 @@ class HttpReceiverTest {
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
-        StampV3 stamp = responseStamp(header);
+        Stamp stamp = responseStamp(header);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
-        assertEquals(Bindings.response(HttpV3.resultHash(201, PAID), "rid-1", labels), stamp.bind());
+        assertEquals(Bindings.response(HttpWire.resultHash(201, PAID), "rid-1", labels), stamp.bind());
     }
 
     @Test
@@ -555,7 +555,7 @@ class HttpReceiverTest {
         Accepted second = nonEnforcing(paymentVerifier()).accept(
                 paymentRequest(headers("rid-2", "/pay", List.of(WEB)), TO_PAYMENT), null, VerificationMode.OFF);
 
-        StampV3 stamp = responseStamp(first.attest(201, PAID, List.of()));
+        Stamp stamp = responseStamp(first.attest(201, PAID, List.of()));
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv());
         assertEquals(first.inbound(), first.verifiedChain(), "verified here, for attestation");
@@ -600,11 +600,11 @@ class HttpReceiverTest {
      */
     @Test
     void anOriginNeverAttestsAForgedChain() {
-        StamperV3 gatewayStamper = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "r", () -> NOW);
+        Stamper gatewayStamper = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "r", () -> NOW);
         for (String sig : FORGED_SIGS) {
-            String forged = HttpV3.encodeChain(List.of(new StampV3("orders", "x", "R", NOW, "", "x", "b",
+            String forged = HttpWire.encodeChain(List.of(new Stamp("orders", "x", "R", NOW, "", "x", "b",
                     Influence.commit(List.of()), "", sig)));
-            for (VerifierV3 verifier : Arrays.asList(null, paymentVerifier())) {
+            for (Verifier verifier : Arrays.asList(null, paymentVerifier())) {
                 Accepted accepted = HttpReceiver.builder("gateway").verifier(verifier).origin(true)
                         .stamper(gatewayStamper).build()
                         .accept(request("GET", "/find", new Headers(forged, null, null), new byte[0]), null,
@@ -618,7 +618,7 @@ class HttpReceiverTest {
 
     @Test
     void anOriginNeverAttestsAndStartsFromNothingEvenWhenTheChainVerifies() {
-        StamperV3 ordersAsOrigin = new StamperV3("orders", "ord-1", orders.getPrivate(), true, () -> "r", () -> NOW);
+        Stamper ordersAsOrigin = new Stamper("orders", "ord-1", orders.getPrivate(), true, () -> "r", () -> NOW);
         for (boolean verify : new boolean[] {true, false}) {
             Accepted accepted = HttpReceiver.builder("payment").verifier(paymentVerifier()).verifyRequests(verify)
                     .origin(true).publisher(events).stamper(ordersAsOrigin).build()

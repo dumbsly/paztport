@@ -3,8 +3,8 @@
 
 package org.paztport.spring;
 
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PublicWrites;
@@ -29,10 +29,10 @@ import org.springframework.core.Ordered;
  * Wires the inbound filter and outbound interceptor from {@code paztport.*}.
  * Beans appear only when their inputs are configured, so each service holds only
  * what its role requires: callers get a stamper and interceptor, a service with
- * a keyring, a root and the policy pin gets a VerifierV3, and every service gets
+ * a keyring, a root and the policy pin gets a Verifier, and every service gets
  * the inbound filter, which verifies requests only where {@code paztport.verify=true}.
- * Wherever there is a VerifierV3, the interceptor also checks every response it
- * gets. A non-origin service with both a stamper and a VerifierV3 attests the
+ * Wherever there is a Verifier, the interceptor also checks every response it
+ * gets. A non-origin service with both a stamper and a Verifier attests the
  * responses it sends, but only to requests whose chain verified there, and not
  * while a service that verifies requests is in {@code off} mode; an origin never
  * attests.
@@ -99,12 +99,12 @@ public class PaztportAutoConfiguration {
     @ConditionalOnProperty(name = "paztport.partner.enabled", havingValue = "false", matchIfMissing = true)
     FilterRegistrationBean<InboundFilter> inboundFilterRegistration(
             PaztportProperties props,
-            ObjectProvider<VerifierV3> verifier,
+            ObjectProvider<Verifier> verifier,
             ObjectProvider<ModeHolder> modeHolder,
             ObjectProvider<EventPublisher> publisher,
             ObjectProvider<ReceivedRequestListener> listener,
-            ObjectProvider<StamperV3> stamper) {
-        VerifierV3 shared = verifier.getIfAvailable();
+            ObjectProvider<Stamper> stamper) {
+        Verifier shared = verifier.getIfAvailable();
         if (props.isVerify() && shared == null) {
             throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
                     + "paztport.root-path and paztport.policy-key-path are not all set");

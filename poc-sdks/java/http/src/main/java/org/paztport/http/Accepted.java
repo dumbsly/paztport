@@ -6,10 +6,10 @@ package org.paztport.http;
 import java.util.List;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.internal.LogSafe;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 
 /**
  * What {@link HttpReceiver#accept} decided about one request: a refusal to send in place of the handler's answer,
@@ -21,13 +21,13 @@ import org.paztport.http.wire.HttpV3;
 public final class Accepted {
 
     private final HttpAnswer refusal;
-    private final List<StampV3> inbound;
+    private final List<Stamp> inbound;
     private final boolean verified;
     private final List<InfluenceEntry> influence;
-    private final StamperV3 attester;
+    private final Stamper attester;
 
-    private Accepted(HttpAnswer refusal, List<StampV3> inbound, boolean verified, List<InfluenceEntry> influence,
-            StamperV3 attester) {
+    private Accepted(HttpAnswer refusal, List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
+            Stamper attester) {
         this.refusal = refusal;
         this.inbound = inbound;
         this.verified = verified;
@@ -43,8 +43,8 @@ public final class Accepted {
      * @param attester the stamper to attest with, only where the chain verified here and this service attests;
      *     otherwise null
      */
-    static Accepted served(List<StampV3> inbound, boolean verified, List<InfluenceEntry> influence,
-            StamperV3 attester) {
+    static Accepted served(List<Stamp> inbound, boolean verified, List<InfluenceEntry> influence,
+            Stamper attester) {
         return new Accepted(null, inbound, verified, List.copyOf(influence), attester);
     }
 
@@ -57,7 +57,7 @@ public final class Accepted {
      * The chain the request carried, for the handler's own calls to stamp onto; null when none came, it did not
      * parse, or this service is an origin, which starts a new request tree.
      */
-    public List<StampV3> inbound() {
+    public List<Stamp> inbound() {
         return inbound;
     }
 
@@ -65,7 +65,7 @@ public final class Accepted {
      * {@link #inbound} when it passed the live order at this hop, otherwise null: a chain that failed in audit, was
      * not checked (the hop is off, or verifies nothing), or came to an origin gives null.
      */
-    public List<StampV3> verifiedChain() {
+    public List<Stamp> verifiedChain() {
         return verified ? inbound : null;
     }
 
@@ -105,9 +105,9 @@ public final class Accepted {
         }
         String rid = inbound.get(0).rid();
         try {
-            String hash = HttpV3.resultHash(status, body);
-            StampV3 stamp = attester.respond(inbound, hash, rid, labels);
-            return HttpV3.encodeResponse(stamp, labels);
+            String hash = HttpWire.resultHash(status, body);
+            Stamp stamp = attester.respond(inbound, hash, rid, labels);
+            return HttpWire.encodeResponse(stamp, labels);
         } catch (IllegalArgumentException e) {
             // Served unattested, so the caller records it as local-untrusted; the operator learns why here.
             HttpReceiver.LOG.warn("response left unattested: rid={} {}", LogSafe.of(rid), LogSafe.of(e.getMessage()));

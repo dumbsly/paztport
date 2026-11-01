@@ -12,10 +12,10 @@ import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.VerificationMode;
 import org.paztport.spring.PaztportAutoConfiguration;
@@ -36,8 +36,8 @@ public class TrustConfiguration {
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
-    StamperV3 stamper(PaztportProperties props) {
-        return new StamperV3(
+    Stamper stamper(PaztportProperties props) {
+        return new Stamper(
                 props.getServiceName(),
                 instance(props),
                 KeyFiles.loadPrivateKey(Path.of(props.getKeyPath())),
@@ -54,24 +54,24 @@ public class TrustConfiguration {
 
     @Bean
     @ConditionalOnProperty({"paztport.keyring-path", "paztport.root-path", "paztport.policy-key-path"})
-    VerifierV3 verifier(PaztportProperties props) {
+    Verifier verifier(PaztportProperties props) {
         long runMaxAgeMs = props.getRunMaxAgeMs() != null ? props.getRunMaxAgeMs() : props.getMaxAgeMs();
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
                 System.currentTimeMillis());
-        VerifierConfigV3 cfg = VerifierConfigV3.pinned(
+        VerifierConfig cfg = VerifierConfig.pinned(
                 keyring,
                 root,
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",
-                new InMemoryNonceCache(VerifierConfigV3.nonceTtlFor(props.getMaxAgeMs())),
+                new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
                 System::currentTimeMillis,
                 props.getMaxAgeMs(),
                 runMaxAgeMs);
-        return new VerifierV3(cfg);
+        return new Verifier(cfg);
     }
 
     @Bean

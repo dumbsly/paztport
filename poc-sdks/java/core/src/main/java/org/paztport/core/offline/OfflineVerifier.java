@@ -10,12 +10,12 @@ import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
 /**
- * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3 verifier's
+ * Verifies a chain read back from a record set, such as a client's evidence file, with the live verifier's
  * checks in the live order. The first failure is the result:
  *
  * <ul>
@@ -57,9 +57,9 @@ public final class OfflineVerifier {
         if (!parsed.ok()) {
             return rejected(parsed.failure());
         }
-        List<StampV3> stamps = parsed.stamps();
-        StampV3 first = stamps.get(0);
-        StampV3 last = stamps.get(stamps.size() - 1);
+        List<Stamp> stamps = parsed.stamps();
+        Stamp first = stamps.get(0);
+        Stamp last = stamps.get(stamps.size() - 1);
 
         // 7. Recorded times, the age limits, then the prompt.
         RecordedTimes t = in.recordedTs();

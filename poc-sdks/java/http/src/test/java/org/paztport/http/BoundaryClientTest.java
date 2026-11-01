@@ -53,19 +53,19 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.http.boundary.BoundaryAccess;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryHooks;
 import org.paztport.http.boundary.BoundaryListener;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -163,7 +163,7 @@ class BoundaryClientTest {
      */
     private BoundaryClient.Builder egress(StubPartner to, HttpClient http) {
         BoundaryClient.Builder builder = BoundaryClient.builder()
-                .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                .stamper(new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis))
                 .bundle(built.bundles().get("payment"))
                 .ownRoot(built.signedRoot())
@@ -192,8 +192,8 @@ class BoundaryClientTest {
     }
 
     /** A one-stamp chain from the gateway to payment, as payment's filter would have verified it. */
-    private List<StampV3> gatewayChain(String rid) {
-        return new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
+    private List<Stamp> gatewayChain(String rid) {
+        return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, System::currentTimeMillis)
                 .next(null, "payment", RequestBinding.compute("POST", "/pay", CHARGE), List.of(),
                         built.bundles().get("gateway"))
                 .chain();
@@ -247,7 +247,7 @@ class BoundaryClientTest {
         assertEquals("/charge", call.path());
         assertEquals(sess, call.header(PaztportHeaders.SESSION));
 
-        String chainJson = HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN));
+        String chainJson = HttpWire.decodeChain(call.header(PaztportHeaders.CHAIN));
         JsonNode chain = JSON.readTree(chainJson);
         assertEquals(1, chain.size(), "only the boundary stamp crosses");
         JsonNode stamp = chain.get(0);
@@ -261,16 +261,16 @@ class BoundaryClientTest {
         MerkleProof proof = MerkleProof.decode(call.header(PaztportHeaders.PROOF));
         assertTrue(proof.verify("payment/psp", built.signedRoot().rootBytes()));
 
-        List<InfluenceEntry> sent = Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE)));
+        List<InfluenceEntry> sent = Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE)));
         assertEquals(BoundaryInfluence.reduce(INFLUENCE, blindingKey, "rid-1", "psp", "payment"), sent,
                 "the owners cross, blinded");
 
         // And the partner, holding only payment's keyring and root, verifies it in that session.
-        VerifierV3 atPartner = new VerifierV3(VerifierConfigV3.pinned(keyring, built.signedRoot(), policyPub,
+        Verifier atPartner = new Verifier(VerifierConfig.pinned(keyring, built.signedRoot(), policyPub,
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), System::currentTimeMillis, 30_000, 300_000));
-        assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInputV3(chainJson,
-                RequestBinding.compute("POST", "/charge", call.body()), HttpV3.decodeInfluence(
-                        call.header(PaztportHeaders.INFLUENCE)), HttpV3.decodeProof(call.header(PaztportHeaders.PROOF)),
+        assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInput(chainJson,
+                RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeInfluence(
+                        call.header(PaztportHeaders.INFLUENCE)), HttpWire.decodeProof(call.header(PaztportHeaders.PROOF)),
                 "psp", true, "rid-1|payment|req", new Peer("payment", "127.0.0.1"))).reason());
 
         assertEquals(List.of("PAZTPORT_TRACE session partner=psp check=ATTESTED status=attested"),
@@ -297,7 +297,7 @@ class BoundaryClientTest {
 
         StubPartner.Received call = partner.calls().get(0);
         String header = call.header(PaztportHeaders.INFLUENCE);
-        List<InfluenceEntry> sent = Influence.parse(HttpV3.decodeInfluence(header));
+        List<InfluenceEntry> sent = Influence.parse(HttpWire.decodeInfluence(header));
         assertEquals(3, sent.size(), "one entry per (class, owner)");
         assertEquals(Set.of(InfluenceClass.THIRD_PARTY + "|null", InfluenceClass.PRIVATE + "|alice",
                 InfluenceClass.PRIVATE + "|null"), Set.copyOf(sent.stream().map(e -> e.cls() + "|" + e.owner())
@@ -308,7 +308,7 @@ class BoundaryClientTest {
         }
         assertEquals(Influence.normalise(sent), sent, "the sent list is normalised");
         assertEquals(BoundaryInfluence.reduce(influence, blindingKey, "rid-1", "psp", "payment"), sent);
-        JsonNode stamp = JSON.readTree(HttpV3.decodeChain(call.header(PaztportHeaders.CHAIN))).get(0);
+        JsonNode stamp = JSON.readTree(HttpWire.decodeChain(call.header(PaztportHeaders.CHAIN))).get(0);
         assertEquals(Influence.commit(sent), stamp.get("infl").textValue(), "the stamp commits to what was sent");
 
         String wire = new String(Base64Url.decode(header), StandardCharsets.UTF_8);
@@ -334,7 +334,7 @@ class BoundaryClientTest {
         assertEquals("psp", h.partnerEntry());
         assertEquals(Influence.normalise(INFLUENCE), h.originals(), "every field of every original");
         StubPartner.Received call = partner.calls().get(0);
-        assertEquals(Influence.parse(HttpV3.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))), h.sent(),
+        assertEquals(Influence.parse(HttpWire.decodeInfluence(call.header(PaztportHeaders.INFLUENCE))), h.sent(),
                 "exactly the list sent");
         assertEquals(0, h.callsBefore(), "it runs before the request is sent");
         assertThrows(UnsupportedOperationException.class, () -> h.originals().clear());
@@ -345,7 +345,7 @@ class BoundaryClientTest {
         verified("rid-1", this::charge);
         verified("rid-2", this::charge);
 
-        List<InfluenceEntry> first = Influence.parse(HttpV3.decodeInfluence(
+        List<InfluenceEntry> first = Influence.parse(HttpWire.decodeInfluence(
                 partner.calls().get(0).header(PaztportHeaders.INFLUENCE)));
         List<InfluenceEntry> originals = heard.get(0).originals();
         assertEquals(2, first.size());
@@ -371,7 +371,7 @@ class BoundaryClientTest {
         assertFalse(BoundaryInfluence.opens(thirdParty,
                 client.opening("rid-1", InfluenceClass.THIRD_PARTY, null, altered)));
         // The same content in the next request was sent under another salt.
-        List<InfluenceEntry> second = Influence.parse(HttpV3.decodeInfluence(
+        List<InfluenceEntry> second = Influence.parse(HttpWire.decodeInfluence(
                 partner.calls().get(1).header(PaztportHeaders.INFLUENCE)));
         assertNotEquals(first, second);
         assertThrows(IllegalArgumentException.class,
@@ -614,7 +614,7 @@ class BoundaryClientTest {
         List<InfluenceEntry> after = verified("rid-1", () -> {
             BoundaryClient.Response r = charge();
             List<InfluenceEntry> all = RequestContext.influence();
-            assertEquals(HttpV3.resultHash(r.status(), r.body()), all.get(all.size() - 1).h());
+            assertEquals(HttpWire.resultHash(r.status(), r.body()), all.get(all.size() - 1).h());
             return all;
         });
 

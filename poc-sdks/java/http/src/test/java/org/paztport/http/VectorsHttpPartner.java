@@ -63,18 +63,18 @@ import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.session.SessionReply;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.http.VectorsHttpRules.Chains;
 import org.paztport.http.VectorsHttpRules.Fixtures;
 import org.paztport.http.VectorsHttpRules.Material;
 import org.paztport.http.VectorsHttpRules.Service;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.http.boundary.BoundaryHooks;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 
@@ -108,10 +108,10 @@ final class VectorsHttpPartner {
         p.set("unsafeDisabled", texts(DISABLED.toArray(String[]::new)));
         p.put("maxSessionsPerPeer", maxSessionsPerPeer);
         p.put("sessionIdleMs", sessionIdleMs);
-        p.put("callMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
+        p.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
         // The partner's own default: its builder holds a run to the call window unless told otherwise.
-        p.put("runMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
-        p.put("nonceTtlMs", VerifierConfigV3.NONCE_TTL_MS);
+        p.put("runMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
+        p.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
         p.put("start", NOW);
         return p;
     }
@@ -185,7 +185,7 @@ final class VectorsHttpPartner {
         ObjectNode charge(long at, String peer, JsonNode session) {
             return call(peer, session, "POST", "/charge", "/charge", CHARGE,
                     stamp(at, session == null ? of("s1") : session, "payment", CHARGE, OWNED),
-                    shop.proofHeader(VectorsHttpRules.BOUNDARY_ROUTE), HttpV3.encodeInfluence(OWNED));
+                    shop.proofHeader(VectorsHttpRules.BOUNDARY_ROUTE), HttpWire.encodeInfluence(OWNED));
         }
 
         ObjectNode call(String peer, JsonNode session, String method, String target, String routePattern,
@@ -461,17 +461,17 @@ final class VectorsHttpPartner {
         Script forged = new Script("a stamp signed with another key", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
         a.add(forged.call(NOW + 1_000, forged.call("shop", of("s1"), "POST", "/charge", "/charge", CHARGE,
-                forged.stamp(NOW + 1_000, of("s1"), "gateway", CHARGE, OWNED), proof, HttpV3.encodeInfluence(OWNED)),
+                forged.stamp(NOW + 1_000, of("s1"), "gateway", CHARGE, OWNED), proof, HttpWire.encodeInfluence(OWNED)),
                 refused(ReasonCode.BAD_SIGNATURE)).c);
         Script altered = new Script("a body altered in transit", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
         a.add(altered.call(NOW + 1_000, altered.call("shop", of("s1"), "POST", "/charge", "/charge",
                 utf8("{\"charge\":999}"), altered.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED), proof,
-                HttpV3.encodeInfluence(OWNED)), refused(ReasonCode.BINDING_MISMATCH)).c);
+                HttpWire.encodeInfluence(OWNED)), refused(ReasonCode.BINDING_MISMATCH)).c);
         Script other = new Script("influence other than the stamp commits to", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
         a.add(other.call(NOW + 1_000, other.call("shop", of("s1"), "POST", "/charge", "/charge", CHARGE,
-                other.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED), proof, HttpV3.encodeInfluence(STEERED)),
+                other.stamp(NOW + 1_000, of("s1"), "payment", CHARGE, OWNED), proof, HttpWire.encodeInfluence(STEERED)),
                 refused(ReasonCode.INFLUENCE_MISMATCH)).c);
         Script unreadable = new Script("influence that cannot be read: a partner has no audit mode", partner(), shop)
                 .handshake(NOW, "shop", "shop", "s1", opened("attested"));
@@ -495,7 +495,7 @@ final class VectorsHttpPartner {
         gated.call(NOW + 4_000, gated.call("shop", of("u1"), "POST", "/charge", "/charge", CHARGE, null, null, null),
                 unsafe());
         gated.call(NOW + 5_000, gated.call("shop", of("s1"), "POST", "/refund", "/refund", CHARGE,
-                gated.stamp(NOW + 5_000, of("s1"), "payment", CHARGE, OWNED), proof, HttpV3.encodeInfluence(OWNED)),
+                gated.stamp(NOW + 5_000, of("s1"), "payment", CHARGE, OWNED), proof, HttpWire.encodeInfluence(OWNED)),
                 attested(OWNED, true));
         a.add(gated.c);
         return a;
@@ -583,11 +583,11 @@ final class VectorsHttpPartner {
         }
         JsonNode st = call.get("stamp");
         if (!st.isNull()) {
-            StampV3 stamp = StampV3.sign(st.get("svc").asText(), st.get("inst").asText(), st.get("rid").asText(),
+            Stamp stamp = Stamp.sign(st.get("svc").asText(), st.get("inst").asText(), st.get("rid").asText(),
                     st.get("ts").asLong(), sessionId(st.get("sess"), opened), st.get("rcv").asText(),
                     RequestBinding.compute(method, target, unhex(st.get("body"))),
                     Influence.commit(entries(st.get("influence"))), "", fx.privateKey(st.get("key").asText()));
-            headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(List.of(stamp)));
+            headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(List.of(stamp)));
         }
         if (!call.get("proofHeader").isNull()) {
             headers.put(PaztportHeaders.PROOF, call.get("proofHeader").asText());
@@ -636,7 +636,7 @@ final class VectorsHttpPartner {
     }
 
     /** The request the egress was handed, entered at payment as a receiver case enters it; null for none. */
-    private static ObjectNode inbound(Service service, String mode, List<StampV3> chain, List<InfluenceEntry> sent,
+    private static ObjectNode inbound(Service service, String mode, List<Stamp> chain, List<InfluenceEntry> sent,
             Chains ch) {
         ObjectNode c = VectorsHttpRules.receiverCase("inbound", service, mode, ch.request(chain, sent));
         c.remove("name");
@@ -724,7 +724,7 @@ final class VectorsHttpPartner {
     }
 
     private static InfluenceEntry fromPartner(int status, byte[] body) {
-        return new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:psp", HttpV3.resultHash(status, body), null,
+        return new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:psp", HttpWire.resultHash(status, body), null,
                 null);
     }
 
@@ -814,7 +814,7 @@ final class VectorsHttpPartner {
         ObjectNode e = obj();
         try (ScriptedPartner partner = ScriptedPartner.start(fx, c.get("partnerScript"), shop.keyring());
                 BoundaryClient egress = BoundaryHooks.millis(BoundaryHooks.nanos(BoundaryClient.builder()
-                        .stamper(new StamperV3(svc, cfg.get("inst").asText(), fx.privateKey(svc), false,
+                        .stamper(new Stamper(svc, cfg.get("inst").asText(), fx.privateKey(svc), false,
                                 () -> "unused", () -> now))
                         .bundle(shop.bundle(svc)).ownRoot(shop.root()).ownKeyring(shop.keyring())
                         .ownPolicyKey(shop.policyKey()).partner(cfg.get("partner").asText()).partnerUrl(partner.url())
@@ -991,7 +991,7 @@ final class VectorsHttpPartner {
                     call.putNull("stamps");
                     call.putNull("stampSession");
                 } else {
-                    ArrayNode stamps = (ArrayNode) tree(HttpV3.decodeChain(chain));
+                    ArrayNode stamps = (ArrayNode) tree(HttpWire.decodeChain(chain));
                     VectorsHttpRules.stamps(stamps).forEach(s -> assertTrue(signedBySvc(s),
                             name + ": a boundary stamp's signature does not verify under " + s.svc() + "'s key"));
                     String made = stamps.get(0).get("sess").asText();
@@ -1000,9 +1000,9 @@ final class VectorsHttpPartner {
                     index(call, "stampSession", made);
                 }
                 String proof = r.headers().get(PaztportHeaders.PROOF.toLowerCase());
-                call.set("proof", proof == null ? NullNode.instance : tree(HttpV3.decodeProof(proof)));
+                call.set("proof", proof == null ? NullNode.instance : tree(HttpWire.decodeProof(proof)));
                 String influence = r.headers().get(PaztportHeaders.INFLUENCE.toLowerCase());
-                call.set("influence", influence == null ? NullNode.instance : tree(HttpV3.decodeInfluence(influence)));
+                call.set("influence", influence == null ? NullNode.instance : tree(HttpWire.decodeInfluence(influence)));
                 ObjectNode o = obj();
                 o.set("call", call);
                 out.add(o);
@@ -1011,7 +1011,7 @@ final class VectorsHttpPartner {
         }
 
         /** Whether {@code stamp}'s signature, over its own fields, verifies under its signer's key in the keyring. */
-        private boolean signedBySvc(StampV3 stamp) {
+        private boolean signedBySvc(Stamp stamp) {
             String key = egressKeyring.services().get(stamp.svc());
             try {
                 return key != null && Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(key)),

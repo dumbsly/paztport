@@ -42,13 +42,13 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.MerkleProof;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.RequestBinding;
 
 /**
@@ -131,7 +131,7 @@ class VectorsHttpV3Export {
         return VectorsHttpRules.tree(json);
     }
 
-    private static ArrayNode stampsJson(List<StampV3> stamps) {
+    private static ArrayNode stampsJson(List<Stamp> stamps) {
         ArrayNode a = JsonNodeFactory.instance.arrayNode();
         stamps.forEach(s -> a.add(tree(s.toJson())));
         return a;
@@ -144,27 +144,27 @@ class VectorsHttpV3Export {
     }
 
     static ObjectNode build() throws IOException {
-        JsonNode v3 = load("v3.json");
+        JsonNode core = load("v3.json");
         KeyPair payment = derive("payment");
-        PrivateKey gatewayKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("gateway").get("priv").asText()));
-        PrivateKey ordersKey = Crypto.decodePrivateKey(Base64Url.decode(v3.get("keys").get("orders").get("priv").asText()));
-        JsonNode proof = v3.get("policies").get("mesh").get("proofs").get(ROUTE);
+        PrivateKey gatewayKey = Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("gateway").get("priv").asText()));
+        PrivateKey ordersKey = Crypto.decodePrivateKey(Base64Url.decode(core.get("keys").get("orders").get("priv").asText()));
+        JsonNode proof = core.get("policies").get("mesh").get("proofs").get(ROUTE);
         MerkleProof sentProof = MerkleProof.parse(Vectors.text(proof));
 
-        // The request chain gateway -> orders -> payment, exactly as StamperV3 builds it in a mesh.
-        StamperV3.Stamped toOrders = new StamperV3("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
+        // The request chain gateway -> orders -> payment, exactly as Stamper builds it in a mesh.
+        Stamper.Stamped toOrders = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
                 .next(List.of(), "orders", "bind-gateway-to-orders", List.of(), null);
-        StamperV3.Stamped toPayment = new StamperV3("orders", "ord-1", ordersKey, false, () -> RID, () -> ORDERS_TS)
+        Stamper.Stamped toPayment = new Stamper("orders", "ord-1", ordersKey, false, () -> RID, () -> ORDERS_TS)
                 .next(toOrders.chain(), "payment", RequestBinding.compute("POST", "/pay", REQUEST_BODY), List.of(), null);
-        List<StampV3> sent = toPayment.chain();
-        StamperV3 responder = new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> RID, () -> RESPONSE_TS);
+        List<Stamp> sent = toPayment.chain();
+        Stamper responder = new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> RID, () -> RESPONSE_TS);
 
         List<ContentLabel> labels = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-receipt-1", "alice"));
-        String okHash = HttpV3.resultHash(200, RESPONSE_BODY);
-        StampV3 okStamp = responder.respond(sent, okHash, RID, labels);
-        String okHeader = HttpV3.encodeResponse(okStamp, labels);
+        String okHash = HttpWire.resultHash(200, RESPONSE_BODY);
+        Stamp okStamp = responder.respond(sent, okHash, RID, labels);
+        String okHeader = HttpWire.encodeResponse(okStamp, labels);
         // A properly signed response, but to the gateway rather than to the caller that sent the request.
-        StampV3 toGateway = StampV3.sign("payment", "pay-1", RID, RESPONSE_TS, "", "gateway",
+        Stamp toGateway = Stamp.sign("payment", "pay-1", RID, RESPONSE_TS, "", "gateway",
                 responseBinding(okHash, labels), "", sent.get(sent.size() - 1).sig(), payment.getPrivate());
 
         ObjectNode out = JsonNodeFactory.instance.objectNode();
@@ -181,7 +181,7 @@ class VectorsHttpV3Export {
             ObjectNode o = hashes.addObject();
             o.put("status", (int) c[0]);
             o.put("body", (String) c[1]);
-            o.put("hash", HttpV3.resultHash((int) c[0], body));
+            o.put("hash", HttpWire.resultHash((int) c[0], body));
         }
 
         ArrayNode bindings = out.putArray("requestBinding");
@@ -198,23 +198,23 @@ class VectorsHttpV3Export {
         ArrayNode responses = out.putArray("responses");
         responses.add(responseCase("response ok", sent, okHeader, 200, RESPONSE_BODY, 1,
                 ReasonCode.OK, "payment", "pay-1", labels, okHash));
-        responses.add(responseCase("response to wrong receiver", sent, HttpV3.encodeResponse(toGateway, labels), 200,
+        responses.add(responseCase("response to wrong receiver", sent, HttpWire.encodeResponse(toGateway, labels), 200,
                 RESPONSE_BODY, 1, ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
-        responses.add(responseCase("labels altered", sent, HttpV3.encodeResponse(okStamp,
+        responses.add(responseCase("labels altered", sent, HttpWire.encodeResponse(okStamp,
                 List.of(new ContentLabel(InfluenceClass.PUBLIC, "cid-receipt-1", null))), 200, RESPONSE_BODY, 1,
                 ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
         responses.add(responseCase("status altered", sent, okHeader, 500, RESPONSE_BODY, 1,
-                ReasonCode.BINDING_MISMATCH, "", "", List.of(), HttpV3.resultHash(500, RESPONSE_BODY)));
+                ReasonCode.BINDING_MISMATCH, "", "", List.of(), HttpWire.resultHash(500, RESPONSE_BODY)));
         responses.add(responseCase("replayed response", sent, okHeader, 200, RESPONSE_BODY, 2,
                 ReasonCode.REPLAY, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
-        out.set("rules", VectorsHttpRules.build(out, v3));
+        out.set("rules", VectorsHttpRules.build(out, core));
 
         out.set("boundaryInfluence", boundaryInfluence());
 
         // Replay what was just built, read back from the text it is written as, so an export can never record a
         // wrong answer.
-        assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)), v3);
+        assertAll(Vectors.read(new String(render(out), StandardCharsets.UTF_8)), core);
         return out;
     }
 
@@ -299,7 +299,7 @@ class VectorsHttpV3Export {
         return org.paztport.core.stamp.Bindings.response(resultHash, RID, labels);
     }
 
-    private static ObjectNode responseCase(String name, List<StampV3> sent, String header, int status, byte[] body,
+    private static ObjectNode responseCase(String name, List<Stamp> sent, String header, int status, byte[] body,
             int uses, ReasonCode reason, String suspectSvc, String suspectInst, List<ContentLabel> labels,
             String resultHash) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
@@ -317,9 +317,9 @@ class VectorsHttpV3Export {
         c.putArray("allowedOrigins").add("gateway");
         c.put("sess", "");
         c.put("now", NOW);
-        c.put("callMaxAgeMs", VerifierConfigV3.CALL_MAX_AGE_MS);
-        c.put("runMaxAgeMs", VerifierConfigV3.RUN_MAX_AGE_MS);
-        c.put("nonceTtlMs", VerifierConfigV3.NONCE_TTL_MS);
+        c.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
+        c.put("runMaxAgeMs", VerifierConfig.RUN_MAX_AGE_MS);
+        c.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
         c.put("uses", uses);
         ObjectNode e = c.putObject("expected");
         e.put("reason", reason.name());
@@ -330,55 +330,55 @@ class VectorsHttpV3Export {
         return c;
     }
 
-    private static StampV3 stamp(JsonNode s) {
-        return new StampV3(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(), s.get("ts").asLong(),
+    private static Stamp stamp(JsonNode s) {
+        return new Stamp(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(), s.get("ts").asLong(),
                 s.get("sess").asText(), s.get("rcv").asText(), s.get("bind").asText(), s.get("infl").asText(),
                 s.get("prev").asText(), s.get("sig").asText());
     }
 
-    /** Replays every section of {@code http} through {@link HttpV3}; {@code v3} supplies the shared keys and policy. */
-    static void assertAll(JsonNode http, JsonNode v3) {
+    /** Replays every section of {@code http} through {@link HttpWire}; {@code core} supplies the shared keys and policy. */
+    static void assertAll(JsonNode http, JsonNode core) {
         for (JsonNode c : http.get("resultHash")) {
             assertEquals(c.get("hash").asText(),
-                    HttpV3.resultHash(c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText())));
+                    HttpWire.resultHash(c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText())));
         }
         for (JsonNode c : http.get("requestBinding")) {
             assertEquals(c.get("bind").asText(), RequestBinding.compute(c.get("method").asText(),
                     c.get("target").asText(), HexFormat.of().parseHex(c.get("body").asText())));
         }
         for (JsonNode c : http.get("responses")) {
-            assertResponse(c, http, v3);
+            assertResponse(c, http, core);
         }
         assertBoundaryInfluence(http.get("boundaryInfluence"));
-        VectorsHttpRules.assertAll(http.get("rules"), http, v3);
+        VectorsHttpRules.assertAll(http.get("rules"), http, core);
     }
 
-    private static PublicKey publicKey(String name, JsonNode http, JsonNode v3) {
-        JsonNode k = http.get("keys").has(name) ? http.get("keys").get(name) : v3.get("keys").get(name);
+    private static PublicKey publicKey(String name, JsonNode http, JsonNode core) {
+        JsonNode k = http.get("keys").has(name) ? http.get("keys").get(name) : core.get("keys").get(name);
         return Crypto.decodePublicKey(Base64Url.decode(k.get("pub").asText()));
     }
 
-    private static void assertResponse(JsonNode c, JsonNode http, JsonNode v3) {
+    private static void assertResponse(JsonNode c, JsonNode http, JsonNode core) {
         String name = c.get("name").asText();
-        JsonNode policy = v3.get("policies").get(c.get("policy").asText());
+        JsonNode policy = core.get("policies").get(c.get("policy").asText());
         Map<String, PublicKey> ring = new LinkedHashMap<>();
-        c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, v3)));
+        c.get("keyring").properties().forEach(e -> ring.put(e.getKey(), publicKey(e.getValue().asText(), http, core)));
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
         // The response cases carry no policy window: the mesh policy is pinned until 2100-01-01, past every now.
-        VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(Keyring.of(ring),
+        Verifier verifier = new Verifier(new VerifierConfig(Keyring.of(ring),
                 Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), 4_102_444_800_000L,
                 origins,
                 c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
-        List<StampV3> sent = new ArrayList<>();
+        List<Stamp> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));
         MerkleProof proof = MerkleProof.parse(Vectors.text(policy.get("proofs").get(c.get("proofRoute").asText())));
         JsonNode header = c.get("responseHeader");
-        HttpV3.ResponseCheck check = null;
+        HttpWire.ResponseCheck check = null;
         for (int i = 0; i < c.get("uses").asInt(); i++) {
-            check = HttpV3.verifyResponse(verifier, sent, proof, header.isNull() ? null : header.asText(),
+            check = HttpWire.verifyResponse(verifier, sent, proof, header.isNull() ? null : header.asText(),
                     c.get("status").asInt(), HexFormat.of().parseHex(c.get("body").asText()), c.get("caller").asText());
         }
         JsonNode want = c.get("expected");

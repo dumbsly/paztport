@@ -6,7 +6,7 @@ package org.paztport.http.internal;
 import java.util.List;
 import java.util.TreeSet;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.RequestContext;
@@ -28,7 +28,7 @@ public final class DecisionLine {
      * the classes.
      */
     public static String of(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
-        List<StampV3> chain = RequestContext.verifiedChain() != null
+        List<Stamp> chain = RequestContext.verifiedChain() != null
                 ? RequestContext.verifiedChain() : RequestContext.inboundChain();
         String rid = chain == null || chain.isEmpty() || chain.get(0).rid().isEmpty()
                 ? "-" : LogSafe.of(chain.get(0).rid());

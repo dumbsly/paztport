@@ -6,7 +6,7 @@ package org.paztport.psp;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.http.PublicWrites;
 import org.paztport.http.RequestContext;
@@ -61,7 +61,7 @@ public class PspController {
      * then is the influence the one the shop's boundary stamp committed to, and the rid the chain's.
      */
     private void recordReceived() {
-        List<StampV3> verified = RequestContext.verifiedChain();
+        List<Stamp> verified = RequestContext.verifiedChain();
         if (received != null && verified != null && !verified.isEmpty()) {
             received.record(verified.get(0).rid(), RequestContext.influence());
         }

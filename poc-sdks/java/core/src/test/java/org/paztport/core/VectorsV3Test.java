@@ -47,13 +47,13 @@ import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
 import org.paztport.core.stamp.Bindings;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.core.verify.VerifyResult;
 
 /**
@@ -101,8 +101,8 @@ class VectorsV3Test {
         }
     }
 
-    private static StampV3 stamp(JsonNode s) {
-        return new StampV3(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(), s.get("ts").asLong(),
+    private static Stamp stamp(JsonNode s) {
+        return new Stamp(s.get("svc").asText(), s.get("inst").asText(), s.get("rid").asText(), s.get("ts").asLong(),
                 s.get("sess").asText(), s.get("rcv").asText(), s.get("bind").asText(), s.get("infl").asText(),
                 s.get("prev").asText(), "");
     }
@@ -186,7 +186,7 @@ class VectorsV3Test {
     }
 
     @Test
-    void signingBytesV3() {
+    void signingBytes() {
         for (JsonNode c : vectors.get("signingBytesV3")) {
             assertEquals(c.get("hex").asText(), HexFormat.of().formatHex(stamp(c.get("stamp")).signingBytes()));
         }
@@ -196,7 +196,7 @@ class VectorsV3Test {
     void signatures() {
         for (JsonNode c : vectors.get("signatures")) {
             JsonNode f = c.get("fields");
-            StampV3 s = StampV3.sign(f.get("svc").asText(), f.get("inst").asText(), f.get("rid").asText(),
+            Stamp s = Stamp.sign(f.get("svc").asText(), f.get("inst").asText(), f.get("rid").asText(),
                     f.get("ts").asLong(), f.get("sess").asText(), f.get("rcv").asText(), f.get("bind").asText(),
                     f.get("infl").asText(), f.get("prev").asText(), priv(c.get("key").asText()));
             assertEquals(c.get("sig").asText(), s.sig());
@@ -444,18 +444,18 @@ class VectorsV3Test {
             Set<String> origins = new LinkedHashSet<>();
             c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
             long now = c.get("now").asLong();
-            VerifierConfigV3 cfg = new VerifierConfigV3(keyring(c.get("keyring")),
+            VerifierConfig cfg = new VerifierConfig(keyring(c.get("keyring")),
                     Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
                     c.get("policyNotAfter").asLong(), origins,
                     c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                     c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
             JsonNode route = c.get("proofRoute");
             JsonNode peer = c.get("peer");
-            VerifyInputV3 in = new VerifyInputV3(Vectors.tokenText(c.get("chainToken")),
+            VerifyInput in = new VerifyInput(Vectors.tokenText(c.get("chainToken")),
                     c.get("expectedBind").asText(), Vectors.tokenText(c.get("influenceToken")), proof(policy, route),
                     c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
                     peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
-            VerifierV3 verifier = new VerifierV3(cfg);
+            Verifier verifier = new Verifier(cfg);
             VerifyResult result = null;
             for (int i = 0; i < c.get("uses").asInt(); i++) {
                 result = verifier.verify(in);

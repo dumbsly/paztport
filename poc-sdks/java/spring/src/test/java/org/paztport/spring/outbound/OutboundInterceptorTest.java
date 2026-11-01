@@ -35,14 +35,14 @@ import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.http.RequestContext;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -103,8 +103,8 @@ class OutboundInterceptorTest {
     }
 
     /** What gateway uses to check the responses it gets: it trusts gateway and orders, and gateway is the origin. */
-    private VerifierV3 gatewayVerifier() {
-        return new VerifierV3(new VerifierConfigV3(
+    private Verifier gatewayVerifier() {
+        return new Verifier(new VerifierConfig(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "",
@@ -115,12 +115,12 @@ class OutboundInterceptorTest {
         return new OutboundInterceptor(gatewayStamper(), policy.bundles().get("gateway"), null, "gateway");
     }
 
-    private StamperV3 gatewayStamper() {
-        return new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L);
+    private Stamper gatewayStamper() {
+        return new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> 1000L);
     }
 
-    private StamperV3 ordersStamper() {
-        return new StamperV3("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 2000L);
+    private Stamper ordersStamper() {
+        return new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> 2000L);
     }
 
     /** A RestClient carrying the interceptor, against a mock server expecting one request to {@code uri}. */
@@ -142,11 +142,11 @@ class OutboundInterceptorTest {
     /** Orders' answer: {@code body} with an attestation over {@code attested}, as orders' filter would send it. */
     private ResponseCreator attested(String body, String attested, List<ContentLabel> labels) {
         return request -> {
-            List<StampV3> inbound = chainOf(request.getHeaders());
-            String hash = HttpV3.resultHash(200, attested.getBytes(StandardCharsets.UTF_8));
-            StampV3 stamp = ordersStamper().respond(inbound, hash, inbound.get(0).rid(), labels);
+            List<Stamp> inbound = chainOf(request.getHeaders());
+            String hash = HttpWire.resultHash(200, attested.getBytes(StandardCharsets.UTF_8));
+            Stamp stamp = ordersStamper().respond(inbound, hash, inbound.get(0).rid(), labels);
             return withSuccess(body, MediaType.TEXT_PLAIN)
-                    .header(PaztportHeaders.RESPONSE, HttpV3.encodeResponse(stamp, labels))
+                    .header(PaztportHeaders.RESPONSE, HttpWire.encodeResponse(stamp, labels))
                     .createResponse(request);
         };
     }
@@ -165,13 +165,13 @@ class OutboundInterceptorTest {
         }
     }
 
-    private static List<StampV3> chainOf(HttpHeaders headers) {
-        return Chains.parse(HttpV3.decodeChain(headers.getFirst(PaztportHeaders.CHAIN))).stamps();
+    private static List<Stamp> chainOf(HttpHeaders headers) {
+        return Chains.parse(HttpWire.decodeChain(headers.getFirst(PaztportHeaders.CHAIN))).stamps();
     }
 
     @Test
     void appendsToTheInboundChainCommittingTheContextInfluence() {
-        StamperV3.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
+        Stamper.Stamped received = gatewayStamper().next(null, "orders", "b", List.of(),
                 policy.bundles().get("gateway"));
         try (RequestContext.Scope scope = RequestContext.open()) {
             RequestContext.setInboundChain(received.chain());
@@ -182,16 +182,16 @@ class OutboundInterceptorTest {
                     .post().uri("http://payment:8080/pay").body("{\"amount\":1}").retrieve().toBodilessEntity();
         }
 
-        List<StampV3> chain = chainOf(sent.get(0));
+        List<Stamp> chain = chainOf(sent.get(0));
         assertEquals(2, chain.size());
-        StampV3 last = chain.get(1);
+        Stamp last = chain.get(1);
         assertEquals("orders", last.svc());
         assertEquals("payment", last.rcv());
         assertEquals(Influence.commit(List.of(MINE, WEB)), last.infl());
         assertEquals(RequestBinding.compute("POST", "/pay", "{\"amount\":1}".getBytes(StandardCharsets.UTF_8)),
                 last.bind());
         assertEquals(List.of(MINE, WEB),
-                Influence.parse(HttpV3.decodeInfluence(sent.get(0).getFirst(PaztportHeaders.INFLUENCE))));
+                Influence.parse(HttpWire.decodeInfluence(sent.get(0).getFirst(PaztportHeaders.INFLUENCE))));
         assertNotNull(sent.get(0).getFirst(PaztportHeaders.PROOF));
     }
 
@@ -213,7 +213,7 @@ class OutboundInterceptorTest {
                 "http://search:8080/search?q=a%20b")
                 .get().uri("http://search:8080/search?q=a b").retrieve().toBodilessEntity();
 
-        StampV3 stamp = chainOf(sent.get(0)).get(0);
+        Stamp stamp = chainOf(sent.get(0)).get(0);
         assertEquals("search", stamp.rcv());
         assertEquals(RequestBinding.compute("GET", "/search?q=a%20b", new byte[0]), stamp.bind());
     }
@@ -229,7 +229,7 @@ class OutboundInterceptorTest {
 
         List<InfluenceEntry> recorded = fetchRecorded(client, "hello");
 
-        String hash = HttpV3.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
+        String hash = HttpWire.resultHash(200, "hello".getBytes(StandardCharsets.UTF_8));
         assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)), recorded);
         assertEquals(List.of(), RequestContext.influence(), "closing the scope drops what it recorded");
         assertEquals(List.of(
@@ -247,7 +247,7 @@ class OutboundInterceptorTest {
         List<InfluenceEntry> recorded = fetchRecorded(client, "boom");
 
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:orders",
-                HttpV3.resultHash(500, "boom".getBytes(StandardCharsets.UTF_8)), null, null)),
+                HttpWire.resultHash(500, "boom".getBytes(StandardCharsets.UTF_8)), null, null)),
                 recorded);
         assertEquals(List.of(
                 "PAZTPORT_TRACE response rid=rid-1 from=orders reason=CHAIN_MISSING receiver=gateway ✗ labels=-"),

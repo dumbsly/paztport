@@ -4,8 +4,8 @@
 package org.paztport.spring.outbound;
 
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.HttpCaller;
 import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
@@ -29,7 +29,7 @@ public class OutboundConfiguration {
     @Bean
     @ConditionalOnProperty("paztport.key-path")
     RestClientCustomizer paztportRestClientCustomizer(
-            StamperV3 stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<VerifierV3> verifier,
+            Stamper stamper, ObjectProvider<ProofBundle> bundle, ObjectProvider<Verifier> verifier,
             PaztportProperties props) {
         OutboundInterceptor interceptor = new OutboundInterceptor(HttpCaller.builder(props.getServiceName(), stamper)
                 .bundle(bundle.getIfAvailable()).verifier(verifier.getIfAvailable())

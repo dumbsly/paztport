@@ -43,13 +43,13 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.session.SessionRequest;
 import org.paztport.core.session.Sessions;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.ContextAccess;
 import org.paztport.http.HttpSessions;
 import org.paztport.http.RequestContext;
 import org.paztport.http.boundary.BoundaryClient;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -251,33 +251,33 @@ class PartnerRequestTest {
     }
 
     /** An internal chain the shop's egress verified, as far as the boundary stamp needs one: its rid. */
-    private static List<StampV3> internal(String rid) {
-        return new StamperV3("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid, System::currentTimeMillis)
+    private static List<Stamp> internal(String rid) {
+        return new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid, System::currentTimeMillis)
                 .next(null, "orders", "unused", List.of(), null).chain();
     }
 
-    private static StamperV3 orders() {
-        return new StamperV3("orders", "orders-1", SHOP_KEY.getPrivate(), false, () -> "unused",
+    private static Stamper orders() {
+        return new Stamper("orders", "orders-1", SHOP_KEY.getPrivate(), false, () -> "unused",
                 System::currentTimeMillis);
     }
 
     /** The headers of a boundary call from {@code orders} in {@code sess}, carrying {@link #INFLUENCE}. */
     private static Map<String, String> boundary(String sess, String rid, String path, byte[] body) {
-        StamperV3.Stamped stamped = orders().boundary(internal(rid), sess, PARTNER,
+        Stamper.Stamped stamped = orders().boundary(internal(rid), sess, PARTNER,
                 RequestBinding.compute("POST", path, body), INFLUENCE, SHOP_BUILT.bundles().get("orders"));
         return headers(sess, stamped.chain(), stamped);
     }
 
-    private static Map<String, String> headers(String sess, List<StampV3> chain, StamperV3.Stamped proofFrom) {
+    private static Map<String, String> headers(String sess, List<Stamp> chain, Stamper.Stamped proofFrom) {
         Map<String, String> headers = new LinkedHashMap<>();
         if (sess != null) {
             headers.put(PaztportHeaders.SESSION, sess);
         }
-        headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(chain));
+        headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(chain));
         if (proofFrom != null && proofFrom.proof() != null) {
-            headers.put(PaztportHeaders.PROOF, HttpV3.encodeProof(proofFrom.proof()));
+            headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(proofFrom.proof()));
         }
-        headers.put(PaztportHeaders.INFLUENCE, HttpV3.encodeInfluence(INFLUENCE));
+        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(INFLUENCE));
         return headers;
     }
 
@@ -324,9 +324,9 @@ class PartnerRequestTest {
         String bind = RequestBinding.compute("POST", "/refund", REFUND);
 
         // The shop's internal chain, sent as it is: gateway, then orders, inside the mesh's empty session.
-        List<StampV3> gatewayFirst = new StamperV3("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> "rid-i",
+        List<Stamp> gatewayFirst = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> "rid-i",
                 System::currentTimeMillis).next(null, "orders", "unused", List.of(), null).chain();
-        StamperV3.Stamped twoStamps = orders().next(gatewayFirst, PARTNER, bind, INFLUENCE, null);
+        Stamper.Stamped twoStamps = orders().next(gatewayFirst, PARTNER, bind, INFLUENCE, null);
         Answer internal = post(orders, "/refund", headers(sess, twoStamps.chain(), null), REFUND);
 
         // The other organisation is told the reason only, never whom this side suspects.
@@ -334,7 +334,7 @@ class PartnerRequestTest {
         assertEquals("{\"reason\":\"BAD_ORIGIN\"}", internal.body());
 
         // One stamp from orders, but in the mesh's empty session rather than this one.
-        StamperV3.Stamped meshStamp = new StamperV3("orders", "orders-1", SHOP_KEY.getPrivate(), true,
+        Stamper.Stamped meshStamp = new Stamper("orders", "orders-1", SHOP_KEY.getPrivate(), true,
                 () -> "rid-j", System::currentTimeMillis).next(null, PARTNER, bind, INFLUENCE,
                         SHOP_BUILT.bundles().get("orders"));
         Answer mesh = post(orders, "/refund", headers(sess, meshStamp.chain(), meshStamp), REFUND);

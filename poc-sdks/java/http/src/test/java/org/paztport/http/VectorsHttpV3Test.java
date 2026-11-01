@@ -18,12 +18,12 @@ import org.junit.jupiter.api.Test;
 class VectorsHttpV3Test {
 
     private static JsonNode http;
-    private static JsonNode v3;
+    private static JsonNode core;
 
     @BeforeAll
     static void load() throws IOException {
         http = VectorsHttpV3Export.load("http-v3.json");
-        v3 = VectorsHttpV3Export.load("v3.json");
+        core = VectorsHttpV3Export.load("v3.json");
     }
 
     @Test
@@ -33,6 +33,6 @@ class VectorsHttpV3Test {
 
     @Test
     void everyCaseGivesTheRecordedAnswer() {
-        VectorsHttpV3Export.assertAll(http, v3);
+        VectorsHttpV3Export.assertAll(http, core);
     }
 }

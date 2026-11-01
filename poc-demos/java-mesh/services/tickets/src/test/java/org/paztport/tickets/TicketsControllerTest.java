@@ -20,10 +20,10 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.http.RequestContext;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.springframework.http.HttpMethod;
@@ -40,11 +40,11 @@ class TicketsControllerTest {
 
     @Test
     void theTicketGoesToTheAssistantAsThirdPartyContent() {
-        StamperV3 gateway = new StamperV3("gateway", "gateway-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
+        Stamper gateway = new Stamper("gateway", "gateway-1", Crypto.generateEd25519KeyPair().getPrivate(), true,
                 () -> UUID.randomUUID().toString(), System::currentTimeMillis);
-        StamperV3 tickets = new StamperV3("tickets", "tickets-1", Crypto.generateEd25519KeyPair().getPrivate(), false,
+        Stamper tickets = new Stamper("tickets", "tickets-1", Crypto.generateEd25519KeyPair().getPrivate(), false,
                 () -> "unused", System::currentTimeMillis);
-        List<StampV3> inbound = gateway.next(null, "tickets", "bind", List.of(), null).chain();
+        List<Stamp> inbound = gateway.next(null, "tickets", "bind", List.of(), null).chain();
 
         RestClient.Builder builder = RestClient.builder()
                 .requestInterceptor(new OutboundInterceptor(tickets, null, null, "tickets"));
@@ -68,7 +68,7 @@ class TicketsControllerTest {
         server.verify();
 
         assertNotNull(influenceHeader.get(), "the call to the assistant carries influence");
-        List<InfluenceEntry> influence = Influence.parse(HttpV3.decodeInfluence(influenceHeader.get()));
+        List<InfluenceEntry> influence = Influence.parse(HttpWire.decodeInfluence(influenceHeader.get()));
         String hash = Base64Url.encode(Crypto.sha256(TEXT.getBytes(StandardCharsets.UTF_8)));
         assertEquals(List.of(new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", hash, null, null)),
                 influence);

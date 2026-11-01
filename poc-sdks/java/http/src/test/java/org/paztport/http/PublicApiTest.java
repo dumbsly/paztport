@@ -9,7 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.PublicApi;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 
 /**
  * The HTTP module's public API names no JSON library, for the reason core's does: a user brings whichever Jackson
@@ -20,8 +20,8 @@ class PublicApiTest {
 
     @Test
     void namesNoJsonLibrary() throws Exception {
-        assertTrue(PublicApi.moduleClasses(HttpV3.class, "org.paztport.http").size() > 5, "found the module's classes");
-        PublicApi.Findings found = PublicApi.module(HttpV3.class, "org.paztport.http");
+        assertTrue(PublicApi.moduleClasses(HttpWire.class, "org.paztport.http").size() > 5, "found the module's classes");
+        PublicApi.Findings found = PublicApi.module(HttpWire.class, "org.paztport.http");
         assertTrue(found.types().isEmpty(),
                 "public signatures naming a JSON library:\n  " + String.join("\n  ", found.types()));
         assertEquals(Set.of(), found.annotations(), "JSON library annotations on public types");

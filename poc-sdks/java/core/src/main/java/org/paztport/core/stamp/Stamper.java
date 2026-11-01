@@ -24,7 +24,7 @@ import org.paztport.core.policy.Routes;
  * structure: it is one more stamp on the request chain, naming the caller as receiver, so every live check applies
  * to it unchanged.
  */
-public final class StamperV3 {
+public final class Stamper {
 
     private final String svc;
     private final String inst;
@@ -33,7 +33,7 @@ public final class StamperV3 {
     private final Supplier<String> ridSupplier;
     private final LongSupplier clock;
 
-    public StamperV3(String svc, String inst, PrivateKey key, boolean origin, Supplier<String> ridSupplier,
+    public Stamper(String svc, String inst, PrivateKey key, boolean origin, Supplier<String> ridSupplier,
             LongSupplier clock) {
         this.svc = svc;
         this.inst = inst;
@@ -49,13 +49,13 @@ public final class StamperV3 {
     }
 
     /** The chain to send, and the proof for its route; {@code proof} is null when the bundle holds none. */
-    public record Stamped(List<StampV3> chain, MerkleProof proof) {
+    public record Stamped(List<Stamp> chain, MerkleProof proof) {
     }
 
     /** Stamps an outbound call to {@code receiver}, committing the influence that shaped it. */
-    public Stamped next(List<StampV3> inbound, String receiver, String bind, List<InfluenceEntry> influence,
+    public Stamped next(List<Stamp> inbound, String receiver, String bind, List<InfluenceEntry> influence,
             ProofBundle bundle) {
-        List<StampV3> chain = new ArrayList<>();
+        List<Stamp> chain = new ArrayList<>();
         String rid;
         String sess;
         String prev;
@@ -65,18 +65,18 @@ public final class StamperV3 {
             prev = "";
         } else {
             requireInbound(inbound);
-            StampV3 last = inbound.get(inbound.size() - 1);
+            Stamp last = inbound.get(inbound.size() - 1);
             chain.addAll(inbound);
             rid = inbound.get(0).rid();
             sess = last.sess();
             prev = last.sig();
         }
-        chain.add(StampV3.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind,
+        chain.add(Stamp.sign(svc, inst, rid, clock.getAsLong(), sess, receiver, bind,
                 Influence.commit(influence), prev, key));
 
         MerkleProof proof = null;
         if (bundle != null) {
-            List<String> hops = new ArrayList<>(chain.stream().map(StampV3::svc).toList());
+            List<String> hops = new ArrayList<>(chain.stream().map(Stamp::svc).toList());
             hops.add(receiver);
             proof = bundle.proofFor(Routes.join(hops));
         }
@@ -95,13 +95,13 @@ public final class StamperV3 {
      * the request that led to it, so on a chain nobody verified it signs for a request this service never
      * accepted. Pass only a chain that verified at this service.
      */
-    public Stamped boundary(List<StampV3> verifiedInternal, String sess, String partnerEntry, String bind,
+    public Stamped boundary(List<Stamp> verifiedInternal, String sess, String partnerEntry, String bind,
             List<InfluenceEntry> influence, ProofBundle bundle) {
         requireInbound(verifiedInternal);
         if (sess == null || sess.isEmpty()) {
             throw new IllegalArgumentException("a boundary stamp needs a session id");
         }
-        StampV3 stamp = StampV3.sign(svc, inst, verifiedInternal.get(0).rid(), clock.getAsLong(), sess, partnerEntry,
+        Stamp stamp = Stamp.sign(svc, inst, verifiedInternal.get(0).rid(), clock.getAsLong(), sess, partnerEntry,
                 bind, Influence.commit(influence), "", key);
         MerkleProof proof = bundle == null ? null : bundle.proofFor(Routes.join(List.of(svc, partnerEntry)));
         return new Stamped(List.of(stamp), proof);
@@ -118,14 +118,14 @@ public final class StamperV3 {
      * an empty {@code sig}, an origin's response is a genuine origin stamp. Pass only a chain that verified at this
      * service, and never respond from an origin.
      */
-    public StampV3 respond(List<StampV3> inbound, String resultHash, String callId, List<ContentLabel> labels) {
+    public Stamp respond(List<Stamp> inbound, String resultHash, String callId, List<ContentLabel> labels) {
         requireInbound(inbound);
-        StampV3 last = inbound.get(inbound.size() - 1);
-        return StampV3.sign(svc, inst, inbound.get(0).rid(), clock.getAsLong(), last.sess(), last.svc(),
+        Stamp last = inbound.get(inbound.size() - 1);
+        return Stamp.sign(svc, inst, inbound.get(0).rid(), clock.getAsLong(), last.sess(), last.svc(),
                 Bindings.response(resultHash, callId, labels), Influence.commit(List.of()), last.sig(), key);
     }
 
-    private void requireInbound(List<StampV3> inbound) {
+    private void requireInbound(List<Stamp> inbound) {
         if (inbound == null || inbound.isEmpty()) {
             throw new IllegalStateException("service " + svc + " has no inbound chain to stamp onto");
         }

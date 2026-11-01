@@ -5,7 +5,7 @@ package org.paztport.search;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.springframework.stereotype.Component;
 
 /**
@@ -16,15 +16,15 @@ import org.springframework.stereotype.Component;
 @Component
 public class StolenChainStore {
 
-    private final AtomicReference<List<StampV3>> last = new AtomicReference<>();
+    private final AtomicReference<List<Stamp>> last = new AtomicReference<>();
 
-    public void record(List<StampV3> chain) {
+    public void record(List<Stamp> chain) {
         if (chain != null && !chain.isEmpty()) {
             last.set(chain);
         }
     }
 
-    public List<StampV3> last() {
+    public List<Stamp> last() {
         return last.get();
     }
 }

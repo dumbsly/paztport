@@ -32,8 +32,8 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
-import org.paztport.core.stamp.StamperV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.Verifier;
 import org.paztport.spring.outbound.OutboundInterceptor;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -128,7 +128,7 @@ class MeshRoundTripTest {
     private int port;
 
     @Autowired
-    private VerifierV3 verifier;
+    private Verifier verifier;
 
     @Autowired
     private ProofBundle bundle;
@@ -156,7 +156,7 @@ class MeshRoundTripTest {
         Map<String, String> body;
         try (HttpClient http = TestHttp.newClient()) {
             RestClient origin = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
-                    new StamperV3("localhost", "origin-1", APP.getPrivate(), true,
+                    new Stamper("localhost", "origin-1", APP.getPrivate(), true,
                             () -> UUID.randomUUID().toString(), System::currentTimeMillis), bundle, verifier,
                     "localhost")).build();
             body = origin.get()

@@ -43,18 +43,18 @@ import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.ContextAccess;
 import org.paztport.http.ModeHolder;
 import org.paztport.http.ReceivedRequestListener;
 import org.paztport.http.RequestContext;
 import org.paztport.http.VerificationMode;
 import org.paztport.http.event.EventPublisher;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -110,8 +110,8 @@ class InboundFilterTest {
         ContextAccess.reset();
     }
 
-    private VerifierV3 paymentVerifier() {
-        return new VerifierV3(new VerifierConfigV3(
+    private Verifier paymentVerifier() {
+        return new Verifier(new VerifierConfig(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "",
@@ -128,12 +128,12 @@ class InboundFilterTest {
         return new InboundFilter(null, false, false, "payment", null, null, null, null);
     }
 
-    private StamperV3 paymentStamper() {
-        return new StamperV3("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW);
+    private Stamper paymentStamper() {
+        return new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> "x", () -> NOW);
     }
 
     /** Payment verifying requests and holding a stamp key, so it attests what it answers to a verified chain. */
-    private InboundFilter attestingFilter(VerifierV3 verifier, VerificationMode mode) {
+    private InboundFilter attestingFilter(Verifier verifier, VerificationMode mode) {
         return new InboundFilter(verifier, true, false, "payment", new ModeHolder(mode), events, null,
                 paymentStamper());
     }
@@ -142,14 +142,14 @@ class InboundFilterTest {
     }
 
     private Headers headers(String rid, String target, List<InfluenceEntry> influence) {
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> rid, () -> NOW)
                 .next(null, "orders", RequestBinding.compute("POST", "/orders", "{}".getBytes()), List.of(),
                         policy.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
+        Stamper.Stamped ord = new Stamper("orders", "ord-1", orders.getPrivate(), false, () -> "x", () -> NOW)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", target, TO_PAYMENT), influence,
                         policy.bundles().get("orders"));
-        return new Headers(HttpV3.encodeChain(ord.chain()), HttpV3.encodeProof(ord.proof()),
-                HttpV3.encodeInfluence(influence));
+        return new Headers(HttpWire.encodeChain(ord.chain()), HttpWire.encodeProof(ord.proof()),
+                HttpWire.encodeInfluence(influence));
     }
 
     private Headers validHeaders() {
@@ -173,7 +173,7 @@ class InboundFilterTest {
 
     /** A handler that records what the context held while the request was served. */
     private static final class Seen extends HttpServlet {
-        List<StampV3> chain;
+        List<Stamp> chain;
         List<InfluenceEntry> influence;
         boolean reached;
         boolean scoped;
@@ -198,7 +198,7 @@ class InboundFilterTest {
     }
 
     private static JsonNode decodeAttestation(MockHttpServletResponse response) throws IOException {
-        return new ObjectMapper().readTree(HttpV3.decodeChain(response.getHeader(PaztportHeaders.RESPONSE)));
+        return new ObjectMapper().readTree(HttpWire.decodeChain(response.getHeader(PaztportHeaders.RESPONSE)));
     }
 
     private List<String> traceLines() {
@@ -360,7 +360,7 @@ class InboundFilterTest {
     /** Two endpoints: one dirties the context, the other reports what it found. */
     @RestController
     static final class ReuseController {
-        List<StampV3> chain;
+        List<Stamp> chain;
         List<InfluenceEntry> influence;
         List<ContentLabel> labels;
 
@@ -416,16 +416,16 @@ class InboundFilterTest {
     @Test
     void theRefusalBodyIsTheReasonAloneWhateverTheSuspectSigned() throws Exception {
         String inst = "ord\"1\\";
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1", () -> NOW)
                 .next(null, "orders", "b", List.of(), policy.bundles().get("gateway"));
-        StamperV3.Stamped ord = new StamperV3("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
+        Stamper.Stamped ord = new Stamper("orders", inst, orders.getPrivate(), false, () -> "x", () -> NOW)
                 .next(gw.chain(), "payment", RequestBinding.compute("POST", "/pay", TO_PAYMENT), List.of(),
                         policy.bundles().get("orders"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         // No proof, so the route is unproven and the last signer, with its chosen inst, is the suspect.
         filter(VerificationMode.ENFORCE, null).doFilter(
-                paymentRequest(new Headers(HttpV3.encodeChain(ord.chain()), null, null), TO_PAYMENT),
+                paymentRequest(new Headers(HttpWire.encodeChain(ord.chain()), null, null), TO_PAYMENT),
                 response, new MockFilterChain());
 
         assertEquals(403, response.getStatus());
@@ -454,12 +454,12 @@ class InboundFilterTest {
         assertEquals(1, labels.size());
         assertEquals(InfluenceClass.PRIVATE, labels.get(0).cls());
         assertEquals("alice", labels.get(0).owner());
-        StampV3 stamp = Chains.parse(
+        Stamp stamp = Chains.parse(
                 new ObjectMapper().createArrayNode().add(attestation.get("stamp")).toString()).stamps().get(0);
         assertEquals("payment", stamp.svc());
         assertEquals("orders", stamp.rcv(), "the response goes back to whoever called");
         assertEquals("rid-1", stamp.rid());
-        assertEquals(Bindings.response(HttpV3.resultHash(201, "paid".getBytes(StandardCharsets.UTF_8)), "rid-1",
+        assertEquals(Bindings.response(HttpWire.resultHash(201, "paid".getBytes(StandardCharsets.UTF_8)), "rid-1",
                 labels), stamp.bind());
     }
 

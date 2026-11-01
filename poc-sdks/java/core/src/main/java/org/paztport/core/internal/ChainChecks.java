@@ -16,7 +16,7 @@ import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
@@ -32,7 +32,7 @@ public final class ChainChecks {
     }
 
     /**
-     * What a verifier takes. {@code receiver} is what the last v3 stamp's {@code rcv} must name; {@code rid} the one
+     * What a verifier takes. {@code receiver} is what the last stamp's {@code rcv} must name; {@code rid} the one
      * every stamp must carry, the origin's when null; {@code signers}, when non-null, the services and instance a
      * one-process chain must come from.
      */
@@ -59,8 +59,8 @@ public final class ChainChecks {
         if (!parsed.ok()) {
             return parsed;
         }
-        List<StampV3> stamps = parsed.stamps();
-        StampV3 first = stamps.get(0);
+        List<Stamp> stamps = parsed.stamps();
+        Stamp first = stamps.get(0);
         Signers signers = shape.signers();
 
         // 3. Origin.
@@ -70,7 +70,7 @@ public final class ChainChecks {
 
         // 4. Signatures and links.
         for (int i = 0; i < stamps.size(); i++) {
-            StampV3 s = stamps.get(i);
+            Stamp s = stamps.get(i);
             PublicKey key = keyring.keyFor(s.svc());
             if (key == null || !signatureValid(key, s)
                     || (signers != null && (i >= signers.svcs().size() || !s.svc().equals(signers.svcs().get(i))
@@ -91,14 +91,14 @@ public final class ChainChecks {
 
         // 5. Shared rid.
         String rid = shape.rid() != null ? shape.rid() : first.rid();
-        for (StampV3 s : stamps) {
+        for (Stamp s : stamps) {
             if (!s.rid().equals(rid)) {
                 return fail(ReasonCode.RID_MISMATCH);
             }
         }
 
         // 6. Session.
-        for (StampV3 s : stamps) {
+        for (Stamp s : stamps) {
             if (!s.sess().equals(sess)) {
                 return fail(ReasonCode.SESSION_UNKNOWN);
             }
@@ -111,7 +111,7 @@ public final class ChainChecks {
         return new ParsedChain(List.of(), code);
     }
 
-    private static boolean signatureValid(PublicKey key, StampV3 s) {
+    private static boolean signatureValid(PublicKey key, Stamp s) {
         try {
             return Crypto.verify(key, s.signingBytes(), Base64Url.decode(s.sig()));
         } catch (RuntimeException e) {
@@ -123,7 +123,7 @@ public final class ChainChecks {
      * Checks 8 and 9: the last stamp binds what was expected (BINDING_MISMATCH) and commits to the influence
      * (INFLUENCE_MISMATCH). Null when both hold.
      */
-    public static ReasonCode checkCommitments(StampV3 last, String expectedBind, String influence) {
+    public static ReasonCode checkCommitments(Stamp last, String expectedBind, String influence) {
         // 8. Binding.
         if (!last.bind().equals(expectedBind)) {
             return ReasonCode.BINDING_MISMATCH;
@@ -142,10 +142,10 @@ public final class ChainChecks {
      * Check 11 and the result: the chain's services, then the receiver when given, proven against the root
      * (PATH_NOT_ALLOWED). Both outcomes name the last stamp; the caller decides whether that name is kept.
      */
-    public static VerifyResult checkRoute(List<StampV3> stamps, String receiver, String proof, byte[] root,
+    public static VerifyResult checkRoute(List<Stamp> stamps, String receiver, String proof, byte[] root,
             String rootId) {
-        StampV3 last = stamps.get(stamps.size() - 1);
-        List<String> hops = new ArrayList<>(stamps.stream().map(StampV3::svc).toList());
+        Stamp last = stamps.get(stamps.size() - 1);
+        List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
         if (receiver != null) {
             hops.add(receiver);
         }

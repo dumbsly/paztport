@@ -35,13 +35,13 @@ import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
 import org.paztport.http.event.EventPublisher;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 import org.slf4j.LoggerFactory;
@@ -51,7 +51,7 @@ class RequestContextTest {
     private static final InfluenceEntry WEB = new InfluenceEntry(InfluenceClass.THIRD_PARTY, "web:a", "h1", null, null);
     private static final InfluenceEntry MINE = new InfluenceEntry(InfluenceClass.PRIVATE, "db:a", "h2", null, "alice");
 
-    private final List<StampV3> chain = List.of(StampV3.sign("gateway", "gw-1", "rid-1", 1L, "", "orders", "b", "",
+    private final List<Stamp> chain = List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1L, "", "orders", "b", "",
             "", Crypto.generateEd25519KeyPair().getPrivate()));
 
     @AfterEach
@@ -197,19 +197,19 @@ class RequestContextTest {
 
     /** A request from {@code gateway} to {@code orders}, stamped, proven and carrying {@code influence}. */
     private InboundRequest request(List<InfluenceEntry> influence) {
-        StamperV3.Stamped gw = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
+        Stamper.Stamped gw = new Stamper("gateway", "gw-1", gateway.getPrivate(), true, () -> "rid-1",
                 System::currentTimeMillis).next(null, "orders", RequestBinding.compute("POST", "/x", BODY), influence,
                 policy.bundles().get("gateway"));
         Map<String, String> headers = new HashMap<>();
-        headers.put(PaztportHeaders.CHAIN, HttpV3.encodeChain(gw.chain()));
-        headers.put(PaztportHeaders.PROOF, HttpV3.encodeProof(gw.proof()));
-        headers.put(PaztportHeaders.INFLUENCE, HttpV3.encodeInfluence(influence)); // null, so unsent, when empty
+        headers.put(PaztportHeaders.CHAIN, HttpWire.encodeChain(gw.chain()));
+        headers.put(PaztportHeaders.PROOF, HttpWire.encodeProof(gw.proof()));
+        headers.put(PaztportHeaders.INFLUENCE, HttpWire.encodeInfluence(influence)); // null, so unsent, when empty
         return new InboundRequest("POST", "/x", headers, BODY);
     }
 
     /** {@code orders} verifying requests, offering each to {@code listener} first. */
     private HttpReceiver orders(ReceivedRequestListener listener) {
-        VerifierV3 verifier = new VerifierV3(new VerifierConfigV3(Keyring.of(Map.of("gateway", gateway.getPublic())),
+        Verifier verifier = new Verifier(new VerifierConfig(Keyring.of(Map.of("gateway", gateway.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
                 Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000));
         EventPublisher none = event -> {

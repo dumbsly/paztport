@@ -21,7 +21,7 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.SignedRoot;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamper;
 
 /**
  * The egress's checks on its settings, as the builder makes them for any framework: the partner URL above all,
@@ -54,7 +54,7 @@ class BoundaryClientBuilderTest {
     /** Everything an egress needs, all of it sound, against {@code https://psp:8443}. */
     private BoundaryClient.Builder sound() {
         return BoundaryClient.builder()
-                .stamper(new StamperV3("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
+                .stamper(new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused",
                         System::currentTimeMillis))
                 .bundle(built.bundles().get("payment"))
                 .ownRoot(built.signedRoot())
@@ -107,7 +107,7 @@ class BoundaryClientBuilderTest {
         assertEquals(BoundaryClient.Fault.READ_TIMEOUT, fault(sound().readTimeout(Duration.ZERO)));
         assertEquals(BoundaryClient.Fault.UNNAMED_PARTNER, fault(sound().partner("")));
         for (String svc : Arrays.asList("", null)) {
-            assertEquals(BoundaryClient.Fault.UNNAMED_EGRESS, fault(sound().stamper(new StamperV3(svc, "payment-1",
+            assertEquals(BoundaryClient.Fault.UNNAMED_EGRESS, fault(sound().stamper(new Stamper(svc, "payment-1",
                     payment.getPrivate(), false, () -> "unused", System::currentTimeMillis))), svc);
         }
         assertEquals(BoundaryClient.Fault.IDLE_PERIOD, fault(sound().sessionIdleMs(0)));

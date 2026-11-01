@@ -18,12 +18,12 @@ import org.paztport.core.influence.Influence;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
+import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.NonceCache;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 
 /**
  * verification.md §Offline verification: a recorded call counts in its session only up to the session's limits, and
@@ -38,9 +38,9 @@ class RecordSetTest {
 
     /** A two-stamp call chain in the handshake's session, its last stamp at {@code ts}, signed by its client keys. */
     private static String call(Handshake h, long ts) {
-        StampV3 origin = StampV3.sign("session", "pi-1", "rid-1", ts - 1, h.sess(), "pi", Bindings.prompt("p"), "",
+        Stamp origin = Stamp.sign("session", "pi-1", "rid-1", ts - 1, h.sess(), "pi", Bindings.prompt("p"), "",
                 "", h.session.getPrivate());
-        StampV3 hop = StampV3.sign("pi", "pi-1", "rid-1", ts, h.sess(), "orders", "call-bind",
+        Stamp hop = Stamp.sign("pi", "pi-1", "rid-1", ts, h.sess(), "orders", "call-bind",
                 Influence.commit(List.of()), origin.sig(), h.pi.getPrivate());
         return Chains.toJson(List.of(origin, hop));
     }
@@ -139,14 +139,14 @@ class RecordSetTest {
      * reply's keyring and the server's root, the session's response limit, and the record set's response cache.
      */
     private static ReasonCode checkResponse(Handshake h, long policyNotAfter, NonceCache nonces, long at) {
-        StampV3 s0 = StampV3.sign(ENTRY, "e-1", "rid-1", NOW, h.sess(), "tools", "b0", "", "",
+        Stamp s0 = Stamp.sign(ENTRY, "e-1", "rid-1", NOW, h.sess(), "tools", "b0", "", "",
                 h.entry.getPrivate());
-        StampV3 s1 = StampV3.sign("tools", "t-1", "rid-1", NOW, h.sess(), "pi", "response-bind",
+        Stamp s1 = Stamp.sign("tools", "t-1", "rid-1", NOW, h.sess(), "pi", "response-bind",
                 Influence.commit(List.of()), s0.sig(), h.entry.getPrivate());
         Keyring keyring = Keyring.of(Map.of(ENTRY, h.entry.getPublic(), "tools", h.entry.getPublic()));
-        VerifierConfigV3 cfg = new VerifierConfigV3(keyring, h.serverTree.root(), "s1", policyNotAfter, Set.of(ENTRY),
-                h.sess(), nonces, () -> at, VerifierConfigV3.CALL_MAX_AGE_MS, VerifierConfigV3.RUN_MAX_AGE_MS);
-        return new VerifierV3(cfg).verify(new VerifyInputV3(Chains.toJson(List.of(s0, s1)), "response-bind", "[]",
+        VerifierConfig cfg = new VerifierConfig(keyring, h.serverTree.root(), "s1", policyNotAfter, Set.of(ENTRY),
+                h.sess(), nonces, () -> at, VerifierConfig.CALL_MAX_AGE_MS, VerifierConfig.RUN_MAX_AGE_MS);
+        return new Verifier(cfg).verify(new VerifyInput(Chains.toJson(List.of(s0, s1)), "response-bind", "[]",
                 h.serverTree.proofFor("mcp-entry/tools").toJson(), "pi", false, RESPONSE_KEY, null)).reason();
     }
 }

@@ -61,12 +61,12 @@ import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCert;
 import org.paztport.core.stamp.Chains;
-import org.paztport.core.stamp.StampV3;
-import org.paztport.core.stamp.StamperV3;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
-import org.paztport.core.verify.VerifierConfigV3;
-import org.paztport.core.verify.VerifierV3;
-import org.paztport.core.verify.VerifyInputV3;
+import org.paztport.core.verify.VerifierConfig;
+import org.paztport.core.verify.Verifier;
+import org.paztport.core.verify.VerifyInput;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.PeerCert;
 import org.paztport.http.RequestContext;
@@ -75,7 +75,7 @@ import org.paztport.http.event.EventAccess;
 import org.paztport.http.event.EventPublisher;
 import org.paztport.http.event.LoggingEventPublisher;
 import org.paztport.http.event.ResponderEventPublisher;
-import org.paztport.http.wire.HttpV3;
+import org.paztport.http.wire.HttpWire;
 import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.spring.internal.OwnMaterial;
 import org.paztport.spring.outbound.PooledTlsClient;
@@ -150,10 +150,10 @@ class PaztportAutoConfigurationTest {
                         "paztport.key-path=" + dir.resolve("gateway.key"),
                         "paztport.proofs-path=" + dir.resolve("proofs-gateway.json"))
                 .run(context -> {
-                    assertThat(context).hasSingleBean(StamperV3.class);
+                    assertThat(context).hasSingleBean(Stamper.class);
                     assertThat(context).hasSingleBean(RestClientCustomizer.class);
                     assertThat(context).hasSingleBean(FilterRegistrationBean.class);
-                    assertThat(context).doesNotHaveBean(VerifierV3.class);
+                    assertThat(context).doesNotHaveBean(Verifier.class);
                 });
     }
 
@@ -163,9 +163,9 @@ class PaztportAutoConfigurationTest {
         runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
                 .run(context -> {
-                    assertThat(context).hasSingleBean(VerifierV3.class);
+                    assertThat(context).hasSingleBean(Verifier.class);
                     assertThat(context).hasSingleBean(FilterRegistrationBean.class);
-                    assertThat(context).doesNotHaveBean(StamperV3.class);
+                    assertThat(context).doesNotHaveBean(Stamper.class);
                 });
     }
 
@@ -173,12 +173,12 @@ class PaztportAutoConfigurationTest {
     void theVerifierNeedsAllThreeTrustPaths(@TempDir Path dir) throws Exception {
         writeWorld(dir);
         String[] all = trust(dir);
-        runner.withPropertyValues(all).run(context -> assertThat(context).hasSingleBean(VerifierV3.class));
+        runner.withPropertyValues(all).run(context -> assertThat(context).hasSingleBean(Verifier.class));
         for (int left = 0; left < all.length; left++) {
             List<String> some = new ArrayList<>(List.of(all));
             some.remove(left);
             runner.withPropertyValues(some.toArray(String[]::new))
-                    .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(VerifierV3.class));
+                    .run(context -> assertThat(context).hasNotFailed().doesNotHaveBean(Verifier.class));
         }
     }
 
@@ -361,7 +361,7 @@ class PaztportAutoConfigurationTest {
 
         List<String> warnings = warningsDuring(() -> runner.withPropertyValues(VERIFIER_PROPS)
                 .withPropertyValues(trust(dir))
-                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(VerifierV3.class)));
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(Verifier.class)));
 
         assertThat(warnings).hasSize(1);
         assertThat(warnings.get(0)).contains("paztport.keyring-path").contains(dir.resolve("keyring.json").toString())
@@ -397,18 +397,18 @@ class PaztportAutoConfigurationTest {
                     .withPropertyValues(trust(dir))
                     .withPropertyValues("paztport.max-age-ms=" + maxAge)
                     .run(context -> {
-                        VerifierV3 verifier = context.getBean(VerifierV3.class);
+                        Verifier verifier = context.getBean(Verifier.class);
                         assertThat(verifier.callMaxAgeMs()).isEqualTo(maxAge);
                         assertThat(verifier.nonceTtlMs()).isNotEqualTo(Long.MAX_VALUE)
-                                .isEqualTo(Math.max(VerifierConfigV3.NONCE_TTL_MS, 2 * maxAge));
+                                .isEqualTo(Math.max(VerifierConfig.NONCE_TTL_MS, 2 * maxAge));
                         assertThat(Math.floorDiv(verifier.nonceTtlMs(), 2)).isGreaterThanOrEqualTo(maxAge);
 
                         // The guard holds, so a fresh request verifies rather than failing closed as a replay.
-                        StamperV3.Stamped sent = new StamperV3("gateway", "gw-1", gateway.getPrivate(), true,
+                        Stamper.Stamped sent = new Stamper("gateway", "gw-1", gateway.getPrivate(), true,
                                 () -> "rid-" + maxAge, System::currentTimeMillis)
                                 .next(null, "orders", "b", List.of(),
                                         ProofBundle.load(dir.resolve("proofs-gateway.json")));
-                        VerifyInputV3 input = new VerifyInputV3(Chains.toJson(sent.chain()), "b", "[]",
+                        VerifyInput input = new VerifyInput(Chains.toJson(sent.chain()), "b", "[]",
                                 sent.proof().toJson(), "orders", true, "rid-" + maxAge + "|gateway|req", null);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.OK);
                         assertThat(verifier.verify(input).reason()).isEqualTo(ReasonCode.REPLAY);
@@ -712,7 +712,7 @@ class PaztportAutoConfigurationTest {
     /** Publishes while a request's scope holds an inbound chain, as the filter does when it refuses one. */
     private static void publishInsideARequest(EventPublisher publisher) {
         try (RequestContext.Scope scope = RequestContext.open()) {
-            RequestContext.setInboundChain(List.of(StampV3.sign("gateway", "gw-1", "rid-1", 1L, "", "payment",
+            RequestContext.setInboundChain(List.of(Stamp.sign("gateway", "gw-1", "rid-1", 1L, "", "payment",
                     "b", "", "", Crypto.generateEd25519KeyPair().getPrivate())));
             publisher.publish(EVENT);
         }
@@ -1084,7 +1084,7 @@ class PaztportAutoConfigurationTest {
                     List<String> receivers = new ArrayList<>();
                     MockRestServiceServer.bindTo(builder).build()
                             .expect(ExpectedCount.times(3), anything()).andRespond(request -> {
-                                receivers.add(Chains.parse(HttpV3.decodeChain(
+                                receivers.add(Chains.parse(HttpWire.decodeChain(
                                         request.getHeaders().getFirst(PaztportHeaders.CHAIN)))
                                         .stamps().get(0).rcv());
                                 return withSuccess().createResponse(request);
