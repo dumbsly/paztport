@@ -82,7 +82,8 @@ function input(chain: string, over: Over = {}): VerifyInput {
 }
 
 /** Verifies the chain `stamps`, carried as the token of its JCS bytes. */
-const verify = (stamps: unknown, over: Over = {}, c: VerifierConfig = cfg()) => verifyChain(input(token(stamps), over), c);
+const verify = (stamps: unknown, over: Over = {}, c: VerifierConfig = cfg()) =>
+  verifyChain(input(token(stamps), over), c);
 
 /** A stamp's JSON in the wire table's member order, not JCS's. */
 const wireOrder = (s: Stamp): string =>
