@@ -676,11 +676,22 @@ replaced, with a new handshake, mostly when the server it goes to retires it aft
 its 100th request (Tomcat's default); the client also opens more as concurrency
 rises and closes those left idle.
 
+The costs of the primitives come from the JMH micro-benchmarks in
+[tools/bench](../../poc-sdks/java/README.md#toolsbench), which `./run bench`
+builds and runs. Their inputs are built as the mesh builds them at `payment`: a
+signed keyring, a root over [policy/paths.yaml](policy/paths.yaml) at depth 8,
+and the two-stamp chain `gateway` and `orders` sign, with its proof. The figures
+are the average time per operation on an Apple M5 Pro under macOS 26.6, run
+natively rather than in Docker, on JDK 25.0.5 with JMH 1.37: one fork, three 5 s
+warm-up iterations and five 5 s measured ones, the benchmark's defaults. The last
+row is not a benchmark: it is the size of the headers on the mesh's request to
+`payment`, measured in the mesh.
+
 | Operation | Cost |
 |---|---|
-| Merkle proof verify (depth 8) | **1.6 µs** |
-| SHA-256 (one stamp) | 0.09 µs |
-| Ed25519 sign / verify (stock JDK) | ~222 / ~226 µs |
+| Merkle proof verify (depth 8) | **2.3 µs** |
+| SHA-256 of one stamp's signed bytes (213 B) | 0.11 µs |
+| Ed25519 sign / verify of one stamp (stock JDK) | ~230 / ~237 µs |
 | Request headers at chain depth 2 | 924 B chain + 615 B proof = **1.5 KB** |
 
 What the numbers say:
@@ -692,14 +703,17 @@ What the numbers say:
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
-  costs in the table above that is about 1.3 ms of Ed25519; the rest is likely
-  contention among the 10 users, which isn't measured separately.
-- **The proof of legitimacy is effectively free.** All the cost is in the
-  signature chain, one Ed25519 verify per stamp.
-- **Stock JDK Ed25519 is the slow part.** It runs about 5–10× slower than
-  optimized native implementations, which do tens of microseconds. A hot-path
-  deployment would swap the signature implementation; the Merkle machinery
-  wouldn't change.
+  costs in the table above, those five verifies and one signature come to about
+  1.4 ms of Ed25519; the rest is likely contention among the 10 users, which
+  isn't measured separately. The benchmark ran natively and the services in
+  Docker, so the split is an estimate.
+- **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
+  Ed25519 verify. All the cost is in the signature chain, one Ed25519 verify per
+  stamp.
+- **Stock JDK Ed25519 is the slow part.** Optimized native implementations, which
+  this repository doesn't benchmark, do tens of microseconds, about 5–10× faster.
+  A hot-path deployment would swap the signature implementation; the Merkle
+  machinery wouldn't change.
 - **The chain grows by about 462 B per stamp, on average** (924 B over two). The proof is a fixed 615 B whatever
   the route length. `X-Path-Influence` is absent when there is no influence, as
   here. The response headers were not measured: `X-Path-Response` carries one
@@ -721,9 +735,9 @@ Caveats:
   percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to
   35.19 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
-  outside the mesh and not repeated for this run; the benchmark code is not in
-  this repository. The primitives they time (the Merkle walk, SHA-256 and the
-  JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
+  outside the mesh, not during this run. `./run bench` reproduces them; absolute
+  numbers vary by host. The primitives they time (the Merkle walk, SHA-256 and
+  the JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
   class-loading costs that aren't reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
