@@ -114,8 +114,7 @@ class OpeningCheckControllerTest {
             with(aliceOpening(ORIGINALS), "extra", "member"),
             without(aliceOpening(ORIGINALS), "salt"),
             without(aliceOpening(ORIGINALS), "originals"),
-            "{}",
-            "[]"
+            "{}"
         };
         for (String body : notOpenings) {
             check(RID, body).andExpect(status().isOk())
@@ -183,13 +182,13 @@ class OpeningCheckControllerTest {
                 .andExpect(status().isUnsupportedMediaType());
     }
 
-    /** A canonical value that is not an object is read, and is not an opening. */
+    /** A canonical value that is not one JSON object is a malformed opening. */
     @Test
-    void aValueThatIsNotAnObjectDoesNotOpen() throws Exception {
+    void aValueThatIsNotAnObjectIsMalformed() throws Exception {
         for (String body : List.of("[]", "42", "\"text\"", "true", "null")) {
-            check(RID, body).andExpect(status().isOk())
+            check(RID, body).andExpect(status().isBadRequest())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
         }
     }
 

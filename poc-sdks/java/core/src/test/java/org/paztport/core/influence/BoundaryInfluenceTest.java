@@ -289,12 +289,10 @@ class BoundaryInfluenceTest {
     }
 
     @Test
-    void openingParseRefusesWhatIsNotAnOpening() {
+    void openingParseRefusesAnObjectThatIsNotAnOpening() {
         String salt = "\"" + salt(InfluenceClass.PRIVATE, "alice") + "\"";
         String originals = "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":\"alice\",\"src\":\"s\"}]";
         String[] bad = {
-            "[]",
-            "\"x\"",
             "{}",
             openingText("\"nope\"", originals, "\"alice\"", salt),
             openingText(null, originals, "\"alice\"", salt),
@@ -317,6 +315,15 @@ class BoundaryInfluenceTest {
         }
         assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse((String) null));
         assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse((byte[]) null));
+    }
+
+    @Test
+    void aValueThatIsNotAnObjectIsMalformedJson() {
+        for (String body : List.of("[]", "42", "\"x\"", "true", "null")) {
+            assertThrows(MalformedJsonException.class, () -> BoundaryInfluence.Opening.parse(body), body);
+            assertThrows(MalformedJsonException.class,
+                    () -> BoundaryInfluence.Opening.parse(body.getBytes(StandardCharsets.UTF_8)), body);
+        }
     }
 
     @Test

@@ -22,6 +22,7 @@ import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.encoding.MalformedJsonException.Step;
 import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
@@ -221,8 +222,8 @@ public final class BoundaryInfluence {
         /**
          * Reads the wire form from its text, as the wire bytes of its UTF-8. See {@link #parse(byte[])}.
          *
-         * @throws MalformedJsonException if {@code json} is not the JCS text of one value
-         * @throws IllegalArgumentException if the value is not a well-formed opening
+         * @throws MalformedJsonException if {@code json} is not the JCS text of one object
+         * @throws IllegalArgumentException if the object is not a well-formed opening
          */
         public static Opening parse(String json) {
             if (json == null) {
@@ -237,8 +238,8 @@ public final class BoundaryInfluence {
          * {@code owner}, a {@code salt} that is base64url of 16 bytes and well-formed {@code originals}. Whether it
          * opens anything is {@link #opens}'s question, not this one's.
          *
-         * @throws MalformedJsonException if {@code body} is not the JCS bytes of one value
-         * @throws IllegalArgumentException if the value is not a well-formed opening
+         * @throws MalformedJsonException if {@code body} is not the JCS bytes of one object
+         * @throws IllegalArgumentException if the object is not a well-formed opening
          */
         public static Opening parse(byte[] body) {
             if (body == null) {
@@ -248,7 +249,9 @@ public final class BoundaryInfluence {
         }
 
         private static Opening fromValue(JsonValue value) {
-            JsonValue.Obj o = JsonFields.object(value);
+            if (!(value instanceof JsonValue.Obj o)) {
+                throw new MalformedJsonException(Step.PARSE, "an opening must be one JSON object");
+            }
             JsonFields.exactly(o, REQUIRED, OPTIONAL);
             InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(o, "cls"));
             if (cls == null) {

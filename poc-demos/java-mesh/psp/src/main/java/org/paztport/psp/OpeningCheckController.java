@@ -40,9 +40,9 @@ public class OpeningCheckController {
     }
 
     /**
-     * {@code {"opens": true|false}}. The body must be the JCS bytes of one JSON value, or the answer is {@code 400}.
-     * A value that is not an opening, because it is not an object, has a member other than {@code cls},
-     * {@code owner}, {@code salt} and {@code originals}, lacks one of the required three, or is refused by
+     * {@code {"opens": true|false}}. The body must be the JCS bytes of one JSON object, or the answer is {@code 400}.
+     * An object that is not an opening, because it has a member other than {@code cls}, {@code owner},
+     * {@code salt} and {@code originals}, lacks one of the required three, or is refused by
      * {@link BoundaryInfluence.Opening#parse(byte[])}, does not open: {@code 200} with {@code false}, as a checker
      * must answer for a malformed opening. {@code 404} when no call of {@code rid} was recorded, or it carried no
      * entry of the opening's class and owner. Only JSON is taken: any other content type is answered {@code 415}.
