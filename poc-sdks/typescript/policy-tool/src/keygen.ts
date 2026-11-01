@@ -3,7 +3,7 @@
 
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { describeNotAfter, generateKeyPair, signKeyring } from "@paztport/core";
+import { describeNotAfter, generateKeyPair, requireValidNode, signKeyring } from "@paztport/core";
 import { notAfterInDays, writeKeyring, writePrivate } from "./files.ts";
 
 const USAGE = "Usage: node keygen.ts --out <dir> --services a,b,c [--policy-days 7]";
@@ -29,7 +29,16 @@ function main(): void {
   const lower = names.map((n) => n.toLowerCase());
   const bad =
     new Set(lower).size !== lower.length ||
-    lower.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\"));
+    lower.some((n) => reserved.has(n) || n.includes("/") || n.includes("\\")) ||
+    // the keyring this signs is read by every reader under the route-node rule, so check it before writing any key
+    names.some((n) => {
+      try {
+        requireValidNode(n);
+        return false;
+      } catch {
+        return true;
+      }
+    });
   const notAfter = notAfterInDays(days, DEFAULT_POLICY_DAYS);
   if (!out || names.length === 0 || bad || notAfter === undefined) {
     console.error(USAGE);

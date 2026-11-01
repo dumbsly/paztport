@@ -533,7 +533,7 @@ utf8( "paztport-keyring\n" ‖ JCS({ "notAfter": notAfter, "policy": policy, "se
 When it is valid is set out under [Expiry](#keys-and-files). A reader refuses a keyring with any member but these
 four. `services` is a map: each name in it is a service, held to the [route node](#routes) rules, and each value a
 string. The rule holds wherever a keyring is read, as a file or as the `clientKeyring` and `serverKeyring` of the
-session handshake, and a signer MUST refuse to sign a keyring with a name it does not allow.
+session handshake, and a signer MUST refuse to sign a keyring with a name the rule refuses.
 
 A keyring verifies under a pinned policy key only when its `policy` equals that key and `sig` verifies under it.
 The prefix keeps a keyring signature from being read as any other message the policy key signs. Without the
@@ -545,8 +545,8 @@ current key; `notAfter` is when it stops vouching for them. A retired key needs 
 and the largest `notAfter`, which verify; a tampered service key, a tampered `notAfter`, a `notAfter` added to a
 signature made over `utf8("paztport-keyring\n" ‖ JCS({ "policy": policy, "services": services }))` and a root
 signature offered as a keyring signature, which fail; and a keyring with no `notAfter`, one whose `notAfter` is not
-an integer, one of 2^53 and one whose file writes it `1798761600000.0`, which a reader refuses, the first though its
-signature is the policy key's over those same bytes.
+an integer, one of 2^53, one whose file writes it `1798761600000.0` and one that names a service `a/b`, which a
+reader refuses, the first and the last though their signatures are the policy key's over those same bytes.
 
 Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
 default valid for seven days. The policy tools also re-sign the keyring on every rebuild and renew.

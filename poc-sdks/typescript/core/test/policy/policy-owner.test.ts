@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { encode } from "../../src/encoding/b64url.ts";
 import { canonicalize } from "../../src/encoding/jcs.ts";
-import { signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
+import { keyringSigningBytes, signKeyring, verifyKeyring } from "../../src/policy/keyring.ts";
 import type { SignedKeyring } from "../../src/policy/keyring.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { issueReplyCert, renewKeyring, renewRoot } from "../../src/policy/policy-owner.ts";
@@ -29,6 +29,14 @@ describe("policy owner", () => {
     expect(renewed.notAfter).toBe(NEW);
     expect(renewed.services).toEqual(expired.services);
     expect(verifyKeyring(renewed, policy.publicKey)).toBe(true);
+  });
+
+  it("namesAServiceThatIsNotARouteNodeInsteadOfBlamingTheKey", () => {
+    // self-signed over the bad name, which only code can build: signKeyring refuses it
+    const services = { "a/b": generateKeyPair().publicKey };
+    const sig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, services, NEW)));
+    const bad = { policy: policy.publicKey, services, sig, notAfter: NEW };
+    expect(() => renewKeyring(bad, NEW, policy.privateKey)).toThrow(`route node "a/b" must not contain '/'`);
   });
 
   it("refusesAKeyringThatDoesNotVerifyUnderTheKeyItNames", () => {

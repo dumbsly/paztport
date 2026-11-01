@@ -197,7 +197,10 @@ class SessionsTest {
                 Sessions.checkReply((text + "\n").getBytes(StandardCharsets.UTF_8), req, serverKey, "pay", NOW));
     }
 
-    /** A keyring names its services by route nodes wherever it is read: the client's in a request, the server's in a reply. */
+    /**
+     * A keyring names its services by route nodes wherever it is read: the client's in a request, the server's in a
+     * reply.
+     */
     @Test
     void aKeyringNameThatIsNotARouteNodeIsMalformed() {
         SessionRequest req = request(clientRoot);
@@ -207,9 +210,11 @@ class SessionsTest {
             assertEquals("member clientKeyring holds a name that is not a route node",
                     assertThrows(IllegalArgumentException.class,
                             () -> parse(with(tree(req.toJson()), "clientKeyring", ring)), name).getMessage());
-            assertEquals(ReplyCheck.MALFORMED_REPLY,
-                    Sessions.checkReply(JsonWriter.text(with(reply, "serverKeyring", ring)), req, serverKey, "pay",
-                            NOW), name);
+            String replyText = JsonWriter.text(with(reply, "serverKeyring", ring));
+            assertEquals("member serverKeyring holds a name that is not a route node",
+                    assertThrows(IllegalArgumentException.class, () -> SessionReply.parse(replyText), name)
+                            .getMessage());
+            assertEquals(ReplyCheck.MALFORMED_REPLY, Sessions.checkReply(replyText, req, serverKey, "pay", NOW), name);
         }
     }
 

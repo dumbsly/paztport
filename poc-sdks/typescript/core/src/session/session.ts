@@ -6,7 +6,7 @@ import { concat, randomBytes, sha256, sign, utf8, verify } from "../crypto/crypt
 import { writeWire } from "../encoding/jcs.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { array, exactly, int, object, str, stringMap } from "../internal/fields.ts";
-import { requireRouteNodeNames } from "../internal/keyring-names.ts";
+import { requireRouteNodes } from "../internal/keyring-names.ts";
 import { verifyKeyring, type SignedKeyring } from "../policy/keyring.ts";
 import { replyCertOf, verifyReplyCert, type ReplyCert } from "./reply-cert.ts";
 import { rootOf, verifyRoot, type SignedRoot } from "../policy/root.ts";
@@ -66,7 +66,7 @@ export function readSessionReply(token: string): SessionReply {
     return d;
   });
   const serverKeyring = stringMap(o, "serverKeyring");
-  requireRouteNodeNames(serverKeyring, "serverKeyring");
+  requireRouteNodes(serverKeyring, "serverKeyring");
   const reply: SessionReply = {
     serverRoot: o.serverRoot === null ? null : rootOf(o.serverRoot!),
     serverPolicyKey: str(o, "serverPolicyKey"),

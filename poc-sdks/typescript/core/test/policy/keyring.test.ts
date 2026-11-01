@@ -57,7 +57,7 @@ describe("keyring", () => {
 
   it("signKeyring refuses a service name that is not a route node, before signing", () => {
     for (const name of ["", ".", "..", "a/b", "a\\b", "a|b"]) {
-      expect(() => signKeyring({ [name]: SERVICES.pi }, POLICY.publicKey, POLICY.privateKey, NOT_AFTER), name).toThrow();
+      expect(() => signKeyring({ [name]: SERVICES.pi }, POLICY.publicKey, POLICY.privateKey, NOT_AFTER), name).toThrow(/route node/);
     }
   });
 

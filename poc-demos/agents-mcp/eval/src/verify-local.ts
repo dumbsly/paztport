@@ -7,6 +7,7 @@ import {
   provesPath,
   readLocalRules,
   readNotAfter,
+  readKeyring,
   readProof,
   readRoot,
   rulesHash,
@@ -84,22 +85,20 @@ const VIAS: readonly string[] = ["list", "folder", "never", "missing", "unchecka
 export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
   try {
     const sr = r.signedRoot;
-    const keyring = r.keyring;
-    if (!isObject(keyring) || !Object.values(keyring).every(isString) || !isString(r.policyPublicKey)) {
+    if (!isString(r.policyPublicKey)) {
       return undefined;
     }
     const signedRoot = readRoot(writeToken(sr as JsonValue)); // throws on a root or window that does not read
     if (!verifyRoot(signedRoot, r.policyPublicKey)) {
       return undefined;
     }
-    const services = keyring as Record<string, string>;
     const keyringNotAfter = readNotAfter(r, "keyringNotAfter"); // throws on a malformed window
-    if (!isString(r.keyringSig) || r.keyringSig === "") {
+    // the keyring is read as a file reads it: a name that is not a route node throws
+    const ring = readKeyring(writeToken({ notAfter: keyringNotAfter, policy: r.policyPublicKey, services: r.keyring, sig: r.keyringSig } as JsonValue));
+    if (!verifyKeyring(ring, r.policyPublicKey)) {
       return undefined;
     }
-    if (!verifyKeyring({ policy: r.policyPublicKey, services, sig: r.keyringSig, notAfter: keyringNotAfter }, r.policyPublicKey)) {
-      return undefined;
-    }
+    const keyring = ring.services;
     // the session's request is bound by the server's signed reply: a client record must agree with it
     for (const n of named) {
       if (

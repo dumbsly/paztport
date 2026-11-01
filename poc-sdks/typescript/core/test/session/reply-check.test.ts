@@ -9,7 +9,7 @@ import type { JsonValue } from "../../src/encoding/json.ts";
 import { signKeyring } from "../../src/policy/keyring.ts";
 import { buildPolicy } from "../../src/policy/policy.ts";
 import { signReplyCert } from "../../src/session/reply-cert.ts";
-import { deriveSessionId, newNonce, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
+import { deriveSessionId, newNonce, readSessionReply, signSessionReply, type SessionReply, type SessionRequest } from "../../src/session/session.ts";
 import { checkSessionReply, serverPolicyNotAfter } from "../../src/session/reply-check.ts";
 
 /** An entry-key-form reply whose root window is 20 and keyring window 10. */
@@ -103,6 +103,7 @@ describe("checkSessionReply", () => {
     expect(checkSessionReply(token(u.reply), u.req, u.pin, "mcp-entry", T)).toBe("UNSAFE");
     expect(checkSessionReply(token(h.reply, { disabled: "x" }), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
     expect(checkSessionReply(token(h.reply, { serverKeyring: { "a/b": "k" } }), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
+    expect(() => readSessionReply(token(h.reply, { serverKeyring: { "a/b": "k" } }))).toThrow("member serverKeyring holds a name that is not a route node");
     expect(checkSessionReply(writeToken(null), h.req, h.pin, "mcp-entry", T)).toBe("MALFORMED_REPLY");
     expect(checkSessionReply(token(h.reply), h.req, generateKeyPair().publicKey, "mcp-entry", T)).toBe("PIN_MISMATCH");
     expect(checkSessionReply(token(h.reply), h.req, h.pin, "github-tools", T)).toBe("BAD_SIGNATURE");

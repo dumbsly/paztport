@@ -5,7 +5,10 @@ import { spawnSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { bindLocalTool, buildTree, commitInfluence, encode, randomBytes, signSessionReply, signStampV3 } from "@paztport/core";
+import {
+  bindLocalTool, buildTree, commitInfluence, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, sign, signRoot, signSessionReply,
+  signStampV3, utf8,
+} from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ServerConnection } from "../../pi-extension/src/connection.ts";
@@ -1056,6 +1059,20 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       expect(unsigned.ok, drop.join()).toBe(false);
       expect(results(unsigned.items, "client"), drop.join()).toEqual(["BAD_CLIENT"]);
     }
+  });
+
+  it("aClientRecordsKeyringNamesAreRouteNodes", () => {
+    // a client record re-signed by a fresh policy key over a keyring that also names `extra`, so only the name can refuse it
+    const rec = JSON.parse(localLines.find((l) => JSON.parse(l).type === "client")!);
+    const withName = (extra: string) => {
+      const policy = generateKeyPair();
+      const keyring = { ...rec.keyring, [extra]: rec.keyring.pi };
+      const signedRoot = signRoot(decode(rec.signedRoot.root), rec.signedRoot.rootId, policy.privateKey, rec.signedRoot.notAfter);
+      const keyringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, keyring, rec.keyringNotAfter)));
+      return { ...rec, policyPublicKey: policy.publicKey, signedRoot, keyring, keyringSig };
+    };
+    expect(verifyClient(withName("pi-2"), [])).toBeDefined();
+    for (const name of ["a/b", "a|b", "..", ""]) expect(verifyClient(withName(name), []), name).toBeUndefined();
   });
 
   it("aClientRecordVerifiesAndItsWindowsAreSigned", () => {

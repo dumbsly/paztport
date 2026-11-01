@@ -6,7 +6,7 @@ import { concat, sign, utf8, verify } from "../crypto/crypto.ts";
 import { writeWire } from "../encoding/jcs.ts";
 import { readFile, readToken, type JsonValue } from "../encoding/json.ts";
 import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
-import { requireRouteNodeNames } from "../internal/keyring-names.ts";
+import { requireRouteNodes } from "../internal/keyring-names.ts";
 import { requireValidNode } from "./routes.ts";
 import { isNotAfter } from "./validity.ts";
 
@@ -45,7 +45,7 @@ function keyringOf(value: JsonValue): SignedKeyring {
   const o = object(value);
   exactly(o, ["notAfter", "policy", "services", "sig"]);
   const services = stringMap(o, "services");
-  requireRouteNodeNames(services, "services");
+  requireRouteNodes(services, "services");
   return { policy: str(o, "policy"), services, sig: str(o, "sig"), notAfter: int(o, "notAfter") };
 }
 

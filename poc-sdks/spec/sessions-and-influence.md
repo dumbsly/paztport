@@ -40,14 +40,14 @@ A request is read from its bytes as [wire bytes](wire.md#reading), and has exact
 has exactly a [signed root's](wire.md#the-signed-root) members. Over MCP it is read from the JCS bytes of the
 `params` value. A server MUST answer a request that does not read, or that is not an object, has a member the table
 does not list, or whose `clientRoot` is neither `null` nor an object of exactly string `rootId`, `root` and `sig`
-and an integer `notAfter`, whose `clientKeyring` is not an object of strings or names a service that is not a
-[route node](wire.md#routes), whose `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is
-missing, `null`, not a string or empty, or whose `clientKeyringNotAfter` or `clientRoot.notAfter` is missing or not an
+and an integer `notAfter`, whose `clientKeyring` is not an object of strings or names a service that is not a [route
+node](wire.md#routes), whose `clientPolicyKey` or `nonce` is not a string, whose `clientKeyringSig` is missing,
+`null`, not a string or empty, or whose `clientKeyringNotAfter` or `clientRoot.notAfter` is missing or not an
 integer in [0, 2^53 − 1] (`null` included), with JSON-RPC error `-32602` (Invalid params), and open no session. It
-MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a JSON-RPC error other than
-`-32601`, so the client takes its replacement path ([below](#the-clients-check-of-the-reply)). A request that
-opens no session leaves the connection's current session, if any, in place: the TypeScript server fails before it
-replaces it.
+MUST also open none when the nonce is not 16 bytes or the client root's `sig` is not 64, and MUST answer that with a
+JSON-RPC error other than `-32601`, so the client takes its replacement path
+([below](#the-clients-check-of-the-reply)). A request that opens no session leaves the connection's current session,
+if any, in place: the TypeScript server fails before it replaces it.
 
 A `clientKeyringSig` that is a string but does not verify is no malformed request: the session is unsafe live, and
 offline it is not attested.
@@ -157,21 +157,21 @@ as another kind: session replies `"paztport-session-reply\n"`, reply certificate
 roots `"paztport-root\n"`, keyrings `"paztport-keyring\n"`, responder events `"paztport-event\n"`, and stamps
 `3|`.
 
-`v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested,
-a check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key
-other than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring
-altered after signing or signed by another policy key; an entry absent from the keyring; either of
-`serverKeyringSig` and `serverReplyCert` without the other, whichever key signed the reply; neither field, signed
-by a key the reply's own keyring names for the entry; a server root signed by the entry key; an empty and a `null`
-`serverKeyringSig`; a `null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not have
-and a signed keyring that names a service that is not a route node, each malformed; a pin mismatch; a
-`serverKeyringNotAfter` moved after signing, which fails the signature, and one dropped, one that is not an integer
-and one that is `null`, which are malformed; and a server root `notAfter` moved after signing, which fails the
-signature, and one dropped and one that is not an integer, which are malformed. It pins the judging of the server's material too: a server root at its `notAfter`, and expired (in the
-entry-key form, in the policy-key form and in an unsafe reply), and expired with its `notAfter` moved past `now`
-in a reply signed again by the entry key; a server keyring at its `notAfter` and expired; and a
-`serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is valid until long
-after every case's `now`.
+`v3.json` pins the check in `sessionReply`: the entry-key form attested and unsafe, the policy-key form attested, a
+check at `notAfter` and one 1 ms after it, and forms that fail: a certificate for another service, for a key other
+than the keyring's entry key, or signed by another policy key; a reply signed by another service; a keyring altered
+after signing or signed by another policy key; an entry absent from the keyring; either of `serverKeyringSig` and
+`serverReplyCert` without the other, whichever key signed the reply; neither field, signed by a key the reply's own
+keyring names for the entry; a server root signed by the entry key; an empty and a `null` `serverKeyringSig`; a
+`null` `serverReplyCert`; a `notAfter` that is not an integer; a member the reply does not have and a signed keyring
+that names a service that is not a route node, each malformed; a pin mismatch; a `serverKeyringNotAfter` moved after
+signing, which fails the signature, and one dropped, one that is not an integer and one that is `null`, which are
+malformed; and a server root `notAfter` moved after signing, which fails the signature, and one dropped and one that
+is not an integer, which are malformed. It pins the judging of the server's material too: a server root at its
+`notAfter`, and expired (in the entry-key form, in the policy-key form and in an unsafe reply), and expired with its
+`notAfter` moved past `now` in a reply signed again by the entry key; a server keyring at its `notAfter` and
+expired; and a `serverKeyringNotAfter` in a policy-key reply. Every other root and keyring in these cases is valid
+until long after every case's `now`.
 
 After an outcome from 1 to 3, or a JSON-RPC error or timeout, the server may have opened an attested session
 the client can't use, so every unstamped call would be refused. The client SHOULD replace it: it sends the same

@@ -648,8 +648,8 @@ export function buildVectorsV3(): Record<string, unknown> {
   // A keyring genuinely signed over a service name that is not a route node. signKeyring refuses it, so the signature is made over
   // keyringSigningBytes directly: only the name rule, never the signature, refuses what is signed here.
   const badNameServices = { "a/b": "session", pi: "pi" } as const;
-  const signedOverBadName = (notAfter: number, services: Record<string, KeyName> = badNameServices): SignedKeyring => {
-    const resolved = resolveKeyring(services);
+  const signedOverBadName = (notAfter: number): SignedKeyring => {
+    const resolved = resolveKeyring(badNameServices);
     return { policy: ringPolicy, services: resolved, sig: encode(sign(keys["client-policy"].priv, keyringSigningBytes(ringPolicy, resolved, notAfter))), notAfter };
   };
   const keyring = [

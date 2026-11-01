@@ -3,7 +3,7 @@
 
 import { readToken } from "../encoding/json.ts";
 import { exactly, int, object, str, stringMap } from "../internal/fields.ts";
-import { requireRouteNodeNames } from "../internal/keyring-names.ts";
+import { requireRouteNodes } from "../internal/keyring-names.ts";
 import { rootOf, type SignedRoot } from "../policy/root.ts";
 import { newNonce, type SessionRequest } from "./session.ts";
 
@@ -19,7 +19,7 @@ export function readSessionRequest(token: string): SessionRequest {
   const clientKeyringSig = str(o, "clientKeyringSig");
   if (clientKeyringSig === "") throw new Error("member clientKeyringSig is empty");
   const clientKeyring = stringMap(o, "clientKeyring");
-  requireRouteNodeNames(clientKeyring, "clientKeyring");
+  requireRouteNodes(clientKeyring, "clientKeyring");
   return {
     clientRoot: o.clientRoot === null ? null : rootOf(o.clientRoot!),
     clientPolicyKey: str(o, "clientPolicyKey"),

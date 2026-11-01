@@ -210,8 +210,9 @@ class KeyringFileTest {
     @Test
     void signRefusesAServiceNameThatIsNotARouteNode() {
         for (String name : new String[] {"", ".", "..", "a/b", "a\\b", "a|b"}) {
-            assertThrows(IllegalArgumentException.class, () -> KeyringFile.sign(Map.of(name, SERVICES.get("pi")),
-                    pub(POLICY), NOT_AFTER, POLICY.getPrivate()), name);
+            String message = assertThrows(IllegalArgumentException.class, () -> KeyringFile.sign(
+                    Map.of(name, SERVICES.get("pi")), pub(POLICY), NOT_AFTER, POLICY.getPrivate()), name).getMessage();
+            assertTrue(message.contains("route node"), message);
         }
     }
 

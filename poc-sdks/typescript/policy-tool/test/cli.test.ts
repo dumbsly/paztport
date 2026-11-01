@@ -89,7 +89,7 @@ describe("policy-tool CLIs", () => {
   });
 
   it("keygenRejectsBadServiceNames", () => {
-    for (const svc of ["a,a", "a/b", "a\\b", "..", ".", "policy", "keyring", "a,,b,policy"]) {
+    for (const svc of ["a,a", "a/b", "a\\b", "..", ".", "policy", "keyring", "a,,b,policy", "a|b", "pi,a|b"]) {
       const out = tmp();
       const r = run(keygen, ["--out", out, "--services", svc]);
       expect(r.status, svc).toBe(2);

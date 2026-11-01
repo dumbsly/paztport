@@ -6,6 +6,7 @@ import { signReplyCert, verifyReplyCert } from "../session/reply-cert.ts";
 import type { ReplyCert } from "../session/reply-cert.ts";
 import { signKeyring, verifyKeyring } from "./keyring.ts";
 import type { SignedKeyring } from "./keyring.ts";
+import { requireValidNode } from "./routes.ts";
 import { signRenewedRoot, verifyRoot } from "./root.ts";
 import type { SignedRoot } from "./root.ts";
 import { isNotAfter } from "./validity.ts";
@@ -44,6 +45,7 @@ function signedBy<T>(refusal: string, sign: () => T): T {
 export function renewKeyring(ring: SignedKeyring, notAfter: number, policyPrivateKey: string): SignedKeyring {
   requireSelfSigned(ring);
   if (!isNotAfter(notAfter)) throw new TypeError(NOT_AFTER);
+  for (const name of Object.keys(ring.services)) requireValidNode(name); // a node the rule refuses is named, not blamed on the key
   const refusal = "keyring is not signed by this policy key";
   const renewed = signedBy(refusal, () => signKeyring(ring.services, ring.policy, policyPrivateKey, notAfter));
   if (!verifyKeyring(renewed, ring.policy)) throw new Error(refusal);

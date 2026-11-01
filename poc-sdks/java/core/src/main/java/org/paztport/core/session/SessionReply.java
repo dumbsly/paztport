@@ -53,7 +53,8 @@ public record SessionReply(SignedRoot serverRoot, String serverPolicyKey, Map<St
      * {@code sig}, a {@code serverKeyring} of strings under route-node names, {@code status} {@code "attested"} or
      * {@code "unsafe"}, a {@code disabled} array of strings, and, each only when present, a string
      * {@code serverKeyringSig}, which needs {@code serverKeyringNotAfter} beside it, an integer
-     * {@code serverKeyringNotAfter}, and a {@code serverReplyCert} with exactly a certificate's members. A member whose value is {@code null} is present.
+     * {@code serverKeyringNotAfter}, and a {@code serverReplyCert} with exactly a certificate's members. A member
+     * whose value is {@code null} is present.
      * Checks no signature: {@link Sessions#checkReply} reads a reply with this, then checks it.
      */
     public static SessionReply parse(String json) {
