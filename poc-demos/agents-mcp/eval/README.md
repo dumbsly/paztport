@@ -215,7 +215,7 @@ Most results are the protocol's own: the Paztport SDK gives them, as [the spec's
 | `BROKEN_LINK` | call, response, local | A stamp does not follow the one before it. |
 | `EXPIRED` | call, response | A call outside the run's age limits, or a response outside the freshness window at the time the client checked it. |
 | `RID_MISMATCH` | call, response, local | A stamp names another run, or the chain names another call id than the record. |
-| `BINDING_MISMATCH` | call, response, local | A stamp names the wrong next hop, or the chain is not bound to what the record holds. |
+| `BINDING_MISMATCH` | call, response, local | A stamp names the wrong next hop, or the chain is not bound to what the record holds; for a local step also a decision that does not read. |
 | `REPLAY` | call, response, local | The call, response or step appears earlier in the file. |
 | `PATH_NOT_ALLOWED` | call, response | The route is not proven against the policy root. |
 | `SESSION_UNKNOWN` | call, response, local | A stamp names another session (a local step names none). |
@@ -234,7 +234,7 @@ The rest are this tool's own, about the evidence file rather than the protocol:
 | --- | --- | --- | --- |
 | `BAD_SESSION` | session | yes | The session record does not verify against its pin, or was not attested. |
 | `NO_SESSION` | call | yes | The call has no verified session record for its server before it. (A response to such a call is `NO_CALL`.) |
-| `BAD_CLIENT` | client | yes | The client record does not verify: its root against its policy key, its keyring signature, the same root, policy key, keyring and keyring window as every session record names, or its rules and their proof. |
+| `BAD_CLIENT` | client | yes | The client record does not verify: its keyring and root, which must read and be signed by the keyring's policy key, the same root, policy key, keyring and keyring window as every session record names, or its rules and their proof. |
 | `NO_CLIENT` | local | yes | No verified client record comes before the local step. |
 | `NO_CALL` | response | yes | No verified call with the same server, rid and call id comes before the response. |
 | `DUPLICATE_RESPONSE` | response | yes | A second response for a call that already has one. |
@@ -247,16 +247,16 @@ The rest are this tool's own, about the evidence file rather than the protocol:
 
 ### The evidence format
 
-`evidence.jsonl` is written by the pi extension when `evidenceLog` is set (see the [pi extension README](../pi-extension/README.md)). It holds one JSON object per line, appended in order. Every record has `"v": 1` and a `type`; `verify` reports any other line as `UNREADABLE`.
+`evidence.jsonl` is written by the pi extension when `evidenceLog` is set (see the [pi extension README](../pi-extension/README.md)). It holds one JSON object per line, appended in order. Every record has `"v": 1` and a `type`; `verify` reports any other line as `UNREADABLE`. Every Paztport object in a record is a token, the base64url of the object's JCS bytes, as the protocol carries it ([wire.md](../../../poc-sdks/spec/wire.md#json)), and `verify` reads each one as the SDK reads it: a token that does not read gets the result its reader gives, the one a malformed object gets.
 
 | `type` | Fields | What it is |
 | --- | --- | --- |
 | `run` | `rid`, `ts`, `prompt` | A run's prompt and start time. Unsigned: calls and local steps bind it through their origin stamp. |
-| `session` | `server`, `request`, `reply`, `pin`, `status`, `reason` (optional) | A handshake with an MCP server: the session request and the server's reply as sent and received, the server policy key the client pinned (or null), and what the client concluded (`attested` or `unsafe`, with a `reason` when unsafe). |
-| `call` | `server`, `tool`, `callId`, `rid`, `now`, `params` | A `tools/call` as sent: `params` holds the name, arguments and `_meta` with the chain, proof and influence; `now` is when the client stamped it, its last stamp's `ts`. |
-| `response` | `server`, `tool`, `callId`, `rid`, `now`, `result` | The server's result for a call, `_meta` and attestation included; `now` is when the client checked it. |
-| `client` | `keyring`, `keyringSig`, `keyringNotAfter`, `policyPublicKey`, `signedRoot`, `rules`, `rulesProof` | The client's own material as the session loaded it, written once per session before any local record: its keyring and the policy key's signature over it and `keyringNotAfter`, its signed root whole, its local rules (or null) and the proof for `session/pi/rules:<hash>` (null with no rules). A record without a `keyringSig` is `BAD_CLIENT`. |
-| `local` | `tool`, `callId`, `rid`, `now`, `input`, `resolved`, `routeAllowed`, `rulesHash`, `chain`, `proof`, `influence`, `verdict` | One gated built-in tool call: what the gate saw and decided, signed as two stamps (the run's origin, then pi's step naming `local:<tool>`), the step bound to the input and the decision. `proof` is the route's proof, null when the route is not listed; `rulesHash` is the hash of the session's rules, null with none. |
+| `session` | `server`, `request`, `reply`, `pin`, `status`, `reason` (optional) | A handshake with an MCP server: the token of the session request as sent, the token the server's result carried as its `reply` (null when there was no result, or its `reply` was not a string), the server policy key the client pinned (or null), and what the client concluded (`attested` or `unsafe`, with a `reason` when unsafe). |
+| `call` | `server`, `tool`, `callId`, `rid`, `now`, `params` | A `tools/call` as sent: `params` holds the name, the arguments and `_meta`, whose chain, proof and influence are tokens beside `paztport/callId`; `now` is when the client stamped it, its last stamp's `ts`. |
+| `response` | `server`, `tool`, `callId`, `rid`, `now`, `result` | The server's result for a call as received, its `_meta` holding the attestation's token or the verdict's; `now` is when the client checked it. |
+| `client` | `keyring`, `root`, `rules`, `rulesProof` | The client's own material as the session loaded it, written once per session before any local record, each a token: its signed keyring (the services, the policy key, the window and the policy key's signature over them), its signed root whole, its local rules (or null) and the proof for `session/pi/rules:<hash>` (null with no rules). |
+| `local` | `tool`, `callId`, `rid`, `now`, `input`, `decision`, `chain`, `proof`, `influence` | One gated built-in tool call: what the gate saw and decided, signed as two stamps (the run's origin, then pi's step naming `local:<tool>`), the step bound to the input and the decision. `decision` is the token of the call id, what the gate resolved, the verdict, whether the route is listed and the hash of the session's rules (null with none); `chain`, `proof` and `influence` are tokens, `proof` null when the route is not listed. `input` is a value: it is the content the binding hashes. |
 
 A record never holds a private key.
 

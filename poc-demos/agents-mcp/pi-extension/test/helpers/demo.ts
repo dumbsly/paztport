@@ -6,7 +6,10 @@
 import { spawnSync } from "node:child_process";
 import { cpSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { decode, generateKeyPair, signReplyCert, signKeyring, signRoot, type ReplyCert, type SignedKeyring, type SignedRoot } from "@paztport/core";
+import {
+  decode, generateKeyPair, readChain, readInfluence, readLocalDecision, readProof, signReplyCert, signKeyring, signRoot, type ReplyCert,
+  type SignedKeyring, type SignedRoot,
+} from "@paztport/core";
 
 const MOCK = join(import.meta.dirname, "../../../mock-github-mcp/src");
 export const MAIN = join(MOCK, "main.ts");
@@ -39,6 +42,17 @@ export function githubArgs(demo: string, mode: "enforce" | "audit" | "off", outc
 /** The lines of a JSONL file, parsed. */
 export const records = (path: string): Record<string, any>[] =>
   readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+
+/** A local record with its tokens read: the decision's members beside the record's own, then the chain, proof and influence. */
+export function readLocalRecord(rec: Record<string, any>): Record<string, any> {
+  return {
+    ...rec,
+    ...readLocalDecision(rec.decision),
+    chain: readChain(rec.chain),
+    proof: rec.proof === null ? null : readProof(rec.proof),
+    influence: readInfluence(rec.influence),
+  };
+}
 
 /** The windows `resignDemo` gives; each one left out keeps the window it had. */
 export type DemoWindows = { clientKeyring?: number; clientRoot?: number; localToolsRoot?: number; serverKeyring?: number; serverRoot?: number };

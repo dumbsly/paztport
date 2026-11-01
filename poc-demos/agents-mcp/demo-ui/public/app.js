@@ -830,9 +830,20 @@ function chainList(chain) {
   );
 }
 
+/** Whether the record's token `name` did not read: the server decoded each record's tokens into its `display`. */
+function unreadable(record, name) {
+  return Array.isArray(record?.display?.unreadable) && record.display.unreadable.includes(name);
+}
+
+/** The note shown in place of a token that did not read. */
+function unreadableNote(what) {
+  return h("p", { class: "problem" }, `The recorded ${what} is unreadable.`);
+}
+
 /**
  * The drawer sections for a local tool call: the rule that decided it, the local stamp chain, the route proof and
- * what the agent held. `attested`: the run had Paztport on (with it off, nothing was checked).
+ * what the agent held, each from the record's decoded tokens. `attested`: the run had Paztport on (with it off,
+ * nothing was checked).
  */
 function localSections(step, record, plain, attested) {
   const detail = step.local;
@@ -852,7 +863,7 @@ function localSections(step, record, plain, attested) {
         : h("p", { class: "muted" }, "Paztport was off, so nothing was checked."),
     ),
   );
-  const proof = record?.proof;
+  const proof = record?.display?.proof;
   out.push(
     h(
       "section",
@@ -863,10 +874,11 @@ function localSections(step, record, plain, attested) {
         : [
             h("p", {}, detail.routeAllowed === true ? "This tool is on the session's list of tools it may use, and the proof below ties it to the signed root." : "This tool is not on the session's list, so there is no proof."),
             isObj(proof) ? h("p", { class: "note" }, "Proof for ", h("code", {}, `session/pi/local:${step.tool}`), ", with ", String(Array.isArray(proof.siblings) ? proof.siblings.length : "?"), " steps.") : null,
+            unreadable(record, "proof") ? unreadableNote("route proof") : null,
           ],
     ),
   );
-  const chain = record?.chain;
+  const chain = record?.display?.chain;
   out.push(
     h(
       "section",
@@ -874,16 +886,23 @@ function localSections(step, record, plain, attested) {
       h("h3", {}, "Signed local chain"),
       Array.isArray(chain)
         ? [h("p", { class: "note" }, "The first link is the run's origin; the second is this call, signed with the call id, what was resolved, the decision and the rules' hash."), chainList(chain)]
-        : h("p", { class: "muted" }, "No signed record was found for this call."),
+        : unreadable(record, "chain")
+          ? unreadableNote("chain")
+          : h("p", { class: "muted" }, "No signed record was found for this call."),
     ),
   );
-  const held = Array.isArray(record?.influence) ? [...new Set(record.influence.filter(isObj).map((e) => e.cls))].filter((c) => typeof c === "string") : [];
+  const influence = record?.display?.influence;
+  const held = Array.isArray(influence) ? [...new Set(influence.filter(isObj).map((e) => e.cls))].filter((c) => typeof c === "string") : [];
   out.push(
     h(
       "section",
       {},
       h("h3", {}, "What the agent held when this was decided"),
-      held.length ? h("ul", {}, held.map((c) => h("li", {}, h("code", {}, c), plain[c] ? ` (${plain[c]})` : ""))) : h("p", { class: "muted" }, "Nothing that counts as private, outside text or unverified content."),
+      unreadable(record, "influence")
+        ? unreadableNote("influence")
+        : held.length
+          ? h("ul", {}, held.map((c) => h("li", {}, h("code", {}, c), plain[c] ? ` (${plain[c]})` : "")))
+          : h("p", { class: "muted" }, "Nothing that counts as private, outside text or unverified content."),
     ),
   );
   return out;
@@ -900,8 +919,8 @@ function openDrawer(step, ctx, opener) {
   const events = Array.isArray(ev.events) ? ev.events.filter(isObj) : [];
   const call = evidence.find((r) => r.type === "call");
   const reply = evidence.find((r) => r.type === "response");
-  const chain = call?.params?._meta?.["paztport/chain"];
-  const attestation = reply?.result?._meta?.["paztport/attestation"];
+  const chain = call?.display?.chain;
+  const attestation = reply?.display?.attestation;
   const attested = attestedMode(ctx.mode);
   const plain = state.setup?.plainClasses ?? {};
   const sections = [];
@@ -970,7 +989,9 @@ function openDrawer(step, ctx, opener) {
       h("h3", {}, "Signed request chain"),
       Array.isArray(chain)
         ? [h("p", { class: "note" }, "Each link is signed by the part of the system that passed the request on, and carries the signature of the link before it."), chainList(chain)]
-        : h("p", { class: "muted" }, attested ? "No signed request was recorded for this call." : "Paztport was off for this run, so requests were not signed."),
+        : unreadable(call, "paztport/chain")
+          ? unreadableNote("request chain")
+          : h("p", { class: "muted" }, attested ? "No signed request was recorded for this call." : "Paztport was off for this run, so requests were not signed."),
     ),
   );
 
@@ -979,6 +1000,7 @@ function openDrawer(step, ctx, opener) {
     if (step.result === "refused") replyBody = h("p", {}, ctx.refusalsNote ?? "Refusals are unsigned.");
     else if (Array.isArray(attestation?.chain))
       replyBody = [chainList(attestation.chain), attestation.resultHash ? h("p", { class: "note" }, "Hash of the result: ", h("code", {}, shorten(attestation.resultHash))) : null];
+    else if (unreadable(reply, "paztport/attestation")) replyBody = unreadableNote("attestation");
     else replyBody = h("p", { class: "muted" }, "No signed reply was recorded for this call.");
     sections.push(h("section", {}, h("h3", {}, step.result === "refused" ? "Server's reply" : "Signed reply"), replyBody));
   }

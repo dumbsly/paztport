@@ -5,7 +5,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "n
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { generateKeyPair } from "@paztport/core";
+import { generateKeyPair, readSessionReply, readSessionRequest } from "@paztport/core";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection, type CallOutcome } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
@@ -141,12 +141,14 @@ describe("ServerConnection", { timeout: 30_000 }, () => {
     await conn.connect();
     expect(conn.status()).toBe("attested");
     const [session] = records(evidencePath).filter((r) => r.type === "session");
+    const request = readSessionRequest(session!.request);
+    const reply = readSessionReply(session!.reply);
     expect(material.keyringNotAfter).toEqual(expect.any(Number));
-    expect(session!.request.clientKeyringNotAfter).toBe(material.keyringNotAfter);
-    expect(session!.request.clientRoot).toEqual(material.signedRoot);
-    expect(session!.request.clientRoot.notAfter).toEqual(expect.any(Number));
-    expect(session!.reply.serverKeyringNotAfter).toEqual(expect.any(Number));
-    expect(session!.reply.serverRoot.notAfter).toEqual(expect.any(Number));
+    expect(request.clientKeyringNotAfter).toBe(material.keyringNotAfter);
+    expect(request.clientRoot).toEqual(material.signedRoot);
+    expect(request.clientRoot!.notAfter).toEqual(expect.any(Number));
+    expect(reply.serverKeyringNotAfter).toEqual(expect.any(Number));
+    expect(reply.serverRoot!.notAfter).toEqual(expect.any(Number));
   });
 
   it("aTamperedKeyringWindowMakesTheSessionUnsafe", async () => {

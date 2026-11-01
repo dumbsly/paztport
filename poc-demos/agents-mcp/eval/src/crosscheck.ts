@@ -3,6 +3,7 @@
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
+import { readChain, readLocalDecision } from "@paztport/core";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { loadScenario, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import { readLocalFacts, scoreRunFile, usableRecords } from "./score.ts";
@@ -22,6 +23,15 @@ export type RunVerify = { status: "ok" | "failed" | "none" | "not-recorded"; pro
 /** `verify` reads what is in an evidence file; it cannot see a file that was removed or emptied. These checks can. */
 const EXPECT_EVIDENCE: readonly RunMode[] = ["on", "clean-on"];
 const MAX_PROBLEMS = 10;
+
+/** What `read` gives, or undefined when it throws. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * True when the file exists, has bytes in it, and is not one `verify` reports as NOTHING TO CHECK (only the
@@ -143,8 +153,10 @@ function crossCheckLocal(events: LocalEvent[], report: VerifyReport, evidencePat
   for (const item of report.items) {
     const rec = byLine.get(item.line);
     if (item.type !== "local" || rec === undefined || (item.result !== "OK" && item.result !== "REFUSED")) continue;
-    if (typeof rec.rid === "string" && typeof rec.callId === "string" && typeof rec.tool === "string" && typeof rec.verdict === "string") {
-      verified.set(key({ rid: rec.rid, callId: rec.callId }), { tool: rec.tool, verdict: rec.verdict, callId: rec.callId });
+    // the verdict the step signed, from its decision; a decision that does not read gives no verified step
+    const verdict = typeof rec.decision === "string" ? readOr(() => readLocalDecision(rec.decision as string).verdict) : undefined;
+    if (typeof rec.rid === "string" && typeof rec.callId === "string" && typeof rec.tool === "string" && verdict !== undefined) {
+      verified.set(key({ rid: rec.rid, callId: rec.callId }), { tool: rec.tool, verdict, callId: rec.callId });
     }
   }
 
@@ -213,13 +225,12 @@ export function reusedLocalSignatures(evidence: Map<string, string>): Map<string
   const owners = new Map<string, Set<string>>(); // signature -> runs
   for (const [run, path] of evidence) {
     for (const rec of recordsByLine(path).values()) {
-      if (rec.type !== "local" || !Array.isArray(rec.chain)) continue;
-      for (const stamp of rec.chain.slice(0, 2)) {
-        const sig = typeof stamp === "object" && stamp !== null ? (stamp as Record<string, unknown>).sig : undefined;
-        if (typeof sig !== "string") continue;
-        const set = owners.get(sig) ?? new Set<string>();
+      // a chain that does not read has no signatures to compare
+      const chain = rec.type === "local" && typeof rec.chain === "string" ? readOr(() => readChain(rec.chain as string)) : undefined;
+      for (const stamp of chain?.slice(0, 2) ?? []) {
+        const set = owners.get(stamp.sig) ?? new Set<string>();
         set.add(run);
-        owners.set(sig, set);
+        owners.set(stamp.sig, set);
       }
     }
   }

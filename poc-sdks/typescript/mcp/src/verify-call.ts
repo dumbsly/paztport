@@ -8,10 +8,9 @@ import {
   RUN_MAX_AGE_MS,
   verifyChainOffline,
   verifyChainV3,
-  writeToken,
 } from "@paztport/core";
 import type {
-  InfluenceEntry, JsonValue, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult,
+  InfluenceEntry, OfflineConfig, ReasonCode, V3Config, V3Input, VerifyResult,
 } from "@paztport/core";
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF } from "./meta.ts";
@@ -28,24 +27,20 @@ function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-/** `value`'s token, or `none` for a value no writer writes: "" is a token that does not read. */
+/** `value` when it is a string, a token for the verifier to read; else `none`, which its reader refuses. */
 function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
-  try {
-    return writeToken(value as JsonValue);
-  } catch {
-    return none;
-  }
+  return typeof value === "string" ? value : none;
 }
 
 /** Checks a call's chain once its params have been read: the chain, its nonce key and the call id it names. */
 type ChainCheck = (input: Omit<V3Input, "peer">, nonceKey: string, callId: string) => VerifyResult;
 
 /**
- * Reads a tools/call params object once, turns its `_meta` chain, influence and proof into the tokens the verifier
- * reads, reads the chain for its rid, derives the binding, the receiver `mcp:<serverId>.<name>` (on the route) and
- * the nonce key `rid|callId|req`, and hands them to `check`. A value no writer writes gets its reader's refusal: the
- * chain CHAIN_MISSING, the influence INFLUENCE_MISMATCH in the verifier's own check order, the proof none. Never
- * throws; influence is returned only when the call verifies.
+ * Reads a tools/call params object once: its `_meta` chain, influence and proof are the tokens the verifier reads.
+ * Reads the chain for its rid, derives the binding, the receiver `mcp:<serverId>.<name>` (on the route) and the nonce
+ * key `rid|callId|req`, and hands them to `check`. A member that is not a string gets its reader's refusal: the chain
+ * CHAIN_MISSING ("" is a token that does not read), the influence INFLUENCE_MISMATCH in the verifier's own check
+ * order, the proof none. Never throws; influence is returned only when the call verifies.
  */
 function checkCall(params: unknown, serverId: string, check: ChainCheck): CallVerification {
   let rid = "";

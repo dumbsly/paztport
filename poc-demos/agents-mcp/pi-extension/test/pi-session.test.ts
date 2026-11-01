@@ -31,11 +31,12 @@ import {
   type ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import { McpClient } from "@earendil-works/pi-mcp";
+import { readToken } from "@paztport/core";
 import { META_ATTESTATION, META_CHAIN, META_INFLUENCE, META_PROOF } from "@paztport/mcp";
 import { loadConfig } from "../src/config.ts";
 import paztport from "../src/index.ts";
 import { SCOPE_TEXT } from "../src/refusals.ts";
-import { CANARY, githubArgs, records, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { CANARY, githubArgs, readLocalRecord, records, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 let tmp: string;
 let demo: string;
@@ -335,11 +336,21 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     // a tool result's details to the provider layer: the faux model sees them, while pi-ai's
     // Anthropic and OpenAI converters send only the content.
     const secretKeys = new Set(["sig", META_CHAIN, META_PROOF, META_INFLUENCE, META_ATTESTATION]);
+    const readTokenOr = (v: string): unknown => {
+      try {
+        return readToken(v);
+      } catch {
+        return undefined;
+      }
+    };
     const secrets = new Set<string>();
     const metaKeys = new Set<string>();
     const collect = (v: unknown, take: boolean): void => {
       if (typeof v === "string") {
         if (take && v.length >= 16) secrets.add(v);
+        // a token: the object it holds is collected too, as it would have been sent as a value
+        const held = readTokenOr(v);
+        if (typeof held === "object" && held !== null) collect(held, take);
       } else if (Array.isArray(v)) {
         v.forEach((x) => collect(x, take));
       } else if (typeof v === "object" && v !== null) {
@@ -426,7 +437,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect(evidence.findIndex((r) => r.type === "client")).toBeLessThan(evidence.findIndex((r) => r.type === "local"));
     expect(client[0]!.rules).not.toBeNull();
     expect(client[0]!.rulesProof).not.toBeNull();
-    const locals = evidence.filter((r) => r.type === "local");
+    const locals = evidence.filter((r) => r.type === "local").map(readLocalRecord);
     const verdicts = [
       ["write", "OK"],
       ["write", "INFLUENCE_DENIED"],
@@ -485,7 +496,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect(textOf(outer)).toBe(UNSAFE_TEXT);
     expect(outer.details.nestedIsError).toBe(true);
     expect(readFileSync(join(run.cwd, "website/README.md"), "utf8")).toBe(LOCAL_FILES["website/README.md"]);
-    const locals = records(run.evidenceLog).filter((r) => r.type === "local");
+    const locals = records(run.evidenceLog).filter((r) => r.type === "local").map(readLocalRecord);
     expect(locals.map((r) => [r.tool, r.callId, r.verdict])).toEqual([
       ["ls", "toolu_runner", "OK"],
       ["write", expect.stringMatching(/^toolu_runner\//), "INFLUENCE_DENIED"],
@@ -514,7 +525,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     expect(readFileSync(join(run.cwd, "website/README.md"), "utf8")).toBe(LOCAL_FILES["website/README.md"]);
     expect(readdirSync(join(run.cwd, "notes"))).toEqual(["todo.md"]);
     // the gate signed what it checked: the original path
-    const [rec] = records(run.evidenceLog).filter((r) => r.type === "local");
+    const [rec] = records(run.evidenceLog).filter((r) => r.type === "local").map(readLocalRecord);
     expect(rec).toMatchObject({ tool: "write", verdict: "OK", input: { path: "notes/x.md" } });
   });
 
@@ -531,7 +542,7 @@ describe("pi session end to end", { timeout: 60_000 }, () => {
     );
     await tainted.session.prompt(PROMPT);
 
-    const locals = (run: Run) => records(run.evidenceLog).filter((r) => r.type === "local");
+    const locals = (run: Run) => records(run.evidenceLog).filter((r) => r.type === "local").map(readLocalRecord);
     expect(locals(control).map((r) => [r.tool, r.verdict])).toEqual([["write", "OK"]]);
     expect(locals(control)[0]!.influence.map((e: { cls: string }) => e.cls)).toEqual(["private"]);
     expect(locals(tainted).map((r) => [r.tool, r.verdict])).toEqual([

@@ -13,8 +13,6 @@ import {
   recordedSession,
   sha256,
   utf8,
-  writeToken,
-  type JsonValue,
   type ReasonCode,
   type RecordedSession,
 } from "@paztport/core";
@@ -30,7 +28,8 @@ import { ORIGIN_SVC, verifyClient, verifyLocal, type Client, type LocalResult, t
  * at the recorded time, ending at the call's caller), sessions are recorded handshakes (recordedSession), judged
  * again at each call's recorded time (callInSession), and local steps are the library's recorded local steps
  * (verifyRecordedLocalStep, through verify-local.ts). What is here is reading the evidence format, matching
- * records to each other, the client record, and the report.
+ * records to each other, the client record, and the report. Every Paztport object a record holds is its token, read
+ * by the library's reader, so one that does not read gets that reader's refusal.
  * Of the library's codes, these are given only offline:
  * - TIME_MISMATCH: a call or local step whose stamp time is not the record's `now`, or a local step whose origin
  *   time is not its run's.
@@ -125,6 +124,15 @@ type Rec = Record<string, unknown>;
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
 
+/** What `read` gives, or undefined when it throws. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
 /** The mock server's entry service, from this verifier's own configuration: its responses start there, and its reply certificate names it. */
 const SERVER_ENTRY = "mcp-entry";
 
@@ -147,22 +155,19 @@ export function pinFingerprint(pin: string): string {
 
 function verifySession(r: Rec): Session | undefined {
   try {
-    if (r.status !== "attested" || !isString(r.pin) || !isObject(r.request) || !isObject(r.reply)) {
+    if (r.status !== "attested" || !isString(r.pin) || !isString(r.request) || !isString(r.reply)) {
       return undefined;
     }
-    // The record holds each message as a value; the library reads it as the token it was received as.
-    const requestToken = writeToken(r.request as JsonValue);
-    const replyToken = writeToken(r.reply as JsonValue);
     // The record carries no signed time, so the library judges the session itself at the earliest of its limits, and
     // each call again at its own recorded time.
     const recorded = recordedSession({
-      request: requestToken, reply: replyToken, pin: r.pin, serverEntry: SERVER_ENTRY,
+      request: r.request, reply: r.reply, pin: r.pin, serverEntry: SERVER_ENTRY,
     });
     if (!recorded.attested) {
       return undefined;
     }
-    const request = readSessionRequest(requestToken);
-    const reply = readSessionReply(replyToken);
+    const request = readSessionRequest(r.request);
+    const reply = readSessionReply(r.reply);
     return {
       recorded,
       clientKeyring: request.clientKeyring,
@@ -227,12 +232,14 @@ function verifyFile(path: string, label: string): VerifyReport {
         disputed.add(rec.rid);
       }
     }
-    if (rec.type === "session" && isObject(rec.request) && rec.request.clientRoot !== null && rec.request.clientRoot !== undefined) {
+    // a request that does not read names nothing
+    const request = rec.type === "session" && isString(rec.request) ? readOr(() => readSessionRequest(rec.request as string)) : undefined;
+    if (request !== undefined && request.clientRoot !== null) {
       named.push({
-        root: rec.request.clientRoot,
-        policyKey: rec.request.clientPolicyKey,
-        keyring: rec.request.clientKeyring,
-        keyringNotAfter: Object.hasOwn(rec.request, "clientKeyringNotAfter") ? rec.request.clientKeyringNotAfter : undefined,
+        root: request.clientRoot,
+        policyKey: request.clientPolicyKey,
+        keyring: request.clientKeyring,
+        keyringNotAfter: request.clientKeyringNotAfter,
       });
     }
   }

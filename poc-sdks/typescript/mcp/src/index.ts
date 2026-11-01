@@ -6,4 +6,5 @@ export * from "./client.ts";
 export * from "./meta.ts";
 export * from "./response.ts";
 export * from "./server.ts";
+export * from "./verdict.ts";
 export * from "./verify-call.ts";

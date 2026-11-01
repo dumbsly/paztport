@@ -21,6 +21,7 @@ import {
   signRoot,
   signStampV3,
   verifySessionReply,
+  writeToken,
   type ContentLabel,
   type InfluenceEntry,
   type MerkleProof,
@@ -69,6 +70,9 @@ export type TestClient = {
   ): { reason: ReasonCode; labels: ContentLabel[] };
 };
 
+/** The paztport/session params a client sends for `request`: its token. */
+export const sessionParams = (request: SessionRequest): { request: string } => ({ request: writeToken(request) });
+
 /** The policy key every generated test client signs with, so a test server can pin it. */
 export const CLIENT_POLICY = generateKeyPair();
 
@@ -83,7 +87,7 @@ type ClientMaterial = {
   keyringSig: string;
   keyringNotAfter: number;
   signedRoot: SignedRoot;
-  proofFor(tool: string): MerkleProof;
+  proofFor(tool: string): MerkleProof | undefined;
 };
 
 function generatedMaterial(tools: string[]): ClientMaterial {
@@ -103,7 +107,7 @@ function generatedMaterial(tools: string[]): ClientMaterial {
     keyringSig: signKeyring({ session: session.publicKey, pi: pi.publicKey }, policy.publicKey, policy.privateKey, CLIENT_NOT_AFTER).sig,
     keyringNotAfter: CLIENT_NOT_AFTER,
     signedRoot,
-    proofFor: (tool) => bundles["pi"]!.proofs[`session/pi/mcp:github.${tool}`]!,
+    proofFor: (tool) => bundles["pi"]!.proofs[`session/pi/mcp:github.${tool}`],
   };
 }
 
@@ -120,7 +124,7 @@ function loadMaterial(dir: string): ClientMaterial {
     keyringSig: ring.sig,
     keyringNotAfter: ring.notAfter,
     signedRoot: readRootFile(bytes("root.json")),
-    proofFor: (tool) => bundle.proofs[`session/pi/mcp:github.${tool}`]!,
+    proofFor: (tool) => bundle.proofs[`session/pi/mcp:github.${tool}`],
   };
 }
 
@@ -185,13 +189,15 @@ export function makeClient(opts: { withRoot?: boolean; forgeRoot?: boolean; tool
         },
         pi.privateKey,
       );
+      // a tool outside the client policy has no proof, so the call carries none
+      const proof = m.proofFor(name);
       return {
         name,
         arguments: args,
         _meta: {
-          [META_CHAIN]: [s0, s1],
-          [META_PROOF]: m.proofFor(name),
-          [META_INFLUENCE]: influence,
+          [META_CHAIN]: writeToken([s0, s1]),
+          ...(proof !== undefined ? { [META_PROOF]: writeToken(proof) } : {}),
+          [META_INFLUENCE]: writeToken(influence),
           [META_CALL_ID]: callId,
         },
       };

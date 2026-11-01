@@ -15,7 +15,6 @@ import {
   writeToken,
   type ContentLabel,
   type InfluenceEntry,
-  type JsonValue,
   type MerkleProof,
   type NonceCache,
   type SessionReply,
@@ -25,6 +24,7 @@ import {
 import { bindMcpCall } from "./binding.ts";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT } from "./meta.ts";
 import { verifyMcpResponse } from "./response.ts";
+import { readVerdict, type Verdict } from "./verdict.ts";
 import { mcpReceiver } from "./verify-call.ts";
 
 /** The JSON-RPC error code for an unknown method: a server without Paztport answers paztport/session with it. */
@@ -47,15 +47,24 @@ export type SessionOutcome =
 const unusable = (reason: string): SessionOutcome => ({ status: "unsafe", reason, replaceSession: true });
 
 /**
- * Classifies a paztport/session reply against the request it answers, the pinned server policy key, the server's
- * entry service from the client's own configuration, and the time `now` (ms). The raw reply value is read as the
- * reply's token: a value that token cannot hold is MALFORMED_REPLY.
+ * The reply token a paztport/session result carries: the result holds exactly `reply`, a string, plus an optional
+ * `_meta`, which MCP allows on every result. Undefined for any other result, which a client takes as MALFORMED_REPLY.
  */
-export function classifySessionReply(raw: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
-  let token: string;
-  try {
-    token = writeToken(raw as JsonValue);
-  } catch {
+export function sessionReplyToken(result: unknown): string | undefined {
+  if (!isObject(result) || !Object.hasOwn(result, "reply") || typeof result.reply !== "string") {
+    return undefined;
+  }
+  return Object.keys(result).every((name) => name === "reply" || name === "_meta") ? result.reply : undefined;
+}
+
+/**
+ * Classifies a paztport/session result against the request it answers, the pinned server policy key, the server's
+ * entry service from the client's own configuration, and the time `now` (ms): a result other than a reply token
+ * (sessionReplyToken) is MALFORMED_REPLY, and the token is checked by checkSessionReply.
+ */
+export function classifySessionReply(result: unknown, req: SessionRequest, pin: string, serverEntry: string, now: number): SessionOutcome {
+  const token = sessionReplyToken(result);
+  if (token === undefined) {
     return unusable("MALFORMED_REPLY");
   }
   const check = checkSessionReply(token, req, pin, serverEntry, now);
@@ -73,49 +82,59 @@ export function classifySessionError(rpcCode: number | undefined): SessionOutcom
   return rpcCode === METHOD_NOT_FOUND ? { status: "unsafe", reason: "METHOD_NOT_FOUND", replaceSession: false } : unusable("HANDSHAKE_ERROR");
 }
 
-/** A request sent in the handshake and the raw reply to it, null when there was none. */
-export type SessionExchange = { request: SessionRequest; reply: unknown };
+/**
+ * A request sent in the handshake, as its token, and the `reply` of the result that answered it: null when there was
+ * no result, or its `reply` is not a string.
+ */
+export type SessionExchange = { request: string; reply: string | null };
 
-/** What `openSession` did: the outcome, and each request sent with its raw reply, in order, so the caller can keep evidence. */
+/** What `openSession` did: the outcome, and each exchange, in order, so the caller can keep evidence. */
 export type OpenedSession = { outcome: SessionOutcome; exchanges: SessionExchange[] };
 
+/** A result's `reply` when it is a string, else null: what an exchange records of the result. */
+function replyOf(result: unknown): string | null {
+  return isObject(result) && typeof result.reply === "string" ? result.reply : null;
+}
+
 /**
- * Opens a session: sends `request` through `send`, which rejects on a JSON-RPC error, a timeout or a transport error
- * (`rpcCode` gives the JSON-RPC code of what it rejected with, if any), and classifies the reply. When the outcome
- * warrants a replacement, sends `replacementRequest` (a null root, so the server cannot attest it) best effort; the
- * session is unsafe whatever comes back, and the outcome is the first one's. `onExchange` reports each exchange as it
- * happens, so a caller keeping evidence loses nothing if the replacement hangs.
+ * Opens a session: sends the params `{request}`, the request's token, through `send`, which rejects on a JSON-RPC
+ * error, a timeout or a transport error (`rpcCode` gives the JSON-RPC code of what it rejected with, if any), and
+ * classifies the result. When the outcome warrants a replacement, sends `replacementRequest` (a null root, so the
+ * server cannot attest it) best effort; the session is unsafe whatever comes back, and the outcome is the first one's.
+ * `onExchange` reports each exchange as it happens, so a caller keeping evidence loses nothing if the replacement
+ * hangs. Throws if the request cannot be written.
  */
 export async function openSession(opts: {
   request: SessionRequest;
   pin: string;
   serverEntry: string;
   now: () => number;
-  send: (request: SessionRequest) => Promise<unknown>;
+  send: (params: { request: string }) => Promise<unknown>;
   rpcCode: (error: unknown) => number | undefined;
   /** Called with each exchange as it happens, with the outcome the first reply gave, before any replacement is sent. */
   onExchange?: (exchange: SessionExchange, outcome: SessionOutcome) => void;
 }): Promise<OpenedSession> {
   const { request, send } = opts;
-  let raw: unknown = null;
+  const token = writeToken(request);
+  let result: unknown = null;
   let outcome: SessionOutcome | undefined;
   try {
-    raw = (await send(request)) ?? null;
+    result = await send({ request: token });
   } catch (e) {
     outcome = classifySessionError(opts.rpcCode(e));
   }
-  outcome ??= classifySessionReply(raw, request, opts.pin, opts.serverEntry, opts.now());
-  const exchanges: SessionExchange[] = [{ request, reply: raw }];
+  outcome ??= classifySessionReply(result, request, opts.pin, opts.serverEntry, opts.now());
+  const exchanges: SessionExchange[] = [{ request: token, reply: replyOf(result) }];
   opts.onExchange?.(exchanges[0]!, outcome);
   if (outcome.status === "unsafe" && outcome.replaceSession) {
-    const replacement = replacementRequest(request);
+    const replacement = writeToken(replacementRequest(request));
     let second: unknown = null;
     try {
-      second = (await send(replacement)) ?? null;
+      second = await send({ request: replacement });
     } catch {
       // stays unsafe
     }
-    exchanges.push({ request: replacement, reply: second });
+    exchanges.push({ request: replacement, reply: replyOf(second) });
     opts.onExchange?.(exchanges[1]!, outcome);
   }
   return { outcome, exchanges };
@@ -151,10 +170,11 @@ export type ToolCallStamp = {
 };
 
 /**
- * The `_meta` for an attested tools/call: the origin and a v3 stamp by the calling hop over the call's
- * receiver, binding and influence, the route proof, the influence and the call id. Throws if a stamp cannot be signed.
+ * The `_meta` for an attested tools/call: the tokens of the chain (the origin and a v3 stamp by the calling hop over
+ * the call's receiver, binding and influence), of the route proof and of the influence, and the call id. Throws if a
+ * stamp cannot be signed or a token written.
  */
-export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, unknown> {
+export function stampToolCall(call: { name: string; args: unknown; callId: string }, s: ToolCallStamp): Record<string, string> {
   const hop = signStampV3(
     {
       svc: s.svc,
@@ -169,22 +189,33 @@ export function stampToolCall(call: { name: string; args: unknown; callId: strin
     },
     s.privateKey,
   );
-  return { [META_CHAIN]: [s.origin, hop], [META_PROOF]: s.proof, [META_INFLUENCE]: s.influence, [META_CALL_ID]: call.callId };
+  return {
+    [META_CHAIN]: writeToken([s.origin, hop]),
+    [META_PROOF]: writeToken(s.proof),
+    [META_INFLUENCE]: writeToken(s.influence),
+    [META_CALL_ID]: call.callId,
+  };
 }
 
 /**
  * The paztport/verdict on a result, if any. The reason is server data that reaches the model, so
- * anything but a known refusal code becomes "UNKNOWN". An unsigned refusal is still honoured: it only
- * denies service, so a forged one can withhold a result but never add influence.
+ * anything but a known refusal code becomes "UNKNOWN", and so does a verdict that is not a token that reads, which is
+ * then a refusal. An unsigned refusal is still honoured: it only denies service, so a forged one can withhold a result
+ * but never add influence.
  */
 function verdictOf(raw: Record<string, unknown>): { reason: string; audit: boolean } | undefined {
   const meta = raw._meta;
   if (!isObject(meta) || !Object.hasOwn(meta, META_VERDICT)) {
     return undefined;
   }
-  const v = meta[META_VERDICT];
-  const reason = sanitiseVerdictReason(isObject(v) ? v.reason : undefined);
-  return { reason, audit: isObject(v) && v.audit === true };
+  const token = meta[META_VERDICT];
+  let verdict: Verdict | undefined;
+  try {
+    verdict = typeof token === "string" ? readVerdict(token) : undefined;
+  } catch {
+    verdict = undefined;
+  }
+  return verdict === undefined ? { reason: "UNKNOWN", audit: false } : { reason: sanitiseVerdictReason(verdict.reason), audit: verdict.audit === true };
 }
 
 /** What a result adds to the client's influence: its verified labels, untrusted content, or nothing. */

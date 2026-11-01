@@ -11,6 +11,9 @@ import {
   encode,
   expiryWarnings,
   generateKeyPair,
+  readAttestation,
+  readSessionReply,
+  readToken,
   signReplyCert,
   signKeyring,
   sign,
@@ -18,6 +21,7 @@ import {
   verify,
   verifyRoot,
   verifySessionReply,
+  writeToken,
   type InfluenceClass,
   type InfluenceEntry,
   type SessionReply,
@@ -28,13 +32,15 @@ import {
   InvalidParams,
   McpServerSession,
   META_ATTESTATION,
+  META_CALL_ID,
   META_VERDICT,
+  readVerdict,
   verifyCall,
   type ServerPolicy,
   type Session,
   type SessionRules,
 } from "../src/index.ts";
-import { CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, type CallToolResult } from "./helpers/client.ts";
+import { CLIENT_NOT_AFTER, CLIENT_POLICY, makeClient, sessionParams, tokenOf, type CallToolResult } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
@@ -79,6 +85,11 @@ function serverSetup(
 
 function serverConfig(): ServerPolicy {
   return serverSetup().cfg;
+}
+
+/** Opens a session with the params a client sends for `request`, and reads the reply token the server answers with. */
+function handshake(srv: McpServerSession, request: unknown): SessionReply {
+  return readSessionReply(srv.openSession(sessionParams(request)).reply);
 }
 
 const RESULT: CallToolResult = { content: [{ type: "text", text: "hello" }] };
@@ -250,10 +261,31 @@ describe("checkServerPolicy", () => {
 });
 
 describe("session handshake", () => {
+  it("aRequestObjectAsParamsIsInvalidParams", () => {
+    // the request itself, not its token, as a peer that sends values would
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const request = makeClient().request();
+    expect(() => srv.openSession(request)).toThrow(InvalidParams);
+    expect(() => srv.openSession({ request })).toThrow(new InvalidParams("member request is not a string"));
+    expect(srv.session()).toBeUndefined();
+  });
+  it("aRequestWithMetaOpensItsSession", () => {
+    // MCP allows _meta, such as a progress token, on every request; it is not the request's
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const { reply } = srv.openSession({ ...sessionParams(makeClient().request()), _meta: { progressToken: 1 } });
+    expect(readSessionReply(reply).status).toBe("attested");
+    expect(srv.session()?.status).toBe("attested");
+  });
+  it("aRequestWithAnotherMemberIsInvalidParams", () => {
+    const srv = new McpServerSession(serverConfig(), RULES, Date.now);
+    const params = { ...sessionParams(makeClient().request()), other: 1 };
+    expect(() => srv.openSession(params)).toThrow(InvalidParams);
+    expect(srv.session()).toBeUndefined();
+  });
   it("attestedWhenBothRoots", () => {
     const cfg = serverConfig();
     const srv = new McpServerSession(cfg, RULES, Date.now);
-    const reply = srv.openSession(makeClient({ withRoot: true }).request());
+    const reply = handshake(srv, makeClient({ withRoot: true }).request());
     expect(reply.status).toBe("attested");
     expect(reply.disabled).toEqual([]);
     expect(reply.serverRoot).toEqual(cfg.signedRoot);
@@ -267,49 +299,50 @@ describe("session handshake", () => {
     const req = makeClient().request();
     expect(req.clientRoot!.notAfter).toBe(CLIENT_NOT_AFTER);
     expect(req.clientKeyringNotAfter).toBe(CLIENT_NOT_AFTER);
-    expect(srv.openSession(JSON.parse(JSON.stringify(req))).status).toBe("attested");
+    expect(handshake(srv, JSON.parse(JSON.stringify(req))).status).toBe("attested");
     expect(srv.session()!.request.clientRoot).toEqual(req.clientRoot);
     expect(srv.session()!.request.clientKeyringNotAfter).toBe(CLIENT_NOT_AFTER);
   });
   it("aTamperedClientKeyringNotAfterIsUnsafe", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = makeClient().request();
-    expect(srv.openSession({ ...req, clientKeyringNotAfter: CLIENT_NOT_AFTER + 1 }).status).toBe("unsafe");
-    expect(srv.openSession({ ...req, clientRoot: { ...req.clientRoot!, notAfter: CLIENT_NOT_AFTER + 1 } }).status).toBe("unsafe");
+    expect(handshake(srv, { ...req, clientKeyringNotAfter: CLIENT_NOT_AFTER + 1 }).status).toBe("unsafe");
+    expect(handshake(srv, { ...req, clientRoot: { ...req.clientRoot!, notAfter: CLIENT_NOT_AFTER + 1 } }).status).toBe("unsafe");
   });
   it("aMalformedNotAfterOpensNoSession", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const good = makeClient().request();
-    expect(srv.openSession(good).status).toBe("attested");
+    expect(handshake(srv, good).status).toBe("attested");
     const current = srv.session();
     for (const bad of [1.5, -1, 2 ** 53, "x", null, true, {}, []]) {
-      expect(() => srv.openSession({ ...good, clientKeyringNotAfter: bad }), `keyring ${String(bad)}`).toThrow(InvalidParams);
+      expect(() => handshake(srv, { ...good, clientKeyringNotAfter: bad }), `keyring ${String(bad)}`).toThrow(InvalidParams);
       const root = { ...good.clientRoot!, notAfter: bad };
-      expect(() => srv.openSession({ ...good, clientRoot: root }), `root ${String(bad)}`).toThrow(InvalidParams);
+      expect(() => handshake(srv, { ...good, clientRoot: root }), `root ${String(bad)}`).toThrow(InvalidParams);
     }
-    // a value the token cannot hold is refused without repeating it
+    // a token holding a number that is not a protocol integer is refused without repeating it
     for (const bad of [1.5, -1, 2 ** 53]) {
-      const refused = () => srv.openSession({ ...good, clientKeyringNotAfter: bad });
-      expect(refused, String(bad)).toThrow(new InvalidParams("a value a request cannot hold"));
+      const refused = () => handshake(srv, { ...good, clientKeyringNotAfter: bad });
+      expect(refused, String(bad)).toThrow(/^json parse: /);
+      expect(refused, String(bad)).not.toThrow(String(bad));
     }
     const ring = { ...good, clientKeyringNotAfter: "x" };
-    expect(() => srv.openSession(ring)).toThrow("member clientKeyringNotAfter is not an integer");
+    expect(() => handshake(srv, ring)).toThrow("member clientKeyringNotAfter is not an integer");
     const root = { ...good, clientRoot: { ...good.clientRoot!, notAfter: "x" } };
-    expect(() => srv.openSession(root)).toThrow("member notAfter is not an integer");
+    expect(() => handshake(srv, root)).toThrow("member notAfter is not an integer");
     // a request that opens no session leaves the current one in place
     expect(srv.session()).toBe(current);
   });
   it("clientMaterialWithoutNotAfterOpensNoSession", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const good = makeClient().request();
-    expect(srv.openSession(good).status).toBe("attested");
+    expect(handshake(srv, good).status).toBe("attested");
     const current = srv.session();
     const { clientKeyringNotAfter: _w, ...noRingWindow } = good;
     const { notAfter: _n, ...root } = good.clientRoot!;
-    expect(() => srv.openSession(noRingWindow)).toThrow(InvalidParams);
-    expect(() => srv.openSession(noRingWindow)).toThrow("no member clientKeyringNotAfter");
-    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow(InvalidParams);
-    expect(() => srv.openSession({ ...good, clientRoot: root })).toThrow("no member notAfter");
+    expect(() => handshake(srv, noRingWindow)).toThrow(InvalidParams);
+    expect(() => handshake(srv, noRingWindow)).toThrow("no member clientKeyringNotAfter");
+    expect(() => handshake(srv, { ...good, clientRoot: root })).toThrow(InvalidParams);
+    expect(() => handshake(srv, { ...good, clientRoot: root })).toThrow("no member notAfter");
     expect(srv.session()).toBe(current);
   });
   it("aRequestValueWithAnExtraMemberIsInvalidParams", () => {
@@ -317,8 +350,8 @@ describe("session handshake", () => {
     const good = makeClient().request();
     const extraInRoot = { ...good, clientRoot: { ...good.clientRoot!, note: "added" } };
     for (const request of [{ ...good, serverEntry: "mcp-entry" }, extraInRoot]) {
-      expect(() => srv.openSession(request)).toThrow(InvalidParams);
-      expect(() => srv.openSession(request)).toThrow("a member the object does not define");
+      expect(() => handshake(srv, request)).toThrow(InvalidParams);
+      expect(() => handshake(srv, request)).toThrow("a member the object does not define");
     }
     expect(srv.session()).toBeUndefined();
   });
@@ -328,9 +361,9 @@ describe("session handshake", () => {
       let now = Date.now();
       const srv = new McpServerSession(serverConfig(), RULES, () => now);
       now = T;
-      expect(srv.openSession(makeClient(opts).request()).status, `${what} at notAfter`).toBe("attested");
+      expect(handshake(srv, makeClient(opts).request()).status, `${what} at notAfter`).toBe("attested");
       now = T + 1;
-      expect(srv.openSession(makeClient(opts).request()).status, `${what} one ms past`).toBe("unsafe");
+      expect(handshake(srv, makeClient(opts).request()).status, `${what} one ms past`).toBe("unsafe");
     }
   });
   it("aServerWhoseOwnRootOrKeyringExpiredDegradesToUnsafeSessions", () => {
@@ -340,7 +373,7 @@ describe("session handshake", () => {
       const { cfg } = serverSetup(["mcp-entry", "github-tools"], windows);
       const srv = new McpServerSession(cfg, RULES, () => now, () => {});
       const client = makeClient();
-      const first = srv.openSession(client.request());
+      const first = handshake(srv, client.request());
       expect(first.status, what).toBe("attested");
       expect(client.acceptReply(first, cfg.policyPublicKey), what).toBe(true);
       // a session opened before expiry is still verified against the client's material
@@ -348,7 +381,7 @@ describe("session handshake", () => {
       expect(srv.checkCall(client.callParams("list_issues", { owner: "o" }, [], { now })).reason, `${what} earlier session`).toBe("OK");
       // every new session is unsafe: reads run, writes are refused, as for any unattested caller
       const req = client.request();
-      const reply = srv.openSession(req);
+      const reply = handshake(srv, req);
       expect(reply.status, what).toBe("unsafe");
       expect(reply.disabled, what).toEqual(RULES.disabledWhenUnsafe);
       const decide = (tool: string, isWrite: boolean) =>
@@ -366,7 +399,7 @@ describe("session handshake", () => {
       const cfg = serverConfig();
       const srv = new McpServerSession(cfg, RULES, () => now, () => {});
       const client = makeClient(opts);
-      const reply = srv.openSession(client.request());
+      const reply = handshake(srv, client.request());
       expect(reply.status, what).toBe("attested");
       expect(client.acceptReply(reply, cfg.policyPublicKey), what).toBe(true);
       now = T;
@@ -378,28 +411,28 @@ describe("session handshake", () => {
   });
   it("unsafeWithoutClientRootDisablesWrites", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
-    const reply = srv.openSession(makeClient({ withRoot: false }).request());
+    const reply = handshake(srv, makeClient({ withRoot: false }).request());
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
     expect(srv.session()?.status).toBe("unsafe");
   });
   it("aPinnedClientWithASignedKeyringIsAttested", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
-    expect(srv.openSession(makeClient().request()).status).toBe("attested");
+    expect(handshake(srv, makeClient().request()).status).toBe("attested");
   });
   it("anUnpinnedClientKeyIsUnsafe", () => {
     const srv = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [generateKeyPair().publicKey] }, RULES, Date.now);
-    const reply = srv.openSession(makeClient().request());
+    const reply = handshake(srv, makeClient().request());
     expect(reply.status).toBe("unsafe");
     expect(reply.disabled).toEqual(RULES.disabledWhenUnsafe);
     const none = new McpServerSession({ ...serverConfig(), pinnedClientKeys: [] }, RULES, Date.now);
-    expect(none.openSession(makeClient().request()).status).toBe("unsafe");
+    expect(handshake(none, makeClient().request()).status).toBe("unsafe");
   });
   it("aRequestWithNoKeyringSignatureIsInvalidParams", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const { clientKeyringSig: _sig, ...missing } = makeClient().request();
     for (const request of [missing, { ...missing, clientKeyringSig: null }, { ...missing, clientKeyringSig: "" }, { ...missing, clientKeyringSig: 7 }]) {
-      expect(() => srv.openSession(request)).toThrow(InvalidParams);
+      expect(() => handshake(srv, request)).toThrow(InvalidParams);
     }
     expect(srv.session()).toBeUndefined();
   });
@@ -407,7 +440,7 @@ describe("session handshake", () => {
     const cfg = serverConfig();
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
-    const reply = srv.openSession(client.request());
+    const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(client.acceptReply(reply, generateKeyPair().publicKey)).toBe(false);
   });
@@ -416,7 +449,7 @@ describe("session handshake", () => {
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
     const req = client.request();
-    const reply = srv.openSession(req);
+    const reply = handshake(srv, req);
     expect(reply.serverKeyring).toEqual(cfg.keyring);
     expect(reply.serverKeyringSig).toBe(cfg.keyringSig);
     expect(reply.serverKeyringNotAfter).toBe(NOT_AFTER);
@@ -434,15 +467,15 @@ describe("session handshake", () => {
   it("disabledInReplyIsACopy", () => {
     const rules: SessionRules = { disabledWhenUnsafe: ["create_branch"] };
     const srv = new McpServerSession(serverConfig(), rules, Date.now);
-    const reply = srv.openSession(makeClient({ withRoot: false }).request());
+    const reply = handshake(srv, makeClient({ withRoot: false }).request());
     reply.disabled.push("list_issues");
     expect(rules.disabledWhenUnsafe).toEqual(["create_branch"]);
-    expect(srv.openSession(makeClient({ withRoot: false }).request()).disabled).toEqual(["create_branch"]);
+    expect(handshake(srv, makeClient({ withRoot: false }).request()).disabled).toEqual(["create_branch"]);
   });
   it("protoKeyInClientKeyringIsOrdinary", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const req = JSON.parse(JSON.stringify(makeClient().request()).replace('"clientKeyring":{', '"clientKeyring":{"__proto__":"k",'));
-    srv.openSession(req);
+    handshake(srv, req);
     const ring = srv.session()!.request.clientKeyring;
     expect(Object.hasOwn(ring, "__proto__")).toBe(true);
     expect(ring["__proto__"]).toBe("k");
@@ -451,7 +484,7 @@ describe("session handshake", () => {
   it("malformedSessionRequestThrows", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     for (const bad of [null, "x", {}, { clientRoot: null, clientPolicyKey: 1, clientKeyring: {}, nonce: "n" }, { clientRoot: null, clientPolicyKey: "k", clientKeyring: [], nonce: "n" }, { clientRoot: { rootId: "v" }, clientPolicyKey: "k", clientKeyring: {}, nonce: "n" }]) {
-      expect(() => srv.openSession(bad)).toThrow();
+      expect(() => handshake(srv, bad)).toThrow();
     }
     expect(srv.session()).toBeUndefined();
   });
@@ -462,7 +495,7 @@ describe("response attestation", () => {
     const cfg = serverConfig();
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
-    const reply = srv.openSession(client.request());
+    const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     return { cfg, srv, client, reply };
   }
@@ -478,7 +511,7 @@ describe("response attestation", () => {
   it("attestationLabelMatchesClass", () => {
     const { srv } = setup();
     for (const cls of ["third-party", "private", "public", "local-untrusted"] as const) {
-      const att = (srv.attest(srv.session()!, RESULT, CALL, cls)._meta as Record<string, any>)[META_ATTESTATION];
+      const att = readAttestation((srv.attest(srv.session()!, RESULT, CALL, cls)._meta as Record<string, string>)[META_ATTESTATION]!);
       expect(att.labels).toHaveLength(1);
       expect(att.labels[0].cls).toBe(cls);
       expect(typeof att.labels[0].cid).toBe("string");
@@ -487,7 +520,7 @@ describe("response attestation", () => {
   });
   it("theResponseChainIsV3AndEndsAtTheCaller", () => {
     const { srv } = setup();
-    const att = (srv.attest(srv.session()!, RESULT, { ...CALL, caller: "pi" }, "public")._meta as Record<string, any>)[META_ATTESTATION];
+    const att = readAttestation((srv.attest(srv.session()!, RESULT, { ...CALL, caller: "pi" }, "public")._meta as Record<string, string>)[META_ATTESTATION]!);
     expect(att.chain.map((s: any) => s.rcv)).toEqual(["github-tools", "pi"]);
     expect(att.chain.map((s: any) => s.v)).toEqual([3, 3]);
   });
@@ -504,7 +537,7 @@ describe("response attestation", () => {
     srv.attest(srv.session()!, RESULT, { ...CALL, rid: "rid-3", callId: "call-3" }, "third-party");
     expect(srv.session()!.served).toEqual(new Set(["third-party", "private"]));
     // a new handshake starts a new session with nothing served
-    srv.openSession(client.request());
+    handshake(srv, client.request());
     expect(srv.session()!.served.size).toBe(0);
   });
   it("replayedResponseIsRejected", () => {
@@ -524,7 +557,7 @@ describe("response attestation", () => {
     const { srv, client: clientA, reply: replyA } = setup();
     const outA = srv.attest(srv.session()!, RESULT, CALL, "public");
     const clientB = makeClient();
-    const replyB = srv.openSession(clientB.request());
+    const replyB = handshake(srv, clientB.request());
     expect(clientB.acceptReply(replyB, replyA.serverPolicyKey)).toBe(true);
     expect(replyB.sess).not.toBe(replyA.sess);
     const v = clientB.verify(outA, { rid: CALL.rid, toolCallId: CALL.callId }, replyB.serverKeyring, replyB.serverRoot!);
@@ -562,7 +595,7 @@ describe("response attestation", () => {
     const other = { ...srv.session()!, sess: "verified-session-id", served: new Set<InfluenceClass>() };
     expect(other.sess).not.toBe(srv.session()!.sess);
     const out = srv.attest(other, RESULT, CALL, "private");
-    const att = (out._meta as Record<string, any>)[META_ATTESTATION];
+    const att = readAttestation((out._meta as Record<string, string>)[META_ATTESTATION]!);
     expect(att.chain.map((s: any) => s.sess)).toEqual(["verified-session-id", "verified-session-id"]);
     expect(other.served).toEqual(new Set(["private"]));
     expect(srv.session()!.served.size).toBe(0);
@@ -573,14 +606,26 @@ describe("call check", () => {
   function attested(tools?: string[], over: Partial<ServerPolicy> = {}) {
     const srv = new McpServerSession({ ...serverConfig(), ...over }, RULES, Date.now);
     const client = makeClient({ tools });
-    const reply = srv.openSession(client.request());
+    const reply = handshake(srv, client.request());
     expect(client.acceptReply(reply, reply.serverPolicyKey)).toBe(true);
     return { srv, client };
   }
+  it("aCallWhoseMetaHoldsValuesIsChainMissing", async () => {
+    // a peer that sends each _meta member as the value its token holds
+    const { srv, client } = attested(["list_issues"]);
+    const params = client.callParams("list_issues", { owner: "o", repo: "r" }, []);
+    const meta = params._meta as Record<string, unknown>;
+    const values = Object.fromEntries(Object.entries(meta).map(([k, v]) => [k, k === META_CALL_ID ? v : readToken(v as string)]));
+    expect(srv.checkCall({ ...params, _meta: values })).toMatchObject({ reason: "CHAIN_MISSING", caller: "", influence: [] });
+    const out = await srv.handleToolCall({ ...params, _meta: values }, { isWrite: false, publicDestination: false }, "enforce", () => ({ result: RESULT, cls: "public" }));
+    expect(out).toMatchObject({ verdict: "CHAIN_MISSING", ran: false, verified: null });
+    // the tokens themselves verify
+    expect(srv.checkCall(params).reason).toBe("OK");
+  });
   it("checkCallNeedsAnAttestedSession", () => {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
-    srv.openSession(makeClient({ withRoot: false }).request());
+    handshake(srv, makeClient({ withRoot: false }).request());
     expect(() => srv.checkCall({ name: "list_issues" })).toThrow(/attested session/);
   });
   it("verifiedCallCarriesItsInfluence", () => {
@@ -627,8 +672,8 @@ describe("call check", () => {
   });
   it("attestSignsThePolicyHops", () => {
     const srv = new McpServerSession(serverSetup(["edge", "tools"]).cfg, RULES, Date.now);
-    srv.openSession(makeClient().request());
-    const att = (srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, any>)[META_ATTESTATION];
+    handshake(srv, makeClient().request());
+    const att = readAttestation((srv.attest(srv.session()!, RESULT, CALL, "public")._meta as Record<string, string>)[META_ATTESTATION]!);
     expect(att.chain.map((s: any) => s.svc)).toEqual(["edge", "tools"]);
     expect(att.chain.map((s: any) => s.inst)).toEqual(["mock-github-1", "mock-github-1"]);
     expect(att.chain.map((s: any) => s.rcv)).toEqual(["tools", "pi"]);
@@ -645,11 +690,13 @@ describe("handleToolCall", () => {
     { cls: "third-party", src: "y", h: "h2" },
   ];
   const meta = (r: object): Record<string, any> => (r as { _meta?: Record<string, any> })._meta ?? {};
+  /** The verdict a result's `_meta` carries, read from its token. */
+  const verdictOf = (r: object) => readVerdict(meta(r)[META_VERDICT]);
 
   function open(tools: string[], withRoot = true) {
     const srv = new McpServerSession(serverConfig(), RULES, Date.now);
     const client = makeClient({ tools, withRoot });
-    const reply = srv.openSession(client.request());
+    const reply = handshake(srv, client.request());
     client.acceptReply(reply, reply.serverPolicyKey);
     return { srv, client };
   }
@@ -663,7 +710,7 @@ describe("handleToolCall", () => {
     });
     expect(ran).toBe(1);
     expect(out).toMatchObject({ verdict: "OK", ran: true, verified: { reason: "OK", rid: "r-1", callId: "c-1" } });
-    expect(meta(out.result)[META_ATTESTATION].labels[0].cls).toBe("public");
+    expect(readAttestation(meta(out.result)[META_ATTESTATION]).labels[0]!.cls).toBe("public");
     expect(meta(out.result)[META_VERDICT]).toBeUndefined();
     expect(srv.session()!.served).toEqual(new Set(["public"]));
   });
@@ -681,7 +728,7 @@ describe("handleToolCall", () => {
     });
     expect(ran).toBe(false);
     expect(write).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false });
-    expect(write.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: { reason: "UNSAFE_SESSION" } } });
+    expect(write.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: writeToken({ reason: "UNSAFE_SESSION" }) } });
   });
 
   it("enforceRefusesWithOnlyTheReasonAndDoesNotAttest", async () => {
@@ -697,7 +744,7 @@ describe("handleToolCall", () => {
     expect(out.result).toEqual({
       content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }],
       isError: true,
-      _meta: { [META_VERDICT]: { reason: "INFLUENCE_DENIED" } },
+      _meta: { [META_VERDICT]: writeToken({ reason: "INFLUENCE_DENIED" }) },
     });
     expect(srv.session()!.served.size).toBe(0);
   });
@@ -712,7 +759,7 @@ describe("handleToolCall", () => {
     });
     expect(seen).toEqual(["INFLUENCE_DENIED"]);
     expect(out).toMatchObject({ verdict: "INFLUENCE_DENIED", ran: true });
-    expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
+    expect(verdictOf(out.result)).toEqual({ reason: "INFLUENCE_DENIED", audit: true });
     expect(meta(out.result)[META_ATTESTATION]).toBeDefined();
   });
 
@@ -724,7 +771,7 @@ describe("handleToolCall", () => {
     const audit = await srv.handleToolCall({ ...params, arguments: { owner: "x" } }, READ, "audit", () => ({ result: RESULT, cls: "public" }));
     expect(audit.ran).toBe(true);
     expect(meta(audit.result)[META_ATTESTATION]).toBeUndefined();
-    expect(meta(audit.result)[META_VERDICT].audit).toBe(true);
+    expect(verdictOf(audit.result).audit).toBe(true);
   });
 
   it("destinationOwnerPassesThroughToTheDecision", async () => {
@@ -744,7 +791,7 @@ describe("handleToolCall", () => {
     const { srv, client } = open(["create_pull_request"], false);
     const out = await srv.handleToolCall(client.callParams("create_pull_request", ARGS, []), PUBLIC_WRITE, "audit", () => ({ result: RESULT, cls: "public" }));
     expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: true, verified: null });
-    expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "UNSAFE_SESSION", audit: true });
+    expect(verdictOf(out.result)).toEqual({ reason: "UNSAFE_SESSION", audit: true });
     expect(meta(out.result)[META_ATTESTATION]).toBeUndefined();
   });
 
@@ -761,12 +808,12 @@ describe("handleToolCall", () => {
     it("enforceRefusesAListedWriteUnsafeSession", async () => {
       const out = await handleToolCall(null, RULES, params, PUBLIC_WRITE, "enforce", run);
       expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: false, verified: null });
-      expect(out.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: { reason: "UNSAFE_SESSION" } } });
+      expect(out.result).toMatchObject({ isError: true, _meta: { [META_VERDICT]: writeToken({ reason: "UNSAFE_SESSION" }) } });
     });
     it("auditRunsItWithTheNote", async () => {
       const out = await handleToolCall(null, RULES, params, PUBLIC_WRITE, "audit", run);
       expect(out).toMatchObject({ verdict: "UNSAFE_SESSION", ran: true, verified: null });
-      expect(meta(out.result)[META_VERDICT]).toEqual({ reason: "UNSAFE_SESSION", audit: true });
+      expect(verdictOf(out.result)).toEqual({ reason: "UNSAFE_SESSION", audit: true });
       expect(meta(out.result)[META_ATTESTATION]).toBeUndefined();
     });
     it("aReadRunsUnattested", async () => {

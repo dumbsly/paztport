@@ -5,9 +5,8 @@ import {
   canonicalize,
   decode,
   provesPath,
-  readLocalRules,
-  readNotAfter,
   readKeyring,
+  readLocalRules,
   readProof,
   readRoot,
   rulesHash,
@@ -15,41 +14,37 @@ import {
   verifyKeyring,
   verifyRecordedLocalStep,
   verifyRoot,
-  writeToken,
-  type JsonValue,
   type LocalRules,
   type LocalStepClient,
-  type LocalVerdict,
   type ReasonCode,
-  type Resolved,
+  type SignedRoot,
 } from "@paztport/core";
 
 /**
  * Offline checks of the pi extension's local steps, used by verify.ts. The extension writes a
- * `client` record (the client mesh: keyring, policy key, signed root, local rules and their proof) at session
- * start, and then one `local` record per gated built-in tool call.
+ * `client` record (the client mesh: the signed keyring and root, the local rules and their proof, each as its token)
+ * at session start, and then one `local` record per gated built-in tool call.
  *
- * The client record verifies when its root verifies against its policy key, every session record in the file
- * that names a client root names this root with the same policy key and keyring, and, when it has rules, the
- * rules parse and `rulesProof` proves `session/pi/rules:<rulesHash(rules)>` against the root. With no rules,
- * `rulesProof` must be null. A `keyringSig` must be the policy key's signature over the keyring and
- * `keyringNotAfter`; a record without a `keyringSig`, or with an empty or non-string one, fails like any other
- * malformed client record. The root is checked whole; a window, the root's or the keyring's, that is missing or not
- * an integer in [0, 2^53 − 1] fails the record. Each session record must name the same root, policy key, keyring
- * and keyring window. The client policy key is trusted on first use from the file, as it is in session records
- * (where the server's signed reply binds it); verify pins no client key of its own.
+ * The client record verifies when its keyring reads (its names are route nodes) and is signed by its own policy key,
+ * its root reads and verifies against that key, every session record in the file that names a client root names this
+ * root with the same policy key, keyring and keyring window, and, when it has rules, the rules read and `rulesProof`
+ * proves `session/pi/rules:<rulesHash(rules)>` against the root. With no rules, `rulesProof` must be null. A token
+ * that is not a string or does not read fails the record, as a root or keyring without its window does. The client
+ * policy key is trusted on first use from the file, as it is in session records (where the server's signed reply
+ * binds it); verify pins no client key of its own.
  *
- * A local record is checked against the latest client record before it, the first failure being its result: its
- * fields are well formed, and its chain, proof and influence are values a token can carry (UNREADABLE); there is
- * a verified client record (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep
- * (verification.md §Offline verification, MCP profile), with this demo's signers: the origin is svc "session" and
- * the step svc "pi", both on inst "pi-1". That check's order is in its own comment: the binding of the call and
- * the decision (BINDING_MISMATCH), the chain with every offline check (the run's recorded prompt and start times,
+ * A local record is checked against the latest client record before it, the first failure being its result: its call
+ * fields (`tool`, `callId`, `rid`, `now`, `input`) are well formed (UNREADABLE); there is a verified client record
+ * (NO_CLIENT); then the library's recorded local step check, verifyRecordedLocalStep (verification.md §Offline
+ * verification, MCP profile), with this demo's signers: the origin is svc "session" and the step svc "pi", both on
+ * inst "pi-1". It reads the record's `decision`, `chain`, `proof` and `influence` tokens, each refused as its reader
+ * refuses it, and its order is in its own comment: the binding of the call and the decision (BINDING_MISMATCH, also
+ * for a decision that does not read), the chain with every offline check (the run's recorded prompt and start times,
  * and the file's spent keys), POLICY_EXPIRED against the client record's root and keyring at the step's time,
- * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on
- * it, as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and
- * REFUSED when it was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its
- * stamps naming pi and then `local:<tool>` as their receivers (BINDING_MISMATCH).
+ * PROOF_MISMATCH, RULES_MISMATCH and VERDICT_MISMATCH. The client signs the step's time itself: verify relies on it,
+ * as on every recorded time, but no edit moves a window. A verified step is OK when it was allowed and REFUSED when it
+ * was refused: local refusals are signed and checked, unlike the server's. A chain is v3, its stamps naming pi and
+ * then `local:<tool>` as their receivers (BINDING_MISMATCH).
  *
  * Verify does not look at the disk: it checks that the rules were applied correctly to what the gate saw, not
  * that the gate saw the disk correctly. Freshness windows do not apply offline: a local step is checked against
@@ -61,7 +56,7 @@ export type LocalResult = "OK" | "REFUSED" | "UNREADABLE" | ReasonCode | "BAD_CL
 export type Client = LocalStepClient;
 
 /** A client root, policy key, keyring and keyring window that a session record in the file names. */
-export type NamedClient = { root: unknown; policyKey: unknown; keyring: unknown; keyringNotAfter: unknown };
+export type NamedClient = { root: SignedRoot; policyKey: string; keyring: Readonly<Record<string, string>>; keyringNotAfter: number };
 
 /** A rid's run: its undisputed prompt and the times its run records give. */
 export type RunInfo = { prompt: string; ts: ReadonlySet<number> };
@@ -70,6 +65,8 @@ type Rec = Record<string, unknown>;
 
 const isObject = (v: unknown): v is Rec => typeof v === "object" && v !== null && !Array.isArray(v);
 const isString = (v: unknown): v is string => typeof v === "string";
+/** A record's token as the library reads it: one that is not a string is "", a token that does not read. */
+const token = (v: unknown): string => (isString(v) ? v : "");
 
 /** The service the agents demo's run origin signs as; its client policy and servers name it too. */
 export const ORIGIN_SVC = "session";
@@ -77,75 +74,55 @@ export const ORIGIN_SVC = "session";
 const INST = "pi-1";
 /** A local step's chain: the run's origin, then the pi stamp, both from the one pi instance. */
 const SIGNERS = { svcs: [ORIGIN_SVC, "pi"], inst: INST };
-const VERDICTS: readonly string[] = ["OK", "PATH_NOT_ALLOWED", "SCOPE_DENIED", "UNCHECKABLE", "INFLUENCE_DENIED"] satisfies LocalVerdict[];
-const NEEDS: readonly string[] = ["read", "write", "exec"];
-const VIAS: readonly string[] = ["list", "folder", "never", "missing", "uncheckable"];
 
 /** The verified client record, or undefined when it does not verify (see the module comment). */
 export function verifyClient(r: Rec, named: NamedClient[]): Client | undefined {
   try {
-    const sr = r.signedRoot;
-    if (!isString(r.policyPublicKey)) {
+    if (!isString(r.keyring) || !isString(r.root)) {
       return undefined;
     }
-    const signedRoot = readRoot(writeToken(sr as JsonValue)); // throws on a root or window that does not read
-    if (!verifyRoot(signedRoot, r.policyPublicKey)) {
+    // each throws on a token that does not read; a keyring name that is not a route node does not read
+    const ring = readKeyring(r.keyring);
+    const signedRoot = readRoot(r.root);
+    if (!verifyKeyring(ring, ring.policy) || !verifyRoot(signedRoot, ring.policy)) {
       return undefined;
     }
-    const keyringNotAfter = readNotAfter(r, "keyringNotAfter"); // throws on a malformed window
-    // the keyring is read as a file reads it: a name that is not a route node throws
-    const ring = readKeyring(writeToken({ notAfter: keyringNotAfter, policy: r.policyPublicKey, services: r.keyring, sig: r.keyringSig } as JsonValue));
-    if (!verifyKeyring(ring, r.policyPublicKey)) {
-      return undefined;
-    }
-    const keyring = ring.services;
     // the session's request is bound by the server's signed reply: a client record must agree with it
     for (const n of named) {
       if (
         canonicalize(n.root) !== canonicalize(signedRoot) ||
-        n.policyKey !== r.policyPublicKey ||
-        canonicalize(n.keyring) !== canonicalize(keyring) ||
-        n.keyringNotAfter !== keyringNotAfter
+        n.policyKey !== ring.policy ||
+        canonicalize(n.keyring) !== canonicalize(ring.services) ||
+        n.keyringNotAfter !== ring.notAfter
       ) {
         return undefined;
       }
     }
     const root = decode(signedRoot.root);
     let rules: LocalRules | null = null;
-    let hash: string | null = null;
     if (r.rules !== null) {
-      rules = readLocalRules(writeToken(r.rules as JsonValue)); // throws on rules that do not read
-      hash = rulesHash(rules);
-      const rulesProof = readProof(writeToken(r.rulesProof as JsonValue));
-      if (!provesPath(rulesProof, rulesRoute(SIGNERS.svcs, hash), root, signedRoot.rootId)) {
+      if (!isString(r.rules) || !isString(r.rulesProof)) {
+        return undefined;
+      }
+      rules = readLocalRules(r.rules);
+      const rulesProof = readProof(r.rulesProof);
+      if (!provesPath(rulesProof, rulesRoute(SIGNERS.svcs, rulesHash(rules)), root, signedRoot.rootId)) {
         return undefined;
       }
     } else if (r.rulesProof !== null) {
       return undefined;
     }
     return {
-      keyring: keyring as Record<string, string>,
+      keyring: ring.services as Record<string, string>,
       root,
       rootId: signedRoot.rootId,
       rootNotAfter: signedRoot.notAfter,
-      keyringNotAfter,
+      keyringNotAfter: ring.notAfter,
       rules,
     };
   } catch {
     return undefined;
   }
-}
-
-function isResolved(v: unknown): v is Resolved {
-  return (
-    isObject(v) &&
-    (v.parse === "ok" || v.parse === "error") &&
-    typeof v.readOnly === "boolean" &&
-    Array.isArray(v.paths) &&
-    v.paths.every((p) => isObject(p) && isString(p.at) && isString(p.need) && NEEDS.includes(p.need)) &&
-    Array.isArray(v.programs) &&
-    v.programs.every((p) => isObject(p) && isString(p.name) && isString(p.via) && VIAS.includes(p.via))
-  );
 }
 
 /**
@@ -158,35 +135,15 @@ export function verifyLocal(
   runOf: (rid: string) => RunInfo | undefined,
   seen: Set<string>,
 ): LocalResult {
-  if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input) || !isResolved(r.resolved)) {
-    return "UNREADABLE";
-  }
-  if (!isString(r.verdict) || !VERDICTS.includes(r.verdict) || !(r.proof === null || isObject(r.proof))) {
-    return "UNREADABLE";
-  }
-  if (typeof r.routeAllowed !== "boolean" || !(r.rulesHash === null || isString(r.rulesHash))) {
-    return "UNREADABLE";
-  }
-  // The record holds values; the SDK reads tokens, so each is written as the token it would have been sent as.
-  let chain: string;
-  let influence: string;
-  let proof: string | null;
-  let decision: string;
-  try {
-    chain = writeToken(r.chain as JsonValue);
-    influence = writeToken(r.influence as JsonValue);
-    proof = r.proof === null ? null : writeToken(r.proof as JsonValue);
-    decision = writeToken({
-      callId: r.callId, resolved: r.resolved, verdict: r.verdict, routeAllowed: r.routeAllowed, rulesHash: r.rulesHash,
-    } as JsonValue);
-  } catch {
+  if (!isString(r.tool) || !isString(r.callId) || !isString(r.rid) || typeof r.now !== "number" || !isObject(r.input)) {
     return "UNREADABLE";
   }
   if (client === undefined) {
     return "NO_CLIENT";
   }
   const step = {
-    tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision, chain, proof, influence,
+    tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision: token(r.decision), chain: token(r.chain),
+    proof: r.proof === null ? null : token(r.proof), influence: token(r.influence),
   };
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });

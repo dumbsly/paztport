@@ -3,10 +3,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3,
+  NONCE_TTL_MS, NonceCache, buildTree, commitInfluence, generateKeyPair, randomBytes, readChain, readProof, signStampV3,
+  writeToken,
 } from "@paztport/core";
 import type { InfluenceEntry, V3Config } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, bindMcpCall, verifyCall } from "../src/index.ts";
+import { tokenOf } from "./helpers/client.ts";
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
@@ -53,9 +55,9 @@ function world(extraRoutes: string[] = []) {
       name: send.name ?? name,
       arguments: send.args ?? args,
       _meta: {
-        [META_CHAIN]: [s0, s1],
-        [META_PROOF]: tree.proofFor(signed.route ?? ROUTE),
-        [META_INFLUENCE]: infl,
+        [META_CHAIN]: writeToken([s0, s1]),
+        [META_PROOF]: writeToken(tree.proofFor(signed.route ?? ROUTE)),
+        [META_INFLUENCE]: writeToken(infl),
         [META_CALL_ID]: "callId" in send ? send.callId : callId,
       },
     };
@@ -144,6 +146,7 @@ describe("verifyCall", () => {
       { ...good, name: 5 },
       { ...good, _meta: { ...(good._meta as object), [META_CALL_ID]: 7 } },
       { ...good, _meta: { ...(good._meta as object), [META_CHAIN]: [] } },
+      { ...good, _meta: { ...(good._meta as object), [META_CHAIN]: tokenOf([]) } },
       { ...good, _meta: { ...(good._meta as object), [META_CHAIN]: "junk" } },
     ];
     for (const v of variants) {
@@ -208,20 +211,25 @@ describe("verifyCall", () => {
     expect(reads[META_CHAIN]).toBe(1);
     expect(reads[META_INFLUENCE]).toBe(1);
   });
-  it("aMetaValueNoWriterWritesGetsItsReadersRefusal", () => {
+  it("aMetaMemberThatDoesNotReadGetsItsReadersRefusal", () => {
     const w = world();
     const p = w.params();
-    const meta = p._meta as Record<string, unknown>;
-    const [s0, s1] = meta[META_CHAIN] as Record<string, unknown>[];
-    const proof = meta[META_PROOF] as Record<string, unknown>;
+    const meta = p._meta as Record<string, string>;
+    const [s0, s1] = readChain(meta[META_CHAIN]!);
+    const proof = readProof(meta[META_PROOF]!);
     const withMeta = (m: Record<string, unknown>) =>
       verifyCall({ ...p, _meta: { ...meta, ...m } }, SERVER, w.cfg()).result.reason;
-    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, ts: -1 }] })).toBe("CHAIN_MISSING");
-    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, inst: "pi-\uFDD0" }] })).toBe("CHAIN_MISSING");
-    expect(withMeta({ [META_CHAIN]: [s0, { ...s1, extra: true }] })).toBe("CHAIN_MISSING");
-    expect(withMeta({ [META_INFLUENCE]: [{ ...infl[0], src: "web:\uFFFE" }] })).toBe("INFLUENCE_MISMATCH");
+    // a token whose value its reader refuses
+    expect(withMeta({ [META_CHAIN]: tokenOf([s0, { ...s1, ts: -1 }]) })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_CHAIN]: tokenOf([s0, { ...s1, inst: "pi-\uFDD0" }]) })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_CHAIN]: tokenOf([s0, { ...s1, extra: true }]) })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_INFLUENCE]: tokenOf([{ ...infl[0], src: "web:\uFFFE" }]) })).toBe("INFLUENCE_MISMATCH");
+    expect(withMeta({ [META_PROOF]: tokenOf({ ...proof, rootId: 1.5 }) })).toBe("PATH_NOT_ALLOWED");
+    // a member that is not a string: the value a token would hold, or none
+    expect(withMeta({ [META_CHAIN]: [s0, s1] })).toBe("CHAIN_MISSING");
+    expect(withMeta({ [META_INFLUENCE]: infl })).toBe("INFLUENCE_MISMATCH");
     expect(withMeta({ [META_INFLUENCE]: undefined })).toBe("INFLUENCE_MISMATCH");
-    expect(withMeta({ [META_PROOF]: { ...proof, rootId: 1.5 } })).toBe("PATH_NOT_ALLOWED");
+    expect(withMeta({ [META_PROOF]: proof })).toBe("PATH_NOT_ALLOWED");
     expect(withMeta({ [META_PROOF]: undefined })).toBe("PATH_NOT_ALLOWED");
     expect(withMeta({})).toBe("OK");
   });

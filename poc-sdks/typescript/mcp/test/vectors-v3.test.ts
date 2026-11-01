@@ -16,12 +16,12 @@ import {
   verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
 } from "@paztport/core";
 import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
-import { bindMcpCall } from "../src/index.ts";
+import { InvalidParams, bindMcpCall, readSessionParams, sessionReplyToken } from "../src/index.ts";
 import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
 type Sections =
   | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
-  | "responseAttestation" | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
+  | "responseAttestation" | "sessionParams" | "sessionResult" | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
 
@@ -300,6 +300,24 @@ describe("v3 known-answer vectors", () => {
         expect(c.attestationToken, c.name).toBe(encode(utf8(canonicalize(c.attestation))));
       }
     }
+  });
+
+  // paztport/session's params as the server reads them, and its result as the client reads it (MCP profile).
+  it.each(["sessionParams", "sessionResult"] as const)("%s section", (section) => expect(committed[section].length).toBeGreaterThan(0));
+  it.each(committed.sessionParams.map((c: any): [string, any] => [c.name, c]))("session params %s", (_n, c: any) => {
+    let got = "OK";
+    try {
+      readSessionParams(c.params);
+    } catch (e) {
+      expect(e).toBeInstanceOf(InvalidParams);
+      got = "INVALID_PARAMS";
+    }
+    expect(got).toBe(c.expected);
+  });
+  it.each(committed.sessionResult.map((c: any): [string, any] => [c.name, c]))("session result %s", (_n, c: any) => {
+    const token = sessionReplyToken(c.result);
+    const got = token !== undefined && readOr(() => readSessionReply(token)) !== undefined ? "OK" : "MALFORMED_REPLY";
+    expect(got).toBe(c.expected);
   });
 
   it.each(["recordedHandshake", "recordedCall", "recordedLocalStep"] as const)("%s section", (section) => expect(committed[section].length).toBeGreaterThan(0));

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_SCENARIO_DIR, loadScenario } from "../../mock-github-mcp/src/scenario.ts";
+import { buildTree, encode, randomBytes, utf8, writeToken, type JsonValue } from "@paztport/core";
 import { buildSteps, finalAnswer, PLAIN_CLASS, PLAIN_REASON, PLAIN_RULE, plainReason } from "../src/steps.ts";
 
 const scenario = loadScenario(BUILTIN_SCENARIO_DIR);
@@ -16,9 +17,10 @@ const jsonl = (file: string) =>
     .filter((l) => l.trim() !== "")
     .map((l) => JSON.parse(l));
 /**
- * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-31). events, outcome and evidence are as
- * recorded; the transcript is the recorded one with its thinking_delta and text_delta events removed (nothing
- * depends on them, the `*_start` events give the same activity, and they were most of its size).
+ * A real scenario-A run with Paztport on (local gemma4:26b-mlx, 2026-10-31). events and outcome are as recorded, and
+ * evidence holds the recorded records, each Paztport object as its token (eval/test/fixtures/derive.ts); the
+ * transcript is the recorded one with its thinking_delta and text_delta events removed (nothing depends on them, the
+ * `*_start` events give the same activity, and they were most of its size).
  */
 const recorded = () => ({ transcript: jsonl("transcript.jsonl"), events: jsonl("events.jsonl"), outcome: jsonl("outcome.jsonl"), evidence: jsonl("evidence.jsonl") });
 
@@ -301,8 +303,10 @@ describe("local tool rows", () => {
   };
   const lstart = (id: string, tool: string, args: Record<string, unknown>) => ({ type: "tool_execution_start", toolCallId: id, toolName: tool, args });
   const lend = (id: string, tool: string, isError = false) => ({ type: "tool_execution_end", toolCallId: id, toolName: tool, isError });
-  const stamp = (svc: string) => ({ svc, inst: "pi-1", rid: "r1", ts: 5, sess: "", bind: "b", infl: "", prev: "p", sig: `sig-${svc}` });
-  const localRecord = (callId: string, tool: string, extra: Record<string, unknown>) => ({
+  const stamp = (svc: string, rcv: string) => ({ v: 3, svc, inst: "pi-1", rid: "r1", ts: 5, sess: "", rcv, bind: "b", infl: "", prev: "p", sig: encode(utf8(svc)) });
+  const PROOF = buildTree([{ salt: randomBytes(16), path: "session/pi/local:bash" }], 2, "v1").proofFor("session/pi/local:bash");
+  /** A local record as the extension writes it, its decision, chain, proof and influence as tokens. */
+  const localRecord = (callId: string, tool: string, extra: { verdict?: string; resolved?: object; influence?: object[] }) => ({
     v: 1,
     type: "local",
     tool,
@@ -310,14 +314,16 @@ describe("local tool rows", () => {
     rid: "r1",
     now: 5,
     input: {},
-    resolved: { paths: [], programs: [], parse: "ok", readOnly: false },
-    routeAllowed: true,
-    rulesHash: "h",
-    chain: [stamp("session"), stamp("pi")],
-    proof: { leafSalt: "s", siblings: ["a", "b"], dirs: "LR" },
-    influence: [],
-    verdict: "OK",
-    ...extra,
+    decision: writeToken({
+      callId,
+      resolved: (extra.resolved ?? { paths: [], programs: [], parse: "ok", readOnly: false }) as JsonValue,
+      verdict: extra.verdict ?? "OK",
+      routeAllowed: true,
+      rulesHash: "h",
+    }),
+    chain: writeToken([stamp("session", "pi"), stamp("pi", `local:${tool}`)]),
+    proof: writeToken(PROOF),
+    influence: writeToken((extra.influence ?? []) as JsonValue),
   });
   const levent = (callId: string, tool: string, verdict: string) => ({ ts: 1, type: "local", tool, callId, rid: "r1", verdict });
 
@@ -338,7 +344,7 @@ describe("local tool rows", () => {
       levent("l4", "read", "PATH_NOT_ALLOWED"),
     ];
     const evidence = [
-      { v: 1, type: "client", keyring: {}, policyPublicKey: "k", signedRoot: {}, rules, rulesProof: null },
+      { v: 1, type: "client", keyring: "k", root: "r", rules: writeToken(rules as JsonValue), rulesProof: null },
       localRecord("l1", "write", { resolved: { paths: [{ need: "write", at: "website/CHANGELOG.md" }], programs: [], parse: "ok", readOnly: false } }),
       localRecord("l2", "bash", {
         verdict: "INFLUENCE_DENIED",
@@ -391,6 +397,19 @@ describe("local tool rows", () => {
     expect(steps[2]!.evidence.rid).toBe("r1");
     expect(steps[2]!.evidence.events).toEqual([levent("l2", "bash", "INFLUENCE_DENIED")]);
     expect(steps[2]!.evidence.evidence.map((e) => (e as any).type)).toEqual(["local"]);
+  });
+
+  it("each evidence record a row shows carries its tokens decoded, and names a token that does not read", () => {
+    const steps = buildSteps(local, run(), { complete: true });
+    expect(steps[2]!.evidence.evidence[0]!.display).toEqual({
+      chain: [stamp("session", "pi"), stamp("pi", "local:bash")],
+      influence: [{ cls: "private", src: "mcp:github.get_file_contents", h: "x" }],
+      proof: PROOF,
+    });
+    const logs = run();
+    const l1 = logs.evidence[1] as Record<string, unknown>;
+    logs.evidence[1] = { ...l1, chain: "not a token", influence: [] } as never;
+    expect(buildSteps(local, logs, { complete: true })[0]!.evidence.evidence[0]!.display).toEqual({ proof: PROOF, unreadable: ["chain", "influence"] });
   });
 
   it("a local tool that errored is an error row; a call with no answer is left out until the run is complete", () => {

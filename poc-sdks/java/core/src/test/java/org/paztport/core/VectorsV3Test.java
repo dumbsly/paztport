@@ -60,7 +60,8 @@ import org.paztport.core.verify.VerifyResult;
  * Replays the committed v3 vectors in {@code spec/vectors/v3.json}, the file the TypeScript SDK also reads. One
  * test method per section, so a failure names the section. The {@code recordedLocalStep} section is not replayed:
  * local steps belong to the MCP profile, which this SDK, speaking v3 over HTTP only, does not implement; nor are
- * {@code responseAttestation}, {@code bindMcpCall} and {@code bindResult}, which only that profile uses.
+ * {@code responseAttestation}, {@code sessionParams}, {@code sessionResult}, {@code bindMcpCall} and
+ * {@code bindResult}, which only that profile uses.
  */
 class VectorsV3Test {
 

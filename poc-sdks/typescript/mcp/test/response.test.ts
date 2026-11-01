@@ -3,10 +3,12 @@
 
 import { describe, expect, it } from "vitest";
 import {
-  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, signStampV3,
+  NonceCache, bindResponse, bindResult, buildTree, generateKeyPair, newContentId, randomBytes, readAttestation, signStampV3,
+  writeToken,
 } from "@paztport/core";
 import type { ContentLabel, V3Config } from "@paztport/core";
 import { META_ATTESTATION, verifyMcpResponse } from "../src/index.ts";
+import { retoken, tokenOf } from "./helpers/client.ts";
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
@@ -41,7 +43,7 @@ function world() {
     const s1 = mk("github-tools", "pi", bindResponse(resultHash, "call-1", labels), s0.sig);
     return {
       ...body,
-      _meta: { [META_ATTESTATION]: { chain: [s0, s1], proof: tree.proofFor(ROUTE), labels, resultHash } },
+      _meta: { [META_ATTESTATION]: writeToken({ chain: [s0, s1], proof: tree.proofFor(ROUTE), labels, resultHash }) },
     };
   };
   return { keys, tree, cfg, labels, response };
@@ -66,7 +68,8 @@ describe("verifyMcpResponse", () => {
   it("labelsStrippedIsBindingMismatch", () => {
     const w = world();
     const resp = w.response();
-    (resp._meta as any)[META_ATTESTATION].labels = [];
+    const meta = resp._meta as Record<string, string>;
+    meta[META_ATTESTATION] = retoken(meta[META_ATTESTATION]!, (att) => ({ ...att, labels: [] }));
     const r = verifyMcpResponse(resp, CALL, w.cfg());
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.labels).toEqual([]);
@@ -78,8 +81,8 @@ describe("verifyMcpResponse", () => {
   });
   it("malformedAttestationFields", () => {
     const w = world();
-    const good = (w.response()._meta as any)[META_ATTESTATION];
-    const variants: unknown[] = [
+    const good: any = readAttestation((w.response()._meta as Record<string, string>)[META_ATTESTATION]!);
+    const values: unknown[] = [
       null,
       "x",
       { ...good, chain: {} },
@@ -92,7 +95,8 @@ describe("verifyMcpResponse", () => {
       { ...good, proof: { ...good.proof, dirs: "X" } },
       { ...good, extra: 1.5 },
     ];
-    for (const v of variants) {
+    // the token of each, and the attestation itself, which is not a token
+    for (const v of [...values.map(tokenOf), "", "not a token", good, 5]) {
       const r = verifyMcpResponse({ content: [], _meta: { [META_ATTESTATION]: v } }, CALL, w.cfg());
       expect(r.result.reason).toBe("CHAIN_MISSING");
       expect(r.labels).toEqual([]);
@@ -141,7 +145,11 @@ describe("verifyMcpResponse", () => {
     for (const v of [1, 2, 4]) {
       for (const at of [0, 1]) {
         const resp = w.response();
-        ((resp._meta as any)[META_ATTESTATION].chain as Record<string, unknown>[])[at]!.v = v;
+        const meta = resp._meta as Record<string, string>;
+        meta[META_ATTESTATION] = retoken(meta[META_ATTESTATION]!, (att) => {
+          att.chain[at].v = v;
+          return att;
+        });
         const r = verifyMcpResponse(resp, CALL, w.cfg());
         expect(r.result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
         expect(r.labels).toEqual([]);

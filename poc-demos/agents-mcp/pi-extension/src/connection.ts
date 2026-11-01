@@ -190,14 +190,15 @@ export class ServerConnection {
       keyringSig: this.material.keyringSig,
       keyringNotAfter: this.material.keyringNotAfter,
     });
-    // Each request that was sent is written to the evidence file as it happens, with the raw reply (null when
-    // there was none) and the state it left this connection in.
+    // Each request that was sent is written to the evidence file as it happens, as its token with the reply token
+    // (null when there was none) and the state it left this connection in. A replacement is sent only after a first
+    // exchange that was not attested, so it is never attested either.
     const opened = await openSession({
       request: req,
       pin,
       serverEntry: SERVER_ENTRY,
       now: () => this.now(),
-      send: (r) => client.request(SESSION_METHOD, r as unknown as Record<string, unknown>),
+      send: (params) => client.request(SESSION_METHOD, params),
       rpcCode: (e) => (e instanceof McpError ? e.code : undefined),
       onExchange: (x, first) =>
         this.evidence.write({
@@ -207,7 +208,7 @@ export class ServerConnection {
           request: x.request,
           reply: x.reply,
           pin,
-          status: x.request === req && first.status === "attested" ? "attested" : "unsafe",
+          status: first.status,
           ...(first.status === "unsafe" ? { reason: first.reason } : {}),
         }),
     });

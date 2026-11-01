@@ -12,6 +12,7 @@ import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import { recheckResultsDir } from "../src/recheck.ts";
 import { verifyEvidence } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
+import { changed } from "./fixtures/retoken.ts";
 
 const tmp = mkdtempSync(join(tmpdir(), "paztport-crosscheck-"));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
@@ -156,7 +157,11 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
   it("reviewProbesFail", () => {
     // an allowed write turned into a signed-looking unlisted-route refusal, events edited to match
     const downgrade = check({
-      evidencePath: write(evidence, (rs) => { const x = localEvent(rs, "l_note"); x.proof = null; x.verdict = "PATH_NOT_ALLOWED"; }),
+      evidencePath: write(evidence, (rs) => {
+        const x = localEvent(rs, "l_note");
+        x.proof = null;
+        x.decision = changed(x.decision, (d) => { d.verdict = "PATH_NOT_ALLOWED"; });
+      }),
       eventsPath: write(events, (rs) => { localEvent(rs, "l_note").verdict = "PATH_NOT_ALLOWED"; }),
     });
     expect(downgrade.status).toBe("failed");
@@ -166,7 +171,7 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
         const c = rs.find((x) => x.type === "client");
         c.rules = null;
         c.rulesProof = null;
-        for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED";
+        for (const x of rs) if (x.type === "local") x.decision = changed(x.decision, (d) => { d.verdict = "SCOPE_DENIED"; });
       }),
       eventsPath: write(events, (rs) => { for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED"; }),
     });

@@ -95,8 +95,8 @@ server.
   policy. A public write is refused (`INFLUENCE_DENIED`) when the context holds private content plus
   third-party or local-untrusted content. Without an attested session, writes are refused
   (`UNSAFE_SESSION`); reads still work. Refusals never change state.
-- `audit`: the same checks, but refused calls run anyway; the result carries
-  `paztport/verdict` with `audit: true`.
+- `audit`: the same checks, but refused calls run anyway; the result carries a
+  `paztport/verdict` token whose verdict has `audit: true`.
 - `off`: no Paztport at all; everything runs and nothing is attested.
 
 ## Outcome log

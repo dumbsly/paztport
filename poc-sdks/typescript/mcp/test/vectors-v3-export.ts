@@ -17,7 +17,7 @@ import {
   normalizeInfluence, provesPath, publicWriteRefused, routeOf, sha256, sign, signKeyring, signStampV3, signingBytesV3,
   writeToken,
   utf8, verifyChainOffline, verifyChainV3, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
-  checkSessionReply, readProof, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
+  checkSessionReply, readProof, readSessionReply, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
   verifyResponse,
@@ -27,7 +27,7 @@ import type {
   SessionReply, SessionRequest,
   SignedKeyring, SignedRoot, StampV3,
 } from "@paztport/core";
-import { bindMcpCall, mcpReceiver } from "../src/index.ts";
+import { InvalidParams, bindMcpCall, mcpReceiver, readSessionParams, sessionReplyToken } from "../src/index.ts";
 
 const V3_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
 
@@ -1242,6 +1242,44 @@ export function buildVectorsV3(): Record<string, unknown> {
       "BINDING_MISMATCH"),
   ];
 
+  // paztport/session's params and result as they arrive (MCP profile): the server reads the params, exactly a request
+  // token plus an optional `_meta`, and the client the result, exactly a reply token plus an optional `_meta`.
+  const wellFormed = sessionRequestCases[0]!.requestToken;
+  const sessionParamsCase = (name: string, params: Record<string, unknown>, expected: "OK" | "INVALID_PARAMS") => {
+    let got: "OK" | "INVALID_PARAMS" = "OK";
+    try {
+      readSessionParams(params);
+    } catch (e) {
+      if (!(e instanceof InvalidParams)) throw e;
+      got = "INVALID_PARAMS";
+    }
+    check(`session params ${name}`, got, expected);
+    return { name, params, expected };
+  };
+  const sessionParams = [
+    sessionParamsCase("a request token", { request: wellFormed }, "OK"),
+    sessionParamsCase("a request token and _meta", { request: wellFormed, _meta: { progressToken: 1 } }, "OK"),
+    sessionParamsCase("a member the params do not have", { request: wellFormed, other: 1 }, "INVALID_PARAMS"),
+    sessionParamsCase("the request itself", { request: wireRequest }, "INVALID_PARAMS"),
+    sessionParamsCase("no request", { _meta: { progressToken: 1 } }, "INVALID_PARAMS"),
+    // the request's JCS bytes after a space, which a token never holds
+    sessionParamsCase("a request token that does not read", { request: encode(utf8(" " + canonicalize(wireRequest))) }, "INVALID_PARAMS"),
+  ];
+  const attested = sessionReply[0]!.replyToken;
+  const sessionResultCase = (name: string, result: Record<string, unknown>, expected: "OK" | "MALFORMED_REPLY") => {
+    const token = sessionReplyToken(result);
+    const got = token !== undefined && readOr(() => readSessionReply(token)) !== undefined ? "OK" : "MALFORMED_REPLY";
+    check(`session result ${name}`, got, expected);
+    return { name, result, expected };
+  };
+  const sessionResult = [
+    sessionResultCase("a reply token", { reply: attested }, "OK"),
+    sessionResultCase("a reply token and _meta", { reply: attested, _meta: { progressToken: 1 } }, "OK"),
+    sessionResultCase("a member the result does not have", { reply: attested, other: 1 }, "MALFORMED_REPLY"),
+    sessionResultCase("the reply itself", { reply: sessionReply[0]!.reply }, "MALFORMED_REPLY"),
+    sessionResultCase("no reply", { _meta: { progressToken: 1 } }, "MALFORMED_REPLY"),
+  ];
+
   const vectors = {
     about: ABOUT,
     keys,
@@ -1258,6 +1296,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     recordedCall,
     recordedLocalStep,
     responseAttestation,
+    sessionParams,
+    sessionResult,
     replyCert,
     sessionReply,
     sessionStatus: sessionStatusCases,

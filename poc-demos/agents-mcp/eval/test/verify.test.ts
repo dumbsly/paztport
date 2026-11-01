@@ -6,8 +6,9 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  bindLocalTool, buildTree, commitInfluence, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, sign, signRoot, signSessionReply,
-  signStampV3, utf8,
+  bindLocalTool, buildTree, commitInfluence, decode, encode, generateKeyPair, keyringSigningBytes, randomBytes, readChain, readInfluence,
+  readKeyring, readLocalDecision, readRoot, readSessionReply, readSessionRequest, readToken, sign, signRoot, signSessionReply, signStampV3,
+  utf8, writeToken,
 } from "@paztport/core";
 import { bindMcpCall } from "@paztport/mcp";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,6 +23,7 @@ import { githubArgs, resignDemo, setupDemo, type DemoWindows } from "../../pi-ex
 import { verifyClient, verifyLocal } from "../src/verify-local.ts";
 import { pinFingerprint, verifyEvidence, verifyResultsDir, type VerifyItem } from "../src/verify.ts";
 import { jsonLines, localRun, type LocalRun } from "./fixtures/local-run.ts";
+import { changed, retoken, tokenOf } from "./fixtures/retoken.ts";
 
 const MAIN = join(import.meta.dirname, "../src/verify-main.ts");
 const PROMPT = "fix the typo";
@@ -105,8 +107,8 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
 
   it("tamperedLabelFails", () => {
     const r = verifyEvidence(write(genuine, (rs) => {
-      const att = rs.find((x) => x.type === "response" && x.callId === "toolu_c").result._meta["paztport/attestation"];
-      att.labels[0].cls = "public";
+      const meta = rs.find((x) => x.type === "response" && x.callId === "toolu_c").result._meta;
+      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.labels[0].cls = "public"; });
     }));
     expect(r.ok).toBe(false);
     const item = r.items.find((i) => i.callId === "toolu_c" && i.type === "response")!;
@@ -141,7 +143,7 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
     const r = verifyEvidence(write(genuine, (rs) => {
       const s = rs.find((x) => x.type === "session");
       s.pin = attacker;
-      s.reply.serverPolicyKey = attacker;
+      s.reply = changed(s.reply, (reply) => { reply.serverPolicyKey = attacker; });
     }));
     expect(r.ok).toBe(false);
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
@@ -156,7 +158,10 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   });
 
   it("tamperedSessionReplyFails", () => {
-    const r = verifyEvidence(write(genuine, (rs) => { rs.find((x) => x.type === "session").reply.sess = "AAAA"; }));
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.reply = changed(s.reply, (reply) => { reply.sess = "AAAA"; });
+    }));
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
   });
 
@@ -195,7 +200,8 @@ describe("verifyEvidence", { timeout: 30_000 }, () => {
   it("truncatedResponseChainFails", () => {
     // a response that is not a refusal must carry a complete attestation
     const r = verifyEvidence(write(genuine, (rs) => {
-      rs.find((x) => x.type === "response" && x.callId === "toolu_a").result._meta["paztport/attestation"].chain.pop();
+      const meta = rs.find((x) => x.type === "response" && x.callId === "toolu_a").result._meta;
+      meta["paztport/attestation"] = changed(meta["paztport/attestation"], (att) => { att.chain.pop(); });
     }));
     expect(r.ok).toBe(false);
   });
@@ -249,11 +255,13 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     late.now = a.now + gapMs;
     const meta = late.params._meta;
     meta["paztport/callId"] = id;
-    const { sig: _sig, v: _v, ...fields } = meta["paztport/chain"][1];
-    meta["paztport/chain"][1] = signStampV3(
-      { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, id, late.params.arguments), prev: meta["paztport/chain"][0].sig },
+    const [origin, hop] = readChain(meta["paztport/chain"]);
+    const { sig: _sig, v: _v, ...fields } = hop!;
+    const resigned = signStampV3(
+      { ...fields, ts: late.now, bind: bindMcpCall(late.params.name, id, late.params.arguments), prev: origin!.sig },
       material().piKey,
     );
+    meta["paztport/chain"] = writeToken([origin!, resigned]);
     return late;
   }
 
@@ -276,22 +284,27 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   });
 
   it("anEntryKeyHandshakeVerifies", () => {
-    const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
+    const reply = readSessionReply(JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!).reply);
     // the mock server signs its reply with mcp-entry's key, under its keyring's signature and its certificate
-    expect(s.reply).toMatchObject({ serverKeyringSig: expect.any(String), serverReplyCert: { svc: "mcp-entry", key: s.reply.serverKeyring["mcp-entry"] } });
+    expect(reply).toMatchObject({ serverKeyringSig: expect.any(String), serverReplyCert: { svc: "mcp-entry", key: reply.serverKeyring["mcp-entry"] } });
     const r = verifyEvidence(write(genuine));
     expect(results(r.items, "session")).toEqual(["OK"]);
     // stripped of the certificate, the reply is judged in the policy-key form, which its signature fails
-    const stripped = verifyEvidence(write(genuine, (rs) => { delete rs.find((x) => x.type === "session").reply.serverReplyCert; }));
+    const stripped = verifyEvidence(write(genuine, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.reply = changed(s.reply, (r) => { delete r.serverReplyCert; });
+    }));
     expect(results(stripped.items, "session")).toEqual(["BAD_SESSION"]);
   });
 
   it("aFreshSetupsHandshakeHasWindowsOnBothSidesAndVerifies", () => {
     const s = JSON.parse(genuine.find((l) => JSON.parse(l).type === "session")!);
-    expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
-    expect(s.request.clientRoot.notAfter).toEqual(expect.any(Number));
-    expect(s.reply.serverKeyringNotAfter).toEqual(expect.any(Number));
-    expect(s.reply.serverRoot.notAfter).toEqual(expect.any(Number));
+    const request = readSessionRequest(s.request);
+    const reply = readSessionReply(s.reply);
+    expect(request.clientKeyringNotAfter).toEqual(expect.any(Number));
+    expect(request.clientRoot!.notAfter).toEqual(expect.any(Number));
+    expect(reply.serverKeyringNotAfter).toEqual(expect.any(Number));
+    expect(reply.serverRoot!.notAfter).toEqual(expect.any(Number));
     const r = verifyEvidence(write(genuine));
     expect(r.ok).toBe(true);
     expect(results(r.items, "session")).toEqual(["OK"]);
@@ -301,17 +314,21 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     const session = (rs: any[]) => rs.find((x) => x.type === "session");
     const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
     const resignReply = (rs: any[]) => {
-      const { sig: _sig, ...body } = session(rs).reply;
-      session(rs).reply = signSessionReply(body, entryKey);
+      session(rs).reply = retoken(session(rs).reply, (reply: any) => {
+        const { sig: _sig, ...body } = reply;
+        return signSessionReply(body, entryKey);
+      });
     };
+    const editRequest = (rs: any[], change: (q: any) => void) => { session(rs).request = changed(session(rs).request, change); };
+    const editReply = (rs: any[], change: (r: any) => void) => { session(rs).reply = changed(session(rs).reply, change); resignReply(rs); };
     expect(results(verifyEvidence(write(genuine, resignReply)).items, "session")).toEqual(["OK"]);
     for (const [what, edit] of [
-      ["client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter += 1; }],
-      ["client keyring dropped", (rs: any[]) => { delete session(rs).request.clientKeyringNotAfter; }],
-      ["client root", (rs: any[]) => { session(rs).request.clientRoot.notAfter += 1; }],
-      ["server keyring", (rs: any[]) => { session(rs).reply.serverKeyringNotAfter += 1; resignReply(rs); }],
-      ["server root", (rs: any[]) => { session(rs).reply.serverRoot.notAfter += 1; resignReply(rs); }],
-      ["malformed client keyring", (rs: any[]) => { session(rs).request.clientKeyringNotAfter = "x"; }],
+      ["client keyring", (rs: any[]) => editRequest(rs, (q) => { q.clientKeyringNotAfter += 1; })],
+      ["client keyring dropped", (rs: any[]) => editRequest(rs, (q) => { delete q.clientKeyringNotAfter; })],
+      ["client root", (rs: any[]) => editRequest(rs, (q) => { q.clientRoot.notAfter += 1; })],
+      ["server keyring", (rs: any[]) => editReply(rs, (r) => { r.serverKeyringNotAfter += 1; })],
+      ["server root", (rs: any[]) => editReply(rs, (r) => { r.serverRoot.notAfter += 1; })],
+      ["malformed client keyring", (rs: any[]) => editRequest(rs, (q) => { q.clientKeyringNotAfter = "x"; })],
     ] as [string, (rs: any[]) => void][]) {
       const bad = verifyEvidence(write(genuine, edit));
       expect(results(bad.items, "session"), what).toEqual(["BAD_SESSION"]);
@@ -324,14 +341,14 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     // origin at that time, as a run started then would have, so the run's age window is not what refuses them
     const at = (rs: any[], ts: number, id: string) => {
       const c = lateCall(rs, ts - callOf(rs, "toolu_a").now, id);
-      const chain = c.params._meta["paztport/chain"];
-      const { sig: _o, v: _ov, ...origin } = chain[0];
-      chain[0] = signStampV3({ ...origin, ts }, material().sessionKey);
-      const { sig: _p, v: _pv, ...hop } = chain[1];
-      chain[1] = signStampV3({ ...hop, prev: chain[0].sig }, material().piKey);
+      const [first, second] = readChain(c.params._meta["paztport/chain"]);
+      const { sig: _o, v: _ov, ...origin } = first!;
+      const resigned = signStampV3({ ...origin, ts }, material().sessionKey);
+      const { sig: _p, v: _pv, ...hop } = second!;
+      c.params._meta["paztport/chain"] = writeToken([resigned, signStampV3({ ...hop, prev: resigned.sig }, material().piKey)]);
       return c;
     };
-    const notAfter = (rs: any[]) => rs.find((x) => x.type === "session").reply.serverReplyCert.notAfter as number;
+    const notAfter = (rs: any[]) => readSessionReply(rs.find((x) => x.type === "session").reply).serverReplyCert!.notAfter;
     const r = verifyEvidence(write(genuine, (rs) => {
       const i = rs.indexOf(callOf(rs, "toolu_a"));
       rs.splice(i + 1, 0, at(rs, notAfter(rs), "toolu_on_time"), at(rs, notAfter(rs) + 1, "toolu_late"));
@@ -350,6 +367,19 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     ]);
   });
 
+  it("aCallWhoseChainHasAThirdStampFails", () => {
+    // a call's chain is the run's origin and the calling hop: a third stamp, linked and signed by the pi key, does not verify
+    const r = verifyEvidence(write(genuine, (rs) => {
+      const meta = callOf(rs, "toolu_a").params._meta;
+      meta["paztport/chain"] = changed(meta["paztport/chain"], (c) => {
+        const { sig: _sig, v: _v, ...fields } = c[1];
+        c.push(signStampV3({ ...fields, prev: c[1].sig }, material().piKey));
+      });
+    }));
+    expect(r.ok).toBe(false);
+    expect(r.items.find((x) => x.type === "call" && x.callId === "toolu_a")!.result).toBe("BINDING_MISMATCH");
+  });
+
   it("duplicatedSessionLineDoesNotResetReplayProtection", () => {
     const r = verifyEvidence(write(genuine, (rs) => {
       const i = rs.indexOf(callOf(rs, "toolu_a"));
@@ -365,8 +395,8 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     const tree = buildTree([{ salt: randomBytes(16), path: route }], 1, "forged-root");
     const r = verifyEvidence(write(genuine, (rs) => {
       const s = rs.find((x) => x.type === "session");
-      s.request.clientRoot = { ...s.request.clientRoot, rootId: tree.rootId, root: encode(tree.root) };
-      callOf(rs, "toolu_a").params._meta["paztport/proof"] = tree.proofFor(route);
+      s.request = changed(s.request, (q) => { q.clientRoot = { ...q.clientRoot, rootId: tree.rootId, root: encode(tree.root) }; });
+      callOf(rs, "toolu_a").params._meta["paztport/proof"] = writeToken(tree.proofFor(route));
     }));
     expect(r.ok).toBe(false);
     expect(results(r.items, "session")).toEqual(["BAD_SESSION"]);
@@ -404,7 +434,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
   });
 
   it("onlyForgedRefusalsIsNotOk", () => {
-    const refusal = (callId: string) => ({ v: 1, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": { reason: "INFLUENCE_DENIED" } } } });
+    const refusal = (callId: string) => ({ v: 1, type: "response", server: "github", tool: "create_branch", callId, rid: "r", now: 1, result: { isError: true, content: [{ type: "text", text: "Paztport refused this call: INFLUENCE_DENIED" }], _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } } });
     const lines = [genuine.find((l) => JSON.parse(l).type === "session")!, JSON.stringify(refusal("x")), JSON.stringify(refusal("y"))];
     const r = verifyEvidence(write(lines));
     expect(r.ok).toBe(false);
@@ -424,7 +454,7 @@ describe("verifyEvidence: fix round 1", { timeout: 30_000 }, () => {
     expect(extraMeta.ok).toBe(false);
     // a genuine attested response given a refusal verdict is verified as a response, not accepted as a refusal
     const verdictOnAttested = verifyEvidence(write(genuine, (rs) => {
-      responseOf(rs, "toolu_a").result._meta["paztport/verdict"] = { reason: "INFLUENCE_DENIED" };
+      responseOf(rs, "toolu_a").result._meta["paztport/verdict"] = writeToken({ reason: "INFLUENCE_DENIED" });
     }));
     // the verdict is outside what the attestation signs, so it changes nothing: still an ordinary verified response
     expect(verdictOnAttested.items.find((x) => x.type === "response" && x.callId === "toolu_a")!.result).toBe("OK");
@@ -701,11 +731,12 @@ describe("verify CLI", { timeout: 30_000 }, () => {
   it("aRecordWithAV2ChainIsChainMissingAndTheOthersAreStillJudged", () => {
     const old = write(genuine, (rs) => {
       for (const x of rs.filter((r) => r.type === "call")) {
-        const chain = x.params._meta["paztport/chain"];
-        for (const stamp of chain) {
-          stamp.v = 2;
-          delete stamp.rcv;
-        }
+        x.params._meta["paztport/chain"] = changed(x.params._meta["paztport/chain"], (chain) => {
+          for (const stamp of chain) {
+            stamp.v = 2;
+            delete stamp.rcv;
+          }
+        });
       }
     });
     const dir = join(tmp, `cli-${n++}`);
@@ -730,9 +761,11 @@ describe("verify CLI", { timeout: 30_000 }, () => {
     const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
     const windowless = write(genuine, (rs) => {
       for (const x of rs.filter((r) => r.type === "session")) {
-        const { sig: _sig, ...body } = x.reply;
-        delete body.serverRoot.notAfter;
-        x.reply = signSessionReply(body, entryKey);
+        x.reply = retoken(x.reply, (reply: any) => {
+          const { sig: _sig, ...body } = reply;
+          delete body.serverRoot.notAfter;
+          return signSessionReply(body, entryKey);
+        });
       }
     });
     const dir = join(tmp, `cli-${n++}`);
@@ -790,11 +823,12 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
     c.now = ts;
     const meta = c.params._meta;
     meta["paztport/callId"] = id;
-    const chain = meta["paztport/chain"];
-    const { sig: _o, v: _ov, ...origin } = chain[0];
-    chain[0] = signStampV3({ ...origin, ts }, m.sessionKey);
-    const { sig: _p, v: _pv, ...hop } = chain[1];
-    chain[1] = signStampV3({ ...hop, ts, bind: bindMcpCall(c.params.name, id, c.params.arguments), prev: chain[0].sig }, m.piKey);
+    const [first, second] = readChain(meta["paztport/chain"]);
+    const { sig: _o, v: _ov, ...origin } = first!;
+    const resigned = signStampV3({ ...origin, ts }, m.sessionKey);
+    const { sig: _p, v: _pv, ...hop } = second!;
+    const bind = bindMcpCall(c.params.name, id, c.params.arguments);
+    meta["paztport/chain"] = writeToken([resigned, signStampV3({ ...hop, ts, bind, prev: resigned.sig }, m.piKey)]);
     return c;
   }
   /** The calls of `lines` with two copies of toolu_a after it, at `t` and 1 ms after, reported by call id. */
@@ -809,7 +843,7 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
   it("callAfterClientKeyringNotAfterNotAttested", async () => {
     const t = Date.now() + 600_000;
     const { lines, material } = await runWith({ clientKeyring: t });
-    expect(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).request.clientKeyringNotAfter).toBe(t);
+    expect(readSessionRequest(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).request).clientKeyringNotAfter).toBe(t);
     // the session is found (it was attested before t), and counts for the calls up to t only
     expect(callsAround(lines, t, material)).toEqual({ session: ["OK"], calls: AROUND });
   });
@@ -817,7 +851,7 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
   it("callAfterServerRootNotAfterNotAttested", async () => {
     const t = Date.now() + 600_000;
     const { lines, material } = await runWith({ serverRoot: t });
-    expect(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).reply.serverRoot.notAfter).toBe(t);
+    expect(readSessionReply(JSON.parse(lines.find((l) => JSON.parse(l).type === "session")!).reply).serverRoot!.notAfter).toBe(t);
     expect(callsAround(lines, t, material)).toEqual({ session: ["OK"], calls: AROUND });
   });
 
@@ -848,7 +882,10 @@ describe("verifyEvidence: keyring and root lifetimes", { timeout: 60_000 }, () =
     // it rests on is still checked there
     const t = Date.now() + 600_000;
     const { lines } = await runWith({ clientKeyring: t });
-    const moved = verifyEvidence(write(lines, (rs) => { rs.find((x) => x.type === "session").request.clientKeyringNotAfter = 0; }));
+    const moved = verifyEvidence(write(lines, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.request = changed(s.request, (q) => { q.clientKeyringNotAfter = 0; });
+    }));
     expect(results(moved.items, "session")).toEqual(["BAD_SESSION"]);
   });
 });
@@ -897,11 +934,18 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 
   const localOf = (rs: any[], id: string) => rs.find((x) => x.type === "local" && x.callId === id);
   const localResult = (r: { items: VerifyItem[] }, id: string) => r.items.find((i) => i.type === "local" && i.callId === id)?.result;
-  /** Re-signs a local record's step stamp with the pi key over its (edited) fields, as a gate that decided wrongly would. */
+  /** A local record's decision, read from its token. */
+  const decisionOf = (rec: any) => readLocalDecision(rec.decision);
+  /** Edits a local record's decision in its token, as a tamperer would. */
+  const decide = (rec: any, change: (d: any) => void) => { rec.decision = changed(rec.decision, change); };
+  /** Edits a local record's chain in its token. */
+  const rechain = (rec: any, change: (chain: any[]) => void) => { rec.chain = changed(rec.chain, change); };
+  /** Re-signs a local record's step stamp with the pi key over its (edited) fields and decision, as a gate that decided wrongly would. */
   function resign(rec: any): void {
-    const { sig: _sig, v: _v, ...fields } = rec.chain[1];
-    const bind = bindLocalTool(rec.tool, rec.input, { callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed, rulesHash: rec.rulesHash });
-    rec.chain[1] = signStampV3({ ...fields, bind }, local.material.piKey);
+    const [origin, hop] = readChain(rec.chain);
+    const { sig: _sig, v: _v, ...fields } = hop!;
+    const bind = bindLocalTool(rec.tool, rec.input, readToken(rec.decision));
+    rec.chain = writeToken([origin!, signStampV3({ ...fields, bind }, local.material.piKey)]);
   }
 
   it("genuineLocalEvidenceVerifies", () => {
@@ -920,10 +964,44 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     ]);
     // the gate's verdicts, as recorded
     const rs = localLines.map((l) => JSON.parse(l));
-    expect(["l_read", "l_outside", "l_note", "l_route", "l_uncheck", "l_leak"].map((id) => localOf(rs, id).verdict)).toEqual(["OK", "SCOPE_DENIED", "OK", "PATH_NOT_ALLOWED", "UNCHECKABLE", "INFLUENCE_DENIED"]);
-    expect(localOf(rs, "l_outside").resolved.paths).toEqual([{ need: "read", at: "outside" }]);
+    expect(["l_read", "l_outside", "l_note", "l_route", "l_uncheck", "l_leak"].map((id) => decisionOf(localOf(rs, id)).verdict)).toEqual(["OK", "SCOPE_DENIED", "OK", "PATH_NOT_ALLOWED", "UNCHECKABLE", "INFLUENCE_DENIED"]);
+    expect(decisionOf(localOf(rs, "l_outside")).resolved.paths).toEqual([{ need: "read", at: "outside" }]);
     expect(localOf(rs, "l_route").proof).toBeNull();
-    expect(localOf(rs, "l_leak").influence.map((e: any) => e.src)).toContain("server:local:read");
+    expect(readInfluence(localOf(rs, "l_leak").influence).map((e) => e.src)).toContain("server:local:read");
+  });
+
+  it("aRecordWhoseObjectsAreNotTokensFailsClosed", () => {
+    // A file in which a session, a call and a local step hold each object as the value its token holds. Each fails as
+    // a malformed record does, and the others are still judged. The session copy names another server: verify judges
+    // a call in the latest session record for its server, which for this call stays the file's own verified one.
+    const valueOf = (v: unknown) => (typeof v === "string" ? readToken(v) : v);
+    const rs = localLines.map((l) => JSON.parse(l));
+    const session = rs.find((x) => x.type === "session");
+    const valueSession = { ...session, server: "elsewhere", request: valueOf(session.request), reply: valueOf(session.reply) };
+    const call = rs.find((x) => x.type === "call" && x.callId === "toolu_a");
+    const meta = Object.entries(call.params._meta as Record<string, unknown>).map(([k, v]) => [k, k === "paztport/callId" ? v : valueOf(v)]);
+    const valueCall = { ...call, params: { ...call.params, _meta: Object.fromEntries(meta) } };
+    const { decision, ...local } = localOf(rs, "l_read");
+    const { callId: _id, ...decided } = (decision === undefined ? {} : valueOf(decision)) as Record<string, unknown>;
+    const valueLocal = { ...local, ...decided, chain: valueOf(local.chain), proof: valueOf(local.proof), influence: valueOf(local.influence) };
+    const lines = rs.flatMap((x) =>
+      x === session ? [x, valueSession] : [x === call ? valueCall : x.type === "local" && x.callId === "l_read" ? valueLocal : x],
+    );
+    let r: ReturnType<typeof verifyEvidence> | undefined;
+    expect(() => { r = verifyEvidence(write(lines.map((x) => JSON.stringify(x)))); }).not.toThrow();
+    expect(r!.ok).toBe(false);
+    expect(results(r!.items, "session")).toEqual(["OK", "BAD_SESSION"]);
+    expect(r!.items.filter((i) => i.type === "call").map((i) => [i.callId, i.result])).toEqual([["toolu_a", "CHAIN_MISSING"], ["toolu_c", "OK"], ["toolu_d", "OK"]]);
+    expect(r!.items.filter((i) => i.type === "response").map((i) => [i.callId, i.result])).toEqual([["toolu_a", "NO_CALL"], ["toolu_c", "OK"], ["toolu_d", "REFUSED"]]);
+    expect(r!.items.filter((i) => i.type === "local").map((i) => [i.callId, i.result])).toEqual([
+      ["l_read", "BINDING_MISMATCH"],
+      ["l_outside", "REFUSED"],
+      ["l_note", "OK"],
+      ["l_route", "REFUSED"],
+      ["l_uncheck", "REFUSED"],
+      ["l_leak", "REFUSED"],
+    ]);
+    expect(results(r!.items, "client")).toEqual(["OK"]);
   });
 
   it("aRunWithOnlyLocalStepsIsBound", () => {
@@ -939,7 +1017,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   });
 
   it("tamperedResolutionFails", () => {
-    const edit = (rs: any[]) => { localOf(rs, "l_outside").resolved.paths[0].at = "website/x"; };
+    const edit = (rs: any[]) => decide(localOf(rs, "l_outside"), (d) => { d.resolved.paths[0].at = "website/x"; });
     // the binding covers what the gate resolved
     expect(localResult(verifyEvidence(write(localLines, edit)), "l_outside")).toBe("BINDING_MISMATCH");
     // and a stamp over a resolution its recorded verdict does not follow from fails the verdict check
@@ -951,23 +1029,24 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("tamperedVerdictFails", () => {
     // the verdict is signed: changing it breaks the binding
     for (const id of ["l_leak", "l_outside", "l_route", "l_uncheck"]) {
-      const r = verifyEvidence(write(localLines, (rs) => { localOf(rs, id).verdict = "OK"; }));
+      const r = verifyEvidence(write(localLines, (rs) => decide(localOf(rs, id), (d) => { d.verdict = "OK"; })));
       expect(r.ok, id).toBe(false);
       expect(localResult(r, id), id).toBe("BINDING_MISMATCH");
     }
-    const r = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").verdict = "SCOPE_DENIED"; }));
+    const r = verifyEvidence(write(localLines, (rs) => decide(localOf(rs, "l_read"), (d) => { d.verdict = "SCOPE_DENIED"; })));
     expect(localResult(r, "l_read")).toBe("BINDING_MISMATCH");
     // and a signed verdict that does not follow from the rules fails the verdict check
-    const resigned = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_leak"); x.verdict = "OK"; resign(x); }));
+    const resigned = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_leak"); decide(x, (d) => { d.verdict = "OK"; }); resign(x); }));
     expect(localResult(resigned, "l_leak")).toBe("VERDICT_MISMATCH");
-    expect(localResult(verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").verdict = "MAYBE"; })), "l_read")).toBe("UNREADABLE");
+    // a decision that does not read, here for a verdict no gate gives, does not bind its call
+    expect(localResult(verifyEvidence(write(localLines, (rs) => decide(localOf(rs, "l_read"), (d) => { d.verdict = "MAYBE"; }))), "l_read")).toBe("BINDING_MISMATCH");
   });
 
   it("tamperedInfluenceFails", () => {
     // dropping the private entry would make the public write look allowed
     const r = verifyEvidence(write(localLines, (rs) => {
       const rec = localOf(rs, "l_leak");
-      rec.influence = rec.influence.filter((e: any) => e.cls !== "private");
+      rec.influence = retoken(rec.influence, (influence: any) => influence.filter((e: any) => e.cls !== "private"));
     }));
     expect(r.ok).toBe(false);
     expect(localResult(r, "l_leak")).toBe("INFLUENCE_MISMATCH");
@@ -975,25 +1054,29 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 
   it("tamperedRulesFolderFails", () => {
     const r = verifyEvidence(write(localLines, (rs) => {
-      rs.find((x) => x.type === "client").rules.folders.find((f: any) => f.path === "website").destination = "private";
+      const c = rs.find((x) => x.type === "client");
+      c.rules = changed(c.rules, (rules) => { rules.folders.find((f: any) => f.path === "website").destination = "private"; });
     }));
     expect(r.ok).toBe(false);
     expect(results(r.items, "client")).toEqual(["BAD_CLIENT"]);
     expect(results(r.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     // rules that no longer parse fail the same way
-    const unparsable = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").rules.programs.push("sh"); }));
+    const unparsable = verifyEvidence(write(localLines, (rs) => {
+      const c = rs.find((x) => x.type === "client");
+      c.rules = changed(c.rules, (rules) => { rules.programs.push("sh"); });
+    }));
     expect(results(unparsable.items, "client")).toEqual(["BAD_CLIENT"]);
   });
 
   it("tamperedStampSignatureFails", () => {
     const flip = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
-    const r = verifyEvidence(write(localLines, (rs) => { const c = localOf(rs, "l_read").chain[1]; c.sig = flip(c.sig); }));
+    const r = verifyEvidence(write(localLines, (rs) => rechain(localOf(rs, "l_read"), (c) => { c[1].sig = flip(c[1].sig); })));
     expect(r.ok).toBe(false);
     expect(localResult(r, "l_read")).toBe("BAD_SIGNATURE");
-    const origin = verifyEvidence(write(localLines, (rs) => { const c = localOf(rs, "l_read").chain[0]; c.sig = flip(c.sig); }));
+    const origin = verifyEvidence(write(localLines, (rs) => rechain(localOf(rs, "l_read"), (c) => { c[0].sig = flip(c[0].sig); })));
     expect(localResult(origin, "l_read")).toBe("BAD_SIGNATURE");
     // a stamp signed by the session key in the pi stamp's place
-    const swapped = verifyEvidence(write(localLines, (rs) => { const c = localOf(rs, "l_read").chain; c[1] = { ...c[1], svc: "session" }; }));
+    const swapped = verifyEvidence(write(localLines, (rs) => rechain(localOf(rs, "l_read"), (c) => { c[1] = { ...c[1], svc: "session" }; })));
     expect(localResult(swapped, "l_read")).toBe("BAD_SIGNATURE");
   });
 
@@ -1003,23 +1086,33 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(results(none.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     // a client record signed by the right key, but not the root the session attested
     const noRulesClient = loadClientMaterial(join(demo, "client"));
-    const other = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").signedRoot = noRulesClient.signedRoot; }));
+    const other = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").root = writeToken(noRulesClient.signedRoot); }));
     expect(results(other.items, "client")).toEqual(["BAD_CLIENT"]);
     expect(results(other.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     // an intact client record, but a session that names another client root
-    const session = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "session").request.clientRoot = noRulesClient.signedRoot; }));
+    const session = verifyEvidence(write(localLines, (rs) => {
+      const s = rs.find((x) => x.type === "session");
+      s.request = changed(s.request, (q) => { q.clientRoot = noRulesClient.signedRoot; });
+    }));
     expect(results(session.items, "client")).toEqual(["BAD_CLIENT"]);
-    // a root its policy key does not sign
-    const forged = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").policyPublicKey = noRulesClient.keyring.pi; }));
+    // a root its policy key does not sign, with no session record to disagree with it
+    const unnamed = localLines.filter((l) => JSON.parse(l).type !== "session");
+    expect(results(verifyEvidence(write(unnamed)).items, "client")).toEqual(["OK"]);
+    const forged = verifyEvidence(write(unnamed, (rs) => {
+      const c = rs.find((x) => x.type === "client");
+      c.root = retoken(c.root, (root: any) => signRoot(decode(root.root), root.rootId, generateKeyPair().privateKey, root.notAfter));
+    }));
     expect(results(forged.items, "client")).toEqual(["BAD_CLIENT"]);
   });
 
   it("aSessionRequestWithoutAKeyringSignatureIsBadSession", () => {
     for (const sig of [undefined, null, ""]) {
       const r = verifyEvidence(write(genuine, (rs) => {
-        const req = rs.find((x) => x.type === "session").request;
-        if (sig === undefined) delete req.clientKeyringSig;
-        else req.clientKeyringSig = sig;
+        const s = rs.find((x) => x.type === "session");
+        s.request = changed(s.request, (req) => {
+          if (sig === undefined) delete req.clientKeyringSig;
+          else req.clientKeyringSig = sig;
+        });
       }));
       expect(r.ok, String(sig)).toBe(false);
       expect(results(r.items, "session"), String(sig)).toEqual(["BAD_SESSION"]);
@@ -1032,10 +1125,12 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const entryKey = readFileSync(join(demo, "server/mcp-entry.key"), "utf8").trim();
     const session = (rs: any[]) => rs.find((x) => x.type === "session");
     for (const [what, edit] of [
-      ["request", (rs: any[]) => { session(rs).request.serverEntry = "mcp-entry"; }],
+      ["request", (rs: any[]) => { session(rs).request = changed(session(rs).request, (q) => { q.serverEntry = "mcp-entry"; }); }],
       ["reply", (rs: any[]) => {
-        const { sig: _sig, ...body } = session(rs).reply;
-        session(rs).reply = signSessionReply({ ...body, serverEntry: "mcp-entry" }, entryKey);
+        session(rs).reply = retoken(session(rs).reply, (reply: any) => {
+          const { sig: _sig, ...body } = reply;
+          return signSessionReply({ ...body, serverEntry: "mcp-entry" }, entryKey);
+        });
       }],
     ] as const) {
       expect(results(verifyEvidence(write(genuine, edit)).items, "session"), what).toEqual(["BAD_SESSION"]);
@@ -1044,18 +1139,22 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 
   it("aClientRecordsKeyringSignatureMustVerify", () => {
     const flip = (sig: string) => (sig[0] === "A" ? "B" : "A") + sig.slice(1);
-    expect(typeof localLines.map((l) => JSON.parse(l)).find((x) => x.type === "client").keyringSig).toBe("string");
-    const r = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); c.keyringSig = flip(c.keyringSig); }));
+    const keyring = (rs: any[], change: (k: any) => void) => {
+      const c = rs.find((x) => x.type === "client");
+      c.keyring = changed(c.keyring, change);
+    };
+    expect(typeof readKeyring(localLines.map((l) => JSON.parse(l)).find((x) => x.type === "client").keyring).sig).toBe("string");
+    const r = verifyEvidence(write(localLines, (rs) => keyring(rs, (k) => { k.sig = flip(k.sig); })));
     expect(r.ok).toBe(false);
     expect(results(r.items, "client")).toEqual(["BAD_CLIENT"]);
     expect(results(r.items, "local").every((x) => x === "NO_CLIENT")).toBe(true);
     for (const sig of [null, 1, ""]) {
-      const malformed = verifyEvidence(write(localLines, (rs) => { rs.find((x) => x.type === "client").keyringSig = sig; }));
+      const malformed = verifyEvidence(write(localLines, (rs) => keyring(rs, (k) => { k.sig = sig; })));
       expect(results(malformed.items, "client"), String(sig)).toEqual(["BAD_CLIENT"]);
     }
-    // a record with no signature, with or without a window, is malformed like any other
-    for (const drop of [["keyringSig"], ["keyringSig", "keyringNotAfter"]]) {
-      const unsigned = verifyEvidence(write(localLines, (rs) => { const c = rs.find((x) => x.type === "client"); for (const f of drop) delete c[f]; }));
+    // a keyring with no signature, with or without a window, is malformed like any other
+    for (const drop of [["sig"], ["sig", "notAfter"]]) {
+      const unsigned = verifyEvidence(write(localLines, (rs) => keyring(rs, (k) => { for (const f of drop) delete k[f]; })));
       expect(unsigned.ok, drop.join()).toBe(false);
       expect(results(unsigned.items, "client"), drop.join()).toEqual(["BAD_CLIENT"]);
     }
@@ -1064,12 +1163,14 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
   it("aClientRecordsKeyringNamesAreRouteNodes", () => {
     // a client record re-signed by a fresh policy key over a keyring that also names `extra`, so only the name can refuse it
     const rec = JSON.parse(localLines.find((l) => JSON.parse(l).type === "client")!);
+    const ring = readKeyring(rec.keyring);
+    const root = readRoot(rec.root);
     const withName = (extra: string) => {
       const policy = generateKeyPair();
-      const keyring = { ...rec.keyring, [extra]: rec.keyring.pi };
-      const signedRoot = signRoot(decode(rec.signedRoot.root), rec.signedRoot.rootId, policy.privateKey, rec.signedRoot.notAfter);
-      const keyringSig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, keyring, rec.keyringNotAfter)));
-      return { ...rec, policyPublicKey: policy.publicKey, signedRoot, keyring, keyringSig };
+      const services = { ...ring.services, [extra]: ring.services.pi };
+      const signedRoot = signRoot(decode(root.root), root.rootId, policy.privateKey, root.notAfter);
+      const sig = encode(sign(policy.privateKey, keyringSigningBytes(policy.publicKey, services, ring.notAfter)));
+      return { ...rec, keyring: tokenOf({ notAfter: ring.notAfter, policy: policy.publicKey, services, sig }), root: writeToken(signedRoot) };
     };
     expect(verifyClient(withName("pi-2"), [])).toBeDefined();
     for (const name of ["a/b", "a|b", "..", ""]) expect(verifyClient(withName(name), []), name).toBeUndefined();
@@ -1077,18 +1178,23 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
 
   it("aClientRecordVerifiesAndItsWindowsAreSigned", () => {
     const client = (rs: any[]) => rs.find((x) => x.type === "client");
+    const keyring = (rs: any[], change: (k: any) => void) => { client(rs).keyring = changed(client(rs).keyring, change); };
+    const root = (rs: any[], change: (r: any) => void) => { client(rs).root = changed(client(rs).root, change); };
     const rec = client(localLines.map((l) => JSON.parse(l)));
-    expect(rec.keyringNotAfter).toEqual(expect.any(Number));
-    expect(rec.signedRoot.notAfter).toEqual(expect.any(Number));
+    expect(readKeyring(rec.keyring).notAfter).toEqual(expect.any(Number));
+    expect(readRoot(rec.root).notAfter).toEqual(expect.any(Number));
     expect(results(verifyEvidence(write(localLines)).items, "client")).toEqual(["OK"]);
     for (const [what, edit] of [
-      ["keyring window moved", (rs: any[]) => { client(rs).keyringNotAfter += 1; }],
-      ["keyring window dropped", (rs: any[]) => { delete client(rs).keyringNotAfter; }],
-      ["keyring window not an integer", (rs: any[]) => { client(rs).keyringNotAfter = 1.5; }],
-      ["keyring window null", (rs: any[]) => { client(rs).keyringNotAfter = null; }],
-      ["root window moved", (rs: any[]) => { client(rs).signedRoot.notAfter += 1; }],
-      ["root window not an integer", (rs: any[]) => { client(rs).signedRoot.notAfter = "x"; }],
-      ["a session naming another window", (rs: any[]) => { rs.find((x) => x.type === "session").request.clientKeyringNotAfter += 1; }],
+      ["keyring window moved", (rs: any[]) => keyring(rs, (k) => { k.notAfter += 1; })],
+      ["keyring window dropped", (rs: any[]) => keyring(rs, (k) => { delete k.notAfter; })],
+      ["keyring window not an integer", (rs: any[]) => keyring(rs, (k) => { k.notAfter = 1.5; })],
+      ["keyring window null", (rs: any[]) => keyring(rs, (k) => { k.notAfter = null; })],
+      ["root window moved", (rs: any[]) => root(rs, (r) => { r.notAfter += 1; })],
+      ["root window not an integer", (rs: any[]) => root(rs, (r) => { r.notAfter = "x"; })],
+      ["a session naming another window", (rs: any[]) => {
+        const s = rs.find((x) => x.type === "session");
+        s.request = changed(s.request, (q) => { q.clientKeyringNotAfter += 1; });
+      }],
     ] as [string, (rs: any[]) => void][]) {
       const r = verifyEvidence(write(localLines, edit));
       expect(results(r.items, "client"), what).toEqual(["BAD_CLIENT"]);
@@ -1101,7 +1207,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const dropped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = null; }));
     expect(localResult(dropped, "l_read")).toBe("PROOF_MISMATCH");
     // a signed "route not listed" that carries a proof
-    const listed = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.routeAllowed = false; resign(x); }));
+    const listed = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); decide(x, (d) => { d.routeAllowed = false; }); resign(x); }));
     expect(localResult(listed, "l_read")).toBe("PROOF_MISMATCH");
     // another route's proof does not prove this one
     const swapped = verifyEvidence(write(localLines, (rs) => { localOf(rs, "l_read").proof = localOf(rs, "l_note").proof; }));
@@ -1128,38 +1234,45 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = verifyEvidence(write(localLines.filter((l) => ["client", "run"].includes(JSON.parse(l).type))));
     expect(r.ok).toBe(true);
     expect(r.nothingToCheck).toBe(true);
-    const broken = verifyEvidence(write(localLines.filter((l) => ["client", "run"].includes(JSON.parse(l).type)), (rs) => { rs.find((x) => x.type === "client").policyPublicKey = "AAAA"; }));
+    const broken = verifyEvidence(write(localLines.filter((l) => ["client", "run"].includes(JSON.parse(l).type)), (rs) => {
+      const c = rs.find((x) => x.type === "client");
+      c.keyring = changed(c.keyring, (k) => { k.policy = "AAAA"; });
+    }));
     expect(broken.ok).toBe(false);
     expect(broken.nothingToCheck).toBeUndefined();
   });
 
   it("theDecisionIsSigned", () => {
     // review probe: an allowed write recorded as an unlisted route (proof dropped, verdict changed)
-    const downgraded = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; x.verdict = "PATH_NOT_ALLOWED"; }));
+    const downgraded = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; decide(x, (d) => { d.verdict = "PATH_NOT_ALLOWED"; }); }));
     expect(downgraded.ok).toBe(false);
     expect(localResult(downgraded, "l_note")).toBe("BINDING_MISMATCH");
-    const both = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_note"); x.proof = null; x.routeAllowed = false; x.verdict = "PATH_NOT_ALLOWED"; }));
+    const both = verifyEvidence(write(localLines, (rs) => {
+      const x = localOf(rs, "l_note");
+      x.proof = null;
+      decide(x, (d) => { d.routeAllowed = false; d.verdict = "PATH_NOT_ALLOWED"; });
+    }));
     expect(localResult(both, "l_note")).toBe("BINDING_MISMATCH");
     // review probe: the rules removed and every step turned into a scope refusal
     const nullRules = verifyEvidence(write(localLines, (rs) => {
       const c = rs.find((x) => x.type === "client");
       c.rules = null;
       c.rulesProof = null;
-      for (const x of rs) if (x.type === "local") x.verdict = "SCOPE_DENIED";
+      for (const x of rs) if (x.type === "local") decide(x, (d) => { d.verdict = "SCOPE_DENIED"; });
     }));
     expect(nullRules.ok).toBe(false);
     expect(results(nullRules.items, "client")).toEqual(["OK"]);
     expect(results(nullRules.items, "local").every((x) => x === "BINDING_MISMATCH" || x === "RULES_MISMATCH")).toBe(true);
     expect(localResult(nullRules, "l_outside")).toBe("RULES_MISMATCH"); // its verdict was SCOPE_DENIED already
     // a signed rules hash that is not the client record's
-    const other = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.rulesHash = "AAAA"; resign(x); }));
+    const other = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); decide(x, (d) => { d.rulesHash = "AAAA"; }); resign(x); }));
     expect(localResult(other, "l_read")).toBe("RULES_MISMATCH");
-    const none = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.rulesHash = null; resign(x); }));
+    const none = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); decide(x, (d) => { d.rulesHash = null; }); resign(x); }));
     expect(localResult(none, "l_read")).toBe("RULES_MISMATCH");
     // with the route not listed the gate resolves nothing (R27c)
     const resolved = verifyEvidence(write(localLines, (rs) => {
       const x = localOf(rs, "l_route");
-      x.resolved = { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true };
+      decide(x, (d) => { d.resolved = { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true }; });
       resign(x);
     }));
     expect(localResult(resolved, "l_route")).toBe("VERDICT_MISMATCH");
@@ -1170,14 +1283,16 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(ts.ok).toBe(false);
     expect(results(ts.items, "local").every((x) => x === "TIME_MISMATCH")).toBe(true);
     // a step stamp from another instance, signed with the right key
-    const inst = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); x.chain[1].inst = "pi-2"; resign(x); }));
+    const inst = verifyEvidence(write(localLines, (rs) => { const x = localOf(rs, "l_read"); rechain(x, (c) => { c[1].inst = "pi-2"; }); resign(x); }));
     expect(localResult(inst, "l_read")).toBe("BAD_SIGNATURE");
     // an origin from another instance, signed with the session key, and the step re-chained to it
     const origin = verifyEvidence(write(localLines, (rs) => {
       const x = localOf(rs, "l_read");
-      const { sig: _sig, v: _v, ...fields } = x.chain[0];
-      x.chain[0] = signStampV3({ ...fields, inst: "pi-2" }, local.material.sessionKey);
-      x.chain[1].prev = x.chain[0].sig;
+      rechain(x, (c) => {
+        const { sig: _sig, v: _v, ...fields } = c[0];
+        c[0] = signStampV3({ ...fields, inst: "pi-2" }, local.material.sessionKey);
+        c[1].prev = c[0].sig;
+      });
       resign(x);
     }));
     expect(localResult(origin, "l_read")).toBe("BAD_ORIGIN");
@@ -1192,14 +1307,22 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     for (const v of [1, 2, 4]) {
       for (const at of [[0], [1], [0, 1]]) {
         const odd = structuredClone(rec);
-        for (const i of at) odd.chain[i].v = v;
+        rechain(odd, (c) => { for (const i of at) c[i].v = v; });
         expect(verifyLocal(odd, client, runOf, new Set())).toBe("CHAIN_MISSING");
       }
     }
-    // a value no token carries is not read at all
+    // a chain token that does not read, here for a ts no stamp holds, or that is not a token at all
     const negative = structuredClone(rec);
-    negative.chain[1].ts = -1;
-    expect(verifyLocal(negative, client, runOf, new Set())).toBe("UNREADABLE");
+    rechain(negative, (c) => { c[1].ts = -1; });
+    expect(verifyLocal(negative, client, runOf, new Set())).toBe("CHAIN_MISSING");
+    expect(verifyLocal({ ...rec, chain: readChain(rec.chain) }, client, runOf, new Set())).toBe("CHAIN_MISSING");
+    // a step's chain is the origin and the step: a third stamp, linked and signed by the pi key, does not verify
+    const three = structuredClone(rec);
+    rechain(three, (c) => {
+      const { sig: _sig, v: _v, ...fields } = c[1];
+      c.push(signStampV3({ ...fields, prev: c[1].sig }, local.material.piKey));
+    });
+    expect(verifyLocal(three, client, runOf, new Set())).toBe("BAD_SIGNATURE");
   });
 
   it("aRepeatedLocalRecordIsAReplay", () => {
@@ -1232,10 +1355,11 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     expect(r.ok).toBe(true);
     expect(results(r.items, "client")).toEqual(["OK"]);
     expect(results(r.items, "local").every((x) => x === "REFUSED")).toBe(true);
-    expect(noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").every((x) => x.verdict === "SCOPE_DENIED")).toBe(true);
-    const ok = verifyEvidence(write(noRules, (rs) => { localOf(rs, "l_read").verdict = "OK"; }));
+    const decisions = noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").map(decisionOf);
+    expect(decisions.every((d) => d.verdict === "SCOPE_DENIED")).toBe(true);
+    const ok = verifyEvidence(write(noRules, (rs) => decide(localOf(rs, "l_read"), (d) => { d.verdict = "OK"; })));
     expect(localResult(ok, "l_read")).toBe("BINDING_MISMATCH");
-    expect(noRules.map((l) => JSON.parse(l)).filter((x) => x.type === "local").every((x) => x.rulesHash === null)).toBe(true);
+    expect(decisions.every((d) => d.rulesHash === null)).toBe(true);
   });
 
   /**
@@ -1305,13 +1429,13 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       influence.recordClasses("github", ["third-party"], "h1");
       gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy");
     }, { material });
-    expect(localOf(tainted.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("INFLUENCE_DENIED");
+    expect(decisionOf(localOf(tainted.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("INFLUENCE_DENIED");
     const r = verifyEvidence(write(tainted));
     expect(bad(r.items)).toEqual([]);
     expect(localResult(r, "l_copy")).toBe("REFUSED");
     // with an empty session the same copy is allowed, and verifies
     const clean = gateRun((gate) => void gate.check("bash", { command: "cat priv/x > website/leak.md" }, "l_copy"), { material });
-    expect(localOf(clean.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("OK");
+    expect(decisionOf(localOf(clean.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("OK");
     expect(localResult(verifyEvidence(write(clean)), "l_copy")).toBe("OK");
   });
 
@@ -1321,7 +1445,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       influence.recordClasses("github", ["private"], "h1");
       gate.check("bash", { command: "cat notes/n.md > website/y.md" }, "l_copy");
     });
-    expect(localOf(lines.map((l) => JSON.parse(l)), "l_copy").verdict).toBe("OK");
+    expect(decisionOf(localOf(lines.map((l) => JSON.parse(l)), "l_copy")).verdict).toBe("OK");
     const r = verifyEvidence(write(lines));
     expect(bad(r.items)).toEqual([]);
     expect(localResult(r, "l_copy")).toBe("OK");
@@ -1359,7 +1483,8 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
       const late = structuredClone(localOf(rs, "l_on_time"));
       late.callId = "l_late";
       late.now = t + 1;
-      late.chain[1].ts = t + 1;
+      decide(late, (d) => { d.callId = "l_late"; });
+      rechain(late, (c) => { c[1].ts = t + 1; });
       resign(late);
       rs.push(late);
     }));
@@ -1379,7 +1504,7 @@ describe("verifyEvidence: signed local steps", { timeout: 60_000 }, () => {
     const r = spawnSync(process.execPath, [MAIN, write(localLines)], { encoding: "utf8" });
     expect(r.status).toBe(0);
     expect(r.stdout).toMatch(/^OK {2}.*\(\d+ items, 1 REFUSED \(server refusal; not signed\), 4 REFUSED \(local refusal; signed\)\) pin [\w-]{16}\n$/);
-    const t = spawnSync(process.execPath, [MAIN, write(localLines, (rs) => { localOf(rs, "l_leak").verdict = "OK"; })], { encoding: "utf8" });
+    const t = spawnSync(process.execPath, [MAIN, write(localLines, (rs) => decide(localOf(rs, "l_leak"), (d) => { d.verdict = "OK"; }))], { encoding: "utf8" });
     expect(t.status).toBe(1);
     expect(t.stdout).toMatch(/^FAIL .*line \d+ local l_leak: BINDING_MISMATCH/);
   });

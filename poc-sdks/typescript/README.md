@@ -79,8 +79,8 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
 ## @paztport/mcp
 
 MCP transport on top of core: the `tools/call` binding, the `_meta` keys
-(`paztport/chain`, `paztport/proof`, `paztport/influence` and the rest), the client
-side and the server side. A call names `mcp:<serverId>.<tool>` as its
+(`paztport/chain`, `paztport/proof`, `paztport/influence` and the rest, each value but
+`paztport/callId`'s a token), the client side and the server side. A call names `mcp:<serverId>.<tool>` as its
 receiver, and a response chain ends at the client that made the call.
 
 The client side opens a session with `openSession` (which sends the replacement request when the reply warrants

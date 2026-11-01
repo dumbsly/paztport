@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { readChain, readInfluence, readKeyring, readProof, readRoot, readSessionReply, readSessionRequest, writeToken } from "@paztport/core";
+import { readVerdict } from "@paztport/mcp";
 import type { ExtensionMode, ServerSpec } from "../src/config.ts";
 import { ServerConnection } from "../src/connection.ts";
 import { EventLog } from "../src/events.ts";
@@ -99,7 +101,9 @@ describe("evidence file", { timeout: 30_000 }, () => {
     expect(s.server).toBe("github");
     expect(s.status).toBe("attested");
     expect(s.pin).toBe(readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim());
-    expect(s.request).toMatchObject({
+    // the request sent and the reply received, as their tokens
+    const request = readSessionRequest(s.request);
+    expect(request).toMatchObject({
       clientRoot: material.signedRoot,
       clientPolicyKey: material.policyPublicKey,
       clientKeyring: material.keyring,
@@ -107,10 +111,10 @@ describe("evidence file", { timeout: 30_000 }, () => {
       clientKeyringNotAfter: material.keyringNotAfter,
     });
     // a fresh setup has a window on both sides, and each window travels with what it covers
-    expect(s.request.clientRoot!.notAfter).toEqual(expect.any(Number));
-    expect(s.request.clientKeyringNotAfter).toEqual(expect.any(Number));
-    expect(typeof s.request.nonce).toBe("string");
-    expect(s.reply).toMatchObject({
+    expect(request.clientRoot!.notAfter).toEqual(expect.any(Number));
+    expect(request.clientKeyringNotAfter).toEqual(expect.any(Number));
+    expect(typeof request.nonce).toBe("string");
+    expect(readSessionReply(s.reply!)).toMatchObject({
       status: "attested", serverPolicyKey: s.pin, sess: expect.any(String), sig: expect.any(String),
       serverKeyringNotAfter: expect.any(Number), serverRoot: { notAfter: expect.any(Number) },
     });
@@ -123,10 +127,12 @@ describe("evidence file", { timeout: 30_000 }, () => {
       expect(x.rid).toBe(rid);
       expect(x.server).toBe("github");
       expect(x.params.name).toBe(x.tool);
-      expect(x.params._meta).toHaveProperty("paztport/chain");
-      expect(x.params._meta).toHaveProperty("paztport/proof");
-      expect(x.params._meta).toHaveProperty("paztport/influence");
-      const chain = x.params._meta["paztport/chain"] as { v: number; svc: string; rcv: string; ts: number }[];
+      // `_meta` as sent: a token for each object, and the call id
+      expect(Object.keys(x.params._meta)).toEqual(["paztport/chain", "paztport/proof", "paztport/influence", "paztport/callId"]);
+      expect(readProof(x.params._meta["paztport/proof"]!)).toEqual(material.proofs[`session/pi/mcp:github.${x.tool}`]);
+      expect(readInfluence(x.params._meta["paztport/influence"]!)).toEqual(expect.any(Array));
+      expect(x.params._meta["paztport/callId"]).toBe(x.callId);
+      const chain = readChain(x.params._meta["paztport/chain"]!);
       expect(chain[chain.length - 1]!.svc).toBe("pi");
       // v3: the origin names pi, and pi's stamp names the tool on this server
       expect(chain.map((c) => [c.v, c.rcv])).toEqual([[3, "pi"], [3, `mcp:github.${x.tool}`]]);
@@ -140,9 +146,10 @@ describe("evidence file", { timeout: 30_000 }, () => {
     }
     // verification time comes after the stamp time of the same call
     responses.forEach((r, i) => expect(r.now).toBeGreaterThan(calls[i]!.now));
-    // verified results keep their _meta; the refusal on the write carries the verdict
-    expect((responses[0]!.result as { _meta: object })._meta).toBeDefined();
-    expect(JSON.stringify(responses[3]!.result)).toContain("INFLUENCE_DENIED");
+    // results are kept as received: a verified one with its attestation token, the refusal on the write with its
+    // verdict token
+    expect((responses[0]!.result as { _meta: Record<string, unknown> })._meta["paztport/attestation"]).toEqual(expect.any(String));
+    expect(readVerdict((responses[3]!.result as { _meta: Record<string, string> })._meta["paztport/verdict"]!)).toEqual({ reason: "INFLUENCE_DENIED" });
     // file order: session, then each call before its response
     expect(rs.map((r) => r.type)).toEqual(["session", "call", "response", "call", "response", "call", "response", "call", "response"]);
   });
@@ -193,10 +200,11 @@ describe("evidence file", { timeout: 30_000 }, () => {
     expect(sessions[0]!.status).toBe("unsafe");
     expect(sessions[0]!.reason).toBe("PIN_MISMATCH");
     expect(sessions[0]!.pin).toBe("AAAA");
-    expect(sessions[0]!.request.clientRoot).not.toBeNull();
-    expect(sessions[0]!.reply).toMatchObject({ status: "attested" });
-    expect(sessions[1]!.request.clientRoot).toBeNull();
-    expect(sessions[1]!.request.nonce).not.toBe(sessions[0]!.request.nonce);
+    const [first, second] = sessions.map((x) => readSessionRequest(x.request));
+    expect(first!.clientRoot).not.toBeNull();
+    expect(readSessionReply(sessions[0]!.reply!)).toMatchObject({ status: "attested" });
+    expect(second!.clientRoot).toBeNull();
+    expect(second!.nonce).not.toBe(first!.nonce);
     expect(sessions[1]!.status).toBe("unsafe");
     expect(sessions[1]!.reason).toBe("PIN_MISMATCH");
     expect(ofType(rs, "call")).toEqual([]);
@@ -210,7 +218,7 @@ describe("evidence file", { timeout: 30_000 }, () => {
     const rs = evidence(c);
     const sessions = ofType(rs, "session");
     expect(sessions).toHaveLength(1);
-    expect(sessions[0]!.request.clientRoot).toBeNull();
+    expect(readSessionRequest(sessions[0]!.request).clientRoot).toBeNull();
     expect(sessions[0]!.status).toBe("unsafe");
     expect(sessions[0]!.reason).toBe("UNSAFE");
     // an unsafe connection sends plain calls: nothing to re-verify
@@ -242,14 +250,15 @@ describe("evidence file", { timeout: 30_000 }, () => {
   });
 
   it("failedHandshakesRecordBothRequests", async () => {
-    for (const [mode, reply, reason] of [["malformed", {}, "MALFORMED_REPLY"], ["error", null, "HANDSHAKE_ERROR"]] as const) {
+    // a result with no reply token, and no result: neither has a reply to record
+    for (const [mode, reason] of [["malformed", "MALFORMED_REPLY"], ["error", "HANDSHAKE_ERROR"]] as const) {
       const c = ctx();
       await connect(c, { id: "stub", command: process.execPath, args: [STUB, "--session-reply", mode], attested: true, pin: join(demo, "client/server-policy.pub") });
       const sessions = ofType(evidence(c), "session");
       expect(sessions.map((x) => x.reason)).toEqual([reason, reason]);
-      expect(sessions[0]!.reply).toEqual(reply);
-      expect(sessions[0]!.request.clientRoot).not.toBeNull();
-      expect(sessions[1]!.request.clientRoot).toBeNull();
+      expect(sessions[0]!.reply).toBeNull();
+      expect(readSessionRequest(sessions[0]!.request).clientRoot).not.toBeNull();
+      expect(readSessionRequest(sessions[1]!.request).clientRoot).toBeNull();
     }
   });
 
@@ -323,17 +332,14 @@ describe("extension wiring", { timeout: 30_000 }, () => {
       expect(client).toEqual({
         v: 1,
         type: "client",
-        keyring: material.keyring,
-        keyringSig: material.keyringSig,
-        keyringNotAfter: material.keyringNotAfter,
-        policyPublicKey: material.policyPublicKey,
-        signedRoot: material.signedRoot,
+        keyring: writeToken({ notAfter: material.keyringNotAfter, policy: material.policyPublicKey, services: material.keyring, sig: material.keyringSig }),
+        root: writeToken(material.signedRoot),
         rules: null,
         rulesProof: null,
       });
-      // the root whole, its window included, and the keyring's window beside its signature
-      expect(client.keyringNotAfter).toEqual(expect.any(Number));
-      expect(client.signedRoot.notAfter).toEqual(expect.any(Number));
+      // the signed keyring and the root whole, each with its window
+      expect(readKeyring(client.keyring)).toMatchObject({ policy: material.policyPublicKey, notAfter: expect.any(Number) });
+      expect(readRoot(client.root).notAfter).toEqual(expect.any(Number));
       const run = ofType(rs, "run")[0]!;
       expect(run.prompt).toBe("fix the typo");
       expect(run.rid).toMatch(/^[A-Za-z0-9_-]+$/);

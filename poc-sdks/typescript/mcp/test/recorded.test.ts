@@ -2,9 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3 } from "@paztport/core";
+import { bindPrompt, buildTree, commitInfluence, generateKeyPair, randomBytes, signStampV3, writeToken } from "@paztport/core";
 import type { InfluenceEntry, OfflineConfig } from "@paztport/core";
 import { META_CALL_ID, META_CHAIN, META_INFLUENCE, META_PROOF, META_VERDICT, bindMcpCall, hasRefusalShape, verifyRecordedCall } from "../src/index.ts";
+import { retoken, tokenOf } from "./helpers/client.ts";
 
 // Recorded long ago: offline the call is checked against the time recorded with it, not a clock.
 const CALL_TS = 9_000_000;
@@ -39,7 +40,12 @@ function world() {
     return {
       name: TOOL,
       arguments: args,
-      _meta: { [META_CHAIN]: [s0, s1], [META_PROOF]: tree.proofFor(ROUTE), [META_INFLUENCE]: infl, [META_CALL_ID]: callId },
+      _meta: {
+        [META_CHAIN]: writeToken([s0, s1]),
+        [META_PROOF]: writeToken(tree.proofFor(ROUTE)),
+        [META_INFLUENCE]: writeToken(infl),
+        [META_CALL_ID]: callId,
+      },
     };
   };
   const call = { serverId: "github", rid: "rid-1", callId: "call-1", stampedAt: CALL_TS, prompt: PROMPT };
@@ -72,7 +78,11 @@ describe("verifyRecordedCall", () => {
     for (const v of [1, 2, 4]) {
       for (const at of [0, 1]) {
         const p = w.params();
-        ((p._meta as Record<string, unknown>)[META_CHAIN] as Record<string, unknown>[])[at]!.v = v;
+        const meta = p._meta as Record<string, string>;
+        meta[META_CHAIN] = retoken(meta[META_CHAIN]!, (chain) => {
+          chain[at].v = v;
+          return chain;
+        });
         expect(verifyRecordedCall(p, w.call, w.cfg()).result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
       }
     }
@@ -94,18 +104,24 @@ describe("verifyRecordedCall", () => {
     expect(verifyRecordedCall({}, w.call, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
 
-  it("aRecordedValueNoWriterWritesGetsItsReadersRefusal", () => {
+  it("aRecordedTokenThatDoesNotReadGetsItsReadersRefusal", () => {
     const w = world();
-    const meta = (p: Record<string, unknown>) => p._meta as Record<string, unknown>;
     const reason = (edit: (m: Record<string, unknown>) => void) => {
       const p = w.params();
-      edit(meta(p));
+      edit(p._meta as Record<string, unknown>);
       return verifyRecordedCall(p, w.call, w.cfg()).result.reason;
     };
-    expect(reason((m) => { (m[META_CHAIN] as Record<string, unknown>[])[1]!.ts = -1; })).toBe("CHAIN_MISSING");
-    expect(reason((m) => { (m[META_CHAIN] as Record<string, unknown>[])[1]!.extra = 1; })).toBe("CHAIN_MISSING");
-    expect(reason((m) => { m[META_INFLUENCE] = [{ ...infl[0], owner: "" }]; })).toBe("INFLUENCE_MISMATCH");
-    expect(reason((m) => { m[META_PROOF] = { ...(m[META_PROOF] as object), extra: 1 }; })).toBe("PATH_NOT_ALLOWED");
+    const edited = (m: Record<string, unknown>, name: string, edit: (value: any) => unknown) => {
+      m[name] = retoken(m[name] as string, edit);
+    };
+    expect(reason((m) => edited(m, META_CHAIN, (c) => [c[0], { ...c[1], ts: -1 }]))).toBe("CHAIN_MISSING");
+    expect(reason((m) => edited(m, META_CHAIN, (c) => [c[0], { ...c[1], extra: 1 }]))).toBe("CHAIN_MISSING");
+    expect(reason((m) => { m[META_INFLUENCE] = tokenOf([{ ...infl[0], owner: "" }]); })).toBe("INFLUENCE_MISMATCH");
+    expect(reason((m) => edited(m, META_PROOF, (proof) => ({ ...proof, extra: 1 })))).toBe("PATH_NOT_ALLOWED");
+    // a recorded member that is not a token gets the same refusals
+    expect(reason((m) => { m[META_CHAIN] = []; })).toBe("CHAIN_MISSING");
+    expect(reason((m) => { m[META_INFLUENCE] = infl; })).toBe("INFLUENCE_MISMATCH");
+    expect(reason((m) => { m[META_PROOF] = {}; })).toBe("PATH_NOT_ALLOWED");
   });
 
   it("aCallIsAReplayAnywhereInTheRecordSet", () => {
@@ -147,15 +163,18 @@ describe("verifyRecordedCall: the library's order", () => {
   it("theChainIsCheckedBeforeTheRecordsCallId", () => {
     const w = world();
     const p = w.params();
-    const chain = (p._meta as Record<string, unknown>)[META_CHAIN] as { sig: string }[];
-    chain[1]!.sig = (chain[1]!.sig[0] === "A" ? "B" : "A") + chain[1]!.sig.slice(1);
+    const meta = p._meta as Record<string, string>;
+    meta[META_CHAIN] = retoken(meta[META_CHAIN]!, (chain) => {
+      chain[1].sig = (chain[1].sig[0] === "A" ? "B" : "A") + chain[1].sig.slice(1);
+      return chain;
+    });
     expect(verifyRecordedCall(p, { ...w.call, callId: "call-2" }, w.cfg()).result.reason).toBe("BAD_SIGNATURE");
     expect(verifyRecordedCall(w.params(), { ...w.call, callId: "call-2" }, w.cfg()).result.reason).toBe("RID_MISMATCH");
   });
 });
 
 describe("hasRefusalShape", () => {
-  const refusal = () => ({ isError: true, content: [{ type: "text", text: "refused" }], _meta: { [META_VERDICT]: { reason: "INFLUENCE_DENIED" } } });
+  const refusal = () => ({ isError: true, content: [{ type: "text", text: "refused" }], _meta: { [META_VERDICT]: writeToken({ reason: "INFLUENCE_DENIED" }) } });
 
   it("aServerRefusalHasIt", () => {
     expect(hasRefusalShape(refusal())).toBe(true);
@@ -164,8 +183,11 @@ describe("hasRefusalShape", () => {
   it("anythingElseDoesNot", () => {
     expect(hasRefusalShape({ ...refusal(), isError: false })).toBe(false);
     expect(hasRefusalShape({ ...refusal(), _meta: { ...refusal()._meta, extra: 1 } })).toBe(false);
-    expect(hasRefusalShape({ ...refusal(), _meta: { [META_VERDICT]: { reason: "X", audit: true } } })).toBe(false);
+    expect(hasRefusalShape({ ...refusal(), _meta: { [META_VERDICT]: writeToken({ reason: "X", audit: true }) } })).toBe(false);
     expect(hasRefusalShape({ ...refusal(), _meta: { [META_VERDICT]: "INFLUENCE_DENIED" } })).toBe(false);
+    // a verdict that does not read, whether a token or the value one would hold, has no refusal shape
+    expect(hasRefusalShape({ ...refusal(), _meta: { [META_VERDICT]: { reason: "INFLUENCE_DENIED" } } })).toBe(false);
+    expect(hasRefusalShape({ ...refusal(), _meta: { [META_VERDICT]: tokenOf({ reason: "INFLUENCE_DENIED", audit: false }) } })).toBe(false);
     expect(hasRefusalShape({ ...refusal(), _meta: [] })).toBe(false);
     expect(hasRefusalShape({ isError: true, content: [] })).toBe(false);
   });

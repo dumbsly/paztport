@@ -6,13 +6,14 @@
 //                 request carried a clientRoot, and whether this call's params carried _meta
 //   surrogate  -> a text holding a lone surrogate (valid JSON, rejected by JCS)
 //   infinity   -> a result field 1e400, which parses to Infinity
-//   verdict    -> a refusal-shaped result whose reason is arguments.reason
+//   verdict    -> a refusal-shaped result whose verdict token holds arguments.reason
 //   untyped.tool -> listed only: an inputSchema without "type" and a name with a "."
 //   stringly   -> listed only: an inputSchema whose type is not "object"
 // --session-reply malformed answers paztport/session with {}; --session-reply error answers it with a
 // JSON-RPC internal error; otherwise it is "method not found".
 
 import { createInterface } from "node:readline";
+import { readSessionRequest, writeToken } from "@paztport/core";
 
 const sessionReply = process.argv.includes("--session-reply") ? process.argv[process.argv.indexOf("--session-reply") + 1] : undefined;
 const methods: string[] = [];
@@ -37,7 +38,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "tools/list":
       return result(m.id, { tools });
     case "paztport/session":
-      sessions.push(p.clientRoot !== null);
+      sessions.push(readSessionRequest(p.request).clientRoot !== null);
       if (sessionReply === "malformed") return result(m.id, {});
       if (sessionReply === "error") return send(JSON.stringify({ jsonrpc: "2.0", id: m.id, error: { code: -32603, message: "Internal error" } }));
       break;
@@ -53,7 +54,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
           return result(m.id, {
             content: [{ type: "text", text: "server-chosen refusal text" }],
             isError: true,
-            _meta: { "paztport/verdict": { reason: p.arguments?.reason } },
+            _meta: { "paztport/verdict": writeToken({ reason: p.arguments?.reason ?? null }) },
           });
       }
   }

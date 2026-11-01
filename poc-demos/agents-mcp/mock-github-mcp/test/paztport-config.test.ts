@@ -6,11 +6,14 @@ import { existsSync, mkdirSync, readFileSync, mkdtempSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildPolicy, canonicalize, decode, encode, generateKeyPair, sign, signReplyCert, signKeyring, signRoot, utf8, verifyRoot, verifySessionReply } from "@paztport/core";
+import {
+  buildPolicy, canonicalize, decode, encode, generateKeyPair, readSessionReply, sign, signReplyCert, signKeyring, signRoot, utf8, verifyRoot,
+  verifySessionReply,
+} from "@paztport/core";
 import { McpServerSession, type ServerPolicy, type SessionRules } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
 import { loadServerConfig } from "../src/paztport.ts";
-import { CLIENT_POLICY, makeClient } from "./helpers/client.ts";
+import { CLIENT_POLICY, makeClient, sessionParams } from "./helpers/client.ts";
 
 const RULES: SessionRules = {
   disabledWhenUnsafe: ["create_branch", "create_or_update_file", "push_files", "create_pull_request", "add_issue_comment"],
@@ -78,7 +81,7 @@ describe("loadServerConfig", () => {
     // the loaded config drives a full handshake and a verifiable response
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
-    const reply = srv.openSession(client.request());
+    const reply = readSessionReply(srv.openSession(sessionParams(client.request())).reply);
     expect(reply.status).toBe("attested");
     expect(client.acceptReply(reply, cfg.policyPublicKey)).toBe(true);
     expect(reply.serverReplyCert).toEqual(cfg.replyCert);
@@ -242,7 +245,7 @@ describe("loadServerConfig", () => {
     const srv = new McpServerSession(cfg, RULES, Date.now);
     const client = makeClient();
     const req = client.request();
-    const reply = srv.openSession(req);
+    const reply = readSessionReply(srv.openSession(sessionParams(req)).reply);
     expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", Date.now())).toBe(true);
     expect(verifySessionReply(reply, req, cfg.policyPublicKey, "mcp-entry", cfg.replyCert.notAfter + 1)).toBe(false);
   });

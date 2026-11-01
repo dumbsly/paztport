@@ -302,6 +302,17 @@ describe("demo page", () => {
     expect(app).toContain("!step.local && (attested || reply)");
   });
 
+  it("the drawer reads each record's decoded tokens, and says when one did not read", () => {
+    const app = text("app.js");
+    for (const read of ["call?.display?.chain", "reply?.display?.attestation", "record?.display?.chain", "record?.display?.influence", "record?.display?.proof"]) {
+      expect(app, read).toContain(read);
+    }
+    expect(app).toContain("function unreadable(record, name)");
+    for (const check of ['unreadable(call, "paztport/chain")', 'unreadable(reply, "paztport/attestation")', 'unreadable(record, "chain")', 'unreadable(record, "influence")', 'unreadable(record, "proof")']) {
+      expect(app, check).toContain(check);
+    }
+  });
+
   it("an off run's local drawer says nothing was checked, and a local run's score names all three sources", () => {
     const app = text("app.js");
     expect(app).toContain("Paztport was off, so nothing was checked.");

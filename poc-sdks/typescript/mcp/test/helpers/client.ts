@@ -6,16 +6,20 @@
 import {
   bindPrompt,
   buildPolicy,
+  canonicalize,
   checkSessionReply,
   commitInfluence,
   decode,
+  encode,
   generateKeyPair,
   newNonce,
   NonceCache,
   NONCE_TTL_MS,
+  readToken,
   signKeyring,
   signRoot,
   signStampV3,
+  utf8,
   writeToken,
   type ContentLabel,
   type InfluenceEntry,
@@ -33,6 +37,18 @@ import {
   META_PROOF,
   verifyMcpResponse,
 } from "../../src/index.ts";
+
+/**
+ * A value's token: the base64url of its JCS text, whether or not the strict writer would write it, so a test can send
+ * a value a reader must refuse.
+ */
+export const tokenOf = (value: unknown): string => encode(utf8(canonicalize(value)));
+
+/** `token` with its value changed: read, edited by `edit` and written back as tokenOf writes it. */
+export const retoken = (token: string, edit: (value: any) => unknown): string => tokenOf(edit(readToken(token)));
+
+/** The paztport/session params a client sends for `request`: its token. */
+export const sessionParams = (request: unknown): { request: string } => ({ request: tokenOf(request) });
 
 /** The MCP tools/call result shape these tests use. */
 export type CallToolResult = {
@@ -84,7 +100,7 @@ type ClientMaterial = {
   session: { privateKey: string; publicKey: string };
   pi: { privateKey: string; publicKey: string };
   signedRoot: SignedRoot;
-  proofFor(tool: string): MerkleProof;
+  proofFor(tool: string): MerkleProof | undefined;
 };
 
 function generatedMaterial(tools: string[], rootNotAfter: number): ClientMaterial & { policyPrivateKey: string } {
@@ -176,13 +192,15 @@ export function makeClient(
         },
         pi.privateKey,
       );
+      // a tool outside the client policy has no proof, so the call carries none
+      const proof = m.proofFor(name);
       return {
         name,
         arguments: args,
         _meta: {
-          [META_CHAIN]: [s0, s1],
-          [META_PROOF]: m.proofFor(name),
-          [META_INFLUENCE]: influence,
+          [META_CHAIN]: writeToken([s0, s1]),
+          ...(proof !== undefined ? { [META_PROOF]: writeToken(proof) } : {}),
+          [META_INFLUENCE]: writeToken(influence),
           [META_CALL_ID]: callId,
         },
       };

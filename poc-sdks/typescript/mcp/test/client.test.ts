@@ -6,16 +6,24 @@ import {
   bindPrompt,
   bindResult,
   buildPolicy,
+  buildSessionReply,
   generateKeyPair,
   signReplyCert,
   mintOrigin,
   NonceCache,
   NONCE_TTL_MS,
+  readChain,
+  readInfluence,
+  readProof,
+  readSessionReply,
+  readSessionRequest,
   replacementRequest,
   sessionRequest,
   signKeyring,
   signSessionReply,
+  writeToken,
   type InfluenceEntry,
+  type JsonValue,
   type SessionRequest,
   type ReplyCert,
   type SessionReply,
@@ -36,7 +44,7 @@ import {
   type ServerPolicy,
   type SessionRules,
 } from "../src/index.ts";
-import type { CallToolResult } from "./helpers/client.ts";
+import { sessionParams, tokenOf, type CallToolResult } from "./helpers/client.ts";
 
 const RULES: SessionRules = { disabledWhenUnsafe: ["create_pull_request"] };
 const TOOLS = ["list_issues", "create_pull_request"];
@@ -121,18 +129,22 @@ function connected(opts: { withRoot?: boolean; policy?: ServerPolicy; served?: R
   const server = new McpServerSession(policy, RULES, Date.now, () => {});
   const client = clientMaterial();
   const req = sessionRequest({ ...client, signedRoot: opts.withRoot === false ? null : client.signedRoot });
-  let reply = server.openSession(req);
+  let token = server.openSession(sessionParams(req)).reply;
   if (opts.served !== undefined) {
-    const { sig: _sig, ...body } = reply;
-    reply = signSessionReply({ ...body, serverReplyCert: opts.served }, policy.signingKeys["mcp-entry"]!);
+    const { sig: _sig, ...body } = readSessionReply(token);
+    token = writeToken(signSessionReply({ ...body, serverReplyCert: opts.served }, policy.signingKeys["mcp-entry"]!));
   }
-  const raw: unknown = JSON.parse(JSON.stringify(reply));
-  return { policy, server, client, req, raw };
+  // the result as a client receives it, and the reply its token holds
+  const result: unknown = JSON.parse(JSON.stringify({ reply: token }));
+  return { policy, server, client, req, token, result, reply: readSessionReply(token) };
 }
+
+/** A paztport/session result carrying `reply`'s token, written whether or not a reply could hold it. */
+const resultOf = (reply: unknown) => ({ reply: tokenOf(reply) });
 
 function attestedSession() {
   const c = connected();
-  const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
+  const outcome = classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
   if (outcome.status !== "attested") {
     throw new Error("expected an attested session");
   }
@@ -174,31 +186,32 @@ const neverCalled = () => {
 describe("classifySessionReply", () => {
   it("attestedReplyIsUsed", () => {
     const c = connected();
-    const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
-    expect(outcome).toEqual({ status: "attested", reply: c.raw });
+    const outcome = classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
+    expect(outcome).toEqual({ status: "attested", reply: c.reply });
   });
   it("unsafeReplyKeepsTheServersSession", () => {
     const c = connected({ withRoot: false });
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
+    expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
   });
   it("malformedReplyIsReplaced", () => {
     const c = connected();
-    const { sig: _sig, ...unsigned } = c.raw as SessionReply;
-    const { serverKeyringNotAfter: _k, ...noRingWindow } = c.raw as SessionReply;
-    const { notAfter: _n, ...rootWithoutWindow } = (c.raw as SessionReply).serverRoot!;
+    const { sig: _sig, ...unsigned } = c.reply;
+    const { serverKeyringNotAfter: _k, ...noRingWindow } = c.reply;
+    const { notAfter: _n, ...rootWithoutWindow } = c.reply.serverRoot!;
     const bad = [
-      undefined, null, "reply", {}, unsigned, { ...(c.raw as SessionReply), status: "open" },
+      "reply", {}, unsigned, { ...c.reply, status: "open" },
       // a new field present (even null) must be well formed
-      { ...(c.raw as SessionReply), serverKeyringSig: null }, { ...(c.raw as SessionReply), serverReplyCert: {} },
+      { ...c.reply, serverKeyringSig: null }, { ...c.reply, serverReplyCert: {} },
       // so must a window, the keyring's or the root's, which neither may leave out
-      noRingWindow, { ...(c.raw as SessionReply), serverRoot: rootWithoutWindow },
+      noRingWindow, { ...c.reply, serverRoot: rootWithoutWindow },
       ...[1.5, -1, 2 ** 53, "x", null, true, {}, []].flatMap((bad) => [
-        { ...(c.raw as SessionReply), serverKeyringNotAfter: bad },
-        { ...(c.raw as SessionReply), serverRoot: { ...(c.raw as SessionReply).serverRoot, notAfter: bad } },
+        { ...c.reply, serverKeyringNotAfter: bad },
+        { ...c.reply, serverRoot: { ...c.reply.serverRoot, notAfter: bad } },
       ]),
     ];
-    for (const raw of bad) {
-      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
+    // a result that is not a reply token, then reply tokens that do not read as a reply
+    for (const result of [undefined, null, "reply", {}, { reply: null }, { reply: c.reply }, [c.token], ...bad.map(resultOf)]) {
+      expect(classifySessionReply(result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
         status: "unsafe",
         reason: "MALFORMED_REPLY",
         replaceSession: true,
@@ -207,46 +220,46 @@ describe("classifySessionReply", () => {
   });
   it("otherServerKeyIsAPinMismatch", () => {
     const c = connected();
-    expect(classifySessionReply(c.raw, c.req, generateKeyPair().publicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "PIN_MISMATCH", replaceSession: true });
+    expect(classifySessionReply(c.result, c.req, generateKeyPair().publicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "PIN_MISMATCH", replaceSession: true });
   });
   it("tamperedReplyIsABadSignature", () => {
     const c = connected();
-    const tampered = { ...(c.raw as SessionReply), disabled: ["list_issues"] };
+    const tampered = resultOf({ ...c.reply, disabled: ["list_issues"] });
     expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("replyToAnotherRequestIsABadSignature", () => {
     const c = connected();
     const other = sessionRequest(c.client);
-    expect(classifySessionReply(c.raw, other, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(c.result, other, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("theServersReplyIsInTheEntryKeyForm", () => {
     const c = connected();
-    expect(c.raw).toMatchObject({ serverKeyringSig: c.policy.keyringSig, serverReplyCert: c.policy.replyCert });
+    expect(c.reply).toMatchObject({ serverKeyringSig: c.policy.keyringSig, serverReplyCert: c.policy.replyCert });
     // the client's own entry name decides; another one finds no certificate
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "github-tools", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "github-tools", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("aReplyIsAcceptedUntilItsCertificatesNotAfter", () => {
     const c = connected();
     const { notAfter } = c.policy.replyCert;
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter).status).toBe("attested");
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter + 1)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter).status).toBe("attested");
+    expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", notAfter + 1)).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("theServersKeyringAndRootWindowsAreCarried", () => {
     const c = connected();
-    expect(c.raw).toMatchObject({ serverKeyringNotAfter: NOT_AFTER, serverRoot: { notAfter: NOT_AFTER } });
-    const outcome = classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
+    expect(c.reply).toMatchObject({ serverKeyringNotAfter: NOT_AFTER, serverRoot: { notAfter: NOT_AFTER } });
+    const outcome = classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now());
     expect(outcome.status).toBe("attested");
   });
-  it("aReplyValueItsTokenCannotHoldIsMalformed", () => {
-    // the value is read as the reply's token, which holds protocol integers only
+  it("aReplyTokenHoldingANumberThatIsNotAProtocolIntegerIsMalformed", () => {
+    // a reply's token holds protocol integers only
     const c = connected();
-    const reply = c.raw as SessionReply;
+    const reply = c.reply;
     for (const raw of [
       { ...reply, serverReplyCert: { ...reply.serverReplyCert!, notAfter: reply.serverReplyCert!.notAfter + 0.5 } },
       { ...reply, serverKeyringNotAfter: NOT_AFTER + 0.5 },
       { ...reply, serverRoot: { ...reply.serverRoot!, notAfter: -1 } },
     ]) {
-      expect(classifySessionReply(raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
+      expect(classifySessionReply(resultOf(raw), c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({
         status: "unsafe",
         reason: "MALFORMED_REPLY",
         replaceSession: true,
@@ -255,25 +268,25 @@ describe("classifySessionReply", () => {
   });
   it("aMovedServerKeyringNotAfterIsABadSignatureAndADroppedOneMalformed", () => {
     const c = connected();
-    const { sig: _sig, ...body } = c.raw as SessionReply;
+    const { sig: _sig, ...body } = c.reply;
     const entryKey = c.policy.signingKeys["mcp-entry"]!;
     // re-signed by the entry key, so only the policy key's keyring signature can catch the move
     const moved = signSessionReply({ ...body, serverKeyringNotAfter: NOT_AFTER + 1 }, entryKey);
-    expect(classifySessionReply(moved, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(resultOf(moved), c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
     // a keyring signature without its window is malformed, however it is signed
     const { serverKeyringNotAfter: _w, ...noWindow } = body;
     const dropped = signSessionReply(noWindow, entryKey);
-    expect(classifySessionReply(dropped, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
+    expect(classifySessionReply(resultOf(dropped), c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true });
     // and changed in transit, the reply's own signature fails
-    const tampered = { ...(c.raw as SessionReply), serverKeyringNotAfter: NOT_AFTER - 1 };
+    const tampered = resultOf({ ...c.reply, serverKeyringNotAfter: NOT_AFTER - 1 });
     expect(classifySessionReply(tampered, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()).status).toBe("unsafe");
   });
   it("aServerRootOrKeyringPastItsNotAfterIsABadSignature", () => {
     const T = Date.now() + 60_000;
     for (const [what, windows] of [["root", { rootNotAfter: T }], ["keyring", { keyringNotAfter: T }]] as const) {
       const c = connected({ policy: serverMaterial(CERTIFY_ENTRY, windows).policy });
-      expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", T).status, `${what} at notAfter`).toBe("attested");
-      expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", T + 1), `${what} one ms past`).toEqual({
+      expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", T).status, `${what} at notAfter`).toBe("attested");
+      expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", T + 1), `${what} one ms past`).toEqual({
         status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true,
       });
     }
@@ -281,7 +294,7 @@ describe("classifySessionReply", () => {
   it("aServerWithAnExpiredCertificateIsABadSignature", () => {
     const expired = serverMaterial(({ policy, keys }) => signReplyCert(policy.publicKey, "mcp-entry", keys["mcp-entry"]!, Date.now() - 1, policy.privateKey));
     const c = connected({ policy: expired.policy, served: expired.served });
-    expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+    expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now())).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
   });
   it("aServerWithAForgedCertificateIsABadSignature", () => {
     const forged: Record<string, Certify> = {
@@ -292,8 +305,36 @@ describe("classifySessionReply", () => {
     for (const [name, certify] of Object.entries(forged)) {
       const { policy, served } = serverMaterial(certify);
       const c = connected({ policy, served });
-      expect(classifySessionReply(c.raw, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()), name).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
+      expect(classifySessionReply(c.result, c.req, c.policy.policyPublicKey, "mcp-entry", Date.now()), name).toEqual({ status: "unsafe", reason: "BAD_SIGNATURE", replaceSession: true });
     }
+  });
+});
+
+describe("classifySessionReply: the result", () => {
+  /** A result as the server's reply token arrives in it, signed as McpServerSession signs one. */
+  function replyToken() {
+    const { policy } = serverMaterial();
+    const client = clientMaterial();
+    const req = sessionRequest(client);
+    const reply = buildSessionReply(
+      { ...policy, entryPrivateKey: policy.signingKeys["mcp-entry"]! },
+      req,
+      { pinnedClientKeys: policy.pinnedClientKeys, disabledWhenUnsafe: RULES.disabledWhenUnsafe },
+      Date.now(),
+    );
+    const classify = (result: unknown) => classifySessionReply(result, req, policy.policyPublicKey, "mcp-entry", Date.now());
+    return { token: writeToken(reply as unknown as JsonValue), reply, classify };
+  }
+  it("aResultWithAReplyTokenIsAttested", () => {
+    const { token, reply, classify } = replyToken();
+    expect(classify({ reply: token })).toEqual({ status: "attested", reply });
+    expect(classify({ reply: token, _meta: { progressToken: 1 } })).toEqual({ status: "attested", reply });
+  });
+  it("aResultWithAnotherMemberIsMalformed", () => {
+    const { token, classify } = replyToken();
+    const malformed = { status: "unsafe", reason: "MALFORMED_REPLY", replaceSession: true };
+    expect(classify({ reply: token }).status).toBe("attested");
+    expect(classify({ reply: token, other: 1 })).toEqual(malformed);
   });
 });
 
@@ -312,7 +353,7 @@ describe("replacementRequest", () => {
   it("replacesAnAttestedSessionTheClientCannotUse", () => {
     const c = connected();
     expect(c.server.session()?.status).toBe("attested");
-    c.server.openSession(replacementRequest(c.req));
+    c.server.openSession(sessionParams(replacementRequest(c.req)));
     expect(c.server.session()?.status).toBe("unsafe");
   });
 });
@@ -336,9 +377,11 @@ describe("stampToolCall", () => {
     const s = attestedSession();
     const params = stampedParams(s, "list_issues", { owner: "o" }, "call-1");
     expect(Object.keys(params._meta)).toEqual([META_CHAIN, META_PROOF, META_INFLUENCE, META_CALL_ID]);
-    const [origin, hop] = params._meta[META_CHAIN] as { svc: string; rid: string; sess: string; prev: string; sig: string }[];
+    const [origin, hop] = readChain(params._meta[META_CHAIN]!);
     expect(origin!.svc).toBe("session");
     expect(hop).toMatchObject({ svc: "pi", rid: RID, sess: s.reply.sess, prev: origin!.sig });
+    expect(readProof(params._meta[META_PROOF]!)).toEqual(toolCallProof(s.client.proofs, CLIENT_HOPS, "github", "list_issues"));
+    expect(readInfluence(params._meta[META_INFLUENCE]!)).toEqual([]);
     expect(params._meta[META_CALL_ID]).toBe("call-1");
   });
   it("theHopNamesTheToolAsItsReceiverAndTheOriginIsUnchanged", () => {
@@ -350,9 +393,9 @@ describe("stampToolCall", () => {
       { name: "create_pull_request", args: { title: "t" }, callId: "call-1" },
       { origin, svc: "pi", inst: "pi-1", privateKey: s.client.piKey, ts: Date.now(), influence: [], proof, serverId: "github" },
     );
-    const chain = _meta[META_CHAIN] as Record<string, unknown>[];
-    expect(chain[0]).toBe(origin);
-    expect(chain[0]).toEqual(before);
+    const chain = readChain(_meta[META_CHAIN]!);
+    expect(origin).toEqual(before);
+    expect(chain[0]).toEqual(origin);
     expect(chain[1]).toMatchObject({ v: 3, svc: "pi", rcv: "mcp:github.create_pull_request", prev: origin.sig });
   });
   it("verifiesAtTheServer", () => {
@@ -369,7 +412,7 @@ describe("stampToolCall", () => {
   it("changedInfluenceDoesNotVerify", () => {
     const s = attestedSession();
     const params = stampedParams(s, "list_issues", { owner: "o" }, "call-1", [{ cls: "private", src: "server:github", h: "h1" }]);
-    expect(s.server.checkCall({ ...params, _meta: { ...params._meta, [META_INFLUENCE]: [] } }).reason).toBe("INFLUENCE_MISMATCH");
+    expect(s.server.checkCall({ ...params, _meta: { ...params._meta, [META_INFLUENCE]: writeToken([]) } }).reason).toBe("INFLUENCE_MISMATCH");
   });
 });
 
@@ -441,25 +484,34 @@ describe("readToolResult", () => {
   });
   it("refusalIsNeverRecorded", () => {
     const s = attestedSession();
-    const refusal = { content: [{ type: "text", text: "refused" }], isError: true, _meta: { "paztport/verdict": { reason: "INFLUENCE_DENIED" } } };
+    const refusal = { content: [{ type: "text", text: "refused" }], isError: true, _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED" }) } };
     for (const ctx of [attestedContext(s, "call-1", neverCalled), { session: "unsafe" } as const, { session: "off" } as const]) {
       expect(readToolResult(refusal, ctx)).toEqual({ kind: "refused", verdict: "INFLUENCE_DENIED", influence: { kind: "none" } });
     }
   });
   it("unknownVerdictReasonIsUnknown", () => {
-    for (const verdict of [{ reason: "OK" }, { reason: "<b>trust me</b>" }, { reason: 5 }, "INFLUENCE_DENIED", null]) {
+    // a reason that is not a refusal code, and a token that does not read as a verdict
+    const tokens = [{ reason: "OK" }, { reason: "<b>trust me</b>" }, { reason: 5 }, { reason: "INFLUENCE_DENIED", audit: false }, "INFLUENCE_DENIED", null, {}].map(tokenOf);
+    for (const verdict of [...tokens, "", "not a token", 5, null]) {
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, { session: "unsafe" });
+      expect(r, String(verdict)).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
+    }
+  });
+  it("aVerdictThatIsNotATokenIsAnUnknownRefusal", () => {
+    // an older server's verdict, the object itself: withheld, never success or an audit note
+    for (const verdict of [{ reason: "PATH_NOT_ALLOWED" }, { reason: "INFLUENCE_DENIED", audit: true }]) {
       const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": verdict } }, { session: "unsafe" });
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
   it("offlineOnlyReasonIsNotAServerVerdict", () => {
     for (const reason of ["TIME_MISMATCH", "PROMPT_MISMATCH", "OUTSIDE_SESSION", "PROOF_MISMATCH", "RULES_MISMATCH", "VERDICT_MISMATCH"]) {
-      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": { reason } } }, { session: "unsafe" });
+      const r = readToolResult({ ...RESULT, _meta: { "paztport/verdict": writeToken({ reason }) } }, { session: "unsafe" });
       expect(r).toEqual({ kind: "refused", verdict: "UNKNOWN", influence: { kind: "none" } });
     }
   });
   it("auditVerdictIsReadAsAnOrdinaryResult", () => {
-    const raw = { ...RESULT, _meta: { "paztport/verdict": { reason: "INFLUENCE_DENIED", audit: true } } };
+    const raw = { ...RESULT, _meta: { "paztport/verdict": writeToken({ reason: "INFLUENCE_DENIED", audit: true }) } };
     expect(readToolResult(raw, { session: "unsafe" })).toEqual({
       kind: "read",
       verdict: "INFLUENCE_DENIED",
@@ -479,7 +531,7 @@ describe("readToolResult", () => {
 });
 
 describe("openSession", () => {
-  const opts = (c: ReturnType<typeof connected>, send: (r: SessionRequest) => Promise<unknown>) => ({
+  const opts = (c: ReturnType<typeof connected>, send: (params: { request: string }) => Promise<unknown>) => ({
     request: c.req,
     pin: c.policy.policyPublicKey,
     serverEntry: "mcp-entry",
@@ -490,24 +542,27 @@ describe("openSession", () => {
 
   it("anAttestedReplyIsOneExchange", async () => {
     const c = connected();
-    const opened = await openSession(opts(c, async () => c.raw));
+    const sent: { request: string }[] = [];
+    const opened = await openSession(opts(c, async (p) => (sent.push(p), c.result)));
     expect(opened.outcome.status).toBe("attested");
-    expect(opened.exchanges).toEqual([{ request: c.req, reply: c.raw }]);
+    // the params hold only the request's token
+    expect(sent).toEqual([{ request: writeToken(c.req) }]);
+    expect(opened.exchanges).toEqual([{ request: writeToken(c.req), reply: c.token }]);
   });
 
   it("anUnsafeReplyIsNotReplaced", async () => {
     const c = connected({ withRoot: false });
-    const sent: SessionRequest[] = [];
-    const opened = await openSession(opts(c, async (r) => (sent.push(r), c.raw)));
+    const sent: { request: string }[] = [];
+    const opened = await openSession(opts(c, async (p) => (sent.push(p), c.result)));
     expect(opened.outcome).toEqual({ status: "unsafe", reason: "UNSAFE", replaceSession: false });
-    expect(sent).toEqual([c.req]);
+    expect(sent.map((p) => readSessionRequest(p.request))).toEqual([c.req]);
   });
 
   it("methodNotFoundIsNotReplaced", async () => {
     const c = connected();
     const opened = await openSession(opts(c, async () => Promise.reject({ code: -32601 })));
     expect(opened.outcome).toMatchObject({ status: "unsafe", reason: "METHOD_NOT_FOUND" });
-    expect(opened.exchanges).toEqual([{ request: c.req, reply: null }]);
+    expect(opened.exchanges).toEqual([{ request: writeToken(c.req), reply: null }]);
   });
 
   it("anUnusableReplyIsReplacedWithANullRootAndStaysUnsafeWhateverComesBack", async () => {
@@ -515,13 +570,22 @@ describe("openSession", () => {
     const other = connected();
     const sent: SessionRequest[] = [];
     // the first reply answers another request; the replacement's reply is a genuine attested one for the first request
-    const opened = await openSession(opts(c, async (r) => (sent.push(r), sent.length === 1 ? other.raw : c.raw)));
+    const opened = await openSession(opts(c, async (p) => (sent.push(readSessionRequest(p.request)), sent.length === 1 ? other.result : c.result)));
     expect(opened.outcome).toMatchObject({ status: "unsafe", replaceSession: true });
     expect(sent).toHaveLength(2);
     expect(sent[1]).toEqual({ ...replacementRequest(c.req), nonce: sent[1]!.nonce });
     expect(sent[1]!.nonce).not.toBe(c.req.nonce);
     expect(sent[1]!.clientRoot).toBeNull();
-    expect(opened.exchanges.map((e) => e.reply)).toEqual([other.raw, c.raw]);
+    expect(opened.exchanges.map((e) => e.reply)).toEqual([other.token, c.token]);
+  });
+
+  it("anExchangeRecordsTheReplyOnlyWhenItIsAString", async () => {
+    const c = connected();
+    for (const [result, reply] of [[{ reply: 5 }, null], [{ reply: c.token, other: 1 }, c.token], ["x", null], [null, null], [undefined, null]] as const) {
+      const opened = await openSession(opts(c, async () => result));
+      expect(opened.outcome, String(result)).toMatchObject({ status: "unsafe", reason: "MALFORMED_REPLY" });
+      expect(opened.exchanges[0]!.reply, String(result)).toBe(reply);
+    }
   });
 
   it("onExchangeReportsTheFirstExchangeBeforeTheReplacementIsSent", async () => {
@@ -532,7 +596,7 @@ describe("openSession", () => {
         events.push("send");
         return Promise.reject({ code: -32603 });
       }),
-      onExchange: (x, outcome) => events.push(`exchange:${x.request.clientRoot === null ? "replacement" : "first"}:${outcome.status}`),
+      onExchange: (x, outcome) => events.push(`exchange:${readSessionRequest(x.request).clientRoot === null ? "replacement" : "first"}:${outcome.status}`),
     });
     expect(events).toEqual(["send", "exchange:first:unsafe", "send", "exchange:replacement:unsafe"]);
   });

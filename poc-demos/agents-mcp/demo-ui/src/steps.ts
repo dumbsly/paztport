@@ -4,7 +4,9 @@
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { BUILTIN_LOCAL_TOOLS, type Scenario } from "../../mock-github-mcp/src/scenario.ts";
 import {
-  folderRuleFor, readLocalRules, writeToken, type InfluenceClass, type JsonValue, type LocalRules, type Resolved,
+  folderRuleFor, readAttestation, readChain, readInfluence, readLocalDecision, readLocalRules, readProof,
+  type InfluenceClass, type InfluenceEntry, type LocalDecision, type LocalRules, type MerkleProof, type ResponseAttestation,
+  type StampV3,
 } from "@paztport/core";
 
 /** One tool call, in plain words. `index` counts from 1 in the order the model made the calls. */
@@ -22,8 +24,21 @@ export type Step = {
   rule?: string;
   /** A local tool call (pi's built-in tools): the rule that decided it, in plain words. */
   local?: LocalDetail;
-  evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: unknown[] };
+  evidence: { callId?: string; rid?: string; outcome?: OutcomeRecord; events: unknown[]; evidence: ShownRecord[] };
 };
+/**
+ * What the page shows of an evidence record's tokens, decoded: a call's or a local record's chain, a response's
+ * attestation, a local record's influence and route proof. `unreadable` names each token that does not read.
+ */
+export type Display = {
+  chain?: StampV3[];
+  attestation?: ResponseAttestation;
+  influence?: InfluenceEntry[];
+  proof?: MerkleProof;
+  unreadable?: string[];
+};
+/** An evidence record as a step shows it: the record, and its tokens decoded. */
+export type ShownRecord = Record<string, unknown> & { display: Display };
 /** What decided a local call, from the call's own evidence record and the rules in the evidence file's client record. */
 export type LocalDetail = {
   verdict: string;
@@ -300,7 +315,8 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
     }
 
     // a local call's record carries what the agent held when it was decided
-    const recorded = Array.isArray(localRecord?.influence) ? new Set((localRecord!.influence as unknown[]).map((e) => (isObj(e) ? e.cls : undefined))) : undefined;
+    const recordedInfluence = localRecord !== undefined ? display(localRecord).influence : undefined;
+    const recorded = recordedInfluence !== undefined ? new Set(recordedInfluence.map((e) => e.cls)) : undefined;
     if (recorded) held = new Set(CLASS_ORDER.filter((c) => recorded.has(c)));
     const before = [...held];
     // what the agent holds after this call: the extension's running count when it logged one, else the call's own label
@@ -323,24 +339,75 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       ...(reason !== undefined ? { reason } : {}),
       ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: row.local && code === "INFLUENCE_DENIED" ? LOCAL_INFLUENCE_RULE : PLAIN_RULE[code] } : {}) } : {}),
       ...(row.local ? { local: localDetail(localEvent, localRecord, rules) } : {}),
-      evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: evidence.get(row.id) ?? [] },
+      evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: (evidence.get(row.id) ?? []).map(shown) },
     });
   });
   return steps;
 }
 
-/** The rules in the evidence file's client record (the latest one), or undefined when there is none or they don't parse. */
+/** The rules in the evidence file's client record (the latest one), or undefined when there is none or they don't read. */
 function clientRules(evidence: unknown[]): LocalRules | undefined {
   for (let i = evidence.length - 1; i >= 0; i--) {
     const r = evidence[i];
     if (!isObj(r) || r.type !== "client") continue;
-    try {
-      return r.rules === null || r.rules === undefined ? undefined : readLocalRules(writeToken(r.rules as JsonValue));
-    } catch {
-      return undefined;
-    }
+    return typeof r.rules === "string" ? readOr(() => readLocalRules(r.rules as string)) : undefined;
   }
   return undefined;
+}
+
+/** What `read` gives, or undefined when it throws. */
+function readOr<T>(read: () => T): T | undefined {
+  try {
+    return read();
+  } catch {
+    return undefined;
+  }
+}
+
+/** A token an evidence record holds: the name the page shows for it, its reader, and where the display keeps its value. */
+type HeldToken = { name: string; token: unknown; read: (token: string) => unknown; into: keyof Display };
+
+/** The tokens a record holds that the page shows. */
+function tokensOf(r: Obj): HeldToken[] {
+  const meta = (v: unknown): Obj => (isObj(v) && isObj(v._meta) ? v._meta : {});
+  switch (r.type) {
+    case "call":
+      return [{ name: "paztport/chain", token: meta(r.params)["paztport/chain"], read: readChain, into: "chain" }];
+    case "response": {
+      const token = meta(r.result)["paztport/attestation"];
+      return token === undefined ? [] : [{ name: "paztport/attestation", token, read: readAttestation, into: "attestation" }];
+    }
+    case "local":
+      return [
+        { name: "chain", token: r.chain, read: readChain, into: "chain" },
+        { name: "influence", token: r.influence, read: readInfluence, into: "influence" },
+        ...(r.proof === null ? [] : [{ name: "proof", token: r.proof, read: readProof, into: "proof" } as const]),
+      ];
+  }
+  return [];
+}
+
+/** An evidence record's tokens, decoded with the SDK's readers; a token that does not read is named in `unreadable`. */
+function display(r: Obj): Display {
+  const out: Record<string, unknown> = {};
+  const unreadable: string[] = [];
+  for (const { name, token, read, into } of tokensOf(r)) {
+    const value = typeof token === "string" ? readOr(() => read(token)) : undefined;
+    if (value === undefined) unreadable.push(name);
+    else out[into] = value;
+  }
+  return { ...(out as Display), ...(unreadable.length > 0 ? { unreadable } : {}) };
+}
+
+/** An evidence record as a step shows it. */
+function shown(r: unknown): ShownRecord {
+  const rec = r as Obj;
+  return { ...rec, display: display(rec) };
+}
+
+/** A local record's decision, or undefined when it does not read. */
+function decisionOf(record: Obj | undefined): LocalDecision | undefined {
+  return typeof record?.decision === "string" ? readOr(() => readLocalDecision(record.decision as string)) : undefined;
 }
 
 const NEED_WORD: Record<string, string> = { read: "read", write: "write to", exec: "run a program in" };
@@ -355,9 +422,8 @@ const VIA_RULE: Record<string, string> = {
 /** The rule that applied to each path and program the gate resolved, in plain words, from the call's own record and the signed rules. */
 function localDetail(event: Obj | undefined, record: Obj | undefined, rules: LocalRules | undefined): LocalDetail {
   const checks: LocalDetail["checks"] = [];
-  const resolved = isObj(record?.resolved) ? (record!.resolved as Partial<Resolved>) : undefined;
-  for (const p of Array.isArray(resolved?.paths) ? resolved!.paths : []) {
-    if (!isObj(p) || typeof p.at !== "string") continue;
+  const decision = decisionOf(record);
+  for (const p of decision?.resolved.paths ?? []) {
     const what = `${NEED_WORD[p.need] ?? p.need} ${p.at}`;
     const folder = rules ? folderRuleFor(p.at, rules) : undefined;
     if (folder) {
@@ -370,13 +436,12 @@ function localDetail(event: Obj | undefined, record: Obj | undefined, rules: Loc
     else if (p.at === "uncheckable") checks.push({ what, rule: "a path that couldn't be checked" });
     else checks.push({ what, rule: "no folder rule covers it" });
   }
-  for (const g of Array.isArray(resolved?.programs) ? resolved!.programs : []) {
-    if (!isObj(g) || typeof g.name !== "string") continue;
-    checks.push({ what: `run ${g.name}`, rule: VIA_RULE[String(g.via)] ?? "not on the session's list" });
+  for (const g of decision?.resolved.programs ?? []) {
+    checks.push({ what: `run ${g.name}`, rule: VIA_RULE[g.via] ?? "not on the session's list" });
   }
   return {
-    verdict: str(event?.verdict) ?? str(record?.verdict) ?? "unknown",
-    ...(typeof record?.routeAllowed === "boolean" ? { routeAllowed: record.routeAllowed } : {}),
+    verdict: str(event?.verdict) ?? decision?.verdict ?? "unknown",
+    ...(decision !== undefined ? { routeAllowed: decision.routeAllowed } : {}),
     checks,
   };
 }

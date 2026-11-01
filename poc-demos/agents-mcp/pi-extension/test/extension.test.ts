@@ -21,7 +21,7 @@ import type { CallOutcome } from "../src/connection.ts";
 import paztport, { mcpToolName } from "../src/index.ts";
 import { GITHUB_TOOLS } from "../../mock-github-mcp/src/github.ts";
 import { POLICY_EXPIRED_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
-import { CANARY, DOCS, githubArgs, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { CANARY, DOCS, githubArgs, readLocalRecord, records, resignDemo, setupDemo, STUB, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 type Handler = (event: Record<string, unknown>, ctx: ExtensionContext) => unknown;
 type Result = AgentToolResult<CallOutcome["details"]>;
@@ -833,7 +833,7 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     expect(await toolCall(pi, "read", { path: "website/README.md" }, { parentToolCallId: "toolu_parent" })).toBeUndefined();
     const evidence = records(evidenceLog);
     expect(evidence.map((r) => r.type)).toEqual(["client", "run", "local", "local", "local", "local", "local", "local"]);
-    expect(evidence.filter((r) => r.type === "local").map((r) => r.verdict)).toEqual(["OK", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "OK"]);
+    expect(evidence.filter((r) => r.type === "local").map((r) => readLocalRecord(r).verdict)).toEqual(["OK", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "SCOPE_DENIED", "OK"]);
   });
 
   it("toolResultRecordsLabels", async () => {

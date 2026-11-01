@@ -13,7 +13,6 @@ import {
   earliestNotAfter,
   expiryWarnings,
   keyPairMatches,
-  MalformedJson,
   newContentId,
   NonceCache,
   NONCE_TTL_MS,
@@ -25,12 +24,10 @@ import {
   type ContentLabel,
   type InfluenceClass,
   type InfluenceEntry,
-  type JsonValue,
   type MerkleProof,
   type ReasonCode,
   type ReplyCert,
   type ResponseAttestation,
-  type SessionReply,
   type SessionRequest,
   type SignedRoot,
 } from "@paztport/core";
@@ -102,7 +99,7 @@ export type ToolCallMode = "enforce" | "audit";
 export type RefusedToolResult = {
   content: [{ type: "text"; text: string }];
   isError: true;
-  _meta: Record<string, unknown>;
+  _meta: Record<string, string>;
 };
 
 /** What `run` returns: the tool's result, the class of the content it holds (it labels the attested response), and anything the caller wants back. */
@@ -113,17 +110,40 @@ export type ToolCallOutcome<R, D = undefined> =
   | { ran: false; result: RefusedToolResult; verdict: ReasonCode; verified: ServerCallCheck | null }
   | { ran: true; result: R; verdict: ReasonCode; verified: ServerCallCheck | null; detail: D };
 
-/** The result for a refused call. */
+/** The result for a refused call: its verdict token, `{reason}`. */
 export function refusedToolResult(reason: string): RefusedToolResult {
   return {
     content: [{ type: "text", text: `Paztport refused this call: ${reason}` }],
     isError: true,
-    _meta: { [META_VERDICT]: { reason } },
+    _meta: { [META_VERDICT]: writeToken({ reason }) },
   };
 }
 
 /** Thrown for a malformed request; an MCP server answers it with -32602 Invalid params. The message names the bad field. */
 export class InvalidParams extends Error {}
+
+/**
+ * Reads paztport/session params: exactly a `request`, the request's token, plus an optional `_meta`, which MCP allows on
+ * every request and which is ignored. Throws InvalidParams for any other member, a `request` that is missing or not a
+ * string, or one that does not read (readSessionRequest). The message names a member the params or the request lack or
+ * hold wrongly, never a value the client sent.
+ */
+export function readSessionParams(params: unknown): SessionRequest {
+  if (typeof params !== "object" || params === null || Array.isArray(params)) {
+    throw new InvalidParams("not an object");
+  }
+  if (!Object.hasOwn(params, "request")) throw new InvalidParams("no member request");
+  for (const name of Object.keys(params)) {
+    if (name !== "request" && name !== "_meta") throw new InvalidParams("a member the params do not define");
+  }
+  const request = (params as Record<string, unknown>).request;
+  if (typeof request !== "string") throw new InvalidParams("member request is not a string");
+  try {
+    return readSessionRequest(request);
+  } catch (e) {
+    throw new InvalidParams((e as Error).message);
+  }
+}
 
 /**
  * Throws an Error naming the fault unless `policy` can serve at `now`: the keyring is signed by `policyPublicKey`
@@ -192,8 +212,8 @@ export function checkServerPolicy(policy: ServerPolicy, now: number): void {
 /**
  * Handles a tools/call end to end. In an attested session the call's chain is verified (checkCall); only a verified
  * call is then decided by decideServerCall, over the facts given and the session's served classes. In enforce a
- * verdict other than OK gives an `isError` result carrying `{reason}` and `run` is not called; in audit `run` is
- * called anyway and its result carries `{reason, audit: true}`. `run` gets the verdict and returns the result with
+ * verdict other than OK gives an `isError` result carrying the verdict token of `{reason}` and `run` is not called; in
+ * audit `run` is called anyway and its result carries the verdict token of `{reason, audit: true}`. `run` gets the verdict and returns the result with
  * the class of its content. Only a verified call's result is attested; an unsafe session's, or one whose chain failed,
  * is returned unattested. A null `server` is a deployment with no Paztport material: no handshake, so every call is
  * in an unsafe session under `rules`. The `off` switch is not a protocol mode; a deployment that has one does not call this.
@@ -232,7 +252,8 @@ export async function handleToolCall<R extends Record<string, unknown> & { _meta
     return { result: refusedToolResult(verdict), verdict, ran: false, verified };
   }
   const { result, cls, detail } = await run({ verdict });
-  const noted: R = verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: { reason: verdict, audit: true } } } : result;
+  const noted: R =
+    verdict !== "OK" ? { ...result, _meta: { ...result._meta, [META_VERDICT]: writeToken({ reason: verdict, audit: true }) } } : result;
   if (server === null || verified === null) {
     return { result: noted, verdict, ran: true, verified, detail: detail as D };
   }
@@ -261,25 +282,18 @@ export class McpServerSession {
   }
 
   /**
-   * Handles a paztport/session handshake. There is one session per connection: a new handshake
-   * replaces the current session (its keyring, nonces and served classes), so calls signed for the
-   * old session are refused afterwards. A malformed request throws InvalidParams. The reply is in the entry-key
-   * form, signed by the entry's key; only the key changed: "attested" is said only after sessionStatus's checks, at
-   * `now()`: an expired client root or keyring makes the session unsafe, and so does this server's own root or
-   * keyring once it has expired, so a server left running past its material degrades to unattested sessions rather
-   * than stopping. A request whose client root or keyring has no `notAfter` is malformed. The reply carries the
-   * keyring's window as `serverKeyringNotAfter`. The params value is read as the request's token: a value that
-   * token cannot hold, or a request other than exactly its members, is malformed. The message names a member the
-   * request lacks or holds wrongly, never a value the client sent.
+   * Handles a paztport/session handshake, whose params are read by readSessionParams, and answers with the reply's
+   * token as `{reply}`. There is one session per connection: a new handshake replaces the current session (its
+   * keyring, nonces and served classes), so calls signed for the old session are refused afterwards. Malformed params
+   * throw InvalidParams and leave the current session in place. The reply is in the entry-key form, signed by the
+   * entry's key; only the key changed: "attested" is said only after sessionStatus's checks, at `now()`: an expired
+   * client root or keyring makes the session unsafe, and so does this server's own root or keyring once it has
+   * expired, so a server left running past its material degrades to unattested sessions rather than stopping. A
+   * request whose client root or keyring has no `notAfter` is malformed. The reply carries the keyring's window as
+   * `serverKeyringNotAfter`.
    */
-  openSession(params: unknown): SessionReply {
-    let request: SessionRequest;
-    try {
-      request = readSessionRequest(writeToken(params as JsonValue));
-    } catch (e) {
-      const unwritable = e instanceof MalformedJson && e.step === "write";
-      throw new InvalidParams(unwritable ? "a value a request cannot hold" : (e as Error).message);
-    }
+  openSession(params: unknown): { reply: string } {
+    const request = readSessionParams(params);
     const reply = buildSessionReply(
       { ...this.policy, entryPrivateKey: this.policy.signingKeys[this.policy.hops[0]]! },
       request,
@@ -287,8 +301,9 @@ export class McpServerSession {
       this.now(),
     );
     const { sess, status } = reply;
+    const token = writeToken(reply);
     this.current = { sess, status, request, nonces: new NonceCache(NONCE_TTL_MS), served: new Set() };
-    return reply;
+    return { reply: token };
   }
 
   session(): Session | undefined {
@@ -334,7 +349,8 @@ export class McpServerSession {
 
   /**
    * Stamps a result for `session`, the session checkCall verified the call against (not necessarily the current
-   * one). The chain runs entry, then tools, then back to `call.caller`, checkCall's caller: the client that made the call.
+   * one), and carries the attestation's token. The chain runs entry, then tools, then back to `call.caller`, checkCall's
+   * caller: the client that made the call.
    */
   attest<R extends Record<string, unknown> & { _meta?: Record<string, unknown> }>(
     session: Session,
@@ -355,7 +371,8 @@ export class McpServerSession {
       this.policy.signingKeys[tools]!,
     );
     const attestation: ResponseAttestation = { chain: [s0, s1], proof: this.policy.routeProof, labels, resultHash };
+    const token = writeToken(attestation);
     session.served.add(cls);
-    return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: attestation } };
+    return { ...result, _meta: { ...result._meta, [META_ATTESTATION]: token } };
   }
 }

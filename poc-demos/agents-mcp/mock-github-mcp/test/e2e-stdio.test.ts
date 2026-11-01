@@ -7,10 +7,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import type { InfluenceEntry, SessionReply } from "@paztport/core";
+import { readChain, readSessionReply, writeToken, type InfluenceEntry, type SessionReply } from "@paztport/core";
 import { META_ATTESTATION, META_CALL_ID, META_CHAIN, META_VERDICT, SESSION_METHOD } from "@paztport/mcp";
 import type { CallToolResult } from "../src/mcp.ts";
-import { makeClient } from "./helpers/client.ts";
+import { makeClient, sessionParams } from "./helpers/client.ts";
 
 const MAIN = join(import.meta.dirname, "../src/main.ts");
 const SETUP = join(import.meta.dirname, "../../scripts/setup-demo.ts");
@@ -100,8 +100,8 @@ async function leakSequence(s: Session, attested: boolean) {
   const pinned = readFileSync(join(demo, "client/server-policy.pub"), "utf8").trim();
   let reply: SessionReply | undefined;
   if (attested) {
-    const r = await s.rpc(SESSION_METHOD, client.request());
-    reply = r.result as SessionReply;
+    const r = await s.rpc(SESSION_METHOD, sessionParams(client.request()));
+    reply = readSessionReply(r.result.reply);
     expect(client.acceptReply(reply, pinned)).toBe(true);
     expect(reply.status).toBe("attested");
   }
@@ -112,8 +112,8 @@ async function leakSequence(s: Session, attested: boolean) {
     expect(r.error).toBeUndefined();
     const result = r.result as CallToolResult;
     if (reply && result._meta?.[META_ATTESTATION] !== undefined) {
-      const meta = (params as { _meta: Record<string, unknown> })._meta;
-      const rid = (meta[META_CHAIN] as { rid: string }[])[0]!.rid;
+      const meta = (params as { _meta: Record<string, string> })._meta;
+      const rid = readChain(meta[META_CHAIN]!)[0]!.rid;
       const v = client.verify(result, { rid, toolCallId: meta[META_CALL_ID] as string }, reply.serverKeyring, reply.serverRoot!);
       expect(v.reason).toBe("OK");
       for (const l of v.labels) influence.push({ cls: l.cls, src: `github.${name}`, h: l.cid, cid: l.cid });
@@ -141,7 +141,7 @@ describe("stdio end to end", () => {
     const { branch, file, pr } = await leakSequence(s, true);
     for (const r of [branch, file, pr]) {
       expect(r.isError).toBe(true);
-      expect(r._meta?.[META_VERDICT]).toEqual({ reason: "INFLUENCE_DENIED" });
+      expect(r._meta?.[META_VERDICT]).toBe(writeToken({ reason: "INFLUENCE_DENIED" }));
     }
     await s.close();
     const recs = records(log);

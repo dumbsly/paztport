@@ -27,7 +27,6 @@ import {
   verifyChainV3,
   writeToken,
   type InfluenceEntry,
-  type JsonValue,
   type StampV3,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
@@ -38,7 +37,7 @@ import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
 import { BUILTIN_LOCAL_TOOLS, LocalGate } from "../src/local/gate.ts";
 import { isRefusalText, localRefusalText, POLICY_EXPIRED_TEXT, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
 import { RunState } from "../src/runs.ts";
-import { setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
+import { readLocalRecord, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
 let tmp: string;
 let material: ClientMaterial;
@@ -83,6 +82,8 @@ function rig(mode: ExtensionMode, opts: { material?: ClientMaterial; run?: boole
 
 const lines = (path: string): Record<string, any>[] =>
   readFileSync(path, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+/** The local records in an evidence file, their tokens read. */
+const locals = (path: string): Record<string, any>[] => lines(path).map(readLocalRecord);
 
 /** The demo material with one extra route listed; the proof is a copy, enough for the gate's presence check. */
 function withRoute(tool: string): ClientMaterial {
@@ -248,7 +249,7 @@ describe("LocalGate modes", () => {
     const { gate, eventsPath, evidencePath } = rig("enforce", { material: bare });
     expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: SCOPE_TEXT });
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["SCOPE_DENIED"]);
-    const [rec] = lines(evidencePath);
+    const [rec] = locals(evidencePath);
     expect(rec).toMatchObject({ type: "local", tool: "read", callId: "c1", verdict: "SCOPE_DENIED", routeAllowed: true, rulesHash: null });
     // with no rules nothing is resolved, and the stamp binds that and the verdict
     expect(rec!.resolved).toEqual({ paths: [], programs: [], parse: "ok", readOnly: false });
@@ -265,7 +266,7 @@ describe("LocalGate modes", () => {
     const write = { path: "website/README.md", content: "x" };
     const onTime = rig("enforce", { material: at(2_000, 9_000), now: 2_000 });
     expect(onTime.gate.check("write", write, "c1")).toEqual({ block: false });
-    expect(lines(onTime.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
+    expect(locals(onTime.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
     for (const [what, m] of [
       ["root", at(1_999, 9_000)],
       ["keyring", at(9_000, 1_999)],
@@ -330,7 +331,16 @@ describe("LocalGate evidence", () => {
     taint(influence);
     gate.check("write", { path: "website/README.md", content: "leak" }, "c2");
     gate.check("other_tool", {}, "c3");
-    const recs = lines(evidencePath);
+    // each Paztport object is a token; the input, the content the binding hashes, stays a value
+    const raw = lines(evidencePath);
+    for (const rec of raw) {
+      expect(Object.keys(rec)).toEqual(["v", "type", "tool", "callId", "rid", "now", "input", "decision", "chain", "proof", "influence"]);
+      for (const k of ["decision", "chain", "influence"]) expect(typeof rec[k], k).toBe("string");
+    }
+    const read = { paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true };
+    const decided = { callId: "c1", resolved: read, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(material.rules!) };
+    expect(raw[0]!.decision).toBe(writeToken(decided));
+    const recs = raw.map(readLocalRecord);
     expect(recs.map((x) => [x.tool, x.callId, x.verdict])).toEqual([
       ["read", "c1", "OK"],
       ["write", "c2", "INFLUENCE_DENIED"],
@@ -361,17 +371,17 @@ describe("LocalGate evidence", () => {
     expect(recs[0]!.resolved).toEqual({ paths: [{ need: "read", at: "website/README.md" }], programs: [], parse: "ok", readOnly: true });
     expect(recs[0]!.input).toEqual({ path: "website/README.md" });
 
-    // the full v3 chain check, with the route as receiver
-    for (const rec of recs.slice(0, 2)) {
+    // the full v3 chain check of the recorded tokens, with the route as receiver
+    for (const [i, rec] of recs.slice(0, 2).entries()) {
       const v = verifyChainV3(
         {
-          chain: writeToken(rec.chain as JsonValue),
+          chain: raw[i]!.chain,
           expectedBind: bindLocalTool(rec.tool, rec.input, {
             callId: rec.callId, resolved: rec.resolved, verdict: rec.verdict, routeAllowed: rec.routeAllowed,
             rulesHash: rec.rulesHash,
           }),
-          influence: writeToken(rec.influence as JsonValue),
-          proof: rec.proof === null ? null : writeToken(rec.proof as JsonValue),
+          influence: raw[i]!.influence,
+          proof: raw[i]!.proof,
           receiver: `local:${rec.tool}`,
           receiverInRoute: true,
         },
@@ -402,7 +412,7 @@ describe("LocalGate evidence", () => {
     expect(abs).toEqual({ path: `${ws}/website/README.md` });
     gate.check("bash", { command: `cat ${ws}/website/README.md ${tmp}/other/x`, nested: [{ p: tmp }, 3, null] }, "c2");
     gate.check("read", { path: `${ws}x/y` }, "c3");
-    const recs = lines(evidencePath);
+    const recs = locals(evidencePath);
     expect(recs.map((r) => r.input)).toEqual([
       { path: "<workspace>/website/README.md" },
       { command: "cat <workspace>/website/README.md <home>/other/x", nested: [{ p: "<home>" }, 3, null] },
@@ -442,7 +452,7 @@ describe("LocalGate evidence", () => {
     symlinkSync(join(tmp, "nowhere"), dangling);
     const { gate, evidencePath } = rig("enforce", { home: dangling });
     expect(gate.check("read", { path: "website/README.md" }, "c1").block).toBe(false);
-    expect(lines(evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
+    expect(locals(evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
   });
 
   it("eventsNeverCarryPathsOrContent", () => {
