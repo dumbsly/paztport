@@ -47,7 +47,8 @@ public record StampV3(String svc, String inst, String rid, long ts, String sess,
         return JsonWriter.text(tree());
     }
 
-    JsonValue.Obj tree() {
+    /** The stamp as a JSON value, for the writers of this SDK; not API. */
+    public JsonValue.Obj tree() {
         Map<String, JsonValue> o = new LinkedHashMap<>();
         o.put("v", new JsonValue.Int(3));
         o.put("svc", new JsonValue.Str(svc));

@@ -172,7 +172,8 @@ class PolicyToolMainTest {
     private static void assertInTheFileFormat(Path... files) throws IOException {
         for (Path f : files) {
             byte[] bytes = Files.readAllBytes(f);
-            assertEquals(new String(bytes, StandardCharsets.UTF_8), JsonWriter.file(JsonReader.file(bytes)), f.toString());
+            assertEquals(new String(bytes, StandardCharsets.UTF_8), JsonWriter.file(JsonReader.file(bytes)),
+                    f.toString());
         }
     }
 

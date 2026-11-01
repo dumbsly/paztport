@@ -15,7 +15,10 @@ import org.paztport.core.internal.JsonWriter;
  */
 public record InfluenceEntry(InfluenceClass cls, String src, String h, String cid, String owner) {
 
-    /** Refuses what the committed bytes could not carry: a missing field, an empty owner, a lone surrogate or a noncharacter. */
+    /**
+     * Refuses what the committed bytes could not carry: a missing field, an empty owner, a lone surrogate or a
+     * noncharacter.
+     */
     public InfluenceEntry {
         if (cls == null || src == null || h == null) {
             throw new IllegalArgumentException("influence entry needs cls, src and h");

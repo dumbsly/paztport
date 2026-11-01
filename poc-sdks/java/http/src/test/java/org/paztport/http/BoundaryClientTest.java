@@ -4,6 +4,7 @@
 package org.paztport.http;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -45,6 +46,9 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonReader;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.PolicyBuilder;
@@ -211,6 +215,18 @@ class BoundaryClientTest {
     private List<String> lines(String prefix) {
         return traces.list.stream().map(ILoggingEvent::getFormattedMessage).filter(l -> l.startsWith(prefix))
                 .toList();
+    }
+
+    @Test
+    void theHandshakeBodyIsTheRequestsJcsBytes() throws Exception {
+        verified("rid-1", this::charge);
+
+        byte[] body = partner.handshakes().get(0).body();
+        JsonValue request = JsonReader.wire(body);
+        assertArrayEquals(body, JsonWriter.wire(request));
+        assertFalse(new String(body, StandardCharsets.UTF_8).contains("\\u"), "characters are written as themselves");
+        assertEquals(List.of("clientKeyring", "clientKeyringNotAfter", "clientKeyringSig", "clientPolicyKey",
+                "clientRoot", "nonce"), List.copyOf(((JsonValue.Obj) request).names()));
     }
 
     @Test

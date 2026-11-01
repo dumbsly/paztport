@@ -100,6 +100,11 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
         return JsonWriter.text(tree());
     }
 
+    /** The certificate as a file: {@link #toJson()}'s object in the spec's file format. */
+    public String toFile() {
+        return JsonWriter.file(tree());
+    }
+
     JsonValue.Obj tree() {
         Map<String, JsonValue> o = new LinkedHashMap<>();
         o.put("policy", new JsonValue.Str(policy));

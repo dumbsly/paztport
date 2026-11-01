@@ -96,6 +96,11 @@ public record SignedRoot(String rootId, String root, String sig, long notAfter) 
         return JsonWriter.text(tree());
     }
 
+    /** The root as a file: {@link #toJson()}'s object in the spec's file format. */
+    public String toFile() {
+        return JsonWriter.file(tree());
+    }
+
     /** The header form: the base64url of {@link #toJson()}'s bytes. */
     public String encode() {
         return JsonWriter.token(tree());

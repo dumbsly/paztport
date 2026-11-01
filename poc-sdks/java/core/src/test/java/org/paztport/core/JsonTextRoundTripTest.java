@@ -30,10 +30,10 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 
 /**
- * Every wire object in {@code v3.json} that has an SDK value type is read by that type and written back, and the
- * JCS of what comes back is the JCS of what went in. This pins the JSON forms while the public API changes from
- * Jackson trees to JSON text: the cases and their outcomes stay fixed, and only the adapters at the bottom follow
- * the API.
+ * Every wire object in {@code v3.json} that has an SDK value type is read by that type and written back; what comes
+ * back is canonical text, and the value read from it is the value that went in, or the one the type normalises it
+ * to. This pins the JSON forms while the public API changes from Jackson trees to JSON text: the cases and their
+ * outcomes stay fixed, and only the adapters at the bottom follow the API.
  *
  * <p>An object is one of three things. Most round-trip exactly. A few are refused, being the vectors' deliberately
  * malformed inputs. The rest are normalised: an extra field dropped, or a number written {@code 1798761600000.0} read

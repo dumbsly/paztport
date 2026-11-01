@@ -37,7 +37,7 @@ public final class Text {
         return s.codePoints().anyMatch(Text::isNoncharacter);
     }
 
-    /** True for a noncharacter code point: the one test the JSON reader, the writer and {@link #hasNoncharacter} share. */
+    /** True for a noncharacter code point: the one test the JSON reader, writer and {@link #hasNoncharacter} share. */
     public static boolean isNoncharacter(int cp) {
         return cp >= 0xfdd0 && cp <= 0xfdef || (cp & 0xfffe) == 0xfffe;
     }

@@ -101,7 +101,8 @@ class HttpV3Test {
         assertTrue(text(chain).startsWith("[{\"bind\":\"" + s.chain().get(0).bind() + "\",\"infl\":"));
         String p = text(proof);
         assertTrue(p.startsWith("{\"dirs\":\""));
-        assertTrue(p.indexOf("\"leafSalt\"") < p.indexOf("\"rootId\"") && p.indexOf("\"rootId\"") < p.indexOf("\"siblings\""));
+        assertTrue(p.indexOf("\"leafSalt\"") < p.indexOf("\"rootId\""));
+        assertTrue(p.indexOf("\"rootId\"") < p.indexOf("\"siblings\""));
         assertTrue(text(resp).startsWith(
                 "{\"labels\":[{\"cid\":\"cid-1\",\"cls\":\"private\",\"owner\":\"alice\"}],\"stamp\":{\"bind\":\""));
     }

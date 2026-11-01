@@ -12,14 +12,15 @@ class TextTest {
 
     @Test
     void hasNoncharacterFindsEachKind() {
-        for (String s : new String[] {"￾", "￿", "﷐", "﷯", "a🿾", "􏿿"}) {
+        for (String s : new String[] {"\uFFFE", "\uFFFF", "\uFDD0", "\uFDEF", "a\uD83F\uDFFE", "\uDBFF\uDFFF"}) {
             assertTrue(Text.hasNoncharacter(s), s);
         }
     }
 
     @Test
     void hasNoncharacterPassesOtherText() {
-        for (String s : new String[] {"", "plain", "café", "😀", "�", "﷏", "ﷰ", "􏿽"}) {
+        for (String s : new String[] {"", "plain", "caf\u00E9", "\uD83D\uDE00", "\uFFFD", "\uFDCF", "\uFDF0",
+                "\uDBFF\uDFFD"}) {
             assertFalse(Text.hasNoncharacter(s), s);
         }
         // a lone surrogate is not a noncharacter; isWellFormed answers for it

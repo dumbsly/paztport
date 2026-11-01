@@ -166,8 +166,20 @@ public record KeyringFile(Map<String, String> services, String policy, String si
         return fromTree(node);
     }
 
-    /** The wire form: the object's JCS text, {@code {notAfter, policy, services, sig?}} with a null {@code sig} left out. */
+    /**
+     * The wire form: the object's JCS text, {@code {notAfter, policy, services, sig?}} with a null {@code sig} left
+     * out.
+     */
     public String toJson() {
+        return JsonWriter.text(tree());
+    }
+
+    /** The keyring as a file: {@link #toJson()}'s object in the spec's file format. */
+    public String toFile() {
+        return JsonWriter.file(tree());
+    }
+
+    private JsonValue.Obj tree() {
         Map<String, JsonValue> o = new LinkedHashMap<>();
         o.put("services", servicesJson(services));
         o.put("policy", new JsonValue.Str(policy));
@@ -175,7 +187,7 @@ public record KeyringFile(Map<String, String> services, String policy, String si
             o.put("sig", new JsonValue.Str(sig));
         }
         o.put("notAfter", new JsonValue.Int(notAfter));
-        return JsonWriter.text(new JsonValue.Obj(o));
+        return new JsonValue.Obj(o);
     }
 
     private static JsonValue.Obj servicesJson(Map<String, String> services) {

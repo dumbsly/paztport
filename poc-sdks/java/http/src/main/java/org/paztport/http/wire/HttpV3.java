@@ -24,7 +24,6 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
-import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.MerkleProof;
@@ -42,8 +41,8 @@ import org.paztport.http.internal.VerifyInputs;
  * Everything a transport needs to carry v3 over HTTP, with no web framework: the header encodings, the request's
  * verify input, and the check of a response's attestation.
  *
- * <p>Every header holds the base64url of an object's JCS bytes, and decodes to that JSON's text as it arrived. The decoders never
- * throw. A header that is absent decodes to {@code null} (or {@code []} for influence), and one that is present but
+ * <p>Every header holds the base64url of an object's JCS bytes, and a decoder hands on the text of the JSON it holds
+ * exactly as it arrived. The decoders never throw. A header that is absent decodes to {@code null} (or {@code []} for influence), and one that is present but
  * unreadable decodes to the JSON string {@code "malformed"}, which no verifier check accepts, so the verifier names
  * the reason ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this layer guessing at it.
  *
@@ -67,7 +66,7 @@ public final class HttpV3 {
     // --- Header encodings ---
 
     public static String encodeChain(List<StampV3> chain) {
-        return token(Chains.toJson(chain));
+        return JsonWriter.token(Chains.tree(chain));
     }
 
     /** The chain's JSON text: blank or absent gives {@code null}; unreadable gives {@code "malformed"}. */
@@ -86,17 +85,12 @@ public final class HttpV3 {
 
     /** {@code null} for an empty list, so no header is sent. */
     public static String encodeInfluence(List<InfluenceEntry> entries) {
-        return entries == null || entries.isEmpty() ? null : token(Influence.toJson(entries));
+        return entries == null || entries.isEmpty() ? null : JsonWriter.token(Influence.tree(entries));
     }
 
     /** The influence's JSON text: absent gives {@code []}; unreadable gives {@code "malformed"}. */
     public static String decodeInfluence(String header) {
         return header == null || header.isBlank() ? NONE : readableOrMalformed(header);
-    }
-
-    /** The header for the JCS text a writer of this SDK returned: its UTF-8 bytes, base64url. */
-    private static String token(String jcs) {
-        return Base64Url.encode(jcs.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String readableOrMalformed(String header) {
@@ -149,9 +143,7 @@ public final class HttpV3 {
 
     /** The response header: the base64url of the JCS bytes of {@code {labels, stamp}}. */
     public static String encodeResponse(StampV3 stamp, List<ContentLabel> labels) {
-        return JsonWriter.token(new JsonValue.Obj(Map.of(
-                "stamp", JsonReader.wireText(stamp.toJson()),
-                "labels", JsonReader.wireText(ContentLabel.toJson(labels)))));
+        return JsonWriter.token(new JsonValue.Obj(Map.of("stamp", stamp.tree(), "labels", ContentLabel.tree(labels))));
     }
 
     /** What a caller learns from a response. {@code labels} is empty unless the result is {@code OK}. */

@@ -106,7 +106,8 @@ public record SessionRequest(SignedRoot clientRoot, String clientPolicyKey, Map<
         return JsonWriter.text(tree());
     }
 
-    JsonValue.Obj tree() {
+    /** The request as a JSON value, for the writers of this SDK; not API. */
+    public JsonValue.Obj tree() {
         Map<String, JsonValue> o = new LinkedHashMap<>();
         o.put("clientRoot", Sessions.rootJson(clientRoot));
         o.put("clientPolicyKey", new JsonValue.Str(clientPolicyKey));

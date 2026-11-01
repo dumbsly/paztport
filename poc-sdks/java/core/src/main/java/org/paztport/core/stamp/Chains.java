@@ -62,7 +62,12 @@ public final class Chains {
 
     /** The wire form of a chain: a JSON array of the stamps, origin first, each as {@link StampV3#toJson()}. */
     public static String toJson(List<StampV3> chain) {
-        return JsonWriter.text(new JsonValue.Arr(chain.stream().map(s -> (JsonValue) s.tree()).toList()));
+        return JsonWriter.text(tree(chain));
+    }
+
+    /** The chain as a JSON value, for the writers of this SDK; not API. */
+    public static JsonValue.Arr tree(List<StampV3> chain) {
+        return new JsonValue.Arr(chain.stream().map(s -> (JsonValue) s.tree()).toList());
     }
 
     /** One stamp, or null if any field breaks the rules. */

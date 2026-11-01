@@ -21,8 +21,6 @@ import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
-import org.paztport.core.internal.JsonReader;
-import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 
 /**
@@ -84,8 +82,7 @@ public final class KeygenMain {
         Files.createDirectories(outDir);
         KeyGenerator.Result result = KeyGenerator.generate(services);
 
-        Files.writeString(outDir.resolve("keyring.json"),
-                JsonWriter.file(JsonReader.wireText(KeyGenerator.toKeyring(result, keyringNotAfter).toJson())));
+        Files.writeString(outDir.resolve("keyring.json"), KeyGenerator.toKeyring(result, keyringNotAfter).toFile());
         Files.writeString(outDir.resolve("policy.pub"), KeyGenerator.policyPublicKey(result) + "\n");
 
         for (Map.Entry<String, KeyPair> e : result.services().entrySet()) {

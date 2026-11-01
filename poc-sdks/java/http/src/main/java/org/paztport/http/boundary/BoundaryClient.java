@@ -12,7 +12,6 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -29,6 +28,7 @@ import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.policy.SignedRoot;
@@ -396,8 +396,7 @@ public final class BoundaryClient implements AutoCloseable {
      * 200, and no whole answer within the timeout, is an {@link IOException}.
      */
     private byte[] handshake(SessionRequest req) throws IOException {
-        // the request's JCS text, as bytes
-        byte[] body = req.toJson().getBytes(StandardCharsets.UTF_8);
+        byte[] body = JsonWriter.wire(req.tree());
         HttpResponse<byte[]> response = send(HttpRequest.newBuilder(
                         URI.create(partnerUrl.getScheme() + "://" + partnerUrl.getRawAuthority() + HttpSessions.PATH))
                 .header("Content-Type", "application/json")

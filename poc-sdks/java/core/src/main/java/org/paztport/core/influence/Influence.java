@@ -99,7 +99,8 @@ public final class Influence {
         return JsonWriter.text(tree(entries));
     }
 
-    static JsonValue.Arr tree(List<InfluenceEntry> entries) {
+    /** The entries as a JSON value, for the writers of this SDK; not API. */
+    public static JsonValue.Arr tree(List<InfluenceEntry> entries) {
         return new JsonValue.Arr(entries.stream().map(e -> (JsonValue) e.tree()).toList());
     }
 

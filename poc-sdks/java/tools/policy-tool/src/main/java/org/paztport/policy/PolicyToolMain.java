@@ -16,8 +16,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.paztport.core.crypto.KeyFiles;
-import org.paztport.core.internal.JsonReader;
-import org.paztport.core.internal.JsonWriter;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.PolicyOwner;
@@ -107,12 +105,12 @@ public final class PolicyToolMain {
 
         writeKeyringInPlace(keyringFile, ring);
         Files.createDirectories(outDir);
-        write(outDir.resolve("root.json"), result.signedRoot().toJson());
+        Files.writeString(outDir.resolve("root.json"), result.signedRoot().toFile());
         for (ProofBundle bundle : result.bundles().values()) {
-            write(outDir.resolve("proofs-" + bundle.service() + ".json"), bundle.toJson());
+            Files.writeString(outDir.resolve("proofs-" + bundle.service() + ".json"), bundle.toFile());
         }
         if (cert != null) {
-            write(outDir.resolve("reply-cert.json"), cert.toJson());
+            Files.writeString(outDir.resolve("reply-cert.json"), cert.toFile());
         }
     }
 
@@ -152,19 +150,10 @@ public final class PolicyToolMain {
         }
 
         writeKeyringInPlace(keyringFile, ring);
-        write(rootFile, renewed.toJson());
+        Files.writeString(rootFile, renewed.toFile());
         if (cert != null) {
-            write(outDir.resolve("reply-cert.json"), cert.toJson());
+            Files.writeString(outDir.resolve("reply-cert.json"), cert.toFile());
         }
-    }
-
-    /** Writes an object's JCS text {@code json} as a file, in the spec's file form. */
-    private static void write(Path file, String json) throws IOException {
-        Files.writeString(file, fileText(json));
-    }
-
-    private static String fileText(String json) {
-        return JsonWriter.file(JsonReader.wireText(json));
     }
 
     /**
@@ -193,7 +182,7 @@ public final class PolicyToolMain {
      * keys from the keygen, since this tool only re-signs a keyring.
      */
     private static void writeKeyringInPlace(Path keyringFile, KeyringFile ring) throws IOException {
-        byte[] bytes = fileText(ring.toJson()).getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = ring.toFile().getBytes(StandardCharsets.UTF_8);
         try {
             Files.write(keyringFile, bytes);
         } catch (IOException e) {

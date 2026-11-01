@@ -80,7 +80,12 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
 
     /** The wire form of {@code labels}, in the order given, each as {@link #toJson()} writes it. */
     public static String toJson(List<ContentLabel> labels) {
-        return JsonWriter.text(new JsonValue.Arr(labels.stream().map(l -> (JsonValue) l.tree()).toList()));
+        return JsonWriter.text(tree(labels));
+    }
+
+    /** The labels as a JSON value, for the writers of this SDK; not API. */
+    public static JsonValue.Arr tree(List<ContentLabel> labels) {
+        return new JsonValue.Arr(labels.stream().map(l -> (JsonValue) l.tree()).toList());
     }
 
     /** The wire form: the object's JCS text, {@code {cls, cid, owner?}} with an absent owner left out. */
