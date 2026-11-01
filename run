@@ -8,12 +8,14 @@ cd "$(dirname "$0")"
 
 usage() {
   cat <<'USAGE'
-Usage: ./run <command>
+Usage: ./run <command> [options]
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, then the Java SDK, Java demo, TypeScript type checks, TypeScript SDK and TypeScript demo suites.
                No Docker and no model.
+  bench        Build the Java SDK's benchmark jar and time the primitives a verifying hop pays for (JMH, a few
+               minutes). Options after it go to JMH, e.g. ./run bench -f 3. Not part of test.
 
 macOS and Linux; on Windows use WSL.
 USAGE
@@ -91,6 +93,12 @@ cmd_agents_mcp() {
   exec npm run demo
 }
 
+cmd_bench() {
+  need_java
+  (cd poc-sdks/java && mvn -q package -DskipTests -pl tools/bench -am)
+  exec "$maven_java" -jar poc-sdks/java/tools/bench/target/bench.jar "$@"
+}
+
 cmd_test() {
   need_java
   need_node
@@ -121,6 +129,7 @@ case "${1:-}" in
   java-mesh) cmd_java_mesh ;;
   agents-mcp) cmd_agents_mcp ;;
   test) cmd_test ;;
+  bench) shift; cmd_bench "$@" ;;
   -h|--help|help) usage ;;
   "") usage ;;
   *) usage >&2; exit 2 ;;

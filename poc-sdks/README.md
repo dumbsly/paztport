@@ -5,7 +5,8 @@ policy, verification, influence and sessions. The demos in
 [poc-demos](../poc-demos/README.md) only wire them together.
 
 - [java](java/README.md): `paztport-core`, the `paztport-http` and
-  `paztport-spring` extensions, and the `keygen` and `policy-tool` jobs.
+  `paztport-spring` extensions, the `keygen` and `policy-tool` jobs, and the
+  `bench` micro-benchmarks.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/mcp`
   extension, and the policy command-line tools.
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v3, which both SDKs replay

@@ -1,9 +1,9 @@
 # Java SDK
 
 A Maven build (`paztport-sdk-parent`, JDK 25 or newer; the Spring starter needs
-Spring Boot 4.1) of three libraries and two one-shot tools. Every cryptographic
-primitive comes from the standard JDK; `keygen` uses Bouncy Castle only to build
-its X.509 certificates, which the JDK signs.
+Spring Boot 4.1) of three libraries, two one-shot tools and a benchmark. Every
+cryptographic primitive comes from the standard JDK; `keygen` uses Bouncy Castle
+only to build its X.509 certificates, which the JDK signs.
 
 It implements protocol v3 as the [spec](../spec/README.md) defines it, and is the
 SDK that carries v3 over HTTP. It replays all of `spec/vectors/v3.json` but the
@@ -528,3 +528,18 @@ When `PAZTPORT_REPLY_CERT_SVC` names a service, either mode also writes `outDir/
 `PAZTPORT_REPLY_CERT_DAYS` days (default 7), set apart from the policy's lifetime. It refuses, writing nothing,
 a service the keyring has no key for. The tool prints only file names, their `notAfter` and the certificate's
 service.
+
+## tools/bench
+
+[JMH](https://github.com/openjdk/jmh) micro-benchmarks of the primitives a verifying hop pays for, the timed rows
+of the mesh demo's [cost table](../../poc-demos/java-mesh/README.md#measurements): the depth-8 Merkle proof walk
+(`MerkleProof.verify`), SHA-256 of one stamp's signed bytes (`Crypto.sha256`), and Ed25519 signing and
+verifying of them (`Crypto.sign`, `Crypto.verify`). The inputs are built as the mesh builds them at `payment`: a
+keyring the policy key signs, a root over the mesh's routes at the policy tool's default depth, and the two-stamp
+chain `gateway` and `orders` sign, with its proof. The setup checks that the keyring, the root, the proof and the
+signature all verify, so every benchmark times the path a legitimate request takes.
+
+`./run bench` from the repository root builds `target/bench.jar` and runs it on the JDK Maven uses; options after
+`bench` go to JMH (`-f 3` for three forks, `-rf json` for a results file). `mvn verify` builds the jar but runs no
+benchmark. JMH is GPLv2 with the Classpath Exception and is in this jar only; the libraries and the demos don't use
+it.

@@ -31,6 +31,7 @@
         <module>spring</module>
         <module>tools/keygen</module>
         <module>tools/policy-tool</module>
+        <module>tools/bench</module>
     </modules>
 
     <properties>
@@ -94,6 +95,7 @@
                     <licenseMerges>
                         <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
                         <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
+                        <licenseMerge>GPL2 w/ CPE|GNU General Public License (GPL), version 2, with the Classpath exception</licenseMerge>
                     </licenseMerges>
                 </configuration>
             </plugin>

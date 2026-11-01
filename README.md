@@ -528,6 +528,7 @@ and Linux; on Windows use WSL.
 ./run test        # the name and link checks, the TypeScript type checks, then every suite; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
+./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
 ```
 
 `./run` with no argument prints its usage. A missing prerequisite stops it with one
@@ -540,11 +541,11 @@ its own; its README has the commands.
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
-├── run                       front door: java-mesh, agents-mcp, test
+├── run                       front door: java-mesh, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which both SDKs replay (Java all of it but the MCP profile); http-v3, Java's only
 │   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
-│   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool
+│   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool, tools/bench
 │   └── typescript/           @paztport/core, @paztport/mcp, policy-tool
 └── poc-demos/
     ├── java-mesh/            gateway, orders, payment, search, tickets, assistant, mailer, psp, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
@@ -580,7 +581,8 @@ The source repository bundles no third-party code. Built artifacts do, and
 [THIRD-PARTY.txt](THIRD-PARTY.txt) lists every runtime dependency with its license.
 All of them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence)
 or weak copyleft that is fine to redistribute unmodified (Logback, JNA, Jakarta
-Annotations). Regenerate the list after changing dependencies:
+Annotations, and JMH, the benchmark harness, under GPLv2 with the Classpath
+Exception). Regenerate the list after changing dependencies:
 
 ```bash
 (cd poc-sdks/java && mvn install -DskipTests)   # the demo resolves the SDK from here
@@ -595,3 +597,7 @@ Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it t
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
 responder. None of Paztport's own cryptography uses it; stamps, hashing, salts and
 the certificates' signatures all come from the JDK.
+
+JMH and its two dependencies, JOpt Simple and Apache Commons Math, are in the
+SDK's `tools/bench` jar only, which `./run bench` builds and runs. Neither the SDK
+libraries nor the demos use them.
