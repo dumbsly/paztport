@@ -654,21 +654,21 @@ when the whole mesh runs:
 
 ## Measurements
 
-Measured on a single host (Apple Silicon, Docker Desktop, the services on a JDK 25
-runtime) with k6 driving the legitimate path at 10 virtual users, via
-[measure.sh](measure.sh), mutual TLS on every hop. `payment` is switched between
-`off`, where Paztport is off on that hop, and `enforce`, with everything else
-identical. Each mode first gets a 10 s warm-up that is thrown away, so neither
-carries most of the JVMs' and the connections' warm-up. Then three rounds each
-run both modes for 20 s, the leading mode alternating (`off` then `enforce`,
-`enforce` then `off`, `off` then `enforce`), so drift over the session doesn't
-favour one mode. The table gives each mode's median over its three runs, with
-the three runs' range. No request failed in any run.
+Measured on a single host, an Apple M5 Pro under macOS 26.6 (Docker Desktop, the
+services on a JDK 25 runtime), with k6 driving the legitimate path at 10 virtual
+users, via [measure.sh](measure.sh), mutual TLS on every hop. `payment` is
+switched between `off`, where Paztport is off on that hop, and `enforce`, with
+everything else identical. Each mode first gets a 10 s warm-up that is thrown
+away, so neither carries most of the JVMs' and the connections' warm-up. Then
+three rounds each run both modes for 20 s, the leading mode alternating (`off`
+then `enforce`, `enforce` then `off`, `off` then `enforce`), so drift over the
+session doesn't favour one mode. The table gives each mode's median over its three
+runs, with the three runs' range. No request failed in any run.
 
 | | p50 | p99 | mean | max |
 |---|---|---|---|---|
-| `payment` in `off` | 3.83 ms (3.80–3.87) | 6.15 ms (6.12–6.31) | 3.93 ms (3.91–3.97) | 14.80 ms (10.50–35.19) |
-| `payment` in `enforce` | 6.45 ms (6.41–6.49) | 9.30 ms (9.26–9.38) | 6.59 ms (6.55–6.63) | 15.15 ms (14.57–27.17) |
+| `payment` in `off` | 3.96 ms (3.93–4.15) | 6.52 ms (6.49–7.11) | 4.07 ms (4.05–4.27) | 12.54 ms (11.76–16.98) |
+| `payment` in `enforce` | 6.75 ms (6.61–6.76) | 9.72 ms (9.63–9.88) | 6.89 ms (6.74–6.91) | 15.16 ms (14.20–26.43) |
 
 The services call each other over pooled mutual-TLS connections, so these numbers
 don't include a handshake per hop per request. In steady load a connection is
@@ -677,15 +677,17 @@ its 100th request (Tomcat's default); the client also opens more as concurrency
 rises and closes those left idle.
 
 The costs of the primitives come from the JMH micro-benchmarks in
-[tools/bench](../../poc-sdks/java/README.md#toolsbench), which `./run bench`
-builds and runs. Their inputs are built as the mesh builds them at `payment`: a
-signed keyring, a root over [policy/paths.yaml](policy/paths.yaml) at depth 8,
-and the two-stamp chain `gateway` and `orders` sign, with its proof. The figures
-are the average time per operation on an Apple M5 Pro under macOS 26.6, run
-natively rather than in Docker, on JDK 25.0.5 with JMH 1.37: one fork, three 5 s
-warm-up iterations and five 5 s measured ones, the benchmark's defaults. The last
-row is not a benchmark: it is the size of the headers on the mesh's request to
-`payment`, measured in the mesh.
+[tools/bench](../../poc-sdks/java/README.md#toolsbench), which
+`JAVA_HOME=<a JDK 25> ./run bench` builds and runs on JDK 25, the services'
+runtime (`eclipse-temurin:25-jre`); without `JAVA_HOME`, `./run bench` uses
+whichever JDK Maven finds, and JMH's output names it. Their inputs are built as
+the mesh builds them at `payment`: a signed keyring, a root over
+[policy/paths.yaml](policy/paths.yaml) at depth 8, and the two-stamp chain
+`gateway` and `orders` sign, with its proof. The figures are the average time per
+operation on the same host, run natively rather than in Docker, on JDK 25.0.5
+with JMH 1.37: one fork, three 5 s warm-up iterations and five 5 s measured ones,
+the benchmark's defaults. The last row is not a benchmark: it is the size of the
+headers on the mesh's request to `payment`, measured in the mesh.
 
 | Operation | Cost |
 |---|---|
@@ -696,20 +698,20 @@ row is not a benchmark: it is the size of the headers on the mesh's request to
 
 What the numbers say:
 
-- **`enforce` adds about 2.6 ms at the median at this load.** Every `enforce` run's
-  p50 was 2.5–2.7 ms above every `off` run's, so the gap is far larger than the
-  run-to-run spread, but three runs per mode support "about 2.6 ms", not a finer
-  figure. The p99 gap is about 3 ms (3.0–3.3 ms between any two runs). The
+- **`enforce` adds about 2.8 ms at the median at this load.** Every `enforce` run's
+  p50 was 2.5–2.8 ms above every `off` run's, so the gap is far larger than the
+  run-to-run spread, but three runs per mode support "about 2.8 ms", not a finer
+  figure. The p99 gap is about 3.2 ms (2.5–3.4 ms between any two runs). The
   difference covers `payment`'s verification of the request (two stamps), its
   signing of the response, and `orders`' check of that response stamp (three
   stamps), which in `off` finds no stamp and stops at once. At the micro-benchmark
   costs in the table above, those five verifies and one signature come to about
-  1.4 ms of Ed25519; the rest is likely contention among the 10 users, which
-  isn't measured separately. The benchmark ran natively and the services in
-  Docker, so the split is an estimate.
+  1.4 ms of Ed25519, half the difference; the rest is likely contention among the
+  10 users, which isn't measured separately. Both ran on this host, the benchmark
+  natively and the services under Docker Desktop, so the split is an estimate.
 - **The proof of legitimacy is effectively free.** Its walk costs about 1% of one
-  Ed25519 verify. All the cost is in the signature chain, one Ed25519 verify per
-  stamp.
+  Ed25519 verify. Of the primitives, all the cost is in the signature chain, one
+  Ed25519 verify per stamp.
 - **Stock JDK Ed25519 is the slow part.** Optimized native implementations, which
   this repository doesn't benchmark, do tens of microseconds, about 5–10× faster.
   A hot-path deployment would swap the signature implementation; the Merkle
@@ -732,13 +734,14 @@ Caveats:
   none is measured on its own. Only `payment`'s work is switched here, so a
   design that verifies at every hop pays that cost once per verifying hop.
 - **A maximum is one request.** It moves more from run to run than the
-  percentiles do (`enforce`'s ran from 14.57 to 27.17 ms, `off`'s from 10.50 to
-  35.19 ms), so read it as this run's slowest request, not as a cost.
+  percentiles do (`enforce`'s ran from 14.20 to 26.43 ms, `off`'s from 11.76 to
+  16.98 ms), so read it as this run's slowest request, not as a cost.
 - **The primitive costs are JIT-warmed micro-benchmarks**, timed on their own
-  outside the mesh, not during this run. `./run bench` reproduces them; absolute
-  numbers vary by host. The primitives they time (the Merkle walk, SHA-256 and
-  the JDK's Ed25519) are the ones the mesh runs. Cold starts pay JIT and
-  class-loading costs that aren't reflected here.
+  outside the mesh, on the same host but not during this run.
+  `JAVA_HOME=<a JDK 25> ./run bench` reproduces them; absolute numbers vary by
+  host and JDK. The primitives they time (the Merkle walk, SHA-256 and the JDK's
+  Ed25519) are the ones the mesh runs. Cold starts pay JIT and class-loading
+  costs that aren't reflected here.
 - **The false-positive rate isn't measured.** Retries, health checks, and batch
   jobs need real traffic in `audit` mode, and this local POC doesn't generate any.
 

@@ -581,8 +581,8 @@ The source repository bundles no third-party code. Built artifacts do, and
 [THIRD-PARTY.txt](THIRD-PARTY.txt) lists every runtime dependency with its license.
 All of them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence)
 or weak copyleft that is fine to redistribute unmodified (Logback, JNA, Jakarta
-Annotations, and JMH, the benchmark harness, under GPLv2 with the Classpath
-Exception). Regenerate the list after changing dependencies:
+Annotations; JMH, the benchmark harness, is GPLv2 with the Classpath Exception).
+Regenerate the list after changing dependencies:
 
 ```bash
 (cd poc-sdks/java && mvn install -DskipTests)   # the demo resolves the SDK from here
