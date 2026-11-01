@@ -112,7 +112,6 @@ describe("demo page", () => {
       "free, runs on this machine",
       "time depends on your hardware",
       "uses your provider account; check its terms",
-      "not recorded in this folder's format",
       "custom",
       "Server's reply",
       "For a folder it also checks that every run whose outcome log shows signed calls has signed evidence.",
@@ -166,7 +165,17 @@ describe("demo page", () => {
       const c = { k, n, ci: wilson(k, n) };
       expect(formatCell(c)).toBe(cell(c));
     }
-    expect(formatCell(undefined)).toBe("not recorded in this folder's format");
+    expect(formatCell(undefined)).toBe("not recorded");
+    expect(formatCell({ k: 1 })).toBe("not recorded");
+  });
+
+  it("plannedRuns is the requested runs times modes, and not recorded when either is missing, never 0", async () => {
+    const { plannedRuns } = await lib();
+    expect(plannedRuns({ runs: 3, modes: ["on", "off"] })).toBe(6);
+    expect(plannedRuns({ runs: 0, modes: ["on"] })).toBe(0);
+    expect(plannedRuns(undefined)).toBeUndefined();
+    expect(plannedRuns({ modes: ["on"] })).toBeUndefined();
+    expect(plannedRuns({ runs: 3 })).toBeUndefined();
   });
 
   it("activity trail: the current state on top with its seconds, the two before it below, frozen", async () => {

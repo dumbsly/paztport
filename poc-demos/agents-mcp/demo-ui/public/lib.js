@@ -58,9 +58,17 @@ export function sseParser() {
   };
 }
 
+/** What the page shows for a figure the folder does not record. */
+export const NOT_RECORDED = "not recorded";
+
+/** The runs an eval asked for (runs per mode times modes), or undefined when either is not recorded. */
+export function plannedRuns(requested) {
+  return requested && typeof requested.runs === "number" && Array.isArray(requested.modes) ? requested.runs * requested.modes.length : undefined;
+}
+
 /** A results-table cell, as summary.md prints it: k / n (lo–hi%), bounds rounded outward. */
 export function formatCell(c) {
-  if (!c || typeof c.k !== "number" || typeof c.n !== "number") return "not recorded in this folder's format";
+  if (!c || typeof c.k !== "number" || typeof c.n !== "number") return NOT_RECORDED;
   if (c.n === 0) return "0 / 0";
   const lo = Math.floor(c.ci[0] * 100 + 1e-9);
   const hi = Math.ceil(c.ci[1] * 100 - 1e-9);

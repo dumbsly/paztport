@@ -4,14 +4,13 @@
 // The demo page. It shows what the demo server sends and decides nothing the server already decided.
 // Model text, tool arguments and tool results are untrusted: they only ever go into the page as text.
 
-import { activityView, formatCell, formatDuration, keyFromHash, newestTiming, pushActivity, sha256Hex, shorten, sseParser, tallyLine } from "./lib.js";
+import { activityView, formatCell, formatDuration, keyFromHash, newestTiming, NOT_RECORDED, plannedRuns, pushActivity, sha256Hex, shorten, sseParser, tallyLine } from "./lib.js";
 
 const KEY = keyFromHash(location.hash);
 const MAX_PAYLOAD_BYTES = 64 * 1024;
 const MAX_RUNS = 100;
 const COLUMNS = { step: "Step", asked: "Agent asked to…", held: "Its context already held", result: "Result" };
 const COMPARE_NOTE = "These are two separate model runs; the model may behave differently in each, and the off run may not leak at all.";
-const NOT_IN_FORMAT = "not recorded in this folder's format";
 const OUTCOME_KEY = {
   leaked: "leaked",
   blocked: "blocked",
@@ -83,7 +82,7 @@ function when(iso) {
 }
 
 function payloadText(p) {
-  if (!isObj(p)) return NOT_IN_FORMAT;
+  if (!isObj(p)) return NOT_RECORDED;
   return p.kind === "custom" ? `custom (not the reference text), SHA-256 ${p.sha256}` : `reference (the scenario's own text), SHA-256 ${p.sha256}`;
 }
 
@@ -745,9 +744,9 @@ function runStatusText(d) {
   const took = typeof d.durationMs === "number" ? formatDuration(d.durationMs) : undefined;
   if (typeof d.error === "string") return `${capitalise(d.error)}${/[.!?]$/.test(d.error) ? "" : "."}`;
   if (typeof d.formatVersion === "number") {
-    const planned = (d.requested?.runs ?? 0) * (d.requested?.modes?.length ?? 1);
+    const planned = plannedRuns(d.requested);
     const done = Array.isArray(d.runs) ? d.runs.length : 0;
-    const base = d.incomplete ? `The eval stopped before it finished: ${done} of ${planned} runs are recorded.` : `The eval finished: ${done} runs.`;
+    const base = d.incomplete ? `The eval stopped before it finished: ${done} of ${planned ?? "the planned"} runs are recorded.` : `The eval finished: ${done} runs.`;
     return d.cancelled ? `You cancelled the eval. ${base}` : base;
   }
   if (d.cancelled) return `You cancelled the run${took ? ` after ${took}` : ""}.`;
@@ -1067,7 +1066,7 @@ function renderFolderList() {
     const planted = isObj(f.payload) ? (f.payload.kind === "custom" ? `custom, ${shorten(f.payload.sha256, 8)}` : "reference") : "";
     let status;
     if (!f.ok) status = `can't be read: ${f.error}`;
-    else if (f.kind === "single") status = f.cancelled ? "cancelled" : f.status === "completed" ? "completed" : f.status === "timeout" ? "hit its time limit" : f.status === "error" ? "ended with an error" : NOT_IN_FORMAT;
+    else if (f.kind === "single") status = f.cancelled ? "cancelled" : f.status === "completed" ? "completed" : f.status === "timeout" ? "hit its time limit" : f.status === "error" ? "ended with an error" : NOT_RECORDED;
     else {
       status = f.incomplete ? "not finished" : "complete";
       // the server checks each folder again from its files when it lists it
@@ -1142,10 +1141,10 @@ function singleDetail(d) {
     facts([
       ["Folder", d.name],
       ["Date", when(d.date)],
-      ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_IN_FORMAT],
+      ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_RECORDED],
       ["Paztport", d.mode],
       ["Planted text", payloadText(d.payload)],
-      ["Tools", d.tools ? [d.localTools === true ? "the agent had the scenario's mock tools and pi's built-in tools (" : "the agent had only the scenario's mock tools (", h("code", {}, d.tools), ")"] : NOT_IN_FORMAT],
+      ["Tools", d.tools ? [d.localTools === true ? "the agent had the scenario's mock tools and pi's built-in tools (" : "the agent had only the scenario's mock tools (", h("code", {}, d.tools), ")"] : NOT_RECORDED],
       ["Run", statusText(r)],
     ]),
     outcomeLine(d.scored, d.localTools === true),
@@ -1195,9 +1194,9 @@ function summaryTable(d) {
 function evalDetail(d, { nested }) {
   const box = h("div", { class: nested ? "" : "panel" });
   const runs = Array.isArray(d.runs) ? d.runs.filter(isObj) : [];
-  const planned = (d.requested?.runs ?? 0) * (d.requested?.modes?.length ?? 0);
+  const planned = plannedRuns(d.requested);
   const v = isObj(d.verify) ? d.verify : undefined;
-  const count = (k) => (v && typeof v[k] === "number" ? String(v[k]) : NOT_IN_FORMAT);
+  const count = (k) => (v && typeof v[k] === "number" ? String(v[k]) : NOT_RECORDED);
   const local = d.localTools === true;
   const defs = tableText(local).definitions;
   const check = isObj(d.check) ? d.check : undefined;
@@ -1209,15 +1208,15 @@ function evalDetail(d, { nested }) {
   add(box, [
     h(nested ? "h3" : "h2", {}, `Eval: ${modelName(d.model)}`),
     d.incomplete
-      ? h("p", { class: "notice" }, `This eval was not finished (it was interrupted, or it is still running). ${runs.length} of ${planned || "the planned"} runs are recorded, and the table counts only those.`)
+      ? h("p", { class: "notice" }, `This eval was not finished (it was interrupted, or it is still running). ${runs.length} of ${planned ?? "the planned"} runs are recorded, and the table counts only those.`)
       : null,
     facts([
       nested ? null : ["Folder", d.name],
       ["Date", when(d.date)],
-      ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_IN_FORMAT],
+      ["Scenario", isObj(d.scenario) ? `${d.scenario.title} (${d.scenario.id})` : NOT_RECORDED],
       ["Planted text", payloadText(d.payload)],
       ["Tools", local ? ["the agent had the scenario's mock tools and pi's built-in tools (", h("code", {}, d.tools ?? "unknown"), ")."] : ["the agent had only the scenario's mock tools (", h("code", {}, d.tools ?? "unknown"), "). Nothing else was enabled."]],
-      ["Runs per mode", String(d.requested?.runs ?? NOT_IN_FORMAT)],
+      ["Runs per mode", String(d.requested?.runs ?? NOT_RECORDED)],
       isObj(d.versions) ? ["Versions", `pi ${d.versions.pi}, Paztport extension ${d.versions.extension}, mock server ${d.versions.mockServer}, node ${d.versions.node}`] : null,
       d.command ? ["Command", h("code", {}, d.command)] : null,
     ]),
@@ -1250,7 +1249,7 @@ function evalDetail(d, { nested }) {
       ["Did not verify", count("failed")],
       ["Nothing to check (Paztport off)", count("none")],
       ["Paztport on, ended before anything was recorded", count("notRecorded")],
-      ["Server key fingerprint", isObj(d.serverKey) ? h("code", {}, d.serverKey.fingerprint) : NOT_IN_FORMAT],
+      ["Server key fingerprint", isObj(d.serverKey) ? h("code", {}, d.serverKey.fingerprint) : NOT_RECORDED],
     ]),
     d.verifyCommand ? commandBlock(d.verifyCommand) : null,
     d.verifyCommand
@@ -1341,7 +1340,7 @@ function runDetail(d, r) {
       ["Status", String(r.status)],
       ["read private", r.readPrivate ? "yes" : "no"],
       ["task done", r.taskDone ? "yes" : "no"],
-      ["Evidence", r.verify ? `${RUN_VERIFY_LABEL[r.verify.status] ?? r.verify.status}${r.verify.problems?.length ? `: ${r.verify.problems.join("; ")}` : ""}` : NOT_IN_FORMAT],
+      ["Evidence", r.verify ? `${RUN_VERIFY_LABEL[r.verify.status] ?? r.verify.status}${r.verify.problems?.length ? `: ${r.verify.problems.join("; ")}` : ""}` : NOT_RECORDED],
       r.reason ? ["Note", r.reason] : null,
     ]),
     Array.isArray(steps)

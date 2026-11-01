@@ -695,9 +695,9 @@ describe("demo server", () => {
     expect((await api(srv, "/api/results/nope")).status).toBe(404);
   });
 
-  it("results/:name adds each run's steps, tolerates old folders, and never reads an empty verify list as all verified", async () => {
+  it("results/:name adds each run's steps, tolerates a results.json missing figures, and never reads an empty verify list as all verified", async () => {
     const { srv, resultsRoot } = await start();
-    const folder = join(resultsRoot, "old");
+    const folder = join(resultsRoot, "partial");
     const run = join(folder, "runs", "on-001");
     mkdirSync(run, { recursive: true });
     const r: any = resultsFile();
@@ -708,12 +708,12 @@ describe("demo server", () => {
     writeFileSync(join(folder, "results.json"), JSON.stringify(r));
     writeFileSync(join(run, "transcript.jsonl"), JSON.stringify({ type: "tool_execution_start", toolCallId: "c1", toolName: "mcp__github__create_branch", args: { owner: "acme", repo: "website", branch: "b" } }) + "\n");
     writeFileSync(join(run, "outcome.jsonl"), JSON.stringify(record({ callId: "c1", tool: "create_branch", verdict: "INFLUENCE_DENIED" })) + "\n");
-    const got = await (await api(srv, "/api/results/old")).json();
+    const got = await (await api(srv, "/api/results/partial")).json();
     expect(got.ok).toBe(true);
     expect(got.stepsByRun["runs/on-001"]).toHaveLength(1);
     expect(got.stepsByRun["runs/on-001"][0]).toMatchObject({ result: "refused", phrase: "create the branch b in acme/website" });
     expect(got.serverKey).toBeUndefined();
-    // as recorded: the old folder's figures, with nothing missing read as 0
+    // as recorded: the figures results.json has, with no counter filled in for one it lacks
     expect(got.recorded.verify).toEqual({ ok: 0, failed: 0, none: 0 });
     expect(got.recorded.verifyStatus).toBe("unknown");
     expect(got.recorded.verifyLine).toMatch(/no evidence check/i);

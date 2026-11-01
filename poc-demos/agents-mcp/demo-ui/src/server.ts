@@ -862,8 +862,7 @@ export async function startDemoServer(opts: DemoServerOptions): Promise<DemoServ
       return { status: 200, body: { ...l.run, ...(scenario.localTools === true ? { localTools: true } : {}), name, ok: true, kind: "single", steps, ...(answer !== undefined ? { finalAnswer: answer } : {}), ...evidenceOf(dir), refusalsNote: REFUSALS_NOTE } };
     }
     const results = l.results;
-    // what results.json says, as the eval recorded it; an older folder may not count runs that recorded
-    // nothing, which is shown as not recorded, never as 0
+    // what results.json says, as it says it; a run with no verify status is never read as verified
     const stored = verifyOf(results.runs as unknown[]);
     const recorded = { note: RECORDED_NOTE, summary: results.summary, verify: results.verify, runs: results.runs, ...stored };
     const c = checkNow(folder.dir, results, scenarioFor(String((results.scenario as Obj | undefined)?.id ?? "")));
