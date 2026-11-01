@@ -399,8 +399,12 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     const { pi } = setup([github()]);
     await pi.emit("session_start", { reason: "startup" });
     await pi.prompt("fix the typo");
-    for (const toolName of ["mcp__other__fetch", "read_mcp_resource"]) {
-      const content = [{ type: "text", text: "secret \ud800 text" }];
+    // content that is not plain JSON (here, none at all) is refused by JCS like a lone surrogate
+    for (const [toolName, content] of [
+      ["mcp__other__fetch", [{ type: "text", text: "secret \ud800 text" }]],
+      ["read_mcp_resource", [{ type: "text", text: "secret \ud800 text" }]],
+      ["mcp__other__empty", undefined],
+    ] as const) {
       const r = (await pi.call("tool_result", { toolName, toolCallId: id(), input: {}, content, isError: false, details: undefined })) as
         | { content: unknown; isError: boolean }
         | undefined;
@@ -558,6 +562,10 @@ describe("paztport pi extension", { timeout: 30_000 }, () => {
     expect(await restore([labelled], "off")).toEqual(ZERO);
     // write and edit record nothing live, so nothing here
     expect(await restore([toolResultEntry("write", text("ok")), toolResultEntry("edit", text("ok"))])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    // a write, an edit or a refusal records nothing, whether or not its content can be hashed
+    const lone = text("lone \ud800 surrogate");
+    expect(await restore([toolResultEntry("write", lone), toolResultEntry("edit", lone)])).toEqual({ ...ZERO, "local-untrusted": 1 });
+    expect(await restore([toolResultEntry("read", lone, undefined, true)])).toEqual({ ...ZERO, private: 1, "local-untrusted": 2 });
   });
 
   it("restoredBranchRecordedLikeLivePath", async () => {
@@ -876,6 +884,24 @@ describe("local gate wiring", { timeout: 30_000 }, () => {
     const writeId = id();
     expect(await pi.call("tool_call", { toolName: "write", toolCallId: writeId, input: { path: "website/x.md", content: "x" } })).toBeUndefined();
     expect(await pi.call("tool_result", { ...result, toolName: "write", toolCallId: writeId, details: undefined })).toBeUndefined();
+  });
+
+  it("aGatedLocalResultThatCannotBeHashedIsWithheld", async () => {
+    const cwd = join(tmp, `local-ws-${n++}`);
+    mkdirSync(join(cwd, "website"), { recursive: true });
+    writeFileSync(join(cwd, "website", "README.md"), "# Acme\n");
+    const raw = JSON.stringify({ mode: "enforce", clientDir: join(demo, "client"), clientPolicyDir: join(demo, "client/local-tools"), servers: [github()] });
+    const { pi } = setup([], { cwd, raw });
+    await pi.emit("session_start", { reason: "startup" });
+    await pi.prompt("fix the typo");
+    const readId = id();
+    expect(await pi.call("tool_call", { toolName: "read", toolCallId: readId, input: { path: "website/README.md" } })).toBeUndefined();
+    const content = [{ type: "text", text: "secret \ud800 text" }];
+    const r = await pi.call("tool_result", { toolName: "read", toolCallId: readId, input: {}, content, isError: false, details: undefined });
+    expect(r).toEqual({ content: [{ type: "text", text: UNRECORDABLE_TEXT }], isError: true, details: undefined });
+    // nothing was recorded for it: the public read would otherwise show as a public entry
+    const out = await pi.execute("mcp__github__list_issues", LIST, id());
+    expect(out.details.influence).toEqual({ ...ZERO, "third-party": 1 });
   });
 
   it("offModeDoesNotGate", async () => {

@@ -36,7 +36,10 @@ const HINTS = ["readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHi
 /** A Record, so tsc flags a class added to the library and missing here. */
 const CLASSES: Record<InfluenceClass, true> = { "third-party": true, private: true, public: true, "local-untrusted": true };
 
-/** Tools whose results carry MCP server content: `mcp__` tools (this extension's and pi's built-in MCP) and pi's MCP resource tools. */
+/**
+ * Tools whose results carry MCP server content: `mcp__` tools (this extension's and pi's built-in MCP) and
+ * pi's MCP resource tools.
+ */
 const isMcpTool = (name: string): boolean => name.startsWith("mcp__") || BUILTIN_MCP_RESOURCE_TOOLS.has(name);
 
 type Details = CallOutcome["details"] | { server: string; influence: Record<string, number>; refused: true };
@@ -234,18 +237,18 @@ export default function paztport(pi: ExtensionAPI): void {
     const p = isObject(d) ? d.paztport : undefined;
     const classes = isObject(p) ? classesOf(p.labels) : undefined;
     const hash = hashContent(m.content);
-    if (hash === undefined) {
-      influence.recordUnknown(`builtin:${toolName}`, UNRECORDABLE_HASH);
-      return;
-    }
     if (classes !== undefined) {
-      influence.recordClasses(`local:${toolName}`, classes, hash);
+      if (hash === undefined) {
+        influence.recordUnknown(`builtin:${toolName}`, UNRECORDABLE_HASH);
+      } else {
+        influence.recordClasses(`local:${toolName}`, classes, hash);
+      }
       return;
     }
     if (nested || (m.isError === true && isRefusalText(m.content)) || toolName === "write" || toolName === "edit") {
       return;
     }
-    influence.recordUnknown(`builtin:${toolName}`, hash);
+    influence.recordUnknown(`builtin:${toolName}`, hash ?? UNRECORDABLE_HASH);
   }
 
   /** Records one restored tool result as the live path did; any other entry records nothing. */
@@ -327,7 +330,8 @@ export default function paztport(pi: ExtensionAPI): void {
       // nothing either, while built-in MCP results on a resolved branch still count (as on the path
       // and live). Harmless: off mode sends no influence to any server.
       if (!abandoned.complete && config.mode !== "off") {
-        influence.recordUnknown("local:branch_summary", hashContent([{ type: "text", text: entry.summary }]) ?? UNRECORDABLE_HASH);
+        const summary = hashContent([{ type: "text", text: entry.summary }]);
+        influence.recordUnknown("local:branch_summary", summary ?? UNRECORDABLE_HASH);
       }
       for (const e of abandoned.entries) {
         if (!seen.has(e.id)) {
