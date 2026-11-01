@@ -267,7 +267,7 @@ utf8( "3|" svc "|" inst "|" rid "|" ts "|" sess "|" rcv "|" bind "|" infl "|" pr
 ```
 
 That is the ten values `3, svc, inst, rid, ts, sess, rcv, bind, infl, prev`, joined with `|` (`0x7C`), with `ts`
-in decimal. `v3.json` pins two layouts in `signingBytesV3`. For example, the stamp
+in decimal. `v3.json` pins two layouts in `signingBytes`. For example, the stamp
 `{ v: 3, svc: "pi", inst: "pi-é", rid: "rid-1", ts: 1767225600000, sess: "", rcv: "local:read", bind: "bind-2", infl: "", prev: "prev-2" }`
 signs the bytes of `3|pi|pi-é|rid-1|1767225600000||local:read|bind-2||prev-2`, with `é` as `c3 a9`.
 
