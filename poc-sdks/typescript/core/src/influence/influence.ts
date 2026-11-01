@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { encode } from "../encoding/b64url.ts";
-import { sha256, utf8 } from "../crypto/crypto.ts";
+import { isWellFormed, sha256, utf8 } from "../crypto/crypto.ts";
 import { canonicalize } from "../encoding/jcs.ts";
 
 export type InfluenceClass = "third-party" | "private" | "public" | "local-untrusted";
@@ -38,7 +38,6 @@ export function normalizeInfluence(entries: InfluenceEntry[]): InfluenceEntry[] 
 }
 
 const CLASSES: readonly string[] = ["third-party", "private", "public", "local-untrusted"];
-const LONE_SURROGATE = /\p{Surrogate}/u;
 
 /** Throws unless value is an array of well-formed influence entries. */
 export function parseInfluence(value: unknown): InfluenceEntry[] {
@@ -60,7 +59,7 @@ export function parseInfluence(value: unknown): InfluenceEntry[] {
       throw new Error("malformed influence owner");
     }
     for (const f of [o.src, o.h, o.cid, o.owner]) {
-      if (typeof f === "string" && LONE_SURROGATE.test(f)) {
+      if (typeof f === "string" && !isWellFormed(f)) {
         throw new Error("lone surrogate in influence entry");
       }
     }

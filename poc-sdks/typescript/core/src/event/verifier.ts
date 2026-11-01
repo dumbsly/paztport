@@ -135,7 +135,14 @@ export function createEventVerifier(opts: {
       } catch {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
-      if (!verify(key, eventSigningBytes(envelope.payload), signature)) {
+      // A payload that has no UTF-8 form has no signed bytes, so no signature covers it.
+      let signed: boolean;
+      try {
+        signed = verify(key, eventSigningBytes(envelope.payload), signature);
+      } catch {
+        signed = false;
+      }
+      if (!signed) {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
       let bytes: Uint8Array;

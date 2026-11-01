@@ -156,6 +156,13 @@ describe("event verifier", () => {
     expect(auth.accept(envelope("payment", payment, eventJson(NOW, " ")))).toHaveProperty("event");
   });
 
+  it("aPayloadWithALoneSurrogateIsBadSignatureAndDoesNotThrow", () => {
+    const { auth } = setup();
+    const body = '{"signer":"payment","payload":"AA\\ud800","sig":"AAAA"}';
+    expect(() => auth.accept(body)).not.toThrow();
+    expect(auth.accept(body)).toEqual({ refusal: "BAD_SIGNATURE", signer: "payment" });
+  });
+
   it("refusalDoesNotConsumeTheEventId", () => {
     const { auth } = setup();
     const good: EventEnvelope = signEvent("payment", eventJson(NOW, "a"), payment.privateKey);

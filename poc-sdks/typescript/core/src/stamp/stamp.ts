@@ -2,9 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode, encode } from "../encoding/b64url.ts";
-import { sign, utf8 } from "../crypto/crypto.ts";
-
-const LONE_SURROGATE = /\p{Surrogate}/u;
+import { isWellFormed, sign, utf8 } from "../crypto/crypto.ts";
 
 /** Checks one stamp object's typed fields; returns it as a record. */
 function checkStamp(item: unknown): Record<string, unknown> {
@@ -19,7 +17,7 @@ function checkStamp(item: unknown): Record<string, unknown> {
     if (typeof o[f] !== "string") {
       throw new Error(`malformed stamp field ${f}`);
     }
-    if (LONE_SURROGATE.test(o[f] as string)) {
+    if (!isWellFormed(o[f] as string)) {
       throw new Error(`lone surrogate in stamp field ${f}`);
     }
   }
@@ -56,7 +54,7 @@ export function signingBytesV3(s: Omit<StampV3, "sig">): Uint8Array {
     if (s[f].includes("|")) {
       throw new Error(`stamp field ${f} must not contain '|'`);
     }
-    if (LONE_SURROGATE.test(s[f])) {
+    if (!isWellFormed(s[f])) {
       throw new Error(`stamp field ${f} must not contain a lone surrogate`);
     }
   }

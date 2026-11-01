@@ -443,7 +443,8 @@ export default function paztport(pi: ExtensionAPI): void {
       try {
         runs.start(event.prompt, ts);
       } catch {
-        // A prompt with a lone surrogate has no binding: no run starts, and the turn's signed calls fail as with no run.
+        // Any failure to start the run, such as a prompt that cannot be bound (a lone surrogate), starts no run:
+        // the turn's signed calls fail as with no run.
         runs.clear();
       }
       const run = runs.current();

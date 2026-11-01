@@ -10,7 +10,8 @@ package org.paztport.core.verify;
  * is not JSON, or a wrong type, is a rejection at the check it fails rather than a parse error at the caller.
  *
  * <p>{@code influence} null means none received ({@code []}); {@code proof} null means no proof received;
- * {@code peer} null means no authenticated peer. {@code receiver} is what the last stamp's {@code rcv} must
+ * {@code peer} null means no authenticated peer. {@code expectedBind} null means no binding could be computed, so
+ * the last stamp does not match it (BINDING_MISMATCH). {@code receiver} is what the last stamp's {@code rcv} must
  * name, and {@code receiverInRoute} says whether the route ends there: true for a call, false for a response.
  */
 public record VerifyInputV3(
