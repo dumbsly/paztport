@@ -138,10 +138,10 @@ A keyring file, for example:
 
 ### Writing
 
-A writer writes canonical bytes, or a file in the form above, and MUST refuse to write anything a reader refuses: a
-string holding a lone surrogate or a noncharacter, a number that is not a protocol integer, or a value nested
-deeper than 32 levels or larger than its limit. It refuses the whole object, and never writes U+FFFD, `?` or an
-escape in place of what it refuses.
+Every implementation writes each object as its JCS bytes and each file in the file format above. A writer MUST
+refuse to write anything a reader refuses: a string holding a lone surrogate or a noncharacter, a number that is not
+a protocol integer, or a value nested deeper than 32 levels or larger than its limit. It refuses the whole object,
+and never writes U+FFFD, `?` or an escape in place of what it refuses.
 
 ### Hashed content
 
@@ -162,7 +162,9 @@ exactly sees two.
 | Private key | The PKCS#8 DER of the Ed25519 key (48 bytes: `302e020100300506032b657004220420` ‖ the 32-byte seed), as base64url. |
 
 The policy tools write these files, except the pins of the other side of a session, which whoever onboards that
-side writes (in the agents demo, its setup script). Each holds one value, and readers trim surrounding whitespace.
+side writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding
+whitespace. Each JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `proofs-<svc>.json`) is in the
+[file format](#files).
 
 | File | Holds | Secret |
 |---|---|---|
@@ -341,8 +343,8 @@ handshake is the JSON-RPC method `paztport/session`
 
 ### HTTP (v3)
 
-A request carries Paztport in three headers, each the base64url of UTF-8 JSON, and names its session in a
-fourth, which is plain text:
+A request carries Paztport in three headers, each the base64url of the object's JCS bytes, and names its session
+in a fourth, which is plain text:
 
 | Header | Value |
 |---|---|
@@ -354,7 +356,7 @@ fourth, which is plain text:
 A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
 suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
 
-A response carries the answering service's attestation in one header, also the base64url of UTF-8 JSON:
+A response carries the answering service's attestation in one header, also the base64url of the object's JCS bytes:
 
 | Header | Value |
 |---|---|
