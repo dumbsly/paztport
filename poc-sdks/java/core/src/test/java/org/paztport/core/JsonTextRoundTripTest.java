@@ -72,7 +72,7 @@ class JsonTextRoundTripTest {
             "verify/non-string rcv/1",
             "verify/rcv holding the delimiter/1",
             "verify/stamp ts of -2^63/1",
-            "verify/v3 stamp with no rcv/1");
+            "verify/stamp with no rcv/1");
 
     /** The objects that come back normalised, by case. */
     private static final Set<String> NORMALISED = Set.of();

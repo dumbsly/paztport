@@ -39,7 +39,7 @@ class OfflineVerifierTest {
     }
 
     private static JsonNode good() {
-        return VectorsV3Test.offlineCase("v3 recorded call");
+        return VectorsV3Test.offlineCase("recorded call");
     }
 
     private static OfflineResult run(OfflineInput in, OfflineConfig cfg) {
@@ -78,7 +78,7 @@ class OfflineVerifierTest {
 
     @Test
     void aStampWhoseVersionIsNotThreeIsChainMissing() {
-        int last = VectorsV3Test.offlineCase("v3 recorded call").get("chain").size() - 1;
+        int last = VectorsV3Test.offlineCase("recorded call").get("chain").size() - 1;
         int[] all = IntStream.rangeClosed(0, last).toArray();
         assertEquals(ReasonCode.OK, withVersions(3, all).reason(), "the same chain, written the same way, with v 3");
         for (int version : new int[] {1, 2, 4}) {

@@ -57,7 +57,7 @@ import org.paztport.http.wire.RequestBinding;
  * deterministically, so {@link #build} reproduces the committed bytes and {@code VectorsHttpV3Test} pins them.
  * The writer is opt-in. This class is not matched by Surefire's default
  * includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl http -am test -Dtest=VectorsHttpV3Export
- * -Dpaztport.exportHttpV3Vectors=true -Dvectors.out=<repo>/poc-sdks/spec/vectors/http-v3.json
+ * -Dpaztport.exportHttpVectors=true -Dvectors.out=<repo>/poc-sdks/spec/vectors/http-v3.json
  * -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build} replays every case it records, so an export can never record a
  * wrong answer.
  */
@@ -415,7 +415,7 @@ class VectorsHttpV3Export {
     }
 
     @Test
-    @EnabledIfSystemProperty(named = "paztport.exportHttpV3Vectors", matches = "true")
+    @EnabledIfSystemProperty(named = "paztport.exportHttpVectors", matches = "true")
     void export() throws IOException {
         Path file = Path.of(System.getProperty("vectors.out", "target/http-v3.json"));
         Files.createDirectories(file.toAbsolutePath().getParent());

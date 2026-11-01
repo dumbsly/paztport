@@ -20,7 +20,7 @@ import { InvalidParams, bindMcpCall, readSessionParams, sessionReplyToken } from
 import { buildVectors, vectorsText } from "./vectors-v3-export.ts";
 
 type Sections =
-  | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
+  | "signingBytes" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
   | "responseAttestation" | "sessionParams" | "sessionResult" | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
@@ -155,8 +155,8 @@ function replayResponseAttestation(v: any, c: any) {
 describe("known-answer vectors", () => {
   it("the committed file is what the exporter builds", () => expect(buildVectors()).toEqual(committed));
   it("the committed file is byte for byte what the exporter writes", () => expect(committedText).toBe(vectorsText()));
-  it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s", (_h, c: any) => expect(Buffer.from(signingBytes(c.stamp)).toString("hex")).toBe(c.hex));
-  it.each(committed.signingBytesV3.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s are the fields joined by |", (_h, c: any) => {
+  it.each(committed.signingBytes.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s", (_h, c: any) => expect(Buffer.from(signingBytes(c.stamp)).toString("hex")).toBe(c.hex));
+  it.each(committed.signingBytes.map((c: any): [string, any] => [c.hex, c]))("signing bytes %s are the fields joined by |", (_h, c: any) => {
     const s = c.stamp;
     expect(Buffer.from(utf8([3, s.svc, s.inst, s.rid, s.ts, s.sess, s.rcv, s.bind, s.infl, s.prev].join("|"))).toString("hex")).toBe(c.hex);
   });

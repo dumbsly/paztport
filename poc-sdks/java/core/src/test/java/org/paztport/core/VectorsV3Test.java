@@ -187,7 +187,7 @@ class VectorsV3Test {
 
     @Test
     void signingBytes() {
-        for (JsonNode c : vectors.get("signingBytesV3")) {
+        for (JsonNode c : vectors.get("signingBytes")) {
             assertEquals(c.get("hex").asText(), HexFormat.of().formatHex(stamp(c.get("stamp")).signingBytes()));
         }
     }

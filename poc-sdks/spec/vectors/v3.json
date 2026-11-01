@@ -154,7 +154,7 @@
       }
     }
   },
-  "signingBytesV3": [
+  "signingBytes": [
     {
       "stamp": {
         "v": 3,
@@ -2214,7 +2214,7 @@
       }
     },
     {
-      "name": "v3 stamp with no rcv",
+      "name": "stamp with no rcv",
       "chain": [
         {
           "v": 3,
@@ -2848,7 +2848,7 @@
   ],
   "offline": [
     {
-      "name": "v3 recorded call",
+      "name": "recorded call",
       "chain": [
         {
           "v": 3,

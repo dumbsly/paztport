@@ -502,7 +502,7 @@ export function buildVectors(): Record<string, unknown> {
     // Malformed rcv fields.
     // A stamp whose version is not the current one, beside a current one.
     live(callCase("a stamp whose v is not 3", { chain: wrongVersionCall }), no("CHAIN_MISSING")),
-    live(callCase("v3 stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
+    live(callCase("stamp with no rcv", { chain: malformed(hopWithoutRcv) }), no("CHAIN_MISSING")),
     live(callCase("rcv holding the delimiter", { chain: malformed({ ...hop, rcv: "a|b" }) }), no("BAD_SIGNATURE")),
     live(callCase("non-string rcv", { chain: malformed({ ...hop, rcv: 7 }) }), no("CHAIN_MISSING")),
     // A ts out of the safe-integer range, at the low end a 64-bit reader could take for a long.
@@ -542,7 +542,7 @@ export function buildVectors(): Record<string, unknown> {
     };
   };
   const offline = [
-    offlineCase({ name: "v3 recorded call", ...clientCall }, ok("pi", "pi-1")),
+    offlineCase({ name: "recorded call", ...clientCall }, ok("pi", "pi-1")),
     offlineCase({ name: "a stamp whose v is not 3", ...clientCall, chain: wrongVersionCall }, no("CHAIN_MISSING")),
     offlineCase({ name: "receiver chain broken", ...clientCall, chain: strayCall }, no("BINDING_MISMATCH")),
     offlineCase({ name: "recorded time differs", ...clientCall, recordedTs: { last: hop.ts + 1 } }, no("TIME_MISMATCH")),
@@ -1286,7 +1286,7 @@ export function buildVectors(): Record<string, unknown> {
     about: ABOUT,
     keys,
     policies,
-    signingBytesV3: signingBytesCases,
+    signingBytes: signingBytesCases,
     signatures,
     influence: influenceCases,
     rule,
