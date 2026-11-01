@@ -3,15 +3,16 @@
 
 package org.paztport.core.influence;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.Text;
-import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -46,34 +47,24 @@ public record ContentLabel(InfluenceClass cls, String cid, String owner) {
     }
 
     /**
-     * Reads the wire form of a label list. Throws {@link IllegalArgumentException} unless {@code json} is an array
-     * of well-formed labels; unknown fields are dropped.
+     * Reads the wire form of a label list: the JCS text of an array of labels, each with exactly {@code cls} and
+     * {@code cid} and, for private content, {@code owner}. Throws {@link IllegalArgumentException} for text that is
+     * not that, or for a label that is not well formed.
      */
     public static List<ContentLabel> parseAll(String json) {
         if (json == null) {
             throw new IllegalArgumentException("labels must be an array");
         }
-        JsonNode node = Json.tree(json);
-        if (!node.isArray()) {
-            throw new IllegalArgumentException("labels must be an array");
-        }
         List<ContentLabel> out = new ArrayList<>();
-        for (JsonNode item : node) {
-            if (!item.isObject()) {
-                throw new IllegalArgumentException("label must be an object");
-            }
-            JsonNode cls = item.get("cls");
-            JsonNode cid = item.get("cid");
-            JsonNode owner = item.get("owner");
-            if (cls == null || !cls.isTextual() || InfluenceClass.fromWire(cls.textValue()) == null
-                    || cid == null || !cid.isTextual()) {
+        for (JsonValue item : JsonFields.array(JsonReader.wireText(json))) {
+            JsonValue.Obj label = JsonFields.object(item);
+            JsonFields.exactly(label, Set.of("cls", "cid"), Set.of("owner"));
+            InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(label, "cls"));
+            if (cls == null) {
                 throw new IllegalArgumentException("malformed label");
             }
-            if (owner != null && !owner.isTextual()) {
-                throw new IllegalArgumentException("malformed label owner");
-            }
-            out.add(new ContentLabel(InfluenceClass.fromWire(cls.textValue()), cid.textValue(),
-                    owner == null ? null : owner.textValue()));
+            out.add(new ContentLabel(cls, JsonFields.string(label, "cid"),
+                    label.get("owner") == null ? null : JsonFields.string(label, "owner")));
         }
         return out;
     }

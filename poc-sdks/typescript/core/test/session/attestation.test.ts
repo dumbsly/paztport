@@ -2,13 +2,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { describe, expect, it } from "vitest";
-import { bindResponse, newContentId, verifyResponse, type ContentLabel } from "../../src/session/attestation.ts";
+import {
+  bindResponse, newContentId, readAttestation, verifyResponse, type ContentLabel,
+} from "../../src/session/attestation.ts";
 import { bindResult } from "../../src/stamp/binding.ts";
-import { generateKeyPair, randomBytes } from "../../src/crypto/crypto.ts";
+import { encode } from "../../src/encoding/b64url.ts";
+import { generateKeyPair, randomBytes, utf8 } from "../../src/crypto/crypto.ts";
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
+import { canonicalize, writeToken } from "../../src/encoding/jcs.ts";
 import { signStampV3 } from "../../src/stamp/stamp.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
 import type { V3Config } from "../../src/verify/verify-v3.ts";
+
+const tok = (value: unknown): string => writeToken(value as JsonValue);
 
 const NOW = 10_000_000;
 const SESS = "sess-1";
@@ -48,56 +55,59 @@ function world() {
 }
 
 describe("verifyResponse", () => {
-  it("takesTheAttestationObjectDirectly", () => {
+  it("takesTheAttestationAsAToken", () => {
     const w = world();
     const { body, att } = w.response();
-    const r = verifyResponse(att, body, CALL, w.cfg());
+    const r = verifyResponse(tok(att), body, CALL, w.cfg());
     expect(r.result.ok).toBe(true);
     expect(r.labels).toEqual(w.labels);
   });
   it("neverReadsMetaFromTheResult", () => {
     const w = world();
     const { body, att } = w.response();
-    const r = verifyResponse(undefined, { ...body, _meta: { "paztport/attestation": att } }, CALL, w.cfg());
+    const r = verifyResponse("", { ...body, _meta: { "paztport/attestation": att } }, CALL, w.cfg());
     expect(r.result.reason).toBe("CHAIN_MISSING");
     expect(r.labels).toEqual([]);
   });
   it("aCallIdWithALoneSurrogateIsBindingMismatchAndDoesNotThrow", () => {
     const w = world();
     const { body, att } = w.response();
-    const r = verifyResponse(att, body, { ...CALL, toolCallId: "call-1\ud800" }, w.cfg());
+    const r = verifyResponse(tok(att), body, { ...CALL, toolCallId: "call-1\ud800" }, w.cfg());
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.labels).toEqual([]);
   });
   it("malformedAttestationIsChainMissing", () => {
     const w = world();
     for (const v of [null, "x", [], { chain: {} }]) {
-      expect(verifyResponse(v, { content: [] }, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+      expect(verifyResponse(tok(v), { content: [] }, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
     }
   });
   it("aV3ResponseVerifiesForTheClientItEndsAt", () => {
     const w = world();
     const { body, att } = w.response();
-    expect(verifyResponse(att, body, { ...CALL, receiver: "pi" }, w.cfg()).result).toEqual({ ok: true, reason: "OK", suspectSvc: "github-tools", suspectInst: "github-tools-1" });
+    expect(verifyResponse(tok(att), body, { ...CALL, receiver: "pi" }, w.cfg()).result).toEqual({
+      ok: true, reason: "OK", suspectSvc: "github-tools", suspectInst: "github-tools-1",
+    });
   });
   it("aResponseForAnotherReceiverIsBindingMismatch", () => {
     const w = world();
     const { body, att } = w.response();
-    const r = verifyResponse(att, body, { ...CALL, receiver: "search" }, w.cfg());
+    const r = verifyResponse(tok(att), body, { ...CALL, receiver: "search" }, w.cfg());
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.labels).toEqual([]);
   });
   it("aResultHoldingALoneSurrogateIsBindingMismatch", () => {
     const w = world();
     const { att } = w.response();
-    const r = verifyResponse(att, { content: [{ type: "text", text: "\ud800" }] }, CALL, w.cfg());
+    const r = verifyResponse(tok(att), { content: [{ type: "text", text: "\ud800" }] }, CALL, w.cfg());
     expect(r.result.reason).toBe("BINDING_MISMATCH");
     expect(r.labels).toEqual([]);
   });
   it("aNonStringReceiverIsChainMissing", () => {
     const w = world();
     const { body, att } = w.response();
-    expect(verifyResponse(att, body, { ...CALL, receiver: 1 as unknown as string }, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+    const call = { ...CALL, receiver: 1 as unknown as string };
+    expect(verifyResponse(tok(att), body, call, w.cfg()).result.reason).toBe("CHAIN_MISSING");
   });
   it("aStampWhoseVersionIsNotThreeIsChainMissing", () => {
     const w = world();
@@ -105,10 +115,42 @@ describe("verifyResponse", () => {
       for (const at of [0, 1]) {
         const { body, att } = w.response();
         (att as { chain: Record<string, unknown>[] }).chain[at]!.v = v;
-        const r = verifyResponse(att, body, CALL, w.cfg());
+        const r = verifyResponse(tok(att), body, CALL, w.cfg());
         expect(r.result.reason, `v ${v} at ${at}`).toBe("CHAIN_MISSING");
         expect(r.labels).toEqual([]);
       }
     }
+  });
+
+  it("anAttestationWithAMemberItDoesNotHaveIsChainMissing", () => {
+    const w = world();
+    const { body, att } = w.response();
+    const r = verifyResponse(tok({ ...(att as object), extra: 1 }), body, CALL, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+    expect(r.labels).toEqual([]);
+    expect(() => readAttestation(tok({ ...(att as object), extra: 1 }))).toThrow("a member the object does not define");
+  });
+  it("aLabelWithAMemberLabelsDoNotHaveIsChainMissing", () => {
+    const w = world();
+    const { body, att } = w.response([{ cls: "third-party", cid: "c", extra: 1 }]);
+    expect(verifyResponse(tok(att), body, CALL, w.cfg()).result.reason).toBe("CHAIN_MISSING");
+  });
+  it("anAttestationInWireMemberOrderIsChainMissing", () => {
+    const w = world();
+    const { body, att } = w.response();
+    const a = att as { chain: unknown; proof: unknown; labels: unknown; resultHash: string };
+    const wire =
+      `{"chain":${canonicalize(a.chain)},"proof":${canonicalize(a.proof)},"labels":${canonicalize(a.labels)},` +
+      `"resultHash":${canonicalize(a.resultHash)}}`;
+    const r = verifyResponse(encode(utf8(wire)), body, CALL, w.cfg());
+    expect(r.result.reason).toBe("CHAIN_MISSING");
+    expect(r.labels).toEqual([]);
+    expect(verifyResponse(tok(att), body, CALL, w.cfg()).result.ok).toBe(true);
+  });
+  it("readsAnAttestationFromItsToken", () => {
+    const w = world();
+    const { att } = w.response();
+    expect(readAttestation(tok(att)).labels).toEqual(w.labels);
+    expect(() => readAttestation("!")).toThrow();
   });
 });

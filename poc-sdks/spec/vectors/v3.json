@@ -7030,6 +7030,450 @@
       }
     }
   ],
+  "responseAttestation": [
+    {
+      "name": "attested",
+      "attestation": {
+        "chain": [
+          {
+            "v": 3,
+            "svc": "mcp-entry",
+            "inst": "entry-1",
+            "rid": "rid-1",
+            "ts": 1767225599200,
+            "sess": "sess-1",
+            "rcv": "github-tools",
+            "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+            "infl": "",
+            "prev": "",
+            "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+          },
+          {
+            "v": 3,
+            "svc": "github-tools",
+            "inst": "gh-1",
+            "rid": "rid-1",
+            "ts": 1767225599500,
+            "sess": "sess-1",
+            "rcv": "pi",
+            "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+            "infl": "",
+            "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+            "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+          }
+        ],
+        "proof": {
+          "leafSalt": "-OIBNnMgiP4KpvgVFfwH-A",
+          "siblings": [
+            "X9FsRxeWGYjrI-rZziZSqyRj42aQY7DcUZItkhVvd48",
+            "Pxdi25HizLLrHsl-IvEVRnXzGD314PPTBYhr7Ld-FIc",
+            "JGQ6vU2iNDUn5EhaVKcbJFCa_M_LjTAxPNPQE84Xv6s",
+            "mZrpC5DZ5tRlzHXGZZoZ9Jrihh-4vrt8rxSXS-3OcmU",
+            "MAw6210zQIPFtLfmax0vf_gN31hezr6gZ3alobrr4TM",
+            "LkF71gE4PK6auemzaQuxivrjtpNPEf30hyGVz4Ii6us",
+            "Ed862Jfr4dtXj0oNOqoPvlqn-fKi_XDVMK64ftWXIAI",
+            "sjGsGRtJjeY2Lc2Hm1sB4a2powoMaEB59P7e91Zmklo"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v33dc7a7d5de4"
+        },
+        "labels": [
+          {
+            "cls": "private",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "resultHash": "Vhns0bA_IM2hSKqGIWACO-MbdFqwbs-1aRWWOi_tyMc"
+      },
+      "attestationToken": "eyJjaGFpbiI6W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31dLCJsYWJlbHMiOlt7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsIm93bmVyIjoiYWxpY2UifV0sInByb29mIjp7ImRpcnMiOiJMTExMTExMTCIsImxlYWZTYWx0IjoiLU9JQk5uTWdpUDRLcHZnVkZmd0gtQSIsInJvb3RJZCI6InYzM2RjN2E3ZDVkZTQiLCJzaWJsaW5ncyI6WyJYOUZzUnhlV0dZanJJLXJaemlaU3F5Umo0MmFRWTdEY1VaSXRraFZ2ZDQ4IiwiUHhkaTI1SGl6TExySHNsLUl2RVZSblh6R0QzMTRQUFRCWWhyN0xkLUZJYyIsIkpHUTZ2VTJpTkRVbjVFaGFWS2NiSkZDYV9NX0xqVEF4UE5QUUU4NFh2NnMiLCJtWnJwQzVEWjV0Umx6SFhHWlpvWjlKcmloaC00dnJ0OHJ4U1hTLTNPY21VIiwiTUF3NjIxMHpRSVBGdExmbWF4MHZmX2dOMzFoZXpyNmdaM2Fsb2JycjRUTSIsIkxrRjcxZ0U0UEs2YXVlbXphUXV4aXZyanRwTlBFZjMwaHlHVno0SWk2dXMiLCJFZDg2MkpmcjRkdFhqMG9OT3FvUHZscW4tZktpX1hEVk1LNjRmdFdYSUFJIiwic2pHc0dSdEpqZVkyTGMySG0xc0I0YTJwb3dvTWFFQjU5UDdlOTFabWtsbyJdfSwicmVzdWx0SGFzaCI6IlZobnMwYkFfSU0yaFNLcUdJV0FDTy1NYmRGcXdicy0xYVJXV09pX3R5TWMifQ",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "opened #43"
+          }
+        ],
+        "isError": false
+      },
+      "call": {
+        "rid": "rid-1",
+        "toolCallId": "call-1",
+        "receiver": "pi"
+      },
+      "server": {
+        "policy": "server",
+        "keyring": {
+          "mcp-entry": "mcp-entry",
+          "github-tools": "github-tools"
+        },
+        "allowedOrigins": [
+          "mcp-entry"
+        ],
+        "sess": "sess-1",
+        "policyNotAfter": 4102444800000,
+        "nonceTtlMs": 15000
+      },
+      "now": 1767225600000,
+      "expected": {
+        "reason": "OK"
+      }
+    },
+    {
+      "name": "a member the attestation does not have",
+      "attestation": {
+        "chain": [
+          {
+            "v": 3,
+            "svc": "mcp-entry",
+            "inst": "entry-1",
+            "rid": "rid-1",
+            "ts": 1767225599200,
+            "sess": "sess-1",
+            "rcv": "github-tools",
+            "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+            "infl": "",
+            "prev": "",
+            "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+          },
+          {
+            "v": 3,
+            "svc": "github-tools",
+            "inst": "gh-1",
+            "rid": "rid-1",
+            "ts": 1767225599500,
+            "sess": "sess-1",
+            "rcv": "pi",
+            "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+            "infl": "",
+            "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+            "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+          }
+        ],
+        "proof": {
+          "leafSalt": "-OIBNnMgiP4KpvgVFfwH-A",
+          "siblings": [
+            "X9FsRxeWGYjrI-rZziZSqyRj42aQY7DcUZItkhVvd48",
+            "Pxdi25HizLLrHsl-IvEVRnXzGD314PPTBYhr7Ld-FIc",
+            "JGQ6vU2iNDUn5EhaVKcbJFCa_M_LjTAxPNPQE84Xv6s",
+            "mZrpC5DZ5tRlzHXGZZoZ9Jrihh-4vrt8rxSXS-3OcmU",
+            "MAw6210zQIPFtLfmax0vf_gN31hezr6gZ3alobrr4TM",
+            "LkF71gE4PK6auemzaQuxivrjtpNPEf30hyGVz4Ii6us",
+            "Ed862Jfr4dtXj0oNOqoPvlqn-fKi_XDVMK64ftWXIAI",
+            "sjGsGRtJjeY2Lc2Hm1sB4a2powoMaEB59P7e91Zmklo"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v33dc7a7d5de4"
+        },
+        "labels": [
+          {
+            "cls": "private",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "resultHash": "Vhns0bA_IM2hSKqGIWACO-MbdFqwbs-1aRWWOi_tyMc",
+        "extra": 1
+      },
+      "attestationToken": "eyJjaGFpbiI6W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31dLCJleHRyYSI6MSwibGFiZWxzIjpbeyJjaWQiOiJjaWQtMSIsImNscyI6InByaXZhdGUiLCJvd25lciI6ImFsaWNlIn1dLCJwcm9vZiI6eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6Ii1PSUJObk1naVA0S3B2Z1ZGZndILUEiLCJyb290SWQiOiJ2MzNkYzdhN2Q1ZGU0Iiwic2libGluZ3MiOlsiWDlGc1J4ZVdHWWpySS1yWnppWlNxeVJqNDJhUVk3RGNVWkl0a2hWdmQ0OCIsIlB4ZGkyNUhpekxMckhzbC1JdkVWUm5YekdEMzE0UFBUQllocjdMZC1GSWMiLCJKR1E2dlUyaU5EVW41RWhhVktjYkpGQ2FfTV9MalRBeFBOUFFFODRYdjZzIiwibVpycEM1RFo1dFJsekhYR1pab1o5SnJpaGgtNHZydDhyeFNYUy0zT2NtVSIsIk1BdzYyMTB6UUlQRnRMZm1heDB2Zl9nTjMxaGV6cjZnWjNhbG9icnI0VE0iLCJMa0Y3MWdFNFBLNmF1ZW16YVF1eGl2cmp0cE5QRWYzMGh5R1Z6NElpNnVzIiwiRWQ4NjJKZnI0ZHRYajBvTk9xb1B2bHFuLWZLaV9YRFZNSzY0ZnRXWElBSSIsInNqR3NHUnRKamVZMkxjMkhtMXNCNGEycG93b01hRUI1OVA3ZTkxWm1rbG8iXX0sInJlc3VsdEhhc2giOiJWaG5zMGJBX0lNMmhTS3FHSVdBQ08tTWJkRnF3YnMtMWFSV1dPaV90eU1jIn0",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "opened #43"
+          }
+        ],
+        "isError": false
+      },
+      "call": {
+        "rid": "rid-1",
+        "toolCallId": "call-1",
+        "receiver": "pi"
+      },
+      "server": {
+        "policy": "server",
+        "keyring": {
+          "mcp-entry": "mcp-entry",
+          "github-tools": "github-tools"
+        },
+        "allowedOrigins": [
+          "mcp-entry"
+        ],
+        "sess": "sess-1",
+        "policyNotAfter": 4102444800000,
+        "nonceTtlMs": 15000
+      },
+      "now": 1767225600000,
+      "expected": {
+        "reason": "CHAIN_MISSING"
+      }
+    },
+    {
+      "name": "a label with a member labels do not have",
+      "attestation": {
+        "chain": [
+          {
+            "v": 3,
+            "svc": "mcp-entry",
+            "inst": "entry-1",
+            "rid": "rid-1",
+            "ts": 1767225599200,
+            "sess": "sess-1",
+            "rcv": "github-tools",
+            "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+            "infl": "",
+            "prev": "",
+            "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+          },
+          {
+            "v": 3,
+            "svc": "github-tools",
+            "inst": "gh-1",
+            "rid": "rid-1",
+            "ts": 1767225599500,
+            "sess": "sess-1",
+            "rcv": "pi",
+            "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+            "infl": "",
+            "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+            "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+          }
+        ],
+        "proof": {
+          "leafSalt": "-OIBNnMgiP4KpvgVFfwH-A",
+          "siblings": [
+            "X9FsRxeWGYjrI-rZziZSqyRj42aQY7DcUZItkhVvd48",
+            "Pxdi25HizLLrHsl-IvEVRnXzGD314PPTBYhr7Ld-FIc",
+            "JGQ6vU2iNDUn5EhaVKcbJFCa_M_LjTAxPNPQE84Xv6s",
+            "mZrpC5DZ5tRlzHXGZZoZ9Jrihh-4vrt8rxSXS-3OcmU",
+            "MAw6210zQIPFtLfmax0vf_gN31hezr6gZ3alobrr4TM",
+            "LkF71gE4PK6auemzaQuxivrjtpNPEf30hyGVz4Ii6us",
+            "Ed862Jfr4dtXj0oNOqoPvlqn-fKi_XDVMK64ftWXIAI",
+            "sjGsGRtJjeY2Lc2Hm1sB4a2powoMaEB59P7e91Zmklo"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v33dc7a7d5de4"
+        },
+        "labels": [
+          {
+            "cls": "private",
+            "cid": "cid-1",
+            "owner": "alice",
+            "extra": 1
+          }
+        ],
+        "resultHash": "Vhns0bA_IM2hSKqGIWACO-MbdFqwbs-1aRWWOi_tyMc"
+      },
+      "attestationToken": "eyJjaGFpbiI6W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31dLCJsYWJlbHMiOlt7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImV4dHJhIjoxLCJvd25lciI6ImFsaWNlIn1dLCJwcm9vZiI6eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6Ii1PSUJObk1naVA0S3B2Z1ZGZndILUEiLCJyb290SWQiOiJ2MzNkYzdhN2Q1ZGU0Iiwic2libGluZ3MiOlsiWDlGc1J4ZVdHWWpySS1yWnppWlNxeVJqNDJhUVk3RGNVWkl0a2hWdmQ0OCIsIlB4ZGkyNUhpekxMckhzbC1JdkVWUm5YekdEMzE0UFBUQllocjdMZC1GSWMiLCJKR1E2dlUyaU5EVW41RWhhVktjYkpGQ2FfTV9MalRBeFBOUFFFODRYdjZzIiwibVpycEM1RFo1dFJsekhYR1pab1o5SnJpaGgtNHZydDhyeFNYUy0zT2NtVSIsIk1BdzYyMTB6UUlQRnRMZm1heDB2Zl9nTjMxaGV6cjZnWjNhbG9icnI0VE0iLCJMa0Y3MWdFNFBLNmF1ZW16YVF1eGl2cmp0cE5QRWYzMGh5R1Z6NElpNnVzIiwiRWQ4NjJKZnI0ZHRYajBvTk9xb1B2bHFuLWZLaV9YRFZNSzY0ZnRXWElBSSIsInNqR3NHUnRKamVZMkxjMkhtMXNCNGEycG93b01hRUI1OVA3ZTkxWm1rbG8iXX0sInJlc3VsdEhhc2giOiJWaG5zMGJBX0lNMmhTS3FHSVdBQ08tTWJkRnF3YnMtMWFSV1dPaV90eU1jIn0",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "opened #43"
+          }
+        ],
+        "isError": false
+      },
+      "call": {
+        "rid": "rid-1",
+        "toolCallId": "call-1",
+        "receiver": "pi"
+      },
+      "server": {
+        "policy": "server",
+        "keyring": {
+          "mcp-entry": "mcp-entry",
+          "github-tools": "github-tools"
+        },
+        "allowedOrigins": [
+          "mcp-entry"
+        ],
+        "sess": "sess-1",
+        "policyNotAfter": 4102444800000,
+        "nonceTtlMs": 15000
+      },
+      "now": 1767225600000,
+      "expected": {
+        "reason": "CHAIN_MISSING"
+      }
+    },
+    {
+      "name": "an attestation in wire member order",
+      "attestation": {
+        "chain": [
+          {
+            "v": 3,
+            "svc": "mcp-entry",
+            "inst": "entry-1",
+            "rid": "rid-1",
+            "ts": 1767225599200,
+            "sess": "sess-1",
+            "rcv": "github-tools",
+            "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+            "infl": "",
+            "prev": "",
+            "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+          },
+          {
+            "v": 3,
+            "svc": "github-tools",
+            "inst": "gh-1",
+            "rid": "rid-1",
+            "ts": 1767225599500,
+            "sess": "sess-1",
+            "rcv": "pi",
+            "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+            "infl": "",
+            "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+            "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+          }
+        ],
+        "proof": {
+          "leafSalt": "-OIBNnMgiP4KpvgVFfwH-A",
+          "siblings": [
+            "X9FsRxeWGYjrI-rZziZSqyRj42aQY7DcUZItkhVvd48",
+            "Pxdi25HizLLrHsl-IvEVRnXzGD314PPTBYhr7Ld-FIc",
+            "JGQ6vU2iNDUn5EhaVKcbJFCa_M_LjTAxPNPQE84Xv6s",
+            "mZrpC5DZ5tRlzHXGZZoZ9Jrihh-4vrt8rxSXS-3OcmU",
+            "MAw6210zQIPFtLfmax0vf_gN31hezr6gZ3alobrr4TM",
+            "LkF71gE4PK6auemzaQuxivrjtpNPEf30hyGVz4Ii6us",
+            "Ed862Jfr4dtXj0oNOqoPvlqn-fKi_XDVMK64ftWXIAI",
+            "sjGsGRtJjeY2Lc2Hm1sB4a2powoMaEB59P7e91Zmklo"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v33dc7a7d5de4"
+        },
+        "labels": [
+          {
+            "cls": "private",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "resultHash": "Vhns0bA_IM2hSKqGIWACO-MbdFqwbs-1aRWWOi_tyMc"
+      },
+      "attestationToken": "eyJjaGFpbiI6W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31dLCJwcm9vZiI6eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6Ii1PSUJObk1naVA0S3B2Z1ZGZndILUEiLCJyb290SWQiOiJ2MzNkYzdhN2Q1ZGU0Iiwic2libGluZ3MiOlsiWDlGc1J4ZVdHWWpySS1yWnppWlNxeVJqNDJhUVk3RGNVWkl0a2hWdmQ0OCIsIlB4ZGkyNUhpekxMckhzbC1JdkVWUm5YekdEMzE0UFBUQllocjdMZC1GSWMiLCJKR1E2dlUyaU5EVW41RWhhVktjYkpGQ2FfTV9MalRBeFBOUFFFODRYdjZzIiwibVpycEM1RFo1dFJsekhYR1pab1o5SnJpaGgtNHZydDhyeFNYUy0zT2NtVSIsIk1BdzYyMTB6UUlQRnRMZm1heDB2Zl9nTjMxaGV6cjZnWjNhbG9icnI0VE0iLCJMa0Y3MWdFNFBLNmF1ZW16YVF1eGl2cmp0cE5QRWYzMGh5R1Z6NElpNnVzIiwiRWQ4NjJKZnI0ZHRYajBvTk9xb1B2bHFuLWZLaV9YRFZNSzY0ZnRXWElBSSIsInNqR3NHUnRKamVZMkxjMkhtMXNCNGEycG93b01hRUI1OVA3ZTkxWm1rbG8iXX0sImxhYmVscyI6W3siY2lkIjoiY2lkLTEiLCJjbHMiOiJwcml2YXRlIiwib3duZXIiOiJhbGljZSJ9XSwicmVzdWx0SGFzaCI6IlZobnMwYkFfSU0yaFNLcUdJV0FDTy1NYmRGcXdicy0xYVJXV09pX3R5TWMifQ",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "opened #43"
+          }
+        ],
+        "isError": false
+      },
+      "call": {
+        "rid": "rid-1",
+        "toolCallId": "call-1",
+        "receiver": "pi"
+      },
+      "server": {
+        "policy": "server",
+        "keyring": {
+          "mcp-entry": "mcp-entry",
+          "github-tools": "github-tools"
+        },
+        "allowedOrigins": [
+          "mcp-entry"
+        ],
+        "sess": "sess-1",
+        "policyNotAfter": 4102444800000,
+        "nonceTtlMs": 15000
+      },
+      "now": 1767225600000,
+      "expected": {
+        "reason": "CHAIN_MISSING"
+      }
+    },
+    {
+      "name": "a result hash for another result",
+      "attestation": {
+        "chain": [
+          {
+            "v": 3,
+            "svc": "mcp-entry",
+            "inst": "entry-1",
+            "rid": "rid-1",
+            "ts": 1767225599200,
+            "sess": "sess-1",
+            "rcv": "github-tools",
+            "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+            "infl": "",
+            "prev": "",
+            "sig": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA"
+          },
+          {
+            "v": 3,
+            "svc": "github-tools",
+            "inst": "gh-1",
+            "rid": "rid-1",
+            "ts": 1767225599500,
+            "sess": "sess-1",
+            "rcv": "pi",
+            "bind": "__xWR7FfAa9BMK3QSIIs0WoqNphQm9dDC2dyoBHFRmo",
+            "infl": "",
+            "prev": "OMN6D0xge1MAoOpZ1vOlm22Bn-TBqFC5wVOcNqMXpwWuI6u8fnMw_HUxQZrnMprVhc6vPvJNofIpUngbbQlRDA",
+            "sig": "A5NYIFzH3-uHp1pA20Clsg_IbqmXqPmr-fkOfeCGr0M-nSawYocUYRFfD3kjtcErhpritKX40HuOrPkcMZAWDA"
+          }
+        ],
+        "proof": {
+          "leafSalt": "-OIBNnMgiP4KpvgVFfwH-A",
+          "siblings": [
+            "X9FsRxeWGYjrI-rZziZSqyRj42aQY7DcUZItkhVvd48",
+            "Pxdi25HizLLrHsl-IvEVRnXzGD314PPTBYhr7Ld-FIc",
+            "JGQ6vU2iNDUn5EhaVKcbJFCa_M_LjTAxPNPQE84Xv6s",
+            "mZrpC5DZ5tRlzHXGZZoZ9Jrihh-4vrt8rxSXS-3OcmU",
+            "MAw6210zQIPFtLfmax0vf_gN31hezr6gZ3alobrr4TM",
+            "LkF71gE4PK6auemzaQuxivrjtpNPEf30hyGVz4Ii6us",
+            "Ed862Jfr4dtXj0oNOqoPvlqn-fKi_XDVMK64ftWXIAI",
+            "sjGsGRtJjeY2Lc2Hm1sB4a2powoMaEB59P7e91Zmklo"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v33dc7a7d5de4"
+        },
+        "labels": [
+          {
+            "cls": "private",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "resultHash": "hKc5mJEdQ4Se2MFIxU2yO3N6HXToWq3j3X9hrT1r42Q"
+      },
+      "attestationToken": "eyJjaGFpbiI6W3siYmluZCI6IjFPQ1Bya2YyYVEyek1ST2c5ZTl5MUoyVXQtX2VZVUpTWE5MQWx2Q0RCb0kiLCJpbmZsIjoiIiwiaW5zdCI6ImVudHJ5LTEiLCJwcmV2IjoiIiwicmN2IjoiZ2l0aHViLXRvb2xzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiT01ONkQweGdlMU1Bb09wWjF2T2xtMjJCbi1UQnFGQzV3Vk9jTnFNWHB3V3VJNnU4Zm5Nd19IVXhRWnJuTXByVmhjNnZQdkpOb2ZJcFVuZ2JiUWxSREEiLCJzdmMiOiJtY3AtZW50cnkiLCJ0cyI6MTc2NzIyNTU5OTIwMCwidiI6M30seyJiaW5kIjoiX194V1I3RmZBYTlCTUszUVNJSXMwV29xTnBoUW05ZERDMmR5b0JIRlJtbyIsImluZmwiOiIiLCJpbnN0IjoiZ2gtMSIsInByZXYiOiJPTU42RDB4Z2UxTUFvT3BaMXZPbG0yMkJuLVRCcUZDNXdWT2NOcU1YcHdXdUk2dThmbk13X0hVeFFacm5NcHJWaGM2dlB2Sk5vZklwVW5nYmJRbFJEQSIsInJjdiI6InBpIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0xIiwic2lnIjoiQTVOWUlGekgzLXVIcDFwQTIwQ2xzZ19JYnFtWHFQbXItZmtPZmVDR3IwTS1uU2F3WW9jVVlSRmZEM2tqdGNFcmhwcml0S1g0MEh1T3JQa2NNWkFXREEiLCJzdmMiOiJnaXRodWItdG9vbHMiLCJ0cyI6MTc2NzIyNTU5OTUwMCwidiI6M31dLCJsYWJlbHMiOlt7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsIm93bmVyIjoiYWxpY2UifV0sInByb29mIjp7ImRpcnMiOiJMTExMTExMTCIsImxlYWZTYWx0IjoiLU9JQk5uTWdpUDRLcHZnVkZmd0gtQSIsInJvb3RJZCI6InYzM2RjN2E3ZDVkZTQiLCJzaWJsaW5ncyI6WyJYOUZzUnhlV0dZanJJLXJaemlaU3F5Umo0MmFRWTdEY1VaSXRraFZ2ZDQ4IiwiUHhkaTI1SGl6TExySHNsLUl2RVZSblh6R0QzMTRQUFRCWWhyN0xkLUZJYyIsIkpHUTZ2VTJpTkRVbjVFaGFWS2NiSkZDYV9NX0xqVEF4UE5QUUU4NFh2NnMiLCJtWnJwQzVEWjV0Umx6SFhHWlpvWjlKcmloaC00dnJ0OHJ4U1hTLTNPY21VIiwiTUF3NjIxMHpRSVBGdExmbWF4MHZmX2dOMzFoZXpyNmdaM2Fsb2JycjRUTSIsIkxrRjcxZ0U0UEs2YXVlbXphUXV4aXZyanRwTlBFZjMwaHlHVno0SWk2dXMiLCJFZDg2MkpmcjRkdFhqMG9OT3FvUHZscW4tZktpX1hEVk1LNjRmdFdYSUFJIiwic2pHc0dSdEpqZVkyTGMySG0xc0I0YTJwb3dvTWFFQjU5UDdlOTFabWtsbyJdfSwicmVzdWx0SGFzaCI6ImhLYzVtSkVkUTRTZTJNRkl4VTJ5TzNONkhYVG9XcTNqM1g5aHJUMXI0MlEifQ",
+      "result": {
+        "content": [
+          {
+            "type": "text",
+            "text": "opened #43"
+          }
+        ],
+        "isError": false
+      },
+      "call": {
+        "rid": "rid-1",
+        "toolCallId": "call-1",
+        "receiver": "pi"
+      },
+      "server": {
+        "policy": "server",
+        "keyring": {
+          "mcp-entry": "mcp-entry",
+          "github-tools": "github-tools"
+        },
+        "allowedOrigins": [
+          "mcp-entry"
+        ],
+        "sess": "sess-1",
+        "policyNotAfter": 4102444800000,
+        "nonceTtlMs": 15000
+      },
+      "now": 1767225600000,
+      "expected": {
+        "reason": "BINDING_MISMATCH"
+      }
+    }
+  ],
   "replyCert": [
     {
       "name": "signed",

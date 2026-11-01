@@ -19,6 +19,7 @@ import {
   checkSessionReply, readProof, parseSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
   signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
+  verifyResponse,
 } from "@paztport/core";
 import type {
   InfluenceEntry, InfluenceFact, LocalRules, LocalVerdict, MerkleProof, Peer, ReplyCert, Resolved, SessionReply, SessionRequest,
@@ -39,6 +40,8 @@ const DEPTH = 8;
 /** The verify case whose last stamp's ts is −2^63, which the file writes exactly (see vectorsV3Text). */
 const TS_MIN_CASE = "stamp ts of -2^63";
 const TS_MIN_TEXT = "-9223372036854775808";
+/** The responseAttestation case whose token spells the attestation's members in wire order, which JCS cannot write. */
+const WIRE_ORDER_CASE = "an attestation in wire member order";
 
 const ABOUT =
   "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. " +
@@ -149,9 +152,22 @@ function chainTokenOf(name: string, chain: unknown): string {
   return encode(utf8(text.replace(jcs, `"ts":${TS_MIN_TEXT}`)));
 }
 
+type Attestation = { chain: unknown; proof: unknown; labels: unknown; resultHash: string };
+
+/** The token of an attestation whose members are in wire order (chain, proof, labels, resultHash), not JCS order. */
+function wireOrderAttestationToken(att: Attestation): string {
+  return encode(
+    utf8(
+      `{"chain":${canonicalize(att.chain)},"proof":${canonicalize(att.proof)},"labels":${canonicalize(att.labels)},` +
+        `"resultHash":${canonicalize(att.resultHash)}}`,
+    ),
+  );
+}
+
 /**
  * Every token in the vectors is tokenOf its readable sibling, `<m>Token` of `<m>` and `proofTokens` of `proofs`,
- * except the chain token TS_MIN_CASE crafts; that one holds the ts exactly.
+ * except the chain token TS_MIN_CASE crafts, which holds the ts exactly, and the attestation token WIRE_ORDER_CASE
+ * crafts, which writes the members in wire order.
  */
 function checkTokens(value: unknown, path = ""): void {
   if (Array.isArray(value)) {
@@ -163,7 +179,9 @@ function checkTokens(value: unknown, path = ""): void {
   for (const [k, v] of Object.entries(o)) {
     const at = `${path}.${k}`;
     if (k.endsWith("Token") && Object.hasOwn(o, k.slice(0, -5))) {
-      if (o.name === TS_MIN_CASE && k === "chainToken") {
+      if (o.name === WIRE_ORDER_CASE && k === "attestationToken") {
+        check(`${at} is the wire-order token of its value`, v, wireOrderAttestationToken(o.attestation as Attestation));
+      } else if (o.name === TS_MIN_CASE && k === "chainToken") {
         const text = Buffer.from(decode(v as string)).toString("utf8");
         check(`${at} spells its ts exactly`, text.includes(`"ts":${TS_MIN_TEXT},`), true);
       } else {
@@ -1082,6 +1100,52 @@ export function buildVectorsV3(): Record<string, unknown> {
     ["replay in the record set", "REPLAY", null],
   ]);
 
+  // The same response through the client's check, as the MCP profile carries it in `_meta`.
+  const RESULT_BODY = { content: [{ type: "text", text: "opened #43" }], isError: false };
+  const RESPONSE_SERVER = {
+    policy: "server" as const,
+    keyring: { "mcp-entry": "mcp-entry", "github-tools": "github-tools" } as Record<string, KeyName>,
+    allowedOrigins: ["mcp-entry"],
+    sess: SESS,
+    policyNotAfter: 4_102_444_800_000,
+    nonceTtlMs: NONCE_TTL_MS,
+  };
+  const goodAttestation = {
+    chain: [entry, tools],
+    proof: policies.server.proofs["mcp-entry/github-tools"]!,
+    labels: LABELS as unknown,
+    resultHash: bindResult(RESULT_BODY),
+  };
+  const attestationCase = (name: string, attestation: Record<string, unknown>, expected: string) => {
+    const result = RESULT_BODY;
+    const attestationToken =
+      name === WIRE_ORDER_CASE ? wireOrderAttestationToken(attestation as Attestation) : tokenOf(attestation);
+    const callArg = { rid: RID, toolCallId: CALL_ID, receiver: "pi" };
+    const got = verifyResponse(attestationToken, result, callArg, {
+      keyring: resolveKeyring(RESPONSE_SERVER.keyring), root: rootOf("server"), rootId: policies.server.rootId,
+      allowedOrigins: RESPONSE_SERVER.allowedOrigins, sess: RESPONSE_SERVER.sess,
+      nonces: new NonceCache(RESPONSE_SERVER.nonceTtlMs), now: NOW, policyNotAfter: RESPONSE_SERVER.policyNotAfter,
+    });
+    check(`response attestation ${name}`, got.result.reason, expected);
+    return {
+      name, attestation, attestationToken, result, call: callArg, server: RESPONSE_SERVER, now: NOW,
+      expected: { reason: expected },
+    };
+  };
+  const otherResultHash = bindResult({ content: [], isError: false });
+  const responseAttestation = [
+    attestationCase("attested", goodAttestation, "OK"),
+    attestationCase("a member the attestation does not have", { ...goodAttestation, extra: 1 }, "CHAIN_MISSING"),
+    attestationCase(
+      "a label with a member labels do not have",
+      { ...goodAttestation, labels: [{ ...LABELS[0]!, extra: 1 }] },
+      "CHAIN_MISSING",
+    ),
+    attestationCase(WIRE_ORDER_CASE, goodAttestation, "CHAIN_MISSING"),
+    attestationCase("a result hash for another result", { ...goodAttestation, resultHash: otherResultHash },
+      "BINDING_MISMATCH"),
+  ];
+
   const vectors = {
     about: ABOUT,
     keys,
@@ -1097,6 +1161,7 @@ export function buildVectorsV3(): Record<string, unknown> {
     recordedHandshake,
     recordedCall,
     recordedLocalStep,
+    responseAttestation,
     replyCert,
     sessionReply,
     sessionStatus: sessionStatusCases,

@@ -3,22 +3,18 @@
 
 package org.paztport.http.wire;
 
-import com.fasterxml.jackson.core.JsonParser;
-import com.fasterxml.jackson.core.JsonToken;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayOutputStream;
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.Influence;
 import org.paztport.core.influence.InfluenceEntry;
+import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
@@ -51,8 +47,6 @@ import org.paztport.http.internal.VerifyInputs;
  */
 public final class HttpV3 {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
     /** What an unreadable header decodes to: the JSON string {@code "malformed"}, which no verifier check accepts. */
     private static final String MALFORMED = "\"malformed\"";
     private static final String NONE = "[]";
@@ -151,14 +145,13 @@ public final class HttpV3 {
     public static ResponseCheck verifyResponse(VerifierV3 verifier, List<StampV3> sent, MerkleProof sentProof,
             String responseHeader, int status, byte[] body, String caller) {
         String hash = resultHash(status, body);
-        String envelope = decodeChain(responseHeader);
-        Map<String, String> members = envelope == null ? null : members(envelope);
-        if (sent.isEmpty() || members == null || !members.containsKey("stamp") || !members.containsKey("labels")) {
+        JsonValue.Obj attestation = sent.isEmpty() ? null : attestation(responseHeader);
+        if (attestation == null) {
             return rejected(ReasonCode.CHAIN_MISSING, hash);
         }
         List<ContentLabel> labels;
         try {
-            labels = ContentLabel.parseAll(members.get("labels"));
+            labels = ContentLabel.parseAll(JsonWriter.text(attestation.get("labels")));
         } catch (IllegalArgumentException e) {
             return rejected(ReasonCode.CHAIN_MISSING, hash);
         }
@@ -171,7 +164,7 @@ public final class HttpV3 {
         }
         List<String> chain = new ArrayList<>();
         sent.forEach(s -> chain.add(s.toJson()));
-        chain.add(members.get("stamp"));
+        chain.add(JsonWriter.text(attestation.get("stamp")));
         String target = sent.get(sent.size() - 1).rcv();
         VerifyResult result = verifier.verify(new VerifyInputV3("[" + String.join(",", chain) + "]", bind, NONE,
                 sentProof == null ? null : sentProof.toJson(), caller, false, rid + "|" + target + "|resp", null));
@@ -179,27 +172,18 @@ public final class HttpV3 {
     }
 
     /**
-     * The members of the JSON object {@code json}, each value's text exactly as it appears there, with a repeated
-     * name's last value winning as it does when the object is read as a whole; null when {@code json} is not one
-     * object. The response stamp is handed on as this text, not as a tree written back out: written back, a number
-     * too large for a double would come out as the string {@code "Infinity"}, which a field check would accept.
+     * The response header's object, read from its token with exactly {@code labels} and {@code stamp}; null for a
+     * header that is absent or does not read as that.
      */
-    private static Map<String, String> members(String json) {
-        Map<String, String> out = new HashMap<>();
-        try (JsonParser p = MAPPER.getFactory().createParser(json)) {
-            if (p.nextToken() != JsonToken.START_OBJECT) {
-                return null;
-            }
-            while (p.nextToken() == JsonToken.FIELD_NAME) {
-                String name = p.currentName();
-                p.nextToken();
-                int start = (int) p.currentTokenLocation().getCharOffset();
-                p.skipChildren();
-                p.finishToken();
-                out.put(name, json.substring(start, (int) p.currentLocation().getCharOffset()));
-            }
-            return p.currentToken() == JsonToken.END_OBJECT && p.nextToken() == null ? out : null;
-        } catch (IOException e) {
+    private static JsonValue.Obj attestation(String header) {
+        if (header == null || header.isBlank()) {
+            return null;
+        }
+        try {
+            JsonValue.Obj o = JsonFields.object(JsonReader.token(header.strip()));
+            JsonFields.exactly(o, Set.of("labels", "stamp"), Set.of());
+            return o;
+        } catch (IllegalArgumentException e) {
             return null;
         }
     }

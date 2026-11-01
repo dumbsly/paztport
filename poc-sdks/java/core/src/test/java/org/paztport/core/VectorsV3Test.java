@@ -127,7 +127,7 @@ class VectorsV3Test {
     void bindResponse() {
         JsonNode c = vectors.get("bindResponse");
         assertEquals(c.get("expected").asText(), Bindings.response(c.get("resultHash").asText(),
-                c.get("callId").asText(), ContentLabel.parseAll(Vectors.json(c.get("labels")))));
+                c.get("callId").asText(), ContentLabel.parseAll(Vectors.text(c.get("labels")))));
     }
 
     @Test

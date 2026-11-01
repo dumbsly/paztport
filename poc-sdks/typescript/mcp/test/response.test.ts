@@ -88,6 +88,8 @@ describe("verifyMcpResponse", () => {
       { ...good, labels: [{ cls: "public", cid: 1 }] },
       { ...good, labels: [null] },
       { ...good, resultHash: 5 },
+      { ...good, extra: 1 },
+      { ...good, extra: 1.5 },
     ];
     for (const v of variants) {
       const r = verifyMcpResponse({ content: [], _meta: { [META_ATTESTATION]: v } }, CALL, w.cfg());

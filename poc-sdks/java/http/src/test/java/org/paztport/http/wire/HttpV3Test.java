@@ -257,6 +257,34 @@ class HttpV3Test {
         assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, "{\"stamp\":" + good + ",\"labels\":" + labels + "}"));
     }
 
+    @Test
+    void aResponseHeaderWithAnExtraMemberIsChainMissing() {
+        StamperV3.Stamped s = sent(List.of());
+        StampV3 stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpV3.resultHash(200, BODY), RID,
+                LABELS);
+        String labels = ContentLabel.toJson(LABELS);
+        assertEquals(ReasonCode.OK, responseReason(s, "{\"labels\":" + labels + ",\"stamp\":" + stamp.toJson() + "}"));
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s,
+                "{\"extra\":1,\"labels\":" + labels + ",\"stamp\":" + stamp.toJson() + "}"));
+        String extraLabel = "[{\"cid\":\"cid-1\",\"cls\":\"private\",\"extra\":1,\"owner\":\"alice\"}]";
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s,
+                "{\"labels\":" + extraLabel + ",\"stamp\":" + stamp.toJson() + "}"));
+    }
+
+    @Test
+    void aResponseHeaderInWireMemberOrderIsChainMissing() {
+        StamperV3.Stamped s = sent(List.of());
+        StampV3 stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpV3.resultHash(200, BODY), RID,
+                LABELS);
+        String wire = "{\"stamp\":" + stamp.toJson() + ",\"labels\":" + ContentLabel.toJson(LABELS) + "}";
+        assertEquals(ReasonCode.CHAIN_MISSING, responseReason(s, wire));
+        assertEquals(ReasonCode.OK, check(s, HttpV3.encodeResponse(stamp, LABELS)));
+    }
+
+    private ReasonCode check(StamperV3.Stamped s, String header) {
+        return HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();
+    }
+
     private ReasonCode responseReason(StamperV3.Stamped s, String envelope) {
         String header = Base64Url.encode(envelope.getBytes(StandardCharsets.UTF_8));
         return HttpV3.verifyResponse(verifier(), s.chain(), s.proof(), header, 200, BODY, "orders").result().reason();

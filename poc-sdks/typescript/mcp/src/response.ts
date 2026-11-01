@@ -1,19 +1,24 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { verifyResponse } from "@paztport/core";
-import type { ContentLabel, V3Config, VerifyResult } from "@paztport/core";
+import { verifyResponse, writeToken } from "@paztport/core";
+import type { ContentLabel, JsonValue, V3Config, VerifyResult } from "@paztport/core";
 import { META_ATTESTATION, META_VERDICT } from "./meta.ts";
 
-/** The attestation in `result._meta`, or undefined; never throws. */
-function attestationOf(result: Record<string, unknown>): unknown {
+/**
+ * The token of the attestation in `result._meta`, written from the value the MCP client library parsed; "" for no
+ * attestation and for a value that cannot be written, a token that does not read. Never throws.
+ */
+function attestationToken(result: Record<string, unknown>): string {
   try {
     const meta = result._meta;
-    return typeof meta === "object" && meta !== null && !Array.isArray(meta)
-      ? (meta as Record<string, unknown>)[META_ATTESTATION]
-      : undefined;
+    const value =
+      typeof meta === "object" && meta !== null && !Array.isArray(meta)
+        ? (meta as Record<string, unknown>)[META_ATTESTATION]
+        : undefined;
+    return value === undefined ? "" : writeToken(value as JsonValue);
   } catch {
-    return undefined;
+    return "";
   }
 }
 
@@ -28,7 +33,7 @@ export function verifyMcpResponse(
   call: { rid: string; toolCallId: string; receiver: string },
   cfg: Omit<V3Config, "nonceKey">,
 ): { result: VerifyResult; labels: ContentLabel[] } {
-  return verifyResponse(attestationOf(result), result, call, cfg);
+  return verifyResponse(attestationToken(result), result, call, cfg);
 }
 
 /**

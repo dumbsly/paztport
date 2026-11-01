@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import {
   NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession, verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, parseSessionRequest, parseSignedRoot, isCurrent, isReplyCert, signReplyCert, keyringSigningBytes, normalizeInfluence,
   publicWriteRefused, replyCertSigningBytes, rootSigningBytes, sign, signKeyring, signRoot, signSessionReply, signingBytesV3, utf8, verifyChainOffline,
-  verifyChainV3, verifyKeyring, verifyReplyCert, verifyRoot,
+  verifyChainV3, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot,
 } from "@paztport/core";
 import type { OfflineConfig, OfflineInput, SessionReply, V3Config, V3Input } from "@paztport/core";
 import { bindMcpCall } from "../src/index.ts";
@@ -17,7 +17,7 @@ import { buildVectorsV3, vectorsV3Text } from "./vectors-v3-export.ts";
 
 type Sections =
   | "signingBytesV3" | "signatures" | "influence" | "rule" | "keyring" | "root" | "verify" | "offline" | "recordedHandshake" | "recordedCall" | "recordedLocalStep"
-  | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
+  | "responseAttestation" | "replyCert" | "sessionReply" | "sessionStatus" | "sessionRequest";
 const committedText = readFileSync(new URL("../../../spec/vectors/v3.json", import.meta.url), "utf8");
 const committed: Record<Sections, any[]> & { keys: Record<string, { pub: string; priv: string }>; policies: any } = JSON.parse(committedText);
 
@@ -109,6 +109,19 @@ function replayLocalStep(v: any, c: any) {
     { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
   );
   return { reason: result.reason, verdict: result.verdict ?? null };
+}
+
+/** A response attestation case (MCP profile): the client's check of the token, once, against the server's names. */
+function replayResponseAttestation(v: any, c: any) {
+  const s = c.server;
+  const policy = v.policies[s.policy];
+  const named = Object.entries(s.keyring as Record<string, string>);
+  const keyring = Object.fromEntries(named.map(([svc, name]) => [svc, v.keys[name].pub as string]));
+  const r = verifyResponse(c.attestationToken, c.result, c.call, {
+    keyring, root: decode(policy.root), rootId: policy.rootId as string, allowedOrigins: s.allowedOrigins, sess: s.sess,
+    nonces: new NonceCache(s.nonceTtlMs), now: c.now, policyNotAfter: s.policyNotAfter,
+  });
+  return { reason: r.result.reason };
 }
 
 describe("v3 known-answer vectors", () => {
@@ -216,6 +229,23 @@ describe("v3 known-answer vectors", () => {
       }
     }
     expect(tokens).toBeGreaterThan(0);
+  });
+
+  const attested = committed.responseAttestation.map((c: any): [string, any] => [c.name, c]);
+  it.each(attested)("response attestation %s", (_n, c: any) => {
+    expect(replayResponseAttestation(committed, c)).toEqual(c.expected);
+  });
+  it("every attestation token is the JCS bytes of its value, but for the one in wire member order", () => {
+    for (const c of committed.responseAttestation) {
+      if (c.name === "an attestation in wire member order") {
+        const text = Buffer.from(decode(c.attestationToken)).toString("utf8");
+        expect(text.startsWith('{"chain":'), c.name).toBe(true);
+        expect(text.indexOf('"proof":'), c.name).toBeLessThan(text.indexOf('"labels":'));
+        expect(c.attestationToken, c.name).not.toBe(encode(utf8(canonicalize(c.attestation))));
+      } else {
+        expect(c.attestationToken, c.name).toBe(encode(utf8(canonicalize(c.attestation))));
+      }
+    }
   });
 
   it.each(["recordedHandshake", "recordedCall", "recordedLocalStep"] as const)("%s section", (section) => expect(committed[section].length).toBeGreaterThan(0));

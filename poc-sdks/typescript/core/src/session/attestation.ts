@@ -5,12 +5,13 @@ import { encode } from "../encoding/b64url.ts";
 import { concat, randomBytes, sha256, utf8 } from "../crypto/crypto.ts";
 import { bindResult } from "../stamp/binding.ts";
 import type { InfluenceClass } from "../influence/influence.ts";
-import { writeToken, writeWire } from "../encoding/jcs.ts";
-import type { JsonValue } from "../encoding/json.ts";
-import type { MerkleProof } from "../policy/merkle.ts";
+import { writeWire } from "../encoding/jcs.ts";
+import { readToken, type JsonObject, type JsonValue } from "../encoding/json.ts";
+import { array, exactly, object, str } from "../internal/fields.ts";
+import { parseProof, type MerkleProof } from "../policy/merkle.ts";
 import type { VerifyResult } from "../verify/reason.ts";
-import type { StampV3 } from "../stamp/stamp.ts";
-import { verifyChainV3, type V3Config } from "../verify/verify-v3.ts";
+import { chainOf, type StampV3 } from "../stamp/stamp.ts";
+import { verifyChainRead, type V3Config } from "../verify/verify-v3.ts";
 
 export type ContentLabel = { cls: InfluenceClass; cid: string; owner?: string };
 /** A response's attestation: the server's stamps, the last naming the calling client as its receiver. */
@@ -32,48 +33,53 @@ export function bindResponse(resultHash: string, toolCallId: string, labels: Con
   return encode(sha256(concat(utf8(resultHash + "\n" + toolCallId + "\n"), writeWire(labels as JsonValue))));
 }
 
-/** The attestation's fields, its chain left for the verifier to parse. */
-function parseAttestation(att: unknown): (Omit<ResponseAttestation, "chain"> & { chain: unknown[] }) | null {
-  if (typeof att !== "object" || att === null || Array.isArray(att)) {
-    return null;
+/** A label by the schema: `cls` of a class, `cid` a string, and `owner` a non-empty string or absent. */
+function labelOf(value: JsonValue): ContentLabel {
+  const o = object(value);
+  exactly(o, ["cls", "cid"], ["owner"]);
+  const cls = str(o, "cls");
+  if (!CLASSES.includes(cls)) {
+    throw new Error("member cls is not a class");
   }
-  const a = att as Record<string, unknown>;
-  if (!Array.isArray(a.chain) || typeof a.resultHash !== "string" || !Array.isArray(a.labels)) {
-    return null;
+  const cid = str(o, "cid");
+  if (!Object.hasOwn(o, "owner")) {
+    return { cls: cls as InfluenceClass, cid };
   }
-  const labels: ContentLabel[] = [];
-  for (const l of a.labels) {
-    if (typeof l !== "object" || l === null || Array.isArray(l)) {
-      return null;
-    }
-    const o = l as Record<string, unknown>;
-    if (typeof o.cls !== "string" || !CLASSES.includes(o.cls) || typeof o.cid !== "string") {
-      return null;
-    }
-    if (o.owner !== undefined && (typeof o.owner !== "string" || o.owner === "")) {
-      return null;
-    }
-    labels.push(o.owner === undefined ? { cls: o.cls as InfluenceClass, cid: o.cid } : { cls: o.cls as InfluenceClass, cid: o.cid, owner: o.owner });
+  const owner = str(o, "owner");
+  if (owner === "") {
+    throw new Error("member owner is empty");
   }
-  return { chain: a.chain, proof: a.proof as MerkleProof, labels, resultHash: a.resultHash };
+  return { cls: cls as InfluenceClass, cid, owner };
 }
 
-/** `value`'s token, or `none` for a value no writer writes: "" is a token that does not read. */
-function tokenOr<T extends string | null>(value: unknown, none: T): string | T {
-  try {
-    return writeToken(value as JsonValue);
-  } catch {
-    return none;
-  }
+/** The attestation's object by its schema: exactly `chain`, `proof`, `labels` and `resultHash`. */
+function attestationOf(o: JsonObject): ResponseAttestation {
+  exactly(o, ["chain", "proof", "labels", "resultHash"]);
+  return {
+    chain: chainOf(o.chain!),
+    proof: parseProof(o.proof!),
+    labels: array(o, "labels").map(labelOf),
+    resultHash: str(o, "resultHash"),
+  };
 }
 
 /**
- * Verifies a response received live: v3 only, its last stamp naming `call.receiver`, the client that made the
- * call. The route is the server's own, so the receiver is off it. Never throws; labels are returned only when
- * the whole response verifies for this call.
+ * Reads a response attestation from its token: MalformedJson for bytes that do not read, an Error naming the member
+ * for an attestation the schema refuses. Its chain is read as a chain, its proof as a proof, each label by the
+ * label's schema.
+ */
+export function readAttestation(token: string): ResponseAttestation {
+  return attestationOf(object(readToken(token)));
+}
+
+/**
+ * Verifies a response received live, given its attestation's token: v3 only, its last stamp naming `call.receiver`,
+ * the client that made the call. The route is the server's own, so the receiver is off it. Never throws; an
+ * attestation that does not read is CHAIN_MISSING, and labels are returned only when the whole response verifies
+ * for this call.
  */
 export function verifyResponse(
-  attestation: unknown,
+  attestation: string,
   result: Record<string, unknown>,
   call: ResponseCall,
   cfg: Omit<V3Config, "nonceKey">,
@@ -83,12 +89,9 @@ export function verifyResponse(
     if (typeof call?.rid !== "string" || typeof call.toolCallId !== "string" || call.toolCallId.includes("\n") || typeof call.receiver !== "string") {
       return fail("CHAIN_MISSING");
     }
-    const att = parseAttestation(attestation);
-    if (att === null) {
-      return fail("CHAIN_MISSING");
-    }
-    const head: unknown = att.chain[0];
-    if (typeof head === "object" && head !== null && (head as Record<string, unknown>).rid !== call.rid) {
+    const read = object(readToken(attestation));
+    const att = attestationOf(read);
+    if (att.chain[0]!.rid !== call.rid) {
       return fail("RID_MISMATCH");
     }
     let expectedBind: string;
@@ -100,12 +103,12 @@ export function verifyResponse(
     } catch {
       return fail("BINDING_MISMATCH");
     }
-    const r = verifyChainV3(
+    const r = verifyChainRead(
       {
-        chain: tokenOr(att.chain, ""),
+        chain: read.chain,
         expectedBind,
-        influence: writeToken([]),
-        proof: tokenOr(att.proof, null),
+        influence: [],
+        proof: read.proof,
         receiver: call.receiver,
         receiverInRoute: false,
       },

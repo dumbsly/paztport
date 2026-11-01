@@ -287,7 +287,8 @@ function response(h: ReturnType<typeof handshake>) {
   const labels = [{ cls: "third-party" as const, cid: newContentId() }];
   const s0 = signStampV3({ svc: ENTRY, inst: "e-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "tools", bind: "b0", infl: "", prev: "" }, h.entry.privateKey);
   const s1 = signStampV3({ svc: "tools", inst: "t-1", rid: "rid-1", ts: NOW, sess: h.reply.sess, rcv: "pi", bind: bindResponse(resultHash, "call-1", labels), infl: "", prev: s0.sig }, h.entry.privateKey);
-  return { body, att: { chain: [s0, s1], proof: h.serverTree.proofFor("mcp-entry/tools"), labels, resultHash } };
+  const proof = h.serverTree.proofFor("mcp-entry/tools");
+  return { body, att: writeToken({ chain: [s0, s1], proof, labels, resultHash }) };
 }
 
 /** The live check's config for a response recorded in `h`'s session, against the record set's response cache. */
