@@ -42,9 +42,10 @@ import org.paztport.http.internal.VerifyInputs;
  * verify input, and the check of a response's attestation.
  *
  * <p>Every header holds the base64url of an object's JCS bytes, and a decoder hands on the text of the JSON it holds
- * exactly as it arrived. The decoders never throw. A header that is absent decodes to {@code null} (or {@code []} for influence), and one that is present but
- * unreadable decodes to the JSON string {@code "malformed"}, which no verifier check accepts, so the verifier names
- * the reason ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this layer guessing at it.
+ * exactly as it arrived. The decoders never throw. A header that is absent decodes to {@code null} (or {@code []} for
+ * influence), and one that is present but unreadable decodes to the JSON string {@code "malformed"}, which no verifier
+ * check accepts, so the verifier names the reason ({@code CHAIN_MISSING}, {@code INFLUENCE_MISMATCH}) instead of this
+ * layer guessing at it.
  *
  * <p>A response is attested by one more stamp on the request chain the responder received, naming the caller as
  * receiver and binding the result hash, the request's {@code rid} and the content labels. The caller already holds
