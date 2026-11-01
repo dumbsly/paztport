@@ -7,7 +7,11 @@
 import { describe, expect, it } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
 import type { InfluenceEntry } from "../../src/influence/influence.ts";
-import { LOCAL_RECEIVER_PREFIX, localReceiver, localStepBind, stampLocalStep } from "../../src/influence/local-step.ts";
+import type { JsonValue } from "../../src/encoding/json.ts";
+import { writeToken } from "../../src/encoding/jcs.ts";
+import {
+  LOCAL_RECEIVER_PREFIX, localReceiver, localStepBind, readLocalDecision, stampLocalStep, type LocalDecision,
+} from "../../src/influence/local-step.ts";
 
 /** An Ed25519 PKCS#8 private key whose 32-byte seed is `b` repeated. */
 const key = (b: number) => encode(Uint8Array.from([...Buffer.from("302e020100300506032b657004220420", "hex"), ...new Array<number>(32).fill(b)]));
@@ -117,5 +121,55 @@ describe("localStepBind", () => {
     expect(localStepBind({ ...fields, toolCallId: "call-2" })).not.toBe(localStepBind(fields));
     expect(localStepBind({ ...fields, listed: false })).not.toBe(localStepBind(fields));
     expect(localStepBind({ ...fields, rulesHash: null })).not.toBe(localStepBind(fields));
+  });
+});
+
+describe("readLocalDecision", () => {
+  const decision: LocalDecision = {
+    callId: "tc-1",
+    resolved: {
+      paths: [{ need: "read", at: "notes.md" }], programs: [{ name: "git", via: "list" }], parse: "ok", readOnly: true,
+    },
+    verdict: "OK",
+    routeAllowed: true,
+    rulesHash: HASH,
+  };
+  /** The token of the decision with `edit` applied to a copy of its JSON. */
+  const tokenWith = (edit: (d: any) => void): string => {
+    const d = structuredClone(decision) as any;
+    edit(d);
+    return writeToken(d as JsonValue);
+  };
+
+  it("aDecisionReadsBackEqual", () => {
+    expect(readLocalDecision(writeToken(decision as unknown as JsonValue))).toEqual(decision);
+    const none = { ...decision, rulesHash: null };
+    expect(readLocalDecision(writeToken(none as unknown as JsonValue))).toEqual(none);
+  });
+
+  it.each([
+    ["an unknown verdict", (d: any) => { d.verdict = "MAYBE"; }, "verdict"],
+    ["an unknown need", (d: any) => { d.resolved.paths[0].need = "delete"; }, "need"],
+    ["an unknown via", (d: any) => { d.resolved.programs[0].via = "guess"; }, "via"],
+    ["a parse other than ok or error", (d: any) => { d.resolved.parse = "maybe"; }, "parse"],
+    ["a rulesHash that is neither a string nor null", (d: any) => { d.rulesHash = 7; }, "rulesHash"],
+    ["a routeAllowed that is not a boolean", (d: any) => { d.routeAllowed = "yes"; }, "routeAllowed"],
+    ["a readOnly that is not a boolean", (d: any) => { d.resolved.readOnly = 1; }, "readOnly"],
+    ["an extra member in the decision", (d: any) => { d.extra = 1; }, "a member the object does not define"],
+    ["an extra member in resolved", (d: any) => { d.resolved.extra = 1; }, "a member the object does not define"],
+    [
+      "an extra member in a path", (d: any) => { d.resolved.paths[0].extra = 1; },
+      "a member the object does not define",
+    ],
+    [
+      "an extra member in a program", (d: any) => { d.resolved.programs[0].extra = 1; },
+      "a member the object does not define",
+    ],
+    ["a missing member", (d: any) => { delete d.rulesHash; }, "no member rulesHash"],
+    ["a missing member in resolved", (d: any) => { delete d.resolved.readOnly; }, "no member readOnly"],
+    ["a missing member in a path", (d: any) => { delete d.resolved.paths[0].at; }, "no member at"],
+    ["a missing member in a program", (d: any) => { delete d.resolved.programs[0].via; }, "no member via"],
+  ])("%s is refused", (_name, edit, message) => {
+    expect(() => readLocalDecision(tokenWith(edit))).toThrow(message);
   });
 });
