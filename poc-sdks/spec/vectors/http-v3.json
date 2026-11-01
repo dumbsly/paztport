@@ -1,5 +1,5 @@
 {
-  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.",
+  "about" : "Paztport v3-over-HTTP conformance vectors. The keys, the `mesh` policy and its proofs are the ones in v3.json, by name; only the `payment` key is new, derived by v3.json's rule (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method, a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request binding. A responses case is a request chain `sent` from gateway to orders to payment and the `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex) with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK. boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key` (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.",
   "keys" : {
     "payment" : {
       "pub" : "MCowBQYDK2VwAyEA-9XrNUMkH7TjAfIFt7KwMmnpapG3g1u6a6E0Q5swRO0",
@@ -7135,6 +7135,7 @@
           "owner" : "alice"
         } ]
       },
+      "body" : "7b22636c73223a2270726976617465222c226f726967696e616c73223a5b7b22636964223a226369642d6f726465722d31222c22636c73223a2270726976617465222c2268223a22682d6f726465722d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d2c7b22636c73223a2270726976617465222c2268223a22682d636172642d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6361726473227d5d2c226f776e6572223a22616c696365222c2273616c74223a222d6b4e38594f6a6d786e7769476d3442547139685877227d",
       "opens" : true
     }, {
       "name" : "extra original",
@@ -7166,6 +7167,7 @@
           "owner" : "alice"
         } ]
       },
+      "body" : "7b22636c73223a2270726976617465222c226f726967696e616c73223a5b7b22636964223a226369642d6f726465722d31222c22636c73223a2270726976617465222c2268223a22682d6f726465722d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d2c7b22636c73223a2270726976617465222c2268223a22682d636172642d31222c226f776e6572223a22616c696365222c22737263223a22687474703a6361726473227d2c7b22636c73223a2270726976617465222c2268223a22682d6f726465722d32222c226f776e6572223a22616c696365222c22737263223a22687474703a6f7264657273227d5d2c226f776e6572223a22616c696365222c2273616c74223a222d6b4e38594f6a6d786e7769476d3442547139685877227d",
       "opens" : false
     } ]
   }

@@ -75,8 +75,9 @@ class VectorsHttpV3Export {
             + " boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key`"
             + " (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry"
             + " `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per"
-            + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, and `opens`"
-            + " says whether it opens. Ed25519 is deterministic, so the file is reproduced byte for byte. Only the"
+            + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its"
+            + " JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is"
+            + " deterministic, so the file is reproduced byte for byte. Only the"
             + " Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
@@ -265,8 +266,10 @@ class VectorsHttpV3Export {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
         c.set("sent", tree(sent.toJson()));
-        c.set("opening", tree(new BoundaryInfluence.Opening(sent.cls(), sent.owner(), boundarySalt(sent), originals)
-                .toJson()));
+        String opening = new BoundaryInfluence.Opening(sent.cls(), sent.owner(), boundarySalt(sent), originals)
+                .toJson();
+        c.set("opening", tree(opening));
+        c.put("body", VectorsHttpRules.hex(opening.getBytes(StandardCharsets.UTF_8)));
         c.put("opens", opens);
         return c;
     }
@@ -287,9 +290,9 @@ class VectorsHttpV3Export {
         }
         for (JsonNode c : b.get("openings")) {
             InfluenceEntry sent = Influence.parse("[" + Vectors.text(c.get("sent")) + "]").get(0);
-            assertEquals(c.get("opens").asBoolean(),
-                    BoundaryInfluence.opens(sent, BoundaryInfluence.Opening.parse(Vectors.text(c.get("opening")))),
-                    c.get("name").asText());
+            BoundaryInfluence.Opening opening = BoundaryInfluence.Opening.parse(VectorsHttpRules.unhex(c.get("body")));
+            assertEquals(c.get("opening"), tree(opening.toJson()), "opening body " + c.get("name").asText());
+            assertEquals(c.get("opens").asBoolean(), BoundaryInfluence.opens(sent, opening), c.get("name").asText());
         }
     }
 

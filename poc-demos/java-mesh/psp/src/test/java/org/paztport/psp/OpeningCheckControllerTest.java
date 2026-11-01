@@ -12,8 +12,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.TreeSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
@@ -59,9 +61,27 @@ class OpeningCheckControllerTest {
                 .contentType(MediaType.APPLICATION_JSON).content(body));
     }
 
-    /** The opening's JSON with one field changed, as a shop misstating it would send it. */
+    /** The opening's JCS text with one string member set, as a shop misstating it would send it. */
     private static String with(BoundaryInfluence.Opening opening, String field, String value) throws Exception {
-        return ((ObjectNode) JSON.readTree(opening.toJson())).put(field, value).toString();
+        return jcs(((ObjectNode) JSON.readTree(opening.toJson())).put(field, value));
+    }
+
+    /** The opening's JCS text without one member. */
+    private static String without(BoundaryInfluence.Opening opening, String field) throws Exception {
+        return jcs(((ObjectNode) JSON.readTree(opening.toJson())).without(field));
+    }
+
+    /** The object's members in name order, compact: the JCS text of an object whose names and strings are ASCII. */
+    private static String jcs(ObjectNode object) {
+        ObjectNode sorted = JSON.createObjectNode();
+        new TreeSet<>(names(object)).forEach(n -> sorted.set(n, object.get(n)));
+        return sorted.toString();
+    }
+
+    private static List<String> names(ObjectNode object) {
+        List<String> names = new ArrayList<>();
+        object.fieldNames().forEachRemaining(names::add);
+        return names;
     }
 
     @Test
@@ -89,19 +109,46 @@ class OpeningCheckControllerTest {
 
     @Test
     void anObjectThatIsNotAnOpeningDoesNotOpen() throws Exception {
-        String json = aliceOpening(ORIGINALS).toJson();
         String[] notOpenings = {
             with(aliceOpening(ORIGINALS), "salt", "AAAA"),
             with(aliceOpening(ORIGINALS), "extra", "member"),
-            ((ObjectNode) JSON.readTree(json)).without("salt").toString(),
-            ((ObjectNode) JSON.readTree(json)).without("originals").toString(),
-            "{}"
+            without(aliceOpening(ORIGINALS), "salt"),
+            without(aliceOpening(ORIGINALS), "originals"),
+            "{}",
+            "[]"
         };
         for (String body : notOpenings) {
             check(RID, body).andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
         }
+    }
+
+    /** An opening with a member it does not define is canonical, so it is read and does not open. */
+    @Test
+    void anOpeningWithAnExtraMemberDoesNotOpen() throws Exception {
+        check(RID, with(aliceOpening(ORIGINALS), "extra", "member")).andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+    }
+
+    /** An opening pasted with its whitespace is not the JCS bytes, so it is malformed, not a non-opening. */
+    @Test
+    void aPrettyPrintedOpeningIsMalformed() throws Exception {
+        String pretty = JSON.writerWithDefaultPrettyPrinter().writeValueAsString(
+                JSON.readTree(aliceOpening(ORIGINALS).toJson()));
+        check(RID, pretty).andExpect(status().isBadRequest())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+    }
+
+    /** The same members in the order the SDK's own readers refuse are malformed too. */
+    @Test
+    void anOpeningInWireMemberOrderIsMalformed() throws Exception {
+        String wireOrder = JSON.readTree(aliceOpening(ORIGINALS).toJson()).toString();
+        String reordered = "{\"salt\":" + JSON.readTree(wireOrder).get("salt") + "," + wireOrder.substring(1);
+        check(RID, reordered).andExpect(status().isBadRequest())
+                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     /** Only a valid opening is looked up by {@code rid}; an invalid one is answered whatever the rid. */
@@ -111,12 +158,6 @@ class OpeningCheckControllerTest {
                 .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
         check("rid-2", with(aliceOpening(ORIGINALS), "extra", "member")).andExpect(status().isOk())
                 .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
-    }
-
-    @Test
-    void anArrayIsABadRequest() throws Exception {
-        check(RID, "[]").andExpect(status().isBadRequest())
-                .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
     /** An empty body, a whitespace-only one, and no body at all are malformed, not a framework refusal. */
@@ -142,12 +183,13 @@ class OpeningCheckControllerTest {
                 .andExpect(status().isUnsupportedMediaType());
     }
 
+    /** A canonical value that is not an object is read, and is not an opening. */
     @Test
-    void aScalarBodyIsABadRequest() throws Exception {
-        for (String body : List.of("42", "\"text\"", "true", "null")) {
-            check(RID, body).andExpect(status().isBadRequest())
+    void aValueThatIsNotAnObjectDoesNotOpen() throws Exception {
+        for (String body : List.of("[]", "42", "\"text\"", "true", "null")) {
+            check(RID, body).andExpect(status().isOk())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
-                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
+                    .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
         }
     }
 
@@ -158,13 +200,12 @@ class OpeningCheckControllerTest {
                 .andExpect(status().isUnsupportedMediaType());
     }
 
-    /** The body is exactly one JSON object in strict UTF-8, with only whitespace after it. */
+    /** The body is exactly the JCS bytes of one value: no whitespace around it, nothing after it. */
     @Test
     void aBodyIsReadStrictly() throws Exception {
         String json = aliceOpening(ORIGINALS).toJson();
-        check(RID, json + " \t\r\n").andExpect(status().isOk())
-                .andExpect(content().json("{\"opens\":true}", JsonCompareMode.STRICT));
-        for (String body : List.of(json + " trailing, not JSON", json + " {\"second\":\"value\"}", json + "}")) {
+        for (String body : List.of(json + " ", json + "\n", " " + json, json + " trailing, not JSON",
+                json + " {\"second\":\"value\"}", json + "}")) {
             check(RID, body).andExpect(status().isBadRequest())
                     .andExpect(content().contentType(MediaType.APPLICATION_JSON))
                     .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
@@ -183,23 +224,34 @@ class OpeningCheckControllerTest {
                 .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
     }
 
-    /**
-     * A number too large for a double, where an opening or one of its originals holds a string, is not an opening
-     * and does not open: the value reaches the SDK as the number it was sent as, never as the string
-     * {@code "Infinity"} a tree written back would make of it.
-     */
+    /** A number where the opening or one of its originals holds a string is not an opening and does not open. */
     @Test
-    void aNumberTooLargeForADoubleIsNotAString() throws Exception {
+    void aNumberWhereAStringBelongsDoesNotOpen() throws Exception {
         String json = aliceOpening(ORIGINALS).toJson();
         List<String> bad = List.of(
-                json.replaceFirst("\"owner\":\"alice\"", "\"owner\":1e400"),
-                json.replace("\"src\":\"http:orders\"", "\"src\":1e400"),
-                json.replace("\"h\":\"b3JkZXI\"", "\"h\":-1e400"),
-                json.replace("\"cid\":\"cid-2\"", "\"cid\":1e9999999999"));
+                json.replaceFirst("\"owner\":\"alice\"", "\"owner\":5"),
+                json.replace("\"src\":\"http:orders\"", "\"src\":5"),
+                json.replace("\"h\":\"b3JkZXI\"", "\"h\":7"),
+                json.replace("\"cid\":\"cid-2\"", "\"cid\":0"));
         for (String body : bad) {
             assertNotEquals(json, body);
             check(RID, body).andExpect(status().isOk())
                     .andExpect(content().json("{\"opens\":false}", JsonCompareMode.STRICT));
+        }
+    }
+
+    /** A number the wire form does not write, such as a negative one or one too large for a double, is malformed. */
+    @Test
+    void aNumberTheWireFormDoesNotWriteIsMalformed() throws Exception {
+        String json = aliceOpening(ORIGINALS).toJson();
+        for (String body : List.of(
+                json.replaceFirst("\"owner\":\"alice\"", "\"owner\":1e400"),
+                json.replace("\"h\":\"b3JkZXI\"", "\"h\":-1e400"),
+                json.replace("\"h\":\"b3JkZXI\"", "\"h\":-5"),
+                json.replace("\"cid\":\"cid-2\"", "\"cid\":1.5"))) {
+            assertNotEquals(json, body);
+            check(RID, body).andExpect(status().isBadRequest())
+                    .andExpect(content().json("{\"reason\":\"MALFORMED_OPENING\"}", JsonCompareMode.STRICT));
         }
     }
 

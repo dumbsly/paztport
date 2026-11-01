@@ -3,7 +3,6 @@
 
 package org.paztport.core.influence;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
@@ -11,7 +10,6 @@ import java.util.List;
 import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
@@ -64,50 +62,6 @@ public final class Influence {
             out.add(new InfluenceEntry(cls, JsonFields.string(o, "src"), JsonFields.string(o, "h"), cid, owner));
         }
         return out;
-    }
-
-    /** An opening's originals, from the tree its reader holds. */
-    static List<InfluenceEntry> fromTree(JsonNode node) {
-        if (node == null || !node.isArray()) {
-            throw new IllegalArgumentException("influence must be an array");
-        }
-        List<InfluenceEntry> out = new ArrayList<>();
-        for (JsonNode item : node) {
-            if (!item.isObject()) {
-                throw new IllegalArgumentException("influence entry must be an object");
-            }
-            JsonNode cls = item.get("cls");
-            JsonNode src = item.get("src");
-            JsonNode h = item.get("h");
-            if (cls == null || !cls.isTextual() || InfluenceClass.fromWire(cls.textValue()) == null
-                    || src == null || !src.isTextual() || h == null || !h.isTextual()) {
-                throw new IllegalArgumentException("malformed influence entry");
-            }
-            String cid = optionalString(item, "cid");
-            String owner = optionalString(item, "owner");
-            if (owner != null && owner.isEmpty()) {
-                throw new IllegalArgumentException("malformed influence owner");
-            }
-            for (String s : new String[] {src.textValue(), h.textValue(), cid, owner}) {
-                if (s != null && (!Text.isWellFormed(s) || Text.hasNoncharacter(s))) {
-                    throw new IllegalArgumentException("lone surrogate or noncharacter in influence entry");
-                }
-            }
-            out.add(new InfluenceEntry(InfluenceClass.fromWire(cls.textValue()), src.textValue(), h.textValue(),
-                    cid, owner));
-        }
-        return out;
-    }
-
-    private static String optionalString(JsonNode item, String name) {
-        if (!item.has(name)) {
-            return null;
-        }
-        JsonNode v = item.get(name);
-        if (!v.isTextual()) {
-            throw new IllegalArgumentException("malformed influence " + name);
-        }
-        return v.textValue();
     }
 
     /** Sorted copy with exact duplicates removed. An entry with an owner and one without are different. */

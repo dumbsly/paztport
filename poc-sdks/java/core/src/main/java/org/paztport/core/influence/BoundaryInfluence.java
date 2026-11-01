@@ -3,7 +3,6 @@
 
 package org.paztport.core.influence;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
@@ -17,12 +16,14 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
-import org.paztport.core.encoding.Text;
-import org.paztport.core.internal.Json;
+import org.paztport.core.encoding.MalformedJsonException;
+import org.paztport.core.internal.JsonFields;
+import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
 
@@ -53,6 +54,9 @@ public final class BoundaryInfluence {
 
     /** A salt's length in bytes: the first half of the HMAC-SHA256 output. */
     public static final int SALT_LENGTH = 16;
+
+    private static final Set<String> REQUIRED = Set.of("cls", "salt", "originals");
+    private static final Set<String> OPTIONAL = Set.of("owner");
 
     private static final byte[] SALT_DOMAIN = "paztport-boundary-salt\n".getBytes(StandardCharsets.UTF_8);
     private static final byte[] ENTRY_DOMAIN = "paztport-boundary-entry\n".getBytes(StandardCharsets.UTF_8);
@@ -215,36 +219,53 @@ public final class BoundaryInfluence {
         }
 
         /**
-         * Reads the wire form. Throws {@link IllegalArgumentException} unless {@code json} is an object with a
-         * known {@code cls}, an optional non-empty {@code owner}, a {@code salt} that is base64url of 16 bytes and
-         * well-formed {@code originals}. Whether it opens anything is {@link #opens}'s question, not this one's.
+         * Reads the wire form from its text, as the wire bytes of its UTF-8. See {@link #parse(byte[])}.
+         *
+         * @throws MalformedJsonException if {@code json} is not the JCS text of one value
+         * @throws IllegalArgumentException if the value is not a well-formed opening
          */
         public static Opening parse(String json) {
             if (json == null) {
                 throw new IllegalArgumentException("an opening must be an object");
             }
-            JsonNode node = Json.tree(json);
-            if (!node.isObject()) {
+            return fromValue(JsonReader.wireText(json));
+        }
+
+        /**
+         * Reads the wire form from its bytes, which must be the JCS bytes of an object with exactly {@code cls},
+         * {@code salt} and {@code originals}, and an optional {@code owner}: a known {@code cls}, a non-empty
+         * {@code owner}, a {@code salt} that is base64url of 16 bytes and well-formed {@code originals}. Whether it
+         * opens anything is {@link #opens}'s question, not this one's.
+         *
+         * @throws MalformedJsonException if {@code body} is not the JCS bytes of one value
+         * @throws IllegalArgumentException if the value is not a well-formed opening
+         */
+        public static Opening parse(byte[] body) {
+            if (body == null) {
                 throw new IllegalArgumentException("an opening must be an object");
             }
-            JsonNode cls = node.get("cls");
-            if (cls == null || !cls.isTextual() || InfluenceClass.fromWire(cls.textValue()) == null) {
+            return fromValue(JsonReader.wire(body));
+        }
+
+        private static Opening fromValue(JsonValue value) {
+            JsonValue.Obj o = JsonFields.object(value);
+            JsonFields.exactly(o, REQUIRED, OPTIONAL);
+            InfluenceClass cls = InfluenceClass.fromWire(JsonFields.string(o, "cls"));
+            if (cls == null) {
                 throw new IllegalArgumentException("malformed opening cls");
             }
             String owner = null;
-            if (node.has("owner")) {
-                JsonNode o = node.get("owner");
-                if (!o.isTextual() || o.textValue().isEmpty() || !Text.isWellFormed(o.textValue())) {
+            if (o.get("owner") != null) {
+                owner = JsonFields.string(o, "owner");
+                if (owner.isEmpty()) {
                     throw new IllegalArgumentException("malformed opening owner");
                 }
-                owner = o.textValue();
             }
-            JsonNode salt = node.get("salt");
-            if (salt == null || !salt.isTextual() || Base64Url.decode(salt.textValue()).length != SALT_LENGTH) {
+            String salt = JsonFields.string(o, "salt");
+            if (Base64Url.decode(salt).length != SALT_LENGTH) {
                 throw new IllegalArgumentException("malformed opening salt");
             }
-            return new Opening(InfluenceClass.fromWire(cls.textValue()), owner, salt.textValue(),
-                    Influence.fromTree(node.get("originals")));
+            return new Opening(cls, owner, salt, Influence.fromTree(o.get("originals")));
         }
     }
 

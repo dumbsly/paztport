@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
+import org.paztport.core.encoding.MalformedJsonException;
 
 class BoundaryInfluenceTest {
 
@@ -266,30 +267,89 @@ class BoundaryInfluenceTest {
                 new BoundaryInfluence.Opening(InfluenceClass.PRIVATE, "alice", s, Arrays.asList(ALICE_ORDER, null))));
     }
 
+    /** The members in JCS order: {@code cls}, {@code originals}, {@code owner}, {@code salt}. */
+    private static String openingText(String cls, String originals, String owner, String salt) {
+        StringBuilder sb = new StringBuilder("{");
+        if (cls != null) {
+            sb.append("\"cls\":").append(cls).append(',');
+        }
+        if (originals != null) {
+            sb.append("\"originals\":").append(originals).append(',');
+        }
+        if (owner != null) {
+            sb.append("\"owner\":").append(owner).append(',');
+        }
+        if (salt != null) {
+            sb.append("\"salt\":").append(salt).append(',');
+        }
+        if (sb.length() > 1) {
+            sb.setLength(sb.length() - 1);
+        }
+        return sb.append('}').toString();
+    }
+
     @Test
-    void openingParseRefusesMalformed() {
-        String salt = salt(InfluenceClass.PRIVATE, "alice");
-        String originals = "[{\"cls\":\"private\",\"src\":\"s\",\"h\":\"x\",\"owner\":\"alice\"}]";
+    void openingParseRefusesWhatIsNotAnOpening() {
+        String salt = "\"" + salt(InfluenceClass.PRIVATE, "alice") + "\"";
+        String originals = "[{\"cls\":\"private\",\"h\":\"x\",\"owner\":\"alice\",\"src\":\"s\"}]";
         String[] bad = {
             "[]",
             "\"x\"",
             "{}",
-            "{\"cls\":\"nope\",\"owner\":\"alice\",\"salt\":\"" + salt + "\",\"originals\":" + originals + "}",
-            "{\"owner\":\"alice\",\"salt\":\"" + salt + "\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"\",\"salt\":\"" + salt + "\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":5,\"salt\":\"" + salt + "\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":7,\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"AAAA\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"not base64!\",\"originals\":" + originals + "}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + salt + "\"}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + salt + "\",\"originals\":{}}",
-            "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + salt + "\",\"originals\":[{\"cls\":\"private\"}]}",
+            openingText("\"nope\"", originals, "\"alice\"", salt),
+            openingText(null, originals, "\"alice\"", salt),
+            openingText("\"private\"", originals, "\"\"", salt),
+            openingText("\"private\"", originals, "5", salt),
+            openingText("\"private\"", originals, "\"alice\"", null),
+            openingText("\"private\"", originals, "\"alice\"", "7"),
+            openingText("\"private\"", originals, "\"alice\"", "\"AAAA\""),
+            openingText("\"private\"", originals, "\"alice\"", "\"not base64!\""),
+            openingText("\"private\"", null, "\"alice\"", salt),
+            openingText("\"private\"", "{}", "\"alice\"", salt),
+            openingText("\"private\"", "[{\"cls\":\"private\"}]", "\"alice\"", salt),
+            "{\"cls\":\"private\",\"extra\":1,\"originals\":" + originals + ",\"salt\":" + salt + "}",
         };
         for (String b : bad) {
             assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse(b), b);
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> BoundaryInfluence.Opening.parse(b.getBytes(StandardCharsets.UTF_8)), b);
+            assertFalse(e instanceof MalformedJsonException, b);
         }
-        assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse(null));
+        assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse((String) null));
+        assertThrows(IllegalArgumentException.class, () -> BoundaryInfluence.Opening.parse((byte[]) null));
+    }
+
+    @Test
+    void anOpeningInWireMemberOrderIsMalformedJson() {
+        String salt = salt(InfluenceClass.PRIVATE, "alice");
+        String wireOrder = "{\"cls\":\"private\",\"owner\":\"alice\",\"salt\":\"" + salt
+                + "\",\"originals\":[]}";
+        assertThrows(MalformedJsonException.class, () -> BoundaryInfluence.Opening.parse(wireOrder));
+        assertThrows(MalformedJsonException.class,
+                () -> BoundaryInfluence.Opening.parse(wireOrder.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void openingParseRefusesBytesThatDoNotRead() {
+        String json = opening(InfluenceClass.PRIVATE, "alice", ALICE_ORDER).toJson();
+        byte[][] unreadable = {
+            new byte[0],
+            (json + "\n").getBytes(StandardCharsets.UTF_8),
+            json.replace(",", ", ").getBytes(StandardCharsets.UTF_8),
+            ("\uFEFF" + json).getBytes(StandardCharsets.UTF_8),
+            json.getBytes(StandardCharsets.UTF_16LE),
+            json.replace("alice", "al\u00efce").getBytes(StandardCharsets.ISO_8859_1),
+        };
+        for (byte[] b : unreadable) {
+            assertThrows(MalformedJsonException.class, () -> BoundaryInfluence.Opening.parse(b));
+        }
+    }
+
+    @Test
+    void anOpeningReadsFromItsBytes() {
+        BoundaryInfluence.Opening open = opening(InfluenceClass.PRIVATE, "alice", ALICE_CARD, ALICE_ORDER);
+        assertEquals(open, BoundaryInfluence.Opening.parse(open.toJson().getBytes(StandardCharsets.UTF_8)));
+        assertEquals(open, BoundaryInfluence.Opening.parse(open.toJson()));
     }
 
     @Test
