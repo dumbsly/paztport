@@ -594,9 +594,15 @@ always derive it again.
 3. `salt` decodes to exactly 16 bytes.
 4. The commitment to `originals` under `salt` is the sent entry's `h`.
 
-A checker MUST answer "does not open" for anything else, a malformed opening included, and MUST NOT fail in any
-other way. Revealing one salt opens only that entry: every other group, request and partner has its own salt.
-Two calls to one partner in one request are the exception, below.
+An opening is read as [wire bytes](wire.md#reading): the JCS bytes of an object with exactly `cls`, `salt` and
+`originals`, and `owner` when the entry has one, a non-empty string. A checker MUST answer "does not open" for
+anything else, and MUST NOT fail in any other way. A checker that answers over a service, such as the PSP demo's
+`/debug/check-opening`, answers bytes that do not read (whitespace around the opening, members out of JCS order, a
+number that is not a protocol integer) with `400 {"reason":"MALFORMED_OPENING"}`, and a value that reads but is not
+an opening, or does not open, with `200 {"opens":false}`.
+
+Revealing one salt opens only that entry: every other group, request and partner has its own salt. Two calls to
+one partner in one request are the exception, below.
 
 An opening proves what the sender committed to when it sent the entry, not that the originals were true.
 
@@ -609,5 +615,5 @@ reveals the salt of the same group's entry in the others. The Java SDK's `Bounda
 call's originals and sent list to a listener before the request is sent, and sends nothing if the listener
 fails, so no entry leaves that the sender could not open.
 
-`http-v3.json`'s `boundaryInfluence` pins the salts, the sent entries, an opening that opens and one with an extra
-original that does not.
+`http-v3.json`'s `boundaryInfluence` pins the salts, the sent entries, and an opening that opens and one with an extra
+original that does not, each with its JCS bytes in `body`.
