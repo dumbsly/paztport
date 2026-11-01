@@ -6,6 +6,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# git grep exits 1 for no match and above 1 for a failure; outside a work tree it could not look, so it refuses
+# to run instead of reporting a clean tree.
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "check-names: not inside a git work tree, so tracked files can't be checked" >&2
+  exit 2
+fi
+
 pattern='paztport[_]claude|super[p]owers|docs/(spec[s]|plan[s])/'
 
 if git grep -n -i -E "$pattern" -- .; then
