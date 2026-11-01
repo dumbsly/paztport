@@ -92,7 +92,8 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
 | A response attestation | A client, from an HTTP header or MCP `_meta` ([HTTP](verification.md#http-requests-and-responses), [MCP](verification.md#the-mcp-server-and-client)) | `CHAIN_MISSING` |
-| A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)); a verifier of a recorded response | `UNKNOWN`, a refusal; offline, no refusal: the result is judged as a response |
+| A verdict (MCP profile) | A client, from MCP `_meta` ([the verdict rule](verification.md#the-mcp-server-and-client)) | `UNKNOWN`, a refusal |
+| A recorded verdict (MCP profile) | A verifier of a recorded response | No refusal: the result is judged as a response |
 | A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
 | A session request | A server, over MCP or HTTP ([sessions-and-influence.md](sessions-and-influence.md#the-request)) | Invalid params: JSON-RPC `-32602`; over HTTP `400 {"error":"INVALID_PARAMS"}` |
 | `paztport/session` params (MCP profile) | A server ([the handshake](sessions-and-influence.md#the-handshake)) | Invalid params: JSON-RPC `-32602` |
