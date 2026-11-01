@@ -53,7 +53,7 @@ has one, the authenticated peer.
   whose own material has expired opens every session unsafe. `attestedOffline`
   reads a recorded handshake instead, at the time of the record judged. A root or
   keyring without a `notAfter` is malformed, refused by its reader.
-- **JSON in and out.** No public signature names a JSON library. Each value type
+- **JSON in and out.** The SDK has no JSON library, and no public signature names one. Each value type
   writes its wire form with `toJson()` and reads it with a static `parse(String)` on
   the type, such as `KeyringFile.parse` or `SessionRequest.parse`, which throws
   `IllegalArgumentException` for anything malformed, text that is not one JSON value
@@ -157,9 +157,9 @@ Glue, configured through `paztport.*` properties. It is built for Spring Boot 4.
 (Spring Framework 7) and does not run on Boot 3: it uses classes Boot 3 doesn't
 have, such as `org.springframework.boot.restclient.RestClientCustomizer`.
 
-No SDK type is a JSON tree, so the SDK works beside whichever Jackson the
-application uses: Boot 4's web layer and `RestClient` use Jackson 3
-(`tools.jackson`), and the SDK reads with Jackson 2 inside. An SDK value's JSON,
+No SDK type is a JSON tree, and the SDK has no JSON library at compile or runtime scope, so it works
+beside whichever Jackson the application uses: Boot 4's web layer and `RestClient` use Jackson 3
+(`tools.jackson`). An SDK value's JSON,
 such as `Opening.toJson()`, goes to Spring MVC or a `RestClient` as that `String`,
 labelled `application/json`, so it is written exactly as it stands; a body goes to
 the SDK as the bytes or text it arrived in, as the starter's handshake endpoint
@@ -490,7 +490,8 @@ Private keys and the boundary key are written owner-read/write only.
 
 One-shot job, `policy-tool [--renew] [paths.yaml] [keysDir] [outDir]` (defaults `policy/paths.yaml`,
 `out/keys`, `out/policy`). It reads `keysDir/policy.key` and `keysDir/keyring.json`, and signs the root and the
-keyring, both valid for `PAZTPORT_POLICY_DAYS` days (default 7). It has two modes:
+keyring, both valid for `PAZTPORT_POLICY_DAYS` days (default 7). `paths.yaml` is read by SnakeYAML with its safe
+constructor: one mapping whose only key is `paths`, no duplicate keys, no type tags. It has two modes:
 
 - **Rebuild**, the default: `paths.yaml` → salted tree → signed `outDir/root.json` plus one proof bundle per
   service (depth `PAZTPORT_PROOF_DEPTH`, default 8), and `keyring.json` re-signed beside it. The tree is new, so
