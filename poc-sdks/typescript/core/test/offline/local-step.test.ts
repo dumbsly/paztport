@@ -26,6 +26,12 @@ const INFLUENCE: InfluenceEntry[] = [{ cls: "private", src: "file:notes.md", h: 
 
 type Decision = { tool: string; callId: string; input: unknown; resolved: Resolved; verdict: LocalVerdict; routeAllowed: boolean; rulesHash: string | null };
 
+/** The token of the decision a step records. */
+function decisionToken(d: Omit<Decision, "tool" | "input">): string {
+  const { callId, resolved, verdict, routeAllowed, rulesHash } = d;
+  return writeToken({ callId, resolved, verdict, routeAllowed, rulesHash });
+}
+
 function world() {
   const session = generateKeyPair();
   const pi = generateKeyPair();
@@ -58,8 +64,10 @@ function world() {
     );
     const listed = decision.routeAllowed ? tree.proofFor(`session/pi/local:${decision.tool}`) : null;
     const proof = Object.hasOwn(o, "proof") ? o.proof! : listed;
+    const { tool, input } = decision;
     return {
-      ...decision, rid: "rid-1", now: ts, chain: writeToken([first, stamp]),
+      tool, input, callId: decision.callId, decision: decisionToken(decision), rid: "rid-1", now: ts,
+      chain: writeToken([first, stamp]),
       proof: proof === null ? null : writeToken(proof), influence: writeToken(INFLUENCE),
     };
   };
@@ -132,8 +140,37 @@ describe("verifyRecordedLocalStep", () => {
   it("theStepBindsItsDecision", () => {
     const w = world();
     expect(w.check({ ...w.step(), input: { path: "secret.md" } }).reason).toBe("BINDING_MISMATCH");
-    expect(w.check({ ...w.step(), verdict: "SCOPE_DENIED" }).reason).toBe("BINDING_MISMATCH");
+    const signed = w.step();
+    const other = decisionToken({
+      callId: "tc-1", resolved: READ, verdict: "SCOPE_DENIED", routeAllowed: true, rulesHash: rulesHash(RULES),
+    });
+    expect(w.check({ ...signed, decision: other }).reason).toBe("BINDING_MISMATCH");
     expect(w.check({ ...w.step(), tool: "re\nad" }).reason).toBe("BINDING_MISMATCH");
+  });
+
+  it("aDecisionThatDoesNotReadIsBindingMismatch", () => {
+    const w = world();
+    const signed = w.step();
+    expect(w.check({ ...signed, decision: "not*base64url" }).reason).toBe("BINDING_MISMATCH");
+    expect(w.check({ ...signed, decision: writeToken([1]) }).reason).toBe("BINDING_MISMATCH");
+    const unknownVerdict = writeToken({
+      callId: "tc-1", resolved: READ, verdict: "MAYBE", routeAllowed: true, rulesHash: null,
+    });
+    expect(w.check({ ...signed, decision: unknownVerdict }).reason).toBe("BINDING_MISMATCH");
+  });
+
+  it("aDecisionForAnotherCallIsBindingMismatch", () => {
+    const w = world();
+    const other = w.step({ callId: "tc-2" });
+    expect(w.check({ ...w.step(), decision: other.decision }).reason).toBe("BINDING_MISMATCH");
+  });
+
+  it("aDecisionWithAnExtraMemberIsBindingMismatch", () => {
+    const w = world();
+    const d = {
+      callId: "tc-1", resolved: READ, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(RULES), note: "x",
+    };
+    expect(w.check({ ...w.step(), decision: writeToken(d) }).reason).toBe("BINDING_MISMATCH");
   });
 
   // "Then, at the step's ts, the client's root and keyring are no later than their notAfter (POLICY_EXPIRED)."

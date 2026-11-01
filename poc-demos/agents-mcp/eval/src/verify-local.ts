@@ -171,10 +171,14 @@ export function verifyLocal(
   let chain: string;
   let influence: string;
   let proof: string | null;
+  let decision: string;
   try {
     chain = writeToken(r.chain as JsonValue);
     influence = writeToken(r.influence as JsonValue);
     proof = r.proof === null ? null : writeToken(r.proof as JsonValue);
+    decision = writeToken({
+      callId: r.callId, resolved: r.resolved, verdict: r.verdict, routeAllowed: r.routeAllowed, rulesHash: r.rulesHash,
+    } as JsonValue);
   } catch {
     return "UNREADABLE";
   }
@@ -182,8 +186,7 @@ export function verifyLocal(
     return "NO_CLIENT";
   }
   const step = {
-    tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, resolved: r.resolved, verdict: r.verdict as LocalVerdict,
-    routeAllowed: r.routeAllowed, rulesHash: r.rulesHash, chain, proof, influence,
+    tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision, chain, proof, influence,
   };
   const run = runOf(r.rid);
   const v = verifyRecordedLocalStep(step, { client, signers: SIGNERS, ...(run !== undefined ? { run } : {}), seen });

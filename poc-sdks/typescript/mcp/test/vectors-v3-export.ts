@@ -169,6 +169,9 @@ function checkTokens(value: unknown, path = ""): void {
       } else {
         check(`${at} is the token of its value`, v, tokenOf(o[k.slice(0, -5)]));
       }
+    } else if (k === "decisionToken") {
+      const { callId, resolved, verdict, routeAllowed, rulesHash } = o;
+      check(`${at} is the token of its decision`, v, tokenOf({ callId, resolved, verdict, routeAllowed, rulesHash }));
     } else if (k === "proofTokens") {
       for (const [route, t] of Object.entries(v as Record<string, string>)) {
         check(`${at}.${route} is the token of its proof`, t, tokenOf((o.proofs as Record<string, unknown>)[route]));
@@ -1013,15 +1016,21 @@ export function buildVectorsV3(): Record<string, unknown> {
       ),
     ];
     const proofRoute = Object.hasOwn(o, "proofRoute") ? o.proofRoute! : decision.routeAllowed ? routeOf(["session", "pi", localReceiver(decision.tool)]) : null;
+    // what bindLocalTool hashes, and what the step records as one token
+    const signed = {
+      callId: decision.callId, resolved: decision.resolved, verdict: decision.verdict,
+      routeAllowed: decision.routeAllowed, rulesHash: decision.rulesHash,
+    };
     const step = {
-      ...decision, rid: RID, now: STEP_TS, chain, chainToken: tokenOf(chain), proofRoute, influence: INFLUENCE,
-      influenceToken: tokenOf(INFLUENCE),
+      ...decision, decisionToken: tokenOf(signed), rid: RID, now: STEP_TS, chain, chainToken: tokenOf(chain),
+      proofRoute, influence: INFLUENCE, influenceToken: tokenOf(INFLUENCE),
     };
     const run = { prompt: PROMPT, ts: [localOrigin.ts] };
     const seen = o.seen ?? [];
     const result = verifyRecordedLocalStep(
       {
-        ...decision, rid: step.rid, now: step.now, chain: step.chainToken,
+        tool: decision.tool, callId: decision.callId, input: decision.input, decision: step.decisionToken,
+        rid: step.rid, now: step.now, chain: step.chainToken,
         proof: proofTokenOf({ policy: "client", proofRoute }), influence: step.influenceToken,
       },
       {

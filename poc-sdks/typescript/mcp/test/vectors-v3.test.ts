@@ -91,7 +91,10 @@ function replayRecordedCalls(v: any, c: any) {
 
 /** A recorded local step case (MCP profile), against its client's keyring and root and its signed rules. */
 function replayLocalStep(v: any, c: any) {
-  const { proofRoute, chain: _chain, chainToken, influence: _influence, influenceToken, ...step } = c.step;
+  const {
+    proofRoute, chain: _chain, chainToken, influence: _influence, influenceToken, decisionToken,
+    resolved: _resolved, verdict: _verdict, routeAllowed: _routeAllowed, rulesHash: _rulesHash, ...step
+  } = c.step;
   const policy = v.policies[c.client.policy];
   const keyring = Object.fromEntries(Object.entries(c.client.keyring as Record<string, string>).map(([svc, name]) => [svc, v.keys[name].pub as string]));
   const client = {
@@ -100,7 +103,7 @@ function replayLocalStep(v: any, c: any) {
   };
   const result = verifyRecordedLocalStep(
     {
-      ...step, chain: chainToken, influence: influenceToken,
+      ...step, decision: decisionToken, chain: chainToken, influence: influenceToken,
       proof: proofRoute === null ? null : policy.proofTokens[proofRoute],
     },
     { client, signers: c.signers, run: { prompt: c.run.prompt, ts: new Set<number>(c.run.ts) }, seen: new Set<string>(c.seen) },
@@ -201,7 +204,10 @@ describe("v3 known-answer vectors", () => {
     for (const c of committed.recordedLocalStep) {
       expect(c.step.chainToken, c.name).toBe(encode(utf8(canonicalize(c.step.chain))));
       expect(c.step.influenceToken, c.name).toBe(encode(utf8(canonicalize(c.step.influence))));
-      tokens += 2;
+      const { callId, resolved, verdict, routeAllowed, rulesHash } = c.step;
+      const decision = { callId, resolved, verdict, routeAllowed, rulesHash };
+      expect(c.step.decisionToken, c.name).toBe(encode(utf8(canonicalize(decision))));
+      tokens += 3;
     }
     for (const [name, policy] of Object.entries(committed.policies as Record<string, any>)) {
       expect(Object.keys(policy.proofTokens), name).toEqual(Object.keys(policy.proofs));

@@ -1,9 +1,11 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
+import { readToken, type JsonValue } from "../encoding/json.ts";
+import { array, bool, exactly, object, str } from "../internal/fields.ts";
 import { bindLocalTool } from "../stamp/binding.ts";
 import { commitInfluence, type InfluenceEntry } from "./influence.ts";
-import type { LocalVerdict, Resolved } from "./local-decision.ts";
+import type { LocalVerdict, Need, Resolved, ResolvedProgram } from "./local-decision.ts";
 import { signStampV3, type StampV3 } from "../stamp/stamp.ts";
 
 /** What a local tool's receiver starts with: its route names `local:<tool>` after the client chain. */
@@ -58,4 +60,60 @@ export function localStepBind(f: Pick<LocalStepFields, "toolName" | "toolCallId"
     routeAllowed: f.listed,
     rulesHash: f.rulesHash,
   });
+}
+
+/** The gate's decision on one local call, the object `localStepBind` hashes. */
+export type LocalDecision = {
+  callId: string;
+  resolved: Resolved;
+  verdict: LocalVerdict;
+  routeAllowed: boolean;
+  /** rulesHash of the rules that decided, null with none. */
+  rulesHash: string | null;
+};
+
+const VERDICTS: readonly string[] = ["OK", "PATH_NOT_ALLOWED", "SCOPE_DENIED", "UNCHECKABLE", "INFLUENCE_DENIED"];
+const NEEDS: readonly string[] = ["read", "write", "exec"];
+const VIAS: readonly string[] = ["list", "folder", "never", "missing", "uncheckable"];
+
+function resolvedOf(value: JsonValue): Resolved {
+  const o = object(value);
+  exactly(o, ["paths", "programs", "parse", "readOnly"]);
+  const paths = array(o, "paths").map((item) => {
+    const p = object(item);
+    exactly(p, ["need", "at"]);
+    const need = str(p, "need");
+    if (!NEEDS.includes(need)) throw new Error("member need is not a need");
+    return { need: need as Need, at: str(p, "at") };
+  });
+  const programs = array(o, "programs").map((item) => {
+    const p = object(item);
+    exactly(p, ["name", "via"]);
+    const via = str(p, "via");
+    if (!VIAS.includes(via)) throw new Error("member via is not a route to a program");
+    return { name: str(p, "name"), via: via as ResolvedProgram["via"] };
+  });
+  const parse = str(o, "parse");
+  if (parse !== "ok" && parse !== "error") throw new Error("member parse is not ok or error");
+  return { paths, programs, parse, readOnly: bool(o, "readOnly") };
+}
+
+/**
+ * Reads a local step's decision from its token: MalformedJson for bytes that do not read, an Error naming the
+ * member for an object that is not exactly a decision.
+ */
+export function readLocalDecision(token: string): LocalDecision {
+  const o = object(readToken(token));
+  exactly(o, ["callId", "resolved", "verdict", "routeAllowed", "rulesHash"]);
+  const verdict = str(o, "verdict");
+  if (!VERDICTS.includes(verdict)) throw new Error("member verdict is not a verdict");
+  const hash = o.rulesHash;
+  if (hash !== null && typeof hash !== "string") throw new Error("member rulesHash is not a string or null");
+  return {
+    callId: str(o, "callId"),
+    resolved: resolvedOf(o.resolved as JsonValue),
+    verdict: verdict as LocalVerdict,
+    routeAllowed: bool(o, "routeAllowed"),
+    rulesHash: hash,
+  };
 }

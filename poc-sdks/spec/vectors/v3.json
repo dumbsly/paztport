@@ -5332,6 +5332,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5442,6 +5443,7 @@
         "verdict": "SCOPE_DENIED",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im91dHNpZGUiLCJuZWVkIjoicmVhZCJ9XSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6dHJ1ZX0sInJvdXRlQWxsb3dlZCI6dHJ1ZSwicnVsZXNIYXNoIjoid0V1LUx3T045RHk4UllmM2YzTlNMR0RxTGx5MWZaUEVZdGw2M3RCc19KWSIsInZlcmRpY3QiOiJTQ09QRV9ERU5JRUQifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5547,6 +5549,7 @@
         "verdict": "PATH_NOT_ALLOWED",
         "routeAllowed": false,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbXSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6ZmFsc2V9LCJyb3V0ZUFsbG93ZWQiOmZhbHNlLCJydWxlc0hhc2giOiJ3RXUtTHdPTjlEeThSWWYzZjNOU0xHRHFMbHkxZlpQRVl0bDYzdEJzX0pZIiwidmVyZGljdCI6IlBBVEhfTk9UX0FMTE9XRUQifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5641,6 +5644,7 @@
         "verdict": "SCOPE_DENIED",
         "routeAllowed": true,
         "rulesHash": null,
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbXSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6ZmFsc2V9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6bnVsbCwidmVyZGljdCI6IlNDT1BFX0RFTklFRCJ9",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5751,6 +5755,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5861,6 +5866,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -5971,6 +5977,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6081,6 +6088,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6191,6 +6199,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6296,6 +6305,7 @@
         "verdict": "PATH_NOT_ALLOWED",
         "routeAllowed": false,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbXSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6ZmFsc2V9LCJyb3V0ZUFsbG93ZWQiOmZhbHNlLCJydWxlc0hhc2giOiJ3RXUtTHdPTjlEeThSWWYzZjNOU0xHRHFMbHkxZlpQRVl0bDYzdEJzX0pZIiwidmVyZGljdCI6IlBBVEhfTk9UX0FMTE9XRUQifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6401,6 +6411,7 @@
         "verdict": "PATH_NOT_ALLOWED",
         "routeAllowed": false,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbXSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6ZmFsc2V9LCJyb3V0ZUFsbG93ZWQiOmZhbHNlLCJydWxlc0hhc2giOiJ3RXUtTHdPTjlEeThSWWYzZjNOU0xHRHFMbHkxZlpQRVl0bDYzdEJzX0pZIiwidmVyZGljdCI6IlBBVEhfTk9UX0FMTE9XRUQifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6511,6 +6522,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "dXLJEFyPDd9fHXZ01eb7j2L4rVK1dz4_tD4XANeCZ6A",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6ImRYTEpFRnlQRGQ5ZkhYWjAxZWI3ajJMNHJWSzFkejRfdEQ0WEFOZUNaNkEiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6621,6 +6633,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im91dHNpZGUiLCJuZWVkIjoicmVhZCJ9XSwicHJvZ3JhbXMiOltdLCJyZWFkT25seSI6dHJ1ZX0sInJvdXRlQWxsb3dlZCI6dHJ1ZSwicnVsZXNIYXNoIjoid0V1LUx3T045RHk4UllmM2YzTlNMR0RxTGx5MWZaUEVZdGw2M3RCc19KWSIsInZlcmRpY3QiOiJPSyJ9",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6731,6 +6744,7 @@
         "verdict": "PATH_NOT_ALLOWED",
         "routeAllowed": false,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOmZhbHNlLCJydWxlc0hhc2giOiJ3RXUtTHdPTjlEeThSWWYzZjNOU0xHRHFMbHkxZlpQRVl0bDYzdEJzX0pZIiwidmVyZGljdCI6IlBBVEhfTk9UX0FMTE9XRUQifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6841,6 +6855,7 @@
         "verdict": "SCOPE_DENIED",
         "routeAllowed": true,
         "rulesHash": null,
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6bnVsbCwidmVyZGljdCI6IlNDT1BFX0RFTklFRCJ9",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [
@@ -6951,6 +6966,7 @@
         "verdict": "OK",
         "routeAllowed": true,
         "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
         "rid": "rid-1",
         "now": 1767225599000,
         "chain": [

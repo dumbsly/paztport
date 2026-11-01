@@ -3,8 +3,8 @@
 
 import { canonicalize } from "../encoding/jcs.ts";
 import { influenceClasses, readInfluence } from "../influence/influence.ts";
-import { decideLocalCall, type LocalVerdict, type Resolved } from "../influence/local-decision.ts";
-import { localReceiver, localStepBind } from "../influence/local-step.ts";
+import { decideLocalCall, type LocalVerdict } from "../influence/local-decision.ts";
+import { localReceiver, localStepBind, readLocalDecision, type LocalDecision } from "../influence/local-step.ts";
 import { isNotAfter } from "../policy/validity.ts";
 import { rulesHash, type LocalRules } from "../policy/local-rules.ts";
 import type { ReasonCode } from "../verify/reason.ts";
@@ -18,12 +18,8 @@ export type RecordedLocalStep = {
   /** The time recorded with the step: its last stamp's `ts` must be this. */
   now: number;
   input: unknown;
-  resolved: Resolved;
-  verdict: LocalVerdict;
-  /** Whether the gate found the tool's route listed. */
-  routeAllowed: boolean;
-  /** The hash of the rules that decided, null with none. */
-  rulesHash: string | null;
+  /** The decision's token: the call id, what was resolved, the verdict, whether the route is listed, the rules. */
+  decision: string;
   /** The chain's token. */
   chain: string;
   /** The route's proof's token, null when the route is not listed. */
@@ -61,7 +57,8 @@ function within(window: number, at: number): boolean {
 /**
  * Checks a recorded local step (verification.md §Offline verification, MCP profile), the first failure being its
  * result:
- * 1. the step binds its call and decision (BINDING_MISMATCH when they can't be bound);
+ * 1. the step binds its call and decision (BINDING_MISMATCH when the decision does not read, is for another call, or
+ *    they can't be bound);
  * 2. its chain, by the offline chain verifier with `signers` (the origin service then the client hop, both on the
  *    client's one instance), `sess = ""`, the client's root and keyring, the receiver `local:<tool>` in the route and
  *    the nonce key `<rid>|<callId>|local`, spent in `seen`; an unproven route is how the gate's refusal of an unlisted
@@ -79,9 +76,17 @@ export function verifyRecordedLocalStep(
 ): LocalStepResult {
   const { client, signers, run } = cfg;
   const fail = (reason: ReasonCode): LocalStepResult => ({ reason });
+  let decision: LocalDecision;
   let bind: string;
   try {
-    bind = localStepBind({ toolName: step.tool, toolCallId: step.callId, input: step.input, resolved: step.resolved, verdict: step.verdict, listed: step.routeAllowed, rulesHash: step.rulesHash });
+    decision = readLocalDecision(step.decision);
+    if (decision.callId !== step.callId) {
+      return fail("BINDING_MISMATCH");
+    }
+    bind = localStepBind({
+      toolName: step.tool, toolCallId: step.callId, input: step.input, resolved: decision.resolved,
+      verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash,
+    });
   } catch {
     return fail("BINDING_MISMATCH");
   }
@@ -116,21 +121,21 @@ export function verifyRecordedLocalStep(
     return fail("POLICY_EXPIRED");
   }
   const proven = chain.reason === "OK";
-  if (proven !== step.routeAllowed || (!proven && step.proof !== null)) {
+  if (proven !== decision.routeAllowed || (!proven && step.proof !== null)) {
     return fail("PROOF_MISMATCH");
   }
-  if (step.rulesHash !== (client.rules === null ? null : rulesHash(client.rules))) {
+  if (decision.rulesHash !== (client.rules === null ? null : rulesHash(client.rules))) {
     return fail("RULES_MISMATCH");
   }
   // the gate's own rule, applied to what it recorded: with the route not listed or no rules it resolves nothing
-  const resolved = step.resolved;
+  const resolved = decision.resolved;
   // the chain committed to the influence, so its token reads
   const classes = influenceClasses(readInfluence(step.influence));
   const expected = decideLocalCall({
-    routeAllowed: step.routeAllowed, rules: client.rules, classes, resolve: () => resolved,
+    routeAllowed: decision.routeAllowed, rules: client.rules, classes, resolve: () => resolved,
   });
-  if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== step.verdict) {
+  if (canonicalize(expected.resolved) !== canonicalize(resolved) || expected.verdict !== decision.verdict) {
     return fail("VERDICT_MISMATCH");
   }
-  return { reason: "OK", verdict: step.verdict };
+  return { reason: "OK", verdict: decision.verdict };
 }
