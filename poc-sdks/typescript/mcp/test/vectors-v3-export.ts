@@ -1278,6 +1278,8 @@ export function buildVectorsV3(): Record<string, unknown> {
     sessionResultCase("a member the result does not have", { reply: attested, other: 1 }, "MALFORMED_REPLY"),
     sessionResultCase("the reply itself", { reply: sessionReply[0]!.reply }, "MALFORMED_REPLY"),
     sessionResultCase("no reply", { _meta: { progressToken: 1 } }, "MALFORMED_REPLY"),
+    // the reply's JCS bytes after a space, which a token never holds
+    sessionResultCase("a reply token that does not read", { reply: encode(utf8(" " + canonicalize(sessionReply[0]!.reply))) }, "MALFORMED_REPLY"),
   ];
 
   const vectors = {
