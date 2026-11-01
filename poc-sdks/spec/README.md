@@ -73,8 +73,10 @@ read by value as the integer its signature is over, so a replay must read the fi
 
 A case carries an object it says was received as a token, beside the object's readable value, and a replay reads
 only the token. Each `verify` and `offline` case, each call of a `recordedCall` case and each `recordedLocalStep`
-case's `step` carries `chainToken` beside `chain` and `influenceToken` beside `influence`, and each policy carries
-its proofs' tokens once, as `proofTokens.<route>` beside `proofs`, for every case that names the route. A token is
+case's `step` carries `chainToken` beside `chain` and `influenceToken` beside `influence`, a `recordedLocalStep`
+step also carries `decisionToken`, the token of its `callId`, `resolved`, `verdict`, `routeAllowed` and `rulesHash`
+together, and each policy carries its proofs' tokens once, as `proofTokens.<route>` beside `proofs`, for every case
+that names the route. A token is
 the base64url of its value's JCS bytes, except in the `verify` case "stamp ts of -2^63", whose chain token spells
 the `ts` exactly as the readable chain does, a number JCS cannot write.
 
@@ -99,12 +101,12 @@ the spec's objects and times, never from any implementation's record format:
   whose `recordedTs.last` is past one of the session's limits is `OUTSIDE_SESSION`. `expected[i]` is the `reason` for
   `calls[i]`. Every handshake here is attested: the spec gives a call relying on one that is not no result.
 - A **`recordedLocalStep`** case ([MCP profile](#the-mcp-profile)) is a recorded local step: `step` (`tool`,
-  `callId`, `rid`, `now`, `input`, `resolved`, `verdict`, `routeAllowed`, `rulesHash`, `chain`, `proofRoute`,
-  `influence`), the `client` it is checked against (`keyring` by name, the root of `policy`, in which `proofRoute`
-  names the step's proof, the root's and keyring's windows `rootNotAfter` and `keyringNotAfter`, and `rules`), the
-  `signers` (`svcs`, the origin service then the client hop, and their one `inst`), its `run` (`prompt` and start
-  times `ts`), and `seen`, the nonce keys already spent. `expected` is the `reason`, the `verdict` the step signed
-  when the record verifies (null when it does not).
+  `callId`, `rid`, `now`, `input`, `resolved`, `verdict`, `routeAllowed`, `rulesHash`, `decisionToken`, `chain`,
+  `proofRoute`, `influence`), the `client` it is checked against (`keyring` by name, the root of `policy`, in which
+  `proofRoute` names the step's proof, the root's and keyring's windows `rootNotAfter` and `keyringNotAfter`, and
+  `rules`), the `signers` (`svcs`, the origin service then the client hop, and their one `inst`), its `run`
+  (`prompt` and start times `ts`), and `seen`, the nonce keys already spent. `expected` is the `reason`, the
+  `verdict` the step signed when the record verifies (null when it does not).
 
 ### The MCP profile
 

@@ -72,6 +72,7 @@ Each object's reader gives one answer for an object it refuses, whichever step r
 | A chain | A verifier, live or offline ([check 1](verification.md#the-live-order)), from an HTTP header or MCP `_meta` | `CHAIN_MISSING` |
 | A proof | A verifier, live or offline ([check 11](verification.md#the-live-order)) | None: no proof, so the route is not proven (`PATH_NOT_ALLOWED`) |
 | An influence list | A verifier, live or offline ([check 9](verification.md#the-live-order)) | `INFLUENCE_MISMATCH` |
+| A local-tool decision (MCP profile) | A verifier of a recorded local step ([step 1](verification.md#offline-verification)) | `BINDING_MISMATCH` |
 
 ### The grammar
 
@@ -317,7 +318,9 @@ Rules:
 - The local tool `decision` (the MCP profile) is the gate's signed decision on the call:
   `{ "callId": ..., "resolved": { "paths": [{ "need", "at" }], "programs": [{ "name", "via" }], "parse": "ok" | "error", "readOnly": bool }, "verdict": ..., "routeAllowed": bool, "rulesHash": string | null }`.
   So the call id, what the gate resolved, its verdict, whether the route is listed and which rules decided
-  are all covered by the stamp.
+  are all covered by the stamp. A recorded step carries the decision as a token, which a reader reads as a wire
+  object with exactly these members, and `callId` the step's own; `verdict` is one of the local verdicts, `need` one
+  of `read`, `write` and `exec`, and `via` one of `list`, `folder`, `never`, `missing` and `uncheckable`.
 
 `v3.json` pins the prompt, `tools/call`, result and response bindings in `bindPrompt`, `bindMcpCall`, `bindResult`
 and `bindResponse`, and a local-tool binding through the `local step ok` case. `http-v3.json` pins the HTTP

@@ -403,7 +403,10 @@ Each kind of record is checked this way:
   recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
   `policyNotAfter` the client used: the earliest `notAfter` of the server's root and, in the entry-key form, its
   keyring. So a response recorded after the server's material expired is `POLICY_EXPIRED`.
-- **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): the offline chain verifier with `signers`
+- **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): first, the step binds its call and
+  decision: the `decision` token MUST read as a [decision](wire.md#bindings), and its `callId` MUST be the
+  step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
+  differs from the one the stamp signed. Then the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
   keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring are no
   later than their `notAfter` (`POLICY_EXPIRED`). Then the route verdict and proof the client recorded for the step
