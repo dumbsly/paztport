@@ -3,10 +3,11 @@
 
 // JCS (RFC 8785) under two sets of rules: canonicalize writes hashed content, and writeWire and writeToken write
 // Paztport's own objects, refusing whatever a reader refuses (spec wire.md, JSON). index.ts exports those three;
-// the rest is shared with json.ts and json-file.ts.
+// the rest is shared with json.ts and json-file.ts. What the readers and writers agree on is in json-rules.ts.
 
 import { encode } from "./b64url.ts";
-import { JSON_LIMITS, MalformedJson, type JsonValue } from "./json.ts";
+import { JSON_LIMITS, MalformedJson, noncharacter } from "./json-rules.ts";
+import type { JsonValue } from "./json.ts";
 
 /** What a writer refuses, and how it says so. */
 export type Rules = { readonly protocol: boolean; readonly refuse: (why: string) => never };
@@ -24,11 +25,6 @@ export const PROTOCOL: Rules = {
     throw new MalformedJson("write", why);
   },
 };
-
-/** U+FDD0 to U+FDEF, and every code point whose last four hex digits are FFFE or FFFF (RFC 7493 §2.1). */
-export function noncharacter(cp: number): boolean {
-  return (cp >= 0xfdd0 && cp <= 0xfdef) || (cp & 0xfffe) === 0xfffe;
-}
 
 const ESCAPES: Record<number, string> = {
   0x08: "\\b",

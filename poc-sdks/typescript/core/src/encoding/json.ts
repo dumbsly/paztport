@@ -5,26 +5,12 @@
 // the canonical-bytes check. The schema, step 4, belongs to each object's own module.
 
 import { decode } from "./b64url.ts";
-import { noncharacter, writeWire } from "./jcs.ts";
+import { writeWire } from "./jcs.ts";
+import { JSON_LIMITS, MalformedJson, noncharacter } from "./json-rules.ts";
 
 /** A value as the reader gives it: every number an integer in [0, 2^53 − 1], every object null-prototyped. */
 export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
 export type JsonObject = { readonly [name: string]: JsonValue };
-
-/** The reader step, or the writer, that refused. */
-export type JsonStep = "size" | "parse" | "canonical" | "write";
-
-export class MalformedJson extends Error {
-  readonly step: JsonStep;
-  constructor(step: JsonStep, message: string) {
-    super(`json ${step}: ${message}`);
-    this.name = "MalformedJson";
-    this.step = step;
-  }
-}
-
-/** At a limit a value is read, and one past it refused. `tokenText` is the base64url length of `wireBytes`. */
-export const JSON_LIMITS = { wireBytes: 262144, tokenText: 349526, fileBytes: 1048576, depth: 32 } as const;
 
 /** Wire bytes: within the wire limit, one JSON value, and exactly that value's canonical bytes. */
 export function readWireBytes(bytes: Uint8Array): JsonValue {

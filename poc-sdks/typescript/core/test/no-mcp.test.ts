@@ -10,7 +10,7 @@ const files = readdirSync(src, { recursive: true, encoding: "utf8" }).filter((f)
 describe("core carries no MCP knowledge", () => {
   it("hasNoMetaModuleOrMetaKeys", () => {
     // Pinned: a move that drops files out of the walk must fail here, not shrink the check.
-    expect(files.length).toBe(41);
+    expect(files.length).toBe(42);
     for (const f of files) {
       const text = readFileSync(new URL(f, src), "utf8");
       expect(text, f).not.toMatch(/meta\.ts/);

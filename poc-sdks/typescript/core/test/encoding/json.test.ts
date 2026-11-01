@@ -6,7 +6,8 @@ import { utf8 } from "../../src/crypto/crypto.ts";
 import { encode } from "../../src/encoding/b64url.ts";
 import { writeToken } from "../../src/encoding/jcs.ts";
 import { printFile } from "../../src/encoding/json-file.ts";
-import { MalformedJson, readFile, readToken, readWireBytes, type JsonValue } from "../../src/encoding/json.ts";
+import { readFile, readToken, readWireBytes, type JsonValue } from "../../src/encoding/json.ts";
+import { MalformedJson } from "../../src/encoding/json-rules.ts";
 
 /** The error `read` throws, which must be a MalformedJson. */
 function refusal(read: () => unknown): MalformedJson {

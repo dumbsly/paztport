@@ -50,7 +50,7 @@ describe("jcs", () => {
   });
 
   it("canonicalizeCallsNoJsonLibrary", () => {
-    for (const file of ["jcs.ts", "json.ts", "json-file.ts"]) {
+    for (const file of ["jcs.ts", "json.ts", "json-file.ts", "json-rules.ts"]) {
       const source = readFileSync(new URL(`../../src/encoding/${file}`, import.meta.url), "utf8");
       expect(source, file).not.toContain("JSON.parse");
       expect(source, file).not.toContain("JSON.stringify");

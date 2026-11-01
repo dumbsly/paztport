@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { checkDepth, PROTOCOL, quote, sortedNames, utf8Length, writeScalar } from "./jcs.ts";
-import { JSON_LIMITS, type JsonValue } from "./json.ts";
+import { JSON_LIMITS } from "./json-rules.ts";
+import type { JsonValue } from "./json.ts";
 
 /**
  * A file in the one form every implementation writes (spec wire.md, JSON, Files): members in JCS order and strings
