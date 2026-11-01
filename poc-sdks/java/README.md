@@ -540,6 +540,7 @@ chain `gateway` and `orders` sign, with its proof. The setup checks that the key
 signature all verify, so every benchmark times the path a legitimate request takes.
 
 `./run bench` from the repository root builds `target/bench.jar` and runs it on the JDK Maven uses; options after
-`bench` go to JMH (`-f 3` for three forks, `-rf json` for a results file). `mvn verify` builds the jar but runs no
-benchmark. JMH is GPLv2 with the Classpath Exception and is in this jar only; the libraries and the demos don't use
+`bench` go to JMH (`-f 3` for three forks, `-rf json` for a results file). As with every `./run` command, `-h`
+after it prints `run`'s usage; JMH's own help is `java -jar target/bench.jar -h`. `mvn verify` builds the jar but
+runs no benchmark. JMH is GPLv2 with the Classpath Exception and is in this jar only; the libraries and the demos don't use
 it.

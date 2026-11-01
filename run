@@ -15,7 +15,8 @@ Usage: ./run <command> [options]
   test         The name and link checks, then the Java SDK, Java demo, TypeScript type checks, TypeScript SDK and TypeScript demo suites.
                No Docker and no model.
   bench        Build the Java SDK's benchmark jar and time the primitives a verifying hop pays for (JMH, a few
-               minutes). Options after it go to JMH, e.g. ./run bench -f 3. Not part of test.
+               minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
+               help is java -jar poc-sdks/java/tools/bench/target/bench.jar -h. Not part of test.
 
 macOS and Linux; on Windows use WSL.
 USAGE
@@ -95,6 +96,7 @@ cmd_agents_mcp() {
 
 cmd_bench() {
   need_java
+  [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
   (cd poc-sdks/java && mvn -q package -DskipTests -pl tools/bench -am)
   exec "$maven_java" -jar poc-sdks/java/tools/bench/target/bench.jar "$@"
 }
