@@ -4,6 +4,7 @@
 package org.paztport.core.event;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -43,5 +44,11 @@ class EventEnvelopeTest {
         assertFalse(new EventEnvelope("payment", env.payload(), "!!").verifiesWith(key.getPublic()));
         assertFalse(env.verifiesWith(Crypto.generateEd25519KeyPair().getPublic()));
         assertNull(new EventEnvelope("payment", "!!", env.sig()).payloadBytes());
+    }
+
+    @Test
+    void toJsonIsTheEnvelopesJcsText() {
+        EventEnvelope env = new EventEnvelope("pay\u00e9", "e30", "AAAA");
+        assertEquals("{\"payload\":\"e30\",\"sig\":\"AAAA\",\"signer\":\"pay\u00e9\"}", env.toJson());
     }
 }

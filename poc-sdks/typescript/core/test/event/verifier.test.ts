@@ -1,8 +1,9 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { encode } from "../../src/encoding/b64url.ts";
+import { writeWire } from "../../src/encoding/jcs.ts";
 import { generateKeyPair, sign, utf8 } from "../../src/crypto/crypto.ts";
 import { eventSigningBytes, signEvent, type EventEnvelope } from "../../src/event/envelope.ts";
 import { createEventVerifier, type EventOutcome } from "../../src/event/verifier.ts";
@@ -11,12 +12,18 @@ const NOW = 1_000_000;
 const payment = generateKeyPair();
 const search = generateKeyPair();
 
+/** An event's JCS text, with `ts` written as given. */
 function eventJson(ts: number | string, eventId: string): string {
-  return `{"reason":"PATH_NOT_ALLOWED","suspectSvc":"search","suspectInst":"s1","rid":"r","audit":false,"ts":${ts},"eventId":"${eventId}"}`;
+  return `{"audit":false,"eventId":"${eventId}","reason":"PATH_NOT_ALLOWED","rid":"r","suspectInst":"s1","suspectSvc":"search","ts":${ts}}`;
+}
+
+/** The envelope's JCS text, the body a sender posts. */
+function wire(env: EventEnvelope): string {
+  return new TextDecoder().decode(writeWire(env));
 }
 
 function envelope(signer: string, key: { privateKey: string }, json: string): string {
-  return JSON.stringify(signEvent(signer, json, key.privateKey));
+  return wire(signEvent(signer, json, key.privateKey));
 }
 
 function setup(clock = { now: NOW }, allowedSigners: string[] = ["payment"]) {
@@ -43,7 +50,7 @@ describe("event verifier", () => {
 
   it("refusesGarbageAndNull", () => {
     const { auth } = setup();
-    for (const body of ["not json", "{}", "null", "", '{"signer":"payment","payload":"!!","sig":"!!"}']) {
+    for (const body of ["not json", "{}", "null", "", '{"payload":"!!","sig":"!!","signer":"payment"}']) {
       expect(auth.accept(body)).not.toHaveProperty("event");
     }
   });
@@ -63,14 +70,14 @@ describe("event verifier", () => {
   it("refusesATamperedPayload", () => {
     const good = signEvent("payment", eventJson(NOW, "a"), payment.privateKey);
     const forged = signEvent("payment", eventJson(NOW, "b"), payment.privateKey);
-    const body = JSON.stringify({ signer: "payment", payload: forged.payload, sig: good.sig });
+    const body = wire({ signer: "payment", payload: forged.payload, sig: good.sig });
     expect(refusalOf(setup().auth.accept(body))).toBe("BAD_SIGNATURE");
   });
 
   it("refusesASignatureWithoutTheDomainPrefix", () => {
     const payload = encode(utf8(eventJson(NOW, "a")));
     const sig = encode(sign(payment.privateKey, utf8(payload)));
-    expect(refusalOf(setup().auth.accept(JSON.stringify({ signer: "payment", payload, sig })))).toBe("BAD_SIGNATURE");
+    expect(refusalOf(setup().auth.accept(wire({ signer: "payment", payload, sig })))).toBe("BAD_SIGNATURE");
   });
 
   it("signsTheDomainPrefixedPayloadText", () => {
@@ -91,27 +98,19 @@ describe("event verifier", () => {
     expect(refusalOf(auth.accept(envelope("payment", payment, eventJson("-9223372036854775808", "b"))))).toBe("MALFORMED_EVENT");
   });
 
-  it("aTimestampWrittenWithAFractionThatRoundsToAnIntegerIsMalformed", () => {
+  it("aNegativeTsIsMalformed", () => {
     const { auth } = setup();
-    // As a double this is 9007199254740991, so only the written text shows it is not an integer.
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson("9007199254740991.4", "a"))))).toBe("MALFORMED_EVENT");
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(`${NOW}.00000000000000000001`, "b"))))).toBe("MALFORMED_EVENT");
-  });
-
-  it("aTimestampIsReadByValue", () => {
-    const { auth } = setup();
-    for (const [text, id] of [[`${NOW}.0`, "a"], ["1E6", "b"], ["1000000e0", "c"], ["10000e2", "d"], ["0.1e7", "e"], ["1000000.000e0", "f"]] as const) {
-      const got = auth.accept(envelope("payment", payment, eventJson(text, id)));
-      expect(got, text).toHaveProperty("event");
-      expect((got as { event: { ts: number } }).event.ts).toBe(NOW);
+    for (const ts of ["-1", "-9007199254740991", "-0"]) {
+      expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(ts, "a")))), ts).toBe("MALFORMED_EVENT");
     }
   });
 
-  it("aTimestampWithAHugeExponentIsMalformedWithoutWork", () => {
+  it("aTsWrittenWithAFractionIsMalformed", () => {
     const { auth } = setup();
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson("1e999999999", "a"))))).toBe("MALFORMED_EVENT");
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson("1e-999999999", "b"))))).toBe("MALFORMED_EVENT");
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson("0e999999999", "c"))))).toBe("OUTSIDE_WINDOW");
+    // A `ts` is a protocol integer by its text: a fraction or an exponent is malformed whatever its value.
+    for (const ts of [`${NOW}.0`, `${NOW}.5`, "9007199254740991.4", "1E6", "1000000e0", "0.1e7", "1e999999999", "0e999999999"]) {
+      expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(ts, "a")))), ts).toBe("MALFORMED_EVENT");
+    }
   });
 
   it("aTimestampWhoseDifferenceIsHugeIsOutsideTheWindow", () => {
@@ -120,7 +119,7 @@ describe("event verifier", () => {
     clock.now = -max;
     expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(max, "b"))))).toBe("OUTSIDE_WINDOW");
     clock.now = max;
-    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(-max, "c"))))).toBe("OUTSIDE_WINDOW");
+    expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(0, "c"))))).toBe("OUTSIDE_WINDOW");
   });
 
   it("refusesARepeatedEventId", () => {
@@ -149,25 +148,32 @@ describe("event verifier", () => {
 
   it("refusesAMissingOrEmptyEventId", () => {
     const { auth } = setup();
-    const noId = `{"reason":"X","suspectSvc":"","suspectInst":"","rid":"r","audit":false,"ts":${NOW}}`;
+    const noId = `{"audit":false,"reason":"X","rid":"r","suspectInst":"","suspectSvc":"","ts":${NOW}}`;
     expect(refusalOf(auth.accept(envelope("payment", payment, noId)))).toBe("NO_EVENT_ID");
-    expect(refusalOf(auth.accept(envelope("payment", payment, noId.replace("}", ',"eventId":null}'))))).toBe("NO_EVENT_ID");
+    expect(refusalOf(auth.accept(envelope("payment", payment, noId.replace('"audit":false,', '"audit":false,"eventId":null,'))))).toBe("NO_EVENT_ID");
     expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(NOW, ""))))).toBe("NO_EVENT_ID");
     expect(auth.accept(envelope("payment", payment, eventJson(NOW, " ")))).toHaveProperty("event");
   });
 
-  it("aPayloadWithALoneSurrogateIsBadSignatureAndDoesNotThrow", () => {
+  it("aBodyWithALoneSurrogateIsMalformedAndDoesNotThrow", () => {
     const { auth } = setup();
-    const body = '{"signer":"payment","payload":"AA\\ud800","sig":"AAAA"}';
-    expect(() => auth.accept(body)).not.toThrow();
-    expect(auth.accept(body)).toEqual({ refusal: "BAD_SIGNATURE", signer: "payment" });
+    // Escaped, then raw: either way the body has no UTF-8 form, so it is no envelope's bytes.
+    for (const body of ['{"payload":"AA\\ud800","sig":"AAAA","signer":"payment"}', '{"payload":"AA\ud800","sig":"AAAA","signer":"payment"}']) {
+      expect(() => auth.accept(body)).not.toThrow();
+      expect(auth.accept(body)).toEqual({ refusal: "MALFORMED_ENVELOPE" });
+    }
+  });
+
+  it("anEnvelopePastTheWireLimitIsMalformed", () => {
+    const body = `{"payload":"${"A".repeat(262144)}","sig":"AAAA","signer":"payment"}`;
+    expect(refusalOf(setup().auth.accept(body))).toBe("MALFORMED_ENVELOPE");
   });
 
   it("refusalDoesNotConsumeTheEventId", () => {
     const { auth } = setup();
     const good: EventEnvelope = signEvent("payment", eventJson(NOW, "a"), payment.privateKey);
-    expect(refusalOf(auth.accept(JSON.stringify({ ...good, sig: "AAAA" })))).toBe("BAD_SIGNATURE");
-    expect(auth.accept(JSON.stringify(good))).toHaveProperty("event");
+    expect(refusalOf(auth.accept(wire({ ...good, sig: "AAAA" })))).toBe("BAD_SIGNATURE");
+    expect(auth.accept(wire(good))).toHaveProperty("event");
   });
 
   it("refusalsCarryTheirTypedReason", () => {
@@ -181,7 +187,7 @@ describe("event verifier", () => {
   it("onlyAnAllowedSignersNameTravelsWithTheRefusal", () => {
     const keyless = createEventVerifier({ keyring: { search: search.publicKey }, allowedSigners: ["payment"], now: () => NOW });
     expect(keyless.accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
-    expect(setup().auth.accept('{"signer":"x\\ny","payload":"e30","sig":"AAAA"}')).toEqual({ refusal: "SIGNER_NOT_ALLOWED" });
+    expect(setup().auth.accept('{"payload":"e30","sig":"AAAA","signer":"x\\ny"}')).toEqual({ refusal: "SIGNER_NOT_ALLOWED" });
     expect(setup().auth.accept(envelope("payment", search, eventJson(NOW, "a")))).toEqual({ refusal: "BAD_SIGNATURE", signer: "payment" });
   });
 
@@ -194,42 +200,49 @@ describe("event verifier", () => {
 
   it("readsTheEventsMembersByOwnNameOnly", () => {
     const { auth } = setup();
-    const event = `{"__proto__":{},"reason":"X","suspectSvc":"","suspectInst":"","rid":"","audit":false,"ts":${NOW},"eventId":"a"}`;
+    const event = `{"__proto__":{},"audit":false,"eventId":"a","reason":"X","rid":"","suspectInst":"","suspectSvc":"","ts":${NOW}}`;
     expect(refusalOf(auth.accept(envelope("payment", payment, event)))).toBe("MALFORMED_EVENT");
   });
 
   it("refusesAnEnvelopeWithAnotherMemberOrTrailingText", () => {
     const { auth } = setup();
     const good = envelope("payment", payment, eventJson(NOW, "a"));
-    expect(refusalOf(auth.accept(good.replace("}", ',"kid":"k"}')))).toBe("MALFORMED_ENVELOPE");
+    expect(refusalOf(auth.accept(good.replace("{", '{"kid":"k",')))).toBe("MALFORMED_ENVELOPE");
     expect(refusalOf(auth.accept(good + " x"))).toBe("MALFORMED_ENVELOPE");
     expect(refusalOf(auth.accept("﻿" + good))).toBe("MALFORMED_ENVELOPE");
-    expect(auth.accept(" \n\t" + good + "\r\n ")).toHaveProperty("event");
+  });
+
+  it("anEnvelopeInWireMemberOrderIsMalformed", () => {
+    const env = signEvent("payment", eventJson(NOW, "a"), payment.privateKey);
+    const body = `{"signer":"payment","payload":"${env.payload}","sig":"${env.sig}"}`;
+    expect(refusalOf(setup().auth.accept(body))).toBe("MALFORMED_ENVELOPE");
+  });
+
+  it("aPayloadInWireMemberOrderIsMalformedEvent", () => {
+    const json = `{"reason":"PATH_NOT_ALLOWED","suspectSvc":"search","suspectInst":"s1","rid":"r","audit":false,"ts":${NOW},"eventId":"a"}`;
+    expect(refusalOf(setup().auth.accept(envelope("payment", payment, json)))).toBe("MALFORMED_EVENT");
+  });
+
+  it("whitespaceAroundTheBodyIsMalformed", () => {
+    const { auth } = setup();
+    const good = envelope("payment", payment, eventJson(NOW, "a"));
+    expect(refusalOf(auth.accept(" \n\t" + good + "\r\n "))).toBe("MALFORMED_ENVELOPE");
+    expect(refusalOf(auth.accept(good + "\n"))).toBe("MALFORMED_ENVELOPE");
+  });
+
+  it("whitespaceAroundThePayloadIsMalformedEvent", () => {
+    expect(refusalOf(setup().auth.accept(envelope("payment", payment, " \n" + eventJson(NOW, "a") + "\n")))).toBe("MALFORMED_EVENT");
   });
 
   it("readsThePayloadAsStrictUtf8WithoutAByteOrderMark", () => {
     const { auth } = setup();
     const sign2 = (bytes: Uint8Array) => {
       const payload = encode(bytes);
-      return JSON.stringify({ signer: "payment", payload, sig: encode(sign(payment.privateKey, eventSigningBytes(payload))) });
+      return wire({ signer: "payment", payload, sig: encode(sign(payment.privateKey, eventSigningBytes(payload))) });
     };
     const json = utf8(eventJson(NOW, "a"));
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([0xef, 0xbb, 0xbf, ...json]))))).toBe("MALFORMED_EVENT");
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([...json.slice(0, 20), 0xff, ...json.slice(20)]))))).toBe("MALFORMED_EVENT");
     expect(refusalOf(auth.accept(sign2(Uint8Array.from([...json.slice(0, 20), 0xed, 0xa0, 0x80, ...json.slice(20)]))))).toBe("MALFORMED_EVENT");
-  });
-
-  it("refusesAnEventWhenTheRuntimeGivesNoSourceTextForANumber", () => {
-    const real = JSON.parse;
-    // A runtime without source-text access calls the reviver with two arguments only.
-    const spy = vi.spyOn(JSON, "parse").mockImplementation((text: string, reviver?: (k: string, v: unknown) => unknown) =>
-      reviver === undefined ? real(text) : real(text, (k, v) => reviver(k, v)),
-    );
-    try {
-      const { auth } = setup();
-      expect(refusalOf(auth.accept(envelope("payment", payment, eventJson(NOW, "a"))))).toBe("MALFORMED_EVENT");
-    } finally {
-      spy.mockRestore();
-    }
   });
 });

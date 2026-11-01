@@ -14,7 +14,7 @@ class AttestationEventTest {
         ResponderEvent sent = new AttestationEvent("PEER_MISMATCH", "gateway", "10.0.0.7", "rid-1", false)
                 .sentAt(1234L, "id-1");
         assertEquals(new ResponderEvent("PEER_MISMATCH", "gateway", "10.0.0.7", "rid-1", false, 1234L, "id-1"), sent);
-        assertEquals("{\"reason\":\"PEER_MISMATCH\",\"suspectSvc\":\"gateway\",\"suspectInst\":\"10.0.0.7\","
-                + "\"rid\":\"rid-1\",\"audit\":false,\"ts\":1234,\"eventId\":\"id-1\"}", sent.toJson());
+        assertEquals("{\"audit\":false,\"eventId\":\"id-1\",\"reason\":\"PEER_MISMATCH\",\"rid\":\"rid-1\","
+                + "\"suspectInst\":\"10.0.0.7\",\"suspectSvc\":\"gateway\",\"ts\":1234}", sent.toJson());
     }
 }

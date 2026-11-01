@@ -56,19 +56,19 @@ class EventVectorsExport {
             + " sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 ||"
             + " seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI"
             + " DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`."
-            + " An envelope case signs `eventJson`, the text a sender writes for `event`, as `signer` with that"
-            + " signer's key: `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes"
-            + " signed and `sig` the signature. Each verify case runs against a fresh `responder`, with its `keyring`"
-            + " (service to public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body"
-            + " is offered at its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the"
-            + " last result is the one expected: an accepted event has a null `refusal` and the `event` read, and a"
-            + " refused one the refusal's name and a null `event`. Bodies are the exact text received, and the"
-            + " envelope and the event are read strictly, so a replay hands each body over unchanged. The window is"
-            + " 30000 ms either way, and an accepted id is remembered for 60000 ms. Each `attributable` case gives an"
-            + " `event` (its seven fields) and whether a responder may act on it, `expected`: the spec's allow-list of"
-            + " reasons, with an audit event and an event naming no service or no instance excluded. Ed25519 is"
-            + " deterministic, so the file is reproduced byte for byte. Cases may be added; a recorded answer changes"
-            + " only with a protocol change.";
+            + " An envelope case signs `eventJson`, the JCS text of `event`, as `signer` with that signer's key:"
+            + " `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig`"
+            + " the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to"
+            + " public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at"
+            + " its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is"
+            + " the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the"
+            + " refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event"
+            + " are each read from their bytes as wire bytes, which must be exactly the object's JCS bytes, so a"
+            + " replay hands each body over unchanged. The window is 30000 ms either way, and an accepted id is"
+            + " remembered for 60000 ms. Each `attributable` case gives an `event` (its seven fields) and whether a"
+            + " responder may act on it, `expected`: the spec's allow-list of reasons, with an audit event and an"
+            + " event naming no service or no instance excluded. Ed25519 is deterministic, so the file is reproduced"
+            + " byte for byte. Cases may be added; a recorded answer changes only with a protocol change.";
 
     private static final long NOW = 1_767_225_600_000L;
     private static final long WINDOW_MS = 30_000;
@@ -170,8 +170,8 @@ class EventVectorsExport {
         EventEnvelope b = EventEnvelope.sign("payment", event(NOW, "event-2").toJson()
                 .getBytes(StandardCharsets.UTF_8), pay);
         String tampered = new EventEnvelope("payment", b.payload(), a.sig()).toJson();
-        String noId = "{\"reason\":\"PATH_NOT_ALLOWED\",\"suspectSvc\":\"search\",\"suspectInst\":\"search-1\","
-                + "\"rid\":\"rid-event-1\",\"audit\":false,\"ts\":" + NOW + "}";
+        String noId = "{\"audit\":false,\"reason\":\"PATH_NOT_ALLOWED\",\"rid\":\"rid-event-1\","
+                + "\"suspectInst\":\"search-1\",\"suspectSvc\":\"search\",\"ts\":" + NOW + "}";
 
         ArrayNode verify = out.putArray("verify");
         verify.add(verifyCase("accepted", responder, List.of(), good, NOW, 1));
@@ -204,9 +204,9 @@ class EventVectorsExport {
         verify.add(verifyCase("JSON null", responder, List.of(), "null", NOW, 1));
         verify.add(verifyCase("the event unwrapped", responder, List.of(), event(NOW, "event-1").toJson(), NOW, 1));
         verify.add(verifyCase("no sig", responder, List.of(),
-                "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\"}", NOW, 1));
+                "{\"payload\":\"" + a.payload() + "\",\"signer\":\"payment\"}", NOW, 1));
         verify.add(verifyCase("null signer", responder, List.of(),
-                "{\"signer\":null,\"payload\":\"" + a.payload() + "\",\"sig\":\"" + a.sig() + "\"}", NOW, 1));
+                "{\"payload\":\"" + a.payload() + "\",\"sig\":\"" + a.sig() + "\",\"signer\":null}", NOW, 1));
         verify.add(verifyCase("signer not allowed", responder, List.of(),
                 signed("search", search.getPrivate(), event(NOW, "event-1")), NOW, 1));
         verify.add(verifyCase("signer not allowed, before its signature", responder, List.of(),
@@ -234,16 +234,17 @@ class EventVectorsExport {
                 signed("payment", pay, noId.replace(Long.toString(NOW), Long.toString(NOW - WINDOW_MS - 1))),
                 NOW, 1));
 
-        // Read strictly: nothing coerced, filled in or left trailing, in the envelope or the event.
+        // Read strictly: nothing coerced, filled in or left trailing, in the envelope or the event. Each crafted
+        // body and payload is JCS but for the one flaw its name states, so it is refused for that flaw.
         String base = event(NOW, "event-1").toJson();
+        String payloadOk = "\"payload\":\"" + a.payload() + "\"";
         String sigOk = "\"sig\":\"" + a.sig() + "\"";
         verify.add(verifyCase("envelope with trailing text", responder, List.of(), good + " x", NOW, 1));
         verify.add(verifyCase("envelope with a second value", responder, List.of(), good + "{}", NOW, 1));
         verify.add(verifyCase("signer as a number", responder, List.of(),
-                "{\"signer\":1,\"payload\":\"" + a.payload() + "\"," + sigOk + "}", NOW, 1));
+                "{" + payloadOk + "," + sigOk + ",\"signer\":1}", NOW, 1));
         verify.add(verifyCase("envelope with another member", responder, List.of(),
-                "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\"," + sigOk + ",\"kid\":\"k\"}",
-                NOW, 1));
+                "{\"kid\":\"k\"," + payloadOk + "," + sigOk + ",\"signer\":\"payment\"}", NOW, 1));
         verify.add(verifyCase("event with trailing text", responder, List.of(),
                 signed("payment", pay, base + " x"), NOW, 1));
         verify.add(verifyCase("ts as a string", responder, List.of(), signed("payment", pay,
@@ -265,16 +266,16 @@ class EventVectorsExport {
         verify.add(verifyCase("whitespace eventId", responder, List.of(),
                 signed("payment", pay, event(NOW, " ")), NOW, 1));
         verify.add(verifyCase("event with another member", responder, List.of(), signed("payment", pay,
-                base.replace("}", ",\"peer\":\"search\"}")), NOW, 1));
+                base.replace("\"reason\":", "\"peer\":\"search\",\"reason\":")), NOW, 1));
         for (String[] ts : new String[][] {
                 {"ts with a fraction", NOW + ".5"},
-                {"ts written with .0, read by value", NOW + ".0"},
-                {"ts written with an exponent, read by value", "1.7672256E12"},
+                {"ts written with .0", NOW + ".0"},
+                {"ts written with an exponent", "1.7672256E12"},
                 {"ts of 2^53", "9007199254740992"},
                 {"ts of -(2^53)", "-9007199254740992"},
                 {"ts of -(2^63)", "-9223372036854775808"},
                 {"ts of 2^53 - 1, in range", "9007199254740991"},
-                {"ts of -(2^53 - 1), in range", "-9007199254740991"},
+                {"ts of -(2^53 - 1)", "-9007199254740991"},
                 {"ts with a fraction that rounds to 2^53 - 1", "9007199254740991.4"},
                 {"null ts", "null"}}) {
             verify.add(verifyCase(ts[0], responder, List.of(), signed("payment", pay,
@@ -293,7 +294,7 @@ class EventVectorsExport {
         verify.add(verifyCase("payload with a byte order mark", responder, List.of(),
                 overPayload("payment", pay, Base64Url.encode(bom)), NOW, 1));
 
-        // JSON whitespace around a value is part of RFC 8259's grammar; a byte order mark is not.
+        // Wire bytes are exactly the object's JCS bytes, so whitespace around one is refused, as a byte order mark is.
         verify.add(verifyCase("whitespace around the body", responder, List.of(), " \n\t" + good + "\r\n ", NOW, 1));
         verify.add(verifyCase("whitespace around the payload", responder, List.of(),
                 signed("payment", pay, " \n" + base + "\n"), NOW, 1));
@@ -326,9 +327,9 @@ class EventVectorsExport {
                     NOW, 1));
         }
         verify.add(verifyCase("payload as a number", responder, List.of(),
-                "{\"signer\":\"payment\",\"payload\":1," + sigOk + "}", NOW, 1));
+                "{\"payload\":1," + sigOk + ",\"signer\":\"payment\"}", NOW, 1));
         verify.add(verifyCase("sig as a number", responder, List.of(),
-                "{\"signer\":\"payment\",\"payload\":\"" + a.payload() + "\",\"sig\":1}", NOW, 1));
+                "{" + payloadOk + ",\"sig\":1,\"signer\":\"payment\"}", NOW, 1));
 
         ArrayNode attributable = out.putArray("attributable");
         for (String reason : List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",

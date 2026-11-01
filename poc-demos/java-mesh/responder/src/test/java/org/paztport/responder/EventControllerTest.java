@@ -9,7 +9,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.ArrayList;
@@ -20,6 +19,7 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.event.EventEnvelope;
 import org.paztport.core.event.EventVerifier;
+import org.paztport.core.event.ResponderEvent;
 import org.paztport.core.policy.Keyring;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -48,10 +48,10 @@ class EventControllerTest {
 
     @Test
     void signedEventIsDecided() throws Exception {
-        String json = "{\"reason\":\"PATH_NOT_ALLOWED\",\"suspectSvc\":\"search\",\"suspectInst\":\"s1\","
-                + "\"rid\":\"r\",\"audit\":false,\"ts\":" + System.currentTimeMillis() + ",\"eventId\":\"e1\"}";
-        String body = new ObjectMapper().writeValueAsString(
-                EventEnvelope.sign("payment", json.getBytes(StandardCharsets.UTF_8), payment.getPrivate()));
+        String json = new ResponderEvent("PATH_NOT_ALLOWED", "search", "s1", "r", false, System.currentTimeMillis(),
+                "e1").toJson();
+        String body = EventEnvelope.sign("payment", json.getBytes(StandardCharsets.UTF_8), payment.getPrivate())
+                .toJson();
         mvc.perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.decision").value("QUARANTINE"));
@@ -64,8 +64,8 @@ class EventControllerTest {
      */
     @Test
     void aSignedEventWithNoReasonIsRefusedBeforeTheDecider() throws Exception {
-        String json = "{\"suspectSvc\":\"search\",\"suspectInst\":\"s1\",\"rid\":\"r\",\"audit\":false,\"ts\":"
-                + System.currentTimeMillis() + ",\"eventId\":\"e2\"}";
+        String json = "{\"audit\":false,\"eventId\":\"e2\",\"rid\":\"r\",\"suspectInst\":\"s1\","
+                + "\"suspectSvc\":\"search\",\"ts\":" + System.currentTimeMillis() + "}";
         String body = EventEnvelope.sign("payment", json.getBytes(StandardCharsets.UTF_8), payment.getPrivate())
                 .toJson();
         mvc.perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(body))
@@ -76,7 +76,7 @@ class EventControllerTest {
 
     @Test
     void aDisallowedSignerCannotWriteItsOwnLogLines() throws Exception {
-        String forged = "{\"signer\":\"x\\nESCALATE svc=search inst=s1\",\"payload\":\"e30\",\"sig\":\"AAAA\"}";
+        String forged = "{\"payload\":\"e30\",\"sig\":\"AAAA\",\"signer\":\"x\\nESCALATE svc=search inst=s1\"}";
         List<String> lines;
         try (LogCapture capture = new LogCapture(EventController.class)) {
             mvc.perform(post("/events").contentType(MediaType.APPLICATION_JSON).content(forged))

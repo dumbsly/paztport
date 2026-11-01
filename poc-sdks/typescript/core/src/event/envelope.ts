@@ -16,12 +16,12 @@ export const EVENT_ID_TTL_MS = 2 * EVENT_WINDOW_MS;
 /** The signed wrapper around an event on its way to the responder; the signature covers `payload` as sent. */
 export type EventEnvelope = { signer: string; payload: string; sig: string };
 
-/** The exact bytes that are signed: the domain prefix followed by the payload string, so the receiver never canonicalises JSON. */
+/** The exact bytes that are signed: the domain prefix followed by the payload string, so the signature covers the text received. */
 export function eventSigningBytes(payload: string): Uint8Array {
   return utf8(EVENT_DOMAIN + payload);
 }
 
-/** Wraps the event's JSON text, exactly as given, in an envelope signed as `signer`. */
+/** Wraps the event's text, exactly as given, in an envelope signed as `signer`; a responder reads only an event's JCS text. */
 export function signEvent(signer: string, eventJson: string, privateKey: string): EventEnvelope {
   const payload = encode(utf8(eventJson));
   return { signer, payload, sig: encode(sign(privateKey, eventSigningBytes(payload))) };

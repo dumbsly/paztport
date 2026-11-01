@@ -3,8 +3,11 @@
 
 package org.paztport.core.event;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
-import org.paztport.core.internal.Json;
+import org.paztport.core.internal.JsonValue;
+import org.paztport.core.internal.JsonWriter;
 
 /**
  * The rejection event a verifying service sends to its responder, carried inside a signed
@@ -34,11 +37,19 @@ public record ResponderEvent(
     }
 
     /**
-     * The event's JSON, fields in the order the spec lists them, as the bytes {@link EventEnvelope#sign} signs.
-     * The responder reads back the bytes it was sent, so this need not be canonical, only one form every sender
-     * of this SDK writes.
+     * The event's JCS text, its members in JCS order: the bytes {@link EventEnvelope#sign} signs, and the only bytes
+     * a responder reads as this event. Throws {@link IllegalArgumentException} for a {@code ts} outside
+     * [0, 2^53 &minus; 1], which no responder reads.
      */
     public String toJson() {
-        return Json.writeText(this);
+        Map<String, JsonValue> o = new LinkedHashMap<>();
+        o.put("reason", new JsonValue.Str(reason));
+        o.put("suspectSvc", new JsonValue.Str(suspectSvc));
+        o.put("suspectInst", new JsonValue.Str(suspectInst));
+        o.put("rid", new JsonValue.Str(rid));
+        o.put("audit", new JsonValue.Bool(audit));
+        o.put("ts", new JsonValue.Int(ts));
+        o.put("eventId", new JsonValue.Str(eventId));
+        return JsonWriter.text(new JsonValue.Obj(o));
     }
 }

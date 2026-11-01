@@ -5,6 +5,7 @@ package org.paztport.core.event;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -53,5 +54,21 @@ class ResponderEventTest {
         assertFalse(of(null, "search", "search-1", false).attributable());
         assertFalse(of("PATH_NOT_ALLOWED", null, "search-1", false).attributable());
         assertFalse(of("PATH_NOT_ALLOWED", "search", null, false).attributable());
+    }
+
+    @Test
+    void toJsonIsTheEventsJcsText() {
+        ResponderEvent event = new ResponderEvent("PATH_NOT_ALLOWED", "search", "search-1", "rid", false,
+                9_007_199_254_740_991L, "e");
+        assertEquals("{\"audit\":false,\"eventId\":\"e\",\"reason\":\"PATH_NOT_ALLOWED\",\"rid\":\"rid\","
+                + "\"suspectInst\":\"search-1\",\"suspectSvc\":\"search\",\"ts\":9007199254740991}", event.toJson());
+    }
+
+    @Test
+    void toJsonRefusesATsNoResponderReads() {
+        for (long ts : new long[] {-1, 1L << 53, Long.MIN_VALUE}) {
+            ResponderEvent event = new ResponderEvent("PATH_NOT_ALLOWED", "search", "search-1", "rid", false, ts, "e");
+            assertThrows(IllegalArgumentException.class, event::toJson, Long.toString(ts));
+        }
     }
 }

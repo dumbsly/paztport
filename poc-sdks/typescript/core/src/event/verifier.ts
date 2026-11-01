@@ -2,7 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { decode } from "../encoding/b64url.ts";
-import { verify } from "../crypto/crypto.ts";
+import { readWireBytes } from "../encoding/json.ts";
+import { JSON_LIMITS } from "../encoding/json-rules.ts";
+import { utf8, verify } from "../crypto/crypto.ts";
+import { bool, exactly, int, object, str } from "../internal/fields.ts";
 import { EVENT_ID_TTL_MS, EVENT_WINDOW_MS, eventSigningBytes, type EventEnvelope } from "./envelope.ts";
 
 /** A rejection event as the responder reads it; `suspectSvc` and `suspectInst` are "" when the result names no one. */
@@ -22,96 +25,40 @@ export type EventRefusal =
 /** Either the verified event or a refusal; `signer` is set only for UNKNOWN_SIGNER and BAD_SIGNATURE, where it has passed the allow-list, since any other signer is attacker-chosen text. */
 export type EventOutcome = { event: ResponderEvent } | { refusal: EventRefusal; signer?: string };
 
-const MEMBERS: ReadonlySet<string> = new Set(["reason", "suspectSvc", "suspectInst", "rid", "audit", "ts", "eventId"]);
-const STRINGS = ["reason", "suspectSvc", "suspectInst", "rid"] as const;
-const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+/** The event's members but `eventId`, which is checked apart; any member but these seven is malformed. */
+const EVENT = ["reason", "suspectSvc", "suspectInst", "rid", "audit", "ts"] as const;
 
-/** A JSON number as written, kept because a double has already rounded away what the text said. */
-class NumberText {
-  readonly source: string;
-  constructor(source: string) {
-    this.source = source;
-  }
-}
-
-/** RFC 8259's number grammar, split into its parts. */
-const NUMBER = /^(-?)(0|[1-9][0-9]*)(?:\.([0-9]+))?(?:[eE]([+-]?[0-9]+))?$/;
-
-/** The integer a JSON number's text has as its value, if it is an integer within ±(2^53 − 1), else null: `1.0` and `1e3` are 1 and 1000, `1.5` and `9007199254740991.4` are not integers. */
-function safeIntegerByValue(source: string): number | null {
-  const m = NUMBER.exec(source);
-  if (m === null) return null;
-  const digits = (m[2]! + (m[3] ?? "")).replace(/^0+/, "");
-  if (digits === "") return 0;
-  let scale = Number(m[4] ?? "0") - (m[3] ?? "").length;
-  let significant = digits;
-  while (significant.endsWith("0")) {
-    significant = significant.slice(0, -1);
-    scale++;
-  }
-  if (scale < 0 || significant.length + scale > 16) return null;
-  const magnitude = BigInt(significant) * 10n ** BigInt(scale);
-  if (magnitude > MAX_SAFE) return null;
-  return Number(m[1] === "-" ? -magnitude : magnitude);
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
-/** The envelope in `body`, or null unless it is exactly one JSON object with string `signer`, `payload` and `sig` and no other member. */
+/** The envelope in `body`, or null unless the body's UTF-8 is exactly the JCS bytes of an object with string `signer`, `payload` and `sig` and no other member. A body holding a lone surrogate has no UTF-8 form, and is null. */
 function readEnvelope(body: string): EventEnvelope | null {
-  let node: unknown;
+  // A string longer than the wire limit has more UTF-8 bytes than that, so it is refused before it is encoded.
+  if (typeof body !== "string" || body.length > JSON_LIMITS.wireBytes) return null;
   try {
-    node = JSON.parse(body);
+    const o = object(readWireBytes(utf8(body)));
+    exactly(o, ["signer", "payload", "sig"]);
+    return { signer: str(o, "signer"), payload: str(o, "payload"), sig: str(o, "sig") };
   } catch {
     return null;
   }
-  if (!isRecord(node) || Object.keys(node).length !== 3) return null;
-  const { signer, payload, sig } = node;
-  if (!Object.hasOwn(node, "signer") || !Object.hasOwn(node, "payload") || !Object.hasOwn(node, "sig")) return null;
-  if (typeof signer !== "string" || typeof payload !== "string" || typeof sig !== "string") return null;
-  return { signer, payload, sig };
 }
 
-/** The event in the payload's bytes: strict UTF-8 holding exactly one JSON object with the event's members, each of its type and no other, `ts` an integer by value; `eventId` may be absent or null and is then "" for the caller to refuse as a missing id. Null otherwise. */
+/** The event in the payload's bytes: exactly the JCS bytes of an object with the event's members, each of its type and no other; `eventId` may be absent or null and is then "" for the caller to refuse as a missing id. Null otherwise. */
 function readEvent(bytes: Uint8Array): ResponderEvent | null {
-  let node: unknown;
   try {
-    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
-    // Every number is kept as its text: a double has already rounded `9007199254740991.4` to an integer. A
-    // runtime that gives no text cannot judge by value, so it refuses (the throw is caught below).
-    node = JSON.parse(text, (_key, value, context?: { source?: string }) => {
-      if (typeof value !== "number") return value;
-      if (context?.source === undefined) throw new Error("no source text for a number");
-      return new NumberText(context.source);
-    });
+    const o = object(readWireBytes(bytes));
+    exactly(o, EVENT, ["eventId"]);
+    const absent = !Object.hasOwn(o, "eventId") || o.eventId === null;
+    return {
+      reason: str(o, "reason"),
+      suspectSvc: str(o, "suspectSvc"),
+      suspectInst: str(o, "suspectInst"),
+      rid: str(o, "rid"),
+      audit: bool(o, "audit"),
+      ts: int(o, "ts"),
+      eventId: absent ? "" : str(o, "eventId"),
+    };
   } catch {
     return null;
   }
-  if (!isRecord(node)) return null;
-  for (const name of Object.keys(node)) {
-    if (!MEMBERS.has(name)) return null;
-  }
-  for (const name of STRINGS) {
-    if (!Object.hasOwn(node, name) || typeof node[name] !== "string") return null;
-  }
-  const { audit, ts, eventId } = node;
-  if (!Object.hasOwn(node, "audit") || typeof audit !== "boolean") return null;
-  if (!Object.hasOwn(node, "ts") || !(ts instanceof NumberText)) return null;
-  const tsValue = safeIntegerByValue(ts.source);
-  if (tsValue === null) return null;
-  const absent = !Object.hasOwn(node, "eventId") || eventId === null;
-  if (!absent && typeof eventId !== "string") return null;
-  return {
-    reason: node.reason as string,
-    suspectSvc: node.suspectSvc as string,
-    suspectInst: node.suspectInst as string,
-    rid: node.rid as string,
-    audit,
-    ts: tsValue,
-    eventId: absent ? "" : (eventId as string),
-  };
 }
 
 /** Decides whether an event body may reach whatever acts on it: a signed envelope from an allowed signer, fresh, and not seen before; every failure is a typed refusal that changes nothing, and nothing here throws on hostile input. */
@@ -135,14 +82,7 @@ export function createEventVerifier(opts: {
       } catch {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
-      // A payload that has no UTF-8 form has no signed bytes, so no signature covers it.
-      let signed: boolean;
-      try {
-        signed = verify(key, eventSigningBytes(envelope.payload), signature);
-      } catch {
-        signed = false;
-      }
-      if (!signed) {
+      if (!verify(key, eventSigningBytes(envelope.payload), signature)) {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
       let bytes: Uint8Array;

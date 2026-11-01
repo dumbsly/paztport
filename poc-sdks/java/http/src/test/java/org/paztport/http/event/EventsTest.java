@@ -7,8 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.security.KeyPair;
+import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.crypto.Crypto;
 import org.paztport.core.event.AttestationEvent;
+import org.paztport.core.event.EventEnvelope;
 import org.paztport.http.internal.LogSafe;
 
 class EventsTest {
@@ -40,5 +46,23 @@ class EventsTest {
     void logSafeCapsLongValues() {
         assertEquals("x".repeat(LogSafe.MAX_CHARS) + "...", LogSafe.of("x".repeat(10_000)));
         assertEquals("null", LogSafe.of(null));
+    }
+
+    /** The publisher sends the envelope's JCS text over the event's JCS bytes, the only form a responder reads. */
+    @Test
+    void aPublishedEventIsItsJcsText() {
+        KeyPair key = Crypto.generateEd25519KeyPair();
+        EventEnvelope env;
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            env = new ResponderEventPublisher(http, Duration.ofSeconds(1), "http://127.0.0.1:1", "payment",
+                    key.getPrivate(), () -> 1234L)
+                    .envelope(new AttestationEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", false));
+        }
+        String event = new String(env.payloadBytes(), StandardCharsets.UTF_8);
+        String id = event.substring("{\"audit\":false,\"eventId\":\"".length(), event.indexOf("\",\"reason\""));
+        assertEquals("{\"audit\":false,\"eventId\":\"" + id + "\",\"reason\":\"PATH_NOT_ALLOWED\",\"rid\":\"rid\","
+                + "\"suspectInst\":\"s1\",\"suspectSvc\":\"search\",\"ts\":1234}", event);
+        assertEquals("{\"payload\":\"" + env.payload() + "\",\"sig\":\"" + env.sig() + "\",\"signer\":\"payment\"}",
+                env.toJson());
     }
 }

@@ -13,8 +13,6 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -22,6 +20,8 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.time.Duration;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -30,12 +30,14 @@ import org.junit.jupiter.api.Test;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.event.AttestationEvent;
 import org.paztport.core.event.EventEnvelope;
+import org.paztport.core.event.EventVerifier;
+import org.paztport.core.event.ResponderEvent;
+import org.paztport.core.policy.Keyring;
 import org.paztport.http.SilentPeer;
 import org.slf4j.LoggerFactory;
 
 class ResponderEventPublisherTest {
 
-    private static final ObjectMapper JSON = new ObjectMapper();
     private static final AttestationEvent EVENT =
             new AttestationEvent("PATH_NOT_ALLOWED", "search", "s1", "rid", false);
 
@@ -47,6 +49,12 @@ class ResponderEventPublisherTest {
 
     private ResponderEventPublisher publisherTo(String url, Duration timeout) {
         return new ResponderEventPublisher(HTTP, timeout, url, "payment", key.getPrivate(), () -> 1234L);
+    }
+
+    /** The event a responder that takes payment's events reads from {@code body}, or null if it refuses it. */
+    private ResponderEvent read(String body) {
+        return new EventVerifier(Keyring.of(Map.of("payment", key.getPublic())), Set.of("payment"), () -> 1234L)
+                .accept(body).event();
     }
 
     @AfterAll
@@ -66,14 +74,9 @@ class ResponderEventPublisherTest {
         assertEquals("payment", env.signer());
         assertTrue(env.verifiesWith(key.getPublic()));
 
-        JsonNode event = JSON.readTree(new String(env.payloadBytes(), StandardCharsets.UTF_8));
-        assertEquals("PATH_NOT_ALLOWED", event.get("reason").asText());
-        assertEquals("search", event.get("suspectSvc").asText());
-        assertEquals("s1", event.get("suspectInst").asText());
-        assertEquals("rid", event.get("rid").asText());
-        assertEquals(false, event.get("audit").asBoolean());
-        assertEquals(1234L, event.get("ts").asLong());
-        assertTrue(event.get("eventId").asText().length() >= 32);
+        ResponderEvent event = read(env.toJson());
+        assertEquals(EVENT.sentAt(1234L, event.eventId()), event);
+        assertTrue(event.eventId().length() >= 32);
     }
 
     @Test
@@ -111,10 +114,9 @@ class ResponderEventPublisherTest {
             assertTrue(r != null, "the responder got the event");
             assertEquals("/events", r.path());
             assertEquals("application/json", r.contentType());
-            EventEnvelope sent = JSON.readValue(r.body(), EventEnvelope.class);
-            assertEquals("payment", sent.signer());
-            assertTrue(sent.verifiesWith(key.getPublic()));
-            assertEquals("PATH_NOT_ALLOWED", JSON.readTree(sent.payloadBytes()).get("reason").asText());
+            ResponderEvent sent = read(new String(r.body(), StandardCharsets.UTF_8));
+            assertTrue(sent != null, "the responder accepts what was posted");
+            assertEquals("PATH_NOT_ALLOWED", sent.reason());
         } finally {
             responder.stop(0);
         }

@@ -6,6 +6,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { encode } from "../src/encoding/b64url.ts";
+import { canonicalize } from "../src/encoding/jcs.ts";
 import { utf8 } from "../src/crypto/crypto.ts";
 import { eventSigningBytes, signEvent } from "../src/event/envelope.ts";
 import { isAttributable } from "../src/event/attributable.ts";
@@ -36,7 +37,8 @@ function run(c: VerifyCase): EventOutcome {
 
 describe("event vectors", () => {
   it.each(v.envelope as any[])("envelope: $name", (c) => {
-    expect(JSON.stringify(c.event)).toBe(c.eventJson);
+    // The text signed is the event's JCS text, the only bytes a responder reads as that event.
+    expect(canonicalize(c.event)).toBe(c.eventJson);
     const env = signEvent(c.signer, c.eventJson, v.keys[c.signer].priv);
     expect(env.payload).toBe(c.payload);
     expect(encode(eventSigningBytes(env.payload))).toBe(c.signingBytes);
