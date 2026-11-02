@@ -64,9 +64,9 @@ public final class BoundaryInfluence {
     }
 
     /**
-     * The boundary key: the text of the file without its surrounding JSON whitespace, base64url of exactly {@link #KEY_LENGTH} bytes. Anything else
-     * fails here, at startup, naming {@code name} (how the caller calls the setting that points at the file) but
-     * never the file's content.
+     * The boundary key: the text of the file without its surrounding JSON whitespace, base64url of exactly
+     * {@link #KEY_LENGTH} bytes. Anything else fails here, at startup, naming {@code name} (how the caller calls the
+     * setting that points at the file) but never the file's content.
      *
      * @throws IllegalStateException when the text is not base64url of {@link #KEY_LENGTH} bytes
      * @throws UncheckedIOException when the file cannot be read

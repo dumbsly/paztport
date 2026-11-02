@@ -55,9 +55,9 @@ class KeyFilesTest {
         Path file = dir.resolve("svc.key");
         for (String c : NOT_JSON_WHITESPACE) {
             Files.writeString(file, c + key);
-            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "leading " + c.codePointAt(0));
+            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "leading U+" + Integer.toHexString(c.codePointAt(0)));
             Files.writeString(file, key + c);
-            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "trailing " + c.codePointAt(0));
+            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "trailing U+" + Integer.toHexString(c.codePointAt(0)));
         }
     }
 

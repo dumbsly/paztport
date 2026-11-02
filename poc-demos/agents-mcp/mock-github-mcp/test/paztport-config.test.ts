@@ -133,7 +133,9 @@ describe("loadServerConfig", () => {
     });
     expect(loadServerConfig(dir)).toEqual(cfg);
   });
-  it.each(["\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"])("loadServerConfigRefusesKeyFilesSurroundedByU+%j", (c) => {
+  it.each([
+    ["00A0", "\u00a0"], ["000B", "\u000b"], ["000C", "\u000c"], ["0085", "\u0085"], ["FEFF", "\ufeff"], ["3000", "\u3000"],
+  ])("loadServerConfigRefusesKeyFilesSurroundedByU+%s", (_label, c) => {
     const cfg = serverConfig();
     const pin = writeDir(cfg, (f) => {
       f["client-policy.pub"] = `${c}${cfg.pinnedClientKeys[0]}${c}`;
@@ -142,7 +144,7 @@ describe("loadServerConfig", () => {
     const key = writeDir(cfg, (f) => {
       f["github-tools.key"] = `${c}${cfg.signingKeys["github-tools"]}${c}`;
     });
-    expect(() => loadServerConfig(key)).toThrow();
+    expect(() => loadServerConfig(key)).toThrow("server policy refused: signingKeys[github-tools]");
   });
   it("loadServerConfigIgnoresAStalePolicyKey", () => {
     const cfg = serverConfig();

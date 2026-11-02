@@ -13,8 +13,8 @@ import org.paztport.core.encoding.Base64Url;
 /**
  * Reads the key files keygen writes: a private key as base64url of the PKCS#8 encoding, the policy pin as
  * base64url of the SPKI, with the surrounding JSON whitespace (space, tab, line feed and carriage return)
- * ignored and nothing else. Every service, tool and demo loads
- * its keys through here so the file format has a single reader.
+ * ignored and nothing else. Every service, tool and demo loads its keys through here so the file format has a
+ * single reader.
  */
 public final class KeyFiles {
 
@@ -54,8 +54,8 @@ public final class KeyFiles {
     }
 
     /**
-     * The pinned policy key: the text of {@code policy.pub} without its surrounding JSON whitespace, a base64url SPKI string. It comes from its
-     * own file, never from the keyring it vouches for.
+     * The pinned policy key: the text of {@code policy.pub} without its surrounding JSON whitespace, a base64url
+     * SPKI string. It comes from its own file, never from the keyring it vouches for.
      */
     public static String loadPolicyPin(Path file) {
         return text(file);
