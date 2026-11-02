@@ -29,7 +29,12 @@ const (
 var (
 	errPublic  = errors.New("paztport keys: " + notPublic)
 	errPrivate = errors.New("paztport keys: " + notPrivate)
+	errSigning = errors.New("paztport keys: the signing key is not a 64-byte Ed25519 private key")
 )
+
+// whitespace is what a key file's readers trim from around its value: JSON's whitespace (RFC 8259), space,
+// horizontal tab, line feed and carriage return, and nothing else.
+const whitespace = " \t\n\r"
 
 // ParsePublic returns the public key whose SubjectPublicKeyInfo tok encodes. It refuses tok unless it is
 // canonical base64url of exactly 44 bytes: the fixed 12-byte prefix, then the 32-byte key.
@@ -70,26 +75,45 @@ func EncodePrivate(priv ed25519.PrivateKey) string {
 }
 
 // LoadPrivate reads a private key file, such as <svc>.key or policy.key: the PKCS#8 text ParsePrivate
-// reads, with the whitespace around it trimmed. A refusal names the file and never quotes it.
+// reads, with the space, tab, line feed and carriage return around it trimmed. A refusal names the file and never quotes it.
 func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	key, err := ParsePrivate(strings.TrimSpace(string(b)))
+	key, err := ParsePrivate(strings.Trim(string(b), whitespace))
 	if err != nil {
 		return nil, errors.New("paztport keys: " + path + ": " + notPrivate)
 	}
 	return key, nil
 }
 
-// LoadPin reads a pinned policy key, such as policy.pub: the file's text with the whitespace around it
-// trimmed. The pin is not decoded here; a keyring or certificate that names another text, or a pin that is
+// LoadPin reads a pinned policy key, such as policy.pub: the file's text with the space, tab, line feed and
+// carriage return around it trimmed. The pin is not decoded here; a keyring or certificate that names another text, or a pin that is
 // not a key, never verifies under it.
 func LoadPin(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimSpace(string(b)), nil
+	return strings.Trim(string(b), whitespace), nil
+}
+
+// Sign returns key's Ed25519 signature over msg. It refuses a key that is not ed25519.PrivateKeySize bytes
+// long, where ed25519.Sign would panic.
+func Sign(key ed25519.PrivateKey, msg []byte) ([]byte, error) {
+	if len(key) != ed25519.PrivateKeySize {
+		return nil, errSigning
+	}
+	return ed25519.Sign(key, msg), nil
+}
+
+// Verify reports whether sig is pub's Ed25519 signature over msg, by RFC 8032 §5.1.7 with S below the group
+// order. It never panics: a key that is not ed25519.PublicKeySize bytes or a signature that is not
+// ed25519.SignatureSize bytes is false.
+func Verify(pub ed25519.PublicKey, msg, sig []byte) bool {
+	if len(pub) != ed25519.PublicKeySize || len(sig) != ed25519.SignatureSize {
+		return false
+	}
+	return ed25519.Verify(pub, msg, sig)
 }

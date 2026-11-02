@@ -46,14 +46,10 @@ func LoadRootFile(path string) (Root, error) {
 	return loadFile(path, "root", rootFromValue)
 }
 
-// ReadRoot reads a root from a value already read, as a session request or reply holds one, by the rules
-// ParseRootFile reads a file's value.
-func ReadRoot(v json.Value) (Root, error) {
-	r, err := rootFromValue(v)
-	if err != nil {
-		return Root{}, malformed("root", err)
-	}
-	return r, nil
+// ParseRoot reads a root from its wire bytes, its canonical bytes as a session request or reply carries
+// it, by the rules ParseRootFile reads a file's value.
+func ParseRoot(wire []byte) (Root, error) {
+	return parseWire(wire, "root", rootFromValue)
 }
 
 func rootFromValue(v json.Value) (Root, error) {
@@ -130,15 +126,19 @@ func (r Root) Bytes() ([]byte, error) {
 
 // File returns the root in the file form root.json holds.
 func (r Root) File() ([]byte, error) {
-	b, err := json.File(r.Value())
+	b, err := json.File(r.value())
 	if err != nil {
 		return nil, fmt.Errorf("paztport policy: the root can't be written: %w", err)
 	}
 	return b, nil
 }
 
-// Value returns the root as an object, as a session message holds it.
-func (r Root) Value() json.Value {
+// Wire returns the root's wire bytes, its canonical bytes, as a session message carries it.
+func (r Root) Wire() ([]byte, error) {
+	return wire("root", r.value())
+}
+
+func (r Root) value() json.Value {
 	return json.Obj(
 		json.Member{Name: "notAfter", Value: json.I(r.NotAfter)},
 		json.Member{Name: "root", Value: json.S(r.Root)},

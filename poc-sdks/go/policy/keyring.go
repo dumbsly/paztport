@@ -58,10 +58,8 @@ func keyringFromValue(v json.Value) (KeyringFile, error) {
 	if err != nil {
 		return KeyringFile{}, errors.New(`the member "services" is not an object of strings`)
 	}
-	for name := range services {
-		if ValidNode(name) != nil {
-			return KeyringFile{}, errors.New(`the member "services" names a service by something that is not a route node`)
-		}
+	if !routeNodes(services) {
+		return KeyringFile{}, errors.New(`the member "services" names a service by something that is not a route node`)
 	}
 	policy, err := json.String(v, "policy")
 	if err != nil {
@@ -108,9 +106,10 @@ func SignKeyring(services map[string]string, policy string, notAfter int64, key 
 }
 
 // Verifies reports whether the keyring names pin as its policy key and its signature verifies under that
-// key. It says nothing about time: see Current. It never panics, and a pin that is not a key is false.
+// key. It says nothing about time: see Current. It never panics; a pin that is not a key is false, and so is
+// a keyring built in code that names a service by something that is not a route node, which no reader keeps.
 func (kf KeyringFile) Verifies(pin string) bool {
-	if kf.Policy != pin {
+	if kf.Policy != pin || !routeNodes(kf.Services) {
 		return false
 	}
 	pub, err := keys.ParsePublic(pin)
@@ -127,9 +126,12 @@ func (kf KeyringFile) Current(now int64) bool {
 	return now <= kf.NotAfter
 }
 
-// Keyring returns the service keys, decoded. It refuses a keyring holding a key that is not an Ed25519
-// public key, and names no service in the refusal.
+// Keyring returns the service keys, decoded. It refuses a keyring that names a service by something that is
+// not a route node, or holds a key that is not an Ed25519 public key, and names no service in the refusal.
 func (kf KeyringFile) Keyring() (Keyring, error) {
+	if !routeNodes(kf.Services) {
+		return nil, errors.New("paztport policy: the keyring names a service by something that is not a route node")
+	}
 	k := make(Keyring, len(kf.Services))
 	for name, text := range kf.Services {
 		pub, err := keys.ParsePublic(text)
@@ -153,6 +155,16 @@ func (kf KeyringFile) File() ([]byte, error) {
 		return nil, fmt.Errorf("paztport policy: the keyring can't be written: %w", err)
 	}
 	return b, nil
+}
+
+// routeNodes reports whether every name in services is a route node.
+func routeNodes(services map[string]string) bool {
+	for name := range services {
+		if ValidNode(name) != nil {
+			return false
+		}
+	}
+	return true
 }
 
 // servicesValue returns services as an object; the writer puts its members in canonical order.

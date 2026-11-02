@@ -21,6 +21,28 @@ func parseFile[T any](b []byte, what string, build func(json.Value) (T, error)) 
 	return t, nil
 }
 
+// parseWire reads b as the wire bytes of an object of kind what, which build makes from the value read.
+func parseWire[T any](b []byte, what string, build func(json.Value) (T, error)) (T, error) {
+	v, err := json.ReadWire(b)
+	if err == nil {
+		var t T
+		if t, err = build(v); err == nil {
+			return t, nil
+		}
+	}
+	var zero T
+	return zero, malformed(what, err)
+}
+
+// wire returns v's canonical bytes, the wire form of an object of kind what.
+func wire(what string, v json.Value) ([]byte, error) {
+	b, err := json.Wire(v)
+	if err != nil {
+		return nil, fmt.Errorf("paztport policy: the %s can't be written: %w", what, err)
+	}
+	return b, nil
+}
+
 // loadFile reads the file at path as parseFile reads bytes, and names the file in a refusal. A file that
 // can't be read is the *fs.PathError that says why.
 func loadFile[T any](path, what string, build func(json.Value) (T, error)) (T, error) {

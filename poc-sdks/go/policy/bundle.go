@@ -26,7 +26,7 @@ var bundleMembers = []string{"proofs", "rootId", "service"}
 
 // ParseProofBundleFile reads a proof bundle file: an object of exactly the strings service and rootId and
 // proofs, an object each of whose names is a route of at least two route nodes and each of whose values is
-// a proof, as ProofFromValue reads one.
+// a proof, as ParseProof reads one.
 func ParseProofBundleFile(b []byte) (ProofBundle, error) {
 	return parseFile(b, "proof bundle", bundleFromValue)
 }

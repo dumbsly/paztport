@@ -45,14 +45,10 @@ func LoadReplyCertFile(path string) (ReplyCert, error) {
 	return loadFile(path, "reply certificate", replyCertFromValue)
 }
 
-// ReadReplyCert reads a reply certificate from a value already read, as a session reply holds one, by the
-// rules ParseReplyCertFile reads a file's value.
-func ReadReplyCert(v json.Value) (ReplyCert, error) {
-	c, err := replyCertFromValue(v)
-	if err != nil {
-		return ReplyCert{}, malformed("reply certificate", err)
-	}
-	return c, nil
+// ParseReplyCert reads a reply certificate from its wire bytes, its canonical bytes as a session reply
+// carries it, by the rules ParseReplyCertFile reads a file's value.
+func ParseReplyCert(wire []byte) (ReplyCert, error) {
+	return parseWire(wire, "reply certificate", replyCertFromValue)
 }
 
 func replyCertFromValue(v json.Value) (ReplyCert, error) {
@@ -127,8 +123,12 @@ func (c ReplyCert) Current(now int64) bool {
 	return now <= c.NotAfter
 }
 
-// Value returns the certificate as an object, as a session reply holds it.
-func (c ReplyCert) Value() json.Value {
+// Wire returns the certificate's wire bytes, its canonical bytes, as a session reply carries it.
+func (c ReplyCert) Wire() ([]byte, error) {
+	return wire("reply certificate", c.value())
+}
+
+func (c ReplyCert) value() json.Value {
 	return json.Obj(
 		json.Member{Name: "key", Value: json.S(c.Key)},
 		json.Member{Name: "notAfter", Value: json.I(c.NotAfter)},

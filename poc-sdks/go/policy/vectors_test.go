@@ -176,13 +176,15 @@ func TestMerkle(t *testing.T) {
 	m.Get("proofs").Each(func(route string, n vectors.Node) {
 		proofs++
 		t.Run(route, func(t *testing.T) {
+			// The case gives the proof as an object in this file's own layout; ParseProof reads its wire
+			// bytes, the canonical bytes the header's token holds.
 			v, err := json.ReadFile(n.With(t).Raw())
 			if err != nil {
 				t.Fatalf("the proof object does not read: %v", err)
 			}
-			p, err := policy.ProofFromValue(v)
+			p, err := policy.ParseProof(canonical(t, v))
 			if err != nil {
-				t.Fatalf("ProofFromValue: %v", err)
+				t.Fatalf("ParseProof: %v", err)
 			}
 			if !p.Verify(route, root) {
 				t.Fatal("the proof does not prove its route")
@@ -265,12 +267,12 @@ func TestFileFormat(t *testing.T) {
 			case "replyCert":
 				var cert policy.ReplyCert
 				if cert, err = policy.ParseReplyCertFile(file); err == nil {
-					got, err = json.File(cert.Value())
+					got, err = asFile(cert.Wire())
 				}
 			case "proofs":
 				var b policy.ProofBundle
 				if b, err = policy.ParseProofBundleFile(file); err == nil {
-					got, err = json.File(bundleValue(b))
+					got, err = asFile(json.Wire(bundleValue(t, b)))
 				}
 			default:
 				t.Fatalf("a file of kind %q", kind)
@@ -293,16 +295,54 @@ func TestFileFormat(t *testing.T) {
 
 // bundleValue returns b as its file holds it. The SDK reads bundles and never writes them, so the writer
 // lives here.
-func bundleValue(b policy.ProofBundle) json.Value {
+func bundleValue(t *testing.T, b policy.ProofBundle) json.Value {
+	t.Helper()
 	var proofs []json.Member
 	for route, p := range b.Proofs {
-		proofs = append(proofs, json.Member{Name: route, Value: p.Value()})
+		proofs = append(proofs, json.Member{Name: route, Value: readBack(t)(p.Wire())})
 	}
 	return json.Obj(
 		json.Member{Name: "proofs", Value: json.Obj(proofs...)},
 		json.Member{Name: "rootId", Value: json.S(b.RootID)},
 		json.Member{Name: "service", Value: json.S(b.Service)},
 	)
+}
+
+// asFile returns wire bytes, read back, in the file form.
+func asFile(wire []byte, err error) ([]byte, error) {
+	if err != nil {
+		return nil, err
+	}
+	v, err := json.ReadWire(wire)
+	if err != nil {
+		return nil, err
+	}
+	return json.File(v)
+}
+
+// readBack returns a function that reads back the wire bytes a writer gave, failing t if either refused.
+func readBack(t *testing.T) func([]byte, error) json.Value {
+	return func(wire []byte, err error) json.Value {
+		t.Helper()
+		if err != nil {
+			t.Fatalf("the writer refused: %v", err)
+		}
+		v, err := json.ReadWire(wire)
+		if err != nil {
+			t.Fatalf("the wire bytes do not read: %v", err)
+		}
+		return v
+	}
+}
+
+// canonical returns v's wire bytes, failing t if the writer refuses it.
+func canonical(t *testing.T, v json.Value) []byte {
+	t.Helper()
+	b, err := json.Wire(v)
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	return b
 }
 
 // refused checks a read of case c's file against the case: the reader refuses the file exactly when the case

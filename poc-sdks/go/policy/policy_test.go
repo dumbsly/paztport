@@ -291,6 +291,51 @@ func TestVerifiesUnderPinOnly(t *testing.T) {
 	}
 }
 
+// TestKeyringBuiltInCode holds a keyring built in code to the route-node rule the reader applies: one that
+// names a service a/b, though the policy key signed it, neither verifies nor decodes.
+func TestKeyringBuiltInCode(t *testing.T) {
+	priv, pub := vectors.V3Key(t, "client-policy")
+	pin := keys.EncodePublic(pub)
+	for _, name := range []string{"a/b", "..", "", "a|b", "\xed\xa0\x80"} {
+		services := map[string]string{"pi": pin, name: pin}
+		msg, err := policy.KeyringSigningBytes(pin, services, 1)
+		if err != nil {
+			if name == "\xed\xa0\x80" {
+				continue // no signing bytes, so nothing to sign
+			}
+			t.Fatal(err)
+		}
+		sig, err := keys.Sign(priv, msg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kf := policy.KeyringFile{Services: services, Policy: pin, Sig: b64.Encode(sig), NotAfter: 1}
+		if kf.Verifies(pin) {
+			t.Errorf("a keyring naming the service %+q verifies", name)
+		}
+		if k, err := kf.Keyring(); err == nil {
+			t.Errorf("a keyring naming the service %+q decodes to %v", name, k)
+		}
+	}
+	// The same keyring with valid names, signed the same way, verifies and decodes.
+	services := map[string]string{"pi": pin, "gateway": pin}
+	msg, err := policy.KeyringSigningBytes(pin, services, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sig, err := keys.Sign(priv, msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kf := policy.KeyringFile{Services: services, Policy: pin, Sig: b64.Encode(sig), NotAfter: 1}
+	if !kf.Verifies(pin) {
+		t.Fatal("a keyring signed here does not verify")
+	}
+	if _, err := kf.Keyring(); err != nil {
+		t.Fatalf("Keyring: %v", err)
+	}
+}
+
 func TestCurrent(t *testing.T) {
 	for _, c := range []struct {
 		now, notAfter int64
@@ -312,7 +357,7 @@ func TestCurrent(t *testing.T) {
 }
 
 // TestRootReads reads a root as a file and from a value, as a session message holds one, and refuses one
-// with any member but its four.
+// with any member but its four or bytes that are not canonical.
 func TestRootReads(t *testing.T) {
 	c := vectors.Load(t, "v3.json").Get("root").Index(0)
 	file := c.Get("file").Str()
@@ -320,9 +365,19 @@ func TestRootReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := policy.ReadRoot(root.Value())
+	wire, err := root.Wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"notAfter":1798761600000,"root":"` + root.Root + `","rootId":"` + root.RootID + `","sig":"` + root.Sig + `"}`; string(wire) != want {
+		t.Fatalf("Wire = %s, want %s", wire, want)
+	}
+	read, err := policy.ParseRoot(wire)
 	if err != nil || read != root {
-		t.Fatalf("ReadRoot(Value()) = %+v, %v; want %+v", read, err, root)
+		t.Fatalf("ParseRoot(Wire()) = %+v, %v; want %+v", read, err, root)
+	}
+	if r, err := policy.ParseRoot([]byte(file)); err == nil {
+		t.Errorf("ParseRoot read the file form, which is not canonical, as %+v", r)
 	}
 	b, err := root.Bytes()
 	if err != nil || len(b) != 32 {
@@ -334,41 +389,50 @@ func TestRootReads(t *testing.T) {
 		t.Error("Bytes decoded a root that is not canonical base64url")
 	}
 
+	good := readBack(t)(wire, nil)
 	for _, v := range []json.Value{
 		json.Null(),
 		json.S(file),
 		json.Obj(),
-		withMember(root.Value(), "extra", json.S("x")),
-		withMember(root.Value(), "rootId", json.Null()),
-		withMember(root.Value(), "notAfter", json.S("1798761600000")),
-		withMember(root.Value(), "root", json.I(1)),
-		withMember(root.Value(), "sig", json.Arr()),
+		withMember(good, "extra", json.S("x")),
+		withMember(good, "rootId", json.Null()),
+		withMember(good, "notAfter", json.S("1798761600000")),
+		withMember(good, "root", json.I(1)),
+		withMember(good, "sig", json.Arr()),
 	} {
-		if r, err := policy.ReadRoot(v); err == nil {
-			t.Errorf("ReadRoot kept %+v", r)
+		if r, err := policy.ParseRoot(canonical(t, v)); err == nil {
+			t.Errorf("ParseRoot kept %+v", r)
 		}
 	}
 }
 
-// TestReplyCertReads reads a certificate from a value, as a session reply holds one.
+// TestReplyCertReads reads a certificate from its wire bytes, as a session reply carries one.
 func TestReplyCertReads(t *testing.T) {
 	cert, err := policy.ParseReplyCertFile([]byte(vectors.Load(t, "v3.json").Get("replyCert").Index(0).Get("file").Str()))
 	if err != nil {
 		t.Fatal(err)
 	}
-	read, err := policy.ReadReplyCert(cert.Value())
-	if err != nil || read != cert {
-		t.Fatalf("ReadReplyCert(Value()) = %+v, %v; want %+v", read, err, cert)
+	wire, err := cert.Wire()
+	if err != nil {
+		t.Fatal(err)
 	}
+	read, err := policy.ParseReplyCert(wire)
+	if err != nil || read != cert {
+		t.Fatalf("ParseReplyCert(Wire()) = %+v, %v; want %+v", read, err, cert)
+	}
+	good := readBack(t)(wire, nil)
 	for _, name := range []string{"key", "notAfter", "policy", "sig", "svc"} {
-		if _, err := policy.ReadReplyCert(withMember(cert.Value(), name, json.Null())); err == nil {
-			t.Errorf("ReadReplyCert kept a null %s", name)
+		if _, err := policy.ParseReplyCert(canonical(t, withMember(good, name, json.Null()))); err == nil {
+			t.Errorf("ParseReplyCert kept a null %s", name)
 		} else if !strings.Contains(err.Error(), `"`+name+`"`) {
 			t.Errorf("the refusal of a null %s does not name it: %v", name, err)
 		}
 	}
-	if _, err := policy.ReadReplyCert(withMember(cert.Value(), "note", json.S("x"))); err == nil {
-		t.Error("ReadReplyCert kept an extra member")
+	if _, err := policy.ParseReplyCert(canonical(t, withMember(good, "note", json.S("x")))); err == nil {
+		t.Error("ParseReplyCert kept an extra member")
+	}
+	if _, err := policy.ParseReplyCert(append(wire, ' ')); err == nil {
+		t.Error("ParseReplyCert read bytes that are not canonical")
 	}
 }
 
@@ -397,9 +461,9 @@ func proof(t *testing.T, route string) (policy.Proof, []byte) {
 
 func mustProof(t *testing.T, v json.Value) policy.Proof {
 	t.Helper()
-	p, err := policy.ProofFromValue(v)
+	p, err := policy.ParseProof(canonical(t, v))
 	if err != nil {
-		t.Fatalf("ProofFromValue: %v", err)
+		t.Fatalf("ParseProof: %v", err)
 	}
 	return p
 }
@@ -458,7 +522,7 @@ func TestProofVerifyRefuses(t *testing.T) {
 // TestReadProofRefuses reads proofs that break the proof object's rules. A refusal quotes none of it.
 func TestReadProofRefuses(t *testing.T) {
 	p, _ := proof(t, "gateway/orders")
-	good := p.Value()
+	good := readBack(t)(p.Wire())
 	sibling := json.S(b64.Encode(p.Siblings[0]))
 	salt := b64.Encode(p.LeafSalt)
 	siblings := func(items ...json.Value) json.Value { return withMember(good, "siblings", json.Arr(items...)) }
@@ -491,13 +555,13 @@ func TestReadProofRefuses(t *testing.T) {
 		} else if strings.Contains(err.Error(), salt) || strings.Contains(err.Error(), "secret") {
 			t.Errorf("%s: the refusal quotes the proof: %v", name, err)
 		}
-		if _, err := policy.ProofFromValue(v); err == nil {
-			t.Errorf("%s: ProofFromValue kept it", name)
+		if _, err := policy.ParseProof(canonical(t, v)); err == nil {
+			t.Errorf("%s: ParseProof kept it", name)
 		}
 	}
 
-	// A token is the base64url of the proof's canonical bytes, and nothing else.
-	w, err := json.Wire(good)
+	// Wire bytes, and a token of them, are the proof's canonical bytes and nothing else.
+	w, err := p.Wire()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,6 +581,9 @@ func TestReadProofRefuses(t *testing.T) {
 	} {
 		if _, err := policy.ReadProof(b64.Encode(b)); err == nil {
 			t.Errorf("ReadProof read a token with %s", name)
+		}
+		if _, err := policy.ParseProof(b); err == nil {
+			t.Errorf("ParseProof read wire bytes with %s", name)
 		}
 	}
 	if _, err := policy.ReadProof(b64.Encode(w) + "="); err == nil {

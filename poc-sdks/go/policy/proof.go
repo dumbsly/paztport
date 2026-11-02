@@ -37,25 +37,24 @@ var (
 	errSibling   = errors.New(`the member "siblings" holds a value that is not 32 bytes of canonical base64url`)
 )
 
-// ReadProof reads a proof from its token, the base64url of its canonical bytes, by the checks of the
-// spec's proof object that need no root: ProofFromValue's.
+// ReadProof reads a proof from its token, the base64url of its wire bytes, as ParseProof reads the bytes.
 func ReadProof(tok string) (Proof, error) {
 	v, err := json.ReadToken(tok)
-	if err != nil {
-		return Proof{}, malformed("proof", err)
+	if err == nil {
+		var p Proof
+		if p, err = proofFromValue(v); err == nil {
+			return p, nil
+		}
 	}
-	return ProofFromValue(v)
+	return Proof{}, malformed("proof", err)
 }
 
-// ProofFromValue reads a proof from a value already read, as a proof bundle holds one. The value is an
-// object of exactly the strings dirs, leafSalt and rootId and siblings, an array of strings; leafSalt is
-// canonical base64url of 16 bytes and each sibling of 32, and dirs holds one 'L' or 'R' for each sibling.
-func ProofFromValue(v json.Value) (Proof, error) {
-	p, err := proofFromValue(v)
-	if err != nil {
-		return Proof{}, malformed("proof", err)
-	}
-	return p, nil
+// ParseProof reads a proof from its wire bytes, its canonical bytes, by the checks of the spec's proof
+// object that need no root. The bytes hold an object of exactly the strings dirs, leafSalt and rootId and
+// siblings, an array of strings; leafSalt is canonical base64url of 16 bytes and each sibling of 32, and
+// dirs holds one 'L' or 'R' for each sibling.
+func ParseProof(wire []byte) (Proof, error) {
+	return parseWire(wire, "proof", proofFromValue)
 }
 
 func proofFromValue(v json.Value) (Proof, error) {
@@ -113,6 +112,8 @@ func (p Proof) Verify(route string, root []byte) bool {
 		return false
 	}
 	for i, sibling := range p.Siblings {
+		// Without a collision only a 32-byte sibling can reach a root, so this length check is defence in
+		// depth, as is keys.Verify's of a signature.
 		if len(sibling) != sha256.Size {
 			return false
 		}
@@ -127,15 +128,19 @@ func (p Proof) Verify(route string, root []byte) bool {
 
 // Token returns p's token, the base64url of its canonical bytes, as it travels in a header.
 func (p Proof) Token() (string, error) {
-	tok, err := json.Token(p.Value())
+	tok, err := json.Token(p.value())
 	if err != nil {
 		return "", fmt.Errorf("paztport policy: the proof can't be written: %w", err)
 	}
 	return tok, nil
 }
 
-// Value returns p as an object, as a proof bundle holds it.
-func (p Proof) Value() json.Value {
+// Wire returns p's wire bytes, its canonical bytes.
+func (p Proof) Wire() ([]byte, error) {
+	return wire("proof", p.value())
+}
+
+func (p Proof) value() json.Value {
 	siblings := make([]json.Value, len(p.Siblings))
 	for i, s := range p.Siblings {
 		siblings[i] = json.S(b64.Encode(s))

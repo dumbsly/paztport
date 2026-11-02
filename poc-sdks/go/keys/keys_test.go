@@ -5,6 +5,7 @@ package keys_test
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"errors"
 	"io/fs"
 	"os"
@@ -121,7 +122,7 @@ func TestLoad(t *testing.T) {
 	k := vectors.Load(t, "v3.json").Get("keys").Get("pi")
 	priv, _ := vectors.V3Key(t, "pi")
 	dir := t.TempDir()
-	keyFile := write(t, dir, "pi.key", "\n  "+k.Get("priv").Str()+"\r\n\t")
+	keyFile := write(t, dir, "pi.key", "\r\n\t "+k.Get("priv").Str()+"\r\n\t ")
 	pinFile := write(t, dir, "policy.pub", " "+k.Get("pub").Str()+"\n")
 
 	got, err := keys.LoadPrivate(keyFile)
@@ -137,6 +138,25 @@ func TestLoad(t *testing.T) {
 	}
 	if pin != k.Get("pub").Str() {
 		t.Fatalf("LoadPin = %q, want the trimmed text", pin)
+	}
+
+	// Only space, tab, line feed and carriage return are trimmed: a key beside any other whitespace, such as
+	// a vertical tab or U+00A0, is refused, and a pin keeps it.
+	for name, around := range map[string]string{
+		"a vertical tab": "\x0b",
+		"a form feed":    "\x0c",
+		"U+00A0":         "\xc2\xa0",
+		"U+0085":         "\xc2\x85",
+		"U+3000":         "\xe3\x80\x80",
+	} {
+		file := write(t, dir, "around.key", around+k.Get("priv").Str()+around)
+		if _, err := keys.LoadPrivate(file); err == nil {
+			t.Errorf("LoadPrivate read a key surrounded by %s", name)
+		}
+		pinText := around + k.Get("pub").Str() + "\n"
+		if pin, err := keys.LoadPin(write(t, dir, "around.pub", pinText)); err != nil || pin != pinText[:len(pinText)-1] {
+			t.Errorf("LoadPin = %+q, %v; want the text with %s kept", pin, err, name)
+		}
 	}
 
 	// A pin is text, not decoded: whatever the file holds, trimmed, is the pin.
@@ -157,6 +177,41 @@ func TestLoad(t *testing.T) {
 	}
 	if _, err := keys.LoadPin(missing); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("LoadPin of a missing file = %v, want fs.ErrNotExist", err)
+	}
+}
+
+// TestSignVerify signs and verifies, and refuses keys and signatures of the wrong length, where ed25519's own
+// functions would panic, without panicking.
+func TestSignVerify(t *testing.T) {
+	priv, pub := vectors.V3Key(t, "pi")
+	msg := []byte("paztport")
+	sig, err := keys.Sign(priv, msg)
+	if err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	if !bytes.Equal(sig, ed25519.Sign(priv, msg)) {
+		t.Fatal("Sign gave another signature than ed25519.Sign")
+	}
+	if !keys.Verify(pub, msg, sig) {
+		t.Fatal("Verify refused a good signature")
+	}
+	if keys.Verify(pub, []byte("paztporT"), sig) {
+		t.Error("Verify accepted a signature over another message")
+	}
+	for _, key := range []ed25519.PublicKey{nil, pub[:31], append(bytes.Clone(pub), 0)} {
+		if keys.Verify(key, msg, sig) {
+			t.Errorf("Verify accepted a %d-byte key", len(key))
+		}
+	}
+	for _, s := range [][]byte{nil, sig[:63], append(bytes.Clone(sig), 0)} {
+		if keys.Verify(pub, msg, s) {
+			t.Errorf("Verify accepted a %d-byte signature", len(s))
+		}
+	}
+	for _, key := range []ed25519.PrivateKey{nil, priv[:63], priv.Seed()} {
+		if s, err := keys.Sign(key, msg); err == nil {
+			t.Errorf("Sign signed with a %d-byte key: %x", len(key), s)
+		}
 	}
 }
 
