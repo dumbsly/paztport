@@ -63,7 +63,8 @@
     </dependencyManagement>
 
     <build>
-        <!-- Every jar carries the root LICENSE and NOTICE in META-INF, beside its own resources. -->
+        <!-- Every jar carries the root LICENSE and NOTICE in META-INF, beside its own resources; the test
+             resources too, for the test jars core and http attach. -->
         <resources>
             <resource>
                 <directory>${project.basedir}/src/main/resources</directory>
@@ -77,6 +78,19 @@
                 </includes>
             </resource>
         </resources>
+        <testResources>
+            <testResource>
+                <directory>${project.basedir}/src/test/resources</directory>
+            </testResource>
+            <testResource>
+                <directory>${paztport.root}</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                </includes>
+            </testResource>
+        </testResources>
 
         <pluginManagement>
             <plugins>

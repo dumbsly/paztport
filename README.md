@@ -599,10 +599,9 @@ The script runs the license plugin in both Java trees, the SDK and the mesh demo
 (which adds docker-java and its dependencies, and Spring Boot's loader), and merges
 the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
 
-Every library, tool and app jar the build produces carries `META-INF/LICENSE` (the
-Apache-2.0 text) and `META-INF/NOTICE`. The ones that bundle third-party code, the
-shaded `keygen.jar` and `policy-tool.jar` and the mesh demo's nine Spring Boot jars,
-also carry:
+Every jar the build produces carries `META-INF/LICENSE` (the Apache-2.0 text) and
+`META-INF/NOTICE`. The ones that bundle third-party code, the shaded `keygen.jar` and
+`policy-tool.jar` and the mesh demo's nine Spring Boot jars, also carry:
 
 - `META-INF/THIRD-PARTY.txt`: exactly what that jar bundles, each component with the
   licence it is used under and its Maven Central coordinates. Its header says the
@@ -613,12 +612,13 @@ also carry:
 
 A Boot jar keeps each library whole under `BOOT-INF/lib`, with the library's own
 files. Spring Boot's loader is unpacked at the jar root instead, so the jar's NOTICE
-adds Spring Boot's. The libraries, the bench jar and the tools' unshaded module jars
-bundle nothing and carry just the two files. `./run test` checks every one of these
-jars. The mesh demo's images are `eclipse-temurin:25-jre` with one of the jars added,
-so an image's licences are the base image's (the Temurin JRE and its operating
-system packages) plus those its jar carries. The TypeScript packages bundle nothing;
-npm installs their dependencies as published.
+adds Spring Boot's. The libraries, the test jars of core and http, the bench jar and
+the tools' unshaded module jars bundle nothing and carry just the two files.
+`./run test` checks every one of these jars. The mesh demo's images are
+`eclipse-temurin:25-jre` with one of the jars added, so an image's licences are the
+base image's (the Temurin JRE and its operating system packages) plus those its jar
+carries. The TypeScript packages bundle nothing; npm installs their dependencies as
+published.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the

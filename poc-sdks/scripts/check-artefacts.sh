@@ -11,8 +11,8 @@
 # unpacked. A jar that bundles nothing carries neither THIRD-PARTY.txt nor META-INF/licenses/. No jar holds
 # JMH, and every entry in the root THIRD-PARTY.txt names one licence.
 #
-# Usage: check-artefacts.sh [jar ...]. With no jar, it checks every jar the two Java trees build (not test
-# jars), so build both first. Components a jar holds unpacked are read from the local Maven repository.
+# Usage: check-artefacts.sh [jar ...]. With no jar, it checks every jar the two Java trees build, so build
+# both first. Components a jar holds unpacked are read from the local Maven repository.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -176,7 +176,7 @@ if [ $# -gt 0 ]; then
 else
   jars=()
   while IFS= read -r jar; do jars+=("$jar"); done < <(
-    find "$root/poc-sdks/java" "$root/poc-demos/java-mesh" -type f -path '*/target/*.jar' ! -name '*-tests.jar' \
+    find "$root/poc-sdks/java" "$root/poc-demos/java-mesh" -type f -path '*/target/*.jar' \
       | grep '/target/[^/]*$' | LC_ALL=C sort)
   if [ ${#jars[@]} -eq 0 ]; then
     echo "check-artefacts: no jars under poc-sdks/java or poc-demos/java-mesh; build both trees first" >&2
