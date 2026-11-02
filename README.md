@@ -584,7 +584,7 @@ no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime
 dependencies of both Java trees, each with the licence it is used under. All of
 them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence) or weak
 copyleft that is fine to redistribute unmodified (EPL-2.0), except JMH (below).
-Three of them offer a choice of licence, recorded in
+Three components offer a choice of licence, recorded in
 [licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
 LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
 are used under EPL-2.0, and JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0.
@@ -604,9 +604,9 @@ Every jar the build produces carries `META-INF/LICENSE` (the Apache-2.0 text) an
 `policy-tool.jar` and the mesh demo's nine Spring Boot jars, also carry:
 
 - `META-INF/THIRD-PARTY.txt`: exactly what that jar bundles, each component with the
-  licence it is used under and its Maven Central coordinates. Its header says the
-  source is the `-sources.jar` published there, the statement EPL-2.0 asks a binary
-  to come with.
+  licence it is used under and its Maven Central coordinates. Its header says how
+  to get each component's source (the `-sources.jar` at those coordinates), which
+  EPL-2.0 requires of a binary.
 - `META-INF/licenses/`: the text of each licence in that list other than Apache-2.0,
   when there is one.
 
@@ -614,11 +614,12 @@ A Boot jar keeps each library whole under `BOOT-INF/lib`, with the library's own
 files. Spring Boot's loader is unpacked at the jar root instead, so the jar's NOTICE
 adds Spring Boot's. The libraries, the test jars of core and http, the bench jar and
 the tools' unshaded module jars bundle nothing and carry just the two files.
-`./run test` checks every one of these jars. The mesh demo's images are
-`eclipse-temurin:25-jre` with one of the jars added, so an image's licences are the
-base image's (the Temurin JRE and its operating system packages) plus those its jar
-carries. The TypeScript packages bundle nothing; npm installs their dependencies as
-published.
+`./run test` checks every one of these jars.
+
+The mesh demo's images are `eclipse-temurin:25-jre` with one of the jars added, so an
+image's licences are the base image's (the Temurin JRE and its operating system
+packages) plus those its jar carries. The TypeScript packages bundle nothing; npm
+installs their dependencies as published.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
