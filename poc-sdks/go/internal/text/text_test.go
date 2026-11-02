@@ -60,9 +60,9 @@ func TestHasNoncharacter(t *testing.T) {
 		want bool
 	}{
 		{"", false},
-		{"plain �", false},
-		{"a￾b", true},
-		{"﷐", true},
+		{"plain \uFFFD", false},
+		{"a\uFFFEb", true},
+		{"\uFDD0", true},
 		{"end \U0010FFFF", true},
 	} {
 		if got := text.HasNoncharacter(tc.s); got != tc.want {

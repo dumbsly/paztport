@@ -89,12 +89,15 @@ func TestStrKeepsLoneSurrogates(t *testing.T) {
 	for _, tc := range []struct{ lit, want string }{
 		{`"\ud800"`, "\xed\xa0\x80"},
 		{`"\uDFFF"`, "\xed\xbf\xbf"},
-		{`"😀"`, "\U0001F600"},
-		{`"\ud83d😀"`, "\xed\xa0\xbd\U0001F600"},
+		{`"\ud83d\ude00"`, "\U0001F600"},
+		{`"\uD83D\uDE00"`, "\U0001F600"},
+		{`"\udbff\udfff"`, "\U0010FFFF"},
+		{`"\ud800\ud800"`, "\xed\xa0\x80\xed\xa0\x80"},
+		{`"\ud83d\ud83d\ude00"`, "\xed\xa0\xbd\U0001F600"},
 		{`"\ude00\ud83d"`, "\xed\xb8\x80\xed\xa0\xbd"},
 		{`"\ud800x"`, "\xed\xa0\x80x"},
-		{`"\ud800A"`, "\xed\xa0\x80A"},
-		{`"é é \u0000"`, "é é \x00"},
+		{`"\ud800\u0041"`, "\xed\xa0\x80A"},
+		{`"\u00e9 é \u0000"`, "é é \x00"},
 		{`"\"\\\/\b\f\n\r\t"`, "\"\\/\b\f\n\r\t"},
 		{`"\\ud800"`, `\ud800`},
 	} {
@@ -109,15 +112,23 @@ func TestStrKeepsLoneSurrogates(t *testing.T) {
 }
 
 func TestMemberNamesAreDecoded(t *testing.T) {
-	n := inline(t, `{"a\ud800": 1}`)
+	n := inline(t, `{"\u0061\ud800": 1}`)
 	if got := n.Names(); len(got) != 1 || got[0] != "a\xed\xa0\x80" {
 		t.Fatalf("Names = %q", got)
 	}
 }
 
 func TestRepeatedNameIsRefused(t *testing.T) {
-	if _, err := parse("inline", []byte(`{"a": 1, "a": 2}`)); err == nil {
+	if _, err := parse("inline", []byte(`{"a": 1, "\u0061": 2}`)); err == nil {
 		t.Fatal("parse accepted a repeated member name")
+	}
+}
+
+func TestTextAfterTheValueIsRefused(t *testing.T) {
+	for _, text := range []string{`{} {}`, `[] 1`, `"a" "b"`} {
+		if _, err := parse("inline", []byte(text)); err == nil {
+			t.Errorf("parse accepted %s", text)
+		}
 	}
 }
 
