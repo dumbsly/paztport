@@ -11,10 +11,11 @@ import (
 )
 
 // Status returns the status a server gives the session req opens, "attested" or "unsafe", against its own
-// root ownRoot and keyring ownKeyring, its policy key ownPolicyKey, the client policy keys it pinned, and
-// its clock's now. The session is attested only when all of these hold, and unsafe otherwise:
+// root ownRoot (nil when the server has none) and keyring ownKeyring, its policy key ownPolicyKey, the
+// client policy keys it pinned, and its clock's now. The session is attested only when all of these hold,
+// and unsafe otherwise:
 //
-//   - the request has a client root;
+//   - the request has a client root, and the server a root of its own;
 //   - the client root verifies under the request's policy key, and ownRoot under ownPolicyKey;
 //   - the request's policy key is one of pinned;
 //   - the request's keyring, with its window, verifies under its policy key (see Request.KeyringFile);
@@ -25,9 +26,9 @@ import (
 // ownPolicyKey when it loaded it, and passes that keyring and no other. A server whose own root or keyring
 // has expired therefore opens every new session unsafe, and goes on serving unattested callers rather than
 // stopping. Status never panics.
-func Status(req Request, ownRoot policy.Root, ownKeyring policy.KeyringFile, ownPolicyKey string, pinned []string,
+func Status(req Request, ownRoot *policy.Root, ownKeyring policy.KeyringFile, ownPolicyKey string, pinned []string,
 	now int64) string {
-	if req.ClientRoot == nil || !slices.Contains(pinned, req.ClientPolicyKey) {
+	if req.ClientRoot == nil || ownRoot == nil || !slices.Contains(pinned, req.ClientPolicyKey) {
 		return unsafe
 	}
 	clientKey, err := keys.ParsePublic(req.ClientPolicyKey)

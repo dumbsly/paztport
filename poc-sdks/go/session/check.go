@@ -95,7 +95,10 @@ func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) C
 func replySigner(r Reply, pinKey ed25519.PublicKey, pin, serverEntry string, now int64) (ed25519.PublicKey, bool) {
 	hasRingSig, hasCert := r.ServerKeyringSig != nil, r.ServerReplyCert != nil
 	if !hasRingSig && !hasCert {
-		return pinKey, r.ServerKeyringNotAfter == nil
+		if r.ServerKeyringNotAfter != nil {
+			return nil, false
+		}
+		return pinKey, true
 	}
 	if !hasRingSig || !hasCert {
 		return nil, false

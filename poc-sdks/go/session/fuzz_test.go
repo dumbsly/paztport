@@ -10,7 +10,6 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
-	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 )
 
@@ -83,10 +82,6 @@ func FuzzParseRequest(f *testing.F) {
 		}
 		session.OpensSession(req)
 		// The client's own material, standing in for the server's, so that Status can reach every check.
-		var own policy.Root
-		if req.ClientRoot != nil {
-			own = *req.ClientRoot
-		}
-		session.Status(req, own, req.KeyringFile(), req.ClientPolicyKey, []string{req.ClientPolicyKey}, 0)
+		session.Status(req, req.ClientRoot, req.KeyringFile(), req.ClientPolicyKey, []string{req.ClientPolicyKey}, 0)
 	})
 }

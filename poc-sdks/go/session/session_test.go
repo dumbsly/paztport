@@ -608,8 +608,9 @@ func TestDeriveIDLengths(t *testing.T) {
 	}
 }
 
-// TestStatus checks the server's status beyond the cases v3.json pins: no client root, an own root that
-// does not verify under the server's own policy key, and no pinned client key.
+// TestStatus checks the server's status beyond the cases v3.json pins: no client root, no root of the
+// server's own, an own root that does not verify under the server's own policy key, and no pinned client
+// key.
 func TestStatus(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	var c vectors.Node
@@ -632,16 +633,17 @@ func TestStatus(t *testing.T) {
 	}
 	own, client := pub(t, v3, "server-policy"), pub(t, v3, "client-policy")
 	now := c.Get("now").Int()
-	if got := session.Status(req, root, kf, own, []string{client}, now); got != "attested" {
+	if got := session.Status(req, &root, kf, own, []string{client}, now); got != "attested" {
 		t.Fatalf("Status = %q for the attested case", got)
 	}
 	noRoot := req
 	noRoot.ClientRoot = nil
 	for name, got := range map[string]string{
-		"no client root":                    session.Status(noRoot, root, kf, own, []string{client}, now),
-		"its own root under another key":    session.Status(req, root, kf, client, []string{client}, now),
-		"its own policy key that is no key": session.Status(req, root, kf, "key", []string{client}, now),
-		"no pinned client key":              session.Status(req, root, kf, own, nil, now),
+		"no client root":                    session.Status(noRoot, &root, kf, own, []string{client}, now),
+		"no root of its own":                session.Status(req, nil, kf, own, []string{client}, now),
+		"its own root under another key":    session.Status(req, &root, kf, client, []string{client}, now),
+		"its own policy key that is no key": session.Status(req, &root, kf, "key", []string{client}, now),
+		"no pinned client key":              session.Status(req, &root, kf, own, nil, now),
 	} {
 		if got != "unsafe" {
 			t.Errorf("%s: Status = %q, want unsafe", name, got)

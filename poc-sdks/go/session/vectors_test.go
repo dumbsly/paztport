@@ -165,7 +165,7 @@ func TestStatusVectors(t *testing.T) {
 			c.Get("pinned").Each(func(_ string, name vectors.Node) { pinned = append(pinned, pub(t, v3, name.Str())) })
 			want := c.Get("expected").Str()
 			seen[want]++
-			if got := session.Status(req, root, kf, own, pinned, c.Get("now").Int()); got != want {
+			if got := session.Status(req, &root, kf, own, pinned, c.Get("now").Int()); got != want {
 				t.Fatalf("Status = %q, want %q", got, want)
 			}
 		})
