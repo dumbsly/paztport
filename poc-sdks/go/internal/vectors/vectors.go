@@ -413,11 +413,7 @@ var keyFiles = []string{"v3.json", "events.json", "http-v3.json"}
 // and every file that lists it gives this key's priv (PKCS#8) and pub (SPKI) as base64url.
 func V3Key(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 	t.Helper()
-	seed := sha256.Sum256([]byte("paztport-v3-vector-key:" + name))
-	priv := ed25519.NewKeyFromSeed(seed[:])
-	pub := priv.Public().(ed25519.PublicKey)
-	wantPriv := base64.RawURLEncoding.EncodeToString([]byte(pkcs8Prefix + string(seed[:])))
-	wantPub := base64.RawURLEncoding.EncodeToString([]byte(spkiPrefix + string(pub)))
+	priv, pub, wantPriv, wantPub := derivedKey(name)
 	listed := false
 	for _, file := range keyFiles {
 		keys := Load(t, file).Get("keys")
@@ -434,4 +430,15 @@ func V3Key(t testing.TB, name string) (ed25519.PrivateKey, ed25519.PublicKey) {
 		t.Fatalf("vectors: no vector file lists the key %q", name)
 	}
 	return priv, pub
+}
+
+// derivedKey returns the vector key called name, derived by v3.json's rule, and its priv (PKCS#8) and pub
+// (SPKI) as a keys section gives them, in base64url.
+func derivedKey(name string) (priv ed25519.PrivateKey, pub ed25519.PublicKey, privText, pubText string) {
+	seed := sha256.Sum256([]byte("paztport-v3-vector-key:" + name))
+	priv = ed25519.NewKeyFromSeed(seed[:])
+	pub = priv.Public().(ed25519.PublicKey)
+	privText = base64.RawURLEncoding.EncodeToString([]byte(pkcs8Prefix + string(seed[:])))
+	pubText = base64.RawURLEncoding.EncodeToString([]byte(spkiPrefix + string(pub)))
+	return priv, pub, privText, pubText
 }
