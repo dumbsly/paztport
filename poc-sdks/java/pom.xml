@@ -40,7 +40,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>4.1.1</spring.boot.version>
         <!-- The repository root, which holds LICENSE, NOTICE and licenses/. Maven sets
-             maven.multiModuleProjectDirectory to this tree's root, the directory holding .mvn/. -->
+             maven.multiModuleProjectDirectory to the nearest directory holding .mvn/, so the empty
+             .mvn/maven.config is there to mark this tree's root. -->
         <paztport.root>${maven.multiModuleProjectDirectory}/../..</paztport.root>
     </properties>
 
@@ -129,9 +130,9 @@
                                 <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
                             </configuration>
                         </execution>
-                        <!-- A module whose jar bundles its dependencies declares this plugin, and its jar carries
+                        <!-- A module whose jar bundles its dependencies declares this plugin to give that jar
                              META-INF/THIRD-PARTY.txt and META-INF/licenses/. Both are written under
-                             target/third-party, which add-third-party adds to the jar's resources (its .txt files). -->
+                             target/third-party, which add-third-party adds to the module's resources (its .txt files). -->
                         <execution>
                             <id>bundled-licences</id>
                             <phase>generate-resources</phase>

@@ -46,6 +46,18 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
             </plugin>
+            <!-- The module jar holds the tool's own classes and bundles nothing, so it leaves out the bundled
+                 components' list and licence texts; the shaded jar below adds them. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>META-INF/THIRD-PARTY.txt</exclude>
+                        <exclude>META-INF/licenses/**</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -85,6 +97,12 @@
                                      that has one. -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
                                     <resource>META-INF/NOTICE</resource>
+                                </transformer>
+                                <!-- What this jar bundles, from the license plugin. Every component is Apache-2.0, whose
+                                     text is META-INF/LICENSE, so there is no other licence text to add. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
+                                    <resource>META-INF/THIRD-PARTY.txt</resource>
+                                    <file>${project.build.directory}/third-party/META-INF/THIRD-PARTY.txt</file>
                                 </transformer>
                             </transformers>
                         </configuration>
