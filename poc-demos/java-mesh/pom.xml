@@ -110,6 +110,20 @@
                         <includeTools>false</includeTools>
                     </configuration>
                 </plugin>
+                <!-- Every app bundles Logback and Jakarta Annotations, and responder JNA, each under the licence
+                     licenses/overrides.properties elects. -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>license-maven-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <id>bundled-licences</id>
+                            <configuration>
+                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
                 <!-- The app's NOTICE: Paztport's, then Spring Boot's from the loader, whose classes the jar holds
                      unpacked. The libraries in BOOT-INF/lib are nested whole and keep their own NOTICE files. -->
                 <plugin>

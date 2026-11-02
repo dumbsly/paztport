@@ -125,8 +125,6 @@
                         <excludedScopes>test,system,provided</excludedScopes>
                         <excludedGroups>^org\.paztport</excludedGroups>
                         <sortArtifactByName>true</sortArtifactByName>
-                        <!-- The one licence each dual-licensed component is used under. -->
-                        <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
                         <licenseMerges>
                             <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|The Apache License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
                             <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
@@ -143,6 +141,10 @@
                             <configuration>
                                 <outputDirectory>${project.build.directory}</outputDirectory>
                                 <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
+                                <!-- The one licence each dual-licensed component is used under. The plugin warns
+                                     for each component the file names and a build lacks, so only the executions
+                                     that list one read it: this one, and the mesh demo's bundled-licences. -->
+                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
                             </configuration>
                         </execution>
                         <!-- A module whose jar bundles its dependencies declares this plugin to give that jar
