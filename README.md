@@ -525,7 +525,7 @@ for the mesh demo, and Node 22.19 or newer with npm for the TypeScript side. mac
 and Linux; on Windows use WSL.
 
 ```bash
-./run test        # the name and link checks, the TypeScript type checks, then every suite; no Docker and no model
+./run test        # the name and link checks, the TypeScript type checks, every suite and a check of the built jars; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
@@ -545,7 +545,7 @@ paztport/
 ├── run                       front door: java-mesh, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which both SDKs replay (Java all of it but the MCP profile); http-v3, Java's only
-│   ├── scripts/              name check, link check, tests for ./run, THIRD-PARTY.txt regeneration
+│   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool, tools/bench
 │   └── typescript/           @paztport/core, @paztport/mcp, policy-tool
 └── poc-demos/
@@ -578,11 +578,16 @@ everyone who builds on this, including commercially. The idea is meant to stay
 open: anyone can implement, extend, or sell path attestation, and the only
 request is that improvements flow back into the open where they can.
 
-The source repository bundles no third-party code. Built artifacts do, and
-[THIRD-PARTY.txt](THIRD-PARTY.txt) lists every runtime dependency with its license.
-All of them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence)
-or weak copyleft that is fine to redistribute unmodified (Logback, JNA, Jakarta
-Annotations; JMH, the benchmark harness, is GPLv2 with the Classpath Exception).
+The repository holds Paztport's source and, in [licenses/](licenses), the text of
+each third-party licence other than Apache-2.0 that a built jar carries. It bundles
+no third-party code. [THIRD-PARTY.txt](THIRD-PARTY.txt) lists the runtime
+dependencies of both Java trees, each with the licence it is used under. All of
+them are permissive (Apache-2.0, MIT, the MIT-style Bouncy Castle licence) or weak
+copyleft that is fine to redistribute unmodified (EPL-2.0), except JMH (below).
+Three of them offer a choice of licence, recorded in
+[licenses/overrides.properties](licenses/overrides.properties): Logback (EPL-2.0 or
+LGPL-2.1) and Jakarta Annotations (EPL-2.0 or GPL-2.0 with the Classpath Exception)
+are used under EPL-2.0, and JNA (Apache-2.0 or LGPL-2.1) under Apache-2.0.
 Regenerate the list after changing dependencies:
 
 ```bash
@@ -591,14 +596,37 @@ poc-sdks/scripts/third-party.sh
 ```
 
 The script runs the license plugin in both Java trees, the SDK and the mesh demo
-(which alone brings docker-java and the services' Spring Boot jars), and merges the
-two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
+(which adds docker-java and its dependencies, and Spring Boot's loader), and merges
+the two lists into `THIRD-PARTY.txt`, sorted by name without duplicates.
+
+Every library, tool and app jar the build produces carries `META-INF/LICENSE` (the
+Apache-2.0 text) and `META-INF/NOTICE`. The ones that bundle third-party code, the
+shaded `keygen.jar` and `policy-tool.jar` and the mesh demo's nine Spring Boot jars,
+also carry:
+
+- `META-INF/THIRD-PARTY.txt`: exactly what that jar bundles, each component with the
+  licence it is used under and its Maven Central coordinates. Its header says the
+  source is the `-sources.jar` published there, the statement EPL-2.0 asks a binary
+  to come with.
+- `META-INF/licenses/`: the text of each licence in that list other than Apache-2.0,
+  when there is one.
+
+A Boot jar keeps each library whole under `BOOT-INF/lib`, with the library's own
+files. Spring Boot's loader is unpacked at the jar root instead, so the jar's NOTICE
+adds Spring Boot's. The libraries, the bench jar and the tools' unshaded module jars
+bundle nothing and carry just the two files. `./run test` checks every one of these
+jars. The mesh demo's images are `eclipse-temurin:25-jre` with one of the jars added,
+so an image's licences are the base image's (the Temurin JRE and its operating
+system packages) plus those its jar carries. The TypeScript packages bundle nothing;
+npm installs their dependencies as published.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the
 responder. None of Paztport's own cryptography uses it; stamps, hashing, salts and
 the certificates' signatures all come from the JDK.
 
-JMH and its two dependencies, JOpt Simple and Apache Commons Math, are in the
-SDK's `tools/bench` jar only, which `./run bench` builds and runs. Neither the SDK
+JMH, the benchmark harness, is GPLv2 with the Classpath Exception. `./run bench` runs
+it from the Maven class path beside the bench module's classes, so no jar bundles it.
+It and its two dependencies, JOpt Simple and Apache Commons Math, are in
+THIRD-PARTY.txt as the bench module's runtime dependencies; neither the SDK
 libraries nor the demos use them.
