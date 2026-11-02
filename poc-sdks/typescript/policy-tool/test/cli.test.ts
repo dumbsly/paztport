@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -613,5 +613,22 @@ describe("policy-tool CLIs", () => {
     const p = run(policy, ["--paths", "x"]);
     expect(p.status).toBe(2);
     expect(p.stderr).toContain("Usage");
+  });
+});
+
+describe("readKey", () => {
+  it("trims the space, tab, line feed and carriage return around a key and nothing else", () => {
+    const dir = mkdtempSync(join(tmpdir(), "paztport-readkey-"));
+    try {
+      const file = join(dir, "svc.key");
+      writeFileSync(file, " \t\r\nabc\n\r\t ");
+      expect(readKey(file)).toBe("abc");
+      for (const c of ["\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"]) {
+        writeFileSync(file, `${c}abc${c}`);
+        expect(readKey(file), c.codePointAt(0)!.toString(16)).toBe(`${c}abc${c}`);
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

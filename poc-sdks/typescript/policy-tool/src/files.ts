@@ -3,13 +3,13 @@
 
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { printFile, type JsonValue, type SignedKeyring } from "@paztport/core";
+import { keyFileText, printFile, type JsonValue, type SignedKeyring } from "@paztport/core";
 
 const DAY_MS = 86_400_000;
 
-/** Reads a base64url PKCS#8 key file, trimming surrounding whitespace. */
+/** Reads a base64url PKCS#8 key file, trimming the surrounding JSON whitespace and nothing else. */
 export function readKey(path: string): string {
-  return readFileSync(path, "utf8").trim();
+  return keyFileText(readFileSync(path, "utf8"));
 }
 
 /** Writes a keyring over `path` in place, in the file format. */

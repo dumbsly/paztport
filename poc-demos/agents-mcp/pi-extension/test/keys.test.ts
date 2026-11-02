@@ -289,4 +289,13 @@ describe("readPin", () => {
     writeFileSync(p, "  abc\n\n");
     expect(readPin(p)).toBe("abc");
   });
+  it("trims exactly the space, tab, line feed and carriage return", () => {
+    const p = join(tmp, "pin-ws.pub");
+    writeFileSync(p, " \t\r\nabc\n\r\t ");
+    expect(readPin(p)).toBe("abc");
+    for (const c of ["\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"]) {
+      writeFileSync(p, `${c}abc${c}`);
+      expect(readPin(p), c.codePointAt(0)!.toString(16)).toBe(`${c}abc${c}`);
+    }
+  });
 });

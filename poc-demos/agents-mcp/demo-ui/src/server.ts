@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSy
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { basename, dirname, extname, join, relative, resolve, sep } from "node:path";
+import { keyFileText } from "@paztport/core";
 import { hasEvidenceFile } from "../../eval/src/crosscheck.ts";
 import { runEval, type EvalOptions, type ResultsFile } from "../../eval/src/eval.ts";
 import { checkModelAvailable, OFF_MODE_COPY, parseModel, runOnce, type LineFile, type ModelRef, type RunMode, type RunResult, type RunSpec } from "../../eval/src/runner.ts";
@@ -166,7 +167,7 @@ function evidenceOf(runDir: string): { evidenceFile: boolean; verifyCommand?: st
 /** The fingerprint of the server policy key the demo's client pins (as results.json records an eval's), or undefined when it can't be read. */
 function serverKeyOf(demoDir: string): { fingerprint: string } | undefined {
   try {
-    return { fingerprint: pinFingerprint(readFileSync(join(demoDir, "client/server-policy.pub"), "utf8").trim()) };
+    return { fingerprint: pinFingerprint(keyFileText(readFileSync(join(demoDir, "client/server-policy.pub"), "utf8"))) };
   } catch {
     return undefined;
   }

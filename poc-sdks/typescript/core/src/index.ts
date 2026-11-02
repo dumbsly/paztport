@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 export * from "./encoding/b64url.ts";
+export { keyFileText } from "./encoding/key-file.ts";
 export * from "./crypto/crypto.ts";
 export { canonicalize, writeToken, writeWire } from "./encoding/jcs.ts";
 export * from "./encoding/json.ts";

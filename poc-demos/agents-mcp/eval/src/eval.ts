@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join, resolve } from "node:path";
+import { keyFileText } from "@paztport/core";
 import { loadScenario } from "../../mock-github-mcp/src/scenario.ts";
 import type { OutcomeRecord } from "../../mock-github-mcp/src/outcome.ts";
 import { collectEnvironment, type Environment } from "./environment.ts";
@@ -152,7 +153,7 @@ function makeKeys(dir: string): string {
     throw new Error(`could not create demo keys: ${(r.stderr || r.stdout || "setup-demo failed").trim()}`);
   }
   // the server policy public key the client pins; its fingerprint is what every evidence file must show
-  return pinFingerprint(readFileSync(join(dir, "client/server-policy.pub"), "utf8").trim());
+  return pinFingerprint(keyFileText(readFileSync(join(dir, "client/server-policy.pub"), "utf8")));
 }
 
 /**

@@ -125,6 +125,25 @@ describe("loadServerConfig", () => {
     expect(existsSync(join(dir, "policy.key"))).toBe(false);
     expect(loadServerConfig(dir)).toEqual(cfg);
   });
+  it("loadServerConfigTrimsExactlyTheJsonWhitespaceAroundKeyFiles", () => {
+    const cfg = serverConfig();
+    const dir = writeDir(cfg, (f) => {
+      f["client-policy.pub"] = ` \t\r\n${cfg.pinnedClientKeys[0]}\r\n\t `;
+      f["mcp-entry.key"] = `\r\n${cfg.signingKeys["mcp-entry"]}\t`;
+    });
+    expect(loadServerConfig(dir)).toEqual(cfg);
+  });
+  it.each(["\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"])("loadServerConfigRefusesKeyFilesSurroundedByU+%j", (c) => {
+    const cfg = serverConfig();
+    const pin = writeDir(cfg, (f) => {
+      f["client-policy.pub"] = `${c}${cfg.pinnedClientKeys[0]}${c}`;
+    });
+    expect(() => loadServerConfig(pin)).toThrow("is not a public key");
+    const key = writeDir(cfg, (f) => {
+      f["github-tools.key"] = `${c}${cfg.signingKeys["github-tools"]}${c}`;
+    });
+    expect(() => loadServerConfig(key)).toThrow();
+  });
   it("loadServerConfigIgnoresAStalePolicyKey", () => {
     const cfg = serverConfig();
     const dir = writeDir(cfg, (f) => {

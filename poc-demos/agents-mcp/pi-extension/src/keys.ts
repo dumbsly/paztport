@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   decode,
   describeNotAfter,
+  keyFileText,
   keyPairMatches,
   provesPath,
   readKeyringFile,
@@ -64,7 +65,7 @@ function requireCurrent(path: string, notAfter: number, now: number): void {
 
 function readText(dir: string, name: string): string {
   try {
-    return readFileSync(join(dir, name), "utf8").trim();
+    return keyFileText(readFileSync(join(dir, name), "utf8"));
   } catch (e) {
     throw new Error(`cannot read ${name} in ${dir}: ${(e as Error).message}`);
   }
@@ -85,10 +86,10 @@ function readAs<T>(dir: string, name: string, read: (bytes: Uint8Array) => T): T
   }
 }
 
-/** Returns the trimmed key text of a pin file (the server policy public key). */
+/** Returns the key text of a pin file without its surrounding JSON whitespace (the server policy public key). */
 export function readPin(path: string): string {
   try {
-    return readFileSync(path, "utf8").trim();
+    return keyFileText(readFileSync(path, "utf8"));
   } catch (e) {
     throw new Error(`cannot read pin file ${path}: ${(e as Error).message}`);
   }

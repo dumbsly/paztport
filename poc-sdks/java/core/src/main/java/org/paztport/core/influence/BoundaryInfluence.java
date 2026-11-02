@@ -3,10 +3,8 @@
 
 package org.paztport.core.influence;
 
-import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
@@ -20,6 +18,7 @@ import java.util.Set;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.encoding.MalformedJsonException;
 import org.paztport.core.internal.JsonFields;
@@ -65,7 +64,7 @@ public final class BoundaryInfluence {
     }
 
     /**
-     * The boundary key: the trimmed text of the file, base64url of exactly {@link #KEY_LENGTH} bytes. Anything else
+     * The boundary key: the text of the file without its surrounding JSON whitespace, base64url of exactly {@link #KEY_LENGTH} bytes. Anything else
      * fails here, at startup, naming {@code name} (how the caller calls the setting that points at the file) but
      * never the file's content.
      *
@@ -73,12 +72,7 @@ public final class BoundaryInfluence {
      * @throws UncheckedIOException when the file cannot be read
      */
     public static byte[] loadKey(Path file, String name) {
-        String text;
-        try {
-            text = Files.readString(file).trim();
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        }
+        String text = KeyFiles.text(file);
         byte[] key;
         try {
             key = Base64Url.decode(text);

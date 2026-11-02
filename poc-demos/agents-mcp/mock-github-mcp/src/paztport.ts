@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   decode,
+  keyFileText,
   readKeyringFile,
   readProofBundleFile,
   readReplyCertFile,
@@ -22,7 +23,7 @@ const ROUTE = routeOf(HOPS);
 const REGENERATE = "regenerate the demo keys with npm run setup-demo -- --force";
 
 function readText(path: string): string {
-  return readFileSync(path, "utf8").trim();
+  return keyFileText(readFileSync(path, "utf8"));
 }
 
 /** Whether `key` decodes as an Ed25519 SPKI public key, the form the policy-tool writes; never throws. */

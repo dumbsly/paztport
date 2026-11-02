@@ -211,8 +211,10 @@ exactly sees two.
 
 The policy tools write these files, except the pins of the other side of a session, which whoever onboards that
 side writes (in the agents demo, its setup script). A key file holds one value, and readers trim surrounding
-whitespace. Each JSON file (`keyring.json`, `reply-cert.json`, `root.json` and `proofs-<svc>.json`) is written in
-the [file format](#files), and read as [Files](#files) says: strictly, in any member order and spacing.
+whitespace: the space, horizontal tab, line feed and carriage return of JSON (RFC 8259), and no other character. A key
+surrounded by any other, a no-break space or a byte order mark included, does not read. Each JSON file (`keyring.json`,
+`reply-cert.json`, `root.json` and `proofs-<svc>.json`) is written in the [file format](#files), and read as
+[Files](#files) says: strictly, in any member order and spacing.
 
 | File | Holds | Secret |
 |---|---|---|

@@ -12,7 +12,8 @@ import org.paztport.core.encoding.Base64Url;
 
 /**
  * Reads the key files keygen writes: a private key as base64url of the PKCS#8 encoding, the policy pin as
- * base64url of the SPKI, with any surrounding whitespace ignored. Every service, tool and demo loads
+ * base64url of the SPKI, with the surrounding JSON whitespace (space, tab, line feed and carriage return)
+ * ignored and nothing else. Every service, tool and demo loads
  * its keys through here so the file format has a single reader.
  */
 public final class KeyFiles {
@@ -20,23 +21,43 @@ public final class KeyFiles {
     private KeyFiles() {
     }
 
-    public static PrivateKey loadPrivateKey(Path file) {
+    /**
+     * The text of a key file without its surrounding space, tab, line feed and carriage return, the whitespace of
+     * RFC 8259. Any other character, a byte order mark or a no-break space included, stays in the text.
+     *
+     * @throws UncheckedIOException when the file cannot be read
+     */
+    public static String text(Path file) {
+        String raw;
         try {
-            return Crypto.decodePrivateKey(Base64Url.decode(Files.readString(file).trim()));
+            raw = Files.readString(file);
         } catch (IOException e) {
             throw new UncheckedIOException("failed to read " + file, e);
         }
+        int from = 0;
+        int to = raw.length();
+        while (from < to && isJsonWhitespace(raw.charAt(from))) {
+            from++;
+        }
+        while (to > from && isJsonWhitespace(raw.charAt(to - 1))) {
+            to--;
+        }
+        return raw.substring(from, to);
+    }
+
+    private static boolean isJsonWhitespace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\r';
+    }
+
+    public static PrivateKey loadPrivateKey(Path file) {
+        return Crypto.decodePrivateKey(Base64Url.decode(text(file)));
     }
 
     /**
-     * The pinned policy key: the trimmed text of {@code policy.pub}, a base64url SPKI string. It comes from its
+     * The pinned policy key: the text of {@code policy.pub} without its surrounding JSON whitespace, a base64url SPKI string. It comes from its
      * own file, never from the keyring it vouches for.
      */
     public static String loadPolicyPin(Path file) {
-        try {
-            return Files.readString(file).trim();
-        } catch (IOException e) {
-            throw new UncheckedIOException("failed to read " + file, e);
-        }
+        return text(file);
     }
 }

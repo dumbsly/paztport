@@ -401,4 +401,16 @@ class BoundaryInfluenceTest {
         Files.writeString(file, "not base64url!");
         assertThrows(IllegalStateException.class, () -> BoundaryInfluence.loadKey(file, "key"));
     }
+
+    @Test
+    void trimsExactlyTheFourJsonWhitespaceCharactersAroundTheKey(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("boundary.key");
+        Files.writeString(file, " \t\r\n" + Base64Url.encode(KEY) + "\n\r\t ");
+        assertTrue(Arrays.equals(KEY, BoundaryInfluence.loadKey(file, "key")));
+        for (String c : new String[] {"\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"}) {
+            Files.writeString(file, c + Base64Url.encode(KEY) + c);
+            assertThrows(IllegalStateException.class, () -> BoundaryInfluence.loadKey(file, "key"),
+                    "U+" + Integer.toHexString(c.codePointAt(0)));
+        }
+    }
 }

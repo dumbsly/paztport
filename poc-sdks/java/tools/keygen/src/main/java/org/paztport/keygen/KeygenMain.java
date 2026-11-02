@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
 import org.paztport.core.policy.KeyringFile;
@@ -109,13 +110,13 @@ public final class KeygenMain {
     }
 
     /**
-     * Throws unless the existing boundary key is, as the egress reads it, base64url of exactly 32 bytes once trimmed.
+     * Throws unless the existing boundary key is, as the egress reads it, base64url of exactly 32 bytes once its surrounding JSON whitespace is removed.
      * The message names the file but never its content.
      */
     private static void requireBoundaryKey(Path file) throws IOException {
         byte[] key;
         try {
-            key = Base64Url.decode(Files.readString(file).trim());
+            key = Base64Url.decode(KeyFiles.text(file));
         } catch (IllegalArgumentException e) {
             key = null;
         }
