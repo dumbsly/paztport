@@ -172,11 +172,13 @@ func TestLoad(t *testing.T) {
 	}
 
 	missing := filepath.Join(dir, "missing.key")
-	if _, err := keys.LoadPrivate(missing); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("LoadPrivate of a missing file = %v, want fs.ErrNotExist", err)
+	if _, err := keys.LoadPrivate(missing); !errors.Is(err, fs.ErrNotExist) ||
+		!strings.HasPrefix(err.Error(), "paztport keys: can't read the key file: ") {
+		t.Fatalf("LoadPrivate of a missing file = %v, want the package's prefix and fs.ErrNotExist", err)
 	}
-	if _, err := keys.LoadPin(missing); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("LoadPin of a missing file = %v, want fs.ErrNotExist", err)
+	if _, err := keys.LoadPin(missing); !errors.Is(err, fs.ErrNotExist) ||
+		!strings.HasPrefix(err.Error(), "paztport keys: can't read the pin file: ") {
+		t.Fatalf("LoadPin of a missing file = %v, want the package's prefix and fs.ErrNotExist", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 
@@ -80,7 +81,7 @@ func EncodePrivate(priv ed25519.PrivateKey) string {
 func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("paztport keys: can't read the key file: %w", err)
 	}
 	key, err := ParsePrivate(strings.Trim(string(b), whitespace))
 	if err != nil {
@@ -95,7 +96,7 @@ func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 func LoadPin(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("paztport keys: can't read the pin file: %w", err)
 	}
 	return strings.Trim(string(b), whitespace), nil
 }

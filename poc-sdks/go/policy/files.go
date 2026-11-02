@@ -44,25 +44,31 @@ func wire(what string, v json.Value) ([]byte, error) {
 }
 
 // loadFile reads the file at path as parseFile reads bytes, and names the file in a refusal. A file that
-// can't be read is the *fs.PathError that says why.
+// can't be read is refused with the *fs.PathError that says why, which holds the path: a path is
+// configuration, not input, so it is named.
 func loadFile[T any](path, what string, build func(json.Value) (T, error)) (T, error) {
 	var zero T
 	f, err := os.Open(path)
 	if err != nil {
-		return zero, err
+		return zero, unreadable(what, err)
 	}
 	defer f.Close()
 	// One byte past the limit is all the reader needs to refuse the file at the size step, so a file of any
 	// size is read no further.
 	b, err := io.ReadAll(io.LimitReader(f, json.FileBytes+1))
 	if err != nil {
-		return zero, err
+		return zero, unreadable(what, err)
 	}
 	t, err := readFile(b, build)
 	if err != nil {
 		return zero, malformed(what+" file "+path, err)
 	}
 	return t, nil
+}
+
+// unreadable returns the refusal of a file of kind what that can't be read, for the reason err gives.
+func unreadable(what string, err error) error {
+	return fmt.Errorf("paztport policy: can't read the %s file: %w", what, err)
 }
 
 func readFile[T any](b []byte, build func(json.Value) (T, error)) (T, error) {

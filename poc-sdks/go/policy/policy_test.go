@@ -742,6 +742,8 @@ func TestLoad(t *testing.T) {
 	} {
 		if err := load(missing); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s of a missing file = %v, want fs.ErrNotExist", name, err)
+		} else if !strings.HasPrefix(err.Error(), "paztport policy: can't read the ") {
+			t.Errorf("%s of a missing file = %q, want the package's prefix", name, err)
 		}
 	}
 
