@@ -505,10 +505,16 @@ var (
 	shaped     = []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h1"}}
 )
 
-// stamper returns svc's stamper, its instance svc-1, signing at now and minting rid.
+// stamper returns svc's stamper, its instance svc-1, signing at now. An origin mints rid; any other
+// service mints another, so that a stamp which should carry its inbound chain's rid is seen not to take
+// a new one.
 func stamper(svc string, k ed25519.PrivateKey, origin bool) *stamp.Stamper {
+	minted := "rid-minted-by-" + svc
+	if origin {
+		minted = rid
+	}
 	return &stamp.Stamper{Svc: svc, Inst: svc + "-1", Key: k, Origin: origin,
-		NewRID: func() string { return rid }, Now: func() int64 { return now }}
+		NewRID: func() string { return minted }, Now: func() int64 { return now }}
 }
 
 // bundle returns a proof bundle holding a proof, labelled by its root id, for each route.
@@ -692,16 +698,25 @@ func TestBoundary(t *testing.T) {
 	}
 }
 
+// TestRespond responds to a two-stamp chain whose stamps differ in rid and sess, as no verified chain
+// does, to show where each field comes from: the rid is the origin's, and the sess, rcv and prev the last
+// stamp's, so the response names the caller.
 func TestRespond(t *testing.T) {
-	gateway := stamper("gateway", gatewayKey, true)
-	request, _, err := gateway.Next(nil, "orders", "b1", nil, bundle())
+	origin, _, err := stamper("gateway", gatewayKey, true).Next(nil, "orders", "b1", nil, bundle())
 	if err != nil {
 		t.Fatalf("Next: %v", err)
 	}
+	hop := stamp.Stamp{Svc: "orders", Inst: "orders-1", RID: "rid-other", TS: now, Sess: "sess-1", Rcv: "payment",
+		Bind: "b2", Prev: origin[0].Sig}
+	if hop, err = stamp.Sign(hop, ordersKey); err != nil {
+		t.Fatalf("Sign: %v", err)
+	}
+	request := stamp.Chain{origin[0], hop}
+
 	ls := []influence.Label{{Class: influence.Private, CID: "c1", Owner: "alice"}}
-	orders := stamper("orders", ordersKey, false)
-	orders.Now = func() int64 { return now + 5 }
-	s, err := orders.Respond(request, "rh", rid, ls)
+	payment := stamper("payment", paymentKey, false)
+	payment.Now = func() int64 { return now + 5 }
+	s, err := payment.Respond(request, "rh", rid, ls)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
@@ -709,19 +724,19 @@ func TestRespond(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ResponseBinding: %v", err)
 	}
-	want := stamp.Stamp{Svc: "orders", Inst: "orders-1", RID: rid, TS: now + 5, Sess: request[0].Sess,
-		Rcv: "gateway", Bind: bind, Infl: "", Prev: request[0].Sig, Sig: s.Sig}
+	want := stamp.Stamp{Svc: "payment", Inst: "payment-1", RID: rid, TS: now + 5, Sess: "sess-1", Rcv: "orders",
+		Bind: bind, Infl: "", Prev: hop.Sig, Sig: s.Sig}
 	if s != want {
 		t.Fatalf("the response stamp is %+v, want %+v", s, want)
 	}
-	verifies(t, s, ordersKey)
+	verifies(t, s, paymentKey)
 
 	for _, none := range []stamp.Chain{nil, {}} {
-		if _, err := orders.Respond(none, "rh", rid, nil); err == nil {
+		if _, err := payment.Respond(none, "rh", rid, nil); err == nil {
 			t.Error("Respond stamped a response to no request")
 		}
 	}
-	if _, err := orders.Respond(request, "rh", "call\n1", nil); err == nil {
+	if _, err := payment.Respond(request, "rh", "call\n1", nil); err == nil {
 		t.Error("Respond stamped a response whose binding can't be computed")
 	}
 }
