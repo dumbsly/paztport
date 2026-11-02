@@ -33,9 +33,8 @@
 //
 // The peer a receiver passes is the one the transport authenticated. Under mutual TLS,
 // [PeerFromCertificate] reads it from the client's certificate, as DER: the service is the subject's one
-// common name, read by the spec's walk of the certificate's own encoding, never through an X.509 parser,
-// and the instance the address the connection came from. Its issuer, as RFC 2253 text, is what a
-// partner keeps sessions by, with the service.
+// common name, as [ServiceOf] reads it, and the instance the address the connection came from. Its
+// issuer, as RFC 2253 text, is what a partner keeps sessions by, with the service.
 //
 // A service's calls go through a [Caller]. [Caller.Stamp] stamps a call to the receiver's policy name,
 // after the chain the service received and committing to its influence so far, and returns the headers

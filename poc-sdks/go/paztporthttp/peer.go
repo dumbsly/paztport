@@ -17,8 +17,10 @@ type PeerCert struct {
 	// came from. A certificate that names no service is still a peer, with Svc "", so the peer check
 	// runs and fails rather than being skipped.
 	Peer verify.Peer
-	// Issuer is the certificate's issuer as RFC 2253 text, or "" when the issuer does not read as a
-	// distinguished name or is empty, which opens no session and matches none. A partner keeps sessions
+	// Issuer is the certificate's issuer as RFC 2253 text, or "" when the walk never reaches the issuer,
+	// or the issuer does not read as a distinguished name, holds a part encoding/asn1 cannot render or is
+	// empty: an issuer of "" opens no session and matches none. The issuer is read even when the subject
+	// is not, but such a certificate names no service, so it opens no session either. A partner keeps sessions
 	// by issuer as well as by service, since a transport may trust more than one CA and each could issue
 	// a certificate with the same name. The text is the same every time for the same issuer, which is
 	// all the partner that recorded it compares; it is not promised to match another implementation's.

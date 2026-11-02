@@ -19,17 +19,22 @@ import (
 // Receivers maps the host a call is sent to onto the receiver's policy name, where the host is not the
 // name: an address, a load balancer's name, or a name inside another network. The name a call's stamp
 // is addressed to is the deployment's configuration, never something the request or the destination
-// says, and a table holds it and shows it. Build one with [NewReceivers], which keeps each host in lower
-// case, as [Receivers.Name] looks it up; a nil Receivers maps nothing.
+// says, so it is kept in a table the operator writes. Build one with [NewReceivers], which keeps each
+// host in lower case, as [Receivers.Name] looks it up; a nil Receivers maps nothing.
 type Receivers map[string]string
 
 // NewReceivers returns the mapping byHost gives, host to policy name, as its own copy. It refuses a
-// blank host or name, and two hosts that differ only in case, since a host is matched in any case.
+// blank host or name; a host that [Receivers.Name] could never match, one with a port or a colon outside
+// an IPv6 address's brackets; and two hosts that differ only in case, since a host is matched in any
+// case.
 func NewReceivers(byHost map[string]string) (Receivers, error) {
 	r := make(Receivers, len(byHost))
 	for host, name := range byHost {
 		if blank(host) || blank(name) {
 			return nil, errors.New("paztport http: a receiver's host and policy name must not be blank")
+		}
+		if hostOf(host) != host {
+			return nil, errors.New("paztport http: a receiver host must be a host alone, with no port")
 		}
 		key := strings.ToLower(host)
 		if _, dup := r[key]; dup {
@@ -46,22 +51,29 @@ func blank(s string) bool {
 }
 
 // Name returns the receiver's policy name for a call to host, which may carry a port: the name the host
-// is mapped to, or the host itself, as given, when it is mapped to none. The port is ignored, and the
-// host matched in any case, as DNS matches it, but otherwise exactly: an IPv6 address keeps its
-// brackets ("[::1]:8443" is the host "[::1]") and a trailing dot is kept, so "orders." is not "orders".
-// The name is also the call's target: its response must be stamped by it, and what the response adds to
-// the influence comes from "http:<name>".
+// is mapped to, or, when it is mapped to none, the host itself in lower case. The port is ignored, and the
+// host matched in any case, as DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets
+// ("[::1]:8443" is the host "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name
+// is also the call's target: its response must be stamped by it, and what the response adds to the
+// influence comes from "http:<name>".
 func (r Receivers) Name(host string) string {
-	if strings.HasPrefix(host, "[") {
-		if end := strings.IndexByte(host, ']'); end >= 0 {
-			host = host[:end+1]
-		}
-	} else if colon := strings.IndexByte(host, ':'); colon >= 0 {
-		host = host[:colon]
-	}
-	if name, ok := r[strings.ToLower(host)]; ok {
+	host = strings.ToLower(hostOf(host))
+	if name, ok := r[host]; ok {
 		return name
 	}
+	return host
+}
+
+// hostOf returns hostport without its port: up to and including the closing bracket of an IPv6 address,
+// and otherwise up to the first colon.
+func hostOf(hostport string) string {
+	if strings.HasPrefix(hostport, "[") {
+		if end := strings.IndexByte(hostport, ']'); end >= 0 {
+			return hostport[:end+1]
+		}
+		return hostport
+	}
+	host, _, _ := strings.Cut(hostport, ":")
 	return host
 }
 

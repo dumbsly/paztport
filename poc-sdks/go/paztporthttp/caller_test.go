@@ -21,7 +21,7 @@ import (
 )
 
 // TestReceiversName names a receiver by its host, ignoring the port and the host's case, keeping a
-// trailing dot and an IPv6 address's brackets, and gives an unmapped host as itself.
+// trailing dot and an IPv6 address's brackets, and gives an unmapped host as itself, in lower case.
 func TestReceiversName(t *testing.T) {
 	r, err := paztporthttp.NewReceivers(map[string]string{
 		"pay.internal": "payment", "Orders.Internal": "orders", "[::1]": "local", "10.0.0.7": "ledger",
@@ -41,7 +41,9 @@ func TestReceiversName(t *testing.T) {
 		"pay.internal.":        "pay.internal.",
 		"pay.internal.:8443":   "pay.internal.",
 		"[::2]:8443":           "[::2]",
-		"Catalogue":            "Catalogue",
+		"Catalogue":            "catalogue",
+		"CATALOGUE.:8443":      "catalogue.",
+		"[FE80::1]:8443":       "[fe80::1]",
 		"catalogue:80":         "catalogue",
 		"pay.internal.example": "pay.internal.example",
 		"":                     "",
@@ -56,8 +58,8 @@ func TestReceiversName(t *testing.T) {
 	}
 }
 
-// TestNewReceiversRefuses refuses a blank host or name, and two hosts differing only in case, naming the
-// problem but never the host.
+// TestNewReceiversRefuses refuses a blank host or name, two hosts differing only in case, and a host Name
+// could never match, one with a port or an unbracketed colon, naming the problem but never the host.
 func TestNewReceiversRefuses(t *testing.T) {
 	for _, m := range []map[string]string{
 		{"": "payment"},
@@ -65,6 +67,10 @@ func TestNewReceiversRefuses(t *testing.T) {
 		{"pay.internal": ""},
 		{"pay.internal": " "},
 		{"Pay.Internal": "payment", "pay.internal": "payment"},
+		{"pay.internal:8443": "payment"},
+		{"pay.internal:": "payment"},
+		{"[pay.internal]:8443": "payment"},
+		{"pay.internal::1": "payment"},
 	} {
 		r, err := paztporthttp.NewReceivers(m)
 		if err == nil {

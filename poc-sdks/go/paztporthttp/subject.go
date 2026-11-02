@@ -7,12 +7,12 @@ import (
 	"bytes"
 	"crypto/x509/pkix"
 	"encoding/asn1"
+	"strings"
 	"unicode/utf8"
 )
 
-// The DER walk that reads a client certificate's subject and issuer as the certificate encodes them,
-// by the spec's steps, rather than through an X.509 parser: crypto/x509 refuses some encodings the spec
-// reads, and any parser that re-encodes a subject could make one the steps refuse look well formed.
+// The DER walk that reads a client certificate's subject and issuer as the certificate encodes them, by
+// the spec's steps; ServiceOf says why it is a walk of its own.
 
 // Identifier octets the walk expects.
 const (
@@ -214,23 +214,39 @@ func directoryText(value element) (string, bool) {
 	return "", false
 }
 
-// printable reports whether b is one of X.680's PrintableString characters: letters, digits, space and
-// '()+,-./:=?.
+// printableMarks are the eleven characters other than letters, digits and space that X.680 allows in a
+// PrintableString.
+const printableMarks = "'()+,-./:=?"
+
+// printable reports whether b is one of X.680's PrintableString characters: a letter, a digit, a space or
+// one of printableMarks.
 func printable(b byte) bool {
 	switch {
-	case 'A' <= b && b <= 'Z', 'a' <= b && b <= 'z', '0' <= b && b <= '9':
+	case 'A' <= b && b <= 'Z', 'a' <= b && b <= 'z', '0' <= b && b <= '9', b == ' ':
 		return true
 	}
-	return bytes.IndexByte([]byte(" '()+,-./:=?"), b) >= 0
+	return strings.IndexByte(printableMarks, b) >= 0
 }
 
-// issuerText returns the issuer Name as RFC 2253 text, or "" when it does not read as a Name or is
-// empty. The walk has already held its header to DER; encoding/asn1 reads the rest.
+// issuerText returns the issuer Name as RFC 2253 text, or "" when it has none: when it does not read as
+// a Name, holds an RDN with no attribute, or holds a value encoding/asn1 does not read, which
+// pkix.RDNSequence.String would write as "<nil>", so that different names would share one text. An empty
+// Name is written as "". The walk has already bounded the element and held its header to DER, so
+// encoding/asn1 reads exactly its bytes.
 func issuerText(issuer element) string {
 	var name pkix.RDNSequence
-	rest, err := asn1.Unmarshal(issuer.raw, &name)
-	if err != nil || len(rest) != 0 || len(name) == 0 {
+	if _, err := asn1.Unmarshal(issuer.raw, &name); err != nil {
 		return ""
+	}
+	for _, rdn := range name {
+		if len(rdn) == 0 {
+			return ""
+		}
+		for _, atv := range rdn {
+			if atv.Value == nil {
+				return ""
+			}
+		}
 	}
 	return name.String()
 }

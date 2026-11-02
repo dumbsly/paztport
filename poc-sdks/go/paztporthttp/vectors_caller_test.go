@@ -8,9 +8,7 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -197,7 +195,7 @@ func stampCallerCase(
 	priv, _ := vectors.RulesKey(t, svc)
 	caller := &paztporthttp.Caller{
 		Stamper: &stamp.Stamper{Svc: svc, Inst: cc.Get("inst").Str(), Key: priv, Now: func() int64 { return ts }},
-		Bundle:  bundleOf(t, c.Get("material").Str(), svc),
+		Bundle:  bundleOf(t, c),
 	}
 	if cc.Get("verifier").Bool() {
 		if nonces == nil {
@@ -251,24 +249,24 @@ func splitURI(t *testing.T, uri string) (authority, target string) {
 	return rest[:slash], target
 }
 
-// bundleOf returns svc's proof bundle from the rules' material called material: every route proof it
-// holds, read from its file text by the SDK's own bundle reader.
-func bundleOf(t *testing.T, material, svc string) policy.ProofBundle {
+// bundleOf returns the proof bundle of case c's caller: every route proof its material holds, read by
+// the SDK's own bundle reader from a file made of the vector's own JSON text, the caller's name, the
+// root's rootId and the proofs as the file writes them.
+func bundleOf(t *testing.T, c vectors.Node) policy.ProofBundle {
 	t.Helper()
-	m := vectors.RulesMaterial(t, material)
-	root, err := policy.ParseRootFile(m.Root)
-	if err != nil {
-		t.Fatalf("ParseRootFile: %v", err)
-	}
-	var proofs [][]byte
-	for _, p := range m.Proofs {
-		proofs = append(proofs, fmt.Appendf(nil, "%s:%s", strconv.Quote(p.Route), p.Text))
-	}
-	file := fmt.Appendf(nil, `{"service":%s,"rootId":%s,"proofs":{%s}}`,
-		strconv.Quote(svc), strconv.Quote(root.RootID), bytes.Join(proofs, []byte(",")))
+	m := vectors.Rules(t).Get("material").Get(c.Get("material").Str())
+	file := bytes.Join([][]byte{
+		[]byte(`{"service":`), c.Get("caller").Get("svc").Raw(),
+		[]byte(`,"rootId":`), m.Get("root").Get("rootId").Raw(),
+		[]byte(`,"proofs":`), m.Get("proofs").Raw(),
+		[]byte(`}`),
+	}, nil)
 	b, err := policy.ParseProofBundleFile(file)
 	if err != nil {
 		t.Fatalf("ParseProofBundleFile: %v", err)
+	}
+	if len(b.Proofs) != m.Get("proofs").Len() {
+		t.Fatalf("the bundle holds %d proofs, the material %d", len(b.Proofs), m.Get("proofs").Len())
 	}
 	return b
 }

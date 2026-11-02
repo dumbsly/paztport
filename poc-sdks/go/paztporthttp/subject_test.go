@@ -5,6 +5,7 @@ package paztporthttp_test
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
@@ -54,6 +55,16 @@ func longForm(t *testing.T, element []byte) []byte {
 		t.Fatal("longForm takes a short-form element")
 	}
 	return bytes.Join([][]byte{{element[0], 0x81, element[1]}, element[2:]}, nil)
+}
+
+// padLength returns element, whose length is in one long-form octet, with that length written in two
+// octets, the first zero, so that it is not in its shortest form.
+func padLength(t *testing.T, element []byte) []byte {
+	t.Helper()
+	if element[1] != 0x81 || int(element[2]) != len(element)-3 {
+		t.Fatal("padLength takes an element whose length is in one long-form octet")
+	}
+	return bytes.Join([][]byte{{element[0], 0x82, 0x00, element[2]}, element[3:]}, nil)
 }
 
 // indefinite returns element, whose length fits in one octet, with an indefinite length, its contents
@@ -157,10 +168,28 @@ func TestServiceOfValueNotWellFormed(t *testing.T) {
 		{"_ is not printable", 0x13, []byte("orders_1")},
 		{"a byte past ASCII", 0x13, []byte{'a', 0xE9}},
 		{"a NUL", 0x13, []byte{'a', 0}},
+		{"* is not printable", 0x13, []byte("orders*1")},
+		{"& is not printable", 0x13, []byte("a&b")},
 	} {
 		if got := paztporthttp.ServiceOf(certFor(name(rdn(attribute(oidCN, tc.tag, tc.value))))); got != "" {
 			t.Errorf("%s: ServiceOf = %q, want none", tc.name, got)
 		}
+	}
+	// Every ASCII byte outside X.680's PrintableString set, among characters inside it, names no service.
+	const printableSet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789 '()+,-./:=?"
+	outside := 0
+	for b := range 0x80 {
+		if strings.IndexByte(printableSet, byte(b)) >= 0 {
+			continue
+		}
+		outside++
+		value := []byte{'a', byte(b), 'b'}
+		if got := paztporthttp.ServiceOf(certFor(name(rdn(attribute(oidCN, 0x13, value))))); got != "" {
+			t.Errorf("a PrintableString holding 0x%02X: ServiceOf = %q, want none", b, got)
+		}
+	}
+	if outside != 128-74 {
+		t.Fatalf("%d ASCII bytes lie outside the printable set, want %d", outside, 128-74)
 	}
 }
 
@@ -326,6 +355,18 @@ func TestServiceOfCannotWalk(t *testing.T) {
 		{"an issuer's length not shortest", certOf(tbsOf(serial, algorithm, longForm(t, shopCA), validity, orders))},
 		{"an indefinite TBSCertificate", certOf(indefinite(t, tlv(0x30, serial, algorithm, shopCA, validity, orders)))},
 		{"a validity running past the TBSCertificate", certOf(tlv(0x30, serial, algorithm, shopCA, []byte{0x30, 0x7F}))},
+		{"the TBSCertificate's length not shortest", certOf(padLength(t, tbs))},
+		{"a TBSCertificate running past its certificate", tlv(0x30, []byte{0x30, 0x82, 0x01, 0xFF}, tbs[3:],
+			algorithm)},
+		{"the version's length not shortest", certOf(tbsOf(longForm(t, version), serial, algorithm, shopCA, validity,
+			orders))},
+		{"the serial's length not shortest", certOf(tbsOf(version, longForm(t, serial), algorithm, shopCA, validity,
+			orders))},
+		{"the algorithm's length not shortest", certOf(tbsOf(serial, longForm(t, algorithm), shopCA, validity, orders))},
+		{"an indefinite algorithm", certOf(tbsOf(serial, indefinite(t, algorithm), shopCA, validity, orders))},
+		{"an algorithm running past the TBSCertificate", certOf(tlv(0x30, serial, []byte{0x30, 0x7F}))},
+		{"the validity's length not shortest", certOf(tbsOf(serial, algorithm, shopCA, longForm(t, validity), orders))},
+		{"an indefinite validity", certOf(tbsOf(serial, algorithm, shopCA, indefinite(t, validity), orders))},
 		{"a subject longer than its TBSCertificate", certOf(tlv(0x30, serial, algorithm, shopCA, validity,
 			[]byte{0x30, 0x7F}))},
 	} {
@@ -390,6 +431,12 @@ func TestIssuerText(t *testing.T) {
 		{"an RDN holding no attribute", tlv(0x30, tlv(0x31, tlv(0x04, []byte("x"))))},
 		{"an attribute with no value", name(rdn(tlv(0x30, tlv(0x06, oidCN))))},
 		{"an OID that does not read", name(rdn(attribute(nil, 0x0C, []byte("x"))))},
+		{"two empty RDNs", []byte{0x30, 0x04, 0x31, 0x00, 0x31, 0x00}},
+		{"an empty RDN after a named one", name(cn("shop CA"), rdn())},
+		{"a common name whose value is a SEQUENCE", name(cn("shop CA"), rdn(tlv(0x30, tlv(0x06, oidCN), tlv(0x30))))},
+		{"an unknown attribute whose value is a SEQUENCE", name(rdn(tlv(0x30, tlv(0x06, []byte{0x2A, 0x03}),
+			tlv(0x30, tlv(0x02, []byte{1})))))},
+		{"a value with a high-tag-number identifier", name(rdn(tlv(0x30, tlv(0x06, oidO), []byte{0x1F, 0x22, 0x01, 'x'})))},
 	} {
 		p := paztporthttp.PeerFromCertificate(certOf(tbsOf(version, serial, algorithm, tc.issuer, validity, orders)), "a")
 		if p.Issuer != "" || p.Peer.Svc != "orders" {
