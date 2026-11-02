@@ -52,6 +52,11 @@ need_node() {
   command -v npm >/dev/null 2>&1 || missing npm 10 "https://nodejs.org (it ships with node)"
 }
 
+need_unzip() {
+  # The jar check reads the built jars with it.
+  command -v unzip >/dev/null 2>&1 || missing unzip 6 "your package manager"
+}
+
 need_docker() {
   command -v docker >/dev/null 2>&1 || missing docker 24 "https://docs.docker.com/get-docker/"
   docker info >/dev/null 2>&1 || missing docker 24 "start the Docker daemon (docker info must succeed)"
@@ -106,6 +111,7 @@ cmd_bench() {
 }
 
 cmd_test() {
+  need_unzip
   need_java
   need_node
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"

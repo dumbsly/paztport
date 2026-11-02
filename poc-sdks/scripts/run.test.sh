@@ -70,6 +70,7 @@ check "--help points bench at ./run bench -h, not a jar" help_points_bench_at_ru
 check "no argument prints usage" no_argument_prints_usage
 check "a PATH without node prints one 'missing: node' line and exits 1" missing_stops_early node agents-mcp
 check "bench without mvn prints one 'missing: mvn' line and exits 1" missing_stops_early mvn bench
+check "test without unzip prints one 'missing: unzip' line and exits 1" missing_stops_early unzip test
 check "bench with no java at Maven's JDK prints one 'missing: java' line and exits 1" \
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
 check "a clean clone passes ./run test" clean_clone_passes_run_test

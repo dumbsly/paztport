@@ -521,8 +521,8 @@ These are design directions, not implementations.
 ## 7. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
-for the mesh demo, and Node 22.19 or newer with npm for the TypeScript side. macOS
-and Linux; on Windows use WSL.
+for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, and unzip
+for `./run test`'s jar check. macOS and Linux; on Windows use WSL.
 
 ```bash
 ./run test        # the name and link checks, the TypeScript type checks, every suite and a check of the built jars; no Docker and no model
