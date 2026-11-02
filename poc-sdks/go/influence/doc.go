@@ -18,7 +18,8 @@
 // [Reduce] groups them by class and owner and sends one entry per group, whose h is a salted commitment to
 // the group's originals. The partner's verdict under the rules is the one it would reach on the
 // originals, and it learns neither their sources nor their hashes. The sender can later show what a sent
-// entry stood for with an [Opening], which [Opens] checks.
+// entry stood for with an [Opening], which [Opens] checks. The egress's boundary key, which salts every
+// commitment, is read from its file with [LoadBoundaryKey].
 //
 // Lists of entries and of labels, and openings, travel as their canonical (JCS) bytes and are read by the
 // spec's rules for wire bytes. A reader refuses anything else with an error naming the member and the
