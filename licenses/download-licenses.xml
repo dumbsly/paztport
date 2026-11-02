@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Copyright 2026 The Paztport Authors
+     SPDX-License-Identifier: Apache-2.0
+
+     Read by license-maven-plugin download-licenses (licensesConfigFile) before it copies the licence texts a
+     bundling jar needs into its META-INF/licenses/. An entry replaces the licences of the components it matches. -->
+<licenseSummary>
+    <dependencies>
+        <!-- Apache-2.0: the jar's META-INF/LICENSE holds the text, so none is copied. The names are the ones the
+             poms' licenseMerges fold into Apache-2.0. -->
+        <dependency>
+            <groupId>.*</groupId>
+            <artifactId>.*</artifactId>
+            <matchLicenses>
+                <license>
+                    <name>Apache-2\.0|Apache License, Version 2\.0|The Apache Software License, Version 2\.0|The Apache License, Version 2\.0|Apache License 2\.0|Apache 2\.0</name>
+                    <url>.*</url>
+                    <distribution>.*</distribution>
+                    <comments>(?s).*</comments>
+                </license>
+            </matchLicenses>
+            <licenses>
+                <license>
+                    <name>Apache-2.0</name>
+                </license>
+            </licenses>
+        </dependency>
+    </dependencies>
+</licenseSummary>

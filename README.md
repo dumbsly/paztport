@@ -541,6 +541,7 @@ its own; its README has the commands.
 paztport/
 ├── LICENSE, NOTICE           Apache-2.0, copyright
 ├── THIRD-PARTY.txt           runtime dependencies and their licenses (generated)
+├── licenses/                 licence texts the bundling jars carry, and the license plugin's shared settings
 ├── run                       front door: java-mesh, agents-mcp, test, bench
 ├── poc-sdks/
 │   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which both SDKs replay (Java all of it but the MCP profile); http-v3, Java's only

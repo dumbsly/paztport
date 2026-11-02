@@ -1,15 +1,4 @@
 Paztport
 Copyright 2026 The Paztport Authors
 
-This product is licensed under the Apache License, Version 2.0 (see LICENSE).
-
-This source repository does not redistribute any third-party code; Maven
-fetches dependencies at build time. Built artifacts (the service and tool jars
-and the Docker images) do bundle third-party libraries, each under its own
-license. THIRD-PARTY.txt lists every runtime dependency and its license, and
-each library's own LICENSE and NOTICE files are carried inside the built jars.
-
-The Docker images are based on eclipse-temurin (OpenJDK, GPLv2 with the
-Classpath Exception), whose license files ship inside the image. The k6 and curl
-images used by the scripts are run as separate tools and are not distributed
-with this project.
+This product is licensed under the Apache License, Version 2.0.

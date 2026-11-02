@@ -41,6 +41,11 @@
 
     <build>
         <plugins>
+            <!-- META-INF/THIRD-PARTY.txt and META-INF/licenses/ for what the jar bundles (set up in the parent). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>license-maven-plugin</artifactId>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -54,25 +59,32 @@
                         <configuration>
                             <!-- Separate output file, so a rebuild never re-shades the fat jar. -->
                             <outputFile>${project.build.directory}/policy-tool.jar</outputFile>
+                            <filters>
+                                <!-- Paztport's own libraries carry the same NOTICE as this jar. -->
+                                <filter>
+                                    <artifact>org.paztport:paztport-*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/NOTICE</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
                             <transformers>
                                 <transformer
                                         implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                                     <mainClass>org.paztport.policy.PolicyToolMain</mainClass>
                                 </transformer>
-                                <!-- Every bundled library is Apache-2.0: keep one LICENSE, merge all NOTICEs. -->
+                                <!-- Drops every bundled META-INF/LICENSE, LICENSE.txt and LICENSE.md, and puts the root
+                                     LICENSE back: META-INF/THIRD-PARTY.txt names each bundled component's licence, and
+                                     META-INF/licenses/ holds every text other than Apache-2.0's. -->
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
-                                    <projectName>Paztport</projectName>
-                                    <organizationName>The Paztport Authors</organizationName>
-                                    <inceptionYear>2026</inceptionYear>
-                                    <preamble3 xml:space="preserve">Released under the Apache License, Version 2.0, by </preamble3>
-                                    <organizationURL>https://www.apache.org/licenses/LICENSE-2.0</organizationURL>
-                                </transformer>
-                                <!-- Merge ServiceLoader registrations (Jackson ships several). -->
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
                                     <resource>META-INF/LICENSE</resource>
-                                    <file>${project.basedir}/../../../../LICENSE</file>
+                                    <file>${paztport.root}/LICENSE</file>
+                                </transformer>
+                                <!-- This jar's NOTICE, Paztport's, followed by the NOTICE of each bundled component
+                                     that has one. -->
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                                    <resource>META-INF/NOTICE</resource>
                                 </transformer>
                             </transformers>
                         </configuration>

@@ -39,6 +39,9 @@
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>4.1.1</spring.boot.version>
+        <!-- The repository root, which holds LICENSE, NOTICE and licenses/. Maven sets
+             maven.multiModuleProjectDirectory to this tree's root, the directory holding .mvn/. -->
+        <paztport.root>${maven.multiModuleProjectDirectory}/../..</paztport.root>
     </properties>
 
     <dependencyManagement>
@@ -58,6 +61,21 @@
     </dependencyManagement>
 
     <build>
+        <!-- Every jar carries the root LICENSE and NOTICE in META-INF, beside its own resources. -->
+        <resources>
+            <resource>
+                <directory>${project.basedir}/src/main/resources</directory>
+            </resource>
+            <resource>
+                <directory>${paztport.root}</directory>
+                <targetPath>META-INF</targetPath>
+                <includes>
+                    <include>LICENSE</include>
+                    <include>NOTICE</include>
+                </includes>
+            </resource>
+        </resources>
+
         <pluginManagement>
             <plugins>
                 <plugin>
@@ -72,33 +90,103 @@
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>3.5.1</version>
                 </plugin>
+                <!-- Third-party lists and licence texts, from each module's runtime dependencies (Paztport's
+                     own modules left out). -->
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>license-maven-plugin</artifactId>
+                    <version>2.4.0</version>
+                    <dependencies>
+                        <!-- download-licenses' HTTP client logs through the Log4j API, which has no backend on the
+                             plugin's class path and says so on stderr; this sends it to Maven's log. -->
+                        <dependency>
+                            <groupId>org.apache.logging.log4j</groupId>
+                            <artifactId>log4j-to-slf4j</artifactId>
+                            <version>2.25.5</version>
+                        </dependency>
+                    </dependencies>
+                    <configuration>
+                        <excludedScopes>test,system,provided</excludedScopes>
+                        <excludedGroups>^org\.paztport</excludedGroups>
+                        <sortArtifactByName>true</sortArtifactByName>
+                        <licenseMerges>
+                            <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|The Apache License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
+                            <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
+                            <licenseMerge>GPL2 w/ CPE|GNU General Public License (GPL), version 2, with the Classpath exception</licenseMerge>
+                        </licenseMerges>
+                    </configuration>
+                    <executions>
+                        <!-- Lists this tree's runtime dependencies in target/THIRD-PARTY.txt:
+                               mvn license:aggregate-add-third-party
+                             poc-sdks/scripts/third-party.sh runs it here and in the demo, then merges both lists
+                             into the root THIRD-PARTY.txt. The command line runs it; no build phase does. -->
+                        <execution>
+                            <id>default-cli</id>
+                            <configuration>
+                                <outputDirectory>${project.build.directory}</outputDirectory>
+                                <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
+                                <!-- The one licence each dual-licensed component is used under. -->
+                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
+                            </configuration>
+                        </execution>
+                        <!-- A module whose jar bundles its dependencies declares this plugin, and its jar carries
+                             META-INF/THIRD-PARTY.txt and META-INF/licenses/. Both are written under
+                             target/third-party, which add-third-party adds to the jar's resources (its .txt files). -->
+                        <execution>
+                            <id>bundled-licences</id>
+                            <phase>generate-resources</phase>
+                            <goals>
+                                <goal>add-third-party</goal>
+                                <goal>download-licenses</goal>
+                            </goals>
+                            <configuration>
+                                <outputDirectory>${project.build.directory}/third-party</outputDirectory>
+                                <thirdPartyFilename>META-INF/THIRD-PARTY.txt</thirdPartyFilename>
+                                <fileTemplate>${paztport.root}/licenses/third-party.ftl</fileTemplate>
+                                <!-- Written every build: the list follows the dependency graph, not this pom's date. -->
+                                <force>true</force>
+                                <!-- The build fails on a bundled licence outside this set, or a component with none. -->
+                                <includedLicenses>
+                                    <includedLicense>Apache-2.0</includedLicense>
+                                    <includedLicense>Bouncy Castle Licence</includedLicense>
+                                </includedLicenses>
+                                <failOnBlacklist>true</failOnBlacklist>
+                                <failOnMissing>true</failOnMissing>
+
+                                <!-- Each licence text comes from the repository's licenses/, never the network:
+                                     licenses/download-licenses.xml skips Apache-2.0 (META-INF/LICENSE holds it), a
+                                     replacement below maps each other licence URL to its file, and any URL left over
+                                     points at a missing file, so the build stops instead of fetching it. -->
+                                <licensesOutputDirectory>${project.build.directory}/third-party/META-INF/licenses</licensesOutputDirectory>
+                                <licensesConfigFile>${paztport.root}/licenses/download-licenses.xml</licensesConfigFile>
+                                <licenseUrlReplacements>
+                                    <licenseUrlReplacement>
+                                        <regexp>\Qhttps://www.bouncycastle.org/licence.html\E</regexp>
+                                        <replacement>file://${paztport.root}/licenses/bouncy-castle.txt</replacement>
+                                    </licenseUrlReplacement>
+                                    <licenseUrlReplacement>
+                                        <regexp>^https?://.*</regexp>
+                                        <replacement>file://${paztport.root}/licenses/missing/$0</replacement>
+                                    </licenseUrlReplacement>
+                                </licenseUrlReplacements>
+                                <!-- Named as in licenses/: the plugin puts the licence name before the file name. -->
+                                <licenseUrlFileNameSanitizers>
+                                    <licenseUrlFileNameSanitizer>
+                                        <regexp>^.*\s-\s</regexp>
+                                        <replacement></replacement>
+                                    </licenseUrlFileNameSanitizer>
+                                </licenseUrlFileNameSanitizers>
+                                <!-- Copied anew every build, so the directory holds exactly this jar's set; the
+                                     copies are local, so an offline build makes them too. -->
+                                <forceDownload>true</forceDownload>
+                                <cleanLicensesOutputDirectory>true</cleanLicensesOutputDirectory>
+                                <offline>false</offline>
+                                <errorRemedy>failFast</errorRemedy>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
             </plugins>
         </pluginManagement>
-
-        <plugins>
-            <!-- Lists this tree's runtime dependencies in target/THIRD-PARTY.txt:
-                   mvn license:aggregate-add-third-party
-                 poc-sdks/scripts/third-party.sh runs it here and in the demo, then merges
-                 both lists into the root THIRD-PARTY.txt. Not bound to a phase, so normal
-                 builds don't run it. -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <version>2.4.0</version>
-                <inherited>false</inherited>
-                <configuration>
-                    <outputDirectory>${project.build.directory}</outputDirectory>
-                    <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
-                    <excludedScopes>test,system,provided</excludedScopes>
-                    <excludedGroups>^org\.paztport</excludedGroups>
-                    <sortArtifactByName>true</sortArtifactByName>
-                    <licenseMerges>
-                        <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
-                        <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
-                        <licenseMerge>GPL2 w/ CPE|GNU General Public License (GPL), version 2, with the Classpath exception</licenseMerge>
-                    </licenseMerges>
-                </configuration>
-            </plugin>
-        </plugins>
     </build>
 </project>
