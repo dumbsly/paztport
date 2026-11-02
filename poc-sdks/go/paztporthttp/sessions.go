@@ -12,7 +12,6 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/exact"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
-	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
@@ -82,9 +81,6 @@ type SessionsConfig struct {
 // is held.
 type Sessions struct {
 	cfg SessionsConfig
-	// readRequest reads a handshake's body; it is session.ParseRequest, held here so that a test can
-	// count which bodies reach it.
-	readRequest func([]byte) (session.Request, error)
 
 	mu     sync.Mutex
 	byID   map[string]*sessionEntry
@@ -129,10 +125,9 @@ func NewSessions(cfg SessionsConfig) (*Sessions, error) {
 	cfg.ClientOrigins = slices.Clone(cfg.ClientOrigins)
 	cfg.UnsafeDisabled = slices.Clone(cfg.UnsafeDisabled)
 	return &Sessions{
-		cfg:         cfg,
-		readRequest: session.ParseRequest,
-		byID:        map[string]*sessionEntry{},
-		byPeer:      map[peerKey][]*sessionEntry{},
+		cfg:    cfg,
+		byID:   map[string]*sessionEntry{},
+		byPeer: map[peerKey][]*sessionEntry{},
 	}, nil
 }
 

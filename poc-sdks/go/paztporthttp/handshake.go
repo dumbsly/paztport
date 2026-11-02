@@ -45,7 +45,7 @@ func ServeHandshake(body []byte, peer *PeerCert, s *Sessions) Answer {
 	if len(body) > json.WireBytes {
 		return HandshakeError(invalidParams)
 	}
-	req, err := s.readRequest(body)
+	req, err := session.ParseRequest(body)
 	if err != nil {
 		return HandshakeError(invalidParams)
 	}

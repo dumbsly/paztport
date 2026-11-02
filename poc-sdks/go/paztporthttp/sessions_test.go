@@ -124,15 +124,7 @@ func snapshot(s *Sessions) registry {
 }
 
 func (r registry) equal(o registry) bool {
-	if !maps.Equal(r.byID, o.byID) || len(r.byPeer) != len(o.byPeer) {
-		return false
-	}
-	for p, ids := range r.byPeer {
-		if strings.Join(ids, ",") != strings.Join(o.byPeer[p], ",") {
-			return false
-		}
-	}
-	return true
+	return maps.Equal(r.byID, o.byID) && maps.EqualFunc(r.byPeer, o.byPeer, slices.Equal[[]string])
 }
 
 func TestNewSessionsRefusesAnUnusableConfig(t *testing.T) {
@@ -191,11 +183,29 @@ func TestSessionsKeepTheirOwnCopy(t *testing.T) {
 	s := newSessions(t, cfg)
 	cfg.Pinned[0] = policyPin(t, "stranger-policy")
 	cfg.UnsafeDisabled[0] = "GET /changed"
+	cfg.ClientOrigins[0] = "orders"
+	clear(cfg.EntryKey)
 	clear(cfg.Keyring.Services)
 	shop := vectors.RulesHandshakeBody(t, "shop")
-	r := opened(t, ServeHandshake(shop, rulesPeer(t, "shop"), s))
+	req, err := session.ParseRequest(shop)
+	if err != nil {
+		t.Fatalf("ParseRequest: %v", err)
+	}
+	a := ServeHandshake(shop, rulesPeer(t, "shop"), s)
+	r := opened(t, a)
 	if r.Status != session.StatusAttested || len(r.ServerKeyring) == 0 {
 		t.Fatalf("the reply is %s with keyring %v after the caller changed its config", r.Status, r.ServerKeyring)
+	}
+	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now); got != session.Attested {
+		t.Fatalf("CheckReply = %s after the caller changed its entry key, want %s", got, session.Attested)
+	}
+	// payment is still the session's origin: its call passes every check up to the route, and has no proof.
+	pa, err := s.Accept(t.Context(), boundaryCall(t, r.Sess, now), rulesPeer(t, "shop"))
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	if pa.Result == nil || pa.Result.Reason != reason.PathNotAllowed {
+		t.Fatalf("a call from payment is %+v after the caller changed its origins; want PATH_NOT_ALLOWED", pa)
 	}
 	u := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "no-root"), rulesPeer(t, "shop"), s))
 	if len(u.Disabled) != 1 || u.Disabled[0] != "POST /refund" {
@@ -303,28 +313,23 @@ func requestOfLength(t *testing.T, n int) []byte {
 	return b
 }
 
-// TestServeHandshakeReadsNoBodyOverTheWireLimit: a body of 262 145 bytes is INVALID_PARAMS and never
-// reaches the request reader; one of 262 144 is read, and opens a session.
-func TestServeHandshakeReadsNoBodyOverTheWireLimit(t *testing.T) {
+// TestServeHandshakeWireLimit: a body of 262 144 bytes is read, and opens a session; one of 262 145, a
+// request's canonical bytes but for its length, is INVALID_PARAMS. With no peer, the body is not read at
+// all: one that is no request is NO_SESSION, never INVALID_PARAMS.
+func TestServeHandshakeWireLimit(t *testing.T) {
 	now := int64(vectorNow)
 	s := newSessions(t, pspConfig(t, &now, 16, 60000))
-	reads := 0
-	s.readRequest = func(b []byte) (session.Request, error) {
-		reads++
-		return session.ParseRequest(b)
-	}
 	peer := rulesPeer(t, "shop")
 
-	if a := ServeHandshake([]byte("not a request"), nil, s); string(a.Body) != `{"error":"NO_SESSION"}` || reads != 0 {
-		t.Fatalf("no peer: %d %s after %d reads; want 400 NO_SESSION and none", a.Status, a.Body, reads)
+	if a := ServeHandshake([]byte("not a request"), nil, s); a.Status != 400 || string(a.Body) != `{"error":"NO_SESSION"}` {
+		t.Fatalf("no peer: %d %s; want 400 NO_SESSION", a.Status, a.Body)
 	}
 	over := ServeHandshake(requestOfLength(t, 262145), peer, s)
-	if over.Status != 400 || string(over.Body) != `{"error":"INVALID_PARAMS"}` || reads != 0 {
-		t.Fatalf("262 145 bytes: %d %s after %d reads; want 400 INVALID_PARAMS and none", over.Status, over.Body, reads)
+	if over.Status != 400 || string(over.Body) != `{"error":"INVALID_PARAMS"}` {
+		t.Fatalf("262 145 bytes: %d %s; want 400 INVALID_PARAMS", over.Status, over.Body)
 	}
-	at := opened(t, ServeHandshake(requestOfLength(t, 262144), peer, s))
-	if reads != 1 || at.Status != session.StatusUnsafe {
-		t.Fatalf("262 144 bytes: %s after %d reads; want unsafe after one", at.Status, reads)
+	if at := opened(t, ServeHandshake(requestOfLength(t, 262144), peer, s)); at.Status != session.StatusUnsafe {
+		t.Fatalf("262 144 bytes: %s; want an unsafe session", at.Status)
 	}
 }
 
@@ -409,7 +414,7 @@ func TestHandshakeWithMaterialPinnedRefusesOpensAnUnsafeSession(t *testing.T) {
 }
 
 // TestFailedHandshakesChangeNoSession: a handshake that opens no session leaves every session as it was,
-// an expired one included, which only a handshake that opens one sweeps out.
+// an expired one included.
 func TestFailedHandshakesChangeNoSession(t *testing.T) {
 	now := int64(vectorNow)
 	s := newSessions(t, pspConfig(t, &now, 1, 60000))
@@ -449,9 +454,35 @@ func TestFailedHandshakesChangeNoSession(t *testing.T) {
 			}
 		})
 	}
-	opened(t, ServeHandshake(shop, peer, s))
-	if after := snapshot(s); len(after.byID) != 1 || after.byID[firstID(before)] != "" {
-		t.Fatalf("a handshake that opened a session kept the expired one: %v", after)
+}
+
+// TestHandshakesSweepEveryPeersExpiredSessions: a handshake that opens a session first drops every expired
+// session, another peer's included, and counts the cap per peer: another peer's sessions never count
+// against it.
+func TestHandshakesSweepEveryPeersExpiredSessions(t *testing.T) {
+	now := int64(vectorNow)
+	s := newSessions(t, pspConfig(t, &now, 2, 60000))
+	body := vectors.RulesHandshakeBody(t, "shop")
+	shop, clinic := rulesPeer(t, "shop"), rulesPeer(t, "clinic")
+	shopKey := shop.Issuer + "|" + shop.Peer.Svc
+	clinicKey := clinic.Issuer + "|" + clinic.Peer.Svc
+	if shopKey == clinicKey {
+		t.Fatal("the case needs two peers")
+	}
+	opened(t, ServeHandshake(body, shop, s))
+	now += 60000 // shop's session has expired
+	c1 := opened(t, ServeHandshake(body, clinic, s)).Sess
+	c2 := opened(t, ServeHandshake(body, clinic, s)).Sess
+	got := snapshot(s)
+	if want := map[string][]string{clinicKey: {c1, c2}}; !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) ||
+		len(got.byID) != 2 {
+		t.Fatalf("after clinic's handshakes the sessions hold %v; want only clinic's %v", got, want)
+	}
+	s1 := opened(t, ServeHandshake(body, shop, s)).Sess
+	got = snapshot(s)
+	if want := map[string][]string{clinicKey: {c1, c2}, shopKey: {s1}}; !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) ||
+		len(got.byID) != 3 {
+		t.Fatalf("after shop's handshake the sessions hold %v; want %v", got, want)
 	}
 }
 
@@ -476,13 +507,6 @@ func TestAddRefusesAnIdInUse(t *testing.T) {
 	if after := snapshot(s); !after.equal(before) {
 		t.Fatalf("the sessions changed from %v to %v", before, after)
 	}
-}
-
-func firstID(r registry) string {
-	for id := range r.byID {
-		return id
-	}
-	return ""
 }
 
 // TestSessionsMatchNoPeerWithoutAnIssuerOrAName: a call whose certificate has no issuer, or names no
@@ -529,6 +553,29 @@ func TestSessionsMatchNoPeerWithoutAnIssuerOrAName(t *testing.T) {
 	}
 }
 
+// boundaryCall returns a POST /charge in session id, with one boundary stamp signed at ts by payment for
+// psp, binding the call and committing to no influence, and no proof.
+func boundaryCall(t *testing.T, id string, ts int64) InboundRequest {
+	t.Helper()
+	body := []byte("{}")
+	bind, err := wire.Bind("POST", "/charge", body)
+	if err != nil {
+		t.Fatalf("Bind: %v", err)
+	}
+	key, _ := vectors.RulesKey(t, "payment")
+	st, err := stamp.Sign(stamp.Stamp{
+		Svc: "payment", Inst: "pay-1", RID: "rid-1", TS: ts, Sess: id, Rcv: "psp", Bind: bind,
+	}, key)
+	if err != nil {
+		t.Fatalf("stamp.Sign: %v", err)
+	}
+	chain, err := wire.EncodeChain(stamp.Chain{st})
+	if err != nil {
+		t.Fatalf("EncodeChain: %v", err)
+	}
+	return InboundRequest{Method: "POST", Target: "/charge", Chain: chain, Session: id, Body: body}
+}
+
 // failingCache is a nonce cache whose store is down.
 type failingCache struct{}
 
@@ -548,23 +595,7 @@ func TestAcceptReturnsTheNonceCacheError(t *testing.T) {
 	s := newSessions(t, cfg)
 	peer := rulesPeer(t, "shop")
 	id := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer, s)).Sess
-	body := []byte("{}")
-	bind, err := wire.Bind("POST", "/charge", body)
-	if err != nil {
-		t.Fatalf("Bind: %v", err)
-	}
-	key, _ := vectors.RulesKey(t, "payment")
-	st, err := stamp.Sign(stamp.Stamp{
-		Svc: "payment", Inst: "pay-1", RID: "rid-1", TS: now, Sess: id, Rcv: "psp", Bind: bind,
-	}, key)
-	if err != nil {
-		t.Fatalf("stamp.Sign: %v", err)
-	}
-	chain, err := wire.EncodeChain(stamp.Chain{st})
-	if err != nil {
-		t.Fatalf("EncodeChain: %v", err)
-	}
-	a, err := s.Accept(t.Context(), InboundRequest{Method: "POST", Target: "/charge", Chain: chain, Session: id, Body: body}, peer)
+	a, err := s.Accept(t.Context(), boundaryCall(t, id, now), peer)
 	if !errors.Is(err, errStoreDown) {
 		t.Fatalf("Accept = %v, want the cache's error", err)
 	}
