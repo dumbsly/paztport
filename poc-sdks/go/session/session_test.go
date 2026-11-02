@@ -62,7 +62,11 @@ func attestedHandshake(t *testing.T) handshake {
 // sign returns reply, its session id derived again from req and signed by key, as its bytes.
 func (h handshake) sign(t *testing.T, req session.Request, reply session.Reply, key ed25519.PrivateKey) []byte {
 	t.Helper()
-	reply.Sess = sessionID(t, req, reply)
+	id, ok := session.ID(req, reply.ServerRoot, reply.Nonce)
+	if !ok {
+		t.Fatal("ID: no session id")
+	}
+	reply.Sess = id
 	signed, err := session.SignReply(reply, key)
 	if err != nil {
 		t.Fatalf("SignReply: %v", err)
@@ -74,21 +78,38 @@ func (h handshake) sign(t *testing.T, req session.Request, reply session.Reply, 
 	return b
 }
 
-// sessionID returns the session id for req and reply, failing the test if there is none.
-func sessionID(t *testing.T, req session.Request, reply session.Reply) string {
-	t.Helper()
-	sig := func(r *policy.Root) []byte {
-		if r == nil {
-			return nil
-		}
-		return decode(t, r.Sig)
+// TestID checks the session id a handshake's messages give: the vector's own, the one DeriveID gives for
+// their decoded parts, and none for a present root whose sig does not decode or a nonce of another length.
+func TestID(t *testing.T) {
+	h := attestedHandshake(t)
+	id, ok := session.ID(h.req, h.reply.ServerRoot, h.reply.Nonce)
+	if !ok || id != h.reply.Sess {
+		t.Fatalf("ID = %q, %t; want the reply's %q", id, ok, h.reply.Sess)
 	}
-	id, ok := session.DeriveID(sig(req.ClientRoot), sig(reply.ServerRoot), decode(t, req.Nonce),
-		decode(t, reply.Nonce), req.ClientPolicyKey, req.ClientKeyring)
-	if !ok {
-		t.Fatal("DeriveID: no session id")
+	derived, ok := session.DeriveID(decode(t, h.req.ClientRoot.Sig), decode(t, h.reply.ServerRoot.Sig),
+		decode(t, h.req.Nonce), decode(t, h.reply.Nonce), h.req.ClientPolicyKey, h.req.ClientKeyring)
+	if !ok || derived != id {
+		t.Fatalf("DeriveID = %q, %t; want ID's %q", derived, ok, id)
 	}
-	return id
+	if other, ok := session.ID(h.req, nil, h.reply.Nonce); ok && other == id {
+		t.Fatal("ID gave a handshake without the server root the same id")
+	}
+
+	root := *h.reply.ServerRoot
+	root.Sig = "!"
+	if got, ok := session.ID(h.req, &root, h.reply.Nonce); ok {
+		t.Errorf("ID took a server root whose sig does not decode, as %q", got)
+	}
+	req := h.req
+	clientRoot := *req.ClientRoot
+	clientRoot.Sig = ""
+	req.ClientRoot = &clientRoot
+	if got, ok := session.ID(req, h.reply.ServerRoot, h.reply.Nonce); ok {
+		t.Errorf("ID took a client root with an empty sig, as %q", got)
+	}
+	if got, ok := session.ID(h.req, h.reply.ServerRoot, h.reply.Nonce[1:]); ok {
+		t.Errorf("ID took a server nonce of another length, as %q", got)
+	}
 }
 
 // signersByPub returns the private key of each of v3.json's keys, by its public key.
@@ -172,7 +193,7 @@ func TestNullServerRoot(t *testing.T) {
 		t.Run(form.name, func(t *testing.T) {
 			reply := form.reply
 			reply.ServerRoot = nil
-			reply.Status = "unsafe"
+			reply.Status = session.StatusUnsafe
 			wire := h.sign(t, h.req, reply, form.key)
 			if !bytes.Contains(wire, []byte(`"serverRoot":null`)) {
 				t.Fatalf("Wire wrote %s, without a null serverRoot", wire)
@@ -189,7 +210,7 @@ func TestNullServerRoot(t *testing.T) {
 				t.Fatalf("CheckReply = %s, want %s", got, session.Unsafe)
 			}
 
-			reply.Status = "attested"
+			reply.Status = session.StatusAttested
 			wire = h.sign(t, h.req, reply, form.key)
 			if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
 				t.Fatalf("an attested reply with no server root: CheckReply = %s, want %s", got,
@@ -200,7 +221,7 @@ func TestNullServerRoot(t *testing.T) {
 
 	noRoot := h.req
 	noRoot.ClientRoot = nil
-	for status, want := range map[string]session.Check{"attested": session.BadSignature, "unsafe": session.Unsafe} {
+	for status, want := range map[string]session.Check{session.StatusAttested: session.BadSignature, session.StatusUnsafe: session.Unsafe} {
 		reply := h.reply
 		reply.Status = status
 		wire := h.sign(t, noRoot, reply, h.signer)
@@ -261,7 +282,7 @@ func TestCheckOrder(t *testing.T) {
 		t.Fatalf("another pin: CheckReply = %s, want %s", got, session.PinMismatch)
 	}
 	// A bad signature, on an unsafe reply.
-	wire = replace(t, h.wire, "status", json.S("unsafe"))
+	wire = replace(t, h.wire, "status", json.S(session.StatusUnsafe))
 	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
 		t.Fatalf("an unsafe reply signed as attested: CheckReply = %s, want %s", got, session.BadSignature)
 	}
@@ -318,7 +339,7 @@ func TestAttestedOffline(t *testing.T) {
 	}
 
 	unsafe := h.reply
-	unsafe.Status = "unsafe"
+	unsafe.Status = session.StatusUnsafe
 	if session.AttestedOffline(h.sign(t, h.req, unsafe, h.signer), h.req, h.pin, h.entry, at) {
 		t.Fatal("AttestedOffline = true for an unsafe reply")
 	}
@@ -458,8 +479,8 @@ func TestWritersRefuse(t *testing.T) {
 		if _, err := reply.Wire(); err == nil {
 			t.Errorf("Reply.Wire wrote %s", name)
 		}
-		if _, err := session.ReplySigningBytes(reply); err == nil {
-			t.Errorf("ReplySigningBytes signed %s", name)
+		if _, err := reply.SigningBytes(); err == nil {
+			t.Errorf("SigningBytes signed %s", name)
 		}
 		if _, err := session.SignReply(reply, h.signer); err == nil {
 			t.Errorf("SignReply signed %s", name)
@@ -633,7 +654,7 @@ func TestStatus(t *testing.T) {
 	}
 	own, client := pub(t, v3, "server-policy"), pub(t, v3, "client-policy")
 	now := c.Get("now").Int()
-	if got := session.Status(req, &root, kf, own, []string{client}, now); got != "attested" {
+	if got := session.Status(req, &root, kf, own, []string{client}, now); got != session.StatusAttested {
 		t.Fatalf("Status = %q for the attested case", got)
 	}
 	noRoot := req
@@ -645,7 +666,7 @@ func TestStatus(t *testing.T) {
 		"its own policy key that is no key": session.Status(req, &root, kf, "key", []string{client}, now),
 		"no pinned client key":              session.Status(req, &root, kf, own, nil, now),
 	} {
-		if got != "unsafe" {
+		if got != session.StatusUnsafe {
 			t.Errorf("%s: Status = %q, want unsafe", name, got)
 		}
 	}

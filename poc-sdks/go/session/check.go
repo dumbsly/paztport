@@ -69,14 +69,14 @@ func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) C
 	if !ok || !signedBy(r, signer) {
 		return BadSignature
 	}
-	isAttested := r.Status == attested
+	isAttested := r.Status == StatusAttested
 	if isAttested && (r.ServerRoot == nil || req.ClientRoot == nil) {
 		return BadSignature
 	}
-	if sess, ok := sessionID(req, r.ServerRoot, r.Nonce); !ok || sess != r.Sess {
+	if sess, ok := ID(req, r.ServerRoot, r.Nonce); !ok || sess != r.Sess {
 		return BadSignature
 	}
-	if r.ServerRoot != nil && (!r.ServerRoot.Verifies(pinKey) || !r.ServerRoot.Current(now)) {
+	if r.ServerRoot != nil && (!r.ServerRoot.Verifies(pin) || !r.ServerRoot.Current(now)) {
 		return BadSignature
 	}
 	if isAttested {
@@ -125,7 +125,7 @@ func replySigner(r Reply, pinKey ed25519.PublicKey, pin, serverEntry string, now
 
 // signedBy reports whether r's sig, canonical base64url, is key's signature over its signing bytes.
 func signedBy(r Reply, key ed25519.PublicKey) bool {
-	msg, err := ReplySigningBytes(r)
+	msg, err := r.SigningBytes()
 	if err != nil {
 		return false
 	}
@@ -146,11 +146,7 @@ func AttestedOffline(reply []byte, req Request, pin, serverEntry string, at int6
 		return false
 	}
 	// An attested reply has passed with both roots present.
-	clientKey, err := keys.ParsePublic(req.ClientPolicyKey)
-	if err != nil {
-		return false
-	}
 	ring := req.KeyringFile()
-	return ring.Verifies(req.ClientPolicyKey) && req.ClientRoot.Verifies(clientKey) &&
+	return ring.Verifies(req.ClientPolicyKey) && req.ClientRoot.Verifies(req.ClientPolicyKey) &&
 		req.ClientRoot.Current(at) && ring.Current(at)
 }

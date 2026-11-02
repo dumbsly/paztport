@@ -13,6 +13,7 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/offline"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
+	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
 // offlineCodes are the codes the offline verifier gives: a live verifier's but PEER_MISMATCH and
@@ -105,8 +106,9 @@ func FuzzRecord(f *testing.F) {
 		if s.AttestedAt(at) && !s.Attested() {
 			t.Fatalf("attested at %d, but not at all", at)
 		}
-		if _, ok := new(offline.RecordSet).Call(s, reason.OK, at); ok != s.Attested() {
-			t.Fatalf("Call gives a result: %t, but Attested = %t", ok, s.Attested())
+		r, ok := new(offline.RecordSet).Call(offline.Input{}, offline.Config{}, s)
+		if ok != s.Attested() || (!ok && r != verify.Result{}) {
+			t.Fatalf("Call = %+v, %t; but Attested = %t", r, ok, s.Attested())
 		}
 	})
 }

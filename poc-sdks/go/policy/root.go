@@ -11,6 +11,7 @@ import (
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 )
 
 const rootPrefix = "paztport-root\n"
@@ -102,9 +103,14 @@ func SignRoot(root []byte, rootID string, notAfter int64, key ed25519.PrivateKey
 	return Root{RootID: rootID, Root: text, Sig: sig, NotAfter: notAfter}, nil
 }
 
-// Verifies reports whether the root's signature verifies under the policy key pub. It says nothing about
-// time: see Current. It never panics, and a key that is not 32 bytes is false.
-func (r Root) Verifies(pub ed25519.PublicKey) bool {
+// Verifies reports whether the root's signature verifies under pin, the policy key as base64url
+// SubjectPublicKeyInfo. It says nothing about time: see Current. It never panics, and a pin that is not a
+// key is false.
+func (r Root) Verifies(pin string) bool {
+	pub, err := keys.ParsePublic(pin)
+	if err != nil {
+		return false
+	}
 	msg, err := RootSigningBytes(r.RootID, r.Root, r.NotAfter)
 	return err == nil && verifies(pub, msg, r.Sig)
 }

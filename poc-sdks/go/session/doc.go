@@ -7,8 +7,8 @@
 // The handshake has no transport here. A client sends a [Request]: its signed root (or none, to ask for an
 // unsafe session), its policy key, its signed keyring and a fresh nonce from [NewNonce]. A server reads it
 // with [ParseRequest] or [ReadRequest], which refuse a malformed request (the server answers Invalid
-// params), checks [OpensSession], decides the session's status with [Status], derives its id with
-// [DeriveID] and signs a [Reply] with [SignReply]. The client then judges the reply's bytes with
+// params), checks [OpensSession], decides the session's status with [Status], derives its id with [ID]
+// and signs a [Reply] with [SignReply]. The client then judges the reply's bytes with
 // [CheckReply], whose [Check] is the first of the spec's checks that fails, in the spec's order: the reply
 // reads, it names the pinned policy key, its signature, roots and session id hold, and then its status.
 //
@@ -20,7 +20,7 @@
 //
 //	"paztport-session-reply\n" || JCS(reply without sig)
 //
-// which [ReplySigningBytes] returns. A reply reads only from its canonical bytes, so a [Reply] read by
+// which [Reply.SigningBytes] returns. A reply reads only from its canonical bytes, so a [Reply] read by
 // [ParseReply] writes back to exactly the bytes it was read from.
 //
 // The two sides hold their material to the same windows: a root or keyring counts only once the policy

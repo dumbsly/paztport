@@ -617,35 +617,62 @@ func TestRecordedSessionKeepsItsOwn(t *testing.T) {
 	}
 }
 
-// TestCall pins a recorded call's result in its session: OUTSIDE_SESSION for a call that verifies past one
-// of the session's limits, its own result for one that fails, and no result in a session that is not
-// attested at all.
+// TestCall pins a recorded call's result in its session: the chain is verified once, and a call that
+// verifies is OUTSIDE_SESSION, naming no one, when its last stamp's ts is past one of the session's limits.
+// The time judged is the chain's own: here the origin is inside the limit and nothing else is recorded.
 func TestCall(t *testing.T) {
-	request, reply, pin, entry := handshake(t, "entry-key form, limited by the certificate")
-	s := offline.Record(request, reply, pin, entry)
-	records := offline.NewRecordSet()
+	s := offline.Record(handshake(t, "entry-key form, limited by the certificate"))
 	tests := []struct {
-		r    reason.Code
-		at   int64
-		want reason.Code
+		name string
+		make func(*setup)
+		want verify.Result
 	}{
-		{reason.OK, certNotAfter, reason.OK},
-		{reason.OK, certNotAfter + 1, reason.OutsideSession},
-		{reason.OK, math.MaxInt64, reason.OutsideSession},
-		{reason.BadSignature, certNotAfter + 1, reason.BadSignature},
-		{reason.PathNotAllowed, certNotAfter + 1, reason.PathNotAllowed},
-		{reason.Replay, certNotAfter, reason.Replay},
+		{"a call at the limit", func(c *setup) { c.times(certNotAfter-1000, certNotAfter) }, named(reason.OK)},
+		{"a call past the limit", func(c *setup) {
+			c.times(certNotAfter-1000, certNotAfter+1)
+			c.in.Recorded = nil
+		}, verify.Result{Reason: reason.OutsideSession}},
+		{"a call that fails past the limit", func(c *setup) {
+			c.times(certNotAfter-1000, certNotAfter+1)
+			c.tamper(1, func(st *stamp.Stamp) { st.Inst = "ord-2" })
+		}, named(reason.BadSignature)},
+		{"a call on no allowed route past the limit", func(c *setup) {
+			c.times(certNotAfter-1000, certNotAfter+1)
+			c.in.Proof = nil
+		}, named(reason.PathNotAllowed)},
 	}
 	for _, tt := range tests {
-		if got, ok := records.Call(s, tt.r, tt.at); !ok || got != tt.want {
-			t.Fatalf("Call(%s, %d) = %s, %t; want %s", tt.r, tt.at, got, ok, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			c := mesh(t)
+			tt.make(c)
+			in := c.in
+			in.Chain = ptr(c.token(t))
+			got, ok := c.records.Call(in, c.cfg, s)
+			if !ok || got != tt.want {
+				t.Fatalf("Call = %+v, %t; want %+v", got, ok, tt.want)
+			}
+			// The chain was verified once: a call that reached check 10 spent its key.
+			again, _ := c.records.Call(in, c.cfg, s)
+			spent := tt.want.Reason != reason.BadSignature
+			if spent != (again.Reason == reason.Replay) {
+				t.Fatalf("the same call again = %+v; spent the first time: %t", again, spent)
+			}
+		})
 	}
+}
+
+// TestCallInAnUnsafeSession checks that a call in a session not attested at all has no result, and is not
+// verified: the record set spends nothing, so the same chain verifies afterwards.
+func TestCallInAnUnsafeSession(t *testing.T) {
 	unsafe := offline.Record(handshake(t, "unsafe"))
-	for _, r := range []reason.Code{reason.OK, reason.BadSignature} {
-		if got, ok := records.Call(unsafe, r, 0); ok {
-			t.Fatalf("an unsafe session: Call(%s) = %s, want no result", r, got)
-		}
+	c := mesh(t)
+	in := c.in
+	in.Chain = ptr(c.token(t))
+	if got, ok := c.records.Call(in, c.cfg, unsafe); ok || got != (verify.Result{}) {
+		t.Fatalf("Call = %+v, %t; want no result", got, ok)
+	}
+	if got := c.records.Verify(in, c.cfg); got != named(reason.OK) {
+		t.Fatalf("Verify after Call = %+v, want OK: Call spent the key", got)
 	}
 }
 

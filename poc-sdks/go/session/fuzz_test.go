@@ -54,8 +54,8 @@ func FuzzParseReply(f *testing.F) {
 		if w, err := reply.Wire(); err != nil || !bytes.Equal(w, b) {
 			t.Fatalf("Wire = %q, %v; want the bytes read", w, err)
 		}
-		if _, err := session.ReplySigningBytes(reply); err != nil {
-			t.Fatalf("ReplySigningBytes: %v", err)
+		if _, err := reply.SigningBytes(); err != nil {
+			t.Fatalf("SigningBytes: %v", err)
 		}
 	})
 }

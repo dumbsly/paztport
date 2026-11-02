@@ -125,7 +125,30 @@ func NewRecordSet(spent ...string) *RecordSet {
 // has no peer. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live verifier's do with
 // no peer; every other result names no one. Verify never panics, and a malformed input is a result.
 func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
+	return result(rs.check(in, cfg))
+}
+
+// Call verifies in, a call recorded in the session s, as Verify does, and judges it in its session. A
+// session that is not attested at all gives no result and false, and the call is neither verified nor
+// spends its key: the spec gives a call relying on such a session no result, so the record set's reader
+// reports it. Otherwise Call runs the offline order once, spending the key as Verify does, and returns its
+// result and true, except that a call that verifies, OK, while the session is not attested at its last
+// stamp's ts, which the client signed, is OUTSIDE_SESSION, naming no one: the call was made past one of
+// the session's limits. cfg is the Config for calls in s, its Sess s.Sess().
+func (rs *RecordSet) Call(in Input, cfg Config, s RecordedSession) (verify.Result, bool) {
+	if !s.Attested() {
+		return verify.Result{}, false
+	}
 	code, last := rs.check(in, cfg)
+	if code == reason.OK && !s.AttestedAt(last.TS) {
+		return verify.Result{Reason: reason.OutsideSession}, true
+	}
+	return result(code, last), true
+}
+
+// result names the party the spec names for code: the last stamp for OK and PATH_NOT_ALLOWED, and no one
+// otherwise.
+func result(code reason.Code, last stamp.Stamp) verify.Result {
 	r := verify.Result{Reason: code}
 	if code == reason.OK || code == reason.PathNotAllowed {
 		r.SuspectSvc, r.SuspectInst = last.Svc, last.Inst
@@ -178,20 +201,6 @@ func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 
 	// 11. The route.
 	return chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, cfg.Root, cfg.RootID), last
-}
-
-// Call returns a recorded call's result in its session s: OUTSIDE_SESSION when the call otherwise
-// verifies (r, what Verify answered for it, is OK) but at, its last stamp's ts, is past one of the
-// session's limits, and r otherwise. It returns false, and no result, for a session that is not attested
-// at all: the spec gives a call relying on one no result, so the record set's reader reports it.
-func (rs *RecordSet) Call(s RecordedSession, r reason.Code, at int64) (reason.Code, bool) {
-	if !s.Attested() {
-		return "", false
-	}
-	if r == reason.OK && !s.AttestedAt(at) {
-		return reason.OutsideSession, true
-	}
-	return r, true
 }
 
 // atRecordedTimes reports whether the origin's and the last stamp's ts are the times t records: the last

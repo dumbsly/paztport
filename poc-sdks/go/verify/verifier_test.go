@@ -769,8 +769,25 @@ func signedPolicy(t *testing.T, signer string, keyringNotAfter, rootNotAfter int
 	return kf, root, keys.EncodePublic(pub(t, "client-policy"))
 }
 
-// TestPinned checks that Pinned builds a Config that verifies from material the pin vouches for, with
-// the earlier window as PolicyNotAfter.
+// pinnedConfig is the Config a caller hands Pinned: everything but the pinned material, set by name, and
+// material of its own that Pinned replaces.
+func pinnedConfig(t *testing.T, s *setup) verify.Config {
+	return verify.Config{
+		Keyring:        policy.Keyring{"other": pub(t, "orders")},
+		Root:           []byte("other"),
+		RootID:         "other",
+		PolicyNotAfter: -1,
+		AllowedOrigins: []string{"gateway"},
+		Sess:           "sess-2",
+		Nonces:         s.cfg.Nonces,
+		Now:            s.cfg.Now,
+		CallMaxAgeMs:   verify.CallMaxAgeMs,
+		RunMaxAgeMs:    verify.RunMaxAgeMs,
+	}
+}
+
+// TestPinned checks that Pinned fills a Config that verifies from material the pin vouches for, with the
+// earlier window as PolicyNotAfter, and keeps everything else the caller set.
 func TestPinned(t *testing.T) {
 	for _, w := range [][2]int64{{now + 10, now + 20}, {now + 20, now + 10}, {now, now}} {
 		kf, root, pin := signedPolicy(t, "client-policy", w[0], w[1])
@@ -778,8 +795,7 @@ func TestPinned(t *testing.T) {
 		for i := range s.stamps {
 			s.stamps[i].Sess = "sess-2"
 		}
-		cfg, err := verify.Pinned(kf, root, pin, []string{"gateway"}, "sess-2", s.cfg.Nonces, s.cfg.Now,
-			verify.CallMaxAgeMs, verify.RunMaxAgeMs)
+		cfg, err := verify.Pinned(kf, root, pin, pinnedConfig(t, s))
 		if err != nil {
 			t.Fatalf("Pinned: %v", err)
 		}
@@ -855,8 +871,7 @@ func TestPinnedRefuses(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			kf, root, pin := tt.make(t)
 			s := mesh(t)
-			_, err := verify.Pinned(kf, root, pin, []string{"gateway"}, "", s.cfg.Nonces, s.cfg.Now,
-				verify.CallMaxAgeMs, verify.RunMaxAgeMs)
+			_, err := verify.Pinned(kf, root, pin, pinnedConfig(t, s))
 			if err == nil || !strings.Contains(err.Error(), tt.names) {
 				t.Fatalf("Pinned error = %v, want one naming the %s", err, tt.names)
 			}
@@ -865,10 +880,10 @@ func TestPinnedRefuses(t *testing.T) {
 	t.Run("no clock or nonce cache", func(t *testing.T) {
 		kf, root, pin := good(t)
 		s := mesh(t)
-		if _, err := verify.Pinned(kf, root, pin, nil, "", s.cfg.Nonces, nil, 0, 0); err == nil {
+		if _, err := verify.Pinned(kf, root, pin, verify.Config{Nonces: s.cfg.Nonces}); err == nil {
 			t.Fatal("Pinned took no clock")
 		}
-		if _, err := verify.Pinned(kf, root, pin, nil, "", nil, s.cfg.Now, 0, 0); err == nil {
+		if _, err := verify.Pinned(kf, root, pin, verify.Config{Now: s.cfg.Now}); err == nil {
 			t.Fatal("Pinned took no nonce cache")
 		}
 	})

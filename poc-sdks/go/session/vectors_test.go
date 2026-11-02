@@ -131,9 +131,9 @@ func roundTrip(t *testing.T, reply session.Reply, wire []byte) {
 	if err != nil {
 		t.Fatalf("Wire: %v", err)
 	}
-	msg, err := session.ReplySigningBytes(reply)
+	msg, err := reply.SigningBytes()
 	if want := append([]byte("paztport-session-reply\n"), body...); err != nil || !bytes.Equal(msg, want) {
-		t.Fatalf("ReplySigningBytes = %q, %v; want %q", msg, err, want)
+		t.Fatalf("SigningBytes = %q, %v; want %q", msg, err, want)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestStatusVectors(t *testing.T) {
 			}
 		})
 	})
-	if seen["attested"] == 0 || seen["unsafe"] == 0 {
+	if seen[session.StatusAttested] == 0 || seen[session.StatusUnsafe] == 0 {
 		t.Fatalf("the cases expect %v; want attested and unsafe among them", seen)
 	}
 }

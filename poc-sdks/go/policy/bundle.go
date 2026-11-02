@@ -31,8 +31,8 @@ func ParseProofBundleFile(b []byte) (ProofBundle, error) {
 	return parseFile(b, "proof bundle", bundleFromValue)
 }
 
-// LoadProofBundle reads the proof bundle file at path, as ParseProofBundleFile reads bytes.
-func LoadProofBundle(path string) (ProofBundle, error) {
+// LoadProofBundleFile reads the proof bundle file at path, as ParseProofBundleFile reads bytes.
+func LoadProofBundleFile(path string) (ProofBundle, error) {
 	return loadFile(path, "proof bundle", bundleFromValue)
 }
 

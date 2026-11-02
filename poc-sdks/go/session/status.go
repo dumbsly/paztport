@@ -6,14 +6,13 @@ package session
 import (
 	"slices"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
-// Status returns the status a server gives the session req opens, "attested" or "unsafe", against its own
-// root ownRoot (nil when the server has none) and keyring ownKeyring, its policy key ownPolicyKey, the
-// client policy keys it pinned, and its clock's now. The session is attested only when all of these hold,
-// and unsafe otherwise:
+// Status returns the status a server gives the session req opens, StatusAttested or StatusUnsafe, against
+// its own root ownRoot (nil when the server has none) and keyring ownKeyring, its policy key ownPolicyKey,
+// the client policy keys it pinned, and its clock's now. The session is attested only when all of these
+// hold, and unsafe otherwise:
 //
 //   - the request has a client root, and the server a root of its own;
 //   - the client root verifies under the request's policy key, and ownRoot under ownPolicyKey;
@@ -29,20 +28,13 @@ import (
 func Status(req Request, ownRoot *policy.Root, ownKeyring policy.KeyringFile, ownPolicyKey string, pinned []string,
 	now int64) string {
 	if req.ClientRoot == nil || ownRoot == nil || !slices.Contains(pinned, req.ClientPolicyKey) {
-		return unsafe
-	}
-	clientKey, err := keys.ParsePublic(req.ClientPolicyKey)
-	if err != nil {
-		return unsafe
-	}
-	ownKey, err := keys.ParsePublic(ownPolicyKey)
-	if err != nil {
-		return unsafe
+		return StatusUnsafe
 	}
 	ring := req.KeyringFile()
-	if !req.ClientRoot.Verifies(clientKey) || !ownRoot.Verifies(ownKey) || !ring.Verifies(req.ClientPolicyKey) ||
-		!req.ClientRoot.Current(now) || !ring.Current(now) || !ownRoot.Current(now) || !ownKeyring.Current(now) {
-		return unsafe
+	if !req.ClientRoot.Verifies(req.ClientPolicyKey) || !ring.Verifies(req.ClientPolicyKey) ||
+		!ownRoot.Verifies(ownPolicyKey) || !req.ClientRoot.Current(now) || !ring.Current(now) ||
+		!ownRoot.Current(now) || !ownKeyring.Current(now) {
+		return StatusUnsafe
 	}
-	return attested
+	return StatusAttested
 }

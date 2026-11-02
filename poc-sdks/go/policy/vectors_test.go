@@ -12,7 +12,6 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/vectors"
-	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
@@ -70,10 +69,7 @@ func TestRoot(t *testing.T) {
 			c := c.With(t)
 			v3 := v3.With(t)
 			policyKey := c.Get("policyKey").Str()
-			pin, err := keys.ParsePublic(v3.Get("keys").Get(policyKey).Get("pub").Str())
-			if err != nil {
-				t.Fatalf("the pin: %v", err)
-			}
+			pin := v3.Get("keys").Get(policyKey).Get("pub").Str()
 			root, err := policy.ParseRootFile([]byte(c.Get("file").Str()))
 			if refused(t, c, err) {
 				return

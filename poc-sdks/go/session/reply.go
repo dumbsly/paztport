@@ -16,10 +16,13 @@ import (
 
 const replyPrefix = "paztport-session-reply\n"
 
-// The statuses a reply gives, and Status returns.
+// The statuses a reply gives, and Status returns: the values of Reply.Status. They are untyped, as the
+// field they fill is a string read from the wire.
 const (
-	attested = "attested"
-	unsafe   = "unsafe"
+	// StatusAttested: the server attested the session.
+	StatusAttested = "attested"
+	// StatusUnsafe: the server opened an unsafe session.
+	StatusUnsafe = "unsafe"
 )
 
 // Reply is the server's half of the handshake, signed.
@@ -45,14 +48,14 @@ type Reply struct {
 	ServerReplyCert *policy.ReplyCert
 	// Nonce is 16 fresh random bytes from the server, as base64url.
 	Nonce string
-	// Sess is the session id: see DeriveID.
+	// Sess is the session id: see ID.
 	Sess string
-	// Status is "attested" or "unsafe".
+	// Status is StatusAttested or StatusUnsafe.
 	Status string
 	// Disabled lists what the session refuses: the server's unsafe-session list in an unsafe session, and
 	// nothing in an attested one.
 	Disabled []string
-	// Sig is the signature over every other member: see ReplySigningBytes.
+	// Sig is the signature over every other member: see SigningBytes.
 	Sig string
 }
 
@@ -149,7 +152,7 @@ func readReply(v json.Value) (Reply, error) {
 
 // check holds the reply's rules beyond its members' JSON types, which a reader and a writer both apply.
 func (r Reply) check() error {
-	if r.Status != attested && r.Status != unsafe {
+	if r.Status != StatusAttested && r.Status != StatusUnsafe {
 		return errors.New(`the member "status" is neither "attested" nor "unsafe"`)
 	}
 	if r.ServerKeyringSig != nil && r.ServerKeyringNotAfter == nil {
@@ -168,13 +171,13 @@ func (r Reply) Wire() ([]byte, error) {
 	return b, nil
 }
 
-// ReplySigningBytes returns the bytes a reply's Sig covers:
+// SigningBytes returns the bytes the reply's Sig covers:
 //
 //	"paztport-session-reply\n" || JCS(reply without sig)
 //
 // every member but sig, with a null root as null and each entry-key form member exactly when present. For
 // a reply ParseReply read, these are the bytes received less sig. It refuses a reply Wire refuses.
-func ReplySigningBytes(r Reply) ([]byte, error) {
+func (r Reply) SigningBytes() ([]byte, error) {
 	b, err := r.wire(false)
 	if err != nil {
 		return nil, fmt.Errorf("paztport session: the reply has no signing bytes: %w", err)
@@ -184,9 +187,9 @@ func ReplySigningBytes(r Reply) ([]byte, error) {
 
 // SignReply returns r signed with key, replacing any Sig it has: the entry service's key in the entry-key
 // form, the server policy key in the policy-key form. The signature vouches for whatever the reply says, so
-// a server sets r.Status to "attested" only when the function Status returns "attested".
+// a server sets r.Status to StatusAttested only when the function Status returns it.
 func SignReply(r Reply, key ed25519.PrivateKey) (Reply, error) {
-	msg, err := ReplySigningBytes(r)
+	msg, err := r.SigningBytes()
 	if err != nil {
 		return Reply{}, err
 	}

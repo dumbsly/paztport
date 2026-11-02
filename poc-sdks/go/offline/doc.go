@@ -16,10 +16,11 @@
 // is judged at the time of each record that relies on it: [RecordedSession.AttestedAt] takes a call's last
 // stamp's ts, which the client signed. Its limits are the certificate's notAfter, in the entry-key form, and
 // the notAfter of each root and keyring on both sides, so one session can be attested for the calls recorded
-// up to its limits and not for those after them. [RecordSet.Call] gives a verified call past one of its
-// session's limits OUTSIDE_SESSION.
+// up to its limits and not for those after them. [RecordSet.Call] verifies a call recorded in a session: a
+// call that verifies past one of the session's limits is OUTSIDE_SESSION, and a call in a session that is
+// not attested at all has no result.
 //
-// A record set is read in order, by one goroutine, since Verify spends keys in it. Times are int64
+// A record set is read in order, by one goroutine, since Verify and Call spend keys in it. Times are int64
 // milliseconds since the Unix epoch, and every difference between them is computed exactly, so no time or
 // limit at either end of int64 passes a check by wrapping.
 package offline

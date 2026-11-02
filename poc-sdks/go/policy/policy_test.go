@@ -232,25 +232,28 @@ func TestVerifiesNeverPanics(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !root.Verifies(pub) {
+	if !root.Verifies(pin) {
 		t.Fatal("a root signed here does not verify")
 	}
-	for _, key := range []ed25519.PublicKey{nil, pub[:31], append(bytes.Clone(pub), 0)} {
-		if root.Verifies(key) {
-			t.Errorf("Root.Verifies accepted a %d-byte key", len(key))
+	for _, p := range []string{"", "AA", pin + "AA", b64.Encode(pub)} {
+		if root.Verifies(p) {
+			t.Errorf("Root.Verifies accepted the pin %q", p)
 		}
+	}
+	if _, other := vectors.V3Key(t, "server-policy"); root.Verifies(keys.EncodePublic(other)) {
+		t.Error("Root.Verifies accepted another policy key")
 	}
 	sig := decode(t, root.Sig)
 	for _, s := range []string{"", b64.Encode(sig[:63]), b64.Encode(append(bytes.Clone(sig), 0)), root.Sig + "=", root.Sig[:85] + "B"} {
 		r := root
 		r.Sig = s
-		if r.Verifies(pub) {
+		if r.Verifies(pin) {
 			t.Errorf("Root.Verifies accepted a sig of %d characters", len(s))
 		}
 	}
 	r := root
 	r.NotAfter = -1
-	if r.Verifies(pub) {
+	if r.Verifies(pin) {
 		t.Error("Root.Verifies accepted a notAfter of -1")
 	}
 
@@ -720,9 +723,9 @@ func TestLoad(t *testing.T) {
 		t.Errorf("LoadReplyCertFile = %+v, %v; want %+v", cert, err, want)
 	}
 	bundleText := bundleFile(t)
-	bundle, err := policy.LoadProofBundle(write("proofs-gateway.json", bundleText))
+	bundle, err := policy.LoadProofBundleFile(write("proofs-gateway.json", bundleText))
 	if want, _ := policy.ParseProofBundleFile([]byte(bundleText)); err != nil || !reflect.DeepEqual(bundle, want) {
-		t.Errorf("LoadProofBundle = %+v, %v; want %+v", bundle, err, want)
+		t.Errorf("LoadProofBundleFile = %+v, %v; want %+v", bundle, err, want)
 	}
 
 	// A refused file is named, and a file that does not exist is fs.ErrNotExist.
@@ -732,10 +735,10 @@ func TestLoad(t *testing.T) {
 	}
 	missing := filepath.Join(dir, "missing.json")
 	for name, load := range map[string]func(string) error{
-		"LoadKeyringFile":   func(f string) error { _, err := policy.LoadKeyringFile(f); return err },
-		"LoadRootFile":      func(f string) error { _, err := policy.LoadRootFile(f); return err },
-		"LoadReplyCertFile": func(f string) error { _, err := policy.LoadReplyCertFile(f); return err },
-		"LoadProofBundle":   func(f string) error { _, err := policy.LoadProofBundle(f); return err },
+		"LoadKeyringFile":     func(f string) error { _, err := policy.LoadKeyringFile(f); return err },
+		"LoadRootFile":        func(f string) error { _, err := policy.LoadRootFile(f); return err },
+		"LoadReplyCertFile":   func(f string) error { _, err := policy.LoadReplyCertFile(f); return err },
+		"LoadProofBundleFile": func(f string) error { _, err := policy.LoadProofBundleFile(f); return err },
 	} {
 		if err := load(missing); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s of a missing file = %v, want fs.ErrNotExist", name, err)

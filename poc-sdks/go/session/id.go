@@ -51,7 +51,7 @@ func OpensSession(req Request) bool {
 // SHA-256(JCS({"clientKeyring": clientKeyring, "clientPolicyKey": clientPolicyKey})). A nil root signature
 // means that side's root is absent; any other, an empty one included, is a present root's decoded sig. It
 // returns false, and no id, unless each root signature present is 64 bytes, each nonce 16, and the policy
-// key and keyring have canonical bytes.
+// key and keyring have canonical bytes. It takes the parts decoded; ID takes a handshake's messages.
 func DeriveID(clientRootSig, serverRootSig, clientNonce, serverNonce []byte, clientPolicyKey string,
 	clientKeyring map[string]string) (string, bool) {
 	digest, ok := keysHash(clientPolicyKey, clientKeyring)
@@ -76,8 +76,12 @@ func DeriveID(clientRootSig, serverRootSig, clientNonce, serverNonce []byte, cli
 	return b64.Encode(h.Sum(nil)), true
 }
 
-// sessionID returns the session id of a handshake of req and a reply with serverRoot and serverNonce.
-func sessionID(req Request, serverRoot *policy.Root, serverNonce string) (string, bool) {
+// ID returns the session id of a handshake of req and a reply with serverRoot, the server's root or nil
+// for none, and serverNonce, as base64url: DeriveID over the request's and the reply's members as they
+// travel. A root whose sig does not decode is still a present root, so it has no id, never the id of a
+// handshake without it. A server fills its reply's Sess with it, and a client checks the reply's Sess
+// against it. It returns false, and no id, where DeriveID does.
+func ID(req Request, serverRoot *policy.Root, serverNonce string) (string, bool) {
 	// A nonce that does not decode is no bytes, which DeriveID refuses as it refuses any length but 16.
 	clientNonce, _ := b64.Decode(req.Nonce)
 	nonce, _ := b64.Decode(serverNonce)

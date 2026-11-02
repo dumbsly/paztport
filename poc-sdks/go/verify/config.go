@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
@@ -37,8 +36,9 @@ func NonceTTLFor(callMaxAgeMs int64) int64 {
 }
 
 // Config is everything a verifier pins: the policy material it checks chains against, the request's
-// context it expects, and its clock, windows and nonce cache. Pinned builds one from signed material,
-// checking it once, up front; a Config built directly is for material already judged.
+// context it expects, and its clock, windows and nonce cache. Pinned fills in the policy material from
+// signed material, checking it once, up front; a Config built wholly by hand is for material already
+// judged.
 type Config struct {
 	// Keyring is each service's public key, from a keyring that verified under the pinned policy key.
 	Keyring policy.Keyring
@@ -64,20 +64,21 @@ type Config struct {
 	RunMaxAgeMs int64
 }
 
-// Pinned returns a Config for the keyring kf and the root, checked against pin, the pinned policy key as
-// base64url SubjectPublicKeyInfo (the text of policy.pub). The keyring must name pin and verify under it,
-// the root must verify under it, and both must be current by now. It refuses them otherwise, naming the
-// keyring or the root, so that no verifier is built on material the pin does not vouch for now. The
-// Config's PolicyNotAfter is the earlier of their windows.
-func Pinned(kf policy.KeyringFile, root policy.Root, pin string, origins []string, sess string,
-	nonces NonceCache, now func() int64, callMaxAgeMs, runMaxAgeMs int64) (Config, error) {
-	if now == nil || nonces == nil {
+// Pinned returns cfg with the keyring kf and the root pinned: its Keyring, Root, RootID and
+// PolicyNotAfter filled from them, once they are checked against pin, the pinned policy key as base64url
+// SubjectPublicKeyInfo (the text of policy.pub). The caller sets the rest of cfg by name: AllowedOrigins,
+// Sess, Nonces, Now, CallMaxAgeMs and RunMaxAgeMs. The keyring must name pin and verify under it, the root
+// must verify under it, and both must be current at cfg.Now(). Pinned refuses them otherwise, naming the
+// keyring or the root, so that no verifier is built on material the pin does not vouch for now, and
+// refuses a cfg with no clock or no nonce cache. PolicyNotAfter is the earlier of their windows.
+func Pinned(kf policy.KeyringFile, root policy.Root, pin string, cfg Config) (Config, error) {
+	if cfg.Now == nil || cfg.Nonces == nil {
 		return Config{}, errors.New("paztport verify: a Config needs a clock and a nonce cache")
 	}
 	if !kf.Verifies(pin) {
 		return Config{}, errors.New("paztport verify: the keyring does not verify under the pinned policy key")
 	}
-	at := now()
+	at := cfg.Now()
 	if !kf.Current(at) {
 		return Config{}, fmt.Errorf("paztport verify: the keyring expired: notAfter %d is before now %d", kf.NotAfter, at)
 	}
@@ -85,8 +86,7 @@ func Pinned(kf policy.KeyringFile, root policy.Root, pin string, origins []strin
 	if err != nil {
 		return Config{}, fmt.Errorf("paztport verify: the keyring can't be used: %w", err)
 	}
-	pub, err := keys.ParsePublic(pin)
-	if err != nil || !root.Verifies(pub) {
+	if !root.Verifies(pin) {
 		return Config{}, errors.New("paztport verify: the root does not verify under the pinned policy key")
 	}
 	if !root.Current(at) {
@@ -96,16 +96,9 @@ func Pinned(kf policy.KeyringFile, root policy.Root, pin string, origins []strin
 	if err != nil {
 		return Config{}, fmt.Errorf("paztport verify: the root can't be used: %w", err)
 	}
-	return Config{
-		Keyring:        keyring,
-		Root:           rootBytes,
-		RootID:         root.RootID,
-		PolicyNotAfter: min(kf.NotAfter, root.NotAfter),
-		AllowedOrigins: origins,
-		Sess:           sess,
-		Nonces:         nonces,
-		Now:            now,
-		CallMaxAgeMs:   callMaxAgeMs,
-		RunMaxAgeMs:    runMaxAgeMs,
-	}, nil
+	cfg.Keyring = keyring
+	cfg.Root = rootBytes
+	cfg.RootID = root.RootID
+	cfg.PolicyNotAfter = min(kf.NotAfter, root.NotAfter)
+	return cfg, nil
 }

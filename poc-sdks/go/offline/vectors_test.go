@@ -94,9 +94,9 @@ func TestRecordedHandshakeVectors(t *testing.T) {
 }
 
 // TestRecordedCallVectors replays v3.json's recordedCall cases. Each case is one record set: its calls are
-// checked in order against one set of spent keys, each by the offline verifier in the session of the
-// handshake it names (that request's client keyring and root, that reply's session id), and then held to
-// that session's limits at its recorded time.
+// checked in order against one set of spent keys, each by Call in the session of the handshake it names
+// (that request's client keyring and root, that reply's session id), which holds a call that verifies to
+// that session's limits at its last stamp's ts.
 func TestRecordedCallVectors(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	cases := v3.Get("recordedCall")
@@ -157,13 +157,12 @@ func TestRecordedCallVectors(t *testing.T) {
 					CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
 				}
 				in := input(t, call, policies.With(t).Get(call.Get("policy").Str()))
-				result := records.Verify(in, cfg)
-				got, ok := records.Call(s, result.Reason, call.Get("recordedTs").Get("last").Int())
+				got, ok := records.Call(in, cfg, s)
 				if !ok {
 					t.Fatalf("call %d: no result, though every handshake here is attested", i)
 				}
-				if w := reason.Code(want.Index(i).Get("reason").Str()); got != w {
-					t.Errorf("call %d = %s, want %s", i, got, w)
+				if w := reason.Code(want.Index(i).Get("reason").Str()); got.Reason != w {
+					t.Errorf("call %d = %s, want %s", i, got.Reason, w)
 				}
 			}
 		})

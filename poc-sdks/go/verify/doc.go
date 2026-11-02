@@ -5,7 +5,7 @@
 // cache that stops replays, and who a result names.
 //
 // A [Verifier] holds a [Config]: the keyring and root it pins, the origins and session it allows, its
-// clock, its freshness windows and its [NonceCache]. [Pinned] builds one from a keyring file and a root
+// clock, its freshness windows and its [NonceCache]. [Pinned] fills one in from a keyring file and a root
 // that verify under the pinned policy key and are current, recording the earlier of their windows. For
 // each request, [Verifier.Verify] takes an [Input], the tokens that came with the request and what the
 // receiver knows of it, and runs checks 0 to 12 in the spec's order. The first that fails is the
