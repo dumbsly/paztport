@@ -198,6 +198,31 @@ func TestSignRefuses(t *testing.T) {
 	}
 }
 
+// TestRefusalText pins the words of three refusals: a reader's names the policy package once and no
+// internal one, SignKeyring refuses a service name as Keyring does, and a signing key's refusal is wrapped
+// in the statement's name.
+func TestRefusalText(t *testing.T) {
+	_, err := policy.ParseKeyringFile([]byte(`{"policy": "p", "services": {}, "sig": "s"}`))
+	if want := `paztport policy: malformed keyring file: schema: the member "notAfter" is missing`; err == nil ||
+		err.Error() != want {
+		t.Errorf("ParseKeyringFile error = %v, want %s", err, want)
+	}
+
+	priv, _ := vectors.V3Key(t, "client-policy")
+	pin := keys.EncodePublic(priv.Public().(ed25519.PublicKey))
+	_, signErr := policy.SignKeyring(map[string]string{"": pin}, pin, 1, priv)
+	_, keysErr := policy.KeyringFile{Services: map[string]string{"": pin}}.Keyring()
+	if signErr == nil || keysErr == nil || signErr.Error() != keysErr.Error() {
+		t.Errorf("SignKeyring error = %v, want Keyring's: %v", signErr, keysErr)
+	}
+
+	_, err = policy.SignRoot(make([]byte, 32), "v1", 1, priv[:63])
+	if want := "paztport policy: can't sign the root: paztport keys: "; err == nil ||
+		!strings.HasPrefix(err.Error(), want) {
+		t.Errorf("SignRoot error = %v, want one starting %q", err, want)
+	}
+}
+
 // TestVerifiesNeverPanics hands the verifiers keys and signatures of the wrong length, where ed25519.Verify
 // would panic or a decoder fail: each says false.
 func TestVerifiesNeverPanics(t *testing.T) {

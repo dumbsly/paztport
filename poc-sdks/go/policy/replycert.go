@@ -96,7 +96,7 @@ func IssueReplyCert(policy, svc, key string, notAfter int64, signer ed25519.Priv
 	if err != nil {
 		return ReplyCert{}, err
 	}
-	sig, err := sign(signer, msg)
+	sig, err := sign("reply certificate", signer, msg)
 	if err != nil {
 		return ReplyCert{}, err
 	}

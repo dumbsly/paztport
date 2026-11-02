@@ -83,7 +83,7 @@ func Pinned(kf policy.KeyringFile, root policy.Root, pin string, origins []strin
 	}
 	keyring, err := kf.Keyring()
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("paztport verify: the keyring can't be used: %w", err)
 	}
 	pub, err := keys.ParsePublic(pin)
 	if err != nil || !root.Verifies(pub) {
@@ -94,7 +94,7 @@ func Pinned(kf policy.KeyringFile, root policy.Root, pin string, origins []strin
 	}
 	rootBytes, err := root.Bytes()
 	if err != nil {
-		return Config{}, err
+		return Config{}, fmt.Errorf("paztport verify: the root can't be used: %w", err)
 	}
 	return Config{
 		Keyring:        keyring,

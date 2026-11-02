@@ -95,7 +95,7 @@ func SignRoot(root []byte, rootID string, notAfter int64, key ed25519.PrivateKey
 	if err != nil {
 		return Root{}, err
 	}
-	sig, err := sign(key, msg)
+	sig, err := sign("root", key, msg)
 	if err != nil {
 		return Root{}, err
 	}

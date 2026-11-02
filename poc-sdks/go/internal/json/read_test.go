@@ -298,3 +298,12 @@ func TestStringMap(t *testing.T) {
 		})
 	}
 }
+
+// TestErrorText pins a refusal's text as "<step>: <rule>": the package is internal, so its errors name no
+// package, and the exported reader that wraps one names its own.
+func TestErrorText(t *testing.T) {
+	_, err := json.ReadWire(nil)
+	if want := "parse: no value at byte 0"; err == nil || err.Error() != want {
+		t.Fatalf("ReadWire(nil) error = %v, want %q", err, want)
+	}
+}

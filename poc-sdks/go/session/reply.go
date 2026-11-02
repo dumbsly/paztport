@@ -192,7 +192,7 @@ func SignReply(r Reply, key ed25519.PrivateKey) (Reply, error) {
 	}
 	sig, err := keys.Sign(key, msg)
 	if err != nil {
-		return Reply{}, err
+		return Reply{}, fmt.Errorf("paztport session: can't sign the reply: %w", err)
 	}
 	r.Sig = b64.Encode(sig)
 	return r, nil

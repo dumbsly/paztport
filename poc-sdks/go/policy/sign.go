@@ -27,11 +27,12 @@ func signingBytes(what, prefix string, notAfter int64, members ...json.Member) (
 	return append([]byte(prefix), body...), nil
 }
 
-// sign returns key's signature over msg as base64url, as a statement's sig holds it.
-func sign(key ed25519.PrivateKey, msg []byte) (string, error) {
+// sign returns key's signature over msg, the signing bytes of a statement of kind what, as base64url, as
+// the statement's sig holds it.
+func sign(what string, key ed25519.PrivateKey, msg []byte) (string, error) {
 	sig, err := keys.Sign(key, msg)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("paztport policy: can't sign the %s: %w", what, err)
 	}
 	return b64.Encode(sig), nil
 }

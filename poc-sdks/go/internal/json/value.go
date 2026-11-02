@@ -144,9 +144,10 @@ type Error struct {
 	msg  string
 }
 
-// Error returns the refusal as "paztport json: <step>: <rule>".
+// Error returns the refusal as "<step>: <rule>". It names no package: the package is internal, and each
+// exported reader or writer that refuses wraps the error in its own package's words.
 func (e *Error) Error() string {
-	return "paztport json: " + string(e.Step) + ": " + e.msg
+	return string(e.Step) + ": " + e.msg
 }
 
 // refuse returns the refusal of rule at step.

@@ -37,6 +37,9 @@ type KeyringFile struct {
 
 var keyringMembers = []string{"notAfter", "policy", "services", "sig"}
 
+// errServiceName refuses a keyring that names a service by something that is not a route node.
+var errServiceName = errors.New("paztport policy: the keyring names a service by something that is not a route node")
+
 // ParseKeyringFile reads a keyring file: an object of exactly a string policy, a string sig, a services
 // object naming each service by a route node, its every value a string, and notAfter, a protocol integer by
 // its text, so that 1798761600000.0 is refused though its value is an integer.
@@ -89,16 +92,14 @@ func KeyringSigningBytes(policy string, services map[string]string, notAfter int
 // notAfter. The caller has already checked that each key is its service's current key. It refuses a service
 // name that is not a route node, which every reader refuses, before signing.
 func SignKeyring(services map[string]string, policy string, notAfter int64, key ed25519.PrivateKey) (KeyringFile, error) {
-	for name := range services {
-		if err := ValidNode(name); err != nil {
-			return KeyringFile{}, fmt.Errorf("paztport policy: a keyring's service name is not a route node: %w", err)
-		}
+	if !routeNodes(services) {
+		return KeyringFile{}, errServiceName
 	}
 	msg, err := KeyringSigningBytes(policy, services, notAfter)
 	if err != nil {
 		return KeyringFile{}, err
 	}
-	sig, err := sign(key, msg)
+	sig, err := sign("keyring", key, msg)
 	if err != nil {
 		return KeyringFile{}, err
 	}
@@ -130,7 +131,7 @@ func (kf KeyringFile) Current(now int64) bool {
 // not a route node, or holds a key that is not an Ed25519 public key, and names no service in the refusal.
 func (kf KeyringFile) Keyring() (Keyring, error) {
 	if !routeNodes(kf.Services) {
-		return nil, errors.New("paztport policy: the keyring names a service by something that is not a route node")
+		return nil, errServiceName
 	}
 	k := make(Keyring, len(kf.Services))
 	for name, text := range kf.Services {

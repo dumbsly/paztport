@@ -44,7 +44,7 @@ func SignEnvelope(signer string, eventWire []byte, key ed25519.PrivateKey) (Enve
 	payload := b64.Encode(eventWire)
 	sig, err := keys.Sign(key, EnvelopeSigningBytes(payload))
 	if err != nil {
-		return Envelope{}, err
+		return Envelope{}, fmt.Errorf("paztport event: can't sign the event: %w", err)
 	}
 	return Envelope{Signer: signer, Payload: payload, Sig: b64.Encode(sig)}, nil
 }
