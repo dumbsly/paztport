@@ -106,6 +106,12 @@
                     <artifactId>maven-jar-plugin</artifactId>
                     <version>3.5.1</version>
                 </plugin>
+                <!-- ./run bench runs its build-classpath goal to put JMH on the class path. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.11.0</version>
+                </plugin>
                 <!-- Third-party lists and licence texts, from each module's runtime dependencies (Paztport's
                      own modules left out). -->
                 <plugin>
