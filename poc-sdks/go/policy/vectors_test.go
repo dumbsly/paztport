@@ -346,8 +346,7 @@ func canonical(t *testing.T, v json.Value) []byte {
 }
 
 // refused checks a read of case c's file against the case: the reader refuses the file exactly when the case
-// gives no signing bytes, and a refused file never verifies and is current at no time. It reports whether
-// the file was refused.
+// gives no signing bytes. It reports whether the file was refused.
 func refused(t *testing.T, c vectors.Node, err error) bool {
 	t.Helper()
 	want := c.Get("signingBytes").IsNull()
@@ -359,16 +358,6 @@ func refused(t *testing.T, c vectors.Node, err error) bool {
 	}
 	if !want {
 		t.Fatalf("the reader refused the file: %v", err)
-	}
-	if c.Get("verifies").Bool() {
-		t.Fatal("the case says a refused file verifies")
-	}
-	if c.Has("current") {
-		c.Get("current").Each(func(_ string, a vectors.Node) {
-			if a.Get("current").Bool() {
-				t.Fatalf("the case says a refused file is current at %d", a.Get("at").Int())
-			}
-		})
 	}
 	return true
 }

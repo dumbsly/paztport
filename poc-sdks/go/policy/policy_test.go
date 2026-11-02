@@ -635,7 +635,6 @@ func TestProofBundle(t *testing.T) {
 		{"an extra member", `"rootId": "merkle-vector",` + "\n  \"service\"", `"rootId": "merkle-vector", "secret": 1, "service"`},
 		{"a service that is not a string", `"service": "gateway"`, `"service": 1`},
 		{"a root id that is not a string", `"rootId": "merkle-vector",` + "\n  \"service\"", `"rootId": null, "service"`},
-		{"proofs that are not an object", `"proofs": {`, `"proofs": [], "x": {`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			text := strings.Replace(file, c.old, c.new, 1)
@@ -648,6 +647,22 @@ func TestProofBundle(t *testing.T) {
 				t.Fatalf("the refusal quotes the file: %v", err)
 			}
 		})
+	}
+}
+
+// TestProofsAreAnObject reads a bundle whose proofs member is each kind of value: only an object, even an
+// empty one, is a map of proofs.
+func TestProofsAreAnObject(t *testing.T) {
+	bundle := func(proofs string) []byte {
+		return []byte(`{"proofs": ` + proofs + `, "rootId": "r", "service": "s"}`)
+	}
+	if b, err := policy.ParseProofBundleFile(bundle("{}")); err != nil || len(b.Proofs) != 0 {
+		t.Fatalf("ParseProofBundleFile(empty proofs) = %+v, %v", b, err)
+	}
+	for _, proofs := range []string{"[]", "null", `"x"`, "1", "true"} {
+		if b, err := policy.ParseProofBundleFile(bundle(proofs)); err == nil {
+			t.Errorf("ParseProofBundleFile kept proofs %s as %+v", proofs, b)
+		}
 	}
 }
 

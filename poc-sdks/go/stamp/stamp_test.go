@@ -312,31 +312,43 @@ func TestStructuralFaultOutranksDelimiter(t *testing.T) {
 	}
 }
 
-func TestChainWireRefuses(t *testing.T) {
+// TestWireRefuses writes a stamp no reader would read, alone and in a chain: each writer refuses it.
+func TestWireRefuses(t *testing.T) {
 	s := signed(t)
-	edit := func(f func(*stamp.Stamp)) stamp.Chain {
+	edit := func(f func(*stamp.Stamp)) stamp.Stamp {
 		c := s
 		f(&c)
-		return stamp.Chain{s, c}
+		return c
 	}
-	for name, c := range map[string]stamp.Chain{
-		"no stamps":            nil,
-		"a delimiter":          edit(func(s *stamp.Stamp) { s.Rcv = "a|b" }),
-		"a lone surrogate":     edit(func(s *stamp.Stamp) { s.Bind = surrogate }),
-		"a noncharacter":       edit(func(s *stamp.Stamp) { s.Infl = string(rune(0xFFFE)) }),
-		"a negative ts":        edit(func(s *stamp.Stamp) { s.TS = -1 }),
-		"ts past 2^53 - 1":     edit(func(s *stamp.Stamp) { s.TS = json.MaxSafe + 1 }),
-		"sig not base64url":    edit(func(s *stamp.Stamp) { s.Sig = "a=" }),
-		"sig with a surrogate": edit(func(s *stamp.Stamp) { s.Sig = surrogate }),
+	for name, bad := range map[string]stamp.Stamp{
+		"a delimiter":            edit(func(s *stamp.Stamp) { s.Rcv = "a|b" }),
+		"a lone surrogate":       edit(func(s *stamp.Stamp) { s.Bind = surrogate }),
+		"a noncharacter":         edit(func(s *stamp.Stamp) { s.Infl = string(rune(0xFFFE)) }),
+		"a negative ts":          edit(func(s *stamp.Stamp) { s.TS = -1 }),
+		"ts past 2^53 - 1":       edit(func(s *stamp.Stamp) { s.TS = json.MaxSafe + 1 }),
+		"a padded sig":           edit(func(s *stamp.Stamp) { s.Sig = "a=" }),
+		"a sig off the alphabet": edit(func(s *stamp.Stamp) { s.Sig = "!" }),
+		"a sig with unused bits": edit(func(s *stamp.Stamp) { s.Sig = "AB" }),
+		"a sig with a surrogate": edit(func(s *stamp.Stamp) { s.Sig = surrogate }),
 	} {
 		t.Run(name, func(t *testing.T) {
+			if b, err := bad.Wire(); err == nil {
+				t.Fatalf("Stamp.Wire wrote %s", b)
+			}
+			c := stamp.Chain{s, bad}
 			if b, err := c.Wire(); err == nil {
-				t.Fatalf("Wire wrote %s", b)
+				t.Fatalf("Chain.Wire wrote %s", b)
 			}
 			if tok, err := c.Token(); err == nil {
 				t.Fatalf("Token wrote %s", tok)
 			}
 		})
+	}
+	if b, err := stamp.Chain(nil).Wire(); err == nil {
+		t.Errorf("Chain.Wire wrote no stamps as %s", b)
+	}
+	if tok, err := stamp.Chain(nil).Token(); err == nil {
+		t.Errorf("Token wrote no stamps as %s", tok)
 	}
 }
 
