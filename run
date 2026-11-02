@@ -134,7 +134,8 @@ cmd_test() {
   echo "all suites passed"
 }
 
-case "${2:-}" in
+# -h after a command prints this usage, except after bench, whose options all go to JMH.
+[ "${1:-}" = bench ] || case "${2:-}" in
   -h|--help) usage; exit 0 ;;
 esac
 
