@@ -18,9 +18,12 @@ import (
 type RecordedTimes struct {
 	// Last is when the chain's last hop made it, as recorded beside it: the last stamp's ts must be this.
 	Last int64
-	// Run is the start times the run's records give, nil when they give none: the origin's ts must be one
-	// of them. A Run that is not nil gives start times even when it is empty, and then no origin is one of
-	// them.
+	// RunGiven reports whether the run's records give start times, even none. When it is set, or Run
+	// holds any time, the origin's ts must be one of Run: a run whose records give no start time then
+	// fails, rather than compare nothing. A Run built by appending over no records is nil, so presence is
+	// this flag's to say, never the slice's.
+	RunGiven bool
+	// Run is the start times the run's records give.
 	Run []int64
 }
 
@@ -40,8 +43,8 @@ type Input struct {
 	Receiver string
 	// ReceiverInRoute reports whether the route ends at Receiver: true for a call, false for a response.
 	ReceiverInRoute bool
-	// NonceKey is the chain's key in the record set's spent keys. A nil one can't be shown unspent, and is
-	// a replay.
+	// NonceKey is the chain's key among the record set's spent keys. A nil one can't be shown unspent, and
+	// is a replay.
 	NonceKey *string
 	// RID is the rid the record files the chain under, which every stamp must carry; nil for the origin's.
 	RID *string
@@ -54,7 +57,7 @@ type Input struct {
 }
 
 // Config is what the offline verifier pins: the policy material it checks chains against, the session it
-// expects, the record set's spent keys and the age limits.
+// expects and the age limits.
 //
 // The age limits need no clock: a chain the live verifier passed at its last stamp's time has its last
 // stamp at most RunMaxAgeMs after the origin, and its origin at most CallMaxAgeMs after its last stamp.
@@ -71,17 +74,34 @@ type Config struct {
 	AllowedOrigins []string
 	// Sess is the session id every stamp must carry; "" for a chain in no session.
 	Sess string
-	// Seen is every nonce key spent so far anywhere in the record set. Verify adds the key of each chain
-	// that reaches the replay check, so every chain of a record set is given the same Seen. It must not be
-	// nil.
-	Seen map[string]bool
 	// RunMaxAgeMs bounds how long after the origin the last stamp may be.
 	RunMaxAgeMs *int64
 	// CallMaxAgeMs bounds how long after the last stamp the origin may be.
 	CallMaxAgeMs *int64
 }
 
-// Verify runs the offline order on in, and answers with the first check that fails, or OK:
+// RecordSet is one record set being verified again, such as a client's evidence file. It holds the nonce
+// keys its chains have spent, one set for the whole record set, which never forgets: a live cache forgets
+// a key after its window, which offline would let a copy pass once a later record is far enough on.
+// Nothing in a handshake record resets it, so a repeated handshake leaves it as it is.
+//
+// The zero RecordSet is an empty record set, ready to use. A record set is read in order, by one goroutine.
+type RecordSet struct {
+	spent map[string]bool
+}
+
+// NewRecordSet returns a record set in which the nonce keys spent are already spent, such as by records
+// verified before it.
+func NewRecordSet(spent ...string) *RecordSet {
+	rs := &RecordSet{spent: make(map[string]bool, len(spent))}
+	for _, key := range spent {
+		rs.spent[key] = true
+	}
+	return rs
+}
+
+// Verify runs the offline order on in, one recorded chain of the record set, and answers with the first
+// check that fails, or OK:
 //
 //  1. CHAIN_MISSING, unless the chain reads from its token;
 //  2. BAD_SIGNATURE, if a signed field of any stamp holds "|";
@@ -97,21 +117,15 @@ type Config struct {
 //     of the limits is set; then PROMPT_MISMATCH, unless there is a recorded prompt and the origin binds it;
 //  8. BINDING_MISMATCH, unless the last stamp binds the expected binding;
 //  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
-//  10. REPLAY, unless there is a nonce key and it is not in Seen; only then is it added to Seen;
+//  10. REPLAY, unless there is a nonce key and the record set has not spent it; only then does the record
+//     set spend it;
 //  11. PATH_NOT_ALLOWED, unless the proof proves the route against the root.
 //
 // There is no check 0, since the record's own times stand in for a clock, and no check 12, since a record
 // has no peer. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live verifier's do with
-// no peer; every other result names no one.
-//
-// Verify never panics on any input, and a malformed input is a result. It panics if cfg.Seen is nil: a
-// verifier that could not record a key would let a replay through, and that is a fault in the program,
-// not in any record.
-func Verify(in Input, cfg Config) verify.Result {
-	if cfg.Seen == nil {
-		panic("paztport offline: a Config needs a Seen set")
-	}
-	code, last := check(in, cfg)
+// no peer; every other result names no one. Verify never panics, and a malformed input is a result.
+func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
+	code, last := rs.check(in, cfg)
 	r := verify.Result{Reason: code}
 	if code == reason.OK || code == reason.PathNotAllowed {
 		r.SuspectSvc, r.SuspectInst = last.Svc, last.Inst
@@ -121,7 +135,7 @@ func Verify(in Input, cfg Config) verify.Result {
 
 // check runs checks 1 to 11 and returns the first code that fails, or OK, with the chain's last stamp
 // once the chain has read.
-func check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
+func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 	// 1-2. The chain reads, and no signed field holds the delimiter.
 	if in.Chain == nil {
 		return reason.ChainMissing, stamp.Stamp{}
@@ -154,13 +168,30 @@ func check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 	}
 
 	// 10. Replay across the whole record set. A chain with no nonce key can't be shown unspent.
-	if in.NonceKey == nil || cfg.Seen[*in.NonceKey] {
+	if in.NonceKey == nil || rs.spent[*in.NonceKey] {
 		return reason.Replay, last
 	}
-	cfg.Seen[*in.NonceKey] = true
+	if rs.spent == nil {
+		rs.spent = map[string]bool{}
+	}
+	rs.spent[*in.NonceKey] = true
 
 	// 11. The route.
 	return chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, cfg.Root, cfg.RootID), last
+}
+
+// Call returns a recorded call's result in its session s: OUTSIDE_SESSION when the call otherwise
+// verifies (r, what Verify answered for it, is OK) but at, its last stamp's ts, is past one of the
+// session's limits, and r otherwise. It returns false, and no result, for a session that is not attested
+// at all: the spec gives a call relying on one no result, so the record set's reader reports it.
+func (rs *RecordSet) Call(s RecordedSession, r reason.Code, at int64) (reason.Code, bool) {
+	if !s.Attested() {
+		return "", false
+	}
+	if r == reason.OK && !s.AttestedAt(at) {
+		return reason.OutsideSession, true
+	}
+	return r, true
 }
 
 // atRecordedTimes reports whether the origin's and the last stamp's ts are the times t records: the last
@@ -170,7 +201,8 @@ func atRecordedTimes(t *RecordedTimes, origin, last int64) bool {
 	if t == nil {
 		return true
 	}
-	return last == t.Last && (t.Run == nil || slices.Contains(t.Run, origin))
+	runGiven := t.RunGiven || len(t.Run) > 0
+	return last == t.Last && (!runGiven || slices.Contains(t.Run, origin))
 }
 
 // bindsPrompt reports whether origin binds prompt, the run's recorded prompt. No prompt, or one that is not

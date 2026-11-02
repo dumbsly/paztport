@@ -14,8 +14,8 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestVectors replays v3.json's offline cases: each runs the offline verifier once, with the case's spent
-// keys as the record set's, and expects its result. A case reads only its tokens, never the readable
+// TestVectors replays v3.json's offline cases: each runs the offline verifier once, in a record set that
+// has already spent the case's seen keys, and expects its result. A case reads only its tokens, never the readable
 // values beside them.
 func TestVectors(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
@@ -38,21 +38,16 @@ func TestVectors(t *testing.T) {
 				_, pub := vectors.V3Key(t, ring.Get(svc).Str())
 				keyring[svc] = pub
 			}
-			seen := map[string]bool{}
-			for _, key := range strs(c.Get("seen")) {
-				seen[key] = true
-			}
 			cfg := offline.Config{
 				Keyring:        keyring,
 				Root:           root,
 				RootID:         p.Get("rootId").Str(),
 				AllowedOrigins: strs(c.Get("allowedOrigins")),
 				Sess:           c.Get("sess").Str(),
-				Seen:           seen,
 				RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
 				CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
 			}
-			got := offline.Verify(input(t, c, p), cfg)
+			got := offline.NewRecordSet(strs(c.Get("seen"))...).Verify(input(t, c, p), cfg)
 			e := c.Get("expected")
 			want := verify.Result{
 				Reason:      reason.Code(e.Get("reason").Str()),
@@ -108,8 +103,22 @@ func TestRecordedCallVectors(t *testing.T) {
 	if cases.Len() == 0 {
 		t.Fatal("v3.json has no recordedCall case")
 	}
-	policies := v3.Get("policies")
+	// The section's shape, from its data, so that a filtered run still checks it: nine calls, and at least
+	// one that is OUTSIDE_SESSION.
 	calls, outside := 0, 0
+	cases.Each(func(_ string, c vectors.Node) {
+		want := c.Get("expected")
+		calls += want.Len()
+		want.Each(func(_ string, e vectors.Node) {
+			if e.Get("reason").Str() == string(reason.OutsideSession) {
+				outside++
+			}
+		})
+	})
+	if calls != 9 || outside == 0 {
+		t.Fatalf("the section has %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
+	}
+	policies := v3.Get("policies")
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
@@ -144,29 +153,21 @@ func TestRecordedCallVectors(t *testing.T) {
 					RootID:         req.ClientRoot.RootID,
 					AllowedOrigins: origins,
 					Sess:           s.Sess(),
-					Seen:           records.Seen(),
 					RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
 					CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
 				}
 				in := input(t, call, policies.With(t).Get(call.Get("policy").Str()))
-				result := offline.Verify(in, cfg)
-				got, ok := records.CallInSession(s, result.Reason, call.Get("recordedTs").Get("last").Int())
+				result := records.Verify(in, cfg)
+				got, ok := records.Call(s, result.Reason, call.Get("recordedTs").Get("last").Int())
 				if !ok {
 					t.Fatalf("call %d: no result, though every handshake here is attested", i)
 				}
 				if w := reason.Code(want.Index(i).Get("reason").Str()); got != w {
 					t.Errorf("call %d = %s, want %s", i, got, w)
 				}
-				calls++
-				if got == reason.OutsideSession {
-					outside++
-				}
 			}
 		})
 	})
-	if calls != 9 || outside == 0 {
-		t.Fatalf("replayed %d calls, %d of them OUTSIDE_SESSION; want 9, and at least one", calls, outside)
-	}
 }
 
 // record reads h, a handshake in the recordedHandshake shape, from its tokens.
@@ -197,7 +198,7 @@ func input(t *testing.T, c, p vectors.Node) offline.Input {
 	if ts := c.Get("recordedTs"); !ts.IsNull() {
 		in.Recorded = &offline.RecordedTimes{Last: ts.Get("last").Int()}
 		if ts.Has("run") {
-			in.Recorded.Run = []int64{}
+			in.Recorded.RunGiven = true
 			ts.Get("run").Each(func(_ string, n vectors.Node) {
 				in.Recorded.Run = append(in.Recorded.Run, n.Int())
 			})

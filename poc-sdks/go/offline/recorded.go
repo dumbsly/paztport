@@ -8,13 +8,13 @@ import (
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
-	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 )
 
 // RecordedSession is a handshake read back from a record set, and what it gives the records that rely on
 // it: whether it opened an attested session at a given time and at all, the session id its calls carry,
-// and the limit on a response recorded in it. Use Record; the zero RecordedSession opened no attested
+// and the limit on a response recorded in it. Use Record to read one. The zero RecordedSession is a
+// handshake of which nothing was recorded, as Record(nil, nil, "", "") reads, and opened no attested
 // session.
 //
 // Its limits are the certificate's notAfter, in the entry-key form, and the notAfter of each root and
@@ -29,7 +29,7 @@ type RecordedSession struct {
 	pin, serverEntry string
 	sess             string
 	attested         bool
-	responseNotAfter int64
+	responseLimit    *int64 // the earliest response window the reply holds, or nil for none
 }
 
 // Record reads a recorded handshake: request and reply, the wire bytes of each message as recorded, pin,
@@ -66,13 +66,17 @@ func Record(request, reply []byte, pin, serverEntry string) RecordedSession {
 			limits = append(limits, &s.request.ClientRoot.NotAfter)
 		}
 	}
-	s.attested = s.AttestedAt(earliest(0, limits...))
+	// With no limit at all, the earliest is 0.
+	at, _ := earliest(limits...)
+	s.attested = s.AttestedAt(at)
 
 	responseLimits := []*int64{serverRoot}
 	if _, entryKeyForm := json.Field(tree, "serverKeyringSig"); entryKeyForm {
 		responseLimits = append(responseLimits, serverKeyring)
 	}
-	s.responseNotAfter = earliest(json.MaxSafe, responseLimits...)
+	if least, ok := earliest(responseLimits...); ok {
+		s.responseLimit = &least
+	}
 	return s
 }
 
@@ -104,7 +108,10 @@ func (s RecordedSession) Sess() string {
 // reply with no server root does, it is 2^53 - 1; such a reply opens no attested session. The spec leaves
 // that case open, and this is the Java SDK's choice.
 func (s RecordedSession) ResponseNotAfter() int64 {
-	return s.responseNotAfter
+	if s.responseLimit == nil {
+		return json.MaxSafe
+	}
+	return *s.responseLimit
 }
 
 // Request returns the handshake's request, and whether it read. The calls recorded in the session are
@@ -139,46 +146,14 @@ func window(o json.Value, path ...string) *int64 {
 	return &n
 }
 
-// earliest returns the least of the limits that are set, or none when none of them is.
-func earliest(none int64, limits ...*int64) int64 {
-	least, found := none, false
+// earliest returns the least of the limits that are set, and whether any is.
+func earliest(limits ...*int64) (int64, bool) {
+	var least int64
+	found := false
 	for _, l := range limits {
 		if l != nil && (!found || *l < least) {
 			least, found = *l, true
 		}
 	}
-	return least
-}
-
-// RecordSet is one record set's replay state: the nonce keys its calls have spent, one set for the whole
-// record set, which never forgets. A live cache forgets a key after its window, which offline would let a
-// copy pass once a later record is far enough on. Nothing in a handshake record resets it, so a repeated
-// handshake leaves it as it is. A record set is read in order, by one goroutine.
-type RecordSet struct {
-	seen map[string]bool
-}
-
-// NewRecordSet returns an empty record set: no nonce key spent yet.
-func NewRecordSet() *RecordSet {
-	return &RecordSet{seen: map[string]bool{}}
-}
-
-// Seen returns the nonce keys the record set's calls have spent so far, which every call checked in it is
-// given as its Config.Seen. It is the record set's own set, not a copy: Verify adds each call's key to it.
-func (rs *RecordSet) Seen() map[string]bool {
-	return rs.seen
-}
-
-// CallInSession returns a recorded call's result in its session s: OUTSIDE_SESSION when the call
-// otherwise verifies (r, the offline verifier's result, is OK) but at, its last stamp's ts, is past one of
-// the session's limits, and r otherwise. It returns false, and no result, for a session that is not
-// attested at all: the spec gives a call relying on one no result, so the record set's reader reports it.
-func (rs *RecordSet) CallInSession(s RecordedSession, r reason.Code, at int64) (reason.Code, bool) {
-	if !s.Attested() {
-		return "", false
-	}
-	if r == reason.OK && !s.AttestedAt(at) {
-		return reason.OutsideSession, true
-	}
-	return r, true
+	return least, found
 }

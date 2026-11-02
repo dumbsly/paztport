@@ -29,15 +29,17 @@ const prompt = "refund order 7"
 
 func ptr[T any](v T) *T { return &v }
 
-// setup is one recorded chain and the offline verifier's Config for it. The fixture is the mesh policy of
-// v3.json: gateway, then orders, calling payment, in a run started with prompt.
+// setup is one recorded chain, the offline verifier's Config for it and the record set it is verified in.
+// The fixture is the mesh policy of v3.json: gateway, then orders, calling payment, in a run started with
+// prompt, in a record set that has spent nothing.
 type setup struct {
-	stamps []stamp.Stamp                 // nil for no chain
-	pre    []func(i int, s *stamp.Stamp) // before signing, once prev links to the stamp before
-	post   []func(i int, s *stamp.Stamp) // after signing
-	wire   func([]byte) []byte           // on the chain's wire bytes, if set
-	cfg    offline.Config
-	in     offline.Input
+	stamps  []stamp.Stamp                 // nil for no chain
+	pre     []func(i int, s *stamp.Stamp) // before signing, once prev links to the stamp before
+	post    []func(i int, s *stamp.Stamp) // after signing
+	wire    func([]byte) []byte           // on the chain's wire bytes, if set
+	cfg     offline.Config
+	in      offline.Input
+	records *offline.RecordSet
 }
 
 // mesh returns the fixture's setup, which verifies OK.
@@ -62,7 +64,6 @@ func mesh(t *testing.T) *setup {
 			Root:           root,
 			RootID:         p.Get("rootId").Str(),
 			AllowedOrigins: []string{"gateway"},
-			Seen:           map[string]bool{},
 			RunMaxAgeMs:    ptr[int64](verify.RunMaxAgeMs),
 			CallMaxAgeMs:   ptr[int64](verify.CallMaxAgeMs),
 		},
@@ -72,9 +73,10 @@ func mesh(t *testing.T) *setup {
 			Receiver:        "payment",
 			ReceiverInRoute: true,
 			NonceKey:        ptr("rid-1|orders|req"),
-			Recorded:        &offline.RecordedTimes{Last: end, Run: []int64{start - 7, start}},
+			Recorded:        &offline.RecordedTimes{Last: end, RunGiven: true, Run: []int64{start - 7, start}},
 			Prompt:          ptr(prompt),
 		},
+		records: new(offline.RecordSet), // the zero RecordSet is an empty one
 	}
 }
 
@@ -106,7 +108,7 @@ func (s *setup) tamper(i int, f func(*stamp.Stamp)) {
 func (s *setup) times(origin, last int64) {
 	s.edit(0, func(st *stamp.Stamp) { st.TS = origin })
 	s.edit(1, func(st *stamp.Stamp) { st.TS = last })
-	s.in.Recorded = &offline.RecordedTimes{Last: last, Run: []int64{origin}}
+	s.in.Recorded = &offline.RecordedTimes{Last: last, RunGiven: true, Run: []int64{origin}}
 }
 
 // token signs the setup's stamps, each with its own service's key, and returns the chain's token.
@@ -147,7 +149,7 @@ func (s *setup) run(t *testing.T) verify.Result {
 	if s.stamps != nil {
 		in.Chain = ptr(s.token(t))
 	}
-	return offline.Verify(in, s.cfg)
+	return s.records.Verify(in, s.cfg)
 }
 
 // named returns the result the spec names for code: the last stamp for OK and PATH_NOT_ALLOWED, and no
@@ -194,7 +196,7 @@ var faults = []fault{
 	{"an origin not among the run's start times", reason.TimeMismatch, func(s *setup) {
 		s.in.Recorded.Run = []int64{start - 1, start + 1}
 	}},
-	{"a run that gives no start times", reason.TimeMismatch, func(s *setup) { s.in.Recorded.Run = []int64{} }},
+	{"a run that gives no start times", reason.TimeMismatch, func(s *setup) { s.in.Recorded.Run = nil }},
 	{"a last stamp past the run's age", reason.Expired, func(s *setup) { s.cfg.RunMaxAgeMs = ptr(end - start - 1) }},
 	{"an origin past the call window after the last stamp", reason.Expired, func(s *setup) {
 		s.times(end, start)
@@ -213,7 +215,9 @@ var faults = []fault{
 	{"no expected binding", reason.BindingMismatch, func(s *setup) { s.in.ExpectedBind = nil }},
 	{"an empty influence token", reason.InfluenceMismatch, func(s *setup) { s.in.Influence = ptr("") }},
 	{"no nonce key", reason.Replay, func(s *setup) { s.in.NonceKey = nil }},
-	{"a key spent in the record set", reason.Replay, func(s *setup) { s.cfg.Seen["rid-1|orders|req"] = true }},
+	{"a key spent in the record set", reason.Replay, func(s *setup) {
+		s.records = offline.NewRecordSet("rid-1|orders|req")
+	}},
 	{"no proof", reason.PathNotAllowed, func(s *setup) { s.in.Proof = nil }},
 	{"a route the proof does not prove", reason.PathNotAllowed, func(s *setup) { s.in.ReceiverInRoute = false }},
 	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.RootID = "v0" }},
@@ -287,18 +291,26 @@ func TestOrder(t *testing.T) {
 }
 
 // TestRecordedTimes pins what check 7 compares: with no recorded times, no time; with no start times, only
-// the last stamp's.
+// the last stamp's. Start times are given when RunGiven says so or Run holds any, so that neither a run
+// whose records give none nor a flag left unset compares nothing.
 func TestRecordedTimes(t *testing.T) {
+	type times = offline.RecordedTimes
 	tests := []struct {
 		name     string
 		recorded *offline.RecordedTimes
 		code     reason.Code
 	}{
 		{"none", nil, reason.OK},
-		{"the last stamp's, and no start times", &offline.RecordedTimes{Last: end}, reason.OK},
-		{"another last, and no start times", &offline.RecordedTimes{Last: start}, reason.TimeMismatch},
-		{"the origin's as the last", &offline.RecordedTimes{Last: start, Run: []int64{start}}, reason.TimeMismatch},
-		{"the origin's, one of several", &offline.RecordedTimes{Last: end, Run: []int64{1, start, 2}}, reason.OK},
+		{"the last stamp's, and no start times", &times{Last: end}, reason.OK},
+		{"another last, and no start times", &times{Last: start}, reason.TimeMismatch},
+		{"the origin's as the last", &times{Last: start, RunGiven: true, Run: []int64{start}}, reason.TimeMismatch},
+		{"the origin's, one of several", &times{Last: end, RunGiven: true, Run: []int64{1, start, 2}}, reason.OK},
+		{"start times given, none of them", &times{Last: end, RunGiven: true}, reason.TimeMismatch},
+		{"start times given, an empty list", &times{Last: end, RunGiven: true, Run: []int64{}}, reason.TimeMismatch},
+		{"no start times, an empty list", &times{Last: end, Run: []int64{}}, reason.OK},
+		{"start times not flagged, the origin's among them", &times{Last: end, Run: []int64{start}}, reason.OK},
+		{"start times not flagged, the origin's not among them", &times{Last: end, Run: []int64{start + 1}},
+			reason.TimeMismatch},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -394,24 +406,23 @@ func TestRID(t *testing.T) {
 }
 
 // TestSpending pins check 10: a chain spends its key only once checks 1 to 9 hold, and spends it whatever
-// check 11 then says; a spent key is a replay however much later its copy was recorded.
+// check 11 then says; a spent key is a replay however much later its copy was recorded. Whether a fault
+// spent the key shows in the record set: the fixture's own chain, verified in it next, is a replay or not.
 func TestSpending(t *testing.T) {
-	const key = "rid-1|orders|req"
 	for _, f := range faults {
 		t.Run(f.name, func(t *testing.T) {
 			s := mesh(t)
 			f.make(s)
 			got := s.run(t).Reason
-			spent := s.cfg.Seen[key]
-			reached := got == reason.OK || got == reason.PathNotAllowed
-			if f.name == "a key spent in the record set" {
-				reached = true
+			spent := got == reason.OK || got == reason.PathNotAllowed || f.name == "a key spent in the record set"
+			next := mesh(t)
+			next.records = s.records
+			want := named(reason.OK)
+			if spent {
+				want = named(reason.Replay)
 			}
-			if spent != reached {
-				t.Fatalf("%s: the key is spent: %t, want %t", got, spent, reached)
-			}
-			if len(s.cfg.Seen) > 1 {
-				t.Fatalf("Seen holds %d keys", len(s.cfg.Seen))
+			if again := next.run(t); again != want {
+				t.Fatalf("after %s, the fixture's chain = %+v, want %+v", got, again, want)
 			}
 		})
 	}
@@ -424,20 +435,6 @@ func TestSpending(t *testing.T) {
 	if got := s.run(t); got != named(reason.Replay) {
 		t.Fatalf("a copy recorded later: Verify = %+v, want REPLAY", got)
 	}
-}
-
-// TestNoSeenSet checks that Verify refuses to run without a set to spend keys in, before reading anything,
-// rather than let a replay through.
-func TestNoSeenSet(t *testing.T) {
-	s := mesh(t)
-	s.cfg.Seen = nil
-	s.stamps = nil
-	defer func() {
-		if recover() == nil {
-			t.Fatal("Verify ran with no Seen set")
-		}
-	}()
-	s.run(t)
 }
 
 // handshake returns v3.json's recordedHandshake case name: its request's and reply's bytes, its pin and
@@ -520,12 +517,23 @@ func TestRecordNeverPanics(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestZeroRecordedSession checks that the zero RecordedSession is what Record reads when nothing was
+// recorded: attested at no time, naming no session, with no request and no response window.
+func TestZeroRecordedSession(t *testing.T) {
 	var zero offline.RecordedSession
-	if zero.Attested() || zero.AttestedAt(0) || zero.Sess() != "" {
-		t.Fatal("the zero RecordedSession is attested, or names a session")
-	}
-	if _, ok := zero.Request(); ok {
-		t.Fatal("the zero RecordedSession has a request")
+	nothing := offline.Record(nil, nil, "", "")
+	for _, s := range []offline.RecordedSession{zero, nothing} {
+		if s.Attested() || s.AttestedAt(0) || s.Sess() != "" {
+			t.Fatal("the session is attested, or names a session")
+		}
+		if _, ok := s.Request(); ok {
+			t.Fatal("the session has a request")
+		}
+		if got := s.ResponseNotAfter(); got != json.MaxSafe {
+			t.Fatalf("ResponseNotAfter = %d, want 2^53 - 1", got)
+		}
 	}
 }
 
@@ -609,10 +617,10 @@ func TestRecordedSessionKeepsItsOwn(t *testing.T) {
 	}
 }
 
-// TestCallInSession pins a recorded call's result in its session: OUTSIDE_SESSION for a call that verifies
-// past one of the session's limits, its own result for one that fails, and no result in a session that is
-// not attested at all.
-func TestCallInSession(t *testing.T) {
+// TestCall pins a recorded call's result in its session: OUTSIDE_SESSION for a call that verifies past one
+// of the session's limits, its own result for one that fails, and no result in a session that is not
+// attested at all.
+func TestCall(t *testing.T) {
 	request, reply, pin, entry := handshake(t, "entry-key form, limited by the certificate")
 	s := offline.Record(request, reply, pin, entry)
 	records := offline.NewRecordSet()
@@ -629,36 +637,52 @@ func TestCallInSession(t *testing.T) {
 		{reason.Replay, certNotAfter, reason.Replay},
 	}
 	for _, tt := range tests {
-		if got, ok := records.CallInSession(s, tt.r, tt.at); !ok || got != tt.want {
-			t.Fatalf("CallInSession(%s, %d) = %s, %t; want %s", tt.r, tt.at, got, ok, tt.want)
+		if got, ok := records.Call(s, tt.r, tt.at); !ok || got != tt.want {
+			t.Fatalf("Call(%s, %d) = %s, %t; want %s", tt.r, tt.at, got, ok, tt.want)
 		}
 	}
 	unsafe := offline.Record(handshake(t, "unsafe"))
 	for _, r := range []reason.Code{reason.OK, reason.BadSignature} {
-		if got, ok := records.CallInSession(unsafe, r, 0); ok {
-			t.Fatalf("an unsafe session: CallInSession(%s) = %s, want no result", r, got)
+		if got, ok := records.Call(unsafe, r, 0); ok {
+			t.Fatalf("an unsafe session: Call(%s) = %s, want no result", r, got)
 		}
 	}
 }
 
-// TestRecordSet checks that a record set's spent keys start empty and are one set: what Verify spends
-// through one Seen, every later call sees.
+// TestRecordSet checks that a record set holds the keys it was made with and every key its chains spend,
+// and no other record set's: the zero one and a new one with no keys have spent nothing.
 func TestRecordSet(t *testing.T) {
-	records := offline.NewRecordSet()
-	if len(records.Seen()) != 0 {
-		t.Fatal("a new record set has spent keys")
+	const key = "rid-1|orders|req"
+	sets := map[string]struct {
+		records *offline.RecordSet
+		code    reason.Code
+	}{
+		"the zero record set":               {new(offline.RecordSet), reason.OK},
+		"a new record set":                  {offline.NewRecordSet(), reason.OK},
+		"a record set made with other keys": {offline.NewRecordSet("rid-1|orders|resp", "rid-2|orders|req"), reason.OK},
+		"a record set made with the key":    {offline.NewRecordSet("rid-0|gateway|req", key), reason.Replay},
 	}
-	s := mesh(t)
-	s.cfg.Seen = records.Seen()
-	if got := s.run(t); got != named(reason.OK) {
-		t.Fatalf("Verify = %+v, want OK", got)
-	}
-	if !records.Seen()["rid-1|orders|req"] {
-		t.Fatal("the record set does not hold the key the call spent")
-	}
-	s = mesh(t)
-	s.cfg.Seen = records.Seen()
-	if got := s.run(t); got != named(reason.Replay) {
-		t.Fatalf("the same call again: Verify = %+v, want REPLAY", got)
+	for name, set := range sets {
+		t.Run(name, func(t *testing.T) {
+			s := mesh(t)
+			s.records = set.records
+			if got := s.run(t); got != named(set.code) {
+				t.Fatalf("Verify = %+v, want %s", got, set.code)
+			}
+			if got := s.run(t); got != named(reason.Replay) {
+				t.Fatalf("the same chain again: Verify = %+v, want REPLAY", got)
+			}
+			s.in.NonceKey = ptr("rid-1|orders|req-2")
+			if got := s.run(t); got != named(reason.OK) {
+				t.Fatalf("a chain with another key: Verify = %+v, want OK", got)
+			}
+			s.in.NonceKey = ptr(key)
+			if got := s.run(t); got != named(reason.Replay) {
+				t.Fatalf("the first chain after another: Verify = %+v, want REPLAY", got)
+			}
+			if got := mesh(t).run(t); got != named(reason.OK) {
+				t.Fatalf("in another record set: Verify = %+v, want OK", got)
+			}
+		})
 	}
 }
