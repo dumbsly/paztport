@@ -5,7 +5,9 @@ package boundary
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
+	"maps"
 	"slices"
 	"sync"
 
@@ -27,30 +29,38 @@ import (
 var ErrNotVerified = errors.New("paztport boundary: the request's chain did not pass the live order here, " +
 	"so nothing is signed or sent")
 
+// ErrCallUnanswered is NoAnswer's refusal of a call: an unanswered call ends nothing. The partner may have
+// acted on it, so it is not retried; nothing came back, so nothing joins the request's influence; and the
+// session is kept. The embedder abandons the exchange and fails the request.
+var ErrCallUnanswered = errors.New("paztport boundary: an unanswered call ends nothing: abandon the exchange")
+
 var (
 	errFinished = errors.New("paztport boundary: the exchange has ended")
 	errNotBegun = errors.New("paztport boundary: the exchange was not begun by Egress.Begin")
-	errCall     = errors.New("paztport boundary: a call with no answer is not retried, so it has no NoAnswer")
 )
 
 // contentType is the header every step is sent with: a handshake's request and a call are both JSON.
 var contentType = wire.Header{Name: "Content-Type", Value: wire.ContentType}
 
-// idLength is the length of a session id's bytes: it is the base64url of a SHA-256.
-const idLength = 32
+// placeholderID stands in for a session id, of the same form, when Begin checks that a call can be
+// stamped before any session is open: an id's text cannot change whether a stamp can be signed.
+var placeholderID = b64.Encode(make([]byte, sha256.Size))
 
 // Config is an egress's configuration: its own stamper, proof bundle and policy material, the partner it
 // calls and the partner's pinned policy key, its boundary key, how long it keeps a session no call uses,
 // and its clock. Every member is required. New refuses a configuration that lacks one of the settings it
-// names; the material is the partner's to judge, in the handshake and on each call.
+// names; the material itself is the partner's to judge, in the handshake and on each call.
 type Config struct {
 	// Stamper is the egress service's stamper. Its Svc and Inst are the boundary stamp's, its key signs
 	// it, a key the egress's signed keyring holds for Svc, and its clock dates it.
 	Stamper *stamp.Stamper
-	// Bundle is the egress's proof bundle, which must hold the proof for the route <Svc>/<Partner>: a
-	// call in an attested session sends it, and a partner refuses a call without it.
+	// Bundle is the egress service's proof bundle, its Service the Stamper's Svc, which must hold the
+	// proof for the route <Svc>/<Partner>: the sender's root must hold that route, and every call in an
+	// attested session sends its proof.
 	Bundle policy.ProofBundle
-	// Root and Keyring are the egress's own signed root and keyring, which every handshake presents.
+	// Root and Keyring are the egress's own signed root and keyring, which every handshake presents. They
+	// are not checked here: material that does not verify under PolicyKey, or is no longer current, gives
+	// no attested session, so every call goes out in an unsafe one and its Outcome.Attested is false.
 	Root    policy.Root
 	Keyring policy.KeyringFile
 	// PolicyKey is the egress's own policy public key, as base64url SubjectPublicKeyInfo: the key the
@@ -80,9 +90,14 @@ type Config struct {
 // An Egress is safe for concurrent use: one mutex guards its session, and it is never held while the
 // embedder sends. Exchanges that find no session open each run their own handshake, and the session that
 // lands last is the one kept; each such exchange still makes its call in the session its own handshake
-// opened, which the partner keeps alongside the others.
+// opened, which the partner keeps alongside the others. A partner keeps only so many sessions for one peer
+// and evicts its least recently used, so a burst of first calls that opens more than that evicts sessions
+// still in use, whose calls are then answered SESSION_UNKNOWN; an embedder that expects such bursts sends
+// one call first.
 type Egress struct {
 	cfg Config
+	// bundle holds the one proof the egress sends, its own copy.
+	bundle policy.ProofBundle
 
 	mu      sync.Mutex
 	current *partnerSession
@@ -96,13 +111,18 @@ type partnerSession struct {
 	lastUsed int64
 }
 
-// New returns an egress, with no session open yet, configured by its own copy of cfg. It refuses a
-// configuration with no stamper or one whose Svc is empty, no partner, no partner policy key or own policy
-// key, a boundary key that is not influence.KeyLength bytes, an IdleMs that is not positive, or no clock.
+// New returns an egress, with no session open yet, configured by its own copy of cfg, the stamper, keyring
+// and proof included, so that nothing the caller changes later reaches an exchange. It refuses a
+// configuration with no stamper or one whose Svc is empty, a bundle that is not the stamper's service's
+// or holds no proof for the route <Svc>/<Partner>, no partner, no partner policy key or own policy key,
+// a boundary key that is not influence.KeyLength bytes, an IdleMs that is not positive, or no clock.
 func New(cfg Config) (*Egress, error) {
-	switch {
-	case cfg.Stamper == nil || cfg.Stamper.Svc == "":
+	if cfg.Stamper == nil || cfg.Stamper.Svc == "" {
 		return nil, errors.New("paztport boundary: Config.Stamper must name the egress service")
+	}
+	route := policy.JoinRoute(cfg.Stamper.Svc, cfg.Partner)
+	proof, hasProof := cfg.Bundle.ProofFor(route)
+	switch {
 	case cfg.Partner == "":
 		return nil, errors.New("paztport boundary: Config.Partner must name the partner's entry service")
 	case cfg.PartnerPolicyKey == "":
@@ -115,22 +135,42 @@ func New(cfg Config) (*Egress, error) {
 		return nil, errors.New("paztport boundary: Config.IdleMs must be positive")
 	case cfg.Now == nil:
 		return nil, errors.New("paztport boundary: Config.Now must be a clock")
+	case cfg.Bundle.Service != cfg.Stamper.Svc:
+		return nil, errors.New("paztport boundary: Config.Bundle is not the bundle of Config.Stamper's service")
+	case !hasProof:
+		return nil, errors.New("paztport boundary: Config.Bundle holds no proof for the route <egress>/<partner>")
 	}
+	stamper := *cfg.Stamper
+	stamper.Key = bytes.Clone(stamper.Key)
+	cfg.Stamper = &stamper
+	cfg.Keyring.Services = maps.Clone(cfg.Keyring.Services)
 	cfg.BoundaryKey = bytes.Clone(cfg.BoundaryKey)
-	return &Egress{cfg: cfg}, nil
+	proof.LeafSalt = bytes.Clone(proof.LeafSalt)
+	proof.Siblings = slices.Clone(proof.Siblings)
+	for i, sib := range proof.Siblings {
+		proof.Siblings[i] = bytes.Clone(sib)
+	}
+	bundle := policy.ProofBundle{
+		Service: cfg.Bundle.Service, RootID: cfg.Bundle.RootID, Proofs: map[string]policy.Proof{route: proof},
+	}
+	cfg.Bundle = policy.ProofBundle{}
+	return &Egress{cfg: cfg, bundle: bundle}, nil
 }
 
 // Step is one POST the embedder sends to the partner, then feeds the answer back to its Exchange: a
 // handshake's request, to wire.SessionPath, or the call itself.
 type Step struct {
+	// Handshake reports whether the step is a handshake rather than the call: the spec gives a handshake
+	// its own timeout, and only a handshake may be passed to NoAnswer. A call is never one, whatever its
+	// path.
+	Handshake bool
 	// Path is the request target, exactly as it is to be sent: wire.SessionPath for a handshake, and the
 	// path Begin was given for the call.
 	Path string
 	// Body is the request's body, whole.
 	Body []byte
 	// Headers are the headers to send, in order: Content-Type, then for the call X-Path-Session, and in an
-	// attested session X-Path-Chain, X-Path-Proof when the bundle holds the route's proof, and
-	// X-Path-Influence when the call carries influence.
+	// attested session X-Path-Chain, X-Path-Proof, and X-Path-Influence when the call carries influence.
 	Headers []wire.Header
 	// Originals are the call's influence, normalised, and Sent the blinded entries it carries in their
 	// place, in an attested session's call only; both are nil otherwise. The embedder keeps them under the
@@ -142,7 +182,8 @@ type Step struct {
 
 // Outcome is how an exchange ended.
 type Outcome struct {
-	// Status and Body are the partner's answer to the call; both are zero when the exchange Failed.
+	// Status and Body are the partner's answer to the call; both are zero when the exchange Failed. Body is
+	// the Outcome's own copy.
 	Status int
 	Body   []byte
 	// Attested reports whether the call went out in an attested session, stamped and carrying the blinded
@@ -151,9 +192,10 @@ type Outcome struct {
 	// Influence is the request's influence after the exchange: the influence Begin was given, then one
 	// local-untrusted entry for the partner's answer, its src "http:<Partner>" and its h the answer's
 	// wire.ResultHash. The partner does not attest what it answers, so its answer counts as untrusted
-	// content. When the exchange Failed, it is the influence Begin was given.
+	// content. When the exchange Failed, it is the influence Begin was given. It is the Outcome's own copy.
 	Influence []influence.Entry
-	// Failed reports that no session could be opened, so nothing of the call was sent.
+	// Failed reports that nothing of the call was sent: no session could be opened, or, should signing fail
+	// in the session just opened, the call could not be stamped in it, and Answer's error says why.
 	Failed bool
 }
 
@@ -177,10 +219,15 @@ type Exchange struct {
 	path    string
 	body    []byte
 	bind    string
-	phase   phase
-	req     session.Request
-	sess    *partnerSession
-	outcome Outcome
+	// sent is the influence blinded and its token, which an attested call carries, and originals the
+	// influence normalised; all three are made by Begin, whatever session the call goes out in.
+	sent      []influence.Entry
+	sentTok   string
+	originals []influence.Entry
+	phase     phase
+	req       session.Request
+	sess      *partnerSession
+	outcome   Outcome
 }
 
 // Begin begins the call that POSTs body to path at the partner, for the request a accepted, whose
@@ -192,8 +239,9 @@ type Exchange struct {
 // Begin refuses, with ErrNotVerified, a request whose chain did not pass the live order at this hop: the
 // boundary stamp vouches for the request that led to it, so a hop that did not verify it signs nothing,
 // and sends nothing, the handshake included. It also refuses a path that is not valid UTF-8, which has no
-// binding, and a call it cannot stamp, such as one whose influence the boundary key cannot blind. A
-// refusal comes with no exchange and nothing to send.
+// binding, and a call it cannot stamp, such as one whose influence the boundary key cannot blind: it
+// blinds the influence and checks that the call can be stamped before it gives the first step, whether a
+// session is open or not. A refusal comes with no exchange and nothing to send.
 //
 // A session no call has used for Config.IdleMs is dropped here, and the call opens a new one.
 func (e *Egress) Begin(
@@ -206,9 +254,18 @@ func (e *Egress) Begin(
 	if err != nil {
 		return nil, Step{}, err
 	}
+	cfg := &e.cfg
+	sent, err := influence.Reduce(infl, cfg.BoundaryKey, a.Inbound[0].RID, cfg.Partner, cfg.Stamper.Svc)
+	if err != nil {
+		return nil, Step{}, err
+	}
+	sentTok, _, err := wire.EncodeInfluence(sent)
+	if err != nil {
+		return nil, Step{}, err
+	}
 	x := &Exchange{
 		e: e, inbound: slices.Clone(a.Inbound), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
-		bind: bind,
+		bind: bind, sent: sent, sentTok: sentTok, originals: influence.Normalise(infl),
 	}
 	if s := e.take(); s != nil {
 		x.sess = s
@@ -219,7 +276,12 @@ func (e *Egress) Begin(
 		x.phase = phaseCall
 		return x, step, nil
 	}
-	step, err := x.handshake(&e.cfg.Root)
+	// No session is open: the call is stamped with a stand-in id, and the stamp dropped, so that a call
+	// that could not be stamped is refused before the handshake rather than after it.
+	if _, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, sent, e.bundle); err != nil {
+		return nil, Step{}, err
+	}
+	step, err := x.handshake(&cfg.Root)
 	if err != nil {
 		return nil, Step{}, err
 	}
@@ -245,8 +307,9 @@ func (e *Egress) Begin(
 //     may have changed something. Any other answer keeps the session.
 //
 // Answer never panics on any status or body. Its error is for an exchange that has ended or was not
-// begun by Begin, and for a handshake or call that cannot be built once the partner has answered, such as
-// a call that cannot be stamped in the session just opened, which ends the exchange Failed.
+// begun by Begin, and for a call that, though Begin found it could be stamped, cannot be in the session
+// just opened, such as one whose stamper's clock has left the range a stamp holds; that ends the exchange
+// Failed.
 func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 	if x.e == nil {
 		return Step{}, false, errNotBegun
@@ -274,13 +337,13 @@ func (x *Exchange) Answer(status int, body []byte) (Step, bool, error) {
 	}
 }
 
-// NoAnswer says the step last given had no answer: it was not sent, or nothing came back within the
-// embedder's timeout. A handshake with no answer is taken as one whose reply this side cannot use: the
+// NoAnswer says the handshake last given (a Step whose Handshake is true) had no answer: it was not sent,
+// or nothing came back within the embedder's timeout. It is taken as an answer this side cannot use: the
 // full handshake is followed by the replacement, and the replacement ends the exchange Failed.
 //
-// A call with no answer is not the egress's to settle: the partner may have taken it, so it is not
-// retried, and NoAnswer refuses it and leaves the exchange as it is. The embedder then fails the request,
-// whose influence is still the one it passed to Begin, and the session is kept.
+// On a call it returns ErrCallUnanswered and leaves the exchange as it is: an unanswered call ends nothing,
+// so the embedder abandons the exchange. The request's influence is still the one it passed to Begin, and
+// the session is kept.
 func (x *Exchange) NoAnswer() (Step, bool, error) {
 	if x.e == nil {
 		return Step{}, false, errNotBegun
@@ -291,19 +354,21 @@ func (x *Exchange) NoAnswer() (Step, bool, error) {
 	case phaseReplacement:
 		return x.fail()
 	case phaseCall:
-		return Step{}, false, errCall
+		return Step{}, false, ErrCallUnanswered
 	default:
 		return Step{}, false, errFinished
 	}
 }
 
 // Result returns the exchange's outcome, and true once it has ended; until then, the zero Outcome and
-// false.
+// false. Each Outcome it returns has its own Influence and Body.
 func (x *Exchange) Result() (Outcome, bool) {
 	if x.phase != phaseDone {
 		return Outcome{}, false
 	}
-	return x.outcome, true
+	out := x.outcome
+	out.Influence, out.Body = slices.Clone(out.Influence), bytes.Clone(out.Body)
+	return out, true
 }
 
 // handshake returns the step that sends a handshake presenting root, the egress's own or nil for the
@@ -319,13 +384,13 @@ func (x *Exchange) handshake(root *policy.Root) (Step, error) {
 	if root == nil {
 		x.phase = phaseReplacement
 	}
-	return Step{Path: wire.SessionPath, Body: b, Headers: []wire.Header{contentType}}, nil
+	return Step{Handshake: true, Path: wire.SessionPath, Body: b, Headers: []wire.Header{contentType}}, nil
 }
 
 // next returns the step a phase change gave, or ends the exchange Failed on its error.
 func (x *Exchange) next(step Step, err error) (Step, bool, error) {
 	if err != nil {
-		_, _, _ = x.fail()
+		x.end()
 		return Step{}, false, err
 	}
 	return step, true, nil
@@ -343,9 +408,9 @@ func (x *Exchange) open(body []byte, attested bool) (Step, bool, error) {
 	return x.next(x.call())
 }
 
-// call returns the call's step in the exchange's session. In an attested session it blinds the influence,
-// signs the boundary stamp over the request and the entries sent, and carries both with the route's proof;
-// in an unsafe one it carries the session id alone.
+// call returns the call's step in the exchange's session. In an attested session it signs the boundary
+// stamp over the request and the blinded entries, and carries both with the route's proof; in an unsafe
+// one it carries the session id alone.
 func (x *Exchange) call() (Step, error) {
 	cfg := &x.e.cfg
 	step := Step{
@@ -355,11 +420,7 @@ func (x *Exchange) call() (Step, error) {
 	if !x.sess.attested {
 		return step, nil
 	}
-	sent, err := influence.Reduce(x.infl, cfg.BoundaryKey, x.inbound[0].RID, cfg.Partner, cfg.Stamper.Svc)
-	if err != nil {
-		return Step{}, err
-	}
-	chain, proof, err := cfg.Stamper.Boundary(x.inbound, x.sess.id, cfg.Partner, x.bind, sent, cfg.Bundle)
+	chain, proof, err := cfg.Stamper.Boundary(x.inbound, x.sess.id, cfg.Partner, x.bind, x.sent, x.e.bundle)
 	if err != nil {
 		return Step{}, err
 	}
@@ -374,14 +435,10 @@ func (x *Exchange) call() (Step, error) {
 		}
 		step.Headers = append(step.Headers, wire.Header{Name: wire.Proof, Value: tok})
 	}
-	tok, ok, err := wire.EncodeInfluence(sent)
-	if err != nil {
-		return Step{}, err
+	if x.sentTok != "" {
+		step.Headers = append(step.Headers, wire.Header{Name: wire.Influence, Value: x.sentTok})
 	}
-	if ok {
-		step.Headers = append(step.Headers, wire.Header{Name: wire.Influence, Value: tok})
-	}
-	step.Originals, step.Sent = influence.Normalise(x.infl), sent
+	step.Originals, step.Sent = slices.Clone(x.originals), slices.Clone(x.sent)
 	return step, nil
 }
 
@@ -402,10 +459,15 @@ func (x *Exchange) finish(status int, body []byte) (Step, bool, error) {
 	return Step{}, false, nil
 }
 
-// fail ends the exchange Failed: no session was opened, and nothing of the call was sent.
-func (x *Exchange) fail() (Step, bool, error) {
+// end ends the exchange Failed: nothing of the call was sent.
+func (x *Exchange) end() {
 	x.outcome = Outcome{Influence: slices.Clone(x.infl), Failed: true}
 	x.phase = phaseDone
+}
+
+// fail ends the exchange Failed and says it has ended.
+func (x *Exchange) fail() (Step, bool, error) {
+	x.end()
 	return Step{}, false, nil
 }
 
@@ -449,7 +511,7 @@ func (e *Egress) drop(s *partnerSession) {
 // isSessionID reports whether id has a session id's form: canonical base64url of 32 bytes.
 func isSessionID(id string) bool {
 	b, err := b64.Decode(id)
-	return err == nil && len(b) == idLength
+	return err == nil && len(b) == sha256.Size
 }
 
 // refusalReason returns the code of a refusal body, read as wire bytes as {"reason":"<code>"} and nothing

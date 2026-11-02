@@ -10,8 +10,8 @@
 // HTTP library. Egress.Begin takes the request the egress's own receiver accepted (a
 // paztporthttp.Accepted), the request's influence so far, and the call's path and body, and returns an
 // Exchange and the first Step: a POST for the embedder to send. The embedder sends each Step as it is,
-// its path, body and headers, and passes the partner's answer to Exchange.Answer, which returns the next
-// step, until the exchange ends; Exchange.Result then gives its Outcome: the partner's answer, whether the
+// its path, body and headers, and passes the partner's answer to Exchange.Answer, or a handshake's
+// absence of one to Exchange.NoAnswer, which return the next step, until the exchange ends; Exchange.Result then gives its Outcome: the partner's answer, whether the
 // call went out attested, and the request's influence with that answer joined.
 //
 // In order, as the spec's egress does:

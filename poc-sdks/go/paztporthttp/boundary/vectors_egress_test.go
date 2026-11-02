@@ -329,7 +329,10 @@ func (p *scriptedPartner) serve(t testing.TB, s boundary.Step) (int, []byte) {
 	t.Helper()
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if s.Path != wire.SessionPath {
+	if s.Handshake && s.Path != wire.SessionPath {
+		t.Errorf("a handshake goes to %q", s.Path)
+	}
+	if !s.Handshake {
 		p.received = append(p.received, receivedStep{step: s})
 		if len(p.calls) == 0 {
 			p.beyond = append(p.beyond, "a call to "+s.Path)

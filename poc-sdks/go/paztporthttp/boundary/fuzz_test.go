@@ -46,7 +46,7 @@ func FuzzAnswer(f *testing.F) {
 			if answers == 3 {
 				t.Fatal("the exchange did not end within three answers")
 			}
-			if next.Path != wire.SessionPath {
+			if !next.Handshake {
 				if id, err := b64.Decode(header(next, wire.Session)); err != nil || len(id) != 32 {
 					t.Fatalf("a call went out in the session %q", header(next, wire.Session))
 				}
