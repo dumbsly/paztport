@@ -1,0 +1,126 @@
+// Copyright 2026 The Paztport Authors
+// SPDX-License-Identifier: Apache-2.0
+
+package stamp
+
+import (
+	"errors"
+	"fmt"
+
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/reason"
+)
+
+// Chain is the stamps of one request, origin first. On the wire it is a JSON array of the stamps.
+type Chain []Stamp
+
+// members are a stamp's member names: every one is required, and no other is allowed.
+var members = []string{"bind", "infl", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}
+
+// ReadChain reads a chain from its token, the base64url of its wire bytes, as ParseChain reads the bytes.
+// A token that is not canonical base64url, or is over the token limit, is CHAIN_MISSING.
+func ReadChain(tok string) (Chain, reason.Code) {
+	v, err := json.ReadToken(tok)
+	if err != nil {
+		return nil, reason.ChainMissing
+	}
+	return chainFromValue(v)
+}
+
+// ParseChain reads a chain from its wire bytes, as the first two checks of a verifier do, and answers
+// with the stamps and OK, or with no stamps and the reason it refused them:
+//
+//  1. CHAIN_MISSING, unless the bytes are wire bytes, canonical and within the limit, of a non-empty
+//     array whose every item is a stamp: an object of exactly a stamp's eleven members, with v the number
+//     3, ts a protocol integer, every other member a string, and sig canonical base64url;
+//  2. BAD_SIGNATURE, if a signed field of any stamp holds "|".
+//
+// Every stamp is read before any is checked for the delimiter, so a chain with both faults, in whichever
+// stamps, is CHAIN_MISSING. The reader checks sig's encoding, not its length: a sig of the wrong length
+// reads, and fails the signature check that follows. ParseChain never panics, whatever the bytes.
+func ParseChain(wire []byte) (Chain, reason.Code) {
+	v, err := json.ReadWire(wire)
+	if err != nil {
+		return nil, reason.ChainMissing
+	}
+	return chainFromValue(v)
+}
+
+func chainFromValue(v json.Value) (Chain, reason.Code) {
+	items := v.Items()
+	if len(items) == 0 {
+		return nil, reason.ChainMissing
+	}
+	c := make(Chain, len(items))
+	for i, item := range items {
+		s, err := stampFromValue(item)
+		if err != nil {
+			return nil, reason.ChainMissing
+		}
+		c[i] = s
+	}
+	for _, s := range c {
+		if s.fault() != nil {
+			return nil, reason.BadSignature
+		}
+	}
+	return c, reason.OK
+}
+
+func stampFromValue(o json.Value) (Stamp, error) {
+	if err := json.Exactly(o, members, nil); err != nil {
+		return Stamp{}, err
+	}
+	if v, err := json.Integer(o, "v"); err != nil || v != version {
+		return Stamp{}, errors.New(`the member "v" is not 3`)
+	}
+	ts, err := json.Integer(o, "ts")
+	if err != nil {
+		return Stamp{}, err
+	}
+	str := func(name string) string {
+		if err != nil {
+			return ""
+		}
+		var s string
+		s, err = json.String(o, name)
+		return s
+	}
+	s := Stamp{
+		Svc: str("svc"), Inst: str("inst"), RID: str("rid"), TS: ts, Sess: str("sess"), Rcv: str("rcv"),
+		Bind: str("bind"), Infl: str("infl"), Prev: str("prev"), Sig: str("sig"),
+	}
+	if err != nil {
+		return Stamp{}, err
+	}
+	if _, err := b64.Decode(s.Sig); err != nil {
+		return Stamp{}, errors.New(`the member "sig" is not canonical base64url`)
+	}
+	return s, nil
+}
+
+// Wire returns the chain's wire bytes, its canonical bytes. It refuses an empty chain and a stamp that
+// Stamp.Wire refuses, so a chain it writes reads back as itself.
+func (c Chain) Wire() ([]byte, error) {
+	if len(c) == 0 {
+		return nil, errors.New("paztport stamp: the chain can't be written: it has no stamps")
+	}
+	items := make([]json.Value, len(c))
+	for i, s := range c {
+		if err := s.writable(); err != nil {
+			return nil, fmt.Errorf("paztport stamp: the chain can't be written: stamp %d: %w", i, err)
+		}
+		items[i] = s.value()
+	}
+	return wire(json.Arr(items...))
+}
+
+// Token returns the chain's token, the base64url of its wire bytes. It refuses what Wire refuses.
+func (c Chain) Token() (string, error) {
+	b, err := c.Wire()
+	if err != nil {
+		return "", err
+	}
+	return b64.Encode(b), nil
+}
