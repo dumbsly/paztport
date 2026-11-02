@@ -40,6 +40,10 @@ class KeyFilesTest {
     /** What a key file may not be surrounded by: whitespace to other tools, but not to JSON. */
     static final List<String> NOT_JSON_WHITESPACE = List.of("\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000");
 
+    static String label(String c) {
+        return String.format("U+%04X", c.codePointAt(0));
+    }
+
     @Test
     void ignoresExactlyTheFourJsonWhitespaceCharactersAroundAPrivateKey() throws Exception {
         KeyPair pair = Crypto.generateEd25519KeyPair();
@@ -55,9 +59,11 @@ class KeyFilesTest {
         Path file = dir.resolve("svc.key");
         for (String c : NOT_JSON_WHITESPACE) {
             Files.writeString(file, c + key);
-            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "leading U+" + Integer.toHexString(c.codePointAt(0)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> KeyFiles.loadPrivateKey(file), "leading " + label(c));
             Files.writeString(file, key + c);
-            assertThrows(IllegalArgumentException.class, () -> KeyFiles.loadPrivateKey(file), "trailing U+" + Integer.toHexString(c.codePointAt(0)));
+            assertThrows(IllegalArgumentException.class,
+                    () -> KeyFiles.loadPrivateKey(file), "trailing " + label(c));
         }
     }
 
@@ -68,7 +74,7 @@ class KeyFilesTest {
         assertEquals("abc", KeyFiles.loadPolicyPin(file));
         for (String c : NOT_JSON_WHITESPACE) {
             Files.writeString(file, c + "abc" + c);
-            assertEquals(c + "abc" + c, KeyFiles.loadPolicyPin(file), "U+" + Integer.toHexString(c.codePointAt(0)));
+            assertEquals(c + "abc" + c, KeyFiles.loadPolicyPin(file), label(c));
         }
     }
 }

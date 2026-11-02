@@ -410,7 +410,7 @@ class BoundaryInfluenceTest {
         for (String c : new String[] {"\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000"}) {
             Files.writeString(file, c + Base64Url.encode(KEY) + c);
             assertThrows(IllegalStateException.class, () -> BoundaryInfluence.loadKey(file, "key"),
-                    "U+" + Integer.toHexString(c.codePointAt(0)));
+                    String.format("U+%04X", c.codePointAt(0)));
         }
     }
 }

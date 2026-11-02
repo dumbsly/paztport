@@ -242,13 +242,13 @@ class KeygenMainTest {
 
     // The egress reads the key with the same rule, so a key it cannot read is not kept either.
     @Test
-    void refusesAnExistingBoundaryKeySurroundedByCharactersThatAreNotJsonWhitespace(@TempDir Path dir) throws Exception {
+    void refusesAnExistingBoundaryKeySurroundedByNonJsonWhitespace(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("boundary.key");
         for (String c : List.of("\u00a0", "\u000b", "\u000c", "\u0085", "\ufeff", "\u3000")) {
             Files.writeString(file, c + Base64Url.encode(new byte[32]) + c);
 
             assertThrows(IllegalStateException.class, () -> KeygenMain.run(dir, SERVICES, TLS_ONLY, "shop"),
-                    "U+" + Integer.toHexString(c.codePointAt(0)));
+                    String.format("U+%04X", c.codePointAt(0)));
         }
     }
 }

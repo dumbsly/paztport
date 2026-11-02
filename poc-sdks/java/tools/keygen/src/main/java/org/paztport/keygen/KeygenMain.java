@@ -110,8 +110,8 @@ public final class KeygenMain {
     }
 
     /**
-     * Throws unless the existing boundary key is, as the egress reads it, base64url of exactly 32 bytes once its surrounding JSON
-     * whitespace is removed. The message names the file but never its content.
+     * Throws unless the existing boundary key is, as the egress reads it, base64url of exactly 32 bytes once its
+     * surrounding JSON whitespace is removed. The message names the file but never its content.
      */
     private static void requireBoundaryKey(Path file) throws IOException {
         byte[] key;
