@@ -39,9 +39,10 @@
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>4.1.1</spring.boot.version>
-        <!-- The repository root, which holds LICENSE, NOTICE and licenses/. Maven sets
-             maven.multiModuleProjectDirectory to the nearest directory holding .mvn/, so the empty
-             .mvn/maven.config is there to mark this tree's root. -->
+        <!-- The repository root, which holds LICENSE, NOTICE and licenses/. Both Maven trees, this one and
+             poc-demos/java-mesh (whose parent is this pom), sit two directories below it. Maven sets
+             maven.multiModuleProjectDirectory to the nearest directory holding .mvn/, so each tree's empty
+             .mvn/maven.config is there to mark that tree's root. -->
         <paztport.root>${maven.multiModuleProjectDirectory}/../..</paztport.root>
     </properties>
 
@@ -110,6 +111,8 @@
                         <excludedScopes>test,system,provided</excludedScopes>
                         <excludedGroups>^org\.paztport</excludedGroups>
                         <sortArtifactByName>true</sortArtifactByName>
+                        <!-- The one licence each dual-licensed component is used under. -->
+                        <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
                         <licenseMerges>
                             <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|The Apache License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
                             <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
@@ -126,8 +129,6 @@
                             <configuration>
                                 <outputDirectory>${project.build.directory}</outputDirectory>
                                 <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
-                                <!-- The one licence each dual-licensed component is used under. -->
-                                <overrideUrl>file://${paztport.root}/licenses/overrides.properties</overrideUrl>
                             </configuration>
                         </execution>
                         <!-- A module whose jar bundles its dependencies declares this plugin to give that jar
@@ -146,24 +147,36 @@
                                 <fileTemplate>${paztport.root}/licenses/third-party.ftl</fileTemplate>
                                 <!-- Written every build: the list follows the dependency graph, not this pom's date. -->
                                 <force>true</force>
+                                <!-- Spring Boot's starters hold no code, and repackage leaves them out of the jar. -->
+                                <excludedArtifacts>spring-boot-starter</excludedArtifacts>
                                 <!-- The build fails on a bundled licence outside this set, or a component with none. -->
                                 <includedLicenses>
                                     <includedLicense>Apache-2.0</includedLicense>
                                     <includedLicense>Bouncy Castle Licence</includedLicense>
+                                    <includedLicense>EPL-2.0</includedLicense>
+                                    <includedLicense>MIT</includedLicense>
                                 </includedLicenses>
                                 <failOnBlacklist>true</failOnBlacklist>
                                 <failOnMissing>true</failOnMissing>
 
                                 <!-- Each licence text comes from the repository's licenses/, never the network:
-                                     licenses/download-licenses.xml skips Apache-2.0 (META-INF/LICENSE holds it), a
-                                     replacement below maps each other licence URL to its file, and any URL left over
-                                     points at a missing file, so the build stops instead of fetching it. -->
+                                     licenses/download-licenses.xml skips Apache-2.0 (META-INF/LICENSE holds it) and
+                                     picks the text of each MIT holder and elected licence, a replacement below maps
+                                     each other licence URL to its file, and any URL left over points at a missing
+                                     file, so the build stops instead of fetching it. The summary, licenses.xml, is
+                                     what maven-antrun-plugin checks. -->
                                 <licensesOutputDirectory>${project.build.directory}/third-party/META-INF/licenses</licensesOutputDirectory>
+                                <licensesOutputFile>${project.build.directory}/third-party/licenses.xml</licensesOutputFile>
                                 <licensesConfigFile>${paztport.root}/licenses/download-licenses.xml</licensesConfigFile>
                                 <licenseUrlReplacements>
                                     <licenseUrlReplacement>
                                         <regexp>\Qhttps://www.bouncycastle.org/licence.html\E</regexp>
                                         <replacement>file://${paztport.root}/licenses/bouncy-castle.txt</replacement>
+                                    </licenseUrlReplacement>
+                                    <!-- licenses/download-licenses.xml names a text in licenses/ as licenses:<file>. -->
+                                    <licenseUrlReplacement>
+                                        <regexp>^licenses:(.+)</regexp>
+                                        <replacement>file://${paztport.root}/licenses/$1</replacement>
                                     </licenseUrlReplacement>
                                     <licenseUrlReplacement>
                                         <regexp>^https?://.*</regexp>
@@ -183,6 +196,34 @@
                                 <cleanLicensesOutputDirectory>true</cleanLicensesOutputDirectory>
                                 <offline>false</offline>
                                 <errorRemedy>failFast</errorRemedy>
+                            </configuration>
+                        </execution>
+                    </executions>
+                </plugin>
+                <!-- download-licenses reports no error for a component licenses/download-licenses.xml matches, so
+                     a text it could not copy shows only in its summary, as a licence with a URL and no file. A
+                     module that declares license-maven-plugin declares this plugin too, and its build fails on one. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <version>3.2.0</version>
+                    <executions>
+                        <execution>
+                            <id>licence-texts</id>
+                            <phase>process-resources</phase>
+                            <goals>
+                                <goal>run</goal>
+                            </goals>
+                            <configuration>
+                                <target>
+                                    <loadfile property="licence.summary" srcFile="${project.build.directory}/third-party/licenses.xml"/>
+                                    <fail message="A licence text was not copied: ${project.build.directory}/third-party/licenses.xml has a license with a url and no file.">
+                                        <condition>
+                                            <matches string="${licence.summary}" singleline="true"
+                                                     pattern="&lt;license&gt;((?!&lt;/license&gt;|&lt;file&gt;).)*&lt;url&gt;((?!&lt;/license&gt;|&lt;file&gt;).)*&lt;/license&gt;"/>
+                                        </condition>
+                                    </fail>
+                                </target>
                             </configuration>
                         </execution>
                     </executions>

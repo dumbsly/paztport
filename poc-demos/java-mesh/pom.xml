@@ -4,26 +4,20 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.paztport</groupId>
+    <!-- The SDK's parent, for the build both trees share: the compiler, the Spring Boot BOM, LICENSE and NOTICE
+         in every jar, and the licence settings. An application using the SDK needs only its dependencies. -->
+    <parent>
+        <groupId>org.paztport</groupId>
+        <artifactId>paztport-sdk-parent</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+        <relativePath>../../poc-sdks/java/pom.xml</relativePath>
+    </parent>
+
     <artifactId>paztport-java-mesh-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Paztport Java Mesh Demo Parent</name>
     <description>The Java mesh demo: the shop's Spring Boot services and a quarantine responder on the Paztport SDK, and a partner organisation's PSP.</description>
-    <inceptionYear>2026</inceptionYear>
-
-    <organization>
-        <name>The Paztport Authors</name>
-    </organization>
-
-    <licenses>
-        <license>
-            <name>Apache-2.0</name>
-            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
-            <distribution>repo</distribution>
-        </license>
-    </licenses>
 
     <modules>
         <module>services/gateway</module>
@@ -38,10 +32,6 @@
     </modules>
 
     <properties>
-        <maven.compiler.release>25</maven.compiler.release>
-        <maven.compiler.parameters>true</maven.compiler.parameters>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring.boot.version>4.1.1</spring.boot.version>
         <!-- The SDK release the demo builds against; install it first with
              `mvn install` in poc-sdks/java. -->
         <paztport.sdk.version>0.1.0-SNAPSHOT</paztport.sdk.version>
@@ -49,14 +39,6 @@
 
     <dependencyManagement>
         <dependencies>
-            <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring.boot.version}</version>
-                <type>pom</type>
-                <scope>import</scope>
-            </dependency>
-
             <!-- docker-java 3.4.0 (responder only) pulls in old versions of these
                  with published CVEs (Guava 19.0, Commons Compress 1.21, Bouncy Castle
                  1.76), and Spring Boot manages none of them, so later releases are
@@ -89,6 +71,18 @@
         </dependencies>
     </dependencyManagement>
 
+    <dependencies>
+        <!-- Each app's jar holds Spring Boot's launcher classes at its root, unpacked rather than nested, so the
+             loader is declared for the jar's THIRD-PARTY.txt and NOTICE. Optional: repackage leaves it out of
+             BOOT-INF/lib. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-loader</artifactId>
+            <scope>runtime</scope>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
     <build>
         <pluginManagement>
             <plugins>
@@ -100,42 +94,48 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.5.2</version>
                     <configuration>
                         <argLine>-XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
                     </configuration>
                 </plugin>
+                <!-- Each module is a Boot app: it declares this plugin, maven-antrun-plugin and
+                     license-maven-plugin. -->
                 <plugin>
                     <groupId>org.springframework.boot</groupId>
                     <artifactId>spring-boot-maven-plugin</artifactId>
                     <version>${spring.boot.version}</version>
+                    <configuration>
+                        <!-- The images run java -jar and nothing extracts layers, so the jar leaves out the
+                             layer tools. -->
+                        <includeTools>false</includeTools>
+                    </configuration>
+                </plugin>
+                <!-- The app's NOTICE: Paztport's, then Spring Boot's from the loader, whose classes the jar holds
+                     unpacked. The libraries in BOOT-INF/lib are nested whole and keep their own NOTICE files. -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-antrun-plugin</artifactId>
+                    <executions>
+                        <execution>
+                            <id>notice</id>
+                            <phase>prepare-package</phase>
+                            <goals>
+                                <goal>run</goal>
+                            </goals>
+                            <configuration>
+                                <target>
+                                    <concat destfile="${project.build.outputDirectory}/META-INF/NOTICE" fixlastline="yes">
+                                        <file file="${paztport.root}/NOTICE"/>
+                                        <string value="&#10;"/>
+                                        <zipentry zipfile="${org.springframework.boot:spring-boot-loader:jar}"
+                                                  name="META-INF/NOTICE.txt"/>
+                                    </concat>
+                                </target>
+                            </configuration>
+                        </execution>
+                    </executions>
                 </plugin>
             </plugins>
         </pluginManagement>
-
-        <plugins>
-            <!-- Lists this tree's runtime dependencies in target/THIRD-PARTY.txt:
-                   mvn license:aggregate-add-third-party
-                 poc-sdks/scripts/third-party.sh runs it here and in the SDK, then merges
-                 both lists into the root THIRD-PARTY.txt. Same settings as the SDK's.
-                 Not bound to a phase, so normal builds don't run it. -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>license-maven-plugin</artifactId>
-                <version>2.4.0</version>
-                <inherited>false</inherited>
-                <configuration>
-                    <outputDirectory>${project.build.directory}</outputDirectory>
-                    <thirdPartyFilename>THIRD-PARTY.txt</thirdPartyFilename>
-                    <excludedScopes>test,system,provided</excludedScopes>
-                    <excludedGroups>^org\.paztport</excludedGroups>
-                    <sortArtifactByName>true</sortArtifactByName>
-                    <licenseMerges>
-                        <licenseMerge>Apache-2.0|Apache License, Version 2.0|The Apache Software License, Version 2.0|Apache License 2.0|Apache 2.0</licenseMerge>
-                        <licenseMerge>MIT|MIT License|The MIT License</licenseMerge>
-                    </licenseMerges>
-                </configuration>
-            </plugin>
-        </plugins>
     </build>
 </project>

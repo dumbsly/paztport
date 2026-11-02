@@ -46,6 +46,10 @@
                 <groupId>org.codehaus.mojo</groupId>
                 <artifactId>license-maven-plugin</artifactId>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+            </plugin>
             <!-- The module jar holds the tool's own classes and bundles nothing, so it leaves out the bundled
                  components' list and licence texts; the shaded jar below adds them. -->
             <plugin>
