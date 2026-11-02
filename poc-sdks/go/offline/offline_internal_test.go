@@ -36,25 +36,3 @@ func TestWithinAgeAtExtremeTimes(t *testing.T) {
 		})
 	}
 }
-
-// TestAtMost pins the exact difference beneath the age limits, at its overflow on either side.
-func TestAtMost(t *testing.T) {
-	tests := []struct {
-		a, b, limit int64
-		want        bool
-	}{
-		{math.MaxInt64, -1, math.MaxInt64, false}, // 2^63, above every limit
-		{math.MinInt64, 1, math.MinInt64, true},   // -2^63 - 1, below every limit
-		{math.MaxInt64, math.MinInt64, math.MaxInt64, false},
-		{math.MinInt64, math.MaxInt64, math.MinInt64, true},
-		{math.MaxInt64, 0, math.MaxInt64, true},
-		{math.MinInt64, 0, math.MinInt64, true},
-		{math.MinInt64, 0, math.MinInt64 + 1, true},
-		{0, math.MinInt64 + 1, math.MaxInt64 - 1, false}, // 2^63 - 1, no overflow, above the limit
-	}
-	for _, tt := range tests {
-		if got := atMost(tt.a, tt.b, tt.limit); got != tt.want {
-			t.Errorf("atMost(%d, %d, %d) = %t, want %t", tt.a, tt.b, tt.limit, got, tt.want)
-		}
-	}
-}

@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/chaincheck"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/exact"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
@@ -187,6 +188,6 @@ func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code,
 // now, either way, and the origin at most run before now and at most call after it. A difference too
 // large for an int64 is outside every window, so no clock or window makes the check pass by wrapping.
 func fresh(now, origin, last, call, run int64) bool {
-	return atMost(now, last, call) && atMost(last, now, call) &&
-		atMost(now, origin, run) && atMost(origin, now, call)
+	return exact.AtMost(now, last, call) && exact.AtMost(last, now, call) &&
+		exact.AtMost(now, origin, run) && exact.AtMost(origin, now, call)
 }

@@ -6,6 +6,8 @@ package verify
 import (
 	"context"
 	"sync"
+
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/exact"
 )
 
 // NonceCache is a replay cache, keyed by an opaque string. What a key is made of belongs to the protocol
@@ -56,12 +58,12 @@ func (c *MemoryNonceCache) SeenBefore(_ context.Context, key string, now int64) 
 		c.seen = make(map[string]int64)
 	}
 	at, ok := c.seen[key]
-	hit := ok && atMost(now, at, c.ttl)
+	hit := ok && exact.AtMost(now, at, c.ttl)
 	if !hit {
 		c.seen[key] = now
 		c.order = append(c.order, record{key, now})
 	}
-	for len(c.order) > 0 && !atMost(now, c.order[0].at, c.ttl) {
+	for len(c.order) > 0 && !exact.AtMost(now, c.order[0].at, c.ttl) {
 		// A key recorded afresh has a later record of its own, so only its latest record drops it.
 		if r := c.order[0]; c.seen[r.key] == r.at {
 			delete(c.seen, r.key)
@@ -75,23 +77,4 @@ func (c *MemoryNonceCache) SeenBefore(_ context.Context, key string, now int64) 
 // TTL implements NonceCache.
 func (c *MemoryNonceCache) TTL() int64 {
 	return c.ttl
-}
-
-// atMost reports whether a - b <= limit, exactly: a difference too large for an int64 is above every
-// limit when a > b, and below every limit when a < b.
-func atMost(a, b, limit int64) bool {
-	d, ok := sub(a, b)
-	if !ok {
-		return a < b
-	}
-	return d <= limit
-}
-
-// sub returns a - b, and false when it does not fit an int64.
-func sub(a, b int64) (int64, bool) {
-	d := a - b
-	if (b > 0 && d > a) || (b < 0 && d < a) {
-		return 0, false
-	}
-	return d, true
 }

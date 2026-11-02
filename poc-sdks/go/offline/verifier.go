@@ -7,6 +7,7 @@ import (
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/chaincheck"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/exact"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
@@ -193,16 +194,5 @@ func withinAge(origin, last int64, run, call *int64) bool {
 	case run == nil || call == nil:
 		return false
 	}
-	return atMost(last, origin, *run) && atMost(origin, last, *call)
-}
-
-// atMost reports whether a - b <= limit, exactly: a difference too large for an int64 is above every
-// limit, and one too small for it is below every limit.
-func atMost(a, b, limit int64) bool {
-	d := a - b
-	if (b > 0 && d > a) || (b < 0 && d < a) {
-		// The difference overflowed, so its sign is a's side of b.
-		return a < b
-	}
-	return d <= limit
+	return exact.AtMost(last, origin, *run) && exact.AtMost(origin, last, *call)
 }
