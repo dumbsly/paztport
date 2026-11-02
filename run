@@ -12,8 +12,9 @@ Usage: ./run <command> [options]
 
   java-mesh    Build the Java SDK and the mesh demo, then run poc-demos/java-mesh/demo.sh (needs Docker).
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
-  test         The name and link checks, then the Java SDK, Java demo, TypeScript type checks, TypeScript SDK and TypeScript demo suites.
-               No Docker and no model.
+  test         The name and link checks, the Java SDK and Java demo suites, a check of what the built jars
+               carry, then the TypeScript type checks and the TypeScript SDK and demo suites. No Docker and
+               no model.
   bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
                help is ./run bench -h. Not part of test.
@@ -111,7 +112,8 @@ cmd_test() {
   bash poc-sdks/scripts/check-names.sh
   node poc-sdks/scripts/check-links.mjs
   (cd poc-sdks/java && mvn -q install)
-  (cd poc-demos/java-mesh && mvn -q test)
+  (cd poc-demos/java-mesh && mvn -q verify)
+  bash poc-sdks/scripts/check-artefacts.sh
   # The TS SDK's cross-language check reads a keyring the Java keygen writes, so it runs here instead of skipping.
   test_keys="$(mktemp -d)"
   trap 'rm -rf "$test_keys"' EXIT

@@ -11,8 +11,8 @@ policy, verification, influence and sessions. The demos in
   extension, and the policy command-line tools.
 - [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v3, which both SDKs replay
   (the Java SDK all of it but the MCP profile), and v3 over HTTP, which only the Java SDK speaks.
-- `scripts/`: the name and link checks that `./run test` runs, the tests for `./run`, and
-  `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
+- `scripts/`: the name, link and jar checks that `./run test` runs, the tests for `./run`,
+  and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
 ## On the wire
 
