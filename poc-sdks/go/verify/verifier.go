@@ -4,11 +4,12 @@
 package verify
 
 import (
-	"maps"
+	"context"
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/chaincheck"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/reason"
 	"github.com/dumbsly/paztport/poc-sdks/go/stamp"
 )
@@ -58,19 +59,23 @@ type Input struct {
 }
 
 // Verifier checks chains received live, against the Config it was built with. It is safe for use by
-// many goroutines when its nonce cache and clock are.
+// many goroutines when its nonce cache and clock are. Use New; the zero Verifier is not usable.
 type Verifier struct {
 	cfg Config
 }
 
-// New returns a verifier for cfg. The verifier keeps its own copy of cfg's keyring, root and allowed
-// origins, so later changes to them do not reach it. New panics if cfg has no clock or no nonce cache:
+// New returns a verifier for cfg. The verifier keeps its own copy of cfg's keyring, its every key
+// included, its root and its allowed origins, so later changes to them do not reach it. New panics if cfg has no clock or no nonce cache:
 // no verifier can run without them, and that is a fault in the program, not in any request.
 func New(cfg Config) *Verifier {
 	if cfg.Now == nil || cfg.Nonces == nil {
 		panic("paztport verify: a Config needs a clock and a nonce cache")
 	}
-	cfg.Keyring = maps.Clone(cfg.Keyring)
+	keyring := make(policy.Keyring, len(cfg.Keyring))
+	for svc, key := range cfg.Keyring {
+		keyring[svc] = slices.Clone(key)
+	}
+	cfg.Keyring = keyring
 	cfg.Root = slices.Clone(cfg.Root)
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	return &Verifier{cfg: cfg}
@@ -99,16 +104,17 @@ func New(cfg Config) *Verifier {
 // POLICY_EXPIRED names no one. With a peer, every other result names the peer; without one, OK and
 // PATH_NOT_ALLOWED name the last stamp's svc and inst, and every other result names no one.
 //
-// Verify never panics on any input, and a malformed input is a result, never an error. The error is the
-// nonce cache's, when it could not answer; the Result is then the zero Result, which is not OK.
-func (v *Verifier) Verify(in Input) (Result, error) {
+// Verify never panics on any input, and a malformed input is a result, never an error. ctx reaches only
+// the nonce cache. The error is the cache's, when it could not answer, ctx's cancellation or deadline
+// included; the Result is then the zero Result, which is not OK.
+func (v *Verifier) Verify(ctx context.Context, in Input) (Result, error) {
 	now := v.cfg.Now()
 	// 0. The pinned policy is still vouched for. This is about the verifier's own material, not the
 	// request, so it comes first, names no one and spends no nonce key.
 	if v.cfg.PolicyNotAfter < 0 || v.cfg.PolicyNotAfter > json.MaxSafe || now > v.cfg.PolicyNotAfter {
 		return Result{Reason: reason.PolicyExpired}, nil
 	}
-	code, last, err := v.check(in, now)
+	code, last, err := v.check(ctx, in, now)
 	if err != nil {
 		return Result{}, err
 	}
@@ -124,7 +130,7 @@ func (v *Verifier) Verify(in Input) (Result, error) {
 
 // check runs checks 1 to 12 and returns the first code that fails, or OK, with the chain's last stamp
 // once the chain has read.
-func (v *Verifier) check(in Input, now int64) (reason.Code, stamp.Stamp, error) {
+func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code, stamp.Stamp, error) {
 	// 1-2. The chain reads, and no signed field holds the delimiter.
 	if in.Chain == nil {
 		return reason.ChainMissing, stamp.Stamp{}, nil
@@ -156,7 +162,7 @@ func (v *Verifier) check(in Input, now int64) (reason.Code, stamp.Stamp, error) 
 	if in.NonceKey == nil || ttl < 0 || ttl/2 < v.cfg.CallMaxAgeMs {
 		return reason.Replay, last, nil
 	}
-	seen, err := v.cfg.Nonces.SeenBefore(*in.NonceKey, now)
+	seen, err := v.cfg.Nonces.SeenBefore(ctx, *in.NonceKey, now)
 	if err != nil {
 		return "", last, err
 	}

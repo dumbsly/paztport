@@ -3,16 +3,20 @@
 
 package verify
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 // NonceCache is a replay cache, keyed by an opaque string. What a key is made of belongs to the protocol
 // (a request's rid, the hop and the direction), so a cache never has to understand it.
 type NonceCache interface {
 	// SeenBefore records key at now, in milliseconds since the Unix epoch, and reports whether it was
-	// already recorded and is still remembered. A hit does not refresh the recorded time. The error is
-	// for a cache that could not answer, such as one backed by a store that is down; the verifier then
-	// answers with the error, not a verdict.
-	SeenBefore(key string, now int64) (bool, error)
+	// already recorded and is still remembered. A hit does not refresh the recorded time. A cache that
+	// can block, such as one backed by a store, honours ctx's cancellation and deadline. The error is for
+	// a cache that could not answer, such as one whose store is down or whose ctx is done; the verifier
+	// then answers with the error, not a verdict.
+	SeenBefore(ctx context.Context, key string, now int64) (bool, error)
 	// TTL returns how long, in milliseconds, the cache remembers a key. A verifier refuses every key when
 	// it is less than twice its call window, since a replay could outlive its record.
 	TTL() int64
@@ -40,12 +44,12 @@ func NewMemoryNonceCache(ttlMs int64) *MemoryNonceCache {
 	return &MemoryNonceCache{ttl: ttlMs}
 }
 
-// SeenBefore implements NonceCache. It never fails.
+// SeenBefore implements NonceCache. It never blocks, so it ignores ctx, and it never fails.
 //
 // It also drops the keys it has forgotten, oldest first, stopping at the first it still remembers: with
 // a clock that steps back, a forgotten key recorded after a remembered one is held in memory until that
 // one goes, but it is never a hit.
-func (c *MemoryNonceCache) SeenBefore(key string, now int64) (bool, error) {
+func (c *MemoryNonceCache) SeenBefore(_ context.Context, key string, now int64) (bool, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.seen == nil {

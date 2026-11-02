@@ -35,28 +35,28 @@ func TestFreshAtExtremeClocks(t *testing.T) {
 func TestMemoryNonceCachePurges(t *testing.T) {
 	c := NewMemoryNonceCache(15)
 	for i := range int64(10) {
-		if _, err := c.SeenBefore(strconv.FormatInt(i, 10), 100+i); err != nil {
+		if _, err := c.SeenBefore(t.Context(), strconv.FormatInt(i, 10), 100+i); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := c.SeenBefore("0", 101); err != nil { // a hit adds nothing
+	if _, err := c.SeenBefore(t.Context(), "0", 101); err != nil { // a hit adds nothing
 		t.Fatal(err)
 	}
 	if len(c.seen) != 10 || len(c.order) != 10 {
 		t.Fatalf("the cache holds %d keys and %d records, want 10 and 10", len(c.seen), len(c.order))
 	}
 	// At 120, the keys recorded at 100 to 104 are 16 to 20 ms old: forgotten, and dropped.
-	if seen, err := c.SeenBefore("5", 120); err != nil || !seen {
+	if seen, err := c.SeenBefore(t.Context(), "5", 120); err != nil || !seen {
 		t.Fatalf("SeenBefore(5, 120) = %t, %v, want true", seen, err)
 	}
 	if len(c.seen) != 5 || len(c.order) != 5 {
 		t.Fatalf("the cache holds %d keys and %d records, want 5 and 5", len(c.seen), len(c.order))
 	}
 	// A key recorded afresh is kept when its earlier record is dropped.
-	if seen, err := c.SeenBefore("5", 121); err != nil || seen {
+	if seen, err := c.SeenBefore(t.Context(), "5", 121); err != nil || seen {
 		t.Fatalf("SeenBefore(5, 121) = %t, %v, want false", seen, err)
 	}
-	if seen, err := c.SeenBefore("9", 124); err != nil || !seen {
+	if seen, err := c.SeenBefore(t.Context(), "9", 124); err != nil || !seen {
 		t.Fatalf("SeenBefore(9, 124) = %t, %v, want true", seen, err)
 	}
 	if _, ok := c.seen["5"]; !ok || len(c.seen) != 2 {

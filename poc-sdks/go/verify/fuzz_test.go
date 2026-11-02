@@ -55,7 +55,7 @@ func FuzzVerify(f *testing.F) {
 			RunMaxAgeMs:    verify.RunMaxAgeMs,
 		})
 		bind, key := "bind-orders-to-payment", "rid-2|orders|req"
-		r, err := v.Verify(verify.Input{
+		r, err := v.Verify(t.Context(), verify.Input{
 			Chain:           &chain,
 			ExpectedBind:    &bind,
 			Influence:       &influence,

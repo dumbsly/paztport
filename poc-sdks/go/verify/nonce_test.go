@@ -14,7 +14,7 @@ import (
 // offer offers key to c at at, and expects want.
 func offer(t *testing.T, c verify.NonceCache, key string, at int64, want bool) {
 	t.Helper()
-	got, err := c.SeenBefore(key, at)
+	got, err := c.SeenBefore(t.Context(), key, at)
 	if err != nil {
 		t.Fatalf("SeenBefore(%q, %d): %v", key, at, err)
 	}
@@ -96,7 +96,7 @@ func TestMemoryNonceCacheConcurrent(t *testing.T) {
 			go func() {
 				defer done.Done()
 				start.Wait()
-				seen, err := c.SeenBefore("rid-1|orders|req", 100)
+				seen, err := c.SeenBefore(t.Context(), "rid-1|orders|req", 100)
 				if err != nil {
 					t.Error(err)
 				}

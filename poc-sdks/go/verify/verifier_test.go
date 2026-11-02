@@ -5,6 +5,7 @@ package verify_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"errors"
 	"math"
@@ -141,7 +142,7 @@ func (s *setup) run(t *testing.T) verify.Result {
 	if s.stamps != nil {
 		in.Chain = ptr(s.token(t))
 	}
-	r, err := verify.New(s.cfg).Verify(in)
+	r, err := verify.New(s.cfg).Verify(t.Context(), in)
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
@@ -221,7 +222,7 @@ var faults = []fault{
 	}},
 	{"a key already spent", reason.Replay, func(s *setup) {
 		c := verify.NewMemoryNonceCache(verify.NonceTTLMs)
-		if _, err := c.SeenBefore("rid-1|orders|req", now); err != nil {
+		if _, err := c.SeenBefore(s.t.Context(), "rid-1|orders|req", now); err != nil {
 			s.t.Fatal(err)
 		}
 		s.cfg.Nonces = c
@@ -230,6 +231,7 @@ var faults = []fault{
 	{"a route the proof does not prove", reason.PathNotAllowed, func(s *setup) { s.in.ReceiverInRoute = false }},
 	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.RootID = "v0" }},
 	{"another peer", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search", Inst: "10.0.0.9"} }},
+	{"a peer with no svc", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{} }},
 }
 
 // TestOK pins the fixture: it verifies, and names its last signer.
@@ -395,7 +397,9 @@ func TestFreshnessAtExtremeClocks(t *testing.T) {
 	}
 }
 
-// TestNegativeWindows checks that a negative call or run window is never met.
+// TestNegativeWindows checks that a negative call window is never met, and that a negative run window is
+// not met by an origin at now. (By the spec's words, an origin ahead of now is held to the call window
+// only, so a negative run window does not refuse it.)
 func TestNegativeWindows(t *testing.T) {
 	for _, edit := range []func(*verify.Config){
 		func(c *verify.Config) { c.CallMaxAgeMs = -1 },
@@ -468,6 +472,33 @@ func TestInfluence(t *testing.T) {
 func none(*testing.T) string        { return "" }
 func committed(t *testing.T) string { return commitment(t, entries) }
 
+// TestBinding pins check 8: the last stamp's bind equals the expected binding, "" included, and an
+// absent expected binding matches nothing.
+func TestBinding(t *testing.T) {
+	tests := []struct {
+		name     string
+		bind     string
+		expected *string
+		code     reason.Code
+	}{
+		{"the binding", "bind-1", ptr("bind-1"), reason.OK},
+		{"an empty binding", "", ptr(""), reason.OK},
+		{"an empty binding, none expected", "", nil, reason.BindingMismatch},
+		{"another binding than the empty one", "bind-1", ptr(""), reason.BindingMismatch},
+		{"the empty binding for another", "", ptr("bind-1"), reason.BindingMismatch},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := mesh(t)
+			s.stamps[1].Bind = tt.bind
+			s.in.ExpectedBind = tt.expected
+			if got := s.run(t); got.Reason != tt.code {
+				t.Fatalf("Verify = %+v, want %s", got, tt.code)
+			}
+		})
+	}
+}
+
 // TestRoute pins check 11's proof handling.
 func TestRoute(t *testing.T) {
 	s := mesh(t)
@@ -502,21 +533,26 @@ func TestRoute(t *testing.T) {
 	}
 }
 
-// TestReplay pins check 10: the second use of a key is a replay, another key is not, and a cache whose
-// TTL is under twice the call window refuses every key.
+// TestReplay pins check 10: the second use of a key is a replay, while another key, the empty one
+// included, is not on its first use; and a cache whose TTL is under twice the call window refuses every
+// key, the window's double past int64 included.
 func TestReplay(t *testing.T) {
 	s := mesh(t)
 	s.in.Chain = ptr(s.token(t))
 	s.stamps = nil
 	v := verify.New(s.cfg)
 	for i, want := range []reason.Code{reason.OK, reason.Replay, reason.Replay} {
-		if got, err := v.Verify(s.in); err != nil || got.Reason != want {
+		if got, err := v.Verify(t.Context(), s.in); err != nil || got.Reason != want {
 			t.Fatalf("use %d: Verify = %+v, %v, want %s", i+1, got, err, want)
 		}
 	}
-	s.in.NonceKey = ptr("rid-1|orders|resp")
-	if got, err := v.Verify(s.in); err != nil || got.Reason != reason.OK {
-		t.Fatalf("another key: Verify = %+v, %v, want OK", got, err)
+	for _, key := range []string{"rid-1|orders|resp", ""} { // an empty key is a key, not an absent one
+		s.in.NonceKey = ptr(key)
+		for i, want := range []reason.Code{reason.OK, reason.Replay} {
+			if got, err := v.Verify(t.Context(), s.in); err != nil || got.Reason != want {
+				t.Fatalf("the key %q, use %d: Verify = %+v, %v, want %s", key, i+1, got, err, want)
+			}
+		}
 	}
 
 	tests := []struct {
@@ -530,6 +566,8 @@ func TestReplay(t *testing.T) {
 		{"a TTL of 0 for a window of 0", 0, 0, reason.OK},
 		{"a TTL of -1 for a window of 0", -1, 0, reason.Replay},
 		{"a TTL of -2^63 for a window of 0", math.MinInt64, 0, reason.Replay},
+		{"a TTL of 2^63 - 1 for a window past 2^62", math.MaxInt64, math.MaxInt64/2 + 1, reason.Replay},
+		{"a TTL of 2^63 - 1 for a window of 2^62 - 1", math.MaxInt64, math.MaxInt64 / 2, reason.OK},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -553,7 +591,7 @@ type recorder struct {
 	err     error
 }
 
-func (r *recorder) SeenBefore(key string, now int64) (bool, error) {
+func (r *recorder) SeenBefore(_ context.Context, key string, now int64) (bool, error) {
 	r.offered = append(r.offered, key)
 	return false, r.err
 }
@@ -602,7 +640,7 @@ func TestNonceCacheFailure(t *testing.T) {
 	s.cfg.Nonces = &recorder{ttl: verify.NonceTTLMs, err: down}
 	s.in.Peer = &verify.Peer{Svc: "orders", Inst: "10.0.0.7"}
 	s.in.Chain = ptr(s.token(t))
-	got, err := verify.New(s.cfg).Verify(s.in)
+	got, err := verify.New(s.cfg).Verify(t.Context(), s.in)
 	if !errors.Is(err, down) {
 		t.Fatalf("Verify error = %v, want %v", err, down)
 	}
@@ -611,15 +649,45 @@ func TestNonceCacheFailure(t *testing.T) {
 	}
 }
 
-// TestNewCopiesConfig checks that a verifier keeps its own copy of the Config's keyring, root and origins.
+// store is a NonceCache that, as one backed by a store would, answers with ctx's error once ctx is done.
+type store struct{ recorder }
+
+func (s *store) SeenBefore(ctx context.Context, key string, now int64) (bool, error) {
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return s.recorder.SeenBefore(ctx, key, now)
+}
+
+// TestCancelledContext checks that Verify hands its ctx to the nonce cache: a cache that honours a
+// cancelled ctx makes Verify fail with its error and the zero Result, while a live ctx verifies.
+func TestCancelledContext(t *testing.T) {
+	s := mesh(t)
+	s.cfg.Nonces = &store{recorder{ttl: verify.NonceTTLMs}}
+	s.in.Chain = ptr(s.token(t))
+	v := verify.New(s.cfg)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	got, err := v.Verify(ctx, s.in)
+	if !errors.Is(err, context.Canceled) || got != (verify.Result{}) {
+		t.Fatalf("Verify = %+v, %v under a cancelled ctx, want the zero Result and %v", got, err, context.Canceled)
+	}
+	if got, err := v.Verify(t.Context(), s.in); err != nil || !got.OK() {
+		t.Fatalf("Verify = %+v, %v under a live ctx, want OK", got, err)
+	}
+}
+
+// TestNewCopiesConfig checks that a verifier keeps its own copy of the Config's keyring, its keys
+// included, root and origins.
 func TestNewCopiesConfig(t *testing.T) {
 	s := mesh(t)
 	s.in.Chain = ptr(s.token(t))
 	v := verify.New(s.cfg)
 	s.cfg.Keyring["orders"] = pub(t, "pi")
+	s.cfg.Keyring["gateway"][0] ^= 1
 	s.cfg.Root[0] ^= 1
 	s.cfg.AllowedOrigins[0] = "orders"
-	if got, err := v.Verify(s.in); err != nil || !got.OK() {
+	if got, err := v.Verify(t.Context(), s.in); err != nil || !got.OK() {
 		t.Fatalf("Verify = %+v, %v after the Config changed, want OK", got, err)
 	}
 }

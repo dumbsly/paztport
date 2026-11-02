@@ -72,7 +72,7 @@ func TestVectors(t *testing.T) {
 			v := verify.New(cfg)
 			var got verify.Result
 			for range uses {
-				if got, err = v.Verify(in); err != nil {
+				if got, err = v.Verify(t.Context(), in); err != nil {
 					t.Fatalf("Verify: %v", err)
 				}
 			}
