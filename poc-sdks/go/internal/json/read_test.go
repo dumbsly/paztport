@@ -42,6 +42,8 @@ func TestRefusalsNameTheRule(t *testing.T) {
 		{"\"a\xef\xbf\xbe\"", "a noncharacter at byte 2"},
 		{"{\"\xef\xb7\x90\":1}", "a noncharacter at byte 2"},
 		{`"a\x"`, "an escape RFC 8259 does not define at byte 2"},
+		{`"a\`, "an escape cut short at byte 2"},
+		{`"\`, "an escape cut short at byte 1"},
 		{`"a\u12"`, `an escape \u without four hex digits at byte 2`},
 		{`"a\u12`, `an escape \u without four hex digits at byte 2`},
 		{`"a\ud800"`, "a lone surrogate at byte 2"},
@@ -73,6 +75,31 @@ func TestRefusalsNameTheRule(t *testing.T) {
 		if step(err) != json.StepParse || !strings.HasSuffix(err.Error(), ": "+c.want) {
 			t.Errorf("ReadFile(%+q) = %v, want the parse refusal %q", c.in, err, c.want)
 		}
+	}
+}
+
+// TestReplacementCharacterReads checks that U+FFFD, a character like any other, reads raw and escaped: only
+// a byte that is not UTF-8 is refused, though Go's decoder answers U+FFFD for both.
+func TestReplacementCharacterReads(t *testing.T) {
+	const replacement = "\xef\xbf\xbd" // U+FFFD in UTF-8
+	escaped := `"` + `\` + `ufffd"`
+	for _, c := range []struct {
+		name string
+		read func([]byte) (json.Value, error)
+		in   string
+	}{
+		{"raw, as wire bytes", json.ReadWire, `"` + replacement + `"`},
+		{"escaped, in a file", json.ReadFile, escaped},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v, err := c.read([]byte(c.in))
+			if err != nil {
+				t.Fatalf("refused: %v", err)
+			}
+			if v.Str() != replacement {
+				t.Fatalf("read %+q, want U+FFFD", v.Str())
+			}
+		})
 	}
 }
 

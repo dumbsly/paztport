@@ -144,9 +144,9 @@ type Error struct {
 	msg  string
 }
 
-// Error returns the refusal as "json: <step>: <rule>".
+// Error returns the refusal as "paztport json: <step>: <rule>".
 func (e *Error) Error() string {
-	return "json: " + string(e.Step) + ": " + e.msg
+	return "paztport json: " + string(e.Step) + ": " + e.msg
 }
 
 // refuse returns the refusal of rule at step.

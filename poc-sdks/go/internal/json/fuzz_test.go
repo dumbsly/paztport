@@ -6,6 +6,8 @@ package json_test
 import (
 	"bytes"
 	"errors"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
@@ -52,7 +54,7 @@ func FuzzReadFile(f *testing.F) {
 		// they have none.
 		wire, err := json.Wire(v)
 		if err != nil {
-			if len(b) <= json.WireBytes {
+			if len(b) <= json.WireBytes || !sizeRefusal(err, "the wire bytes would be over the "+strconv.Itoa(json.WireBytes)+"-byte limit") {
 				t.Fatalf("Wire refused a value ReadFile read from %d bytes: %v", len(b), err)
 			}
 			return
@@ -66,6 +68,9 @@ func FuzzReadFile(f *testing.F) {
 		}
 		file, err := json.File(v)
 		if err != nil {
+			if !sizeRefusal(err, "the file would be over the "+strconv.Itoa(json.FileBytes)+"-byte limit") {
+				t.Fatalf("File refused a value ReadFile read: %v", err)
+			}
 			return
 		}
 		back, err = json.ReadFile(file)
@@ -87,6 +92,11 @@ func seeds(f *testing.F) [][]byte {
 	}
 	file.Get("fileFormat").Each(func(_ string, c vectors.Node) { out = append(out, []byte(c.Get("file").Str())) })
 	return out
+}
+
+// sizeRefusal reports whether err is a writer's refusal for rule, the rule of its size limit.
+func sizeRefusal(err error, rule string) bool {
+	return step(err) == json.StepWrite && strings.HasSuffix(err.Error(), ": "+rule)
 }
 
 // refusal fails t unless err is an *Error.

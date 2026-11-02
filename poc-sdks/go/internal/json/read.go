@@ -332,9 +332,11 @@ func (p *parser) string() (string, error) {
 // at once (RFC 8259 §7); either half alone is refused.
 func (p *parser) escape() (rune, error) {
 	at := p.i
-	p.i++
-	c := p.next()
-	p.i++
+	if at+1 == len(p.b) {
+		return 0, refuseAt(StepParse, "an escape cut short", at)
+	}
+	c := p.b[at+1]
+	p.i += 2
 	switch c {
 	case '"', '\\', '/':
 		return rune(c), nil
