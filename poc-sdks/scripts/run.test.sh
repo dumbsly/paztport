@@ -44,6 +44,13 @@ missing_stops_early() {
   [ "$status" -eq 1 ] && grep -q "^missing: $1 " <<<"$out" && [ "$(wc -l <<<"$out")" -eq 1 ]
 }
 
+# The usage points at ./run bench -h for JMH's help, and at no jar: the benchmark runs from the classpath.
+help_points_bench_at_run() {
+  local out
+  out="$("$repo/run" --help)" || return 1
+  grep -qF "./run bench -h" <<<"$out" && ! grep -qF "bench.jar" <<<"$out"
+}
+
 no_argument_prints_usage() {
   "$repo/run" | grep -q "Usage"
 }
@@ -59,6 +66,7 @@ clean_clone_passes_run_test() {
 }
 
 check "--help lists the subcommands and platforms" help_lists_subcommands
+check "--help points bench at ./run bench -h, not a jar" help_points_bench_at_run
 check "no argument prints usage" no_argument_prints_usage
 check "a PATH without node prints one 'missing: node' line and exits 1" missing_stops_early node agents-mcp
 check "bench without mvn prints one 'missing: mvn' line and exits 1" missing_stops_early mvn bench

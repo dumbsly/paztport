@@ -541,9 +541,10 @@ default depth, and the two-stamp chain `gateway` and `orders` sign, with its pro
 keyring, the root, the proof and the signature all verify, so every benchmark times the path a legitimate request
 takes.
 
-`./run bench` from the repository root builds `target/bench.jar` and runs it on the JDK Maven uses, so the mesh
+`./run bench` from the repository root builds the module and runs JMH on the JDK Maven uses, with the module's
+classes and its dependencies on the class path, so the mesh
 demo's figures, taken on JDK 25, the services' runtime (`eclipse-temurin:25-jre`), are reproduced with
 `JAVA_HOME=<a JDK 25> ./run bench`; JMH's output names the JDK it ran on. Options after `bench` go to JMH (`-f 3` for
-three forks, `-rf json` for a results file). As with every `./run` command, `-h` after it prints `run`'s usage; JMH's
-own help is `java -jar target/bench.jar -h`. `mvn verify` builds the jar but runs no benchmark. JMH is GPLv2 with the
-Classpath Exception and is in this jar only; the libraries and the demos don't use it.
+three forks, `-rf json` for a results file); JMH's own help is `./run bench -h`. `mvn verify` builds the module but
+runs no benchmark. JMH is GPLv2 with the Classpath Exception. No built artefact bundles it, and the libraries and the
+demos don't use it.

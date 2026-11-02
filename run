@@ -14,9 +14,9 @@ Usage: ./run <command> [options]
   agents-mcp   Install the TypeScript SDK and the agents demo, set up demo keys, and start the demo page.
   test         The name and link checks, then the Java SDK, Java demo, TypeScript type checks, TypeScript SDK and TypeScript demo suites.
                No Docker and no model.
-  bench        Build the Java SDK's benchmark jar and time the primitives a verifying hop pays for (JMH, a few
+  bench        Build the Java SDK's benchmarks and time the primitives a verifying hop pays for (JMH, a few
                minutes), on the JDK Maven uses. Options after it go to JMH, e.g. ./run bench -f 3; JMH's own
-               help is java -jar poc-sdks/java/tools/bench/target/bench.jar -h. Not part of test.
+               help is ./run bench -h. Not part of test.
 
 macOS and Linux; on Windows use WSL.
 USAGE
@@ -97,8 +97,11 @@ cmd_agents_mcp() {
 cmd_bench() {
   need_java
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
-  (cd poc-sdks/java && mvn -q package -DskipTests -pl tools/bench -am)
-  exec "$maven_java" -jar poc-sdks/java/tools/bench/target/bench.jar "$@"
+  # JMH is on the class path, not in a jar; its forks inherit it. The reactor build resolves the SDK modules'
+  # jars, so the class path file is read from the bench module's target/.
+  (cd poc-sdks/java && mvn -q package dependency:build-classpath -DskipTests -Dmdep.outputFile=target/bench.classpath -pl tools/bench -am)
+  bench_dir=poc-sdks/java/tools/bench/target
+  exec "$maven_java" -cp "$bench_dir/classes:$(cat "$bench_dir/bench.classpath")" org.openjdk.jmh.Main "$@"
 }
 
 cmd_test() {

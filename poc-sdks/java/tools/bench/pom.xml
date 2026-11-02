@@ -32,7 +32,7 @@
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <!-- The benchmark harness. Bench only: the SDK needs none. -->
+            <!-- The benchmark harness, GPLv2 with the Classpath Exception. No jar bundles it: ./run bench puts it on the class path. -->
             <groupId>org.openjdk.jmh</groupId>
             <artifactId>jmh-core</artifactId>
             <version>${jmh.version}</version>
@@ -55,42 +55,6 @@
                         </path>
                     </annotationProcessorPaths>
                 </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-shade-plugin</artifactId>
-                <version>3.6.0</version>
-                <executions>
-                    <execution>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>shade</goal>
-                        </goals>
-                        <configuration>
-                            <!-- Separate output file, so a rebuild never re-shades the fat jar. -->
-                            <outputFile>${project.build.directory}/bench.jar</outputFile>
-                            <transformers>
-                                <transformer
-                                        implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
-                                    <mainClass>org.openjdk.jmh.Main</mainClass>
-                                </transformer>
-                                <!-- Keep one Apache LICENSE and merge the Apache NOTICEs. JMH's licence (GPLv2 with the Classpath Exception) and the others are listed in THIRD-PARTY.txt. -->
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheLicenseResourceTransformer"/>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
-                                    <projectName>Paztport</projectName>
-                                    <organizationName>The Paztport Authors</organizationName>
-                                    <inceptionYear>2026</inceptionYear>
-                                    <preamble3 xml:space="preserve">Released under the Apache License, Version 2.0, by </preamble3>
-                                    <organizationURL>https://www.apache.org/licenses/LICENSE-2.0</organizationURL>
-                                </transformer>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.IncludeResourceTransformer">
-                                    <resource>META-INF/LICENSE</resource>
-                                    <file>${project.basedir}/../../../../LICENSE</file>
-                                </transformer>
-                            </transformers>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
         </plugins>
     </build>
