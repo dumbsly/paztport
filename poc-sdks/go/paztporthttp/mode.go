@@ -3,11 +3,18 @@
 
 package paztporthttp
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Mode is how a receiver treats the requests it verifies. [ModeAudit] and [ModeEnforce] are the spec's
 // two modes; [ModeOff] and [ModeNone] are not modes, but say that a receiver verifies no requests, for
 // two different reasons.
+//
+// A mode applies at an origin too: there it decides whether a request is refused or reported, though an
+// origin never carries the request's chain or influence, never takes the chain as verified and never
+// attests.
 //
 // The zero Mode is ModeEnforce, and a value that is none of the four is treated as ModeEnforce, so a mode
 // left unset, or set to nonsense, fails closed: a service that cannot tell which mode it is in must
@@ -30,6 +37,22 @@ const (
 	// but it is not off, so where it can attest, it verifies the chain once to decide whether it does.
 	ModeNone
 )
+
+// String returns the mode's setting, "enforce", "audit" or "off", or "none" for ModeNone, and for a value
+// that is no mode, "Mode(<n>)".
+func (m Mode) String() string {
+	switch m {
+	case ModeEnforce:
+		return "enforce"
+	case ModeAudit:
+		return "audit"
+	case ModeOff:
+		return "off"
+	case ModeNone:
+		return "none"
+	}
+	return "Mode(" + strconv.Itoa(int(m)) + ")"
+}
 
 // ParseMode returns the mode an operator's setting names: "enforce", "audit" or "off", in any case and
 // with any ASCII whitespace around it. Anything else, a blank setting included, is ModeEnforce, so a

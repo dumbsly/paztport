@@ -54,8 +54,8 @@ func NewInboundRequest(method, target string, body []byte, header func(name stri
 	}
 }
 
-// requestInput reads req's chain and returns the live order's input for req at the receiver receiver,
-// with the chain it read, or nil when there is none or it does not read. The input is the spec's for a
+// requestInput reads req's chain and returns the live order's input for req at the service named
+// receiver, with the chain it read, or nil when there is none or it does not read. The input is the spec's for a
 // request at its receiver: receiver in the route, the expected binding req's own (none when it has none,
 // which never matches), the tokens of its headers (an absent header none), the nonce key
 // <rid>|<last svc>|req from the chain (none when it does not read, which the verifier refuses first)

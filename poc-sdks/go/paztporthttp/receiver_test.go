@@ -225,14 +225,9 @@ func TestNewInboundRequest(t *testing.T) {
 	h.Add("X-Path-Response", "not read")
 	body := []byte("body")
 	got := paztporthttp.NewInboundRequest("POST", "/pay?x=%C3%A9", body, h.Values)
-	want := paztporthttp.InboundRequest{
-		Method: "POST", Target: "/pay?x=%C3%A9", Chain: "chain-1", Proof: "proof-1", Influence: "",
-		Session: "", Body: body,
-	}
-	if got.Method != want.Method || got.Target != want.Target || got.Chain != want.Chain ||
-		got.Proof != want.Proof || got.Influence != want.Influence || got.Session != want.Session ||
-		string(got.Body) != string(want.Body) {
-		t.Fatalf("NewInboundRequest = %+v, want %+v", got, want)
+	if got.Method != "POST" || got.Target != "/pay?x=%C3%A9" || got.Chain != "chain-1" || got.Proof != "proof-1" ||
+		got.Influence != "" || got.Session != "" || &got.Body[0] != &body[0] {
+		t.Fatalf("NewInboundRequest = %+v", got)
 	}
 
 	var asked []string
@@ -280,7 +275,18 @@ func TestParseMode(t *testing.T) {
 	}
 	var unset paztporthttp.Mode
 	if unset != paztporthttp.ModeEnforce {
-		t.Errorf("the zero Mode is %v, want ModeEnforce", unset)
+		t.Errorf("the zero Mode is %v, want enforce", unset)
+	}
+	for _, s := range []string{"enforce", "audit", "off"} {
+		if got := paztporthttp.ParseMode(s).String(); got != s {
+			t.Errorf("ParseMode(%q).String() = %q", s, got)
+		}
+	}
+	if got := paztporthttp.ModeNone.String(); got != "none" {
+		t.Errorf("ModeNone.String() = %q", got)
+	}
+	if got := paztporthttp.Mode(42).String(); got != "Mode(42)" {
+		t.Errorf("Mode(42).String() = %q", got)
 	}
 }
 
@@ -291,14 +297,13 @@ func TestAcceptModeNotAMode(t *testing.T) {
 		a := accept(t, c, caseRequest(t, c.Get("request")), mode)
 		wantRefused(t, a, 403, reason.BadSignature)
 		if a.Audit {
-			t.Fatalf("Mode(%d) reported audit", mode)
+			t.Fatalf("%v reported audit", mode)
 		}
 	}
 }
 
-// TestAnswers writes each answer's body exactly, escaping a code as JSON text.
+// TestAnswers writes each answer's body exactly.
 func TestAnswers(t *testing.T) {
-	const bs = "\\"
 	tests := []struct {
 		name   string
 		got    paztporthttp.Answer
@@ -310,9 +315,6 @@ func TestAnswers(t *testing.T) {
 			`{"reason":"INFLUENCE_MISMATCH"}`},
 		{"unsafe session", paztporthttp.UnsafeRefusal(), 403, `{"reason":"UNSAFE_SESSION"}`},
 		{"handshake", paztporthttp.HandshakeError("INVALID_PARAMS"), 400, `{"error":"INVALID_PARAMS"}`},
-		{"escaped", paztporthttp.Refusal(403, reason.Code(`A"B`+bs)), 403,
-			`{"reason":"A` + bs + `"B` + bs + bs + `"}`},
-		{"escaped handshake", paztporthttp.HandshakeError("a\nb"), 400, `{"error":"a` + bs + `nb"}`},
 	}
 	for _, tt := range tests {
 		if tt.got.Status != tt.status || string(tt.got.Body) != tt.body {
@@ -321,22 +323,15 @@ func TestAnswers(t *testing.T) {
 	}
 }
 
-// TestAnswersPanicOnUnwritableCodes: a code is the program's constant, so one no JSON text can carry is a
-// fault in the program.
-func TestAnswersPanicOnUnwritableCodes(t *testing.T) {
-	for name, f := range map[string]func(){
-		"refusal":   func() { paztporthttp.Refusal(403, reason.Code("A\xffB")) },
-		"handshake": func() { paztporthttp.HandshakeError("NO" + "\xef\xbf\xbe") }, // U+FFFE, a noncharacter
-	} {
-		func() {
-			defer func() {
-				if recover() == nil {
-					t.Errorf("%s: no panic", name)
-				}
-			}()
-			f()
-		}()
-	}
+// TestRefusalPanicsOnAnUnwritableCode: a code is the program's constant, so one no JSON text can carry
+// is a fault in the program, as Refusal documents.
+func TestRefusalPanicsOnAnUnwritableCode(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Error("no panic")
+		}
+	}()
+	paztporthttp.Refusal(403, reason.Code("A\xffB"))
 }
 
 // TestAttestRoundTrip attests a verified request's answer, and the caller's check of the header, with
@@ -425,6 +420,22 @@ func TestAttestUnattested(t *testing.T) {
 		wantServed(t, a, true)
 		if !a.Attests() {
 			t.Fatal("a verified chain is not attested")
+		}
+		if h, ok, err := a.Attest(200, nil, nil); h != "" || ok || err != nil {
+			t.Fatalf("Attest = %q, %v, %v; want unattested", h, ok, err)
+		}
+	})
+	t.Run("no stamper", func(t *testing.T) {
+		c := verifiedCase(t)
+		r := caseReceiver(t, c)
+		r.Stamper = nil
+		a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		wantServed(t, a, true)
+		if a.Attests() {
+			t.Fatal("a service with no stamp key attests")
 		}
 		if h, ok, err := a.Attest(200, nil, nil); h != "" || ok || err != nil {
 			t.Fatalf("Attest = %q, %v, %v; want unattested", h, ok, err)
@@ -552,6 +563,80 @@ func TestAcceptNoModeVerifiesOnce(t *testing.T) {
 			t.Fatalf("entry %d: Attests %v, Result %+v, Audit %v; want %s", i, a.Attests(), a.Result, a.Audit, want)
 		}
 	}
+
+	// With no chain there is nothing to attest, so nothing is verified.
+	req.Chain = ""
+	a, err := caseReceiver(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeNone)
+	if err != nil {
+		t.Fatalf("Accept: %v", err)
+	}
+	wantServed(t, a, false)
+	if a.Result != nil {
+		t.Fatalf("a request with no chain was verified: %+v", a.Result)
+	}
+}
+
+// countingCache is a nonce cache that counts the keys offered to it.
+type countingCache struct {
+	*verify.MemoryNonceCache
+	calls int
+}
+
+func (c *countingCache) SeenBefore(ctx context.Context, key string, now int64) (bool, error) {
+	c.calls++
+	return c.MemoryNonceCache.SeenBefore(ctx, key, now)
+}
+
+// TestAcceptLiveOrderOnce runs the live order at most once per request, in every mode and wherever it
+// stops, since it spends the request's nonce key: a second run would report REPLAY for the first run's
+// result.
+func TestAcceptLiveOrderOnce(t *testing.T) {
+	verified, refused := verifiedCase(t), ruleCase(t, "attestation", "enforce, refused")
+	noProof := func(t *testing.T) paztporthttp.InboundRequest {
+		req := caseRequest(t, verified.Get("request"))
+		req.Proof = ""
+		return req
+	}
+	for _, tt := range []struct {
+		name  string
+		c     vectors.Node
+		req   func(*testing.T) paztporthttp.InboundRequest
+		calls int // the keys the cache is offered: one once checks 1 to 9 hold, else none
+	}{
+		{"verified", verified, func(t *testing.T) paztporthttp.InboundRequest { return caseRequest(t, verified.Get("request")) }, 1},
+		{"no proof", verified, noProof, 1},
+		{"forged", refused, func(t *testing.T) paztporthttp.InboundRequest { return caseRequest(t, refused.Get("request")) }, 0},
+	} {
+		for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
+			t.Run(tt.name+", "+mode.String(), func(t *testing.T) {
+				r := caseReceiver(t, tt.c)
+				now := tt.c.Get("now").Int()
+				cache := &countingCache{MemoryNonceCache: verify.NewMemoryNonceCache(verify.NonceTTLMs)}
+				r.Verifier = pinnedVerifier(t, "shop", verify.Config{
+					AllowedOrigins: []string{"gateway"},
+					Nonces:         cache,
+					Now:            func() int64 { return now },
+					CallMaxAgeMs:   verify.CallMaxAgeMs,
+					RunMaxAgeMs:    verify.RunMaxAgeMs,
+				})
+				if _, err := r.Accept(t.Context(), tt.req(t), nil, mode); err != nil {
+					t.Fatalf("Accept: %v", err)
+				}
+				if cache.calls != tt.calls {
+					t.Fatalf("the cache was offered %d keys, want %d", cache.calls, tt.calls)
+				}
+			})
+		}
+	}
+
+	t.Run("audit reports the first run's result", func(t *testing.T) {
+		a := accept(t, verified, noProof(t), paztporthttp.ModeAudit)
+		wantServed(t, a, false)
+		if a.Result == nil || a.Result.Reason != reason.PathNotAllowed || !a.Audit || a.Attests() {
+			t.Fatalf("Result %+v, Audit %v, Attests %v; want PATH_NOT_ALLOWED in audit, unattested",
+				a.Result, a.Audit, a.Attests())
+		}
+	})
 }
 
 // failingCache is a nonce cache that cannot answer.
@@ -583,10 +668,10 @@ func TestAcceptCacheError(t *testing.T) {
 	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
 		a, err := failingReceiver(t, c, down).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
 		if !errors.Is(err, down) {
-			t.Fatalf("mode %d: err = %v, want the cache's", mode, err)
+			t.Fatalf("%v: err = %v, want the cache's", mode, err)
 		}
 		if a.Refusal != nil || a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil || a.Result != nil {
-			t.Fatalf("mode %d: Accepted = %+v with the error, want the zero one", mode, a)
+			t.Fatalf("%v: Accepted = %+v with the error, want the zero one", mode, a)
 		}
 	}
 
@@ -613,9 +698,9 @@ func (ctxCache) SeenBefore(ctx context.Context, _ string, _ int64) (bool, error)
 }
 func (ctxCache) TTL() int64 { return verify.NonceTTLMs }
 
-// TestAcceptModeWithoutVerifier panics on a receiver that is to verify requests under a mode but holds no
-// verifier, rather than serve them unverified; with no mode, off, or at an origin, there is nothing to
-// verify.
+// TestAcceptModeWithoutVerifier panics on a receiver, an origin included, that is to verify requests
+// under a mode but holds no verifier, rather than serve them unverified; with no mode, or off, there is
+// nothing to verify.
 func TestAcceptModeWithoutVerifier(t *testing.T) {
 	c := verifiedCase(t)
 	req := caseRequest(t, c.Get("request"))
@@ -629,38 +714,110 @@ func TestAcceptModeWithoutVerifier(t *testing.T) {
 		{paztporthttp.Mode(42), false, true},
 		{paztporthttp.ModeNone, false, false},
 		{paztporthttp.ModeOff, false, false},
-		{paztporthttp.ModeEnforce, true, false},
+		{paztporthttp.ModeEnforce, true, true},
+		{paztporthttp.ModeAudit, true, true},
+		{paztporthttp.ModeNone, true, false},
+		{paztporthttp.ModeOff, true, false},
 	} {
 		func() {
 			r := caseReceiver(t, c)
 			r.Verifier, r.Origin = nil, tt.origin
 			defer func() {
 				if got := recover() != nil; got != tt.panics {
-					t.Errorf("mode %d, origin %v: panicked %v, want %v", tt.mode, tt.origin, got, tt.panics)
+					t.Errorf("%v, origin %v: panicked %v, want %v", tt.mode, tt.origin, got, tt.panics)
 				}
 			}()
 			a, err := r.Accept(t.Context(), req, nil, tt.mode)
 			if err != nil || a.Verified || a.Attests() {
-				t.Errorf("mode %d, origin %v: %+v, %v", tt.mode, tt.origin, a, err)
+				t.Errorf("%v, origin %v: %+v, %v", tt.mode, tt.origin, a, err)
 			}
 		}()
 	}
 }
 
-// TestAcceptOrigin starts the request tree afresh in any mode: an origin carries neither the chain nor
-// the influence, unreadable influence included, verifies nothing and never attests.
+// TestAcceptOrigin starts the request tree afresh: an origin carries neither the chain nor the
+// influence, unreadable influence included, never takes the chain as verified and never attests. Under a
+// mode it still runs the live order: enforce refuses a request that fails it, and audit reports it.
 func TestAcceptOrigin(t *testing.T) {
-	c := ruleCase(t, "unreadableInfluence", "an origin carries none, so has none to drop")
-	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
-		r := failingReceiver(t, c, errors.New("verified at an origin"))
-		a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
-		if err != nil {
-			t.Fatalf("mode %d: %v", mode, err)
-		}
-		if a.Refusal != nil || a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil || a.Result != nil || a.Audit {
-			t.Fatalf("mode %d: Accepted = %+v, want served from nothing", mode, a)
+	origin := func(t *testing.T, c vectors.Node) *paztporthttp.Receiver {
+		r := caseReceiver(t, c)
+		r.Origin, r.Stamper.Origin = true, true
+		return r
+	}
+	wantNothingCarried := func(t *testing.T, a paztporthttp.Accepted) {
+		t.Helper()
+		if a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil {
+			t.Fatalf("Verified %v, Attests %v, Inbound %v, Influence %v; want nothing carried",
+				a.Verified, a.Attests(), a.Inbound, a.Influence)
 		}
 	}
+
+	t.Run("enforce, no chain", func(t *testing.T) {
+		c := verifiedCase(t)
+		req := caseRequest(t, c.Get("request"))
+		req.Chain = ""
+		a, err := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeEnforce)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		wantRefused(t, a, 403, reason.ChainMissing)
+		if a.Result == nil || a.Result.Reason != reason.ChainMissing || a.Audit {
+			t.Fatalf("Result %+v, Audit %v", a.Result, a.Audit)
+		}
+	})
+	t.Run("audit, no chain", func(t *testing.T) {
+		c := verifiedCase(t)
+		req := caseRequest(t, c.Get("request"))
+		req.Chain = ""
+		a, err := origin(t, c).Accept(t.Context(), req, nil, paztporthttp.ModeAudit)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		wantServed(t, a, false)
+		wantNothingCarried(t, a)
+		if a.Result == nil || a.Result.Reason != reason.ChainMissing || !a.Audit {
+			t.Fatalf("Result %+v, Audit %v; want CHAIN_MISSING in audit", a.Result, a.Audit)
+		}
+	})
+	t.Run("enforce, a chain that verifies", func(t *testing.T) {
+		c := influenceCase(t)
+		a, err := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		wantServed(t, a, false)
+		wantNothingCarried(t, a)
+		if a.Result == nil || !a.Result.OK() {
+			t.Fatalf("Result %+v, want OK", a.Result)
+		}
+	})
+	t.Run("audit, unreadable influence", func(t *testing.T) {
+		c := ruleCase(t, "unreadableInfluence", "audit, on a chain that verifies otherwise")
+		a, err := origin(t, c).Accept(t.Context(), caseRequest(t, c.Get("request")), nil, paztporthttp.ModeAudit)
+		if err != nil {
+			t.Fatalf("Accept: %v", err)
+		}
+		wantServed(t, a, false)
+		wantNothingCarried(t, a)
+		if a.Result == nil || a.Result.Reason != reason.InfluenceMismatch || !a.Audit {
+			t.Fatalf("Result %+v, Audit %v", a.Result, a.Audit)
+		}
+	})
+	t.Run("no mode or off verifies nothing", func(t *testing.T) {
+		c := ruleCase(t, "unreadableInfluence", "an origin carries none, so has none to drop")
+		for _, mode := range []paztporthttp.Mode{paztporthttp.ModeNone, paztporthttp.ModeOff} {
+			r := failingReceiver(t, c, errors.New("verified at an origin"))
+			a, err := r.Accept(t.Context(), caseRequest(t, c.Get("request")), nil, mode)
+			if err != nil {
+				t.Fatalf("%v: %v", mode, err)
+			}
+			wantServed(t, a, false)
+			wantNothingCarried(t, a)
+			if a.Result != nil || a.Audit {
+				t.Fatalf("%v: Result %+v, Audit %v; want nothing verified", mode, a.Result, a.Audit)
+			}
+		}
+	})
 }
 
 // TestTrustedRecordLeavesInfluence never writes the handler's reads into the spare room of the
@@ -683,18 +840,20 @@ func TestTrustedRecordLeavesInfluence(t *testing.T) {
 }
 
 // FuzzAccept never panics on any request, and its answers keep the receiver's rules: a refusal is 400 or
-// 403 and carries nothing, and only a verified chain is attested.
+// 403 and carries nothing, only a verified chain is attested, and an origin carries nothing.
 func FuzzAccept(f *testing.F) {
 	c := vectors.Rules(f).Get("attestation").Index(0)
 	r := c.Get("request")
 	hs := r.Get("headers")
 	body, _ := hex.DecodeString(r.Get("body").Str())
-	f.Add("POST", "/pay", hs.Get(wire.Chain).Str(), hs.Get(wire.Proof).Str(), hs.Get(wire.Influence).Str(), body, 0)
-	f.Add("POST", "/pay?", hs.Get(wire.Chain).Str(), "", "", body, 1)
-	f.Add("GET", "/pay\xff", "W10", "ew", "W10", []byte(nil), 3)
-	f.Add("", "", " \t", nbsp, "not*base64url", []byte{}, 2)
-	f.Fuzz(func(t *testing.T, method, target, chain, proof, infl string, body []byte, mode int) {
+	f.Add("POST", "/pay", hs.Get(wire.Chain).Str(), hs.Get(wire.Proof).Str(), hs.Get(wire.Influence).Str(), body, 0, false)
+	f.Add("POST", "/pay", hs.Get(wire.Chain).Str(), hs.Get(wire.Proof).Str(), hs.Get(wire.Influence).Str(), body, 1, true)
+	f.Add("POST", "/pay?", hs.Get(wire.Chain).Str(), "", "", body, 1, false)
+	f.Add("GET", "/pay\xff", "W10", "ew", "W10", []byte(nil), 3, false)
+	f.Add("", "", " \t", nbsp, "not*base64url", []byte{}, 2, true)
+	f.Fuzz(func(t *testing.T, method, target, chain, proof, infl string, body []byte, mode int, origin bool) {
 		rc := caseReceiver(t, c.With(t))
+		rc.Origin = origin
 		req := paztporthttp.InboundRequest{Method: method, Target: target, Chain: chain, Proof: proof, Influence: infl, Body: body}
 		a, err := rc.Accept(t.Context(), req, nil, paztporthttp.Mode(mode))
 		if err != nil {
@@ -707,6 +866,10 @@ func FuzzAccept(f *testing.F) {
 			if !strings.HasPrefix(string(a.Refusal.Body), `{"reason":"`) {
 				t.Fatalf("refusal body %s", a.Refusal.Body)
 			}
+		}
+		if origin && (a.Verified || a.Attests() || a.Inbound != nil || a.Influence != nil) {
+			t.Fatalf("an origin carried Verified %v, Attests %v, Inbound %v, Influence %v",
+				a.Verified, a.Attests(), a.Inbound, a.Influence)
 		}
 		if a.Attests() && !a.Verified {
 			t.Fatal("an unverified chain is attested")

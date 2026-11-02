@@ -20,8 +20,8 @@
 // 403 {"reason":"<code>"}, and audit serves it, unverified. Influence that does not read is never
 // dropped: in every mode, at every service but an origin, a request carrying it is refused with
 // 400 {"reason":"INFLUENCE_MISMATCH"} wherever verification has not refused it first. An origin starts
-// each request tree afresh, so it carries neither the chain nor the influence a request brings, verifies
-// nothing and never attests.
+// each request tree afresh, so it carries neither the chain nor the influence a request brings, never
+// takes the chain as verified and never attests; under a mode it still verifies, and enforce refuses.
 //
 // A response stamp is shaped like a request stamp, so attesting a chain nobody checked would let anyone
 // mint stamps under the service's key. So a service attests only an answer to a chain that passed the
