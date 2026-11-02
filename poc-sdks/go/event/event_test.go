@@ -153,6 +153,17 @@ func TestRemembered(t *testing.T) {
 		}
 	})
 
+	t.Run("remembered from now, not from ts", func(t *testing.T) {
+		r, c := newResponder(t)
+		if _, refusal := r.Accept(body(t, sentAt(t0-30000))); refusal != "" {
+			t.Fatalf("the first Accept: %q", refusal)
+		}
+		c.now = t0 + 30001
+		if _, refusal := r.Accept(body(t, sentAt(c.now))); refusal != event.RepeatedEventID {
+			t.Fatalf("Accept 60001 ms after the first ts, 30001 ms after it was accepted: %q", refusal)
+		}
+	})
+
 	t.Run("a repeated id is not renewed", func(t *testing.T) {
 		r, c := newResponder(t)
 		r.Accept(body(t, sample))
@@ -201,6 +212,44 @@ func TestAllowListFirst(t *testing.T) {
 	if _, refusal := r.Accept(b); refusal != event.SignerNotAllowed {
 		t.Fatalf("Accept: %q, want %s", refusal, event.SignerNotAllowed)
 	}
+}
+
+// TestIDsAcrossSigners offers an event from payment, then the same event signed by search: a responder
+// remembers the ids of every signer together, so the second is refused as repeated.
+func TestIDsAcrossSigners(t *testing.T) {
+	_, paymentPub := vectors.V3Key(t, "payment")
+	searchPriv, searchPub := vectors.V3Key(t, "search")
+	r := event.NewResponder(policy.Keyring{"payment": paymentPub, "search": searchPub},
+		[]string{"payment", "search"}, func() int64 { return t0 })
+	if _, refusal := r.Accept(body(t, sample)); refusal != "" {
+		t.Fatalf("Accept from payment: %q", refusal)
+	}
+	wire, err := sample.Wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	env, err := event.SignEnvelope("search", wire, searchPriv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := env.Wire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, refusal := r.Accept(b); refusal != event.RepeatedEventID {
+		t.Fatalf("Accept from search: %q, want %s", refusal, event.RepeatedEventID)
+	}
+}
+
+// TestNewResponderNeedsAClock makes a responder with no clock: NewResponder panics at once, rather than
+// Accept on the first event that reaches the window.
+func TestNewResponderNeedsAClock(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("NewResponder did not panic")
+		}
+	}()
+	event.NewResponder(nil, nil, nil)
 }
 
 // TestOneIDFrom64Goroutines offers one body from 64 goroutines at once: one of them is accepted, and every

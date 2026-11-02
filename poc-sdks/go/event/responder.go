@@ -59,8 +59,13 @@ type Responder struct {
 // NewResponder returns a responder that takes events from allowedSigners alone, looks each signer's key up
 // in keyring by its own name, and reads the time, in milliseconds since the Unix epoch, from now. It keeps
 // its own copy of keyring, every key in it, and allowedSigners, so changing them later changes nothing. It
-// remembers no ids yet.
+// remembers no ids yet. A nil keyring or allowedSigners is empty, so the responder refuses every event.
+// NewResponder panics if now is nil: no responder can run without a clock, and that is a fault in the
+// program, not in any event.
 func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() int64) *Responder {
+	if now == nil {
+		panic("paztport event: a Responder needs a clock")
+	}
 	own := make(policy.Keyring, len(keyring))
 	for svc, key := range keyring {
 		own[svc] = slices.Clone(key)
@@ -94,7 +99,7 @@ func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() in
 // can only come from an allowed signer. The id is checked last, so a forged, stale or malformed body never
 // spends an id the real signer will use: a refused body changes nothing.
 //
-// Accept never panics on any body. It reads the clock only once the event has an id.
+// Accept never panics on any body.
 func (r *Responder) Accept(body []byte) (Event, Refusal) {
 	env, err := readEnvelope(body)
 	if err != nil {
