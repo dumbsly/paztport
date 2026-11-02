@@ -43,7 +43,7 @@ type setup struct {
 }
 
 // mesh returns the fixture's setup, which verifies OK.
-func mesh(t *testing.T) *setup {
+func mesh(t testing.TB) *setup {
 	t.Helper()
 	p := vectors.Load(t, "v3.json").Get("policies").Get("mesh")
 	root, err := b64.Decode(p.Get("root").Str())
@@ -80,7 +80,7 @@ func mesh(t *testing.T) *setup {
 	}
 }
 
-func pub(t *testing.T, name string) []byte {
+func pub(t testing.TB, name string) []byte {
 	t.Helper()
 	_, pub := vectors.V3Key(t, name)
 	return pub
@@ -112,7 +112,7 @@ func (s *setup) times(origin, last int64) {
 }
 
 // token signs the setup's stamps, each with its own service's key, and returns the chain's token.
-func (s *setup) token(t *testing.T) string {
+func (s *setup) token(t testing.TB) string {
 	t.Helper()
 	c := make(stamp.Chain, len(s.stamps))
 	for i, st := range s.stamps {

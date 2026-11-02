@@ -208,7 +208,7 @@ func input(t *testing.T, c, p vectors.Node) offline.Input {
 }
 
 // decode returns the bytes of tok, a base64url token.
-func decode(t *testing.T, tok string) []byte {
+func decode(t testing.TB, tok string) []byte {
 	t.Helper()
 	b, err := b64.Decode(tok)
 	if err != nil {
