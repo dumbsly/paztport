@@ -781,10 +781,16 @@ func pinnedConfig(t *testing.T, s *setup) verify.Config {
 		Sess:           "sess-2",
 		Nonces:         s.cfg.Nonces,
 		Now:            s.cfg.Now,
-		CallMaxAgeMs:   verify.CallMaxAgeMs,
-		RunMaxAgeMs:    verify.RunMaxAgeMs,
+		CallMaxAgeMs:   pinnedCallMaxAgeMs,
+		RunMaxAgeMs:    pinnedRunMaxAgeMs,
 	}
 }
+
+// The windows pinnedConfig sets, neither the default, so that Pinned resetting them is seen.
+const (
+	pinnedCallMaxAgeMs = verify.CallMaxAgeMs + 1000
+	pinnedRunMaxAgeMs  = verify.RunMaxAgeMs + 1000
+)
 
 // TestPinned checks that Pinned fills a Config that verifies from material the pin vouches for, with the
 // earlier window as PolicyNotAfter, and keeps everything else the caller set.
@@ -803,8 +809,8 @@ func TestPinned(t *testing.T) {
 			t.Fatalf("PolicyNotAfter = %d, want %d", cfg.PolicyNotAfter, want)
 		}
 		if !bytes.Equal(cfg.Root, s.cfg.Root) || cfg.RootID != s.cfg.RootID || len(cfg.Keyring) != 3 ||
-			!cfg.Keyring["orders"].Equal(pub(t, "orders")) || cfg.CallMaxAgeMs != verify.CallMaxAgeMs ||
-			cfg.RunMaxAgeMs != verify.RunMaxAgeMs || cfg.Sess != "sess-2" || !slices.Equal(cfg.AllowedOrigins, []string{"gateway"}) {
+			!cfg.Keyring["orders"].Equal(pub(t, "orders")) || cfg.CallMaxAgeMs != pinnedCallMaxAgeMs ||
+			cfg.RunMaxAgeMs != pinnedRunMaxAgeMs || cfg.Sess != "sess-2" || !slices.Equal(cfg.AllowedOrigins, []string{"gateway"}) {
 			t.Fatalf("Pinned = %+v", cfg)
 		}
 		s.cfg = cfg

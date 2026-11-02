@@ -644,6 +644,7 @@ func TestCall(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			c := mesh(t)
+			inSession(c, s)
 			tt.make(c)
 			in := c.in
 			in.Chain = ptr(c.token(t))
@@ -656,6 +657,47 @@ func TestCall(t *testing.T) {
 			spent := tt.want.Reason != reason.BadSignature
 			if spent != (again.Reason == reason.Replay) {
 				t.Fatalf("the same call again = %+v; spent the first time: %t", again, spent)
+			}
+		})
+	}
+}
+
+// inSession makes the chain c builds one of the session s, whose id c.cfg does not name.
+func inSession(c *setup, s offline.RecordedSession) {
+	for i := range c.stamps {
+		c.stamps[i].Sess = s.Sess()
+	}
+}
+
+// TestCallJudgesInItsSession checks that Call judges the chain in the session it is given, not the one
+// cfg.Sess names: a chain of the session verifies whatever cfg.Sess holds, and a chain of another session
+// is SESSION_UNKNOWN even when cfg.Sess names the session Call is given.
+func TestCallJudgesInItsSession(t *testing.T) {
+	s := offline.Record(handshake(t, "entry-key form, limited by the certificate"))
+	tests := []struct {
+		name string
+		make func(c *setup)
+		want reason.Code
+	}{
+		{"a chain of the session, cfg naming another", func(c *setup) { c.cfg.Sess = "sess-1" }, reason.OK},
+		{"a chain of the session, cfg naming none", func(c *setup) { c.cfg.Sess = "" }, reason.OK},
+		{"a chain of another session, cfg naming the session", func(c *setup) {
+			c.cfg.Sess = s.Sess()
+			for i := range c.stamps {
+				c.stamps[i].Sess = "sess-1"
+			}
+		}, reason.SessionUnknown},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := mesh(t)
+			inSession(c, s)
+			tt.make(c)
+			in := c.in
+			in.Chain = ptr(c.token(t))
+			got, ok := c.records.Call(in, c.cfg, s)
+			if !ok || got.Reason != tt.want {
+				t.Fatalf("Call = %+v, %t; want %s", got, ok, tt.want)
 			}
 		})
 	}

@@ -134,11 +134,13 @@ func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
 // reports it. Otherwise Call runs the offline order once, spending the key as Verify does, and returns its
 // result and true, except that a call that verifies, OK, while the session is not attested at its last
 // stamp's ts, which the client signed, is OUTSIDE_SESSION, naming no one: the call was made past one of
-// the session's limits. cfg is the Config for calls in s, its Sess s.Sess().
+// the session's limits. Call judges the chain in the session s names, whatever cfg.Sess holds: it is cfg
+// with Sess set to s.Sess().
 func (rs *RecordSet) Call(in Input, cfg Config, s RecordedSession) (verify.Result, bool) {
 	if !s.Attested() {
 		return verify.Result{}, false
 	}
+	cfg.Sess = s.Sess()
 	code, last := rs.check(in, cfg)
 	if code == reason.OK && !s.AttestedAt(last.TS) {
 		return verify.Result{Reason: reason.OutsideSession}, true

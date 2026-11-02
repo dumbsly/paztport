@@ -8,9 +8,9 @@
 // unsafe session), its policy key, its signed keyring and a fresh nonce from [NewNonce]. A server reads it
 // with [ParseRequest] or [ReadRequest], which refuse a malformed request (the server answers Invalid
 // params), checks [OpensSession], decides the session's status with [Status], derives its id with [ID]
-// and signs a [Reply] with [SignReply]. The client then judges the reply's bytes with
-// [CheckReply], whose [Check] is the first of the spec's checks that fails, in the spec's order: the reply
-// reads, it names the pinned policy key, its signature, roots and session id hold, and then its status.
+// and signs a [Reply] with [SignReply]. The client then judges the reply's bytes with [CheckReply], whose
+// [Check] is the first of the spec's checks that fails, in the spec's order: the reply reads, it names the
+// pinned policy key, its signature, roots and session id hold, and then its status.
 //
 // A reply comes in one of two forms, told apart only by which members are present, never by which key
 // verifies. In the entry-key form the reply carries the policy key's signature over the server's keyring

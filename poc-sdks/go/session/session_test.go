@@ -221,7 +221,10 @@ func TestNullServerRoot(t *testing.T) {
 
 	noRoot := h.req
 	noRoot.ClientRoot = nil
-	for status, want := range map[string]session.Check{session.StatusAttested: session.BadSignature, session.StatusUnsafe: session.Unsafe} {
+	for status, want := range map[string]session.Check{
+		session.StatusAttested: session.BadSignature,
+		session.StatusUnsafe:   session.Unsafe,
+	} {
 		reply := h.reply
 		reply.Status = status
 		wire := h.sign(t, noRoot, reply, h.signer)
