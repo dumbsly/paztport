@@ -66,8 +66,9 @@ type Verifier struct {
 }
 
 // New returns a verifier for cfg. The verifier keeps its own copy of cfg's keyring, its every key
-// included, its root and its allowed origins, so later changes to them do not reach it. New panics if cfg has no clock or no nonce cache:
-// no verifier can run without them, and that is a fault in the program, not in any request.
+// included, its root and its allowed origins, so later changes to them do not reach it. New panics if cfg
+// has no clock or no nonce cache: no verifier can run without them, and that is a fault in the program,
+// not in any request.
 func New(cfg Config) *Verifier {
 	if cfg.Now == nil || cfg.Nonces == nil {
 		panic("paztport verify: a Config needs a clock and a nonce cache")

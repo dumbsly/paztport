@@ -19,7 +19,8 @@ const saltSize = 16
 
 // Proof is a route's membership proof: the salt of its leaf and the sibling hashes from the leaf's level
 // up to the level below the root. A caller sends it with the request whose route it proves; a token of it
-// travels in an HTTP header.
+// travels in an HTTP header. Copies of a Proof share its slices, as do the proofs a ProofBundle hands out;
+// treat them as read-only.
 type Proof struct {
 	// LeafSalt is the leaf's 16-byte salt.
 	LeafSalt []byte

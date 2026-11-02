@@ -21,6 +21,8 @@ var errNoInbound = errors.New("paztport stamp: there is no inbound chain to stam
 //
 // An origin starts a chain; any other service appends to the one it received, and refuses to stamp
 // without one, because only entry points start chains. Every stamp carries its own time.
+//
+// A Stamper never changes itself, so it is safe for concurrent use if its NewRID and Now are.
 type Stamper struct {
 	// Svc is the service the stamper signs as: every stamp's svc.
 	Svc string

@@ -15,8 +15,8 @@ import (
 )
 
 // TestVectors replays v3.json's offline cases: each runs the offline verifier once, in a record set that
-// has already spent the case's seen keys, and expects its result. A case reads only its tokens, never the readable
-// values beside them.
+// has already spent the case's seen keys, and expects its result. A case reads only its tokens, never the
+// readable values beside them.
 func TestVectors(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	cases := v3.Get("offline")

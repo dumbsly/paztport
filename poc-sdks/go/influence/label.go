@@ -78,7 +78,7 @@ func labelFromValue(o json.Value) (Label, error) {
 	if err := json.Exactly(o, labelRequired, labelOptional); err != nil {
 		return Label{}, err
 	}
-	c, err := class(o)
+	c, err := readClass(o)
 	if err != nil {
 		return Label{}, err
 	}
@@ -86,7 +86,7 @@ func labelFromValue(o json.Value) (Label, error) {
 	if err != nil {
 		return Label{}, err
 	}
-	owner, err := owner(o)
+	owner, err := readOwner(o)
 	if err != nil {
 		return Label{}, err
 	}

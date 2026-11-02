@@ -79,7 +79,7 @@ func entryFromValue(o json.Value) (Entry, error) {
 	if err := json.Exactly(o, entryRequired, entryOptional); err != nil {
 		return Entry{}, err
 	}
-	c, err := class(o)
+	c, err := readClass(o)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -98,7 +98,7 @@ func entryFromValue(o json.Value) (Entry, error) {
 			return Entry{}, err
 		}
 	}
-	owner, err := owner(o)
+	owner, err := readOwner(o)
 	if err != nil {
 		return Entry{}, err
 	}
@@ -139,8 +139,9 @@ func entriesValue(es []Entry) (json.Value, error) {
 	return json.Arr(items...), nil
 }
 
-// class returns object o's member cls, refusing o unless it is a string naming one of the four classes.
-func class(o json.Value) (Class, error) {
+// readClass returns object o's member cls, refusing o unless it is a string naming one of the four
+// classes.
+func readClass(o json.Value) (Class, error) {
 	s, err := json.String(o, "cls")
 	if err != nil {
 		return "", err
@@ -152,9 +153,9 @@ func class(o json.Value) (Class, error) {
 	return c, nil
 }
 
-// owner returns object o's member owner, or "" when o has none, refusing o if it is not a non-empty
+// readOwner returns object o's member owner, or "" when o has none, refusing o if it is not a non-empty
 // string: an empty owner is refused, not read as "no owner", so it can never be taken for a known one.
-func owner(o json.Value) (string, error) {
+func readOwner(o json.Value) (string, error) {
 	if _, ok := json.Field(o, "owner"); !ok {
 		return "", nil
 	}

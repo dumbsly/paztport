@@ -14,9 +14,10 @@
 // ED A0 80), the Go string that stands for text with no UTF-8 form. An escaped pair is the one character.
 //
 // A Node fails the test it reports to when it is read as something it is not: Get of a member it lacks,
-// Int of a number that is not an integer, Str of an object. Has asks whether an object has a member, and
-// IsNull whether a value is null, without failing. A Node reports to the test that loaded it, so a subtest
-// rebinds it with With first:
+// Int of a number that is not an integer, Str of an object. Has asks whether an object has a member,
+// without failing when it is absent, though it fails on a value that is not an object; IsNull asks whether
+// a value is null, and never fails. A Node reports to the test that loaded it, so a subtest rebinds it with
+// With first:
 //
 //	vectors.Load(t, "json.json").Get("base64url").Each(func(name string, c vectors.Node) {
 //		t.Run(name, func(t *testing.T) {

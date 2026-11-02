@@ -155,7 +155,7 @@ func (n Node) Has(name string) bool {
 }
 
 // Get returns the member of object n called name. It fails the test if n is not an object or has no such
-// member; Has asks first without failing.
+// member; Has asks first, without failing when the member is absent.
 func (n Node) Get(name string) Node {
 	n.t.Helper()
 	n.want(Object)

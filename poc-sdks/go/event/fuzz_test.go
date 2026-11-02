@@ -49,10 +49,10 @@ func FuzzAccept(f *testing.F) {
 
 // FuzzAcceptSigned signs any payload with payment's key, so that every input reaches the event reader, and
 // offers it to a fresh responder at any two times. It is seeded with the payload of every body events.json
-// gives, at pairs of times at the window's and the memory's limits and at both ends of int64. It never panics. An answer is accepted only
-// when the payload is an event with an id that writes back to the payload and is within the window; the
-// second offer of an accepted id is refused while the id is remembered; and a body refused before the
-// window is refused the same way at any time.
+// gives, at pairs of times at the window's and the memory's limits and at both ends of int64. It never
+// panics. An answer is accepted only when the payload is an event with an id that writes back to the
+// payload and is within the window; the second offer of an accepted id is refused while the id is
+// remembered; and a body refused before the window is refused the same way at any time.
 func FuzzAcceptSigned(f *testing.F) {
 	file := vectors.Load(f, "events.json")
 	times := [][2]int64{

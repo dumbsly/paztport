@@ -75,7 +75,8 @@ func EncodePrivate(priv ed25519.PrivateKey) string {
 }
 
 // LoadPrivate reads a private key file, such as <svc>.key or policy.key: the PKCS#8 text ParsePrivate
-// reads, with the space, tab, line feed and carriage return around it trimmed. A refusal names the file and never quotes it.
+// reads, with the space, tab, line feed and carriage return around it trimmed. A refusal names the file and
+// never quotes it.
 func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -89,8 +90,8 @@ func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 }
 
 // LoadPin reads a pinned policy key, such as policy.pub: the file's text with the space, tab, line feed and
-// carriage return around it trimmed. The pin is not decoded here; a keyring or certificate that names another text, or a pin that is
-// not a key, never verifies under it.
+// carriage return around it trimmed. The pin is not decoded here; a keyring or certificate that names
+// another text, or a pin that is not a key, never verifies under it.
 func LoadPin(path string) (string, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {

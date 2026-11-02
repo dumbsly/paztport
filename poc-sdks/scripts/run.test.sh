@@ -42,7 +42,7 @@ missing_stops_early() {
   local bin out status args with=""
   if [ "$1" = -with ]; then with="$2"; shift 2; fi
   read -ra args <<<"$2"
-  bin="$(basic_tools $with)"
+  bin="$(basic_tools ${with:+"$with"})"
   if [ $# -ge 3 ]; then
     printf '%s\n' "$3" >"$bin/mvn-v.txt"
     printf '#!%s\ncat "%s"\n' "$bin/bash" "$bin/mvn-v.txt" >"$bin/mvn"

@@ -517,8 +517,8 @@ func TestProofVerifyRefuses(t *testing.T) {
 		}
 	}
 
-	// A leaf hashes salt || route with no separator, so a salt that took in the route's first byte would prove
-	// the rest of the route, were the salt's length not held to 16 bytes.
+	// A leaf hashes salt || route with no separator, so a salt that took in the route's first byte would
+	// prove the rest of the route, were the salt's length not held to 16 bytes.
 	absorbing := p
 	absorbing.LeafSalt = append(bytes.Clone(p.LeafSalt), route[0])
 	if absorbing.Verify(route[1:], root) {

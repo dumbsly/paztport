@@ -15,8 +15,8 @@ import (
 // Chain is the stamps of one request, origin first. On the wire it is a JSON array of the stamps.
 type Chain []Stamp
 
-// members are a stamp's member names: every one is required, and no other is allowed.
-var members = []string{"bind", "infl", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}
+// stampMembers are a stamp's member names: every one is required, and no other is allowed.
+var stampMembers = []string{"bind", "infl", "inst", "prev", "rcv", "rid", "sess", "sig", "svc", "ts", "v"}
 
 // ReadChain reads a chain from its token, the base64url of its wire bytes, as ParseChain reads the bytes.
 // A token that is not canonical base64url, or is over the token limit, is CHAIN_MISSING.
@@ -69,29 +69,42 @@ func chainFromValue(v json.Value) (Chain, reason.Code) {
 }
 
 func stampFromValue(o json.Value) (Stamp, error) {
-	if err := json.Exactly(o, members, nil); err != nil {
+	if err := json.Exactly(o, stampMembers, nil); err != nil {
 		return Stamp{}, err
 	}
 	if v, err := json.Integer(o, "v"); err != nil || v != version {
 		return Stamp{}, errors.New(`the member "v" is not 3`)
 	}
-	ts, err := json.Integer(o, "ts")
-	if err != nil {
+	var s Stamp
+	var err error
+	if s.Svc, err = json.String(o, "svc"); err != nil {
 		return Stamp{}, err
 	}
-	str := func(name string) string {
-		if err != nil {
-			return ""
-		}
-		var s string
-		s, err = json.String(o, name)
-		return s
+	if s.Inst, err = json.String(o, "inst"); err != nil {
+		return Stamp{}, err
 	}
-	s := Stamp{
-		Svc: str("svc"), Inst: str("inst"), RID: str("rid"), TS: ts, Sess: str("sess"), Rcv: str("rcv"),
-		Bind: str("bind"), Infl: str("infl"), Prev: str("prev"), Sig: str("sig"),
+	if s.RID, err = json.String(o, "rid"); err != nil {
+		return Stamp{}, err
 	}
-	if err != nil {
+	if s.TS, err = json.Integer(o, "ts"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Sess, err = json.String(o, "sess"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Rcv, err = json.String(o, "rcv"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Bind, err = json.String(o, "bind"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Infl, err = json.String(o, "infl"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Prev, err = json.String(o, "prev"); err != nil {
+		return Stamp{}, err
+	}
+	if s.Sig, err = json.String(o, "sig"); err != nil {
 		return Stamp{}, err
 	}
 	if _, err := b64.Decode(s.Sig); err != nil {

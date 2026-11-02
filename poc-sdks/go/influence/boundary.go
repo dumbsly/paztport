@@ -190,11 +190,11 @@ func openingFromValue(v json.Value) (Opening, error) {
 	if err := json.Exactly(v, openingRequired, openingOptional); err != nil {
 		return Opening{}, err
 	}
-	c, err := class(v)
+	c, err := readClass(v)
 	if err != nil {
 		return Opening{}, err
 	}
-	owner, err := owner(v)
+	owner, err := readOwner(v)
 	if err != nil {
 		return Opening{}, err
 	}

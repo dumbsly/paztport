@@ -19,9 +19,9 @@ func Encode(b []byte) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// Decode returns the bytes s encodes, refusing any text but the canonical one: a character outside
-// A–Z, a–z, 0–9, '-' and '_' (padding and whitespace among them), a length one more than a multiple of 4,
-// or a last character whose bits past the last whole byte are not zero. Its errors never quote s.
+// Decode returns the bytes s encodes, refusing any text but the canonical one: a character outside A–Z,
+// a–z, 0–9, '-' and '_' (padding and whitespace among them), a length one more than a multiple of 4, or a
+// last character whose bits past the last whole byte are not zero. Its errors never quote s.
 func Decode(s string) ([]byte, error) {
 	// Checked before decoding: the standard library's decoder skips CR and LF.
 	for i := range len(s) {
