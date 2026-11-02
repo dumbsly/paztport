@@ -33,7 +33,7 @@ func Bind(method, target string, body []byte) (string, error) {
 	case !text.Valid(target):
 		return "", errors.New("paztport wire: no request binding: the target is not valid UTF-8")
 	}
-	if i := strings.IndexByte(target, '?'); i == len(target)-1 {
+	if i := strings.IndexByte(target, '?'); i >= 0 && i == len(target)-1 {
 		target = target[:i]
 	}
 	h := sha256.New()

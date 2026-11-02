@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
@@ -37,6 +38,7 @@ var okLabels = []influence.Label{{Class: influence.Private, CID: "cid-receipt-1"
 // okSigner is the suspect an OK check of the "response ok" case names.
 var okSigner = verify.Result{Reason: reason.OK, SuspectSvc: "payment", SuspectInst: "pay-1"}
 
+// TestHeaderNames pins the header names, the content type and the handshake path the spec gives.
 func TestHeaderNames(t *testing.T) {
 	for _, c := range []struct{ got, want string }{
 		{wire.Chain, "X-Path-Chain"},
@@ -70,6 +72,7 @@ func TestBindTargetsAsSent(t *testing.T) {
 		{"plus kept", "/s?q=a+b", "/s?q=a+b"},
 		{"dot segments kept", "/a/../b/./c", "/a/../b/./c"},
 		{"only a ?", "?", ""},
+		{"empty", "", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := wire.Bind("POST", c.target, body)
@@ -81,11 +84,44 @@ func TestBindTargetsAsSent(t *testing.T) {
 			}
 		})
 	}
-	encoded, _ := wire.Bind("GET", "/p%C3%A9", nil)
-	raw, _ := wire.Bind("GET", "/p\xc3\xa9", nil)
+	encoded, err := wire.Bind("GET", "/p%C3%A9", nil)
+	if err != nil {
+		t.Fatalf("Bind of the percent-encoded target: %v", err)
+	}
+	raw, err := wire.Bind("GET", "/p\xc3\xa9", nil)
+	if err != nil {
+		t.Fatalf("Bind of the raw target: %v", err)
+	}
 	if encoded == raw {
 		t.Fatal("a percent-encoded target binds as its raw form")
 	}
+}
+
+// FuzzBind binds any method, target and body without panicking: text that is valid UTF-8 binds, and
+// nothing else does; a target with no "?" binds as itself, and with a bare "?" added, as before.
+func FuzzBind(f *testing.F) {
+	for _, s := range []struct{ method, target, body string }{
+		{"GET", "", ""}, {"GET", "?", ""}, {"POST", "/pay?", "{}"}, {"GET", "/a?b?", ""},
+		{"G\xffT", "/a", ""}, {"GET", "/a" + surrogate, ""}, {"", "/p\xc3\xa9", "\xff"},
+	} {
+		f.Add(s.method, s.target, []byte(s.body))
+	}
+	f.Fuzz(func(t *testing.T, method, target string, body []byte) {
+		got, err := wire.Bind(method, target, body)
+		valid := utf8.ValidString(method) && utf8.ValidString(target)
+		if valid != (err == nil) {
+			t.Fatalf("Bind = %q, %v for text valid %t", got, err, valid)
+		}
+		if !valid || strings.Contains(target, "?") {
+			return
+		}
+		if want := sha(method + "\n" + target + "\n" + string(body)); got != want {
+			t.Fatalf("Bind = %s, want the binding of the target as given", got)
+		}
+		if bare, err := wire.Bind(method, target+"?", body); err != nil || bare != got {
+			t.Fatalf("Bind with a bare ? = %s, %v, want %s", bare, err, got)
+		}
+	})
 }
 
 // TestBindBodyAsBytes binds the body as raw bytes, whether or not they are text.
@@ -234,12 +270,41 @@ func TestCheckResponseShape(t *testing.T) {
 				member("owner", json.S(""))))),
 			member("stamp", stampValue),
 		}},
+		{"a label with an extra member", []json.Member{
+			member("labels", json.Arr(json.Obj(member("cid", json.S("cid-receipt-1")), member("cls", json.S("private")),
+				member("owner", json.S("alice")), member("x", json.S(""))))),
+			member("stamp", stampValue),
+		}},
 		{"a stamp that is not a stamp", []json.Member{member("labels", labels), member("stamp", json.I(3))}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			refused(t, check(t, rc, token(t, json.Obj(c.members...))), rc, reason.ChainMissing)
 		})
 	}
+	t.Run("bytes not canonical", func(t *testing.T) {
+		b, err := json.Wire(json.Obj(json.Member{Name: "labels", Value: labels}, json.Member{Name: "stamp", Value: stampValue}))
+		if err != nil {
+			t.Fatalf("Wire: %v", err)
+		}
+		lb, err := json.Wire(labels)
+		if err != nil {
+			t.Fatalf("Wire: %v", err)
+		}
+		sb, err := json.Wire(stampValue)
+		if err != nil {
+			t.Fatalf("Wire: %v", err)
+		}
+		for name, text := range map[string]string{
+			"members reordered": `{"stamp":` + string(sb) + `,"labels":` + string(lb) + `}`,
+			"a space":           `{"labels": ` + string(lb) + `,"stamp":` + string(sb) + `}`,
+			"a trailing space":  string(b) + " ",
+		} {
+			t.Run(name, func(t *testing.T) {
+				header := base64.RawURLEncoding.EncodeToString([]byte(text))
+				refused(t, check(t, rc, header), rc, reason.ChainMissing)
+			})
+		}
+	})
 	t.Run("an array", func(t *testing.T) {
 		refused(t, check(t, rc, token(t, json.Arr(labels, stampValue))), rc, reason.ChainMissing)
 	})
@@ -296,6 +361,12 @@ func TestCheckResponseSentChain(t *testing.T) {
 			refused(t, check(t, bad, bad.header), bad, reason.BindingMismatch)
 		})
 	}
+	t.Run("a stamp with no wire form", func(t *testing.T) {
+		c := rc
+		c.sent = slices.Clone(rc.sent)
+		c.sent[1].Inst = "ord|1"
+		refused(t, check(t, c, c.header), c, reason.ChainMissing)
+	})
 	t.Run("left as it was", func(t *testing.T) {
 		spare := stamp.Stamp{Svc: "spare"}
 		backing := append(slices.Clone(rc.sent), spare)
@@ -375,6 +446,8 @@ func TestCheckResponseCacheError(t *testing.T) {
 	}
 }
 
+// TestEncodeChain writes a chain's token, which reads back as the chain, and refuses a chain that is empty
+// or holds a stamp no signer may sign.
 func TestEncodeChain(t *testing.T) {
 	rc := okCase(t)
 	tok, err := wire.EncodeChain(rc.sent)
@@ -394,6 +467,8 @@ func TestEncodeChain(t *testing.T) {
 	}
 }
 
+// TestEncodeProof writes the mesh proof's token as v3.json holds it, and refuses a proof that can't be
+// written.
 func TestEncodeProof(t *testing.T) {
 	rc := okCase(t)
 	tok, err := wire.EncodeProof(rc.proof)

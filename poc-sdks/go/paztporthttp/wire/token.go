@@ -45,6 +45,9 @@ func EncodeInfluence(es []influence.Entry) (string, bool, error) {
 // them. No labels are written as []. It refuses a stamp that stamp.Stamp.Wire refuses, labels that
 // influence.LabelsWire refuses, and an object over the wire limit.
 func EncodeResponse(s stamp.Stamp, labels []influence.Label) (string, error) {
+	unwritable := func(err error) error {
+		return fmt.Errorf("paztport wire: the response header can't be written: %w", err)
+	}
 	sb, err := s.Wire()
 	if err != nil {
 		return "", err
@@ -55,18 +58,18 @@ func EncodeResponse(s stamp.Stamp, labels []influence.Label) (string, error) {
 	}
 	sv, err := json.ReadWire(sb)
 	if err != nil {
-		return "", fmt.Errorf("paztport wire: the response header can't be written: %w", err)
+		return "", unwritable(err)
 	}
 	lv, err := json.ReadWire(lb)
 	if err != nil {
-		return "", fmt.Errorf("paztport wire: the response header can't be written: %w", err)
+		return "", unwritable(err)
 	}
 	tok, err := json.Token(json.Obj(
 		json.Member{Name: "labels", Value: lv},
 		json.Member{Name: "stamp", Value: sv},
 	))
 	if err != nil {
-		return "", fmt.Errorf("paztport wire: the response header can't be written: %w", err)
+		return "", unwritable(err)
 	}
 	return tok, nil
 }
