@@ -57,6 +57,16 @@ need_unzip() {
   command -v unzip >/dev/null 2>&1 || missing unzip 6 "your package manager"
 }
 
+need_go() {
+  # The module's go line is the oldest Go that builds it. Checked here, outside the module, because inside it
+  # an older go may fetch a newer toolchain instead of stopping.
+  local want found
+  want="$(sed -n 's/^go \([0-9]*\.[0-9]*\).*/\1/p' poc-sdks/go/go.mod)"
+  command -v go >/dev/null 2>&1 || missing go "$want" "https://go.dev/dl or your package manager"
+  found="$(go version 2>/dev/null | sed -n 's/^go version go\([0-9.]*\).*/\1/p' || true)"
+  [ -n "$found" ] && at_least "$found" "$want" || missing go "$want" "https://go.dev/dl or your package manager"
+}
+
 need_docker() {
   command -v docker >/dev/null 2>&1 || missing docker 24 "https://docs.docker.com/get-docker/"
   docker info >/dev/null 2>&1 || missing docker 24 "start the Docker daemon (docker info must succeed)"
@@ -79,6 +89,16 @@ report_ollama() {
     echo "ollama: unreachable at http://localhost:11434 (pi picks its provider; this script never does)"
   fi
 }
+
+# The Go SDK's checks: formatting, vet, then its tests.
+test_go() (
+  cd poc-sdks/go
+  local unformatted
+  unformatted="$(gofmt -l .)"
+  [ -z "$unformatted" ] || { printf 'gofmt would change:\n%s\n' "$unformatted"; exit 1; }
+  go vet ./...
+  go test ./...
+)
 
 cmd_java_mesh() {
   need_java
@@ -112,6 +132,7 @@ cmd_bench() {
 
 cmd_test() {
   need_unzip
+  need_go
   need_java
   need_node
   [ -x "$maven_java" ] || missing java 25 "https://adoptium.net or your package manager (mvn -v must report the JDK's runtime)"
@@ -131,6 +152,7 @@ cmd_test() {
   (cd poc-demos/agents-mcp && npm run -s check)
   (cd poc-sdks/typescript && PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" npm test)
   (cd poc-demos/agents-mcp && npm test)
+  test_go
   echo "all suites passed"
 }
 

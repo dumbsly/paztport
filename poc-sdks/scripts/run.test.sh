@@ -23,24 +23,26 @@ help_lists_subcommands() {
   done
 }
 
-# basic_tools: prints a new directory holding everything ./run needs before it checks for node or mvn, and
-# nothing else, so with it as PATH node is genuinely absent, and mvn too unless one is faked.
+# basic_tools [tool...]: prints a new directory holding everything ./run needs before it checks for node or mvn,
+# and the named tools, and nothing else, so with it as PATH node is genuinely absent, and mvn too unless one is
+# faked.
 basic_tools() {
   local bin tool found
   bin="$(mktemp -d)"
-  for tool in bash env dirname uname sort head sed grep awk cut tr cat printf; do
+  for tool in bash env dirname uname sort head sed grep awk cut tr cat printf "$@"; do
     found="$(command -v "$tool" 2>/dev/null)" && [ -x "$found" ] && ln -s "$found" "$bin/$tool"
   done
   echo "$bin"
 }
 
-# missing_stops_early <tool> <arguments> [mvn -v text]: with only the basic tools on PATH, and an mvn that prints
-# the given text if one is given, ./run with <arguments> (split on spaces) prints one 'missing: <tool>' line and
-# exits 1.
+# missing_stops_early [-with <tool>] <tool> <arguments> [mvn -v text]: with only the basic tools on PATH, the
+# tool after -with too, and an mvn that prints the given text if one is given, ./run with <arguments> (split on
+# spaces) prints one 'missing: <tool>' line and exits 1.
 missing_stops_early() {
-  local bin out status args
+  local bin out status args with=""
+  if [ "$1" = -with ]; then with="$2"; shift 2; fi
   read -ra args <<<"$2"
-  bin="$(basic_tools)"
+  bin="$(basic_tools $with)"
   if [ $# -ge 3 ]; then
     printf '%s\n' "$3" >"$bin/mvn-v.txt"
     printf '#!%s\ncat "%s"\n' "$bin/bash" "$bin/mvn-v.txt" >"$bin/mvn"
@@ -84,6 +86,8 @@ check "a PATH without node prints one 'missing: node' line and exits 1" missing_
 check "bench without mvn prints one 'missing: mvn' line and exits 1" missing_stops_early mvn bench
 check "bench -h goes to bench, which without mvn prints one 'missing: mvn' line" missing_stops_early mvn "bench -h"
 check "test without unzip prints one 'missing: unzip' line and exits 1" missing_stops_early unzip test
+# The jar check's unzip is checked first, so this case has one.
+check "test without go prints one 'missing: go' line and exits 1" missing_stops_early -with unzip go test
 check "bench with no java at Maven's JDK prints one 'missing: java' line and exits 1" \
   missing_stops_early java bench "Java version: 25.0.1, vendor: Test, runtime: /nonexistent"
 check "a clean clone passes ./run test" clean_clone_passes_run_test
