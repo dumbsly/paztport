@@ -44,6 +44,19 @@
 // for each label of a response that verifies, and one local-untrusted entry for any other, so a response
 // is never dropped.
 //
+// A partner, the entry point of another organisation's calls, keeps [Sessions], made with [NewSessions]
+// from its own material and the client policy keys it has pinned. Its adapter answers each POST to
+// wire.SessionPath with [ServeHandshake], which opens a session bound to the peer the transport
+// authenticated, by the certificate's issuer and service, and replies with the session's id and status,
+// signed by the entry service's key. It decides each call with [Sessions.Accept] in place of
+// [Receiver.Accept]: a call in an attested session is verified by that session's own verifier, pinned to
+// the material the client presented, and one in an unsafe session is served believing nothing it carries.
+// The adapter then refuses an unsafe session's switched-off operations with [UnsafeOperations].
+//
+// Two of a partner's settings are not set by the spec, which leaves them to each partner: how many
+// sessions one peer may hold at once, SessionsConfig.MaxPerPeer, and how long a session no call uses is
+// kept, SessionsConfig.IdleMs. Neither has a default here; the embedder sets both.
+//
 // Header values are read as package wire reads them: only HTTP's optional whitespace around a value is
 // trimmed, a value of nothing else is absent, and of a repeated header the first value counts. A
 // refusal's body is exactly {"reason":"<code>"} and carries no suspect: who is suspected is in the
