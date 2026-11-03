@@ -25,18 +25,12 @@
             <!-- Builds the X.509 certificates; the JDK has no public API for it. Keygen only: the SDK needs none. -->
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcpkix-jdk18on</artifactId>
-            <version>1.80</version>
-        </dependency>
-        <dependency>
-            <!-- bcpkix 1.80 would pull 1.80.2 of these two; pinned to 1.80, as the mesh demo does, so one version ships. -->
-            <groupId>org.bouncycastle</groupId>
-            <artifactId>bcutil-jdk18on</artifactId>
-            <version>1.80</version>
+            <version>1.86</version>
         </dependency>
         <dependency>
             <groupId>org.bouncycastle</groupId>
             <artifactId>bcprov-jdk18on</artifactId>
-            <version>1.80</version>
+            <version>1.86</version>
         </dependency>
 
         <dependency>
