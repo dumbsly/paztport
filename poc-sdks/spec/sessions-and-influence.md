@@ -347,7 +347,7 @@ be attested for the calls recorded up to its limits and not for those after them
 `notAfter` (entry-key form) and the `notAfter` of each root and keyring, the client's and the server's. A verifier
 asking whether the session was attested at all judges it at the earliest of those, since each is an upper bound. A
 recorded response is limited only by the server's root window and, in the entry-key form, the server
-keyring's: the client's windows and the certificate do not limit it.
+keyring's, once the signatures covering them verify: the client's windows and the certificate do not limit it.
 
 There is no client pin offline. The server's signed `"attested"` reply, whose session id binds the client's
 policy key and keyring, is its statement that it pinned them.

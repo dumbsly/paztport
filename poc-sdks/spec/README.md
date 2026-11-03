@@ -105,7 +105,8 @@ the spec's objects and times, never from any implementation's record format:
   `expected.attestedAt[i]` is whether it opened an attested session judged at `at[i]`, `attested` whether it did at
   all (judged at the earliest of its limits), `responseNotAfter` the `policyNotAfter` a response recorded in it is
   checked with (the server root's `notAfter`, or in the entry-key form the earlier of it and
-  `serverKeyringNotAfter`), read from the reply's windows whether or not the session is attested.
+  `serverKeyringNotAfter`), read from the reply's windows once the signatures covering them verify, whether or not
+  the session is attested, and none otherwise.
   A recorded `request` may hold material a reader refuses as malformed (no `clientKeyringSig`, no
   `clientKeyringNotAfter`, or a client root without `notAfter`): the session it opened is never attested.
 - A **`recordedCall`** case is one record set: `handshakes` in the `recordedHandshake` shape, then `calls`, checked

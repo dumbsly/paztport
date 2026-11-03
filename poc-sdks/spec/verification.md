@@ -121,8 +121,9 @@ destination any other way, by an address, an alias or a port, fails check 4 at a
 something the request or the destination says. Over HTTP the same name is the caller's `<target>`: in the response's
 nonce key, as the service the response stamp must be by, and in the `src` (`http:<target>`) of what the response
 adds to its influence. An egress names its partner's entry service by configuration
-([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java SDK takes the name from
-the URL's host by default: [Java SDK README](../java/README.md#paztport-spring).)
+([sessions-and-influence.md](sessions-and-influence.md#between-organisations)). (The Java and Go SDKs take the name
+from the URL's host by default, its ASCII letters in lower case; a host that is not ASCII gets no name:
+[Java SDK README](../java/README.md#paztport-spring).)
 
 **The peer check.** A transport that authenticates the sender (mTLS, for example) SHOULD pass it as `peer`. Check
 12 then requires the last signer to be that sender. Only `svc` is compared: a certificate is issued per
@@ -393,7 +394,7 @@ The offline verifier runs the live checks in the live order, with these differen
 | 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
-| 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it, and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). With age limits, the last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`). Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
+| 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
 | 10 | The nonce key has not been spent anywhere in the record set (`REPLAY`). A live cache that forgets after its window can't show that. |
 | 12 | There is no peer offline. |
 
@@ -409,25 +410,29 @@ Each kind of record is checked this way:
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
   `policyNotAfter` the client used: the earliest `notAfter` of the server's root and, in the entry-key form, its
-  keyring. So a response recorded after the server's material expired is `POLICY_EXPIRED`.
+  keyring. Those windows count only once the signatures covering them verify, whatever the time: the reply against
+  the pin, and the server's root and, in the entry-key form, its keyring under the server's policy key. A reply
+  without them gives no `policyNotAfter`, and a response relying on it fails check 0 (`POLICY_EXPIRED`). So a
+  response recorded after the server's material expired is `POLICY_EXPIRED`.
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): first, the step binds its call and
   decision: the `decision` token MUST read as a [decision](wire.md#bindings), and its `callId` MUST be the
   step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
   differs from the one the stamp signed. Then the offline chain verifier with `signers`
   (the origin service then the client hop, both on the client's one instance), `sess = ""`, the client's root and
-  keyring, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and keyring are no
-  later than their `notAfter` (`POLICY_EXPIRED`). Then the route verdict and proof the client recorded for the step
-  MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step signed MUST be the client's
-  (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those signed rules
-  (`VERDICT_MISMATCH`).
+  keyring, the age limits, and `nonceKey = <rid>|<callId>|local`. Then, at the step's `ts`, the client's root and
+  keyring are no later than their `notAfter` (`POLICY_EXPIRED`). Then the route verdict and proof the client
+  recorded for the step MUST be what its chain proves (`PROOF_MISMATCH`); the `rulesHash` the step signed MUST be
+  the client's (`RULES_MISMATCH`); and the decision it signed MUST be the one re-derived from those signed rules
+  (`VERDICT_MISMATCH`). A client's gate never takes a local step on an origin outside those limits: it refuses it
+  `EXPIRED`, unsigned, as it refuses one taken under an expired root or keyring.
 - **A recorded handshake**: attested only when the request and the reply read from their tokens
   ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)), the reply is attested and verifies
   against the pin, both roots verify against their sides' policy keys, and the client keyring's signature verifies.
   It is judged at the time of each call that relies on it: a root or keyring, on either side, counts only up to its
   `notAfter`, as the reply certificate does
   ([sessions-and-influence.md](sessions-and-influence.md#recorded-handshakes)). A response relies on it too, but is
-  limited only by the server's root window and, in the entry-key form, the server keyring's; the client's windows
-  and the certificate do not limit it.
+  limited only by the server's root window and, in the entry-key form, the server keyring's, once the signatures
+  covering them verify; the client's windows and the certificate do not limit it.
 
 Each of these times is one the client signed (the last stamp's `ts`, which must equal the time recorded with it),
 or for a response one the freshness window ties to the server's signed stamps. A verifier relies on them as it
@@ -442,7 +447,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `BAD_ORIGIN` | live, offline | The origin is not an allowed origin (or, offline, not the expected instance). |
 | `BAD_SIGNATURE` | live, offline | A field holds `\|`, a key is unknown, or a signature fails. |
 | `BROKEN_LINK` | live, offline | A `prev` does not match. |
-| `EXPIRED` | live, offline | Outside the freshness window, or offline, outside the age limits. |
+| `EXPIRED` | live, offline, client local | Outside the freshness window, or offline, outside the age limits. Client local: the local gate's refusal of a step on an origin outside the age limits. |
 | `RID_MISMATCH` | live, offline | The stamps don't share the `rid`, or name another request. |
 | `BINDING_MISMATCH` | live, offline | A `rcv` names the wrong hop, or the binding does not match what was received. |
 | `REPLAY` | live, offline | The nonce key was seen before. |
@@ -451,7 +456,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not read, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
 | `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. |
-| `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it. |
+| `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it, or no time is recorded. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
 | `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |
 | `PROOF_MISMATCH` | offline only | A recorded local step ([MCP profile](README.md#the-mcp-profile)) whose recorded route verdict or proof disagrees with what its chain proves. |
