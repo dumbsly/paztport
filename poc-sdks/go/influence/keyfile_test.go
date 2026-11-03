@@ -30,12 +30,12 @@ func TestLoadBoundaryKey(t *testing.T) {
 	}
 
 	for name, around := range map[string]string{
-		"nothing":         "",
-		"a space":         " ",
-		"a tab":           "\t",
-		"a line feed":     "\n",
-		"a carriage ret.": "\r",
-		"all four":        " \t\r\n",
+		"nothing":           "",
+		"a space":           " ",
+		"a tab":             "\t",
+		"a line feed":       "\n",
+		"a carriage return": "\r",
+		"all four":          " \t\r\n",
 	} {
 		got, err := influence.LoadBoundaryKey(writeFile(t, dir, "boundary.key", around+text+around))
 		if err != nil {

@@ -346,6 +346,8 @@ func TestServiceOfCannotWalk(t *testing.T) {
 		{"no serial number", certOf(tbsOf(version, tlv(0x04, []byte{1}), algorithm, shopCA, validity, orders))},
 		{"a version but no serial number", certOf(tbsOf(version, algorithm, shopCA, validity, orders))},
 		{"two versions", certOf(tbsOf(version, version, serial, algorithm, shopCA, validity, orders))},
+		{"a first field [1], not the version", certOf(tbsOf(tlv(0xA1, serial), serial, algorithm, shopCA, validity,
+			orders))},
 		{"no subject", certOf(tlv(0x30, version, serial, algorithm, shopCA, validity))},
 		{"a subject that is not a SEQUENCE", certOf(tbsOf(version, serial, algorithm, shopCA, validity,
 			tlv(0x31, cn("orders"))))},
