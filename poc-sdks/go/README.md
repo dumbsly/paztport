@@ -28,10 +28,11 @@ go test ./...   # every package; the vectors are read from ../spec/vectors
 
 `./run test` runs gofmt, `go vet` and this suite after the Java and TypeScript
 ones. The fuzz targets' seeds run as part of the suite, and
-`go test -fuzz=<target> ./<package>` fuzzes one. One test reads a keyring written
-by the Java keygen, from `PAZTPORT_JAVA_KEYRING` or else the Java demo's
-`out/keys/keyring.json`. With neither it skips; `./run test` writes one and names
-it, so there it always runs.
+`go test -fuzz=<target> ./<package>` fuzzes one. One test reads what the Java keygen writes: the keyring, the policy
+key pair and the boundary key. `PAZTPORT_JAVA_KEYRING` names the keyring, and the
+other three files are read from beside it; `./run test` generates them and sets it, so there
+the test runs or fails. Without it the test looks in the Java demo's `out/keys`
+and skips unless all four files are there.
 
 Nothing is published, so a module that uses this one from a checkout of the
 repository points the import path at the directory:

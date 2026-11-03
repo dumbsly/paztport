@@ -14,17 +14,31 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 )
 
-// TestReadsTheJavaKeyring reads a keyring the Java keygen wrote, from PAZTPORT_JAVA_KEYRING or else the Java
-// demo's out/keys/keyring.json, and the key files the keygen writes beside it: the policy pin, the policy
-// key and the boundary key. ./run test generates them and names the keyring here, so under ./run test this
-// check runs or fails, never skips; with neither it skips.
+// javaKeyFiles are the files the Java keygen writes that the cross-language test reads, in the order it reads them.
+var javaKeyFiles = []string{"keyring.json", "policy.pub", "policy.key", "boundary.key"}
+
+// firstMissingKeyFile names the first of javaKeyFiles that dir does not hold as a file, or "" when it holds all.
+func firstMissingKeyFile(dir string) string {
+	for _, name := range javaKeyFiles {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || !info.Mode().IsRegular() {
+			return name
+		}
+	}
+	return ""
+}
+
+// TestReadsTheJavaKeyring reads a keyring the Java keygen wrote and the key files it writes beside it: the
+// policy pin, the policy key and the boundary key. PAZTPORT_JAVA_KEYRING names the keyring; ./run test generates
+// the files and sets it, so there this check runs or fails, never skips. Without it the test looks in the Java
+// demo's out/keys and skips unless all four files are there.
 func TestReadsTheJavaKeyring(t *testing.T) {
 	path, named := os.LookupEnv("PAZTPORT_JAVA_KEYRING")
 	if !named {
-		path = filepath.Join("..", "..", "..", "poc-demos", "java-mesh", "out", "keys", "keyring.json")
-		if _, err := os.Stat(path); err != nil {
-			t.Skipf("no keyring from the Java keygen: set PAZTPORT_JAVA_KEYRING or run ./run java-mesh (%v)", err)
+		dir := filepath.Join("..", "..", "..", "poc-demos", "java-mesh", "out", "keys")
+		if missing := firstMissingKeyFile(dir); missing != "" {
+			t.Skipf("no %s from the Java keygen in %s: set PAZTPORT_JAVA_KEYRING or run ./run java-mesh", missing, dir)
 		}
+		path = filepath.Join(dir, "keyring.json")
 	}
 	kf, err := policy.LoadKeyringFile(path)
 	if err != nil {
