@@ -76,11 +76,19 @@
                             <!-- Separate output file, so a rebuild never re-shades the fat jar. -->
                             <outputFile>${project.build.directory}/policy-tool.jar</outputFile>
                             <filters>
-                                <!-- Paztport's own libraries carry the same NOTICE as this jar. -->
+                                <!-- Paztport's own libraries carry the same NOTICE as this jar, and a manifest that describes them. -->
                                 <filter>
                                     <artifact>org.paztport:paztport-*</artifact>
                                     <excludes>
                                         <exclude>META-INF/NOTICE</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- SnakeYAML's manifest describes that jar, not this one; this jar's own is written below. -->
+                                <filter>
+                                    <artifact>org.yaml:snakeyaml</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

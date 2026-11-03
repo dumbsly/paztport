@@ -86,11 +86,22 @@
                                         <exclude>META-INF/*.RSA</exclude>
                                     </excludes>
                                 </filter>
-                                <!-- Paztport's own libraries carry the same NOTICE as this jar. -->
+                                <!-- Paztport's own libraries carry the same NOTICE as this jar, and a manifest that describes them. -->
                                 <filter>
                                     <artifact>org.paztport:paztport-*</artifact>
                                     <excludes>
                                         <exclude>META-INF/NOTICE</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                    </excludes>
+                                </filter>
+                                <!-- Each Bouncy Castle jar's manifest, module descriptor and OSGi manifest describe that jar,
+                                     not this one; this jar's own manifest is written below. -->
+                                <filter>
+                                    <artifact>org.bouncycastle:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/versions/9/module-info.class</exclude>
+                                        <exclude>META-INF/versions/9/OSGI-INF/MANIFEST.MF</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
