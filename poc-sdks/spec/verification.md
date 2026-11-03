@@ -29,9 +29,9 @@ request.
 | `receiver` | What the last stamp's `rcv` must name: the receiver's own name, or for a response, the calling client's `svc`. |
 | `receiverInRoute` | Whether the route ends at `receiver`: true for a call, false for a response. |
 | `peer` | Optional; null is the same as absent. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
-| `keyring` | Service name to public key, from a keyring verified against its policy key ([wire.md](wire.md#the-signed-keyring)) and current. A key is looked up by own name only: inherited or default entries MUST NOT match. |
-| `root`, `rootId` | The pinned signed root: verified against its policy key ([wire.md](wire.md#the-signed-root)) and current. |
-| `policyNotAfter` | The earliest `notAfter` of that keyring and root, in ms since the Unix epoch: the last moment the policy owner vouches for both. |
+| `keyrings` | One or more keyrings, each verified against its policy key ([wire.md](wire.md#the-signed-keyring)): service name to public key. Only a current one is used. A key is looked up by own name only: inherited or default entries MUST NOT match. |
+| `roots` | One or more pinned signed roots, each with its `rootId`, verified against its policy key ([wire.md](wire.md#the-signed-root)). Only a current one is used. |
+| `policyNotAfter` | The last moment the policy owner vouches for some keyring and some root: the earlier of the latest keyring `notAfter` and the latest root `notAfter`. |
 | `allowedOrigins` | The services that may sign an origin stamp. |
 | `sess` | The session id every stamp must carry. |
 | `nonces`, `nonceKey` | The replay cache and this chain's key in it. |
@@ -49,14 +49,14 @@ disagree.
 | 1 | The chain reads from its bytes ([wire.md](wire.md#chains)): the JCS bytes of a non-empty array of v3 stamps, each with exactly a stamp's members ([field rules](wire.md#stamp-field-rules)). A stamp whose `v` is not 3, or that has any other member, does not read. | `CHAIN_MISSING` |
 | 2 | No signed field of any stamp holds `\|`, `rcv` included. | `BAD_SIGNATURE` |
 | 3 | The origin's `svc` is in `allowedOrigins`. | `BAD_ORIGIN` |
-| 4 | For each stamp in order: its `svc` has a key in `keyring` and its signature verifies under it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
+| 4 | For each stamp in order: its `svc` has a key in a current keyring, and its signature verifies under one of the keys the current keyrings give it (`BAD_SIGNATURE`), and its `prev` is `""` for the origin and the previous stamp's `sig` otherwise (`BROKEN_LINK`). Only after the whole chain passes that loop: each stamp's `rcv` is the next stamp's `svc`, and the last stamp's `rcv` is `receiver`. | `BAD_SIGNATURE`, `BROKEN_LINK`, then `BINDING_MISMATCH` |
 | 5 | Every stamp carries the origin's `rid`. | `RID_MISMATCH` |
 | 6 | Every stamp carries `sess`. | `SESSION_UNKNOWN` |
 | 7 | Freshness: the last stamp's `ts` is within `CALL_MAX_AGE_MS` of `now`, either way; the origin's `ts` is at most `RUN_MAX_AGE_MS` before `now` and at most `CALL_MAX_AGE_MS` after it. A non-finite `now` or limit fails. | `EXPIRED` |
 | 8 | The last stamp's `bind` equals `expectedBind`. | `BINDING_MISMATCH` |
 | 9 | The influence reads from its bytes ([sessions-and-influence.md](sessions-and-influence.md#entries)), and the last stamp's `infl` equals its commitment. | `INFLUENCE_MISMATCH` |
 | 10 | The nonce cache remembers keys for at least 2 × `CALL_MAX_AGE_MS`, and `nonceKey` is new to it. A new key is recorded. | `REPLAY` |
-| 11 | The route, the stamps' `svc` values then `receiver` when `receiverInRoute`, is proven against the root ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
+| 11 | The route, the stamps' `svc` values then `receiver` when `receiverInRoute`, is proven against a current pinned root, the one the proof's `rootId` names ([proof checks](wire.md#proof-object)). | `PATH_NOT_ALLOWED` |
 | 12 | With a `peer`, `peer.svc` equals the last stamp's `svc`. | `PEER_MISMATCH` |
 
 Otherwise the result is `OK`.
@@ -64,7 +64,7 @@ Otherwise the result is `OK`.
 Why this order:
 
 - **The verifier's own policy first.** Check 0 is about the verifier's configuration, not the request, so it
-  precedes even reading the stamps: past `policyNotAfter` the keyring and root no longer say which keys and
+  precedes even reading the stamps: past `policyNotAfter` no keyring, or no root, says any longer which keys or
   routes the policy owner allows, and no later check means anything against them. It names no one (see
   attribution below). It also spends no nonce key.
 - **Receivers after the signature loop.** A bad signature or link anywhere always beats a bad `rcv`, so a
@@ -396,7 +396,7 @@ The offline verifier runs the live checks in the live order, with these differen
 
 | # | Offline |
 |---|---|
-| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. |
+| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. Against pinned keyrings and roots, one counts for a record when the record's recorded time is at most its `notAfter`; a record for which no keyring, or no root, counts is `POLICY_EXPIRED`, and one with no recorded time is left to check 7. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |
@@ -456,11 +456,11 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `RID_MISMATCH` | live, offline | The stamps don't share the `rid`, or name another request. |
 | `BINDING_MISMATCH` | live, offline | A `rcv` names the wrong hop, or the binding does not match what was received. |
 | `REPLAY` | live, offline | The nonce key was seen before. |
-| `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against the root. Also the local gate's verdict for a tool its route list doesn't have. |
+| `PATH_NOT_ALLOWED` | live, offline, client local | The route is not proven against a current pinned root. Also the local gate's verdict for a tool its route list doesn't have. |
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not read, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
-| `POLICY_EXPIRED` | live, offline, client local | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. Client local: the local gate's refusal of a step under an expired root or keyring. |
+| `POLICY_EXPIRED` | live, offline, client local | Every keyring, or every root, the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on, or for pinned keyrings and roots, of every keyring or every root. Names no one. Client local: the local gate's refusal of a step under an expired root or keyring. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it, or no time is recorded. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
 | `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |
@@ -487,7 +487,7 @@ configuration, never from the event:
 | Input | Meaning |
 |---|---|
 | `allowedSigners` | The services that may send it events. |
-| `keyring` | Service name to public key. A key is looked up by own name only, as for the live order. |
+| `keyrings` | One or more keyrings: service name to public key. A key is looked up by own name only, as for the live order. |
 | `now` | The responder's clock, in ms since the Unix epoch. |
 | `seen` | The ids it has accepted, each with the `now` it was accepted at. |
 
@@ -498,8 +498,8 @@ and changes nothing, `seen` included.
 |---|---|---|
 | 1 | The body is the JCS bytes of an object whose `signer`, `payload` and `sig` are strings and which has no other member, read as [wire bytes](wire.md#reading) ([the envelope](wire.md#the-envelope)). | `MALFORMED_ENVELOPE` |
 | 2 | `signer` is in `allowedSigners`. | `SIGNER_NOT_ALLOWED` |
-| 3 | `keyring` has a key for `signer`. | `UNKNOWN_SIGNER` |
-| 4 | `sig` decodes as base64url, and verifies under that key over the signed bytes. | `BAD_SIGNATURE` |
+| 3 | Some keyring has a key for `signer`. | `UNKNOWN_SIGNER` |
+| 4 | `sig` decodes as base64url, and verifies under one of the keys they give it over the signed bytes. | `BAD_SIGNATURE` |
 | 5 | `payload` decodes as base64url to [an event](wire.md#the-event): the JCS bytes of an object with each of the event's members of its type and no other member, read as [wire bytes](wire.md#reading), so an overlong form, an encoded surrogate or whitespace around the object is malformed. The one exception is an absent or `null` `eventId`, which is left to check 6; an `eventId` that is present otherwise MUST be a string. | `MALFORMED_EVENT` |
 | 6 | `eventId` is present, and is neither `null` nor `""`. Any other string is an id. | `NO_EVENT_ID` |
 | 7 | `ts` is at most `EVENT_WINDOW_MS` from `now`, either way: \|`now` − `ts`\| ≤ `EVENT_WINDOW_MS`, computed exactly, with no overflow. | `OUTSIDE_WINDOW` |
@@ -514,7 +514,7 @@ Otherwise the event is accepted.
 
 Why this order:
 
-- **The allow-list before the keyring.** A name not on it is the sender's own text, so it is never looked up.
+- **The allow-list before the keyrings.** A name not on it is the sender's own text, so it is never looked up.
   A responder that logs a refusal names the signer only once check 2 has passed, when it is a name from its own
   configuration.
 - **The signature before the payload is read.** Nothing past the envelope is read until an allowed key has
@@ -533,7 +533,7 @@ responder's own log; the sender is told only that the event was refused
 |---|---|
 | `MALFORMED_ENVELOPE` | The body is not an envelope. |
 | `SIGNER_NOT_ALLOWED` | The signer is not one the responder takes events from. |
-| `UNKNOWN_SIGNER` | The signer is allowed, but the keyring has no key for it. |
+| `UNKNOWN_SIGNER` | The signer is allowed, but no keyring has a key for it. |
 | `BAD_SIGNATURE` | The signature does not decode, or does not verify. |
 | `MALFORMED_EVENT` | The signed payload is not an event. |
 | `NO_EVENT_ID` | The event has no id. |

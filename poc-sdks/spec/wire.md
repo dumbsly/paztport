@@ -487,16 +487,17 @@ source, never in policy order.
 
 `siblings` runs from the leaf's level up to the level below the root. `dirs[i]` is `L` when the working hash is
 the left input at level *i*, and `R` when it is the right. A verifier checks a proof for `route` against the
-pinned `root` and `rootId` like this, and any failure is "not proven":
+verifier's pinned roots like this, and any failure is "not proven":
 
 1. The proof is read from its JCS bytes as [wire bytes](#reading), and is an object with exactly the four members
    shown: `leafSalt`, `dirs` and `rootId` strings and `siblings` an array of strings; `dirs` matches `^[LR]*$` and
    has as many characters as `siblings` has entries.
-2. `rootId` equals the pinned root's `rootId`.
+2. `rootId` is the `rootId` of a current pinned root, and steps 3–5 use that root. Roots that share a `rootId`
+   are renewals of one tree, so any one of them serves.
 3. `leafSalt` decodes to exactly 16 bytes, and each sibling to exactly 32.
 4. Starting from `w = H(0x00 ‖ salt ‖ utf8(route))`, for each level *i*: `w = H(0x01 ‖ w ‖ sibling[i])` when
    `dirs[i]` is `L`, else `w = H(0x01 ‖ sibling[i] ‖ w)`.
-5. `w` equals the pinned root's bytes.
+5. `w` equals that root's bytes.
 
 The verifier need not check the depth: the root commits to the tree's shape, and the domain prefixes stop a
 shorter or longer path from reaching it.
@@ -763,7 +764,7 @@ the proof travels with.
 |---|---|---|
 | Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
 | Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions-and-influence.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
-| Each verifier | The pinned policy public key, the signed root and the signed keyring. | The tree, the route list or any salt but those in the proofs it is shown. |
+| Each verifier | The pinned policy public key, and the signed roots and keyrings it pins: one of each, or two while a rollover is under way. | The tree, the route list or any salt but those in the proofs it is shown. |
 | The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. A client also knows the server's entry service by name, from its own configuration, to check an entry-key reply. | Its map. |
 
 A server that answers in the entry-key form needs its policy private key only offline, to sign its root, keyring
@@ -772,12 +773,16 @@ demo neither side keeps its policy private key: the client's is deleted once it 
 keyring, and the server's once it has signed the server root, keyring and a 30-day reply certificate for
 `mcp-entry`'s key, since the demo's MCP server answers in the entry-key form.
 
-The policy owner renews its root and keyring on a schedule, well before their `notAfter`, offline, where the
-policy private key is kept. Renewing keeps the tree, so the proof bundles stay valid, and each holder can pick up
-the renewed root and keyring on its own, one at a time. A rebuild is different: it changes the routes, so it is a
-new tree with a new `rootId` and new proof bundles, and every holder of the root or of proofs must reload them
-together, since a proof from one tree does not prove against the other's root. Both policy tools renew
-(`--renew`, or `PAZTPORT_RENEW=true` for the Java one) and rebuild (the default), re-signing the keyring either
-way; they check that the keyring and, renewing, the root were signed by the policy key before, and refuse,
-writing nothing, otherwise. That the keyring's keys are still the services' current keys, and that the tree's
-routes are still allowed, is the policy owner's to ensure.
+The policy owner renews its root and keyring on a schedule, well before their `notAfter`, offline, where the policy
+private key is kept. Renewing keeps the tree, so the proof bundles stay valid, and each holder can pick up the
+renewed root and keyring on its own, one at a time. A rebuild is different: it changes the routes, so it is a new
+tree with a new `rootId` and new proof bundles, and since a proof from one tree does not prove against the other's
+root, it rolls out in three steps: every verifier pins the new root beside the old; then each holder of proofs
+switches to the new bundle, one at a time; then every verifier unpins the old root. A service's new key rolls out
+the same way with keyrings: pin the keyring that names it, switch the service to the key, unpin the old keyring.
+While both are pinned, both are honoured: a route the rebuild removed, or a key the new keyring retires, stays
+usable until the old one is unpinned, so a key retired because it was compromised is unpinned at once, with no
+overlap. Both policy tools renew (`--renew`, or `PAZTPORT_RENEW=true` for the Java one) and rebuild (the default),
+re-signing the keyring either way; they check that the keyring and, renewing, the root were signed by the policy
+key before, and refuse, writing nothing, otherwise. That the keyring's keys are still the services' current keys,
+and that the tree's routes are still allowed, is the policy owner's to ensure.
