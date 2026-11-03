@@ -11,6 +11,8 @@ import {
   influenceClasses,
   localReceiver,
   NOTHING_RESOLVED,
+  CALL_MAX_AGE_MS,
+  RUN_MAX_AGE_MS,
   resultLabels,
   routeOf,
   rulesHash,
@@ -26,7 +28,7 @@ import type { EventLog } from "../events.ts";
 import type { EvidenceLog } from "../evidence.ts";
 import type { InfluenceStore } from "../influence.ts";
 import { CLIENT_CHAIN, PI_SVC, type ClientMaterial } from "../keys.ts";
-import { localRefusalText, POLICY_EXPIRED_TEXT, SCOPE_TEXT } from "../refusals.ts";
+import { EXPIRED_TEXT, localRefusalText, POLICY_EXPIRED_TEXT, SCOPE_TEXT } from "../refusals.ts";
 import type { RunState } from "../runs.ts";
 import { PINNED_PATH, resolveBash } from "./bash.ts";
 import { canonical, resolveFileTool, type PathContext } from "./paths.ts";
@@ -92,6 +94,12 @@ function spellings(path: string): string[] {
  * not applied, and nothing is signed with material an offline verifier would no longer accept. It relies on the
  * windows loadClientMaterial verified at startup and on the injected clock.
  *
+ * Likewise it refuses a call EXPIRED, with an event only, before resolving anything, when the run's origin is
+ * outside the age limits at the call's time: the run started more than RUN_MAX_AGE_MS before it, or more than
+ * CALL_MAX_AGE_MS after it. An offline verifier judges a recorded local step by those same limits and would refuse
+ * what the gate signed. The expiry of the material is judged first, as the offline verifier does (check 0, then the
+ * age at check 7). A new prompt starts a new run.
+ *
  * pi's tool_call input is mutable, later handlers see the same object, and the tool runs with it
  * unvalidated. So an allowed call's input is deep-frozen once checked: a later handler that changes it
  * in place throws, and pi turns the throw into a blocked call. pi's built-in tools only read their params.
@@ -124,7 +132,7 @@ export class LocalGate {
       return { block: false };
     }
     const run = runs.current();
-    const emit = (verdict: LocalVerdict | "POLICY_EXPIRED") =>
+    const emit = (verdict: LocalVerdict | "POLICY_EXPIRED" | "EXPIRED") =>
       events.emit({ type: "local", tool: toolName, callId: toolCallId, ...(run !== undefined ? { rid: run.rid } : {}), verdict });
     if (mode === "no-root" || run === undefined) {
       // no rules to check against, or no user prompt to chain from: nothing is signed
@@ -136,6 +144,11 @@ export class LocalGate {
     if (!(now <= notAfter)) {
       emit("POLICY_EXPIRED");
       return { block: true, reason: POLICY_EXPIRED_TEXT };
+    }
+    // the offline verifier's default age limits (check 7), written so that a value that is not a time refuses too
+    if (!(now - run.ts <= RUN_MAX_AGE_MS && run.ts - now <= CALL_MAX_AGE_MS)) {
+      emit("EXPIRED");
+      return { block: true, reason: EXPIRED_TEXT };
     }
 
     const route = routeOf([...CLIENT_CHAIN, localReceiver(toolName)]);

@@ -257,6 +257,14 @@ describe("checkRun with local steps", { timeout: 60_000 }, () => {
     expect(v.problems).toContain("the events log shows local call l_note refused (POLICY_EXPIRED), but evidence.jsonl shows it allowed");
   });
 
+  it("anExpiredRefusalIsUnsignedByDesign", () => {
+    // the gate refuses EXPIRED without signing (the run is outside the age limits): no record to match, as for POLICY_EXPIRED
+    const expired = (callId: string) => write(events, (rs) => rs.push({ ...localEvent(rs, "l_read"), callId, verdict: "EXPIRED" }));
+    expect(check({ eventsPath: expired("l_old") })).toEqual({ status: "ok", problems: [] });
+    const v = check({ eventsPath: write(events, (rs) => { localEvent(rs, "l_note").verdict = "EXPIRED"; }) });
+    expect(v.problems).toContain("the events log shows local call l_note refused (EXPIRED), but evidence.jsonl shows it allowed");
+  });
+
   it("eventsOutsideARunMayOnlyBeScopeRefusals", () => {
     const noRid = (verdict: string) => write(events, (rs) => rs.push({ ts: 1, type: "local", tool: "read", callId: "l_norun", verdict }));
     expect(check({ eventsPath: noRid("SCOPE_DENIED") })).toEqual({ status: "ok", problems: [] });

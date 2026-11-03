@@ -196,6 +196,11 @@ current root covers are not applied. The refusal is an event only. Nothing is si
 an offline check would no longer accept. Startup refuses expired material, so this is for a pi
 session that runs past the `notAfter`.
 
+Likewise a local call is refused `EXPIRED`, with an event only, before anything is resolved, when the
+run's origin is outside the age limits at the call's time: the run started more than 30 minutes before
+it (`RUN_MAX_AGE_MS`), or more than 5 seconds after it (`CALL_MAX_AGE_MS`). An offline check judges a
+recorded local step by the same limits. A new prompt starts a new run.
+
 ### The order of checks
 
 The first check that fails decides, in this order:
@@ -203,7 +208,9 @@ The first check that fails decides, in this order:
 0. **Prompt and root.** Is there a user prompt to chain from, and a root to check against? If not (`no-root`
    mode, or a call before any prompt), the call is refused (`SCOPE_DENIED`), with an event only.
 1. **Expiry.** In `enforce` mode, are the root the rules come from, and the keyring, still within their
-   `notAfter`? If not, the call is refused `POLICY_EXPIRED`, before anything is resolved.
+   `notAfter`? If not, the call is refused `POLICY_EXPIRED`, before anything is resolved. Then, is the
+   run's origin within the age limits at the call's time? If not, the call is refused `EXPIRED`, also
+   before anything is resolved and with an event only.
 2. **Route.** Is `session/pi/local:<tool>` listed in the signed policy? If not, the call is refused
    (`PATH_NOT_ALLOWED`).
 3. **Checkable.** Could the gate work out what the call would touch? A `bash` command it cannot parse,
@@ -241,7 +248,7 @@ is refused as `UNCHECKABLE` and is not signed. The tool runs with the input as g
 demo runs, `<home>` is the run's own home folder, which the runner gives pi, not yours. A call
 whose input can't be signed (a lone surrogate, a number JSON can't hold) is refused as `UNCHECKABLE`
 and is not signed. In `no-root` mode, for a call made before any user prompt, and once the root or
-keyring has expired (`POLICY_EXPIRED`), the call is refused with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
+keyring has expired (`POLICY_EXPIRED`), or the run is outside the age limits (`EXPIRED`), the call is refused with an event only: nothing is signed. The events log gets only the tool name, call id, rid and
 verdict. After a call is allowed, its input is frozen (see [Hook order](#hook-order)).
 
 ### Folder rules
@@ -327,6 +334,10 @@ For `UNCHECKABLE`:
 For `POLICY_EXPIRED`, from the gate or the server. Expiry is no sign of an injection, but nothing passes until the policy is renewed, so this text asks the model to stop:
 
 > Paztport refused this action: the signed policy it is checked against has expired, so it was not carried out. Retrying will not work until the user renews the policy. End your turn now and tell the user that the Paztport policy has expired and must be renewed.
+
+For `EXPIRED`, from the gate. The run is older than a run may be, or started after the call. Age is no sign of an injection, and retrying in this run cannot work, so this text asks the model to stop:
+
+> Paztport refused this action: the run it belongs to is outside the allowed age, so it was not carried out. Retrying will not work in this run. End your turn now and tell the user that the run has expired and that a new prompt starts a new run.
 
 As with the other refusal text, the wording only nudges the model. The refusal is the control.
 

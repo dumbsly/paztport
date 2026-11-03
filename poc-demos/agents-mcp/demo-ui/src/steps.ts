@@ -71,6 +71,7 @@ export const PLAIN_REASON: Record<string, string> = {
   SCOPE_DENIED: "outside what this session may do",
   UNCHECKABLE: "couldn't be checked",
   POLICY_EXPIRED: "the signed policy had expired, so nothing could pass until it was renewed",
+  EXPIRED: "the run was too old, or its start too far ahead of the clock, so the step was not allowed",
 };
 
 export const PLAIN_RULE: Record<string, string> = {
@@ -82,6 +83,8 @@ export const PLAIN_RULE: Record<string, string> = {
   UNCHECKABLE: "A command is refused when Paztport can't tell what it would do. The check is conservative: simple commands with plain paths are the ones it can read.",
   POLICY_EXPIRED:
     "Every call is refused once the signed policy it is checked against has expired. That is a configuration failure, not a sign of an attack: the policy has to be renewed before anything can pass.",
+  EXPIRED:
+    "A local action is refused when its run started more than 30 minutes before it, or more than 5 seconds after it. That is a limit, not a sign of an attack: a new prompt starts a new run.",
 };
 /** The influence rule as it reads for a local write. */
 const LOCAL_INFLUENCE_RULE =

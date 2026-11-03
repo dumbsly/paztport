@@ -162,6 +162,8 @@ describe("steps", () => {
 
   it("an expired policy reads as a configuration failure to fix, not a block", () => {
     expect(plainReason("POLICY_EXPIRED")).toBe("the signed policy had expired, so nothing could pass until it was renewed");
+    expect(plainReason("EXPIRED")).toBe("the run was too old, or its start too far ahead of the clock, so the step was not allowed");
+    expect(PLAIN_RULE.EXPIRED).toMatch(/not a sign of an attack/);
     expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/expired/);
     expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/not a sign of an attack/);
   });

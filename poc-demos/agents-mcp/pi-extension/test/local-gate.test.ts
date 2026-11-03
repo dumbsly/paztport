@@ -28,14 +28,18 @@ import {
   writeToken,
   type InfluenceEntry,
   type Stamp,
+  CALL_MAX_AGE_MS,
+  RUN_MAX_AGE_MS,
+  stampLocalStep,
+  verifyRecordedLocalStep,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
 import { EvidenceLog } from "../src/evidence.ts";
 import { InfluenceStore } from "../src/influence.ts";
-import { loadClientMaterial, type ClientMaterial } from "../src/keys.ts";
+import { loadClientMaterial, PI_SVC, type ClientMaterial } from "../src/keys.ts";
 import { BUILTIN_LOCAL_TOOLS, LocalGate } from "../src/local/gate.ts";
-import { isRefusalText, localRefusalText, POLICY_EXPIRED_TEXT, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
+import { EXPIRED_TEXT, isRefusalText, localRefusalText, POLICY_EXPIRED_TEXT, refusalText, SCOPE_TEXT, UNCHECKABLE_TEXT } from "../src/refusals.ts";
 import { RunState } from "../src/runs.ts";
 import { readLocalRecord, setupDemo, UNSAFE_TEXT } from "./helpers/demo.ts";
 
@@ -118,6 +122,15 @@ describe("refusal texts", () => {
     expect(refusalText("POLICY_EXPIRED")).toBe(POLICY_EXPIRED_TEXT);
     // a blocked call holding it is a refusal on restore, as the other local texts are
     expect(isRefusalText([{ type: "text", text: POLICY_EXPIRED_TEXT }])).toBe(true);
+  });
+
+  it("expiredHasItsOwnText", () => {
+    expect(EXPIRED_TEXT).toBe(
+      "Paztport refused this action: the run it belongs to is outside the allowed age, so it was not carried out. " +
+        "Retrying will not work in this run. End your turn now and tell the user that the run has expired " +
+        "and that a new prompt starts a new run.",
+    );
+    expect(isRefusalText([{ type: "text", text: EXPIRED_TEXT }])).toBe(true);
   });
 
   it("builtinList", () => {
@@ -285,6 +298,77 @@ describe("LocalGate modes", () => {
     const noRoot = rig("no-root", { material: at(1_999, 9_000), now: 2_000 });
     expect(noRoot.gate.check("write", write, "c1")).toEqual({ block: true, reason: SCOPE_TEXT });
     expect(rig("off", { material: at(1_999, 9_000), now: 2_000 }).gate.check("write", write, "c1")).toEqual({ block: false });
+  });
+
+  it("gateRefusesAStepOnARunOutsideTheAgeLimits", () => {
+    // the run starts at 1_000 (rig); the offline verifier's default limits are the live ones, so the gate refuses what it would
+    const write = { path: "website/README.md", content: "x" };
+    const atLimit = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS });
+    expect(atLimit.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
+    expect(locals(atLimit.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
+    // a run started CALL_MAX_AGE_MS after the step's time is still within the limit (a later start keeps the clock positive)
+    const early = rig("enforce", { now: 10_000 - CALL_MAX_AGE_MS });
+    early.runs.start("Fix the README typo.", 10_000);
+    expect(early.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
+
+    for (const [what, now] of [["too old", 1_000 + RUN_MAX_AGE_MS + 1], ["too far ahead", 1_000 - CALL_MAX_AGE_MS - 1]] as const) {
+      const { gate, eventsPath, evidencePath } = rig("enforce", { now });
+      for (const [tool, input] of [["write", write], ["read", { path: "website/README.md" }]] as const) {
+        expect(gate.check(tool, { ...input }, `c-${tool}`), what).toEqual({ block: true, reason: EXPIRED_TEXT });
+        expect(gate.labelsFor(`c-${tool}`)).toBeUndefined();
+      }
+      expect(lines(eventsPath).map((e) => [e.tool, e.verdict]), what).toEqual([["write", "EXPIRED"], ["read", "EXPIRED"]]);
+      expect(readFileSync(evidencePath, "utf8"), what).toBe("");
+    }
+  });
+
+  it("theAgeCheckRunsBeforeAnythingIsResolved", () => {
+    // an input whose path throws when touched: the call would be refused with the scope text if resolution were reached
+    const touchy = { get path(): string { throw new Error("resolved"); } };
+    const { gate, eventsPath } = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS + 1 });
+    expect(gate.check("read", touchy as Record<string, unknown>, "c1")).toEqual({ block: true, reason: EXPIRED_TEXT });
+    expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["EXPIRED"]);
+  });
+
+  it("expiredMaterialIsJudgedBeforeTheRunsAge", () => {
+    // check 0 of the offline verifier (the material's window) comes before check 7 (the age): a run past both sees POLICY_EXPIRED
+    const m = { ...material, keyringNotAfter: 1_999 };
+    const { gate, eventsPath } = rig("enforce", { material: m, now: 1_000 + RUN_MAX_AGE_MS + 1 });
+    expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: POLICY_EXPIRED_TEXT });
+    expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["POLICY_EXPIRED"]);
+  });
+
+  it("gateAndOfflineVerifierAgreeAtTheRunWindow", () => {
+    // the gate allows and signs a step at the run window; the offline verifier, with its default limits, passes it.
+    // One ms later the gate refuses and signs nothing, so the step it would have signed is built here from the allowed
+    // record (same call, decision and chain shape, re-stamped at the later time), and the verifier gives EXPIRED.
+    const { gate, runs, evidencePath } = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS });
+    expect(gate.check("write", { path: "website/README.md", content: "x" }, "c1")).toEqual({ block: false });
+    const rec = lines(evidencePath)[0]!;
+    const origin = runs.origin("", material.sessionKey, "pi-1");
+    const late = 1_000 + RUN_MAX_AGE_MS + 1;
+    const decision = readLocalRecord(rec);
+    const stamp = stampLocalStep(
+      {
+        svc: PI_SVC, inst: "pi-1", rid: rec.rid, ts: late, prev: origin.sig, toolName: "write", toolCallId: "c1", input: rec.input,
+        resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: [],
+      },
+      material.piKey,
+    );
+    const client = {
+      keyring: material.keyring, root: decode(material.signedRoot.root), rootId: material.signedRoot.rootId,
+      rootNotAfter: material.signedRoot.notAfter, keyringNotAfter: material.keyringNotAfter, rules: material.rules ?? null,
+    };
+    const offline = (r: Record<string, any>) =>
+      verifyRecordedLocalStep(
+        { tool: r.tool, callId: r.callId, rid: r.rid, now: r.now, input: r.input, decision: r.decision, chain: r.chain, proof: r.proof, influence: r.influence },
+        { client, signers: { svcs: ["session", "pi"], inst: "pi-1" }, run: { prompt: "Fix the README typo.", ts: new Set([1_000]) }, seen: new Set<string>() },
+      ).reason;
+    expect(offline(rec)).toBe("OK");
+    expect(offline({ ...rec, now: late, chain: writeToken([origin, stamp]) })).toBe("EXPIRED");
+    // and the gate refuses at exactly that time
+    const refused = rig("enforce", { now: late });
+    expect(refused.gate.check("write", { path: "website/README.md", content: "x" }, "c1")).toEqual({ block: true, reason: EXPIRED_TEXT });
   });
 
   it("noActiveRunRefusesWithAnEventOnly", () => {

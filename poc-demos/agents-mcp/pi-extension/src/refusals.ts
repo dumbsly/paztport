@@ -21,6 +21,16 @@ export const POLICY_EXPIRED_TEXT =
   "Retrying will not work until the user renews the policy. End your turn now and tell the user that the " +
   "Paztport policy has expired and must be renewed.";
 
+/**
+ * For EXPIRED, from the local gate: the run the call belongs to is older than a run may be, or started after the call.
+ * Not the unsafe text, as age is no sign of an injection; it asks the model to stop because retrying in this run cannot
+ * work, and a new prompt from the user starts a new run.
+ */
+export const EXPIRED_TEXT =
+  "Paztport refused this action: the run it belongs to is outside the allowed age, so it was not carried out. " +
+  "Retrying will not work in this run. End your turn now and tell the user that the run has expired " +
+  "and that a new prompt starts a new run.";
+
 const UNSAFE_TEXT =
   "Paztport stopped this action. The system flagged it as unsafe, and it was not carried out. Actions like it stay " +
   "blocked for the rest of this session, so retrying it or trying another way will not work. A stop like this is the " +
@@ -56,7 +66,7 @@ export function localRefusalText(v: Exclude<LocalVerdict, "OK">): string {
   }
 }
 
-const REFUSAL_TEXTS = new Set([UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT, POLICY_EXPIRED_TEXT]);
+const REFUSAL_TEXTS = new Set([UNSAFE_TEXT, SCOPE_TEXT, UNCHECKABLE_TEXT, POLICY_EXPIRED_TEXT, EXPIRED_TEXT]);
 
 /** Whether a tool result's content is exactly one of the local refusal texts (the whole text, nothing more). */
 export function isRefusalText(content: unknown): boolean {
