@@ -44,9 +44,9 @@ const (
 //  3. its signature verifies under the key its form names: in the entry-key form the certificate's key,
 //     once the keyring and the certificate verify under pin, the certificate is for serverEntry and names
 //     the key the keyring holds for it, and both are current at now; in the policy-key form pin itself,
-//     when the reply has no keyring window either. Then, whatever the status, sess is the session id the
-//     client derives from req and the reply, and the server's root, when there is one, verifies under pin
-//     and is current at now; and an "attested" reply has both roots (BadSignature);
+//     when the reply has no keyring window either. Then the server's root, when there is one, verifies
+//     under pin and is current at now; an "attested" reply has both roots; and, whatever the status, sess
+//     is the session id the client derives from req and the reply (BadSignature);
 //  4. the reply's status: Attested or Unsafe.
 //
 // The form is told by which members are present, never by which key verifies, so a reply stripped of its
@@ -94,17 +94,19 @@ func serverSignaturesVerify(r Reply, pin, serverEntry string) bool {
 	return ok && signedBy(r, signer) && (r.ServerRoot == nil || r.ServerRoot.Verifies(pin))
 }
 
-// serverCurrent reports whether the server's material in reply r, whose signatures verified, is current
-// at now: its root, when there is one, and in the entry-key form its certificate and keyring.
+// serverCurrent reports whether the server's material in reply r is current at now: its root, its
+// certificate and its keyring, each when r holds it, the keyring when r holds both its signature and its
+// window. Which of them a reply must hold is serverSignaturesVerify's to judge.
 func serverCurrent(r Reply, now int64) bool {
-	if r.ServerRoot != nil && !r.ServerRoot.Current(now) {
-		return false
-	}
-	return r.ServerReplyCert == nil || (r.ServerReplyCert.Current(now) && serverKeyring(r).Current(now))
+	rootCurrent := r.ServerRoot == nil || r.ServerRoot.Current(now)
+	certCurrent := r.ServerReplyCert == nil || r.ServerReplyCert.Current(now)
+	hasKeyring := r.ServerKeyringSig != nil && r.ServerKeyringNotAfter != nil
+	return rootCurrent && certCurrent && (!hasKeyring || serverKeyring(r).Current(now))
 }
 
 // serverKeyring returns the keyring an entry-key reply r presents, with the window its signature was made
-// over. A reply that reads holds a keyring signature only beside its window.
+// over. r holds both the keyring's signature and its window: a reply that reads holds the signature only
+// beside the window.
 func serverKeyring(r Reply) policy.KeyringFile {
 	return policy.KeyringFile{
 		Services: r.ServerKeyring,
@@ -179,8 +181,10 @@ func AttestedOffline(reply []byte, req Request, pin, serverEntry string, at int6
 // at no time. The reply must read and verify against pin, the server policy key the client pinned, and
 // serverEntry, the server's entry service from the verifier's own configuration, and its root must verify
 // under pin. Whether the session is attested, and the client's side of the handshake, do not decide it.
-// It returns false for a reply that does not read, has no server root, or whose signatures do not verify:
-// a response relying on it is POLICY_EXPIRED. ResponseNotAfterOffline never panics.
+// The reply's status and session id are checked against no request, so a limit is not an attestation:
+// AttestedOffline judges that. It returns false for a reply that does not read, has no server root, or
+// whose signatures do not verify, and a response relying on it is then POLICY_EXPIRED, which the caller
+// reports itself, since verify.Config has no empty window. ResponseNotAfterOffline never panics.
 func ResponseNotAfterOffline(reply []byte, pin, serverEntry string) (int64, bool) {
 	r, err := ParseReply(reply)
 	if err != nil || r.ServerRoot == nil || !serverSignaturesVerify(r, pin, serverEntry) {

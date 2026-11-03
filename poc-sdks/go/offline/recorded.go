@@ -97,9 +97,11 @@ func (s RecordedSession) Sess() string {
 
 // ResponseNotAfter returns the policyNotAfter a response recorded in the session is checked with: the
 // earlier of the server root's notAfter and, in the entry-key form, the server keyring's, once the
-// server's signatures over them verify, judged at no time, whether or not the session is attested. It
-// returns false for a reply that does not read, has no server root, or whose signatures do not verify
-// against the pin and the configured entry: a response relying on it is POLICY_EXPIRED. See
+// server's signatures over them verify, judged at no time, whether or not the session is attested. The
+// reply's status and session id are checked against no request, so a limit is not an attestation:
+// AttestedAt judges that. It returns false for a reply that does not read, has no server root, or whose
+// signatures do not verify against the pin and the configured entry, and a response relying on it is then
+// POLICY_EXPIRED, which the caller reports itself, since verify.Config has no empty window. See
 // session.ResponseNotAfterOffline.
 func (s RecordedSession) ResponseNotAfter() (int64, bool) {
 	return s.responseLimit, s.limited

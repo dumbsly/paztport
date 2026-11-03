@@ -37,13 +37,12 @@
 // issuer, as RFC 2253 text, is what a partner keeps sessions by, with the service.
 //
 // A service's calls go through a [Caller]. [Caller.Stamp] stamps a call to the receiver's policy name,
-// after the chain the service received and committing to its influence so far, and returns the headers
-// to send in order; a gateway's external processor, an origin, calls it with neither. Which policy name
-// a destination has is the deployment's to configure, never the request's: [Receivers] maps a host to it,
-// and a host holding a byte outside ASCII has none, so a call to it is not stamped.
-// [Caller.Check] checks the response against the chain sent and returns the influence it adds: an entry
-// for each label of a response that verifies, and one local-untrusted entry for any other, so a response
-// is never dropped.
+// after the chain the service received and committing to its influence so far, and returns the headers to
+// send in order; a gateway's external processor, an origin, calls it with neither. Which policy name a
+// destination has is the deployment's to configure, never the request's: [Receivers] maps a host to it, and
+// a host holding a byte outside ASCII has none, so a call to it is not stamped. [Caller.Check] checks the
+// response against the chain sent and returns the influence it adds: an entry for each label of a response
+// that verifies, and one local-untrusted entry for any other, so a response is never dropped.
 //
 // A partner, the entry point of another organisation's calls, keeps [Sessions], made with [NewSessions]
 // from its own material and the client policy keys it has pinned. Its adapter answers each POST to
