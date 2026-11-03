@@ -151,6 +151,11 @@ func TestNewSessionsRefusesAnUnusableConfig(t *testing.T) {
 		{"a negative idle period", "IdleMs", func(c *SessionsConfig) { c.IdleMs = math.MinInt64 }},
 		{"no nonce cache", "Nonces", func(c *SessionsConfig) { c.Nonces = nil }},
 		{"no clock", "Now", func(c *SessionsConfig) { c.Now = nil }},
+		{"no entry service", "Entry", func(c *SessionsConfig) { c.Entry = "" }},
+		{"no entry key", "EntryKey", func(c *SessionsConfig) { c.EntryKey = nil }},
+		{"an entry key that is only a seed", "EntryKey", func(c *SessionsConfig) { c.EntryKey = c.EntryKey.Seed() }},
+		{"a call window of 0", "CallMaxAgeMs", func(c *SessionsConfig) { c.CallMaxAgeMs = 0 }},
+		{"a negative run window", "RunMaxAgeMs", func(c *SessionsConfig) { c.RunMaxAgeMs = -1 }},
 		{"another organisation's keyring", "Keyring", func(c *SessionsConfig) { c.Keyring = shopKeyring }},
 		{"a keyring under another policy key", "Keyring", func(c *SessionsConfig) { c.PolicyKey = policyPin(t, "shop-policy") }},
 	} {

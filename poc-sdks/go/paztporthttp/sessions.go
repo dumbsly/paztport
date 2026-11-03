@@ -17,7 +17,9 @@ import (
 
 // SessionsConfig is a partner's configuration: its own policy material, which its handshake replies carry,
 // the client policy keys it has pinned, and the limits and clock its sessions are kept by. Every member is
-// required unless it says otherwise; [NewSessions] refuses a configuration that lacks one.
+// required unless it says otherwise. [NewSessions] refuses a configuration that lacks one of the settings
+// it names; Root and ReplyCert are judged by each client instead: a root or certificate a client cannot
+// check makes that client's handshakes fail or its sessions unsafe, which fails closed.
 type SessionsConfig struct {
 	// Root is the partner's own signed root, which every reply carries.
 	Root policy.Root
@@ -100,18 +102,27 @@ type sessionEntry struct {
 }
 
 // NewSessions returns a partner's sessions, none open yet, configured by its own copy of cfg. It refuses
-// a configuration with no pinned client policy key, no client origin, a MaxPerPeer or IdleMs that is not
-// positive, no nonce cache or no clock, or a Keyring that does not verify under PolicyKey.
+// a configuration with no pinned client policy key, no client origin, no entry service, an EntryKey that
+// is not an Ed25519 private key, a MaxPerPeer, IdleMs, CallMaxAgeMs or RunMaxAgeMs that is not positive,
+// no nonce cache or no clock, or a Keyring that does not verify under PolicyKey.
 func NewSessions(cfg SessionsConfig) (*Sessions, error) {
 	switch {
 	case len(cfg.Pinned) == 0:
 		return nil, errors.New("paztport http: SessionsConfig.Pinned holds no client policy key")
 	case len(cfg.ClientOrigins) == 0:
 		return nil, errors.New("paztport http: SessionsConfig.ClientOrigins holds no client origin")
+	case cfg.Entry == "":
+		return nil, errors.New("paztport http: SessionsConfig.Entry must name the partner's entry service")
+	case len(cfg.EntryKey) != ed25519.PrivateKeySize:
+		return nil, errors.New("paztport http: SessionsConfig.EntryKey must be an Ed25519 private key")
 	case cfg.MaxPerPeer < 1:
 		return nil, errors.New("paztport http: SessionsConfig.MaxPerPeer must be positive")
 	case cfg.IdleMs < 1:
 		return nil, errors.New("paztport http: SessionsConfig.IdleMs must be positive")
+	case cfg.CallMaxAgeMs < 1:
+		return nil, errors.New("paztport http: SessionsConfig.CallMaxAgeMs must be positive")
+	case cfg.RunMaxAgeMs < 1:
+		return nil, errors.New("paztport http: SessionsConfig.RunMaxAgeMs must be positive")
 	case cfg.Nonces == nil:
 		return nil, errors.New("paztport http: SessionsConfig.Nonces is nil")
 	case cfg.Now == nil:
