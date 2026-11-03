@@ -61,7 +61,9 @@ class EventVectorsExport {
             + " An envelope case signs `eventJson`, the JCS text of `event`, as `signer` with that signer's key:"
             + " `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig`"
             + " the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to"
-            + " public key), its `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at"
+            + " public key, or, when the case has `keyrings`, those instead: a list of maps from service to the name of"
+            + " a key in `keys`, which the responder holds together), its"
+            + " `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at"
             + " its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is"
             + " the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the"
             + " refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event"
@@ -134,6 +136,7 @@ class EventVectorsExport {
     static ObjectNode build() throws IOException {
         KeyPair payment = derive("payment");
         KeyPair search = derive("search");
+        KeyPair paymentNext = derive("payment-next");
         PrivateKey pay = payment.getPrivate();
 
         ObjectNode out = JsonNodeFactory.instance.objectNode();
@@ -142,6 +145,7 @@ class EventVectorsExport {
         Map<String, KeyPair> pairs = new LinkedHashMap<>();
         pairs.put("payment", payment);
         pairs.put("search", search);
+        pairs.put("payment-next", paymentNext);
         for (Map.Entry<String, KeyPair> k : pairs.entrySet()) {
             ObjectNode o = keys.putObject(k.getKey());
             o.put("pub", Base64Url.encode(Crypto.encodePublicKey(k.getValue().getPublic())));
@@ -333,6 +337,13 @@ class EventVectorsExport {
         verify.add(verifyCase("sig as a number", out, List.of(),
                 "{" + payloadOk + ",\"sig\":1,\"signer\":\"payment\"}", NOW, 1));
 
+        // A responder may hold several keyrings: a case's `keyrings` replace the file's one, naming keys in `keys`.
+        verify.add(verifyCase("a signer known only to the second keyring", out, List.of(),
+                signed("payment", paymentNext.getPrivate(), event(NOW, "event-1")), NOW, 1,
+                List.of(Map.of("search", "search"), Map.of("payment", "payment-next"))));
+        verify.add(verifyCase("a signer in no keyring", out, List.of(), good, NOW, 1,
+                List.of(Map.of("search", "search"), Map.of("orders", "payment-next"))));
+
         ArrayNode attributable = out.putArray("attributable");
         for (String reason : List.of("CHAIN_MISSING", "BAD_ORIGIN", "BAD_SIGNATURE", "BROKEN_LINK", "EXPIRED",
                 "RID_MISMATCH", "BINDING_MISMATCH", "REPLAY", "PATH_NOT_ALLOWED", "SESSION_UNKNOWN",
@@ -398,8 +409,21 @@ class EventVectorsExport {
     /** A verify case, its expected result found by running it, so the file records what the verifier does. */
     private static ObjectNode verifyCase(String name, ObjectNode file, List<Earlier> earlier, String body, long now,
             int uses) {
+        return verifyCase(name, file, earlier, body, now, uses, List.of());
+    }
+
+    /** As above, with {@code keyrings} (service to key name, one map per keyring) when it has any. */
+    private static ObjectNode verifyCase(String name, ObjectNode file, List<Earlier> earlier, String body, long now,
+            int uses, List<Map<String, String>> keyrings) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
+        if (!keyrings.isEmpty()) {
+            ArrayNode ks = c.putArray("keyrings");
+            keyrings.forEach(k -> {
+                ObjectNode o = ks.addObject();
+                k.forEach(o::put);
+            });
+        }
         ArrayNode e = c.putArray("earlier");
         for (Earlier x : earlier) {
             e.addObject().put("body", x.body()).put("now", x.now());

@@ -105,8 +105,8 @@ func TestAttributableVectors(t *testing.T) {
 func TestVerifyVectors(t *testing.T) {
 	file := vectors.Load(t, "events.json")
 	cases := file.Get("verify")
-	if cases.Len() != 78 {
-		t.Fatalf("verify has %d cases, want 78", cases.Len())
+	if cases.Len() != 80 {
+		t.Fatalf("verify has %d cases, want 80", cases.Len())
 	}
 	seen := map[event.Refusal]int{}
 	cases.Each(func(name string, c vectors.Node) {
@@ -146,8 +146,8 @@ func TestVerifyVectors(t *testing.T) {
 	}
 }
 
-// TestVerifyVectorsReadTheOptionalKeyrings checks that the replay reads the keyrings a case may carry,
-// though no committed case carries them yet: every verify case, given the file's keyring as its keyrings,
+// TestVerifyVectorsReadTheOptionalKeyrings checks that the replay reads the keyrings a case may carry:
+// every verify case without its own keyrings, given the file's keyring as its keyrings,
 // whole or split one service to a keyring, gives the answer it gives under the file's keyring. And the
 // case's keyrings are what is used: without the signer's key, an event it signed has no key.
 func TestVerifyVectorsReadTheOptionalKeyrings(t *testing.T) {
@@ -170,6 +170,9 @@ func TestVerifyVectorsReadTheOptionalKeyrings(t *testing.T) {
 	}
 	for _, keyrings := range []string{"[{" + strings.Join(whole, ", ") + "}]", "[" + strings.Join(split, ", ") + "]"} {
 		file.Get("verify").Each(func(name string, c vectors.Node) {
+			if c.Has("keyrings") {
+				return
+			}
 			t.Run(name+" under "+keyrings, func(t *testing.T) {
 				c := c.With(t)
 				wantEvent, wantRefusal := replay(t, file.With(t), c)

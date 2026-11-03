@@ -46,9 +46,9 @@ class EventVectorsTest {
     }
 
     /**
-     * Every verify case, given the file's keyring as the optional per-case {@code keyrings}, whole or split one
-     * service to a keyring, gives the answer it gives under the file's keyring: the replay reads the keyrings a case
-     * may carry, though no committed case carries them yet.
+     * Every verify case without its own {@code keyrings}, given the file's keyring as the optional per-case
+     * {@code keyrings}, whole or split one service to a keyring, gives the answer it gives under the file's keyring:
+     * the replay reads the keyrings a case may carry.
      */
     @Test
     void theOptionalKeyringsGiveTheAnswersOfTheFileKeyring() {
@@ -65,6 +65,9 @@ class EventVectorsTest {
         names.properties().forEach(e -> split.addObject().set(e.getKey(), e.getValue()));
         JsonNode accepted = null;
         for (JsonNode c : vectors.get("verify")) {
+            if (c.has("keyrings")) {
+                continue;
+            }
             EventVerifier.Outcome want = EventVectorsExport.run(vectors, c);
             for (ArrayNode keyrings : List.of(whole, split)) {
                 ObjectNode with = c.deepCopy();
