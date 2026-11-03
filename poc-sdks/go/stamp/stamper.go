@@ -7,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/influence"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
@@ -49,7 +50,7 @@ type Stamper struct {
 func (s *Stamper) Next(
 	inbound Chain, receiver, bind string, infl []influence.Entry, bundle policy.ProofBundle,
 ) (Chain, *policy.Proof, error) {
-	var chain Chain
+	var before Chain // the stamps the new one follows: none at an origin
 	var rid, sess, prev string
 	if s.Origin {
 		if s.NewRID == nil {
@@ -61,14 +62,14 @@ func (s *Stamper) Next(
 			return nil, nil, errNoInbound
 		}
 		last := inbound[len(inbound)-1]
-		chain = append(make(Chain, 0, len(inbound)+1), inbound...)
+		before = inbound
 		rid, sess, prev = inbound[0].RID, last.Sess, last.Sig
 	}
 	st, err := s.sign(rid, sess, receiver, bind, infl, prev)
 	if err != nil {
 		return nil, nil, err
 	}
-	chain = append(chain, st)
+	chain := slices.Concat(before, Chain{st})
 
 	route := make([]string, 0, len(chain)+1)
 	for _, hop := range chain {
@@ -133,7 +134,7 @@ func (s *Stamper) Respond(inbound Chain, resultHash, callID string, labels []inf
 // sign signs a stamp by this service at the time Now gives, committing infl.
 func (s *Stamper) sign(rid, sess, rcv, bind string, infl []influence.Entry, prev string) (Stamp, error) {
 	if s.Now == nil {
-		return Stamp{}, errors.New("paztport stamp: the stamper has no clock")
+		return Stamp{}, errors.New("paztport stamp: Stamper.Now must be a clock")
 	}
 	commit, err := influence.Commit(infl)
 	if err != nil {

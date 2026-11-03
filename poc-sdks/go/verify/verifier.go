@@ -70,8 +70,11 @@ type Verifier struct {
 // has no clock or no nonce cache: no verifier can run without them, and that is a fault in the program,
 // not in any request.
 func New(cfg Config) *Verifier {
-	if cfg.Now == nil || cfg.Nonces == nil {
-		panic("paztport verify: a Config needs a clock and a nonce cache")
+	if cfg.Now == nil {
+		panic("paztport verify: Config.Now must be a clock")
+	}
+	if cfg.Nonces == nil {
+		panic("paztport verify: Config.Nonces must be a nonce cache")
 	}
 	keyring := make(policy.Keyring, len(cfg.Keyring))
 	for svc, key := range cfg.Keyring {

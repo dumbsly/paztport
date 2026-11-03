@@ -125,9 +125,9 @@ func NewSessions(cfg SessionsConfig) (*Sessions, error) {
 	case cfg.RunMaxAgeMs < 1:
 		return nil, errors.New("paztport http: SessionsConfig.RunMaxAgeMs must be positive")
 	case cfg.Nonces == nil:
-		return nil, errors.New("paztport http: SessionsConfig.Nonces is nil")
+		return nil, errors.New("paztport http: SessionsConfig.Nonces must be a nonce cache")
 	case cfg.Now == nil:
-		return nil, errors.New("paztport http: SessionsConfig.Now is nil")
+		return nil, errors.New("paztport http: SessionsConfig.Now must be a clock")
 	case !cfg.Keyring.Verifies(cfg.PolicyKey):
 		return nil, errors.New("paztport http: SessionsConfig.Keyring does not verify under SessionsConfig.PolicyKey")
 	}

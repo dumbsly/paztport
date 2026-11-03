@@ -72,8 +72,11 @@ type Config struct {
 // keyring or the root, so that no verifier is built on material the pin does not vouch for now, and
 // refuses a cfg with no clock or no nonce cache. PolicyNotAfter is the earlier of their windows.
 func Pinned(kf policy.KeyringFile, root policy.Root, pin string, cfg Config) (Config, error) {
-	if cfg.Now == nil || cfg.Nonces == nil {
-		return Config{}, errors.New("paztport verify: a Config needs a clock and a nonce cache")
+	if cfg.Now == nil {
+		return Config{}, errors.New("paztport verify: Config.Now must be a clock")
+	}
+	if cfg.Nonces == nil {
+		return Config{}, errors.New("paztport verify: Config.Nonces must be a nonce cache")
 	}
 	if !kf.Verifies(pin) {
 		return Config{}, errors.New("paztport verify: the keyring does not verify under the pinned policy key")

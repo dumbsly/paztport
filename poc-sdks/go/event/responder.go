@@ -64,7 +64,7 @@ type Responder struct {
 // program, not in any event.
 func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() int64) *Responder {
 	if now == nil {
-		panic("paztport event: a Responder needs a clock")
+		panic("paztport event: NewResponder's now must be a clock")
 	}
 	own := make(policy.Keyring, len(keyring))
 	for svc, key := range keyring {
