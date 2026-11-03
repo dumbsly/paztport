@@ -6,16 +6,16 @@
 
 import { homedir } from "node:os";
 import {
+  CALL_MAX_AGE_MS,
   decideLocalCall,
   earliestNotAfter,
   influenceClasses,
   localReceiver,
   NOTHING_RESOLVED,
-  CALL_MAX_AGE_MS,
-  RUN_MAX_AGE_MS,
   resultLabels,
   routeOf,
   rulesHash,
+  RUN_MAX_AGE_MS,
   stampLocalStep,
   writeToken,
   type InfluenceClass,

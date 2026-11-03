@@ -93,8 +93,9 @@ function readLocalEvents(path: string): LocalEvent[] | { problem: string } {
 }
 
 /**
- * True when a local event was made during a run (it has a rid). In enforce mode the gate signs every such call;
- * in no-root mode it emits them unsigned, but the eval never runs no-root: its modes with Paztport on are enforce.
+ * True when a local event was made during a run (it has a rid). In enforce mode the gate signs every such call
+ * but one it refuses POLICY_EXPIRED or EXPIRED; in no-root mode it emits them unsigned, but the eval never runs
+ * no-root: its modes with Paztport on are enforce.
  */
 const inRun = (e: LocalEvent): boolean => typeof e.rid === "string";
 
@@ -128,9 +129,10 @@ const decision = (verdict: string): string => (verdict === "OK" ? "allowed" : `r
  * only when its signed refusal verified. A local event outside a run is unsigned by design, and the gate refuses
  * every call there as out of scope, so it must be SCOPE_DENIED. A run with Paztport on is in enforce mode, which
  * writes the client record before any local call, so local events made during a run need one. A call that the
- * gate allowed and something later stopped (another handler, an abort) has an OK record and an OK event; that
- * is not a disagreement. A POLICY_EXPIRED or EXPIRED event during a run is unsigned by design too (the gate signs nothing with
- * material past its window or for a run past the age limits), so it needs no record; it gives no credit, as scoring makes such a run an error.
+ * gate allowed and something later stopped (another handler, an abort) has an OK record and an OK event; that is
+ * not a disagreement. A POLICY_EXPIRED or EXPIRED event during a run is unsigned by design too (the gate signs
+ * nothing with material past its window or for a run past the age limits), so it needs no record; it gives no
+ * credit, as scoring makes such a run an error.
  *
  * Local steps are signed by the client alone, so a genuine step could be copied from another run made with the
  * same keys. When the outcome log shows attested calls, each local record's rid must be one the server saw in

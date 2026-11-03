@@ -335,7 +335,7 @@ For `POLICY_EXPIRED`, from the gate or the server. Expiry is no sign of an injec
 
 > Paztport refused this action: the signed policy it is checked against has expired, so it was not carried out. Retrying will not work until the user renews the policy. End your turn now and tell the user that the Paztport policy has expired and must be renewed.
 
-For `EXPIRED`, from the gate. The run is older than a run may be, or started after the call. Age is no sign of an injection, and retrying in this run cannot work, so this text asks the model to stop:
+For `EXPIRED`, from the gate. The run started more than 30 minutes before the call, or more than 5 seconds after it. Age is no sign of an injection, and retrying in this run cannot work, so this text asks the model to stop:
 
 > Paztport refused this action: the run it belongs to is outside the allowed age, so it was not carried out. Retrying will not work in this run. End your turn now and tell the user that the run has expired and that a new prompt starts a new run.
 

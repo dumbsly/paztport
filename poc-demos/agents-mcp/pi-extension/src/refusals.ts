@@ -22,9 +22,9 @@ export const POLICY_EXPIRED_TEXT =
   "Paztport policy has expired and must be renewed.";
 
 /**
- * For EXPIRED, from the local gate: the run the call belongs to is older than a run may be, or started after the call.
- * Not the unsafe text, as age is no sign of an injection; it asks the model to stop because retrying in this run cannot
- * work, and a new prompt from the user starts a new run.
+ * For EXPIRED, from the local gate: the run the call belongs to started more than 30 minutes before the call, or more
+ * than 5 seconds after it. Not the unsafe text, as age is no sign of an injection; it asks the model to stop because
+ * retrying in this run cannot work, and a new prompt from the user starts a new run.
  */
 export const EXPIRED_TEXT =
   "Paztport refused this action: the run it belongs to is outside the allowed age, so it was not carried out. " +

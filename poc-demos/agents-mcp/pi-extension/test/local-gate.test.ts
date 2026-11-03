@@ -17,6 +17,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import {
   bindLocalTool,
+  CALL_MAX_AGE_MS,
   commitInfluence,
   decode,
   earliestNotAfter,
@@ -24,14 +25,13 @@ import {
   NONCE_TTL_MS,
   parseLocalRules,
   rulesHash,
+  RUN_MAX_AGE_MS,
+  stampLocalStep,
   verifyChain,
+  verifyRecordedLocalStep,
   writeToken,
   type InfluenceEntry,
   type Stamp,
-  CALL_MAX_AGE_MS,
-  RUN_MAX_AGE_MS,
-  stampLocalStep,
-  verifyRecordedLocalStep,
 } from "@paztport/core";
 import type { ExtensionMode } from "../src/config.ts";
 import { EventLog } from "../src/events.ts";
@@ -301,12 +301,14 @@ describe("LocalGate modes", () => {
   });
 
   it("gateRefusesAStepOnARunOutsideTheAgeLimits", () => {
-    // the run starts at 1_000 (rig); the offline verifier's default limits are the live ones, so the gate refuses what it would
+    // the run starts at 1_000 (rig); the offline verifier's default limits are the live ones, so the gate refuses
+    // what it would
     const write = { path: "website/README.md", content: "x" };
     const atLimit = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS });
     expect(atLimit.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
     expect(locals(atLimit.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
-    // a run started CALL_MAX_AGE_MS after the step's time is still within the limit (a later start keeps the clock positive)
+    // a run started CALL_MAX_AGE_MS after the step's time is still within the limit (a later start keeps the clock
+    // positive)
     const early = rig("enforce", { now: 10_000 - CALL_MAX_AGE_MS });
     early.runs.start("Fix the README typo.", 10_000);
     expect(early.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
@@ -323,15 +325,22 @@ describe("LocalGate modes", () => {
   });
 
   it("theAgeCheckRunsBeforeAnythingIsResolved", () => {
-    // an input whose path throws when touched: the call would be refused with the scope text if resolution were reached
-    const touchy = { get path(): string { throw new Error("resolved"); } };
+    // the input counts the reads of its path, which resolving the call makes: a step inside the limits reads it
+    let reads = 0;
+    const counted = (): Record<string, unknown> => ({ get path(): string { reads++; return "website/README.md"; } });
+    expect(rig("enforce", { now: 1_000 }).gate.check("read", counted(), "c0")).toEqual({ block: false });
+    expect(reads).toBeGreaterThan(0);
+    // one outside them is refused before anything reads it
+    reads = 0;
     const { gate, eventsPath } = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS + 1 });
-    expect(gate.check("read", touchy as Record<string, unknown>, "c1")).toEqual({ block: true, reason: EXPIRED_TEXT });
+    expect(gate.check("read", counted(), "c1")).toEqual({ block: true, reason: EXPIRED_TEXT });
+    expect(reads).toBe(0);
     expect(lines(eventsPath).map((e) => e.verdict)).toEqual(["EXPIRED"]);
   });
 
   it("expiredMaterialIsJudgedBeforeTheRunsAge", () => {
-    // check 0 of the offline verifier (the material's window) comes before check 7 (the age): a run past both sees POLICY_EXPIRED
+    // check 0 of the offline verifier (the material's window) comes before check 7 (the age): a run past both sees
+    // POLICY_EXPIRED
     const m = { ...material, keyringNotAfter: 1_999 };
     const { gate, eventsPath } = rig("enforce", { material: m, now: 1_000 + RUN_MAX_AGE_MS + 1 });
     expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: POLICY_EXPIRED_TEXT });

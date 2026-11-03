@@ -460,9 +460,10 @@ function outcomeShowsSignedCalls(runDir: string): boolean | { problem: string } 
 const SIGNED_CALLS_NO_EVIDENCE = "the outcome log shows signed calls, but evidence.jsonl has no signed records";
 
 /**
- * Whether the run's events log shows local tool calls made during a run (`local` lines with a rid), which
- * Paztport signs. A missing log shows none; one that exists but can't be read, or has a line that is not a JSON
- * object, can't show that there were none, so it comes back as a problem.
+ * Whether the run's events log shows local tool calls made during a run (`local` lines with a rid). Paztport
+ * writes its signed client record before any of them, and signs each but one it refuses POLICY_EXPIRED or
+ * EXPIRED. A missing log shows none; one that exists but can't be read, or has a line that is not a JSON object,
+ * can't show that there were none, so it comes back as a problem.
  */
 function eventsShowLocalSteps(runDir: string): boolean | { problem: string } {
   let text: string;
