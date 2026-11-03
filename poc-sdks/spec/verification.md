@@ -455,7 +455,7 @@ relies on every recorded time. No edit to a record moves a `notAfter`, because t
 | `SESSION_UNKNOWN` | live, offline | A stamp names another session. Over HTTP, also a call whose `X-Path-Session` names no live session opened by the sending peer. |
 | `INFLUENCE_MISMATCH` | live, offline | The influence does not read, or the last stamp does not commit to it. |
 | `PEER_MISMATCH` | live | The authenticated transport peer is not the last signer. |
-| `POLICY_EXPIRED` | live, offline | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. |
+| `POLICY_EXPIRED` | live, offline, client local | The keyring or root the verifier relies on has expired. Live: `now` is past `policyNotAfter`. Offline: the record's own time is past the `notAfter` of a root or keyring it relies on. Names no one. Client local: the local gate's refusal of a step under an expired root or keyring. |
 | `TIME_MISMATCH` | offline only | A stamp's time is not the one recorded with it, or no time is recorded. |
 | `PROMPT_MISMATCH` | offline only | The origin does not bind the run's recorded prompt. |
 | `OUTSIDE_SESSION` | offline only | A recorded call that otherwise verifies, in a session whose recorded handshake is attested, but whose last stamp's `ts` is past one of the session's limits ([recorded handshakes](sessions-and-influence.md#recorded-handshakes)). |
