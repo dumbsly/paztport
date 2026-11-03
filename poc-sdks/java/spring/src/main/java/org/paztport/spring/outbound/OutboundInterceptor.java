@@ -33,7 +33,7 @@ import org.springframework.http.client.ClientHttpResponse;
  * and traced, but nothing is recorded.
  *
  * <p>The request carries only the Paztport headers the caller stamped, as the spec's header rule says: any the
- * application set are removed first.
+ * application set on the request before this interceptor runs are removed first.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 

@@ -89,8 +89,9 @@ has one, the authenticated peer.
 v3 over HTTP, with no web framework. `PaztportHeaders` names the five headers:
 `X-Path-Chain`, `X-Path-Proof`, `X-Path-Influence`, the response's
 `X-Path-Response`, and `SESSION`, `X-Path-Session`, which names the session a call
-is in. `RequestBinding` computes `bind` over the method, the raw path plus `?` and
-the raw query when there is one, and the body. `HttpWire` encodes the headers and
+is in. `isPaztport` says whether a name is Paztport's: any that begins with
+`X-Path-`, in any ASCII case. `RequestBinding` computes `bind` over the method, the
+raw path plus `?` and the raw query when there is one, and the body. `HttpWire` encodes the headers and
 decodes them to the JSON text they carry, builds a request's verify input (nonce
 key `<rid>|<last svc>|req`), computes a response's result hash over its status and
 body, and checks a response's attestation against the chain the caller sent (nonce
@@ -243,7 +244,8 @@ hands a session request's body to `HttpSessions.serve`.
   until the handler returns. An async response is not attested: its body is sent
   whole when the async work completes, with no `X-Path-Response`.
 - **The outbound interceptor** stamps every `RestClient` call through
-  `HttpCaller`, attaches the proof and the influence so far, and reads each
+  `HttpCaller`, attaches the proof and the influence so far, having first removed
+  every `X-Path-` header the application set, and reads each
   response whole. The receiver it stamps, as the last stamp's `rcv`, is the URL's
   host in lower case, so by default a service's policy name is the host its callers
   reach it by (in the mesh demo, Docker Compose service names):

@@ -253,7 +253,7 @@ order, whatever order they are shown in here.
 | `v` | the number `3` | Version. |
 | `svc` | string | The signing service. The verifier looks its key up by this name, and rebuilds the route from it. |
 | `inst` | string | The signer's instance, as the signer reports it. Signed, but only the signer vouches for it. |
-| `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. An origin MUST NOT reuse a `rid`: the HTTP nonce key ([Freshness and replay](verification.md#freshness-and-replay)) names a request tree by it, so two trees with one `rid` would spend each other's keys. It SHOULD carry at least 122 random bits from a cryptographic random source, as a random UUID (RFC 9562, version 4) does, so that an origin's replicas need no coordination. |
+| `rid` | string | The request id, minted at the origin and carried unchanged by every stamp. An origin MUST NOT reuse a `rid`: the [HTTP nonce key](verification.md#freshness-and-replay) names a request tree by it, so two trees with one `rid` would spend each other's keys. It SHOULD carry at least 122 random bits from a cryptographic random source, as a random UUID (RFC 9562, version 4) does, so that an origin's replicas need no coordination. |
 | `ts` | integer | When this stamp was signed, in ms since the Unix epoch: a protocol integer. |
 | `sess` | string | The session id ([sessions-and-influence.md](sessions-and-influence.md#the-session-id)), or `""` for a chain with no session: one that never leaves one process, such as a local step, or one inside a single HTTP mesh. |
 | `rcv` | string | The receiver this stamp was signed for: the next stamp's `svc`, or for the last stamp, the receiver of the chain. See [Receivers](#receivers). |
