@@ -20,29 +20,32 @@ import (
 // name: an address, a load balancer's name, or a name inside another network. The name a call's stamp
 // is addressed to is the deployment's configuration, never something the request or the destination
 // says, so it is kept in a table the operator writes. Build one with [NewReceivers], which keeps each
-// host in lower case, as [Receivers.Name] looks it up; a nil Receivers maps nothing.
-type Receivers map[string]string
+// host in lower case, as [Receivers.Name] looks it up; the zero Receivers maps nothing. A Receivers never
+// changes once built.
+type Receivers struct {
+	byHost map[string]string // each host, in lower case, to its policy name
+}
 
 // NewReceivers returns the mapping byHost gives, host to policy name, as its own copy. It refuses a
 // blank host or name; a host that [Receivers.Name] could never match, one with a port or a colon outside
 // an IPv6 address's brackets; and two hosts that differ only in case, since a host is matched in any
 // case.
 func NewReceivers(byHost map[string]string) (Receivers, error) {
-	r := make(Receivers, len(byHost))
+	r := make(map[string]string, len(byHost))
 	for host, name := range byHost {
 		if blank(host) || blank(name) {
-			return nil, errors.New("paztport http: a receiver's host and policy name must not be blank")
+			return Receivers{}, errors.New("paztport http: a receiver's host and policy name must not be blank")
 		}
 		if hostOf(host) != host {
-			return nil, errors.New("paztport http: a receiver host must be a host alone, with no port")
+			return Receivers{}, errors.New("paztport http: a receiver host must be a host alone, with no port")
 		}
 		key := strings.ToLower(host)
 		if _, dup := r[key]; dup {
-			return nil, errors.New("paztport http: a receiver host is listed twice, in different cases")
+			return Receivers{}, errors.New("paztport http: a receiver host is listed twice, in different cases")
 		}
 		r[key] = name
 	}
-	return r, nil
+	return Receivers{byHost: r}, nil
 }
 
 // blank reports whether s is empty or only white space.
@@ -58,7 +61,7 @@ func blank(s string) bool {
 // influence comes from "http:<name>".
 func (r Receivers) Name(host string) string {
 	host = strings.ToLower(hostOf(host))
-	if name, ok := r[host]; ok {
+	if name, ok := r.byHost[host]; ok {
 		return name
 	}
 	return host
@@ -100,13 +103,14 @@ type Caller struct {
 type Outbound struct {
 	// Headers are the headers to set on the call, in order: X-Path-Chain, then X-Path-Proof when the
 	// bundle holds a proof for the route, then X-Path-Influence when the call was made under influence.
+	// The adapter sets each one, replacing any value of that name the request already carries, and never
+	// appends one.
 	Headers []wire.Header
-	// Sent is the chain sent, ending in this call's stamp.
+	// Sent is the chain sent, ending in this call's stamp, whose rcv is the receiver's policy name: the
+	// response's target.
 	Sent stamp.Chain
 	// Proof is the proof sent with it, or nil for none.
 	Proof *policy.Proof
-	// Receiver is the receiver's policy name, as stamped, which is the response's target.
-	Receiver string
 }
 
 // Received is what a response contributes to the request that made the call.
@@ -123,7 +127,9 @@ type Received struct {
 // Stamp stamps a call to receiver, the receiver's policy name, after the chain inbound and committing
 // to the influence infl that shaped it, and returns the headers to send it with. method and target are
 // the request's as sent: target is the request target in origin form, the raw path, then "?" and the raw
-// query, exactly as it goes on the wire, never one rebuilt from a parsed URL. body is the body, whole.
+// query, exactly as the transport writes it on the wire (for net/http's client, req.URL.RequestURI(); for
+// a gateway's external processor, the :path header), never one received and then rebuilt from a parsed
+// URL. body is the body, whole.
 //
 // inbound is the chain the request being served carried, nil where there is none; an origin starts a new
 // chain and ignores it, and any other service needs it. infl is the influence so far, nil for none.
@@ -131,7 +137,8 @@ type Received struct {
 //
 // A gateway's external processor, an origin that stamps the requests it lets in, calls Stamp with
 // inbound and infl nil: the headers are then X-Path-Chain, holding the one origin stamp, and X-Path-Proof
-// when the bundle holds the route's proof.
+// when the bundle holds the route's proof. Whoever sends the call sets each header Stamp returns,
+// replacing any value of that name the request already carries, and never appends one.
 //
 // Stamp refuses a method or target that is not valid UTF-8, which has no binding (see [wire.Bind]), and
 // whatever the stamper refuses.
@@ -165,24 +172,28 @@ func (c *Caller) Stamp(
 	if ok {
 		headers = append(headers, wire.Header{Name: wire.Influence, Value: inflTok})
 	}
-	return Outbound{Headers: headers, Sent: chain, Proof: proof, Receiver: receiver}, nil
+	return Outbound{Headers: headers, Sent: chain, Proof: proof}, nil
 }
 
-// Check checks the response to the call o, with status, body whole, and responseHeader, the
-// X-Path-Response header's first value as received, "" when it is absent, and returns what it
-// contributes. With a verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received
-// by this service: a response that verifies adds one entry for each of its labels, with src
-// "http:<receiver>" and h its result hash. Any other response, unattested, failing or a refusal, and any
-// response to a caller with no verifier, adds exactly one local-untrusted entry with the same src and h,
-// so content nobody vouched for still counts against later calls.
+// Check checks the response to the call o, with responseHeader, the X-Path-Response header's first value
+// as received, "" when it is absent, status, and body whole, and returns what it contributes. With a
+// verifier it runs [wire.CheckResponse] on the chain and proof o sent, as received by this service: a
+// response that verifies adds one entry for each of its labels, with src "http:<receiver>", where the
+// receiver is the rcv of o's last stamp, and h its result hash. Any other response, unattested, failing
+// or a refusal, and any response to a caller with no verifier, adds exactly one local-untrusted entry with
+// the same src and h, so content nobody vouched for still counts against later calls.
 //
 // ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer, and
 // comes with the zero Received; the response then counts for nothing it can vouch for, and the embedder
 // fails the call.
 func (c *Caller) Check(
-	ctx context.Context, o Outbound, status int, responseHeader string, body []byte,
+	ctx context.Context, o Outbound, responseHeader string, status int, body []byte,
 ) (Received, error) {
-	src := "http:" + o.Receiver
+	var receiver string
+	if len(o.Sent) > 0 {
+		receiver = o.Sent[len(o.Sent)-1].Rcv
+	}
+	src := "http:" + receiver
 	if c.Verifier == nil {
 		return Received{Entries: untrusted(src, wire.ResultHash(status, body))}, nil
 	}

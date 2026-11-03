@@ -151,8 +151,8 @@ func TestCallerExtProcOrigin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if o.Headers[1].Value != wantProof || o.Proof == nil || o.Receiver != "orders" {
-		t.Fatalf("the proof header %q, Proof %v, Receiver %q", o.Headers[1].Value, o.Proof, o.Receiver)
+	if rcv := o.Sent[len(o.Sent)-1].Rcv; o.Headers[1].Value != wantProof || o.Proof == nil || rcv != "orders" {
+		t.Fatalf("the proof header %q, Proof %v, receiver %q", o.Headers[1].Value, o.Proof, rcv)
 	}
 
 	o, err = caller.Stamp("GET", "/statements", "ledger", nil, nil, nil)
@@ -222,7 +222,7 @@ func TestCallerCheckWithNoVerifier(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`{"id":7}`)
-	got, err := caller.Check(t.Context(), o, 200, "anything", body)
+	got, err := caller.Check(t.Context(), o, "anything", 200, body)
 	if err != nil {
 		t.Fatal(err)
 	}

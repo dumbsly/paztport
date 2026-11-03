@@ -72,16 +72,13 @@ func TestCallerInfluenceVectors(t *testing.T) {
 			if err != nil {
 				t.Fatalf("the response's body: %v", err)
 			}
-			got, err := caller.Check(t.Context(), o, int(r.Get("status").Int()), header, body)
+			got, err := caller.Check(t.Context(), o, header, int(r.Get("status").Int()), body)
 			if err != nil {
 				t.Fatalf("Check: %v", err)
 			}
 			e := c.Get("expected")
-			if o.Receiver != e.Get("rcv").Str() {
-				t.Errorf("Receiver = %q, want %q", o.Receiver, e.Get("rcv").Str())
-			}
-			if last := o.Sent[len(o.Sent)-1]; last.Rcv != o.Receiver {
-				t.Errorf("the stamp is for %q, the call for %q", last.Rcv, o.Receiver)
+			if last := o.Sent[len(o.Sent)-1]; last.Rcv != e.Get("rcv").Str() {
+				t.Errorf("the stamp is for %q, want %q", last.Rcv, e.Get("rcv").Str())
 			}
 			wantReason := e.Get("reason")
 			switch {
@@ -148,7 +145,7 @@ func TestCallerCheckNonceCacheError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := caller.Check(t.Context(), o, int(r.Get("status").Int()), r.Get("header").Str(), body)
+	got, err := caller.Check(t.Context(), o, r.Get("header").Str(), int(r.Get("status").Int()), body)
 	if err == nil || !strings.Contains(err.Error(), "the cache is down") {
 		t.Fatalf("Check = %+v, %v, want the cache's error", got, err)
 	}
