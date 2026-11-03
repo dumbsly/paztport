@@ -9,7 +9,9 @@ import { verify } from "../crypto/crypto.ts";
 import { readToken, type JsonValue } from "../encoding/json.ts";
 import { commitInfluence, influenceOf } from "../influence/influence.ts";
 import { parseProof, provesPath } from "../policy/merkle.ts";
+import { isNotAfter } from "../policy/validity.ts";
 import type { ReasonCode, VerifyResult } from "../verify/reason.ts";
+import type { PinnedKeyring, PinnedRoot } from "../verify/verify-chain.ts";
 import { routeOf } from "../policy/routes.ts";
 import { chainOf, signingBytes, type Stamp } from "../stamp/stamp.ts";
 
@@ -34,6 +36,26 @@ export function readOrUndefined(token: string | null): JsonValue | undefined {
   } catch {
     return undefined;
   }
+}
+
+/**
+ * The pinned keyrings or roots current at `at`: those whose `notAfter` is at or after it, `Infinity` being no window.
+ * With no finite `at` (a non-finite clock live, no recorded time offline) every member counts, and the time check
+ * refuses the chain; a member with a malformed window never counts.
+ */
+export function currentAt<T extends { notAfter: number }>(members: readonly T[], at: number | undefined): T[] {
+  const holds = (n: number) => (n === Infinity || isNotAfter(n)) && (at === undefined || !Number.isFinite(at) || at <= n);
+  return Array.isArray(members) ? members.filter((m) => m != null && holds(m.notAfter)) : [];
+}
+
+/** The keys the keyrings give `svc`, by own name only, each distinct key once. */
+function keysFor(keyrings: readonly PinnedKeyring[], svc: string): string[] {
+  const keys = new Set<string>();
+  for (const { keys: ring } of keyrings) {
+    const key = Object.hasOwn(ring, svc) ? ring[svc] : undefined;
+    if (typeof key === "string") keys.add(key);
+  }
+  return [...keys];
 }
 
 /** The services that sign a chain that never leaves one process, in order, and the instance they all report. */
@@ -61,16 +83,16 @@ function signatureValid(publicKey: string, s: Stamp): boolean {
 
 /**
  * Checks 1 to 6: the chain was read and its stamps are all v3 by the stamp's schema (CHAIN_MISSING), no field
- * holds the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed by
- * its service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next
- * stamp's service and the last's names `receiver` (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH),
- * and the session (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not
+ * holds the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed under
+ * one of the keys `cfg.keyrings` give its service, each distinct key tried once, and links to the one before
+ * (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next stamp's service and the last's names `receiver`
+ * (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not
  * one the expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the
  * first failure.
  */
 export function checkStamps(
   value: JsonValue | undefined,
-  cfg: { keyring: Record<string, string>; allowedOrigins: readonly string[]; sess: string },
+  cfg: { keyrings: readonly PinnedKeyring[]; allowedOrigins: readonly string[]; sess: string },
   shape: StampShape,
 ): Stamp[] | ReasonCode {
   const { rid, signers } = shape;
@@ -99,8 +121,8 @@ export function checkStamps(
   // 4. Signatures and links.
   for (let i = 0; i < stamps.length; i++) {
     const s = stamps[i]!;
-    const key = Object.hasOwn(cfg.keyring, s.svc) ? cfg.keyring[s.svc] : undefined;
-    if (key === undefined || !signatureValid(key, s) || (signers !== undefined && (s.svc !== signers.svcs[i] || s.inst !== signers.inst))) {
+    const signed = keysFor(cfg.keyrings, s.svc).some((key) => signatureValid(key, s));
+    if (!signed || (signers !== undefined && (s.svc !== signers.svcs[i] || s.inst !== signers.inst))) {
       return "BAD_SIGNATURE";
     }
     if (s.prev !== (i === 0 ? "" : stamps[i - 1]!.sig)) {
@@ -156,30 +178,34 @@ export function checkCommitments(
 }
 
 /**
- * Check 11 and the result: the chain's services, then the receiver when given, proven against the root by the proof
- * read (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
+ * Check 11 and the result: the chain's services, then the receiver when given, proven by the proof read against one
+ * of `roots` with the proof's rootId (PATH_NOT_ALLOWED); none, or one its schema refuses, proves nothing.
  */
 export function checkRoute(
   stamps: Stamp[],
   receiver: string | undefined,
   proof: JsonValue | undefined,
-  cfg: { root: Uint8Array; rootId: string },
+  roots: readonly PinnedRoot[],
 ): VerifyResult {
   const last = stamps[stamps.length - 1]!;
-  // 11. Route proven against the root.
+  // 11. Route proven against a root the proof names.
   const svcs = stamps.map((s) => s.svc);
   const route = routeOf(receiver !== undefined ? [...svcs, receiver] : svcs);
-  if (!proven(proof, route, cfg)) {
+  if (!proven(proof, route, roots)) {
     return { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: last.svc, suspectInst: last.inst };
   }
   return { ok: true, reason: "OK", suspectSvc: last.svc, suspectInst: last.inst };
 }
 
-/** Whether the proof read is, by its schema, a proof for this root of `route`. */
-function proven(proof: JsonValue | undefined, route: string, cfg: { root: Uint8Array; rootId: string }): boolean {
+/**
+ * Whether the proof read is, by its schema, a proof of `route` for one of `roots`: provesPath takes only a root with
+ * the proof's rootId, so those are the ones tried, a root and its renewals sharing one.
+ */
+function proven(proof: JsonValue | undefined, route: string, roots: readonly PinnedRoot[]): boolean {
   if (proof === undefined) return false;
   try {
-    return provesPath(parseProof(proof), route, cfg.root, cfg.rootId);
+    const p = parseProof(proof);
+    return roots.some((r) => provesPath(p, route, r.root, r.rootId));
   } catch {
     return false;
   }

@@ -28,7 +28,7 @@ function envelope(signer: string, key: { privateKey: string }, json: string): st
 
 function setup(clock = { now: NOW }, allowedSigners: string[] = ["payment"]) {
   const auth = createEventVerifier({
-    keyring: { payment: payment.publicKey, search: search.publicKey },
+    keyrings: [{ payment: payment.publicKey, search: search.publicKey }],
     allowedSigners,
     now: () => clock.now,
   });
@@ -185,10 +185,27 @@ describe("event verifier", () => {
   });
 
   it("onlyAnAllowedSignersNameTravelsWithTheRefusal", () => {
-    const keyless = createEventVerifier({ keyring: { search: search.publicKey }, allowedSigners: ["payment"], now: () => NOW });
+    const keyless = createEventVerifier({ keyrings: [{ search: search.publicKey }], allowedSigners: ["payment"], now: () => NOW });
     expect(keyless.accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
     expect(setup().auth.accept('{"payload":"e30","sig":"AAAA","signer":"x\\ny"}')).toEqual({ refusal: "SIGNER_NOT_ALLOWED" });
     expect(setup().auth.accept(envelope("payment", search, eventJson(NOW, "a")))).toEqual({ refusal: "BAD_SIGNATURE", signer: "payment" });
+  });
+
+  it("aSignerKnownOnlyToTheSecondKeyringIsAccepted", () => {
+    const body = envelope("payment", payment, eventJson(NOW, "a"));
+    const second = createEventVerifier({ keyrings: [{ search: search.publicKey }, { payment: payment.publicKey }], allowedSigners: ["payment"], now: () => NOW });
+    expect(second.accept(body)).toHaveProperty("event");
+    // the first keyring holds the signer's old key: each key the keyrings give it is tried
+    const rotated = createEventVerifier({ keyrings: [{ payment: search.publicKey }, { payment: payment.publicKey }], allowedSigners: ["payment"], now: () => NOW });
+    expect(rotated.accept(body)).toHaveProperty("event");
+    const old = createEventVerifier({ keyrings: [{ payment: search.publicKey }, { search: payment.publicKey }], allowedSigners: ["payment"], now: () => NOW });
+    expect(old.accept(body)).toEqual({ refusal: "BAD_SIGNATURE", signer: "payment" });
+  });
+
+  it("aSignerInNoKeyringIsUnknownSigner", () => {
+    const none = createEventVerifier({ keyrings: [{ search: search.publicKey }, { orders: payment.publicKey }], allowedSigners: ["payment"], now: () => NOW });
+    expect(none.accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
+    expect(createEventVerifier({ keyrings: [], allowedSigners: ["payment"], now: () => NOW }).accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
   });
 
   it("looksTheSignerUpByOwnNameOnly", () => {

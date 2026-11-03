@@ -309,7 +309,12 @@ function verifyFile(path: string, label: string): VerifyReport {
         const v = verifyRecordedCall(
           params,
           { serverId: server, rid: rec.rid, callId: rec.callId, stampedAt: rec.now, ...(run !== undefined ? { prompt: run.prompt } : {}) },
-          { keyring: session.clientKeyring, root: session.clientRoot, rootId: session.clientRootId, allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: records.spent },
+          // the session's windows are judged by callInSession below, so the members have none here
+          {
+            keyrings: [{ keys: session.clientKeyring, notAfter: Infinity }],
+            roots: [{ root: session.clientRoot, rootId: session.clientRootId, notAfter: Infinity }],
+            allowedOrigins: [ORIGIN_SVC], sess: session.sess, seen: records.spent,
+          },
         );
         // `now` is the time of the call's last stamp, which the client signed (a call whose stamp time differs is
         // TIME_MISMATCH): a call recorded past one of its session's limits is OUTSIDE_SESSION. The session is attested.
@@ -351,15 +356,17 @@ function verifyFile(path: string, label: string): VerifyReport {
       if (hasRefusalShape(rec.result)) {
         add("REFUSED");
       } else {
+        // the session's one server keyring and root, each held to its response limit; with none, never current
+        const policyNotAfter = call.session.recorded.responseNotAfter;
+        const notAfter = policyNotAfter ?? Number.NaN;
         const v = verifyMcpResponse(rec.result, { rid: rec.rid, toolCallId: rec.callId, receiver: call.caller }, {
-          keyring: call.session.serverKeyring,
-          root: call.session.serverRoot,
-          rootId: call.session.serverRootId,
+          keyrings: [{ keys: call.session.serverKeyring, notAfter }],
+          roots: [{ root: call.session.serverRoot, rootId: call.session.serverRootId, notAfter }],
           allowedOrigins: [SERVER_ENTRY],
           sess: call.session.sess,
           nonces: records.responseNonces,
           now: rec.now,
-          policyNotAfter: call.session.recorded.responseNotAfter,
+          policyNotAfter,
         });
         add(v.result.reason);
       }

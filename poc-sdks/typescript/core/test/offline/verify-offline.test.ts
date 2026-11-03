@@ -46,9 +46,8 @@ function world() {
     return [o, step(o, stepOver)];
   };
   const cfg = (over: Partial<OfflineConfig> = {}): OfflineConfig => ({
-    keyring: { session: session.publicKey, pi: pi.publicKey },
-    root: tree.root,
-    rootId: tree.rootId,
+    keyrings: [{ keys: { session: session.publicKey, pi: pi.publicKey }, notAfter: Infinity }],
+    roots: [{ root: tree.root, rootId: tree.rootId, notAfter: Infinity }],
     allowedOrigins: ["session"],
     sess: "",
     seen: new Set<string>(),
@@ -92,7 +91,7 @@ describe("verifyChainOffline", () => {
       ["CHAIN_MISSING", verifyChainOffline(w.input([]), w.cfg())],
       ["BAD_SIGNATURE", verifyChainOffline(w.input([{ ...o, inst: "pi|1" }, s]), w.cfg())],
       ["BAD_ORIGIN", verifyChainOffline(w.input(w.chain()), w.cfg({ allowedOrigins: ["mcp-entry"] }))],
-      ["BAD_SIGNATURE", verifyChainOffline(w.input(w.chain()), w.cfg({ keyring: { session: w.session.publicKey, pi: w.other.publicKey } }))],
+      ["BAD_SIGNATURE", verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [{ keys: { session: w.session.publicKey, pi: w.other.publicKey }, notAfter: Infinity }] }))],
       ["BROKEN_LINK", verifyChainOffline(w.input([o, w.step(o, { prev: "x" })]), w.cfg())],
       ["BINDING_MISMATCH", verifyChainOffline(w.input(w.chain({}, { rcv: "orders" })), w.cfg())],
       ["RID_MISMATCH", verifyChainOffline(w.input(w.chain({ rid: "rid-2" })), w.cfg())],
@@ -219,7 +218,7 @@ describe("verifyChainOffline", () => {
       const { chain, expectedBind, influence, proof, receiver, receiverInRoute } = w.input(stamps, over);
       return verifyChain(
         { chain, expectedBind, influence, proof, receiver, receiverInRoute },
-        { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
+        { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
       ).reason;
     };
     const offline = (stamps: unknown, over: Over = {}) => verifyChainOffline(w.input(stamps, over), w.cfg()).reason;
@@ -259,7 +258,7 @@ describe("verifyChainOffline", () => {
         expect(
           verifyChain(
             { chain, expectedBind, influence, proof, receiver, receiverInRoute },
-            { keyring: w.cfg().keyring, root: w.tree.root, rootId: w.tree.rootId, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
+            { keyrings: w.cfg().keyrings, roots: w.cfg().roots, allowedOrigins: ["session"], sess: "", nonces: new NonceCache(60_000), nonceKey: "k", now: STEP_TS, policyNotAfter: 4_102_444_800_000 },
           ).reason,
         ).toBe("CHAIN_MISSING");
       }
@@ -319,5 +318,52 @@ describe("verifyChainOffline", () => {
     const cfg = () => w.cfg({ runMaxAgeMs: 1_800_000, callMaxAgeMs: 5_000 });
     expect(verifyChainOffline(w.input(old, { recordedTs: { last: 0 } }), cfg()).reason).toBe("TIME_MISMATCH");
     expect(verifyChainOffline(w.input(old, { recordedTs: { last: RUN_TS + 1_800_001 }, prompt: "other" }), cfg()).reason).toBe("EXPIRED");
+  });
+
+  it("aMemberCountsForARecordNoLaterThanItsNotAfter", () => {
+    const w = world();
+    const keys = { session: w.session.publicKey, pi: w.pi.publicKey };
+    const root = (notAfter: number) => ({ root: w.tree.root, rootId: w.tree.rootId, notAfter });
+    const at = (keyringNotAfter: number, rootNotAfter: number) =>
+      verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [{ keys, notAfter: keyringNotAfter }], roots: [root(rootNotAfter)] })).reason;
+    expect(at(STEP_TS, STEP_TS)).toBe("OK");
+    expect(at(STEP_TS - 1, STEP_TS)).toBe("POLICY_EXPIRED");
+    expect(at(STEP_TS, STEP_TS - 1)).toBe("POLICY_EXPIRED");
+    // beside a keyring that counts, one that has expired for the record gives no key
+    const rotated = [{ keys: { session: w.session.publicKey, pi: w.other.publicKey }, notAfter: STEP_TS }, { keys, notAfter: STEP_TS - 1 }];
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: rotated })).reason).toBe("BAD_SIGNATURE");
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [...rotated, { keys, notAfter: STEP_TS }] })).reason).toBe("OK");
+    // and a root that has expired for it proves nothing
+    const other = buildTree([ROUTE].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
+    const roots = [root(STEP_TS - 1), { root: other.root, rootId: other.rootId, notAfter: STEP_TS }];
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ roots })).reason).toBe("PATH_NOT_ALLOWED");
+    expect(verifyChainOffline(w.input(w.chain(), { proof: other.proofFor(ROUTE) }), w.cfg({ roots })).reason).toBe("OK");
+  });
+
+  it("noRootCountingForTheRecordIsPolicyExpired", () => {
+    const w = world();
+    const other = buildTree([ROUTE].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
+    const roots = [{ root: w.tree.root, rootId: w.tree.rootId, notAfter: STEP_TS - 1 }, { root: other.root, rootId: other.rootId, notAfter: 0 }];
+    const seen = new Set<string>();
+    const expired = { ok: false, reason: "POLICY_EXPIRED", suspectSvc: "", suspectInst: "" };
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ roots, seen }))).toEqual(expired);
+    // judged before check 1, so it names no one and spends no key
+    expect(verifyChainOffline(w.input([]), w.cfg({ roots, seen }))).toEqual(expired);
+    expect(seen.size).toBe(0);
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ roots: [], seen })).reason).toBe("POLICY_EXPIRED");
+    expect(verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [], seen })).reason).toBe("POLICY_EXPIRED");
+  });
+
+  it("aRecordWithNoTimeIsLeftToCheck7", () => {
+    const w = world();
+    const lapsed = w.cfg({
+      keyrings: [{ keys: { session: w.session.publicKey, pi: w.pi.publicKey }, notAfter: 0 }],
+      roots: [{ root: w.tree.root, rootId: w.tree.rootId, notAfter: 0 }],
+    });
+    for (const recordedTs of [undefined, null, 5, "t"]) {
+      expect(verifyChainOffline(w.input(w.chain(), { recordedTs: recordedTs as never }), lapsed).reason, String(recordedTs)).toBe("TIME_MISMATCH");
+    }
+    // a record with a time is judged at it
+    expect(verifyChainOffline(w.input(w.chain()), lapsed).reason).toBe("POLICY_EXPIRED");
   });
 });

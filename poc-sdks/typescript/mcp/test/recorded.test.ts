@@ -20,9 +20,8 @@ function world() {
   const harness = generateKeyPair();
   const tree = buildTree([ROUTE].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
   const cfg = (seen = new Set<string>()): Omit<OfflineConfig, "nonceKey"> => ({
-    keyring: { session: harness.publicKey, pi: harness.publicKey },
-    root: tree.root,
-    rootId: tree.rootId,
+    keyrings: [{ keys: { session: harness.publicKey, pi: harness.publicKey }, notAfter: Infinity }],
+    roots: [{ root: tree.root, rootId: tree.rootId, notAfter: Infinity }],
     allowedOrigins: ["session"],
     sess: SESS,
     seen,

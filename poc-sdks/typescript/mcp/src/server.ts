@@ -322,15 +322,16 @@ export class McpServerSession {
     } catch {
       return { reason: "CHAIN_MISSING", rid: "", callId: "", influence: [], caller: "", session };
     }
+    // the session's one client keyring and root, each held to the session's policy window
+    const policyNotAfter = earliestNotAfter(session.request.clientRoot.notAfter, session.request.clientKeyringNotAfter);
     const v = verifyCall(params, { serverId: this.policy.serverId }, {
-      keyring: session.request.clientKeyring,
-      root,
-      rootId: session.request.clientRoot.rootId,
+      keyrings: [{ keys: session.request.clientKeyring, notAfter: policyNotAfter }],
+      roots: [{ root, rootId: session.request.clientRoot.rootId, notAfter: policyNotAfter }],
       allowedOrigins: this.policy.clientOrigins,
       sess: session.sess,
       nonces: session.nonces,
       now: this.now(),
-      policyNotAfter: earliestNotAfter(session.request.clientRoot.notAfter, session.request.clientKeyringNotAfter),
+      policyNotAfter,
     });
     const reason = v.result.reason === "PATH_NOT_ALLOWED" ? "CLIENT_PATH_NOT_ALLOWED" : v.result.reason;
     const ok = reason === "OK";

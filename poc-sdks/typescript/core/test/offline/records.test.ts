@@ -262,7 +262,10 @@ function checkCall(h: ReturnType<typeof handshake>, chain: Stamp[], ts: number, 
       proof: writeToken(h.clientTree.proofFor("session/pi/orders")), receiver: "orders", receiverInRoute: true,
       rid: "rid-1", recordedTs: { last: ts }, prompt: "p",
     },
-    { keyring: h.request.clientKeyring, root: h.clientTree.root, rootId: "c1", allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req" },
+    {
+      keyrings: [{ keys: h.request.clientKeyring, notAfter: Infinity }], roots: [{ root: h.clientTree.root, rootId: "c1", notAfter: Infinity }],
+      allowedOrigins: ["session"], sess: h.reply.sess, seen: spent, nonceKey: "rid-1|call-1|req",
+    },
   );
 }
 
@@ -309,13 +312,13 @@ describe("newRecordSet: replay across a record set", () => {
     const first = recordedSession(h.recorded);
     expect(callInSession(first, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("OK");
     const respond = response(h);
-    const cfg = { ...responseConfig(h, records), policyNotAfter: first.responseNotAfter };
+    const cfg = responseConfig(h, records, first.responseNotAfter);
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
     // the same handshake recorded again
     const again = recordedSession(h.recorded);
     expect(again.attested).toBe(true);
     expect(callInSession(again, checkCall(h, call(h, NOW), NOW, records.spent).reason, NOW)).toBe("REPLAY");
-    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, policyNotAfter: again.responseNotAfter }).result.reason).toBe("REPLAY");
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, responseConfig(h, records, again.responseNotAfter)).result.reason).toBe("REPLAY");
   });
 
   // "A recorded response: … one nonce cache that never forgets across the record set."
@@ -323,7 +326,7 @@ describe("newRecordSet: replay across a record set", () => {
     const h = handshake();
     const records = newRecordSet();
     const respond = response(h);
-    const cfg = { ...responseConfig(h, records), policyNotAfter: recordedSession(h.recorded).responseNotAfter };
+    const cfg = responseConfig(h, records, recordedSession(h.recorded).responseNotAfter);
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("REPLAY");
     // a live cache forgets a key after its TTL; this one still holds it at the end of time
@@ -336,7 +339,7 @@ describe("newRecordSet: replay across a record set", () => {
     const h = handshake({ windows: { serverRoot: NOW + 10 } });
     const s = recordedSession(h.recorded);
     const respond = response(h);
-    const cfg = { ...responseConfig(h, newRecordSet()), policyNotAfter: s.responseNotAfter };
+    const cfg = responseConfig(h, newRecordSet(), s.responseNotAfter);
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).result.reason).toBe("POLICY_EXPIRED");
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
   });
@@ -347,7 +350,7 @@ describe("newRecordSet: replay across a record set", () => {
     const s = recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey });
     expect(s.responseNotAfter).toBeUndefined();
     const respond = response(h);
-    const cfg = { ...responseConfig(h, newRecordSet()), policyNotAfter: s.responseNotAfter };
+    const cfg = responseConfig(h, newRecordSet(), s.responseNotAfter);
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("POLICY_EXPIRED");
   });
 });
@@ -366,6 +369,10 @@ function response(h: ReturnType<typeof handshake>) {
 }
 
 /** The live check's config for a response recorded in `h`'s session, against the record set's response cache. */
-function responseConfig(h: ReturnType<typeof handshake>, records: ReturnType<typeof newRecordSet>) {
-  return { keyring: h.reply.serverKeyring, root: h.serverTree.root, rootId: "s1", allowedOrigins: [ENTRY], sess: h.reply.sess, nonces: records.responseNonces, now: NOW };
+function responseConfig(h: ReturnType<typeof handshake>, records: ReturnType<typeof newRecordSet>, policyNotAfter: number | undefined) {
+  const notAfter = policyNotAfter ?? Number.NaN;
+  return {
+    keyrings: [{ keys: h.reply.serverKeyring, notAfter }], roots: [{ root: h.serverTree.root, rootId: "s1", notAfter }],
+    allowedOrigins: [ENTRY], sess: h.reply.sess, nonces: records.responseNonces, now: NOW, policyNotAfter,
+  };
 }

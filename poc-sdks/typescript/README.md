@@ -50,11 +50,17 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   result but `POLICY_EXPIRED`. No transport here supplies one yet: the MCP wrappers (`verifyCall`,
   `verifyMcpResponse`, `McpServerSession.checkCall`) pass no peer, because stdio has no TLS, so for MCP over
   stdio the live order ends at check 11, and the peer check is core's (`verifyChain`).
-- **The policy's window.** A live config requires `policyNotAfter`, the earliest `notAfter` of the keyring and
-  root it pins (`earliestNotAfter`); past it every chain is `POLICY_EXPIRED`,
-  before the live order's checks. Every live verifier here is per session: the server's call check takes the client
-  root's and `clientKeyringNotAfter`, and the client's response check the server root's and, in the entry-key
-  form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
+- **The policy's window.** A verifier config pins one or more keyrings (`keyrings`, each a `PinnedKeyring`) and
+  roots (`roots`, each a `PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old and the new
+  together. Live, only those current at `now` are used: a stamp verifies under any key the current keyrings give
+  its service, and a proof against a current root with its `rootId`. A live config also requires
+  `policyNotAfter`, the earlier of the latest keyring and the latest root `notAfter` (`pinnedNotAfter`); past it
+  every chain is `POLICY_EXPIRED`, before the live order's checks. Offline, a keyring or root counts for a record
+  no later than its `notAfter` (`Infinity` for none), and a record none of either counts for is `POLICY_EXPIRED`.
+  Every live verifier here is per session, pinning that session's one keyring and root: the server's call check
+  takes the client root's and `clientKeyringNotAfter` (`earliestNotAfter`), and the client's response check the
+  server root's and, in the entry-key form, `serverKeyringNotAfter` (`serverPolicyNotAfter`).
+  `createEventVerifier` takes `keyrings` too, and accepts a signer any of them has a key for.
 - **Signed keyrings.** A keyring is signed by its policy key (`signKeyring`, `verifyKeyring`), and the session
   request carries the signature as `clientKeyringSig`, with the keyring's `notAfter` as `clientKeyringNotAfter`.
   A request without the signature, or with one that is `null`, not a string or empty, is malformed and opens no

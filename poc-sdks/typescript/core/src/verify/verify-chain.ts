@@ -1,7 +1,7 @@
 // Copyright 2026 The Paztport Authors
 // SPDX-License-Identifier: Apache-2.0
 
-import { checkCommitments, checkRoute, checkStamps, readOrUndefined, reject } from "../internal/chain-checks.ts";
+import { checkCommitments, checkRoute, checkStamps, currentAt, readOrUndefined, reject } from "../internal/chain-checks.ts";
 import type { JsonValue } from "../encoding/json.ts";
 import type { NonceCache } from "./nonce.ts";
 import type { VerifyResult } from "./reason.ts";
@@ -35,18 +35,29 @@ export type VerifyInput = {
   peer?: Peer | null;
 };
 
+/**
+ * A keyring the verifier pins: service name to public key, verified against its policy key, and its `notAfter` (ms,
+ * inclusive). It is used only while current; offline, `Infinity` is no window, for a record kind that judges the
+ * keyring's window itself.
+ */
+export type PinnedKeyring = { keys: Readonly<Record<string, string>>; notAfter: number };
+
+/** A signed root the verifier pins: its bytes, its `rootId` and its `notAfter`, as for a pinned keyring. */
+export type PinnedRoot = { root: Uint8Array; rootId: string; notAfter: number };
+
 export type VerifierConfig = {
-  keyring: Record<string, string>;
-  root: Uint8Array;
-  rootId: string;
+  /** One or more keyrings; only those current at `now` are used. */
+  keyrings: readonly PinnedKeyring[];
+  /** One or more roots; only those current at `now` are used. */
+  roots: readonly PinnedRoot[];
   allowedOrigins: readonly string[];
   sess: string;
   nonces: NonceCache;
   nonceKey: string;
   now: number;
   /**
-   * The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; none, or anything but
-   * an integer in [0, 2^53 − 1], fails closed.
+   * The earlier of the latest keyring notAfter and the latest root notAfter (ms, inclusive; `pinnedNotAfter`), past
+   * which nothing verifies; none, or anything but an integer in [0, 2^53 − 1], fails closed.
    */
   policyNotAfter: number | undefined;
   callMaxAgeMs?: number;
@@ -78,8 +89,12 @@ export type VerifyRead = Omit<VerifyInput, "chain" | "influence" | "proof"> & {
 
 /** Checks 1 to 12 in order; the result before attribution. */
 function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
+  // The keyrings and roots current at now, once; a non-finite now expires none, and check 7 refuses it.
+  const keyrings = currentAt(cfg.keyrings, cfg.now);
+  const roots = currentAt(cfg.roots, cfg.now);
+
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, shared rid, session.
-  const stamps = checkStamps(input.chain, cfg, { receiver: input.receiver });
+  const stamps = checkStamps(input.chain, { ...cfg, keyrings }, { receiver: input.receiver });
   if (typeof stamps === "string") {
     return reject(stamps);
   }
@@ -107,8 +122,8 @@ function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
     return reject("REPLAY");
   }
 
-  // 11. Route proven against the root, ending at the receiver only when it is on the route.
-  const routed = checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, cfg);
+  // 11. Route proven against a current root, ending at the receiver only when it is on the route.
+  const routed = checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, input.proof, roots);
   if (!routed.ok) {
     return routed;
   }
@@ -122,22 +137,23 @@ function check(input: VerifyRead, cfg: VerifierConfig): VerifyResult {
 
 /**
  * Verifies a v3 chain received live. The first failure is the result:
- * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any token is read: past it the keyring and root
- *    no longer say what the policy owner allows, so no later check means anything; it names no one, peer included;
+ * 0. now is at most `cfg.policyNotAfter` (POLICY_EXPIRED), before any token is read: past it no keyring, or no
+ *    root, says any longer what the policy owner allows, so no later check means anything; it names no one, peer
+ *    included. The checks after it use only the keyrings and roots current at now (now ≤ their notAfter);
  * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN);
- * 4. each stamp is signed by its service's key and links to the one before, over the whole chain
- *    (BAD_SIGNATURE, BROKEN_LINK); then each stamp's rcv is the next stamp's svc, and the last's is
- *    `input.receiver` (BINDING_MISMATCH);
+ * 4. each stamp is signed under one of the keys the current keyrings give its service, and links to the one
+ *    before, over the whole chain (BAD_SIGNATURE, BROKEN_LINK); then each stamp's rcv is the next stamp's svc, and
+ *    the last's is `input.receiver` (BINDING_MISMATCH);
  * 5. every stamp carries the origin's rid (RID_MISMATCH);
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. the last stamp is within the call window of now, and the origin within the run's lifetime (EXPIRED);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
  * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key is new to the cache (REPLAY);
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root by the
- *     proof its token holds (PATH_NOT_ALLOWED);
+ * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven by the proof its token
+ *     holds against a current root with the proof's rootId (PATH_NOT_ALLOWED);
  * 12. with a peer, `peer.svc` is the last stamp's svc (PEER_MISMATCH).
  * With a peer, every result of checks 1 to 12 names it as the suspect; without one, only OK and PATH_NOT_ALLOWED name the last stamp.
  */

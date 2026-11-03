@@ -465,6 +465,7 @@ describe("LocalGate evidence", () => {
     expect(recs[0]!.input).toEqual({ path: "website/README.md" });
 
     // the full v3 chain check of the recorded tokens, with the route as receiver
+    const policyNotAfter = earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter);
     for (const [i, rec] of recs.slice(0, 2).entries()) {
       const v = verifyChain(
         {
@@ -479,15 +480,14 @@ describe("LocalGate evidence", () => {
           receiverInRoute: true,
         },
         {
-          keyring: material.keyring,
-          root: decode(material.signedRoot.root),
-          rootId: material.signedRoot.rootId,
+          keyrings: [{ keys: material.keyring, notAfter: policyNotAfter }],
+          roots: [{ root: decode(material.signedRoot.root), rootId: material.signedRoot.rootId, notAfter: policyNotAfter }],
           allowedOrigins: ["session"],
           sess: "",
           nonces: new NonceCache(NONCE_TTL_MS),
           nonceKey: rec.callId,
           now: rec.now,
-          policyNotAfter: earliestNotAfter(material.signedRoot.notAfter, material.keyringNotAfter),
+          policyNotAfter,
         },
       );
       expect(v).toMatchObject({ ok: true, reason: "OK" });

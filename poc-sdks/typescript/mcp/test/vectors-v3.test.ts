@@ -15,7 +15,9 @@ import {
   signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline,
   verifyChain, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
 } from "@paztport/core";
-import type { JsonValue, OfflineConfig, OfflineInput, SessionReply, VerifierConfig, VerifyInput } from "@paztport/core";
+import type {
+  JsonValue, OfflineConfig, OfflineInput, PinnedKeyring, PinnedRoot, SessionReply, VerifierConfig, VerifyInput,
+} from "@paztport/core";
 import { InvalidParams, bindMcpCall, readSessionParams, sessionReplyToken } from "../src/index.ts";
 import { buildVectors, vectorsText } from "./vectors-v3-export.ts";
 
@@ -41,11 +43,35 @@ function refused(c: any): void {
   for (const { at, current } of c.current ?? []) expect(current, String(at)).toBe(false);
 }
 
-/** The config fields both verifiers share, from a case's names: keys from `keys`, the root and proof from `policies`. */
+/** A keyring's keys from its service-to-key-name map, each key from `keys`. */
+const keysOf = (v: any, keyring: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(keyring).map(([svc, name]) => [svc, v.keys[name].pub as string]));
+
+/** A policy's root from `policies`, pinned until `notAfter`. */
+const rootOf = (v: any, name: string, notAfter: number): PinnedRoot => ({ root: decode(v.policies[name].root), rootId: v.policies[name].rootId, notAfter });
+
+/**
+ * A case's pinned keyrings and roots: its `keyrings` in place of `keyring`, and its `roots` when it has them, a
+ * member without a `notAfter` taking `absent`; otherwise its one `keyring` and `policy`'s root, each with the window
+ * `single`.
+ */
+function pinsOf(v: any, c: any, single: number, absent: number): { keyrings: PinnedKeyring[]; roots: PinnedRoot[] } {
+  const windowOf = (m: any) => (Object.hasOwn(m, "notAfter") ? m.notAfter : absent);
+  return {
+    keyrings: Object.hasOwn(c, "keyrings")
+      ? c.keyrings.map((k: any) => ({ keys: keysOf(v, k.keyring), notAfter: windowOf(k) }))
+      : [{ keys: keysOf(v, c.keyring), notAfter: single }],
+    roots: Object.hasOwn(c, "roots") ? c.roots.map((r: any) => rootOf(v, r.policy, windowOf(r))) : [rootOf(v, c.policy, single)],
+  };
+}
+
+/**
+ * The config fields both verifiers share, from a case's names, and its input. The proof is always `policy`'s, which
+ * with `roots` names only where the proof comes from; the pinned material is `pinsOf`'s.
+ */
 function shared(v: any, c: any) {
   const policy = v.policies[c.policy];
-  const keyring = Object.fromEntries(Object.entries(c.keyring as Record<string, string>).map(([svc, name]) => [svc, v.keys[name].pub as string]));
-  const cfg = { keyring, root: decode(policy.root), rootId: policy.rootId as string, allowedOrigins: c.allowedOrigins, sess: c.sess, nonceKey: c.nonceKey };
+  const cfg = { allowedOrigins: c.allowedOrigins, sess: c.sess, nonceKey: c.nonceKey };
   const input = {
     chain: c.chainToken,
     expectedBind: c.expectedBind,
@@ -60,7 +86,11 @@ function shared(v: any, c: any) {
 /** Runs a live case `uses` times against one nonce cache; the last result. */
 function replayLive(v: any, c: any) {
   const { cfg, input } = shared(v, c);
-  const live: VerifierConfig = { ...cfg, nonces: new NonceCache(c.nonceTtlMs), now: c.now, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter };
+  // a live member always has a window: one without is never current
+  const live: VerifierConfig = {
+    ...cfg, ...pinsOf(v, c, c.policyNotAfter, Number.NaN), nonces: new NonceCache(c.nonceTtlMs), now: c.now,
+    callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter,
+  };
   const full: VerifyInput = c.peer === null ? input : { ...input, peer: c.peer };
   let result = verifyChain(full, live);
   for (let i = 1; i < c.uses; i++) result = verifyChain(full, live);
@@ -72,7 +102,11 @@ function replayOffline(v: any, c: any) {
   const { cfg, input } = shared(v, c);
   // a null member is absent: no recorded time, or the limit not configured
   const recordedTs = c.recordedTs === null ? undefined : c.recordedTs.run === undefined ? { last: c.recordedTs.last } : { last: c.recordedTs.last, run: new Set<number>(c.recordedTs.run) };
-  const offline: OfflineConfig = { ...cfg, seen: new Set<string>(c.seen), callMaxAgeMs: c.callMaxAgeMs ?? undefined, runMaxAgeMs: c.runMaxAgeMs ?? undefined };
+  // offline, a member without a window counts for every record
+  const offline: OfflineConfig = {
+    ...cfg, ...pinsOf(v, c, Infinity, Infinity), seen: new Set<string>(c.seen), callMaxAgeMs: c.callMaxAgeMs ?? undefined,
+    runMaxAgeMs: c.runMaxAgeMs ?? undefined,
+  };
   const full: OfflineInput = { ...input, rid: c.rid, recordedTs: recordedTs as never, prompt: c.prompt };
   const result = verifyChainOffline(full, offline);
   return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst };
@@ -108,7 +142,9 @@ function replayRecordedCalls(v: any, c: any) {
         receiverInRoute: call.receiverInRoute, rid: call.rid, recordedTs: call.recordedTs, prompt: call.prompt,
       },
       {
-        keyring: request.clientKeyring, root: decode(request.clientRoot!.root), rootId: request.clientRoot!.rootId,
+        // the session's windows are judged by callInSession, so the members have none
+        keyrings: [{ keys: request.clientKeyring, notAfter: Infinity }],
+        roots: [{ root: decode(request.clientRoot!.root), rootId: request.clientRoot!.rootId, notAfter: Infinity }],
         allowedOrigins: c.allowedOrigins, sess: readSessionReply(h.replyToken).sess, nonceKey: call.nonceKey,
         seen: records.spent, callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs,
       },
@@ -143,11 +179,9 @@ function replayLocalStep(v: any, c: any) {
 /** A response attestation case (MCP profile): the client's check of the token, once, against the server's names. */
 function replayResponseAttestation(v: any, c: any) {
   const s = c.server;
-  const policy = v.policies[s.policy];
-  const named = Object.entries(s.keyring as Record<string, string>);
-  const keyring = Object.fromEntries(named.map(([svc, name]) => [svc, v.keys[name].pub as string]));
   const r = verifyResponse(c.attestationToken, c.result, c.call, {
-    keyring, root: decode(policy.root), rootId: policy.rootId as string, allowedOrigins: s.allowedOrigins, sess: s.sess,
+    keyrings: [{ keys: keysOf(v, s.keyring), notAfter: s.policyNotAfter }], roots: [rootOf(v, s.policy, s.policyNotAfter)],
+    allowedOrigins: s.allowedOrigins, sess: s.sess,
     nonces: new NonceCache(s.nonceTtlMs), now: c.now, policyNotAfter: s.policyNotAfter,
   });
   return { reason: r.result.reason };

@@ -445,8 +445,10 @@ export function buildVectors(): Record<string, unknown> {
   const live = (c: Live, expected: Expected) => {
     const nonces = new NonceCache(NONCE_TTL_MS);
     const policyNotAfter = c.policyNotAfter ?? PINNED_NOT_AFTER;
+    // one keyring and one root, each with the case's policy window
     const cfg = {
-      keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins,
+      keyrings: [{ keys: resolveKeyring(c.keyring), notAfter: policyNotAfter }],
+      roots: [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: policyNotAfter }], allowedOrigins: c.allowedOrigins,
       sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, policyNotAfter,
     };
     const chainToken = chainTokenOf(c.name, c.chain);
@@ -534,7 +536,9 @@ export function buildVectors(): Record<string, unknown> {
         receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: RID, recordedTs: (recordedTs ?? undefined) as never, prompt,
       },
       {
-        keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins, sess: c.sess,
+        // one keyring and one root, each with no window
+        keyrings: [{ keys: resolveKeyring(c.keyring), notAfter: Infinity }],
+        roots: [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: Infinity }], allowedOrigins: c.allowedOrigins, sess: c.sess,
         nonceKey: c.nonceKey, seen: new Set(seen), callMaxAgeMs: callMaxAgeMs ?? undefined, runMaxAgeMs: runMaxAgeMs ?? undefined,
       },
     );
@@ -1097,7 +1101,9 @@ export function buildVectors(): Record<string, unknown> {
           prompt: c.prompt,
         },
         {
-          keyring: request.clientKeyring, root: decode(clientRoot.root), rootId: clientRoot.rootId,
+          // the session's windows are judged by callInSession, so the members have none
+          keyrings: [{ keys: request.clientKeyring, notAfter: Infinity }],
+          roots: [{ root: decode(clientRoot.root), rootId: clientRoot.rootId, notAfter: Infinity }],
           allowedOrigins: ["session"], sess: h.reply.sess,
           nonceKey: c.nonceKey, seen: records.spent, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
         },
@@ -1253,7 +1259,8 @@ export function buildVectors(): Record<string, unknown> {
       name === WIRE_ORDER_CASE ? wireOrderAttestationToken(attestation as Attestation) : tokenOf(attestation);
     const callArg = { rid: RID, toolCallId: CALL_ID, receiver: "pi" };
     const got = verifyResponse(attestationToken, result, callArg, {
-      keyring: resolveKeyring(RESPONSE_SERVER.keyring), root: rootOf("server"), rootId: policies.server.rootId,
+      keyrings: [{ keys: resolveKeyring(RESPONSE_SERVER.keyring), notAfter: RESPONSE_SERVER.policyNotAfter }],
+      roots: [{ root: rootOf("server"), rootId: policies.server.rootId, notAfter: RESPONSE_SERVER.policyNotAfter }],
       allowedOrigins: RESPONSE_SERVER.allowedOrigins, sess: RESPONSE_SERVER.sess,
       nonces: new NonceCache(RESPONSE_SERVER.nonceTtlMs), now: NOW, policyNotAfter: RESPONSE_SERVER.policyNotAfter,
     });

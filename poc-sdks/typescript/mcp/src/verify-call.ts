@@ -121,7 +121,9 @@ export type RecordedCall = {
  * verifyChainOffline in place of the live chain verifier. The calling hop recorded the call when it stamped it, so the
  * live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the origin not after
  * the call by more than the call window (EXPIRED), each limit `cfg`'s or its live default. A chain that verifies but is
- * for another call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
+ * for another call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. A session's keyring
+ * and root are passed with no window (`notAfter: Infinity`), since callInSession judges the session's limits. Never
+ * throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
   return checkCall(params, call.serverId, (input, nonceKey, callId) => {

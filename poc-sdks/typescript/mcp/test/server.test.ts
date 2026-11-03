@@ -577,15 +577,15 @@ describe("response attestation", () => {
     const { srv, client } = setup();
     const s = srv.session()!;
     const params = client.callParams("list_issues", { owner: "o", repo: "r" }, [{ cls: "public", src: "x", h: "h" }]);
+    const policyNotAfter = earliestNotAfter(s.request.clientRoot!.notAfter, s.request.clientKeyringNotAfter);
     const r = verifyCall(params, { serverId: "github" }, {
-      keyring: s.request.clientKeyring,
-      root: decode(s.request.clientRoot!.root),
-      rootId: s.request.clientRoot!.rootId,
+      keyrings: [{ keys: s.request.clientKeyring, notAfter: policyNotAfter }],
+      roots: [{ root: decode(s.request.clientRoot!.root), rootId: s.request.clientRoot!.rootId, notAfter: policyNotAfter }],
       allowedOrigins: ["session"],
       sess: s.sess,
       nonces: s.nonces,
       now: Date.now(),
-      policyNotAfter: earliestNotAfter(s.request.clientRoot!.notAfter, s.request.clientKeyringNotAfter),
+      policyNotAfter,
     });
     expect(r.result.reason).toBe("OK");
   });

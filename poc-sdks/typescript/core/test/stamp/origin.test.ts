@@ -61,9 +61,8 @@ describe("mintOrigin", () => {
         proof: writeToken(tree.proofFor(`session/pi/${receiver}`)), receiver, receiverInRoute: true,
       },
       {
-        keyring: { session: session.publicKey, pi: pi.publicKey },
-        root: tree.root,
-        rootId: tree.rootId,
+        keyrings: [{ keys: { session: session.publicKey, pi: pi.publicKey }, notAfter: 4_102_444_800_000 }],
+        roots: [{ root: tree.root, rootId: tree.rootId, notAfter: 4_102_444_800_000 }],
         allowedOrigins: ["session"],
         sess: SESS,
         nonces: new NonceCache(60_000),

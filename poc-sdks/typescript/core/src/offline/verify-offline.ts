@@ -4,7 +4,7 @@
 import { isWellFormed } from "../crypto/crypto.ts";
 import { bindPrompt } from "../stamp/binding.ts";
 import {
-  checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers,
+  checkCommitments, checkRoute, checkStamps, currentAt, readOrUndefined, reject, type Signers,
 } from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
 import { CALL_MAX_AGE_MS, RUN_MAX_AGE_MS, type VerifierConfig, type VerifyInput } from "../verify/verify-chain.ts";
@@ -31,8 +31,12 @@ export type OfflineInput = Omit<VerifyInput, "peer"> & {
   prompt?: string;
 };
 
+/**
+ * The keyrings and roots count for a record when its recorded time is at most their `notAfter`; a member whose
+ * window its record kind judges itself has `notAfter: Infinity`, no window, and counts for every record.
+ */
 export type OfflineConfig = Pick<
-  VerifierConfig, "keyring" | "root" | "rootId" | "allowedOrigins" | "sess" | "nonceKey"
+  VerifierConfig, "keyrings" | "roots" | "allowedOrigins" | "sess" | "nonceKey"
 > & {
   /** Every nonce key spent so far anywhere in the record set. A chain that reaches the replay check adds its own. */
   seen: Set<string>;
@@ -53,10 +57,14 @@ export type OfflineResult = VerifyResult;
 /**
  * Verifies a chain read back from a record set, such as a client's evidence file, with the live v3
  * verifier's checks in the live order. The first failure is the result:
+ * 0. some keyring and some root count for the record, their notAfter at or after its recorded time
+ *    (POLICY_EXPIRED, naming no one); with no recorded time every one counts, and check 7 refuses the record;
+ *    the checks after it use only those that count;
  * 1. the chain's token reads, as stamps all v3 (CHAIN_MISSING);
  * 2. no field holds the `|` delimiter, rcv included (BAD_SIGNATURE);
  * 3. the origin's service is allowed (BAD_ORIGIN); with `signers`, it reports their instance too;
- * 4. each stamp is signed by its service's key and links to the one before (BAD_SIGNATURE, BROKEN_LINK);
+ * 4. each stamp is signed under one of the keys the keyrings give its service, and links to the one before
+ *    (BAD_SIGNATURE, BROKEN_LINK);
  *    with `signers`, each is by the expected service and instance, or it is BAD_SIGNATURE; then each
  *    stamp's rcv is the next stamp's svc and the last's is `receiver` (BINDING_MISMATCH);
  * 5. every stamp carries the record's rid (RID_MISMATCH);
@@ -70,14 +78,23 @@ export type OfflineResult = VerifyResult;
  * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
  *     after its window cannot show;
- * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root by the
- *     proof its token holds (PATH_NOT_ALLOWED).
+ * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven by the proof its token
+ *     holds against a root with the proof's rootId (PATH_NOT_ALLOWED).
  * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
+  // 0. The keyrings and roots that count at the record's own time, once; none of either names no one.
+  const t: RecordedTimes | undefined = input.recordedTs;
+  const at = typeof t === "object" && t !== null && typeof t.last === "number" ? t.last : undefined;
+  const keyrings = currentAt(cfg.keyrings, at);
+  const roots = currentAt(cfg.roots, at);
+  if (keyrings.length === 0 || roots.length === 0) {
+    return reject("POLICY_EXPIRED");
+  }
+
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
   const shape = { receiver: input.receiver, rid: input.rid, signers: cfg.signers };
-  const stamps = checkStamps(readOrUndefined(input.chain), cfg, shape);
+  const stamps = checkStamps(readOrUndefined(input.chain), { ...cfg, keyrings }, shape);
   if (typeof stamps === "string") {
     return reject(stamps);
   }
@@ -85,7 +102,6 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   const last = stamps[stamps.length - 1]!;
 
   // 7. Recorded times, the age limits, then the prompt.
-  const t: RecordedTimes | undefined = input.recordedTs;
   if (typeof t !== "object" || t === null || last.ts !== t.last || !inRunTimes(t.run, first.ts)) {
     return reject("TIME_MISMATCH");
   }
@@ -110,8 +126,8 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   }
   cfg.seen.add(cfg.nonceKey);
 
-  // 11. Route proven against the root.
-  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, readOrUndefined(input.proof), cfg);
+  // 11. Route proven against a root that counts for the record.
+  return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, readOrUndefined(input.proof), roots);
 }
 
 /** Whether `ts` is one of `run`, the run's recorded start times, or `run` is absent; never when it is not a Set. */

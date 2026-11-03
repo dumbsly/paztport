@@ -14,6 +14,8 @@ import { createEventVerifier, type EventOutcome, type EventRefusal } from "../sr
 
 type VerifyCase = {
   name: string;
+  /** The responder's keyrings for this case, each service to a key name in `keys`; absent, the file's one keyring. */
+  keyrings?: Record<string, string>[];
   earlier: { body: string; now: number }[];
   body: string;
   now: number;
@@ -24,7 +26,10 @@ const v = JSON.parse(readFileSync(new URL("../../../spec/vectors/events.json", i
 
 function run(c: VerifyCase): EventOutcome {
   const clock = { now: 0 };
-  const verifier = createEventVerifier({ keyring: v.responder.keyring, allowedSigners: v.responder.allowedSigners, now: () => clock.now });
+  const keyrings = c.keyrings === undefined
+    ? [v.responder.keyring]
+    : c.keyrings.map((k) => Object.fromEntries(Object.entries(k).map(([svc, name]) => [svc, v.keys[name].pub as string])));
+  const verifier = createEventVerifier({ keyrings, allowedSigners: v.responder.allowedSigners, now: () => clock.now });
   for (const e of c.earlier) {
     clock.now = e.now;
     verifier.accept(e.body);

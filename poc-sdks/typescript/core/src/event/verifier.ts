@@ -63,7 +63,8 @@ function readEvent(bytes: Uint8Array): ResponderEvent | null {
 
 /** Decides whether an event body may reach whatever acts on it: a signed envelope from an allowed signer, fresh, and not seen before; every failure is a typed refusal that changes nothing, and nothing here throws on hostile input. */
 export function createEventVerifier(opts: {
-  keyring: Readonly<Record<string, string>>;
+  /** One or more keyrings, service name to public key; a signer's key is looked up by own name in each. */
+  keyrings: readonly Readonly<Record<string, string>>[];
   allowedSigners: readonly string[];
   now: () => number;
 }): { accept(body: string): EventOutcome } {
@@ -74,15 +75,20 @@ export function createEventVerifier(opts: {
       const envelope = readEnvelope(body);
       if (envelope === null) return { refusal: "MALFORMED_ENVELOPE" };
       if (!allowed.has(envelope.signer)) return { refusal: "SIGNER_NOT_ALLOWED" };
-      const key = Object.hasOwn(opts.keyring, envelope.signer) ? opts.keyring[envelope.signer] : undefined;
-      if (typeof key !== "string") return { refusal: "UNKNOWN_SIGNER", signer: envelope.signer };
+      const keys = new Set<string>();
+      for (const ring of opts.keyrings) {
+        const key = Object.hasOwn(ring, envelope.signer) ? ring[envelope.signer] : undefined;
+        if (typeof key === "string") keys.add(key);
+      }
+      if (keys.size === 0) return { refusal: "UNKNOWN_SIGNER", signer: envelope.signer };
       let signature: Uint8Array;
       try {
         signature = decode(envelope.sig);
       } catch {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
-      if (!verify(key, eventSigningBytes(envelope.payload), signature)) {
+      const signed = eventSigningBytes(envelope.payload);
+      if (![...keys].some((key) => verify(key, signed, signature))) {
         return { refusal: "BAD_SIGNATURE", signer: envelope.signer };
       }
       let bytes: Uint8Array;

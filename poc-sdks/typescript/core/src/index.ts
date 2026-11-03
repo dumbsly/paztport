@@ -23,7 +23,8 @@ export {
   commitInfluence, influenceClasses, normalizeInfluence, readInfluence, type InfluenceClass, type InfluenceEntry,
 } from "./influence/influence.ts";
 export {
-  CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type Peer, type VerifierConfig, type VerifyInput,
+  CALL_MAX_AGE_MS, NONCE_TTL_MS, RUN_MAX_AGE_MS, verifyChain, type Peer, type PinnedKeyring, type PinnedRoot,
+  type VerifierConfig, type VerifyInput,
 } from "./verify/verify-chain.ts";
 export * from "./offline/verify-offline.ts";
 export * from "./offline/records.ts";

@@ -22,3 +22,13 @@ export function readNotAfter(o: object, key: string): number {
 export function earliestNotAfter(...windows: number[]): number {
   return Math.min(...windows);
 }
+
+/**
+ * The policyNotAfter of a live verifier pinned to several keyrings and roots: the earlier of the latest keyring
+ * notAfter and the latest root notAfter, the last moment the policy owner vouches for some keyring and some root.
+ * With no keyring or no root it is -Infinity, which every live verifier refuses.
+ */
+export function pinnedNotAfter(keyrings: readonly { notAfter: number }[], roots: readonly { notAfter: number }[]): number {
+  const latest = (members: readonly { notAfter: number }[]) => Math.max(...members.map((m) => m.notAfter));
+  return Math.min(latest(keyrings), latest(roots));
+}

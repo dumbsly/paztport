@@ -108,9 +108,9 @@ export function verifyRecordedLocalStep(
       ...(run !== undefined ? { prompt: run.prompt } : {}),
     },
     {
-      keyring: client.keyring,
-      root: client.root,
-      rootId: client.rootId,
+      // the step's windows are judged below, at its own signed time and with its own code: no window here
+      keyrings: [{ keys: client.keyring, notAfter: Infinity }],
+      roots: [{ root: client.root, rootId: client.rootId, notAfter: Infinity }],
       allowedOrigins: signers.svcs.slice(0, 1),
       sess: "",
       seen: cfg.seen,

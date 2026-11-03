@@ -14,7 +14,7 @@ import { signReplyCert, verifyReplyCert } from "../../src/session/reply-cert.ts"
 import {
   readRoot, readRootFile, signRenewedRoot, rootSigningBytes, signRoot, verifyRoot, type SignedRoot,
 } from "../../src/policy/root.ts";
-import { earliestNotAfter, isCurrent, readNotAfter } from "../../src/policy/validity.ts";
+import { earliestNotAfter, isCurrent, pinnedNotAfter, readNotAfter } from "../../src/policy/validity.ts";
 
 const POLICY = generateKeyPair();
 const NOT_AFTER = 1_798_761_600_000;
@@ -168,6 +168,16 @@ describe("earliestNotAfter", () => {
     expect(earliestNotAfter(MAX_SAFE, 0)).toBe(0);
     expect(earliestNotAfter(NOT_AFTER)).toBe(NOT_AFTER);
     expect(core.earliestNotAfter).toBe(earliestNotAfter);
+  });
+});
+
+describe("pinnedNotAfter", () => {
+  it("isTheEarlierOfTheLatestKeyringAndTheLatestRoot", () => {
+    const w = (...notAfters: number[]) => notAfters.map((notAfter) => ({ notAfter }));
+    expect(pinnedNotAfter(w(NOT_AFTER, NOT_AFTER + 5), w(NOT_AFTER + 3, NOT_AFTER + 1))).toBe(NOT_AFTER + 3);
+    expect(pinnedNotAfter(w(NOT_AFTER + 2), w(NOT_AFTER + 9, NOT_AFTER))).toBe(NOT_AFTER + 2);
+    expect(pinnedNotAfter(w(NOT_AFTER), w(NOT_AFTER))).toBe(NOT_AFTER);
+    expect(core.pinnedNotAfter).toBe(pinnedNotAfter);
   });
 });
 

@@ -268,15 +268,16 @@ export function readToolResult(raw: Record<string, unknown>, ctx: ResultContext)
     const hash = bindResult(raw);
     if (ctx.session === "attested" && ctx.reply.serverRoot !== null) {
       verifiedAt = ctx.now();
+      // the session's one server keyring and root, each held to the reply's response limit
+      const policyNotAfter = serverPolicyNotAfter(ctx.reply);
       const v = verifyMcpResponse(raw, { rid: ctx.rid, toolCallId: ctx.callId, receiver: ctx.svc }, {
-        keyring: ctx.reply.serverKeyring,
-        root: decode(ctx.reply.serverRoot.root),
-        rootId: ctx.reply.serverRoot.rootId,
+        keyrings: [{ keys: ctx.reply.serverKeyring, notAfter: policyNotAfter }],
+        roots: [{ root: decode(ctx.reply.serverRoot.root), rootId: ctx.reply.serverRoot.rootId, notAfter: policyNotAfter }],
         allowedOrigins: ctx.allowedOrigins,
         sess: ctx.reply.sess,
         nonces: ctx.nonces,
         now: verifiedAt,
-        policyNotAfter: serverPolicyNotAfter(ctx.reply),
+        policyNotAfter,
       });
       const influence: ResultInfluence = v.result.ok ? { kind: "labels", labels: v.labels, hash } : { kind: "untrusted", hash };
       return { kind: "read", ...withVerdict, verification: v.result.reason, verifiedAt, influence };

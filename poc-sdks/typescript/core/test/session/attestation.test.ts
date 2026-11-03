@@ -30,9 +30,8 @@ function world() {
     "v1",
   );
   const cfg = (over: Partial<Omit<VerifierConfig, "nonceKey">> = {}): Omit<VerifierConfig, "nonceKey"> => ({
-    keyring: { "mcp-entry": keys.publicKey, "github-tools": keys.publicKey },
-    root: tree.root,
-    rootId: tree.rootId,
+    keyrings: [{ keys: { "mcp-entry": keys.publicKey, "github-tools": keys.publicKey }, notAfter: 4_102_444_800_000 }],
+    roots: [{ root: tree.root, rootId: tree.rootId, notAfter: 4_102_444_800_000 }],
     allowedOrigins: ["mcp-entry"],
     sess: SESS,
     nonces: new NonceCache(60_000),

@@ -210,9 +210,8 @@ export function makeClient(
         throw new Error("no accepted session");
       }
       const r = verifyMcpResponse(result, { ...call, receiver: "pi" }, {
-        keyring: serverKeyring,
-        root: decode(serverRoot.root),
-        rootId: serverRoot.rootId,
+        keyrings: [{ keys: serverKeyring, notAfter: serverRoot.notAfter }],
+        roots: [{ root: decode(serverRoot.root), rootId: serverRoot.rootId, notAfter: serverRoot.notAfter }],
         allowedOrigins: ["mcp-entry"],
         sess,
         nonces: responseNonces,

@@ -10,7 +10,7 @@ import { commitInfluence, type InfluenceEntry } from "../../src/influence/influe
 import { buildTree } from "../../src/policy/merkle.ts";
 import { NonceCache } from "../../src/verify/nonce.ts";
 import { signStamp, type Stamp } from "../../src/stamp/stamp.ts";
-import { verifyChain, type VerifierConfig, type VerifyInput } from "../../src/verify/verify-chain.ts";
+import { verifyChain, type PinnedKeyring, type PinnedRoot, type VerifierConfig, type VerifyInput } from "../../src/verify/verify-chain.ts";
 
 const NOW = 10_000_000;
 /** The pinned keyring and root's window: 2100-01-01, past every clock here. */
@@ -52,10 +52,14 @@ function chain(o: ChainOpts = {}): unknown[] {
 /** The same chain whose last stamp names `rcv` as its receiver. */
 const chainEndingAt = (rcv: string) => chain({ s1: { rcv } });
 
+/** A pinned keyring of `keys`, current until `notAfter`. */
+const ring = (keys: Record<string, string>, notAfter = POLICY_NOT_AFTER): PinnedKeyring => ({ keys, notAfter });
+/** `t`'s root, pinned until `notAfter`. */
+const pinned = (t: { root: Uint8Array; rootId: string }, notAfter = POLICY_NOT_AFTER): PinnedRoot => ({ root: t.root, rootId: t.rootId, notAfter });
+
 const cfg = (over: Partial<VerifierConfig> = {}): VerifierConfig => ({
-  keyring: { session: session.publicKey, pi: pi.publicKey },
-  root: tree.root,
-  rootId: tree.rootId,
+  keyrings: [ring({ session: session.publicKey, pi: pi.publicKey })],
+  roots: [pinned(tree)],
   allowedOrigins: ["session"],
   sess: SESS,
   nonces: new NonceCache(60_000),
@@ -183,7 +187,7 @@ describe("verifyChain", () => {
     const cases: [string, ReturnType<typeof verifyChain>][] = [
       ["CHAIN_MISSING", verify([])],
       ["BAD_ORIGIN", verify(chain(), {}, cfg({ allowedOrigins: ["x"] }))],
-      ["BAD_SIGNATURE", verify(chain(), {}, cfg({ keyring: { session: session.publicKey, pi: other.publicKey } }))],
+      ["BAD_SIGNATURE", verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey, pi: other.publicKey })] }))],
       ["BROKEN_LINK", verify(chain({ s1: { prev: "x" } }))],
       ["BINDING_MISMATCH", verify(chain({ s0rcv: "orders" }))],
       ["RID_MISMATCH", verify(chain({ s1: { rid: "rid-2" } }))],
@@ -288,9 +292,8 @@ describe("verifyChain", () => {
     const s0 = mk("mcp-entry", { rcv: "github-tools" }, session.privateKey);
     const s1 = mk("github-tools", { rcv: "pi", bind: "resp", prev: s0.sig }, session.privateKey);
     const c = cfg({
-      keyring: { "mcp-entry": session.publicKey, "github-tools": session.publicKey },
-      root: serverTree.root,
-      rootId: serverTree.rootId,
+      keyrings: [ring({ "mcp-entry": session.publicKey, "github-tools": session.publicKey })],
+      roots: [pinned(serverTree)],
       allowedOrigins: ["mcp-entry"],
     });
     const r = verifyChain(
@@ -372,5 +375,61 @@ describe("the pinned policy's window", () => {
   });
   it("a non-finite clock is left to freshness, which fails it", () => {
     for (const now of [NaN, Infinity]) expect(verify(chain(), {}, cfg({ now, policyNotAfter: NOW })).reason, String(now)).toBe("EXPIRED");
+    // it expires no keyring or root either, so check 7 is still the one that refuses it
+    const lapsed = { keyrings: [ring({ session: session.publicKey, pi: pi.publicKey }, NOW - 1)], roots: [pinned(tree, NOW - 1)] };
+    for (const now of [NaN, Infinity]) expect(verify(chain(), {}, cfg({ now, ...lapsed })).reason, String(now)).toBe("EXPIRED");
+  });
+});
+
+describe("several pinned keyrings and roots", () => {
+  // the same routes under a second policy, and the mesh root renewed: a new tree under the same rootId
+  const second = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
+  const renewed = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v1");
+  const unpinned = buildTree([ROUTE, "session/pi"].map((path) => ({ salt: randomBytes(16), path })), 8, "v3");
+  const both = ring({ session: session.publicKey, pi: pi.publicKey });
+  const proofIn = (t: typeof tree): Over => ({ proof: writeToken(t.proofFor(ROUTE)) });
+  const okPi = { ok: true, reason: "OK", suspectSvc: "pi", suspectInst: "pi-1" };
+  const denied = { ok: false, reason: "PATH_NOT_ALLOWED", suspectSvc: "pi", suspectInst: "pi-1" };
+
+  it("aStampVerifiesUnderAKeyOnlyInTheSecondKeyring", () => {
+    // the first keyring has the old pi key, or none: each key the current keyrings give is tried
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey, pi: other.publicKey }), ring({ pi: pi.publicKey })] }))).toEqual(okPi);
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey }), ring({ session: session.publicKey, pi: pi.publicKey })] }))).toEqual(okPi);
+  });
+  it("aChainMayTakeItsKeysFromTwoKeyrings", () => {
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey }), ring({ pi: pi.publicKey })] }))).toEqual(okPi);
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ pi: pi.publicKey }), ring({ session: session.publicKey })] }))).toEqual(okPi);
+  });
+  it("aKeyOnlyInAnExpiredKeyringIsBadSignature", () => {
+    const keyrings = [ring({ session: session.publicKey, pi: other.publicKey }), ring({ pi: pi.publicKey }, NOW - 1)];
+    expect(verify(chain(), {}, cfg({ keyrings }))).toEqual({ ok: false, reason: "BAD_SIGNATURE", suspectSvc: "", suspectInst: "" });
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey }), ring({ pi: pi.publicKey }, NOW - 1)] })).reason).toBe("BAD_SIGNATURE");
+  });
+  it("aProofUnderTheSecondRootProves", () => {
+    const roots = [pinned(tree), pinned(second)];
+    expect(verify(chain(), proofIn(second), cfg({ roots }))).toEqual(okPi);
+    expect(verify(chain(), proofIn(tree), cfg({ roots }))).toEqual(okPi);
+  });
+  it("aProofWhoseRootIdIsPinnedNowhereIsPathNotAllowed", () => {
+    expect(verify(chain(), proofIn(unpinned), cfg({ roots: [pinned(tree), pinned(second)] }))).toEqual(denied);
+  });
+  it("aProofUnderAnExpiredRootIsPathNotAllowedWhileAnotherIsCurrent", () => {
+    const roots = [pinned(tree, NOW - 1), pinned(second)];
+    expect(verify(chain(), proofIn(tree), cfg({ roots }))).toEqual(denied);
+    expect(verify(chain(), proofIn(second), cfg({ roots }))).toEqual(okPi);
+  });
+  it("twoRootsSharingARootIdBothServe", () => {
+    const roots = [pinned(tree), pinned(renewed)];
+    expect(verify(chain(), proofIn(tree), cfg({ roots }))).toEqual(okPi);
+    expect(verify(chain(), proofIn(renewed), cfg({ roots }))).toEqual(okPi);
+    // the renewal's tree is not the old one's: each proof proves against its own root only
+    expect(verify(chain(), proofIn(renewed), cfg({ roots: [pinned(tree)] }))).toEqual(denied);
+  });
+  it("aMemberAtNowIsCurrentAndOneMsPastIsNot", () => {
+    const keysUntil = (notAfter: number) => [ring({ session: session.publicKey }), ring({ pi: pi.publicKey }, notAfter)];
+    expect(verify(chain(), {}, cfg({ keyrings: keysUntil(NOW) })).reason).toBe("OK");
+    expect(verify(chain(), {}, cfg({ keyrings: keysUntil(NOW - 1) })).reason).toBe("BAD_SIGNATURE");
+    expect(verify(chain(), {}, cfg({ keyrings: [both], roots: [pinned(tree, NOW)] })).reason).toBe("OK");
+    expect(verify(chain(), {}, cfg({ keyrings: [both], roots: [pinned(tree, NOW - 1)] })).reason).toBe("PATH_NOT_ALLOWED");
   });
 });

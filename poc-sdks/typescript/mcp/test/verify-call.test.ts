@@ -25,9 +25,8 @@ function world(extraRoutes: string[] = []) {
     "v1",
   );
   const cfg = (over: Partial<Omit<VerifierConfig, "nonceKey">> = {}): Omit<VerifierConfig, "nonceKey"> => ({
-    keyring: { session: harness.publicKey, pi: harness.publicKey },
-    root: tree.root,
-    rootId: tree.rootId,
+    keyrings: [{ keys: { session: harness.publicKey, pi: harness.publicKey }, notAfter: 4_102_444_800_000 }],
+    roots: [{ root: tree.root, rootId: tree.rootId, notAfter: 4_102_444_800_000 }],
     allowedOrigins: ["session"],
     sess: SESS,
     nonces: new NonceCache(NONCE_TTL_MS),
