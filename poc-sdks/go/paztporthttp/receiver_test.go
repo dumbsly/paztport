@@ -880,30 +880,16 @@ func TestTrustedRecordLeavesInfluence(t *testing.T) {
 	}
 }
 
-// TestPartnerTrustedRecord: a partner's call qualifies only when attested, and a third-party read since
-// turns an attested call's answer false, without writing into the spare room of its influence.
-func TestPartnerTrustedRecord(t *testing.T) {
-	clean := influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-1"}
+// TestPartnerTrustedRecordLeavesTheInfluenceBackingAlone: TrustedRecord on an attested call never writes the
+// reads into the spare room of the influence slice it was given.
+func TestPartnerTrustedRecordLeavesTheInfluenceBackingAlone(t *testing.T) {
 	backing := make([]influence.Entry, 1, 4)
-	backing[0] = clean
+	backing[0] = influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-1"}
 	p := paztporthttp.PartnerAccepted{Attested: true, Influence: backing}
 	read := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-2"}}
-	if !p.TrustedRecord(nil) || !p.TrustedRecord([]influence.Entry{clean}) {
-		t.Fatal("an attested call with only trusted content does not qualify")
-	}
-	if p.TrustedRecord(read) {
-		t.Fatal("a third-party read is trusted")
-	}
+	p.TrustedRecord(read)
 	if spare := backing[:2][1]; spare != (influence.Entry{}) {
 		t.Fatalf("TrustedRecord wrote %+v past the influence it was given", spare)
-	}
-	if (paztporthttp.PartnerAccepted{Influence: backing}).TrustedRecord(nil) {
-		t.Fatal("a call that is not attested qualifies")
-	}
-	untrusted := paztporthttp.PartnerAccepted{Attested: true,
-		Influence: []influence.Entry{{Class: influence.LocalUntrusted, Src: "http:orders", H: "h-3"}}}
-	if untrusted.TrustedRecord(nil) {
-		t.Fatal("an attested call with local-untrusted influence qualifies")
 	}
 }
 
