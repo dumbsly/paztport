@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
+import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
@@ -27,7 +28,14 @@ import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.OfflineVerifier;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.offline.Signers;
+import org.paztport.core.crypto.Crypto;
+import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
+import org.paztport.core.stamp.Stamp;
+import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.ReasonCode;
 
 /** Offline-only behaviour the vectors do not pin: totality, the optional inputs and the age-limit pair. */
@@ -100,10 +108,10 @@ class OfflineVerifierTest {
     }
 
     @Test
-    void noRecordedTimesComparesNoTime() {
+    void noRecordedTimeIsATimeMismatch() {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        assertEquals(ReasonCode.OK,
+        assertEquals(ReasonCode.TIME_MISMATCH,
                 run(with(in, in.stamps(), null, in.prompt(), in.nonceKey()), VectorsV3Test.offlineConfig(c,
                         VectorsV3Test.policy(c))).reason());
     }
@@ -121,13 +129,60 @@ class OfflineVerifierTest {
                 in.prompt(), "k2"), cfg).reason());
     }
 
+    private static final long NOT_AFTER = 4_102_444_800_000L;
+
+    /**
+     * A three-service call (gateway, orders, payment) whose origin stamp is made at {@code originTs} and whose last
+     * stamp at {@code lastTs}, judged offline under {@code runMax} and {@code callMax}.
+     */
+    private static ReasonCode judgeAge(long originTs, long lastTs, Long runMax, Long callMax) {
+        KeyPair gateway = Crypto.generateEd25519KeyPair();
+        KeyPair orders = Crypto.generateEd25519KeyPair();
+        KeyPair policyKey = Crypto.generateEd25519KeyPair();
+        PolicyBuilder.Result policy = PolicyBuilder.build(List.of(List.of("gateway", "orders", "payment")), 4,
+                NOT_AFTER, policyKey.getPrivate());
+        Stamper first = new Stamper("gateway", "gateway-1", gateway.getPrivate(), true, () -> "rid-1",
+                () -> originTs);
+        Stamper second = new Stamper("orders", "orders-1", orders.getPrivate(), false, () -> "rid-1",
+                () -> lastTs);
+        List<Stamp> hop = first.next(List.of(), "orders", Bindings.prompt("do it"), List.of(),
+                policy.bundles().get("gateway")).chain();
+        Stamper.Stamped sent = second.next(hop, "payment", "b2", List.of(), policy.bundles().get("orders"));
+        OfflineConfig cfg = new OfflineConfig(
+                Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
+                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
+                new java.util.LinkedHashSet<>(), null, runMax, callMax);
+        OfflineInput in = new OfflineInput(Chains.toJson(sent.chain()), "b2", null, sent.proof().toJson(), "payment",
+                true, "k", null, new RecordedTimes(lastTs, Set.of(originTs)), "do it");
+        return run(in, cfg).reason();
+    }
+
+    private static final long T = 10_000_000L;
+
     @Test
-    void oneAgeLimitAloneFailsClosed() {
-        JsonNode c = good();
-        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        assertEquals(ReasonCode.EXPIRED, run(in, cfg(c, 1_800_000L, null, null)).reason());
-        assertEquals(ReasonCode.EXPIRED, run(in, cfg(c, null, 5000L, null)).reason());
-        assertEquals(ReasonCode.OK, run(in, cfg(c, null, null, null)).reason());
+    void aMissingRunLimitIsTheLiveDefault() {
+        long run = VerifierConfig.RUN_MAX_AGE_MS;
+        for (Long call : new Long[] {null, VerifierConfig.CALL_MAX_AGE_MS}) {
+            assertEquals(ReasonCode.OK, judgeAge(T, T + run, null, call), "a chain as long as the default passes");
+            assertEquals(ReasonCode.EXPIRED, judgeAge(T, T + run + 1, null, call), "one ms longer is expired");
+        }
+    }
+
+    @Test
+    void aMissingCallLimitIsTheLiveDefault() {
+        long call = VerifierConfig.CALL_MAX_AGE_MS;
+        for (Long run : new Long[] {null, VerifierConfig.RUN_MAX_AGE_MS}) {
+            assertEquals(ReasonCode.OK, judgeAge(T + call, T, run, null), "an origin as far after as the default");
+            assertEquals(ReasonCode.EXPIRED, judgeAge(T + call + 1, T, run, null), "one ms further is expired");
+        }
+    }
+
+    @Test
+    void aGivenLimitStandsAlongsideTheOthersDefault() {
+        assertEquals(ReasonCode.OK, judgeAge(T, T + 60_000, 60_000L, null));
+        assertEquals(ReasonCode.EXPIRED, judgeAge(T, T + 60_001, 60_000L, null));
+        assertEquals(ReasonCode.OK, judgeAge(T + 100, T, null, 100L));
+        assertEquals(ReasonCode.EXPIRED, judgeAge(T + 101, T, null, 100L));
     }
 
     @Test

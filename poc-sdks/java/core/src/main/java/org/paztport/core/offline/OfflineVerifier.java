@@ -12,6 +12,7 @@ import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.VerifyResult;
 
 /**
@@ -22,9 +23,10 @@ import org.paztport.core.verify.VerifyResult;
  * <li>1 to 6: as the live verifier (CHAIN_MISSING, BAD_SIGNATURE, BAD_ORIGIN, BROKEN_LINK, BINDING_MISMATCH,
  *     RID_MISMATCH, SESSION_UNKNOWN), against the record's rid and, when given, the expected signers;
  * <li>7: in place of freshness, which has no clock to be fresh against offline, the last stamp's time is the
- *     one recorded with it and the origin's is one of the run's recorded times (TIME_MISMATCH); with age limits,
- *     the last stamp is within the run's lifetime of the origin and the origin within the call window after it
- *     (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
+ *     one recorded with it (a record with no recorded time fails) and the origin's is one of the run's recorded
+ *     times (TIME_MISMATCH); the last stamp is within the run's lifetime of the origin and the origin within the
+ *     call window after it (EXPIRED), each limit the configuration's or, where it gives none, its live default;
+ *     then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
  * <li>8 and 9: the last stamp binds {@code expectedBind} and commits to the influence;
  * <li>10: its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that
  *     forgets after its window cannot show;
@@ -63,10 +65,10 @@ public final class OfflineVerifier {
 
         // 7. Recorded times, the age limits, then the prompt.
         RecordedTimes t = in.recordedTs();
-        if (t != null && (last.ts() != t.last() || (t.run() != null && !t.run().contains(first.ts())))) {
+        if (t == null || last.ts() != t.last() || (t.run() != null && !t.run().contains(first.ts()))) {
             return result(ReasonCode.TIME_MISMATCH);
         }
-        if ((cfg.runMaxAgeMs() != null || cfg.callMaxAgeMs() != null) && !withinAge(first.ts(), last.ts(), cfg)) {
+        if (!withinAge(first.ts(), last.ts(), cfg)) {
             return result(ReasonCode.EXPIRED);
         }
         if (in.prompt() == null || !Text.isWellFormed(in.prompt())
@@ -94,14 +96,16 @@ public final class OfflineVerifier {
         return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst());
     }
 
-    /** Check 7's age limits in exact longs, so an extreme time is EXPIRED rather than a wrapped difference. */
+    /**
+     * Check 7's age limits in exact longs, so an extreme time is EXPIRED rather than a wrapped difference. A limit
+     * the configuration leaves null is its live default, independently of the other.
+     */
     private static boolean withinAge(long firstTs, long lastTs, OfflineConfig cfg) {
-        if (cfg.runMaxAgeMs() == null || cfg.callMaxAgeMs() == null) {
-            return false;
-        }
+        long runMax = cfg.runMaxAgeMs() == null ? VerifierConfig.RUN_MAX_AGE_MS : cfg.runMaxAgeMs();
+        long callMax = cfg.callMaxAgeMs() == null ? VerifierConfig.CALL_MAX_AGE_MS : cfg.callMaxAgeMs();
         try {
-            return Math.subtractExact(lastTs, firstTs) <= cfg.runMaxAgeMs()
-                    && Math.subtractExact(firstTs, lastTs) <= cfg.callMaxAgeMs();
+            return Math.subtractExact(lastTs, firstTs) <= runMax
+                    && Math.subtractExact(firstTs, lastTs) <= callMax;
         } catch (ArithmeticException e) {
             return false;
         }

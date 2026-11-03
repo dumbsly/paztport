@@ -36,7 +36,10 @@ has one, the authenticated peer.
   (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
   its keyring and root), then the twelve checks. `VerifierConfig.pinned` checks the
   keyring and the root against the pinned policy key, and refuses to build a config if
-  either fails or has expired. `OfflineVerifier` re-checks a recorded chain.
+  either fails or has expired. `OfflineVerifier` re-checks a recorded chain. Offline, a record with
+  no recorded time fails check 7 (`TIME_MISMATCH`), and each age limit the
+  `OfflineConfig` leaves null is its live default (`VerifierConfig.RUN_MAX_AGE_MS`,
+  `CALL_MAX_AGE_MS`), so no configuration leaves a chain's age unlimited.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request
   and reply, each its wire bytes as text, the pin and the configured entry: attested
   at a time, at all (at the earliest of its limits) and the response limit.
@@ -120,9 +123,11 @@ answers what it adds to the request's influence: its labels, each with `src`
 `http:<target>`, when it verifies, and otherwise one `local-untrusted` entry.
 `check` also logs the response's `PAZTPORT_TRACE response` line, so a mirror in
 another language logs the same line wherever it checks a response. It
-names the receiver by its policy name: the URI's host, unless its builder's
-`receivers(Map)` maps that host to another name. `stampFromContext(method, uri,
-body)` and `recordToContext(...)` are the same two in the blocking binding below,
+names the receiver by its policy name: the URI's host with its ASCII letters in
+lower case, unless its builder's `receivers(Map)` maps that host to another name.
+A host with a character outside ASCII (or none) gets no name, and `stamp` refuses
+the call (`IllegalArgumentException`) before anything is signed.
+`stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two in the blocking binding below,
 which read and add to the request's context, and record nothing outside a scope.
 The layers do not mix: inside a scope, `recordToContext` refuses a call that was
 not stamped from the context (`IllegalStateException`, before anything is checked
@@ -238,9 +243,11 @@ hands a session request's body to `HttpSessions.serve`.
 - **The outbound interceptor** stamps every `RestClient` call through
   `HttpCaller`, attaches the proof and the influence so far, and reads each
   response whole. The receiver it stamps, as the last stamp's `rcv`, is the URL's
-  host, so by default a service's policy name is the host its callers reach it by
-  (in the mesh demo, Docker Compose service names): `https://payment:8443/pay` is
-  stamped for `payment`. The same name is the response's `<target>`. The
+  host in lower case, so by default a service's policy name is the host its callers
+  reach it by (in the mesh demo, Docker Compose service names):
+  `https://payment:8443/pay` is stamped for `payment`. A call to a host with no
+  name (one holding a non-ASCII character) fails with `IllegalArgumentException`
+  before anything is signed. The same name is the response's `<target>`. The
   [spec](../spec/verification.md#receivers-the-peer-and-attribution) requires the
   receiver's policy name, so a destination reached by any other host (an address,
   a load balancer's name) fails at the receiver (`BINDING_MISMATCH`), unless it is
@@ -254,7 +261,8 @@ hands a session request's body to `HttpSessions.serve`.
   and a host not listed is still its own name, so with nothing set nothing
   changes. The mapping is configuration: nothing a request or a destination says
   changes it. Outside the starter it is `HttpCaller.builder(...).receivers(Map)`.
-  A host is matched as `URI.getHost()` gives it, ignoring case and nothing else,
+  A host is matched as `URI.getHost()` gives it, its ASCII letters in lower case
+  and nothing else (a key that is not ASCII is refused when the table is built),
   and Spring Boot reads a map key in brackets as written inside them:
   - An IPv6 host keeps its brackets, so its key is written in two pairs:
     `paztport.receiver-names.[[::1]]=orders`, or `"[[::1]]"` in YAML or JSON.
