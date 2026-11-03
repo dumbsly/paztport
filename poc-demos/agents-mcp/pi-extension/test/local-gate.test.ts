@@ -301,14 +301,14 @@ describe("LocalGate modes", () => {
   });
 
   it("gateRefusesAStepOnARunOutsideTheAgeLimits", () => {
-    // the run starts at 1_000 (rig); the offline verifier's default limits are the live ones, so the gate refuses
-    // what it would
+    // the run starts at 1_000 (rig); the offline verifier's default limits are the live ones,
+    // so the gate refuses what it would
     const write = { path: "website/README.md", content: "x" };
     const atLimit = rig("enforce", { now: 1_000 + RUN_MAX_AGE_MS });
     expect(atLimit.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
     expect(locals(atLimit.evidencePath).map((r) => r.verdict)).toEqual(["OK"]);
-    // a run started CALL_MAX_AGE_MS after the step's time is still within the limit (a later start keeps the clock
-    // positive)
+    // a run started CALL_MAX_AGE_MS after the step's time is still within
+    // the limit (a later start keeps the clock positive)
     const early = rig("enforce", { now: 10_000 - CALL_MAX_AGE_MS });
     early.runs.start("Fix the README typo.", 10_000);
     expect(early.gate.check("write", { ...write }, "c1")).toEqual({ block: false });
@@ -339,8 +339,8 @@ describe("LocalGate modes", () => {
   });
 
   it("expiredMaterialIsJudgedBeforeTheRunsAge", () => {
-    // check 0 of the offline verifier (the material's window) comes before check 7 (the age): a run past both sees
-    // POLICY_EXPIRED
+    // check 0 of the offline verifier (the material's window) comes before
+    // check 7 (the age): a run past both sees POLICY_EXPIRED
     const m = { ...material, keyringNotAfter: 1_999 };
     const { gate, eventsPath } = rig("enforce", { material: m, now: 1_000 + RUN_MAX_AGE_MS + 1 });
     expect(gate.check("read", { path: "website/README.md" }, "c1")).toEqual({ block: true, reason: POLICY_EXPIRED_TEXT });

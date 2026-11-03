@@ -105,7 +105,10 @@ function wordingFor(code: string, local: boolean, words: Record<string, string>,
   return Object.hasOwn(words, code) ? words[code] : undefined;
 }
 
-/** The plain reason for a refusal code, on a local step when `local`; a code without its own wording reads `refused: <CODE>`. */
+/**
+ * The plain reason for a refusal code, on a local step when `local`; a code without its own wording reads
+ * `refused: <CODE>`.
+ */
 export function plainReason(code: string, local = false): string {
   return wordingFor(code, local, PLAIN_REASON, LOCAL_REASON) ?? `refused: ${code}`;
 }

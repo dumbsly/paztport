@@ -94,8 +94,8 @@ function readLocalEvents(path: string): LocalEvent[] | { problem: string } {
 
 /**
  * True when a local event was made during a run (it has a rid). In enforce mode the gate signs every such call
- * but one it refuses POLICY_EXPIRED or EXPIRED; in no-root mode it emits them unsigned, but the eval never runs
- * no-root: its modes with Paztport on are enforce.
+ * except one it refuses POLICY_EXPIRED or EXPIRED, which it does not sign; in no-root mode it emits them unsigned,
+ * but the eval never runs no-root: its modes with Paztport on are enforce.
  */
 const inRun = (e: LocalEvent): boolean => typeof e.rid === "string";
 
