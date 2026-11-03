@@ -66,7 +66,11 @@ public final class KeyFiles {
         return text(file);
     }
 
-    /** Writes {@code key} as keygen does: base64url of its PKCS#8 encoding, readable by {@link #loadPrivateKey}. */
+    /**
+     * Writes {@code key} as keygen does: base64url of its PKCS#8 encoding, readable by {@link #loadPrivateKey}. It
+     * overwrites as {@link #writeSecret} does, so it is for a fresh directory; {@link #createPrivateKey} never
+     * replaces a file.
+     */
     public static void writePrivateKey(Path file, PrivateKey key) throws IOException {
         writeSecret(file, Base64Url.encode(Crypto.encodePrivateKey(key)));
     }
@@ -75,6 +79,11 @@ public final class KeyFiles {
      * Writes {@code content} to {@code file}, owner-read/write only. Permissions are set before the content is
      * written, and again on an existing file, so the content is never readable by other users, even briefly. On
      * non-POSIX filesystems the default applies.
+     *
+     * <p>It overwrites, and is meant for keygen's fresh directories, which hold nothing to keep: an existing file is
+     * truncated and rewritten in place, not replaced atomically, so a failure part-way leaves it short, and a
+     * symbolic link is followed, so its target is what is written. {@link #createNew} and {@link #createPrivateKey}
+     * are for a directory that holds files to keep.
      */
     public static void writeSecret(Path file, String content) throws IOException {
         if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
@@ -90,7 +99,8 @@ public final class KeyFiles {
 
     /**
      * As {@link #writePrivateKey}, but only if {@code file} does not exist: the file is created, never replaced,
-     * and what is already there is left as it was.
+     * and what is already there, a symbolic link included, is left as it was. It is created owner-read/write only
+     * from the start; on a file system without POSIX permissions it gets the default permissions instead.
      *
      * @throws FileAlreadyExistsException when {@code file} exists, even if it appeared an instant ago
      * @throws IOException when it cannot be created or written; a file this call created is then removed again
@@ -100,9 +110,11 @@ public final class KeyFiles {
     }
 
     /**
-     * Writes {@code content} to {@code file} with the default permissions, but only if it does not exist.
+     * Writes {@code content} to {@code file} with the default permissions, but only if it does not exist: what is
+     * already there, a symbolic link included, is left as it was.
      *
      * @throws FileAlreadyExistsException when {@code file} exists, even if it appeared an instant ago
+     * @throws IOException when it cannot be created or written; a file this call created is then removed again
      */
     public static void createNew(Path file, String content) throws IOException {
         create(file, content, false);

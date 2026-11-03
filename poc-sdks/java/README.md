@@ -43,8 +43,8 @@ has one, the authenticated peer.
   policy key, and refuses to build a config if one fails or has expired; each service
   pins its own one of each, and a partner session its client's. `OfflineVerifier`
   re-checks a recorded chain. Offline, a keyring or root counts for a record no later
-  than its `notAfter` (`Long.MAX_VALUE` for none), and a record none of either counts
-  for is `POLICY_EXPIRED`; a record with no recorded time fails check 7
+  than its `notAfter` (`Long.MAX_VALUE` for none), and a record for which no keyring,
+  or no root, counts is `POLICY_EXPIRED`; a record with no recorded time fails check 7
   (`TIME_MISMATCH`), and each age limit the `OfflineConfig` leaves null is its live
   default (`VerifierConfig.RUN_MAX_AGE_MS`, `CALL_MAX_AGE_MS`), so no configuration
   leaves a chain's age unlimited.
@@ -197,7 +197,7 @@ hands a session request's body to `HttpSessions.serve`.
   refused the request first. An origin (`paztport.origin=true`) starts every
   request tree afresh: it ignores the chain and the influence a request brings.
 - **Overlap material.** A verifier can pin more than its own keyring and root, to
-  roll out a renewed root or a rotated key:
+  roll out a rebuilt root (a new tree, with new proof bundles) or a rotated key:
 
   | Property | Meaning |
   |---|---|
@@ -206,10 +206,17 @@ hands a session request's body to `HttpSessions.serve`.
 
   Each must verify under `paztport.policy-key-path` and be current at startup, or the
   service does not start, and they need the verifier's own three paths too. They add
-  only to what the verifier accepts: the service's own keyring and root still serve
-  its partner replies and its egress. Roll out in three steps: every verifier pins the
-  new root (or keyring) beside the old, each holder then switches its proofs (or key),
-  and every verifier unpins the old.
+  only to what the verifier accepts: the service's own keyring and root still serve its
+  partner replies and its egress. Roll out in three steps, each service restarting as
+  its properties change: every verifier adds the new root (or keyring) to
+  `paztport.overlap.root-paths` (`keyring-paths`); then each holder switches to the new
+  tree's proof bundle (`paztport.proofs-path`), or the rotated service to its new key
+  (`paztport.key-path`) and the new keyring as its `paztport.keyring-path`; then every
+  verifier makes the new file its `paztport.root-path` (`paztport.keyring-path`) and
+  drops the overlap entry, which unpins the old. While both are pinned, both are
+  honoured, so a key retired because it was compromised is unpinned at once, with no
+  overlap: every verifier takes the new keyring as its `paztport.keyring-path` in one
+  step.
 - **Modes.** `paztport.mode` is `enforce` (the default), `audit` or `off`, and
   `/admin/mode` switches it at run time. The first two are the protocol's
   [modes](../spec/verification.md#modes-and-refusals): `enforce` refuses a request
@@ -560,22 +567,28 @@ narrowing a policy is a rebuild. Re-signing the keyring vouches that each listed
 current key: the tool can check only that this policy key signed the keyring before, so retiring a key, which
 needs a new keyring rather than a renewed one, is the policy owner's to ensure.
 
-A third run rotates one service's key, `policy-tool --rotate <svc> [keysDir]` or `PAZTPORT_ROTATE=<svc>`
-(exclusive with `--renew`; usage and exit 2 if both are given). It reads `keysDir/policy.key` and
-`keysDir/keyring.json` and writes `keysDir/<svc>.next.key`, a new key in the keygen's format, and
-`keysDir/keyring.next.json`, the keyring with that service's key replaced and every other kept exactly, signed by
-the policy key and valid for `PAZTPORT_POLICY_DAYS`. `keyring.json` and `<svc>.key` are left as they are. It
-checks the keyring as the other modes do, refuses a service the keyring does not name, and refuses, writing
-nothing, if either output exists already (exit 2). The rollout, which the
-[spec](../spec/wire.md) describes as the overlap, is then: pin `keyring.next.json` beside
-`keyring.json` (the Spring starter's `paztport.overlap.keyring-paths`), switch the service to `<svc>.next.key` and
-the new keyring, and unpin `keyring.json`.
+A third run rotates one service's key, `policy-tool --rotate <svc> [keysDir]` or `PAZTPORT_ROTATE=<svc>` (exclusive
+with `--renew`; usage and exit 2 if both are given). It reads `keysDir/policy.key` and `keysDir/keyring.json` and
+writes `keysDir/<svc>.next.key`, a new key in the keygen's format, and `keysDir/keyring.next.json`, the keyring
+with that service's key replaced and every other kept exactly, signed by the policy key and valid for
+`PAZTPORT_POLICY_DAYS`. `keyring.json` and `<svc>.key` are left as they are. It checks the keyring as the other
+modes do, refuses a service the keyring does not name, and refuses, writing nothing, if either output exists
+already (exit 2). The rollout, which the [spec](../spec/wire.md#proof-bundles-and-who-holds-what) describes as the
+overlap, is then, in the Spring starter: every verifier adds `keyring.next.json` to
+`paztport.overlap.keyring-paths`; the service switches its `paztport.key-path` to `<svc>.next.key` and its
+`paztport.keyring-path` to `keyring.next.json`; then every verifier makes `keyring.next.json` its
+`paztport.keyring-path` and drops the overlap entry, which unpins `keyring.json`. Once the rollout is done, the
+policy owner moves `keyring.next.json` over `keyring.json` and `<svc>.next.key` over `<svc>.key`, before any later
+`--renew` or `--rotate`, which read `keyring.json`: a later `--renew` of the old `keyring.json` would re-sign the
+retired key. A key retired because it was compromised gets no overlap: every verifier takes `keyring.next.json` as
+its `paztport.keyring-path` at once, as the spec says.
 
-When `PAZTPORT_REPLY_CERT_SVC` names a service, either mode also writes `outDir/reply-cert.json`, a
+When `PAZTPORT_REPLY_CERT_SVC` names a service, building or renewing also writes `outDir/reply-cert.json`, a
 [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key in the keyring, valid for
-`PAZTPORT_REPLY_CERT_DAYS` days (default 7), set apart from the policy's lifetime. It refuses, writing nothing,
-a service the keyring has no key for. The tool prints only file names, their `notAfter` and the certificate's
-service.
+`PAZTPORT_REPLY_CERT_DAYS` days (default 7), set apart from the policy's lifetime. It refuses, writing nothing, a
+service the keyring has no key for. A rotation writes no certificate and ignores `PAZTPORT_REPLY_CERT_SVC`, though
+with it set a malformed `PAZTPORT_REPLY_CERT_DAYS` still refuses the run (exit 2), since the settings are read
+before the mode runs. The tool prints only file names, their `notAfter` and the certificate's service.
 
 ## tools/bench
 

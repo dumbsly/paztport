@@ -66,11 +66,13 @@ import org.paztport.core.session.ReplyCert;
  * it empty or truncated, which the next run refuses as not a keyring. This tool only re-signs a keyring, never
  * writes one from nothing, so recovering from that means new keys from the keygen.
  *
- * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, either mode also writes {@code reply-cert.json}, a
- * {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days
+ * <p>When {@code PAZTPORT_REPLY_CERT_SVC} names a service, building or renewing also writes {@code reply-cert.json},
+ * a {@link ReplyCert} for that service's key in the keyring, valid for {@code PAZTPORT_REPLY_CERT_DAYS} days
  * (default 7). It is reissued on every run, and a key that is not reissued stops being accepted when its
  * certificate expires. Before writing anything it checks that the keyring names the service, since that check is
- * what a certificate vouches for.
+ * what a certificate vouches for. A rotation writes no certificate and ignores {@code PAZTPORT_REPLY_CERT_SVC},
+ * though with it set a malformed {@code PAZTPORT_REPLY_CERT_DAYS} still refuses the run (exit 2), since the settings
+ * are read before the mode runs.
  *
  * <p>It prints only file names, each one's {@code notAfter} and the certificate's service; never key material,
  * salts or the tree.
