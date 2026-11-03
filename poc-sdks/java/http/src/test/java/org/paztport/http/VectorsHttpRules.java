@@ -112,8 +112,8 @@ final class VectorsHttpRules {
             + " against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is"
             + " the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads"
             + " each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a"
-            + " call's boundary stamp is signed as the step runs, in the session it names. The spec's README says what"
-            + " each kind covers.";
+            + " call's boundary stamp is signed as the step runs, in the session it names; a call may carry `read`,"
+            + " what the handler reads once it is accepted. The spec's README says what each kind covers.";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -412,6 +412,7 @@ final class VectorsHttpRules {
         rules.set("refusals", refusals(chains));
         rules.set("boundaryRefusals", VectorsHttpPartner.boundaryRefusals(fx));
         rules.set("trustedRecord", trustedRecord(chains));
+        rules.set("partnerTrustedRecord", VectorsHttpPartner.partnerTrustedRecord(fx));
         return rules;
     }
 

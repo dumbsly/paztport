@@ -28,7 +28,7 @@ func TestPartnerRulesVectors(t *testing.T) {
 		cases int
 	}{
 		{"sessionHeader", 9}, {"sessionRegistry", 6}, {"handshakeErrors", 14}, {"sessionExpiry", 3},
-		{"boundaryRefusals", 6},
+		{"boundaryRefusals", 6}, {"partnerTrustedRecord", 5},
 	}
 	for _, kind := range kinds {
 		t.Run(kind.name, func(t *testing.T) {
@@ -214,7 +214,15 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 	if a.Attested != (a.Chain != nil) {
 		t.Fatalf("Attested is %v with chain %v", a.Attested, a.Chain)
 	}
-	return callOutcome("null", a.Attested, a.Influence, a.TrustedRecord(nil))
+	return callOutcome("null", a.Attested, a.Influence, a.TrustedRecord(readOf(c)))
+}
+
+// readOf returns what call step c's handler reads once the call is accepted: its read, or none.
+func readOf(c vectors.Node) []influence.Entry {
+	if !c.Has("read") {
+		return nil
+	}
+	return entries(c.Get("read"))
 }
 
 // expectedCall returns a call step's expected, in the shape of callOutcome.

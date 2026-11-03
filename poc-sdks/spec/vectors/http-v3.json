@@ -378,7 +378,7 @@
     "proofRoute" : "gateway/orders/payment"
   } ],
   "rules" : {
-    "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v3.json; each new one is derived by v3.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a call's boundary stamp is signed as the step runs, in the session it names. The spec's README says what each kind covers.",
+    "about" : "The HTTP rules the spec requires of a receiver, a caller, a partner and an egress, each case an input and the answer the spec gives. A key is looked up by name here, then in this file's top-level `keys`, then in v3.json; each new one is derived by v3.json's rule. A `material` is one organisation's policy key (by name), its signed root and signed keyring, each with its notAfter, the proofs of its routes and, for a partner, its entry service and reply certificate. Each root's tree has depth 1, its two routes filling both leaves with salts by v3.json's rule, so it has no padding; its rootId is \"v\" and the first 12 hex digits of SHA-256(utf8(\"paztport-http-v3-vector-root:\" + tree)), for the vectors only. A handshake request's nonce is the first 16 bytes (15 for `short-nonce`) of SHA-256(utf8(\"paztport-http-v3-vector-nonce:\" + name)), base64url, and `handshakeBodies` holds each request's JCS bytes, the body a step posts. Bodies and certificates are hex, and headers are their values as sent. A receiver case enters `request` at `service` `uses` times against one nonce cache that already holds `spent`, the handler then reads `read`, and `expected` is the last entry's answer. A partner case runs `steps` in order against one partner whose clock reads each step's `at`; a handshake's `as` names the session it opens, since the partner picks the id, and a call's boundary stamp is signed as the step runs, in the session it names; a call may carry `read`, what the handler reads once it is accepted. The spec's README says what each kind covers.",
     "keys" : {
       "shop-policy" : {
         "pub" : "MCowBQYDK2VwAyEAkvqcFAuVpfdZRbtdb253j0G4CVyQ6CnyyQLa6hdWHTc",
@@ -7144,6 +7144,411 @@
         "attests" : false,
         "trustedRecord" : false
       }
+    } ],
+    "partnerTrustedRecord" : [ {
+      "name" : "third-party content in the stamp",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "influence" : [ {
+              "cls" : "third-party",
+              "src" : "ticket:t-1",
+              "h" : "h-ticket-1",
+              "cid" : "cid-ticket-1"
+            } ]
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "influenceHeader" : "W3siY2lkIjoiY2lkLXRpY2tldC0xIiwiY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaC10aWNrZXQtMSIsInNyYyI6InRpY2tldDp0LTEifV0"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "influence" : [ {
+            "cls" : "third-party",
+            "src" : "ticket:t-1",
+            "h" : "h-ticket-1",
+            "cid" : "cid-ticket-1"
+          } ],
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "local-untrusted content in the stamp",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "influence" : [ {
+              "cls" : "local-untrusted",
+              "src" : "http:search",
+              "h" : "h-search-1"
+            } ]
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "influenceHeader" : "W3siY2xzIjoibG9jYWwtdW50cnVzdGVkIiwiaCI6Imgtc2VhcmNoLTEiLCJzcmMiOiJodHRwOnNlYXJjaCJ9XQ"
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "influence" : [ {
+            "cls" : "local-untrusted",
+            "src" : "http:search",
+            "h" : "h-search-1"
+          } ],
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "a clean call, then a third-party read",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "influence" : [ {
+              "cls" : "public",
+              "src" : "http:catalogue",
+              "h" : "h-catalogue-1"
+            }, {
+              "cls" : "private",
+              "src" : "http:orders",
+              "h" : "h-order-1",
+              "cid" : "cid-order-1",
+              "owner" : "alice"
+            } ]
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "influenceHeader" : "W3siY2xzIjoicHVibGljIiwiaCI6ImgtY2F0YWxvZ3VlLTEiLCJzcmMiOiJodHRwOmNhdGFsb2d1ZSJ9LHsiY2lkIjoiY2lkLW9yZGVyLTEiLCJjbHMiOiJwcml2YXRlIiwiaCI6Imgtb3JkZXItMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJodHRwOm9yZGVycyJ9XQ",
+          "read" : [ {
+            "cls" : "third-party",
+            "src" : "ticket:t-1",
+            "h" : "h-ticket-1",
+            "cid" : "cid-ticket-1"
+          } ]
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "influence" : [ {
+            "cls" : "public",
+            "src" : "http:catalogue",
+            "h" : "h-catalogue-1"
+          }, {
+            "cls" : "private",
+            "src" : "http:orders",
+            "h" : "h-order-1",
+            "cid" : "cid-order-1",
+            "owner" : "alice"
+          } ],
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "a clean call, then a local-untrusted read",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "influence" : [ {
+              "cls" : "public",
+              "src" : "http:catalogue",
+              "h" : "h-catalogue-1"
+            }, {
+              "cls" : "private",
+              "src" : "http:orders",
+              "h" : "h-order-1",
+              "cid" : "cid-order-1",
+              "owner" : "alice"
+            } ]
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "influenceHeader" : "W3siY2xzIjoicHVibGljIiwiaCI6ImgtY2F0YWxvZ3VlLTEiLCJzcmMiOiJodHRwOmNhdGFsb2d1ZSJ9LHsiY2lkIjoiY2lkLW9yZGVyLTEiLCJjbHMiOiJwcml2YXRlIiwiaCI6Imgtb3JkZXItMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJodHRwOm9yZGVycyJ9XQ",
+          "read" : [ {
+            "cls" : "local-untrusted",
+            "src" : "http:search",
+            "h" : "h-search-1"
+          } ]
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "influence" : [ {
+            "cls" : "public",
+            "src" : "http:catalogue",
+            "h" : "h-catalogue-1"
+          }, {
+            "cls" : "private",
+            "src" : "http:orders",
+            "h" : "h-order-1",
+            "cid" : "cid-order-1",
+            "owner" : "alice"
+          } ],
+          "trustedRecord" : false
+        }
+      } ]
+    }, {
+      "name" : "private and public content with owners, and a public read",
+      "partner" : {
+        "material" : "psp",
+        "pinned" : [ "shop-policy" ],
+        "clientOrigins" : [ "payment" ],
+        "unsafeDisabled" : [ "POST /refund", "GET /statements/{id}" ],
+        "maxSessionsPerPeer" : 16,
+        "sessionIdleMs" : 900000,
+        "callMaxAgeMs" : 5000,
+        "runMaxAgeMs" : 5000,
+        "nonceTtlMs" : 15000,
+        "start" : 1767225600000
+      },
+      "steps" : [ {
+        "at" : 1767225600000,
+        "handshake" : {
+          "peer" : "shop",
+          "request" : "shop",
+          "body" : null
+        },
+        "as" : "s1",
+        "expected" : {
+          "status" : 200,
+          "error" : null,
+          "sessionStatus" : "attested",
+          "disabled" : [ ]
+        }
+      }, {
+        "at" : 1767225601000,
+        "call" : {
+          "peer" : "shop",
+          "session" : {
+            "of" : "s1"
+          },
+          "method" : "POST",
+          "target" : "/charge",
+          "routePattern" : "/charge",
+          "body" : "7b22636861726765223a3130307d",
+          "stamp" : {
+            "svc" : "payment",
+            "inst" : "pay-1",
+            "rid" : "rid-b-1",
+            "ts" : 1767225600900,
+            "sess" : {
+              "of" : "s1"
+            },
+            "rcv" : "psp",
+            "key" : "payment",
+            "body" : "7b22636861726765223a3130307d",
+            "influence" : [ {
+              "cls" : "public",
+              "src" : "http:catalogue",
+              "h" : "h-catalogue-1"
+            }, {
+              "cls" : "private",
+              "src" : "http:orders",
+              "h" : "h-order-1",
+              "cid" : "cid-order-1",
+              "owner" : "alice"
+            } ]
+          },
+          "proofHeader" : "eyJkaXJzIjoiUiIsImxlYWZTYWx0IjoiY2pweTUzaUNFQ01YaDJ0QnVZVmV2dyIsInJvb3RJZCI6InY4NTc1ZjAyYzg3MDYiLCJzaWJsaW5ncyI6WyJTLUZkQW90SGUxeXkxT1dRVEx2ZWh4eUxpcmJ2STZWVVhEWnNPa19wZ2ZzIl19",
+          "influenceHeader" : "W3siY2xzIjoicHVibGljIiwiaCI6ImgtY2F0YWxvZ3VlLTEiLCJzcmMiOiJodHRwOmNhdGFsb2d1ZSJ9LHsiY2lkIjoiY2lkLW9yZGVyLTEiLCJjbHMiOiJwcml2YXRlIiwiaCI6Imgtb3JkZXItMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJodHRwOm9yZGVycyJ9XQ",
+          "read" : [ {
+            "cls" : "public",
+            "src" : "http:faq",
+            "h" : "h-faq-1"
+          } ]
+        },
+        "expected" : {
+          "refusal" : null,
+          "attested" : true,
+          "influence" : [ {
+            "cls" : "public",
+            "src" : "http:catalogue",
+            "h" : "h-catalogue-1"
+          }, {
+            "cls" : "private",
+            "src" : "http:orders",
+            "h" : "h-order-1",
+            "cid" : "cid-order-1",
+            "owner" : "alice"
+          } ],
+          "trustedRecord" : true
+        }
+      } ]
     } ]
   },
   "boundaryInfluence" : {

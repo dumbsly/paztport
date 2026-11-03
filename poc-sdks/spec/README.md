@@ -180,7 +180,8 @@ among them, is sent with `Content-Type: application/json` and no parameters
 | `sessionExpiry` | partner | A session's calls are `POLICY_EXPIRED` once the client's root or keyring passes its `notAfter`, and verify at it; a handshake after it is unsafe; and a partner whose own material lapses opens new sessions unsafe and keeps verifying the earlier ones ([sessions-and-influence.md](sessions-and-influence.md#status)). |
 | `refusals` | receiver | What a refusal carries, in a mesh: the code alone, even where the result names a suspect. |
 | `boundaryRefusals` | partner | The same at the boundary: the partner's refusals, unreadable influence included (a partner has no audit mode), and an unsafe session's switched-off operations refused `UNSAFE_SESSION`, with no session header too. |
-| `trustedRecord` | receiver | Trusted records ([sessions-and-influence.md](sessions-and-influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session. |
+| `trustedRecord` | receiver | Trusted records ([sessions-and-influence.md](sessions-and-influence.md#trusted-records)): a verified chain and no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. The partner kinds' `trustedRecord` covers a call in an unsafe session, and `partnerTrustedRecord` the same rule at the boundary. |
+| `partnerTrustedRecord` | partner | The same rule at the boundary: an attested call qualifies only with no `third-party` or `local-untrusted` content, counting what the handler reads; `private`, `public` and owners do not count. |
 
 A **receiver** case enters `request` (`method`, `target`, `headers`, `body`) `uses` times at `service`: its `svc`
 and `inst`, whether it is an `origin`, and whether it has a `verifier`, pinned to `material`. Every service holds
@@ -204,7 +205,9 @@ present, is a boundary stamp signed with `key` as the step runs, in the session 
 method, its target and the stamp's own `body`, and committing to the stamp's `influence`; `proofHeader` and
 `influenceHeader` go as given. `routePattern` is the pattern of the handler the call reaches, which an unsafe
 session's switched-off operations are matched against. It expects the `refusal`, whether the call is `attested`, the
-`influence` the handler starts from, and `trustedRecord`.
+`influence` the handler starts from, and `trustedRecord`. A `call` may carry `read`, what the handler reads after
+the call is accepted, in a receiver case's form; `trustedRecord` counts it after the call's influence, and no `read`
+is the empty list.
 
 An **egress** case enters `inbound`, a receiver case's inputs, at the egress (null: no request at all), then
 sends each of `posts` to a scripted partner. Each handshake that carries a client root takes the next of

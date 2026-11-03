@@ -183,9 +183,14 @@ final class VectorsHttpPartner {
          * from payment made in that session, or in {@code s1} when the call names none.
          */
         ObjectNode charge(long at, String peer, JsonNode session) {
+            return charge(at, peer, session, OWNED);
+        }
+
+        /** As {@link #charge(long, String, JsonNode)}, carrying and committing to {@code influence}. */
+        ObjectNode charge(long at, String peer, JsonNode session, List<InfluenceEntry> influence) {
             return call(peer, session, "POST", "/charge", "/charge", CHARGE,
-                    stamp(at, session == null ? of("s1") : session, "payment", CHARGE, OWNED),
-                    shop.proofHeader(VectorsHttpRules.BOUNDARY_ROUTE), HttpWire.encodeInfluence(OWNED));
+                    stamp(at, session == null ? of("s1") : session, "payment", CHARGE, influence),
+                    shop.proofHeader(VectorsHttpRules.BOUNDARY_ROUTE), HttpWire.encodeInfluence(influence));
         }
 
         ObjectNode call(String peer, JsonNode session, String method, String target, String routePattern,
@@ -453,6 +458,39 @@ final class VectorsHttpPartner {
         return a;
     }
 
+    /**
+     * sessions-and-influence.md, trusted records, at the boundary: an attested call qualifies only with no
+     * third-party or local-untrusted content, in its stamp or in what the handler reads once it is accepted.
+     */
+    static ArrayNode partnerTrustedRecord(Fixtures fx) {
+        Material shop = fx.material("shop");
+        List<InfluenceEntry> thirdParty = Influence.normalise(List.of(
+                new InfluenceEntry(InfluenceClass.THIRD_PARTY, "ticket:t-1", "h-ticket-1", "cid-ticket-1", null)));
+        List<InfluenceEntry> untrusted = Influence.normalise(List.of(
+                new InfluenceEntry(InfluenceClass.LOCAL_UNTRUSTED, "http:search", "h-search-1", null, null)));
+        List<InfluenceEntry> publicRead = Influence.normalise(List.of(
+                new InfluenceEntry(InfluenceClass.PUBLIC, "http:faq", "h-faq-1", null, null)));
+        ArrayNode a = arr();
+        a.add(trustedScript("third-party content in the stamp", shop, thirdParty, List.of(), false));
+        a.add(trustedScript("local-untrusted content in the stamp", shop, untrusted, List.of(), false));
+        a.add(trustedScript("a clean call, then a third-party read", shop, OWNED, thirdParty, false));
+        a.add(trustedScript("a clean call, then a local-untrusted read", shop, OWNED, untrusted, false));
+        a.add(trustedScript("private and public content with owners, and a public read", shop, OWNED, publicRead,
+                true));
+        return a;
+    }
+
+    /** One attested session from peer shop and a call in it stamped with {@code stamped}, then {@code read}. */
+    private static ObjectNode trustedScript(String name, Material shop, List<InfluenceEntry> stamped,
+            List<InfluenceEntry> read, boolean trusted) {
+        Script s = new Script(name, partner(), shop).handshake(NOW, "shop", "shop", "s1", opened("attested"));
+        ObjectNode call = s.charge(NOW + 1_000, "shop", of("s1"), stamped);
+        if (!read.isEmpty()) {
+            call.set("read", entries(read));
+        }
+        return s.call(NOW + 1_000, call, attested(stamped, trusted)).c;
+    }
+
     /** verification.md, what a refusal carries, at the boundary: the partner's refusals, the unsafe gate's included. */
     static ArrayNode boundaryRefusals(Fixtures fx) {
         Material shop = fx.material("shop");
@@ -615,6 +653,9 @@ final class VectorsHttpPartner {
             }
             e.put("attested", refusal == null && a.attested());
             e.set("influence", entries(refusal == null ? a.influence() : List.of()));
+            if (refusal == null && call.has("read")) {
+                RequestContext.addInfluence(entries(call.get("read")).toArray(InfluenceEntry[]::new));
+            }
             e.put("trustedRecord", refusal == null && new PublicWrites(entry).shapedOnlyByTrusted());
         }
         return e;
@@ -1044,7 +1085,7 @@ final class VectorsHttpPartner {
 
     static void assertAll(JsonNode rules, Fixtures fx) {
         for (String kind : List.of("sessionHeader", "sessionRegistry", "handshakeErrors", "sessionExpiry",
-                "boundaryRefusals")) {
+                "boundaryRefusals", "partnerTrustedRecord")) {
             for (JsonNode c : rules.get(kind)) {
                 ArrayNode actual = runScript(c, fx);
                 JsonNode steps = c.get("steps");
