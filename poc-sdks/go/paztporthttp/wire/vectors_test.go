@@ -4,7 +4,6 @@
 package wire_test
 
 import (
-	"encoding/hex"
 	"slices"
 	"testing"
 
@@ -33,7 +32,7 @@ func TestRequestBindingVectors(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			got, err := wire.Bind(c.Get("method").Str(), c.Get("target").Str(), unhex(t, c.Get("body")))
+			got, err := wire.Bind(c.Get("method").Str(), c.Get("target").Str(), c.Get("body").With(t).Hex())
 			if err != nil {
 				t.Fatalf("Bind: %v", err)
 			}
@@ -53,7 +52,7 @@ func TestResultHashVectors(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			got := wire.ResultHash(int(c.Get("status").Int()), unhex(t, c.Get("body")))
+			got := wire.ResultHash(int(c.Get("status").Int()), c.Get("body").With(t).Hex())
 			if want := c.Get("hash").Str(); got != want {
 				t.Fatalf("ResultHash = %s, want %s", got, want)
 			}
@@ -121,7 +120,7 @@ func TestHTTPBindingRefusals(t *testing.T) {
 				t.Fatal("the case expects a binding; only refusals are replayed here")
 			}
 			in := c.Get("inputs")
-			if got, err := wire.Bind(in.Get("method").Str(), in.Get("target").Str(), unhex(t, in.Get("body"))); err == nil {
+			if got, err := wire.Bind(in.Get("method").Str(), in.Get("target").Str(), in.Get("body").With(t).Hex()); err == nil {
 				t.Fatalf("Bind bound it as %s", got)
 			}
 		})
@@ -199,7 +198,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 		proof:    proof,
 		header:   c.Get("responseHeader").Str(),
 		status:   int(c.Get("status").Int()),
-		body:     unhex(t, c.Get("body")),
+		body:     c.Get("body").With(t).Hex(),
 		caller:   c.Get("caller").Str(),
 	}
 }
@@ -224,14 +223,4 @@ func labels(n vectors.Node) []influence.Label {
 		}
 	}
 	return ls
-}
-
-// unhex returns the bytes hex string n holds.
-func unhex(t testing.TB, n vectors.Node) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(n.Str())
-	if err != nil {
-		t.Fatalf("hex: %v", err)
-	}
-	return b
 }

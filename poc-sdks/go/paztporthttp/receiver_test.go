@@ -650,7 +650,7 @@ func failingReceiver(t *testing.T, c vectors.Node, err error) *paztporthttp.Rece
 	r := caseReceiver(t, c)
 	now := c.Get("now").Int()
 	r.Verifier = pinnedVerifier(t, c.Get("material").Str(), verify.Config{
-		AllowedOrigins: strs(c.Get("allowedOrigins")),
+		AllowedOrigins: c.Get("allowedOrigins").Strs(),
 		Nonces:         failingCache{err},
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),

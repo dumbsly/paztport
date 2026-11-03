@@ -200,7 +200,7 @@ func stampCallerCase(
 		}
 		now := c.Get("now").Int()
 		caller.Verifier = pinnedVerifier(t, c.Get("material").Str(), verify.Config{
-			AllowedOrigins: strs(c.Get("allowedOrigins")),
+			AllowedOrigins: c.Get("allowedOrigins").Strs(),
 			Nonces:         nonces,
 			Now:            func() int64 { return now },
 			CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),

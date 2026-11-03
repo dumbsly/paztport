@@ -6,7 +6,6 @@ package boundary_test
 import (
 	"bytes"
 	"crypto/ed25519"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"reflect"
@@ -46,7 +45,7 @@ func TestEgressVectors(t *testing.T) {
 			var posts []string
 			c.Get("posts").Each(func(_ string, p vectors.Node) {
 				var out string
-				out, infl = post(t, e, a, infl, p.Get("path").Str(), unhex(t, p.Get("body")), partner)
+				out, infl = post(t, e, a, infl, p.Get("path").Str(), p.Get("body").With(t).Hex(), partner)
 				posts = append(posts, out)
 			})
 			e2 := c.Get("expected")
@@ -132,10 +131,10 @@ func egressCase(t *testing.T, c vectors.Node) (*boundary.Egress, paztporthttp.Ac
 	script := c.Get("partnerScript")
 	var calls []scriptedAnswer
 	script.Get("calls").Each(func(_ string, a vectors.Node) {
-		calls = append(calls, scriptedAnswer{status: int(a.Get("status").Int()), body: unhex(t, a.Get("body"))})
+		calls = append(calls, scriptedAnswer{status: int(a.Get("status").Int()), body: a.Get("body").With(t).Hex()})
 	})
 	p := newScriptedPartner(t, g.Get("material").Str(), now,
-		strs(script.Get("handshakes")), script.Get("replacement").Str(), calls...)
+		script.Get("handshakes").Strs(), script.Get("replacement").Str(), calls...)
 	return e, a, p
 }
 
@@ -189,7 +188,7 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 		m := vectors.RulesMaterial(t, in.Get("material").Str())
 		_, pub := vectors.RulesKey(t, m.PolicyKey)
 		cfg, err := verify.Pinned(keyringOf(t, m), rootOf(t, m), keys.EncodePublic(pub), verify.Config{
-			AllowedOrigins: strs(in.Get("allowedOrigins")),
+			AllowedOrigins: in.Get("allowedOrigins").Strs(),
 			Nonces:         verify.NewMemoryNonceCache(in.Get("nonceTtlMs").Int()),
 			Now:            func() int64 { return now },
 			CallMaxAgeMs:   in.Get("callMaxAgeMs").Int(),
@@ -215,7 +214,7 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 		return vs
 	}
 	inbound := paztporthttp.NewInboundRequest(req.Get("method").Str(), req.Get("target").Str(),
-		unhex(t, req.Get("body")), lookup)
+		req.Get("body").With(t).Hex(), lookup)
 	a, err := r.Accept(t.Context(), inbound, nil, mode(t, in.Get("mode")))
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
@@ -568,7 +567,7 @@ func expectedReceived(t testing.TB, r vectors.Node) string {
 		return renderProof(pr)
 	})
 	infl := nullOr(c.Get("influence"), func(n vectors.Node) string { return fmt.Sprintf("%+v", entries(n)) })
-	return renderCall(c.Get("method").Str(), c.Get("path").Str(), unhex(t, c.Get("body")),
+	return renderCall(c.Get("method").Str(), c.Get("path").Str(), c.Get("body").With(t).Hex(),
 		nullOr(c.Get("session"), index), stamps, nullOr(c.Get("stampSession"), index), proof, infl)
 }
 
@@ -648,25 +647,6 @@ func entries(n vectors.Node) []influence.Entry {
 		}
 	}
 	return es
-}
-
-// strs returns the strings array n holds.
-func strs(n vectors.Node) []string {
-	out := make([]string, n.Len())
-	for i := range out {
-		out[i] = n.Index(i).Str()
-	}
-	return out
-}
-
-// unhex returns the bytes hex string n holds.
-func unhex(t testing.TB, n vectors.Node) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(n.Str())
-	if err != nil {
-		t.Fatalf("not hex: %v", err)
-	}
-	return b
 }
 
 // unb64 returns the bytes base64url string n holds.

@@ -5,7 +5,6 @@ package vectors
 
 import (
 	"crypto/ed25519"
-	"encoding/hex"
 	"testing"
 )
 
@@ -85,21 +84,11 @@ func RulesMaterial(t testing.TB, name string) Material {
 func RulesPeer(t testing.TB, name string) (der []byte, remoteAddr string) {
 	t.Helper()
 	p := Rules(t).Get("peers").Get(name)
-	return unhex(t, p.Get("certificate")), p.Get("remoteAddr").Str()
+	return p.Get("certificate").Hex(), p.Get("remoteAddr").Str()
 }
 
 // RulesHandshakeBody returns the body a step posts for the handshake request called name: its JCS bytes.
 func RulesHandshakeBody(t testing.TB, name string) []byte {
 	t.Helper()
-	return unhex(t, Rules(t).Get("handshakeBodies").Get(name))
-}
-
-// unhex returns the bytes hex string n holds.
-func unhex(t testing.TB, n Node) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(n.Str())
-	if err != nil {
-		t.Fatalf("vectors: %s is not hex: %v", n.v.path, err)
-	}
-	return b
+	return Rules(t).Get("handshakeBodies").Get(name).Hex()
 }

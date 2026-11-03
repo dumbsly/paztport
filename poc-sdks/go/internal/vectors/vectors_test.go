@@ -147,6 +147,31 @@ func TestInt(t *testing.T) {
 	}
 }
 
+func TestStrsAndHex(t *testing.T) {
+	n := inline(t, `{"strs": ["a", "", "b"], "none": [], "mixed": ["a", 1], "hex": "00ff7f", "odd": "0f0",
+		"notHex": "zz"}`)
+	if got := n.Get("strs").Strs(); !slices.Equal(got, []string{"a", "", "b"}) {
+		t.Errorf("Strs = %q", got)
+	}
+	if got := n.Get("none").Strs(); got == nil || len(got) != 0 {
+		t.Errorf("Strs of [] = %#v, want an empty list", got)
+	}
+	if got := n.Get("hex").Hex(); !slices.Equal(got, []byte{0x00, 0xff, 0x7f}) {
+		t.Errorf("Hex = %x", got)
+	}
+	for _, f := range []func(tb testing.TB){
+		func(tb testing.TB) { n.With(tb).Get("mixed").Strs() },
+		func(tb testing.TB) { n.With(tb).Get("hex").Strs() },
+		func(tb testing.TB) { n.With(tb).Get("odd").Hex() },
+		func(tb testing.TB) { n.With(tb).Get("notHex").Hex() },
+		func(tb testing.TB) { n.With(tb).Get("strs").Hex() },
+	} {
+		if msg := failure(t, f); msg == "" {
+			t.Error("a Node that is not what Strs or Hex reads did not fail the test")
+		}
+	}
+}
+
 func TestMissingFailsTheTestNamingThePlace(t *testing.T) {
 	n := inline(t, `{"cases": [{"name": "one"}]}`)
 	c := n.Get("cases").Index(0)

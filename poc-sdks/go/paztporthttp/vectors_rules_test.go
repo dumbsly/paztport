@@ -53,7 +53,7 @@ func TestUnsafeOperationsVectors(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			disabled := paztporthttp.UnsafeOperations(strs(c.Get("disabled")))
+			disabled := paztporthttp.UnsafeOperations(c.Get("disabled").Strs())
 			got := disabled.Refuses(c.Get("method").Str(), c.Get("routePattern").Str())
 			if want := c.Get("refused").Bool(); got != want {
 				t.Fatalf("Refuses = %v, want %v", got, want)
@@ -170,13 +170,13 @@ func caseVerifier(t *testing.T, c vectors.Node) *verify.Verifier {
 	t.Helper()
 	now := c.Get("now").Int()
 	nonces := verify.NewMemoryNonceCache(c.Get("nonceTtlMs").Int())
-	for _, k := range strs(c.Get("spent")) {
+	for _, k := range c.Get("spent").Strs() {
 		if _, err := nonces.SeenBefore(t.Context(), k, now); err != nil {
 			t.Fatalf("SeenBefore: %v", err)
 		}
 	}
 	return pinnedVerifier(t, c.Get("material").Str(), verify.Config{
-		AllowedOrigins: strs(c.Get("allowedOrigins")),
+		AllowedOrigins: c.Get("allowedOrigins").Strs(),
 		Nonces:         nonces,
 		Now:            func() int64 { return now },
 		CallMaxAgeMs:   c.Get("callMaxAgeMs").Int(),
@@ -263,13 +263,4 @@ func entries(n vectors.Node) []influence.Entry {
 		}
 	}
 	return es
-}
-
-// strs returns the strings array n holds.
-func strs(n vectors.Node) []string {
-	out := make([]string, n.Len())
-	for i := range out {
-		out[i] = n.Index(i).Str()
-	}
-	return out
 }

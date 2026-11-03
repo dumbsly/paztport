@@ -42,12 +42,12 @@ func TestVectors(t *testing.T) {
 				Keyring:        keyring,
 				Root:           root,
 				RootID:         p.Get("rootId").Str(),
-				AllowedOrigins: strs(c.Get("allowedOrigins")),
+				AllowedOrigins: c.Get("allowedOrigins").Strs(),
 				Sess:           c.Get("sess").Str(),
 				RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
 				CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
 			}
-			got := offline.NewRecordSet(strs(c.Get("seen"))...).Verify(input(t, c, p), cfg)
+			got := offline.NewRecordSet(c.Get("seen").Strs()...).Verify(input(t, c, p), cfg)
 			e := c.Get("expected")
 			want := verify.Result{
 				Reason:      reason.Code(e.Get("reason").Str()),
@@ -127,7 +127,7 @@ func TestRecordedCallVectors(t *testing.T) {
 				sessions = append(sessions, record(t, v3, h.With(t)))
 			})
 			records := offline.NewRecordSet()
-			origins := strs(c.Get("allowedOrigins"))
+			origins := c.Get("allowedOrigins").Strs()
 			want := c.Get("expected")
 			if c.Get("calls").Len() != want.Len() {
 				t.Fatalf("the case gives %d calls and %d answers", c.Get("calls").Len(), want.Len())
@@ -232,13 +232,4 @@ func optionalInt(n vectors.Node) *int64 {
 	}
 	i := n.Int()
 	return &i
-}
-
-// strs returns the strings of array n.
-func strs(n vectors.Node) []string {
-	out := make([]string, n.Len())
-	for i := range out {
-		out[i] = n.Index(i).Str()
-	}
-	return out
 }

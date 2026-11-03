@@ -43,7 +43,7 @@ func TestVectors(t *testing.T) {
 				Root:           root,
 				RootID:         p.Get("rootId").Str(),
 				PolicyNotAfter: c.Get("policyNotAfter").Int(),
-				AllowedOrigins: strs(c.Get("allowedOrigins")),
+				AllowedOrigins: c.Get("allowedOrigins").Strs(),
 				Sess:           c.Get("sess").Str(),
 				Nonces:         verify.NewMemoryNonceCache(c.Get("nonceTtlMs").Int()),
 				Now:            func() int64 { return now },
@@ -99,13 +99,4 @@ func optional(n vectors.Node) *string {
 	}
 	s := n.Str()
 	return &s
-}
-
-// strs returns the strings of array n.
-func strs(n vectors.Node) []string {
-	out := make([]string, n.Len())
-	for i := range out {
-		out[i] = n.Index(i).Str()
-	}
-	return out
 }

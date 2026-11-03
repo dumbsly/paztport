@@ -8,6 +8,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -247,6 +248,28 @@ func (n Node) Bool() bool {
 	n.t.Helper()
 	n.want(Bool)
 	return n.v.raw[0] == 't'
+}
+
+// Strs returns the strings of array n, in order. It fails the test if n is not an array or holds an item
+// that is not a string.
+func (n Node) Strs() []string {
+	n.t.Helper()
+	n.want(Array)
+	out := make([]string, len(n.v.kids))
+	for i := range out {
+		out[i] = n.kid(i).Str()
+	}
+	return out
+}
+
+// Hex returns the bytes hex string n holds. It fails the test if n is not a string of hex digits.
+func (n Node) Hex() []byte {
+	n.t.Helper()
+	b, err := hex.DecodeString(n.Str())
+	if err != nil {
+		n.t.Fatalf("vectors: %s is not hex: %v", n.v.path, err)
+	}
+	return b
 }
 
 // IsNull reports whether n is null.

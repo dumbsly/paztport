@@ -4,7 +4,6 @@
 package paztporthttp_test
 
 import (
-	"encoding/hex"
 	"fmt"
 	"testing"
 
@@ -109,7 +108,7 @@ func partnerConfig(t *testing.T, p vectors.Node, now func() int64) paztporthttp.
 	_, policyPub := vectors.RulesKey(t, m.PolicyKey)
 	entryKey, _ := vectors.RulesKey(t, m.Entry)
 	var pinned []string
-	for _, name := range strs(p.Get("pinned")) {
+	for _, name := range p.Get("pinned").Strs() {
 		_, pub := vectors.RulesKey(t, name)
 		pinned = append(pinned, keys.EncodePublic(pub))
 	}
@@ -121,8 +120,8 @@ func partnerConfig(t *testing.T, p vectors.Node, now func() int64) paztporthttp.
 		EntryKey:       entryKey,
 		ReplyCert:      cert,
 		Pinned:         pinned,
-		ClientOrigins:  strs(p.Get("clientOrigins")),
-		UnsafeDisabled: strs(p.Get("unsafeDisabled")),
+		ClientOrigins:  p.Get("clientOrigins").Strs(),
+		UnsafeDisabled: p.Get("unsafeDisabled").Strs(),
 		MaxPerPeer:     int(p.Get("maxSessionsPerPeer").Int()),
 		IdleMs:         p.Get("sessionIdleMs").Int(),
 		CallMaxAgeMs:   p.Get("callMaxAgeMs").Int(),
@@ -139,7 +138,7 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	h := step.Get("handshake")
 	var body []byte
 	if h.Get("request").IsNull() {
-		body = unhexNode(t, h.Get("body"))
+		body = h.Get("body").With(t).Hex()
 	} else {
 		body = vectors.RulesHandshakeBody(t, h.Get("request").Str())
 	}
@@ -168,7 +167,7 @@ func expectedHandshake(e vectors.Node) string {
 		status = e.Get("sessionStatus").Str()
 	}
 	if !e.Get("disabled").IsNull() {
-		disabled = fmt.Sprintf("%q", strs(e.Get("disabled")))
+		disabled = fmt.Sprintf("%q", e.Get("disabled").Strs())
 	}
 	return handshakeOutcome(int(e.Get("status").Int()), body, status, disabled)
 }
@@ -184,7 +183,7 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 	req := paztporthttp.InboundRequest{
 		Method: c.Get("method").Str(),
 		Target: c.Get("target").Str(),
-		Body:   unhexNode(t, c.Get("body")),
+		Body:   c.Get("body").With(t).Hex(),
 	}
 	req.Session = sc.sessionRef(t, c.Get("session"))
 	if st := c.Get("stamp"); !st.IsNull() {
@@ -223,7 +222,7 @@ func expectedCall(t *testing.T, e vectors.Node) string {
 	t.Helper()
 	refusal := "null"
 	if r := e.Get("refusal"); !r.IsNull() {
-		refusal = fmt.Sprintf("%d %s", r.Get("status").Int(), unhexNode(t, r.Get("body")))
+		refusal = fmt.Sprintf("%d %s", r.Get("status").Int(), r.Get("body").With(t).Hex())
 	}
 	return callOutcome(refusal, e.Get("attested").Bool(), entries(e.Get("influence")), e.Get("trustedRecord").Bool())
 }
@@ -255,7 +254,7 @@ func (sc *partnerScript) sessionRef(t *testing.T, ref vectors.Node) string {
 // and committing to the stamp's influence.
 func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, target string) string {
 	t.Helper()
-	bind, err := wire.Bind(method, target, unhexNode(t, st.Get("body")))
+	bind, err := wire.Bind(method, target, st.Get("body").With(t).Hex())
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
@@ -288,14 +287,4 @@ func partnerPeer(t *testing.T, n vectors.Node) *paztporthttp.PeerCert {
 	der, addr := vectors.RulesPeer(t, n.Str())
 	p := paztporthttp.PeerFromCertificate(der, addr)
 	return &p
-}
-
-// unhexNode returns the bytes hex string n holds.
-func unhexNode(t *testing.T, n vectors.Node) []byte {
-	t.Helper()
-	b, err := hex.DecodeString(n.Str())
-	if err != nil {
-		t.Fatalf("not hex: %v", err)
-	}
-	return b
 }
