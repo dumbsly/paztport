@@ -37,7 +37,7 @@ func TestVectors(t *testing.T) {
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
-// beside the committed cases that carry them: every offline case with one keyring, that keyring and its
+// beside the committed cases that carry them: every offline case written in the single form, its keyring and its
 // policy's root written as the arrays with no window, gives its recorded answer, with its keyring whole or split one
 // service to a keyring. And each member's window is the one it gives: a record later than every keyring's
 // or every root's notAfter is POLICY_EXPIRED, and one at it is not.

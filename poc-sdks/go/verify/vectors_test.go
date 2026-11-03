@@ -41,7 +41,7 @@ func TestVectors(t *testing.T) {
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
-// beside the committed cases that carry them: every verify case with one keyring, that keyring and its
+// beside the committed cases that carry them: every verify case written in the single form, its keyring and its
 // policy's root written as the arrays, each member until the case's policyNotAfter, gives its recorded answer, with its
 // keyring whole or split one service to a keyring. And what the arrays pin is what is used: without the
 // keyring that holds a signer's key the chain is BAD_SIGNATURE, and with another policy's root in place of

@@ -18,7 +18,7 @@ import {
   writeToken,
   utf8, verifyChainOffline, verifyChain, verifyKeyring, signReplyCert, replyCertSigningBytes, verifyReplyCert,
   checkSessionReply, readProof, readSessionReply, readSessionRequest, deriveSessionId, encodeProof, isCurrent, isNotAfter,
-  signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
+  pinnedNotAfter, signRenewedRoot, rootSigningBytes, sessionStatus, signRoot, verifyRoot,
   callInSession, newRecordSet, parseLocalRules, recordedSession, rulesHash, stampLocalStep, localStepBind, verifyRecordedLocalStep,
   verifyResponse,
 } from "@paztport/core";
@@ -56,7 +56,7 @@ const ABOUT =
   "This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. " +
   "Ed25519 is deterministic, so the file is reproduced byte for byte. " +
   "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; " +
-  "its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. " +
+  "its policyNotAfter is the earlier of the latest notAfter of the keyrings and the latest notAfter of the roots the verifier pins (one of each: the earlier of the two), which `now` must not pass. " +
   "An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, " +
   "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
@@ -467,17 +467,24 @@ export function buildVectors(): Record<string, unknown> {
   /** A verify case's pinned policy window unless it sets its own: 2100-01-01, far past `now`. */
   const PINNED_NOT_AFTER = 4_102_444_800_000;
   type Live = CaseInputs & { peer: Peer | null; uses: number; policyNotAfter?: number; keyrings?: KeyringPin[]; roots?: RootPin[] };
+  /** A live member's window: the format requires an integer. */
+  const windowOf = (name: string, notAfter: number | undefined): number => {
+    if (notAfter === undefined) throw new Error(`verify ${name}: a live keyring or root has no notAfter`);
+    return notAfter;
+  };
   const live = (c: Live, expected: Expected) => {
     const nonces = new NonceCache(NONCE_TTL_MS);
     const policyNotAfter = c.policyNotAfter ?? PINNED_NOT_AFTER;
     // one keyring and one root, each with the case's policy window, unless the case pins several (each with its own, in a verify case)
     const cfg = {
       keyrings: c.keyrings === undefined ? [{ keys: resolveKeyring(c.keyring), notAfter: policyNotAfter }]
-        : c.keyrings.map((k) => ({ keys: resolveKeyring(k.keyring), notAfter: k.notAfter! })),
+        : c.keyrings.map((k) => ({ keys: resolveKeyring(k.keyring), notAfter: windowOf(c.name, k.notAfter) })),
       roots: c.roots === undefined ? [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: policyNotAfter }]
-        : c.roots.map((r) => ({ root: rootOf(r.policy), rootId: policies[r.policy].rootId, notAfter: r.notAfter! })), allowedOrigins: c.allowedOrigins,
+        : c.roots.map((r) => ({ root: rootOf(r.policy), rootId: policies[r.policy].rootId, notAfter: windowOf(c.name, r.notAfter) })), allowedOrigins: c.allowedOrigins,
       sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, policyNotAfter,
     };
+    // the case's policyNotAfter is the pinning factory's: the earlier of the latest keyring and the latest root window
+    check(`verify ${c.name} policyNotAfter`, policyNotAfter, pinnedNotAfter(cfg.keyrings, cfg.roots));
     const chainToken = chainTokenOf(c.name, c.chain);
     const influenceToken = tokenOf(c.influence);
     const input = {
@@ -557,8 +564,8 @@ export function buildVectors(): Record<string, unknown> {
       const rootPin = (policy: PolicyName, notAfter: number): RootPin => ({ policy, notAfter });
       const meshRing = { gateway: "gateway", orders: "orders" } as const;
       const bothRoots = [rootPin("mesh", PINNED_NOT_AFTER), rootPin("mesh-second", PINNED_NOT_AFTER)];
-      const ordersNext = http.slice();
-      ordersNext[1] = stampBy({ ...http[1]!, rcv: "payment" } as Omit<Stamp, "v" | "sig">, "orders-next");
+      // the mesh chain's second hop, signed by the rotated key
+      const ordersNext = [gateway, stampBy({ svc: "orders", inst: "ord-1", rid: "rid-2", ts: NOW - 500, sess: "sess-2", rcv: "payment", bind: HTTP_BIND, infl: "", prev: gateway.sig }, "orders-next")];
       return [
         live(meshCase("a proof under the second pinned root", { policy: "mesh-second", keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: bothRoots }), ok("orders", "ord-1")),
         live(meshCase("a proof whose rootId is pinned nowhere", { keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: [rootPin("mesh-second", PINNED_NOT_AFTER), rootPin("client", PINNED_NOT_AFTER)] }), no("PATH_NOT_ALLOWED", "orders", "ord-1")),
@@ -654,6 +661,17 @@ export function buildVectors(): Record<string, unknown> {
         // the first root's window ends 1 ms before the record, the second has none
         offlineCase(meshOffline("a record within only the second root's window", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second" }], "mesh-second"), ok("orders", "ord-1")),
         offlineCase(meshOffline("a record past every root's window", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second", notAfter: recorded - 1 }], "mesh-second"), no("POLICY_EXPIRED")),
+        // windows are judged at the record's time, and a window ending at it still counts
+        offlineCase(meshOffline("a record at the second root's notAfter", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second", notAfter: recorded }], "mesh-second"), ok("orders", "ord-1")),
+        offlineCase({
+          ...meshOffline("a record past every keyring's window", [{ policy: "mesh-second" }], "mesh-second"),
+          keyrings: [{ keyring: { gateway: "gateway" }, notAfter: recorded - 1 }, { keyring: { orders: "orders" }, notAfter: recorded - 1 }],
+        }, no("POLICY_EXPIRED")),
+        // offline check 0 runs before the chain is read
+        offlineCase({
+          ...meshOffline("a record past every root's window, its chain malformed", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second", notAfter: recorded - 1 }], "mesh-second"),
+          chain: [], recordedTs: { last: recorded },
+        }, no("POLICY_EXPIRED")),
       ];
     })(),
   ];

@@ -69,10 +69,12 @@ A new implementation MUST pass `v3.json` and `json.json`, less their sections th
 file. Its `about` field says how its keys, salts and padding are derived, so the file can be rebuilt byte for byte;
 a verify case runs the live verifier `uses` times against one nonce cache, and the last result is the one expected.
 An offline case runs the offline verifier once, with no peer, clock or nonce TTL: `recordedTs.last` is the recorded
-time of the last stamp, and `seen` is the set of nonce keys already spent in the record set. A verify or offline case may pin
-several keyrings and roots: `keyrings`, in place of `keyring`, is a list of `{keyring, notAfter}`, and `roots` a list of
-`{policy, notAfter}`, whose roots the verifier pins; `policy` then names only where the case's proof comes from, and a
-verify case's `policyNotAfter` is still the pin's. An offline member with no `notAfter` has no window. A `keyring`, `root`
+time of the last stamp, and `seen` is the set of nonce keys already spent in the record set. A verify or offline case
+may pin several keyrings and roots: `keyrings`, in place of `keyring`, is a list of `{keyring, notAfter}`, and `roots` a
+list of `{policy, notAfter}`, whose roots the verifier pins; `policy` then names only where the case's proof comes from.
+A verify case's members each have a `notAfter`, and its `policyNotAfter` is the earlier of the latest `notAfter` among
+its keyrings and the latest among its roots (with one of each, the earlier of the two). An offline member with no
+`notAfter` has no window. A `keyring`, `root`
 or `replyCert` case's `signingBytes` is null when its `file` does not read: a reader refuses it, it never verifies,
 and its signature is never consulted. `current`, when present, gives whether it is valid at each `at`.
 

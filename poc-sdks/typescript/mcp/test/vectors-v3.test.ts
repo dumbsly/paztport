@@ -10,7 +10,7 @@ import {
   NonceCache, bindResult, callInSession, canonicalize, checkSessionReply, newRecordSet, recordedSession,
   verifyRecordedLocalStep, commitInfluence, decode, encode, isAttestedSession, sessionStatus, readSessionRequest,
   readSessionReply,
-  isCurrent, isNotAfter, printFile, signReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
+  isCurrent, isNotAfter, pinnedNotAfter, printFile, signReplyCert, keyringSigningBytes, normalizeInfluence, publicWriteRefused,
   readKeyringFile, readReplyCertFile, readRootFile, replyCertSigningBytes, rootSigningBytes, sign, signKeyring,
   signRoot, signSessionReply, signingBytes, utf8, verifyChainOffline,
   verifyChain, verifyKeyring, verifyReplyCert, verifyResponse, verifyRoot, verifySessionReply,
@@ -91,6 +91,8 @@ function replayLive(v: any, c: any) {
     ...cfg, ...pinsOf(v, c, c.policyNotAfter, Number.NaN), nonces: new NonceCache(c.nonceTtlMs), now: c.now,
     callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs, policyNotAfter: c.policyNotAfter,
   };
+  // a case's policyNotAfter is the pinning factory's, from the members it pins
+  expect(pinnedNotAfter(live.keyrings, live.roots), "policyNotAfter").toBe(c.policyNotAfter);
   const full: VerifyInput = c.peer === null ? input : { ...input, peer: c.peer };
   let result = verifyChain(full, live);
   for (let i = 1; i < c.uses; i++) result = verifyChain(full, live);
