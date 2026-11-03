@@ -19,7 +19,7 @@ public final class JsonIntegers {
     /**
      * True when {@code v} is a protocol integer: in [0, 2^53 &minus; 1]. The one range check every window and every
      * stamp {@code ts} is held to, whether read from the wire, about to be signed or pinned in a verifier's config,
-     * so that no value one SDK accepts is one the other refuses.
+     * so that no value one SDK accepts is one another refuses.
      */
     public static boolean inRange(long v) {
         return v >= 0 && v <= MAX_SAFE;
