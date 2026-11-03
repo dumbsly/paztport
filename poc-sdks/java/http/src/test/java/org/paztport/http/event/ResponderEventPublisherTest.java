@@ -20,6 +20,7 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -53,8 +54,8 @@ class ResponderEventPublisherTest {
 
     /** The event a responder that takes payment's events reads from {@code body}, or null if it refuses it. */
     private ResponderEvent read(String body) {
-        return new EventVerifier(Keyring.of(Map.of("payment", key.getPublic())), Set.of("payment"), () -> 1234L)
-                .accept(body).event();
+        return new EventVerifier(List.of(Keyring.of(Map.of("payment", key.getPublic()))), Set.of("payment"),
+                () -> 1234L).accept(body).event();
     }
 
     @AfterAll

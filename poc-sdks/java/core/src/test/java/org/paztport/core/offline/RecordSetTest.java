@@ -20,6 +20,8 @@ import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.NonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -51,8 +53,10 @@ class RecordSetTest {
         return OfflineVerifier.verify(
                 new OfflineInput(chain, "call-bind", "[]", h.clientTree.proofFor("session/pi/orders").toJson(),
                         "orders", true, NONCE_KEY, "rid-1", new RecordedTimes(ts, null), "p"),
-                new OfflineConfig(keyring, h.clientTree.root(), "c1", Set.of("session"), h.sess(), spent, null, null,
-                        null)).reason();
+                // The session's windows are judged by callInSession, so the members have none.
+                new OfflineConfig(List.of(new PinnedKeyring(keyring, Long.MAX_VALUE)),
+                        List.of(new PinnedRoot(h.clientTree.root(), "c1", Long.MAX_VALUE)), Set.of("session"), h.sess(),
+                        spent, null, null, null)).reason();
     }
 
     // "The call counts in its session only up to the session's limits, judged at the last stamp's ts. A call that
@@ -146,7 +150,9 @@ class RecordSetTest {
         Stamp s1 = Stamp.sign("tools", "t-1", "rid-1", NOW, h.sess(), "pi", "response-bind",
                 Influence.commit(List.of()), s0.sig(), h.entry.getPrivate());
         Keyring keyring = Keyring.of(Map.of(ENTRY, h.entry.getPublic(), "tools", h.entry.getPublic()));
-        VerifierConfig cfg = new VerifierConfig(keyring, h.serverTree.root(), "s1", policyNotAfter, Set.of(ENTRY),
+        // The session's one keyring and root, each until the session's response limit.
+        VerifierConfig cfg = new VerifierConfig(List.of(new PinnedKeyring(keyring, policyNotAfter)),
+                List.of(new PinnedRoot(h.serverTree.root(), "s1", policyNotAfter)), policyNotAfter, Set.of(ENTRY),
                 h.sess(), nonces, () -> at, VerifierConfig.CALL_MAX_AGE_MS, VerifierConfig.RUN_MAX_AGE_MS);
         return new Verifier(cfg).verify(new VerifyInput(Chains.toJson(List.of(s0, s1)), "response-bind", "[]",
                 h.serverTree.proofFor("mcp-entry/tools").toJson(), "pi", false, RESPONSE_KEY, null)).reason();

@@ -32,14 +32,22 @@ has one, the authenticated peer.
   chain off the wire strictly, from its bytes, as checks 1 and 2 of the live order,
   and never throws; a `ts` is a protocol integer, so `1.0` is refused. A stamp whose
   `v` is not 3 is `CHAIN_MISSING`.
-- **Verifying.** `Verifier` runs the live order: first its own policy's window
-  (`POLICY_EXPIRED`, naming no one, once its clock passes the earlier `notAfter` of
-  its keyring and root), then the twelve checks. `VerifierConfig.pinned` checks the
-  keyring and the root against the pinned policy key, and refuses to build a config if
-  either fails or has expired. `OfflineVerifier` re-checks a recorded chain. Offline, a record with
-  no recorded time fails check 7 (`TIME_MISMATCH`), and each age limit the
-  `OfflineConfig` leaves null is its live default (`VerifierConfig.RUN_MAX_AGE_MS`,
-  `CALL_MAX_AGE_MS`), so no configuration leaves a chain's age unlimited.
+- **Verifying.** A `VerifierConfig` pins one or more keyrings (`PinnedKeyring`) and
+  roots (`PinnedRoot`), each with its own `notAfter`, so a rollover can pin the old and
+  the new together. `Verifier` runs the live order: first its own policy's window
+  (`POLICY_EXPIRED`, naming no one, once its clock passes `policyNotAfter`, the earlier
+  of the latest keyring and the latest root `notAfter`), then the twelve checks, using
+  only the keyrings and roots current at its clock: a stamp verifies under any key they
+  give its service by its own name, and a proof against a current root with its
+  `rootId`. `VerifierConfig.pinned` checks every keyring and root against the pinned
+  policy key, and refuses to build a config if one fails or has expired; each service
+  pins its own one of each, and a partner session its client's. `OfflineVerifier`
+  re-checks a recorded chain. Offline, a keyring or root counts for a record no later
+  than its `notAfter` (`Long.MAX_VALUE` for none), and a record none of either counts
+  for is `POLICY_EXPIRED`; a record with no recorded time fails check 7
+  (`TIME_MISMATCH`), and each age limit the `OfflineConfig` leaves null is its live
+  default (`VerifierConfig.RUN_MAX_AGE_MS`, `CALL_MAX_AGE_MS`), so no configuration
+  leaves a chain's age unlimited.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request
   and reply, each its wire bytes as text, the pin and the configured entry: attested
   at a time, at all (at the earliest of its limits) and the response limit, none where
@@ -78,7 +86,8 @@ has one, the authenticated peer.
   encodings require), `Jcs`, `KeyringFile` (the signed `keyring.json`), `ReplyCert`
   (`reply-cert.json`), `KeyFiles`, `SignedRoot`, the Merkle tree, `PolicyBuilder`,
   `PolicyOwner` (the checks before the policy owner signs), `Routes`, and
-  `EventVerifier` for events sent to a responder, with `AttestationEvent`, the
+  `EventVerifier` for events sent to a responder, which takes one or more keyrings
+  and accepts a signer any of them has a key for, with `AttestationEvent`, the
   verdict before it is signed. A service's own files are read by
   `KeyringFile.load`, `SignedRoot.load`, `ProofBundle.load`, `KeyFiles.loadPolicyPin`
   and `BoundaryInfluence.loadKey`, and `OwnMaterial.check` and `expiringSoon` say

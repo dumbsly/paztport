@@ -37,6 +37,8 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.RequestContext;
@@ -186,9 +188,11 @@ class AttestationRuleTest {
 
     /** The test's own client, an origin with its own trust material and replay cache, plus {@code extra}. */
     private static RestClient caller(ClientHttpRequestInterceptor... extra) {
+        long notAfter = built.signedRoot().notAfter();
         Verifier verifier = new Verifier(new VerifierConfig(
-                Keyring.of(Map.of("localhost", APP.getPublic())), built.signedRoot().rootBytes(),
-                built.signedRoot().rootId(), built.signedRoot().notAfter(), Set.of("localhost"), "",
+                List.of(new PinnedKeyring(Keyring.of(Map.of("localhost", APP.getPublic())), notAfter)),
+                List.of(new PinnedRoot(built.signedRoot().rootBytes(), built.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("localhost"), "",
                 new InMemoryNonceCache(15_000), System::currentTimeMillis, 5000, 5000));
         RestClient.Builder b = TestHttp.restClient(http).requestInterceptor(new OutboundInterceptor(
                 new Stamper("localhost", "caller-1", APP.getPrivate(), true, () -> UUID.randomUUID().toString(),

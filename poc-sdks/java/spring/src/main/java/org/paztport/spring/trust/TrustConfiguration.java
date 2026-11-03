@@ -6,6 +6,7 @@ package org.paztport.spring.trust;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.paztport.core.crypto.KeyFiles;
@@ -61,9 +62,10 @@ public class TrustConfiguration {
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
                 System.currentTimeMillis());
+        // This service's own keyring and root, one of each.
         VerifierConfig cfg = VerifierConfig.pinned(
-                keyring,
-                root,
+                List.of(keyring),
+                List.of(root),
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",

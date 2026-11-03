@@ -817,7 +817,7 @@ final class VectorsHttpRules {
             Material m = fx.material(c.get("material").asText());
             InMemoryNonceCache nonces = new InMemoryNonceCache(c.get("nonceTtlMs").asLong());
             c.get("spent").forEach(k -> nonces.seenBefore(k.asText(), now));
-            b.verifier(new Verifier(VerifierConfig.pinned(m.keyring(), m.root(), m.policyKey(),
+            b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
                     textSet(c.get("allowedOrigins")), "", nonces, () -> now, c.get("callMaxAgeMs").asLong(),
                     c.get("runMaxAgeMs").asLong())));
         }
@@ -1155,7 +1155,7 @@ final class VectorsHttpRules {
         s.get("receivers").properties().forEach(e -> receivers.put(e.getKey(), e.getValue().asText()));
         HttpCaller.Builder b = HttpCaller.builder(svc, stamper).bundle(m.bundle(svc)).receivers(receivers);
         if (s.get("verifier").asBoolean()) {
-            b.verifier(new Verifier(VerifierConfig.pinned(m.keyring(), m.root(), m.policyKey(),
+            b.verifier(new Verifier(VerifierConfig.pinned(List.of(m.keyring()), List.of(m.root()), m.policyKey(),
                     textSet(c.get("allowedOrigins")), "", new InMemoryNonceCache(c.get("nonceTtlMs").asLong()),
                     () -> now, c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong())));
         }

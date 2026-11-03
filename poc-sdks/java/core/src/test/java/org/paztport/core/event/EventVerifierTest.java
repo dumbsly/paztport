@@ -6,10 +6,13 @@ package org.paztport.core.event;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -27,7 +30,7 @@ class EventVerifierTest {
     private final KeyPair search = Crypto.generateEd25519KeyPair();
     private final AtomicLong clock = new AtomicLong(NOW);
     private final EventVerifier auth = new EventVerifier(
-            Keyring.of(Map.of("payment", payment.getPublic(), "search", search.getPublic())),
+            List.of(Keyring.of(Map.of("payment", payment.getPublic(), "search", search.getPublic()))),
             Set.of("payment"), clock::get);
 
     /** An event's JCS text, with {@code ts} written as given. */
@@ -210,7 +213,7 @@ class EventVerifierTest {
     @Test
     void onlyAnAllowedSignersNameTravelsWithTheRefusal() {
         EventVerifier keyless = new EventVerifier(
-                Keyring.of(Map.of("search", search.getPublic())), Set.of("payment"), clock::get);
+                List.of(Keyring.of(Map.of("search", search.getPublic()))), Set.of("payment"), clock::get);
         EventVerifier.Outcome unknown = keyless.accept(envelope("payment", payment, eventJson(NOW, "a")));
         assertEquals(EventVerifier.Refusal.UNKNOWN_SIGNER, unknown.refusal());
         assertEquals("payment", unknown.signer());
@@ -260,5 +263,42 @@ class EventVerifierTest {
     void anEnvelopePastTheWireLimitIsMalformed() {
         String big = "{\"payload\":\"" + "A".repeat(256 * 1024) + "\",\"sig\":\"AAAA\",\"signer\":\"payment\"}";
         assertEquals(EventVerifier.Refusal.MALFORMED_ENVELOPE, refusal(big));
+    }
+
+    private EventVerifier.Outcome under(Keyring... keyrings) {
+        return new EventVerifier(List.of(keyrings), Set.of("payment"), clock::get)
+                .accept(envelope("payment", payment, eventJson(NOW, "a")));
+    }
+
+    @Test
+    void aSignerKnownOnlyToTheSecondKeyringIsAccepted() {
+        assertTrue(under(Keyring.of(Map.of("search", search.getPublic())),
+                Keyring.of(Map.of("payment", payment.getPublic()))).accepted());
+        // The first keyring holds the signer's old key: each key the keyrings give it is tried.
+        assertTrue(under(Keyring.of(Map.of("payment", search.getPublic())),
+                Keyring.of(Map.of("payment", payment.getPublic()))).accepted());
+        // A key is looked up by the signer's own name: its key filed under another name verifies nothing.
+        EventVerifier.Outcome old = under(Keyring.of(Map.of("payment", search.getPublic())),
+                Keyring.of(Map.of("search", payment.getPublic(), "Payment", payment.getPublic())));
+        assertEquals(EventVerifier.Refusal.BAD_SIGNATURE, old.refusal());
+        assertEquals("payment", old.signer());
+    }
+
+    @Test
+    void aSignerInNoKeyringIsUnknownSigner() {
+        EventVerifier.Outcome none = under(Keyring.of(Map.of("search", search.getPublic())),
+                Keyring.of(Map.of("orders", payment.getPublic())));
+        assertEquals(EventVerifier.Refusal.UNKNOWN_SIGNER, none.refusal());
+        assertEquals("payment", none.signer());
+    }
+
+    /** A responder holds at least one keyring and no null one, refused when built. */
+    @Test
+    void aResponderRefusesNoKeyringsOrANullOne() {
+        Keyring ring = Keyring.of(Map.of("payment", payment.getPublic()));
+        assertThrows(IllegalArgumentException.class, () -> new EventVerifier(List.of(), Set.of("payment"), clock::get));
+        assertThrows(NullPointerException.class, () -> new EventVerifier(null, Set.of("payment"), clock::get));
+        assertThrows(NullPointerException.class,
+                () -> new EventVerifier(Arrays.asList(ring, null), Set.of("payment"), clock::get));
     }
 }

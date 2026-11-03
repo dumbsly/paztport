@@ -266,7 +266,8 @@ class BoundaryClientTest {
                 "the owners cross, blinded");
 
         // And the partner, holding only payment's keyring and root, verifies it in that session.
-        Verifier atPartner = new Verifier(VerifierConfig.pinned(keyring, built.signedRoot(), policyPub,
+        Verifier atPartner = new Verifier(VerifierConfig.pinned(List.of(keyring), List.of(built.signedRoot()),
+                policyPub,
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), System::currentTimeMillis, 30_000, 300_000));
         assertEquals(ReasonCode.OK, atPartner.verify(new VerifyInput(chainJson,
                 RequestBinding.compute("POST", "/charge", call.body()), HttpWire.decodeInfluence(

@@ -8,9 +8,11 @@ import java.util.Objects;
 import java.util.Set;
 import org.paztport.core.encoding.Text;
 import org.paztport.core.internal.ChainChecks;
+import org.paztport.core.policy.Keyring;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.VerifyResult;
@@ -20,6 +22,9 @@ import org.paztport.core.verify.VerifyResult;
  * checks in the live order. The first failure is the result:
  *
  * <ul>
+ * <li>0: in place of the live window, some keyring and some root count for the record, their {@code notAfter} at
+ *     or after its recorded time (POLICY_EXPIRED, naming no one); with no recorded time every one counts, and check
+ *     7 refuses the record. The checks after it use only those that count;
  * <li>1 to 6: as the live verifier (CHAIN_MISSING, BAD_SIGNATURE, BAD_ORIGIN, BROKEN_LINK, BINDING_MISMATCH,
  *     RID_MISMATCH, SESSION_UNKNOWN), against the record's rid and, when given, the expected signers;
  * <li>7: in place of freshness, which has no clock to be fresh against offline, the last stamp's time is the
@@ -30,7 +35,7 @@ import org.paztport.core.verify.VerifyResult;
  * <li>8 and 9: the last stamp binds {@code expectedBind} and commits to the influence;
  * <li>10: its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that
  *     forgets after its window cannot show;
- * <li>11: the route is proven against the root (PATH_NOT_ALLOWED).
+ * <li>11: the route is proven against a root that counts, with the proof's {@code rootId} (PATH_NOT_ALLOWED).
  * </ul>
  *
  * <p>Checks 1 to 6, 8, 9 and 11 are {@link ChainChecks}, the live verifier's own code. There is no peer: a record
@@ -39,6 +44,9 @@ import org.paztport.core.verify.VerifyResult;
 public final class OfflineVerifier {
 
     private static final String NO_INFLUENCE = "[]";
+
+    /** The time a record with none is judged at for check 0: before every window, so every member counts. */
+    private static final long NO_TIME = Long.MIN_VALUE;
 
     private OfflineVerifier() {
     }
@@ -52,10 +60,18 @@ public final class OfflineVerifier {
         if (in == null) {
             return rejected(ReasonCode.CHAIN_MISSING);
         }
+        // 0. The keyrings and roots that count at the record's own time, once; none of either names no one.
+        RecordedTimes t = in.recordedTs();
+        long at = t == null ? NO_TIME : t.last();
+        List<Keyring> keyrings = ChainChecks.currentKeyrings(cfg.keyrings(), at);
+        List<PinnedRoot> roots = ChainChecks.currentRoots(cfg.roots(), at);
+        if (keyrings.isEmpty() || roots.isEmpty()) {
+            return rejected(ReasonCode.POLICY_EXPIRED);
+        }
+
         // 1-6.
         ChainChecks.Shape shape = new ChainChecks.Shape(in.receiver(), in.rid(), cfg.signers());
-        ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), cfg.keyring(), cfg.allowedOrigins(), cfg.sess(),
-                shape);
+        ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), keyrings, cfg.allowedOrigins(), cfg.sess(), shape);
         if (!parsed.ok()) {
             return rejected(parsed.failure());
         }
@@ -64,7 +80,6 @@ public final class OfflineVerifier {
         Stamp last = stamps.get(stamps.size() - 1);
 
         // 7. Recorded times, the age limits, then the prompt.
-        RecordedTimes t = in.recordedTs();
         if (t == null || last.ts() != t.last() || (t.run() != null && !t.run().contains(first.ts()))) {
             return result(ReasonCode.TIME_MISMATCH);
         }
@@ -90,9 +105,9 @@ public final class OfflineVerifier {
         }
         seen.add(in.nonceKey());
 
-        // 11. Route proven against the root.
+        // 11. Route proven against a root that counts for the record.
         VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute() ? in.receiver() : null,
-                in.proof(), cfg.root(), cfg.rootId());
+                in.proof(), roots);
         return new OfflineResult(routed.reason(), routed.suspectSvc(), routed.suspectInst());
     }
 

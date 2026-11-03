@@ -24,6 +24,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.spec.NamedParameterSpec;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -33,6 +34,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.UnaryOperator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
 import org.paztport.core.Vectors;
@@ -174,63 +176,63 @@ class EventVectorsExport {
                 + "\"suspectInst\":\"search-1\",\"suspectSvc\":\"search\",\"ts\":" + NOW + "}";
 
         ArrayNode verify = out.putArray("verify");
-        verify.add(verifyCase("accepted", responder, List.of(), good, NOW, 1));
-        verify.add(verifyCase("audit event accepted", responder, List.of(),
+        verify.add(verifyCase("accepted", out, List.of(), good, NOW, 1));
+        verify.add(verifyCase("audit event accepted", out, List.of(),
                 signed("payment", pay, new ResponderEvent("EXPIRED", "", "", "", true, NOW, "event-2")), NOW, 1));
-        verify.add(verifyCase("at the window, in the past", responder, List.of(),
+        verify.add(verifyCase("at the window, in the past", out, List.of(),
                 signed("payment", pay, event(NOW - WINDOW_MS, "event-1")), NOW, 1));
-        verify.add(verifyCase("at the window, in the future", responder, List.of(),
+        verify.add(verifyCase("at the window, in the future", out, List.of(),
                 signed("payment", pay, event(NOW + WINDOW_MS, "event-1")), NOW, 1));
-        verify.add(verifyCase("1 ms past the window, in the past", responder, List.of(),
+        verify.add(verifyCase("1 ms past the window, in the past", out, List.of(),
                 signed("payment", pay, event(NOW - WINDOW_MS - 1, "event-1")), NOW, 1));
-        verify.add(verifyCase("1 ms past the window, in the future", responder, List.of(),
+        verify.add(verifyCase("1 ms past the window, in the future", out, List.of(),
                 signed("payment", pay, event(NOW + WINDOW_MS + 1, "event-1")), NOW, 1));
-        verify.add(verifyCase("replayed", responder, List.of(), good, NOW, 2));
-        verify.add(verifyCase("same id, new payload", responder, List.of(new Earlier(good, NOW)),
+        verify.add(verifyCase("replayed", out, List.of(), good, NOW, 2));
+        verify.add(verifyCase("same id, new payload", out, List.of(new Earlier(good, NOW)),
                 signed("payment", pay, event(NOW + 1, "event-1")), NOW, 1));
         String future = signed("payment", pay, event(NOW + WINDOW_MS, "event-1"));
-        verify.add(verifyCase("id remembered while its ts is in the window", responder,
+        verify.add(verifyCase("id remembered while its ts is in the window", out,
                 List.of(new Earlier(future, NOW)), future, NOW + 2 * WINDOW_MS, 1));
-        verify.add(verifyCase("replay after the window", responder, List.of(new Earlier(good, NOW)), good,
+        verify.add(verifyCase("replay after the window", out, List.of(new Earlier(good, NOW)), good,
                 NOW + WINDOW_MS + 1, 1));
-        verify.add(verifyCase("a bad signature spends no id", responder,
+        verify.add(verifyCase("a bad signature spends no id", out,
                 List.of(new Earlier(new EventEnvelope("payment", a.payload(), "AAAA").toJson(), NOW)), good, NOW, 1));
         String early = signed("payment", pay, event(NOW + WINDOW_MS + 1, "event-1"));
-        verify.add(verifyCase("an event outside the window spends no id", responder,
+        verify.add(verifyCase("an event outside the window spends no id", out,
                 List.of(new Earlier(early, NOW)), early, NOW + 1, 1));
-        verify.add(verifyCase("not JSON", responder, List.of(), "not json", NOW, 1));
-        verify.add(verifyCase("empty body", responder, List.of(), "", NOW, 1));
-        verify.add(verifyCase("a JSON array", responder, List.of(), "[]", NOW, 1));
-        verify.add(verifyCase("JSON null", responder, List.of(), "null", NOW, 1));
-        verify.add(verifyCase("the event unwrapped", responder, List.of(), event(NOW, "event-1").toJson(), NOW, 1));
-        verify.add(verifyCase("no sig", responder, List.of(),
+        verify.add(verifyCase("not JSON", out, List.of(), "not json", NOW, 1));
+        verify.add(verifyCase("empty body", out, List.of(), "", NOW, 1));
+        verify.add(verifyCase("a JSON array", out, List.of(), "[]", NOW, 1));
+        verify.add(verifyCase("JSON null", out, List.of(), "null", NOW, 1));
+        verify.add(verifyCase("the event unwrapped", out, List.of(), event(NOW, "event-1").toJson(), NOW, 1));
+        verify.add(verifyCase("no sig", out, List.of(),
                 "{\"payload\":\"" + a.payload() + "\",\"signer\":\"payment\"}", NOW, 1));
-        verify.add(verifyCase("null signer", responder, List.of(),
+        verify.add(verifyCase("null signer", out, List.of(),
                 "{\"payload\":\"" + a.payload() + "\",\"sig\":\"" + a.sig() + "\",\"signer\":null}", NOW, 1));
-        verify.add(verifyCase("signer not allowed", responder, List.of(),
+        verify.add(verifyCase("signer not allowed", out, List.of(),
                 signed("search", search.getPrivate(), event(NOW, "event-1")), NOW, 1));
-        verify.add(verifyCase("signer not allowed, before its signature", responder, List.of(),
+        verify.add(verifyCase("signer not allowed, before its signature", out, List.of(),
                 new EventEnvelope("search", a.payload(), "AAAA").toJson(), NOW, 1));
-        verify.add(verifyCase("allowed signer with no key", responder, List.of(),
+        verify.add(verifyCase("allowed signer with no key", out, List.of(),
                 signed("orders", pay, event(NOW, "event-1")), NOW, 1));
-        verify.add(verifyCase("wrong signer", responder, List.of(),
+        verify.add(verifyCase("wrong signer", out, List.of(),
                 signed("payment", search.getPrivate(), event(NOW, "event-1")), NOW, 1));
-        verify.add(verifyCase("tampered payload", responder, List.of(), tampered, NOW, 1));
-        verify.add(verifyCase("signed without the prefix", responder, List.of(), bare, NOW, 1));
-        verify.add(verifyCase("sig not base64url", responder, List.of(),
+        verify.add(verifyCase("tampered payload", out, List.of(), tampered, NOW, 1));
+        verify.add(verifyCase("signed without the prefix", out, List.of(), bare, NOW, 1));
+        verify.add(verifyCase("sig not base64url", out, List.of(),
                 new EventEnvelope("payment", a.payload(), "!!").toJson(), NOW, 1));
-        verify.add(verifyCase("bad signature, before the window", responder, List.of(),
+        verify.add(verifyCase("bad signature, before the window", out, List.of(),
                 signed("payment", search.getPrivate(), event(NOW - WINDOW_MS - 1, "event-1")), NOW, 1));
-        verify.add(verifyCase("payload not base64url", responder, List.of(), overPayload("payment", pay, "!!"),
+        verify.add(verifyCase("payload not base64url", out, List.of(), overPayload("payment", pay, "!!"),
                 NOW, 1));
-        verify.add(verifyCase("payload not JSON", responder, List.of(),
+        verify.add(verifyCase("payload not JSON", out, List.of(),
                 overPayload("payment", pay, b64("not json")), NOW, 1));
-        verify.add(verifyCase("payload a JSON array", responder, List.of(),
+        verify.add(verifyCase("payload a JSON array", out, List.of(),
                 overPayload("payment", pay, b64("[]")), NOW, 1));
-        verify.add(verifyCase("no eventId", responder, List.of(), signed("payment", pay, noId), NOW, 1));
-        verify.add(verifyCase("empty eventId", responder, List.of(),
+        verify.add(verifyCase("no eventId", out, List.of(), signed("payment", pay, noId), NOW, 1));
+        verify.add(verifyCase("empty eventId", out, List.of(),
                 signed("payment", pay, event(NOW, "")), NOW, 1));
-        verify.add(verifyCase("no eventId, outside the window", responder, List.of(),
+        verify.add(verifyCase("no eventId, outside the window", out, List.of(),
                 signed("payment", pay, noId.replace(Long.toString(NOW), Long.toString(NOW - WINDOW_MS - 1))),
                 NOW, 1));
 
@@ -239,33 +241,33 @@ class EventVectorsExport {
         String base = event(NOW, "event-1").toJson();
         String payloadOk = "\"payload\":\"" + a.payload() + "\"";
         String sigOk = "\"sig\":\"" + a.sig() + "\"";
-        verify.add(verifyCase("envelope with trailing text", responder, List.of(), good + " x", NOW, 1));
-        verify.add(verifyCase("envelope with a second value", responder, List.of(), good + "{}", NOW, 1));
-        verify.add(verifyCase("signer as a number", responder, List.of(),
+        verify.add(verifyCase("envelope with trailing text", out, List.of(), good + " x", NOW, 1));
+        verify.add(verifyCase("envelope with a second value", out, List.of(), good + "{}", NOW, 1));
+        verify.add(verifyCase("signer as a number", out, List.of(),
                 "{" + payloadOk + "," + sigOk + ",\"signer\":1}", NOW, 1));
-        verify.add(verifyCase("envelope with another member", responder, List.of(),
+        verify.add(verifyCase("envelope with another member", out, List.of(),
                 "{\"kid\":\"k\"," + payloadOk + "," + sigOk + ",\"signer\":\"payment\"}", NOW, 1));
-        verify.add(verifyCase("event with trailing text", responder, List.of(),
+        verify.add(verifyCase("event with trailing text", out, List.of(),
                 signed("payment", pay, base + " x"), NOW, 1));
-        verify.add(verifyCase("ts as a string", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("ts as a string", out, List.of(), signed("payment", pay,
                 base.replace("\"ts\":" + NOW, "\"ts\":\"" + NOW + "\"")), NOW, 1));
-        verify.add(verifyCase("audit as a number", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("audit as a number", out, List.of(), signed("payment", pay,
                 base.replace("\"audit\":false", "\"audit\":0")), NOW, 1));
-        verify.add(verifyCase("reason as a number", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("reason as a number", out, List.of(), signed("payment", pay,
                 base.replace("\"reason\":\"PATH_NOT_ALLOWED\"", "\"reason\":3")), NOW, 1));
-        verify.add(verifyCase("no reason", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("no reason", out, List.of(), signed("payment", pay,
                 base.replace("\"reason\":\"PATH_NOT_ALLOWED\",", "")), NOW, 1));
-        verify.add(verifyCase("no ts", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("no ts", out, List.of(), signed("payment", pay,
                 base.replace(",\"ts\":" + NOW, "")), NOW, 1));
-        verify.add(verifyCase("null reason", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("null reason", out, List.of(), signed("payment", pay,
                 base.replace("\"reason\":\"PATH_NOT_ALLOWED\"", "\"reason\":null")), NOW, 1));
-        verify.add(verifyCase("null eventId", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("null eventId", out, List.of(), signed("payment", pay,
                 base.replace("\"eventId\":\"event-1\"", "\"eventId\":null")), NOW, 1));
-        verify.add(verifyCase("eventId as a number", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("eventId as a number", out, List.of(), signed("payment", pay,
                 base.replace("\"eventId\":\"event-1\"", "\"eventId\":1")), NOW, 1));
-        verify.add(verifyCase("whitespace eventId", responder, List.of(),
+        verify.add(verifyCase("whitespace eventId", out, List.of(),
                 signed("payment", pay, event(NOW, " ")), NOW, 1));
-        verify.add(verifyCase("event with another member", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("event with another member", out, List.of(), signed("payment", pay,
                 base.replace("\"reason\":", "\"peer\":\"search\",\"reason\":")), NOW, 1));
         for (String[] ts : new String[][] {
                 {"ts with a fraction", NOW + ".5"},
@@ -278,12 +280,12 @@ class EventVectorsExport {
                 {"ts of -(2^53 - 1)", "-9007199254740991"},
                 {"ts with a fraction that rounds to 2^53 - 1", "9007199254740991.4"},
                 {"null ts", "null"}}) {
-            verify.add(verifyCase(ts[0], responder, List.of(), signed("payment", pay,
+            verify.add(verifyCase(ts[0], out, List.of(), signed("payment", pay,
                     base.replace("\"ts\":" + NOW, "\"ts\":" + ts[1])), NOW, 1));
         }
         byte[] invalid = base.replace("search-1", "search-\u0001").getBytes(StandardCharsets.UTF_8);
         invalid[base.indexOf("search-1") + "search-".length()] = (byte) 0xFF;
-        verify.add(verifyCase("payload not UTF-8", responder, List.of(),
+        verify.add(verifyCase("payload not UTF-8", out, List.of(),
                 overPayload("payment", pay, Base64Url.encode(invalid)), NOW, 1));
         byte[] json = base.getBytes(StandardCharsets.UTF_8);
         byte[] bom = new byte[json.length + 3];
@@ -291,26 +293,26 @@ class EventVectorsExport {
         bom[1] = (byte) 0xBB;
         bom[2] = (byte) 0xBF;
         System.arraycopy(json, 0, bom, 3, json.length);
-        verify.add(verifyCase("payload with a byte order mark", responder, List.of(),
+        verify.add(verifyCase("payload with a byte order mark", out, List.of(),
                 overPayload("payment", pay, Base64Url.encode(bom)), NOW, 1));
 
         // Wire bytes are exactly the object's JCS bytes, so whitespace around one is refused, as a byte order mark is.
-        verify.add(verifyCase("whitespace around the body", responder, List.of(), " \n\t" + good + "\r\n ", NOW, 1));
-        verify.add(verifyCase("whitespace around the payload", responder, List.of(),
+        verify.add(verifyCase("whitespace around the body", out, List.of(), " \n\t" + good + "\r\n ", NOW, 1));
+        verify.add(verifyCase("whitespace around the payload", out, List.of(),
                 signed("payment", pay, " \n" + base + "\n"), NOW, 1));
-        verify.add(verifyCase("body with a byte order mark", responder, List.of(), "\uFEFF" + good, NOW, 1));
+        verify.add(verifyCase("body with a byte order mark", out, List.of(), "\uFEFF" + good, NOW, 1));
         // The signature is checked before the payload is read, and the event's members before its id.
-        verify.add(verifyCase("bad signature, payload not base64url", responder, List.of(),
+        verify.add(verifyCase("bad signature, payload not base64url", out, List.of(),
                 new EventEnvelope("payment", "!!", a.sig()).toJson(), NOW, 1));
-        verify.add(verifyCase("bad signature, payload not JSON", responder, List.of(),
+        verify.add(verifyCase("bad signature, payload not JSON", out, List.of(),
                 new EventEnvelope("payment", b64("not json"), a.sig()).toJson(), NOW, 1));
-        verify.add(verifyCase("no eventId and no reason", responder, List.of(), signed("payment", pay,
+        verify.add(verifyCase("no eventId and no reason", out, List.of(), signed("payment", pay,
                 noId.replace("\"reason\":\"PATH_NOT_ALLOWED\",", "")), NOW, 1));
         // RFC 3629 UTF-8: "-" written in two bytes, and U+D800 encoded as if it were a character.
-        verify.add(verifyCase("payload with an overlong form", responder, List.of(), overPayload("payment", pay,
+        verify.add(verifyCase("payload with an overlong form", out, List.of(), overPayload("payment", pay,
                 Base64Url.encode(splice(base, "search-1", new byte[] {'s', 'e', 'a', 'r', 'c', 'h', (byte) 0xC0,
                         (byte) 0xAD, '1'}))), NOW, 1));
-        verify.add(verifyCase("payload with an encoded surrogate", responder, List.of(), overPayload("payment", pay,
+        verify.add(verifyCase("payload with an encoded surrogate", out, List.of(), overPayload("payment", pay,
                 Base64Url.encode(splice(base, "search-1", new byte[] {'s', (byte) 0xED, (byte) 0xA0, (byte) 0x80}))),
                 NOW, 1));
         // Each member's type, one at a time.
@@ -323,12 +325,12 @@ class EventVectorsExport {
                 {"rid as a number", "\"rid\":\"rid-event-1\"", "\"rid\":1"},
                 {"audit as a string", "\"audit\":false", "\"audit\":\"true\""},
                 {"no audit", "\"audit\":false,", ""}}) {
-            verify.add(verifyCase(t[0], responder, List.of(), signed("payment", pay, base.replace(t[1], t[2])),
+            verify.add(verifyCase(t[0], out, List.of(), signed("payment", pay, base.replace(t[1], t[2])),
                     NOW, 1));
         }
-        verify.add(verifyCase("payload as a number", responder, List.of(),
+        verify.add(verifyCase("payload as a number", out, List.of(),
                 "{\"payload\":1," + sigOk + ",\"signer\":\"payment\"}", NOW, 1));
-        verify.add(verifyCase("sig as a number", responder, List.of(),
+        verify.add(verifyCase("sig as a number", out, List.of(),
                 "{" + payloadOk + ",\"sig\":1,\"signer\":\"payment\"}", NOW, 1));
 
         ArrayNode attributable = out.putArray("attributable");
@@ -394,8 +396,8 @@ class EventVectorsExport {
     }
 
     /** A verify case, its expected result found by running it, so the file records what the verifier does. */
-    private static ObjectNode verifyCase(String name, ObjectNode responder, List<Earlier> earlier, String body,
-            long now, int uses) {
+    private static ObjectNode verifyCase(String name, ObjectNode file, List<Earlier> earlier, String body, long now,
+            int uses) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
         ArrayNode e = c.putArray("earlier");
@@ -405,7 +407,7 @@ class EventVectorsExport {
         c.put("body", body);
         c.put("now", now);
         c.put("uses", uses);
-        EventVerifier.Outcome got = run(responder, c);
+        EventVerifier.Outcome got = run(file, c);
         ObjectNode want = c.putObject("expected");
         if (got.accepted()) {
             want.putNull("refusal");
@@ -417,15 +419,24 @@ class EventVectorsExport {
         return c;
     }
 
-    /** Runs a verify case as its fields say, against a fresh {@code responder}: the earlier bodies, then the body. */
-    static EventVerifier.Outcome run(JsonNode responder, JsonNode c) {
-        Map<String, PublicKey> keys = new TreeMap<>();
-        responder.get("keyring").fields().forEachRemaining(
-                f -> keys.put(f.getKey(), Crypto.decodePublicKey(Base64Url.decode(f.getValue().asText()))));
+    /**
+     * Runs a verify case as its fields say, against a fresh responder, the {@code file}'s: the earlier bodies, then
+     * the body. The case's {@code keyrings}, each service to a key name in the file's {@code keys}, replace the
+     * responder's one {@code keyring} when it has them.
+     */
+    static EventVerifier.Outcome run(JsonNode file, JsonNode c) {
+        JsonNode responder = file.get("responder");
+        List<Keyring> keyrings = new ArrayList<>();
+        if (c.has("keyrings")) {
+            JsonNode keys = file.get("keys");
+            c.get("keyrings").forEach(k -> keyrings.add(keyring(k, name -> keys.get(name.asText()).get("pub"))));
+        } else {
+            keyrings.add(keyring(responder.get("keyring"), pub -> pub));
+        }
         Set<String> allowed = new LinkedHashSet<>();
         responder.get("allowedSigners").forEach(s -> allowed.add(s.asText()));
         AtomicLong clock = new AtomicLong();
-        EventVerifier verifier = new EventVerifier(Keyring.of(keys), allowed, clock::get);
+        EventVerifier verifier = new EventVerifier(keyrings, allowed, clock::get);
         for (JsonNode x : c.get("earlier")) {
             clock.set(x.get("now").asLong());
             verifier.accept(x.get("body").asText());
@@ -436,6 +447,14 @@ class EventVectorsExport {
             got = verifier.accept(c.get("body").asText());
         }
         return got;
+    }
+
+    /** A keyring of {@code services}, each value giving its service's public key text by {@code pub}. */
+    private static Keyring keyring(JsonNode services, UnaryOperator<JsonNode> pub) {
+        Map<String, PublicKey> keys = new TreeMap<>();
+        services.properties().forEach(f -> keys.put(f.getKey(),
+                Crypto.decodePublicKey(Base64Url.decode(pub.apply(f.getValue()).asText()))));
+        return Keyring.of(keys);
     }
 
     /** Checks every case in {@code vectors}, a tree {@link Vectors#read} built, so each text is the file's own. */
@@ -467,7 +486,7 @@ class EventVectorsExport {
         }
         for (JsonNode c : vectors.get("verify")) {
             String name = c.get("name").asText();
-            EventVerifier.Outcome got = run(vectors.get("responder"), c);
+            EventVerifier.Outcome got = run(vectors, c);
             JsonNode want = c.get("expected");
             if (want.get("refusal").isNull()) {
                 assertNull(got.refusal(), name);

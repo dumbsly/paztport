@@ -26,6 +26,8 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -53,11 +55,12 @@ class StamperTest {
     }
 
     private Verifier verifier() {
+        long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
-                Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders", ordersKey.getPublic(),
-                        "payment", paymentKey.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
-                Set.of("gateway"), "",
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders",
+                        ordersKey.getPublic(), "payment", paymentKey.getPublic())), notAfter)),
+                List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "",
                 new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
     }
 
@@ -161,7 +164,7 @@ class StamperTest {
         String pin = Base64Url.encode(Crypto.encodePublicKey(policyKey.getPublic()));
         KeyringFile ring = KeyringFile.sign(Map.of("payment", Base64Url.encode(Crypto.encodePublicKey(
                 paymentKey.getPublic()))), pin, NOT_AFTER, policyKey.getPrivate());
-        Verifier partner = new Verifier(VerifierConfig.pinned(ring, egress.signedRoot(), pin,
+        Verifier partner = new Verifier(VerifierConfig.pinned(List.of(ring), List.of(egress.signedRoot()), pin,
                 Set.of("payment"), sess, new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
         return partner.verify(new VerifyInput(json(b.chain()), "b3", Influence.toJson(BOUNDARY_INFLUENCE),
                 json(b.proof()), "psp", true, RID + "|payment|req", new Peer("payment", "10.0.0.1")));

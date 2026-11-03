@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Objects;
 import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.internal.JsonIntegers;
+import org.paztport.core.policy.Keyring;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
 
@@ -16,27 +17,29 @@ import org.paztport.core.stamp.Stamp;
  *
  * <p>Check 0, before any stamp work: {@code policyNotAfter} is a window, an integer in [0, 2^53 &minus; 1], and the
  * clock has not passed it (POLICY_EXPIRED). It is about the verifier's own configuration, not the request, so it
- * comes first: past that moment the keyring and root no longer say which keys and routes the policy owner allows,
- * and no later check means anything against them. It names no suspect, not even a peer, because expiry is not the
- * sender's fault; a responder acting on it would quarantine every honest caller. {@link VerifierConfig#pinned}
+ * comes first: past that moment no keyring, or no root, says any longer which keys or routes the policy owner
+ * allows, and no later check means anything against them. It names no suspect, not even a peer, because expiry is
+ * not the sender's fault; a responder acting on it would quarantine every honest caller. {@link VerifierConfig#pinned}
  * only ever records a window it read from signed material, which is in range; a config built directly with one out
  * of range (2^53 would otherwise be a window that never closes) is refused here, per request, rather than by the
  * constructor, so that it fails exactly as the TypeScript verifier does and as the spec's check 0 says, and one
- * vector pins the answer for both.
+ * vector pins the answer for both. The checks after it use only the keyrings and roots current at the clock: those
+ * whose {@code notAfter} it has not passed.
  *
  * <ol>
  * <li>the stamps parse, every stamp's {@code v} is 3 (CHAIN_MISSING);
  * <li>no signed field holds {@code |}, {@code rcv} included (BAD_SIGNATURE);
  * <li>the origin's service is allowed (BAD_ORIGIN);
- * <li>each stamp is signed by its service's key and links to the one before, then each {@code rcv} names the
- *     next stamp's service and the last names the receiver (BAD_SIGNATURE, BROKEN_LINK, BINDING_MISMATCH);
+ * <li>each stamp is signed under one of the keys the current keyrings give its service, by its own name, and links
+ *     to the one before, then each {@code rcv} names the next stamp's service and the last names the receiver
+ *     (BAD_SIGNATURE, BROKEN_LINK, BINDING_MISMATCH);
  * <li>every stamp carries the origin's rid (RID_MISMATCH);
  * <li>every stamp is in the session (SESSION_UNKNOWN);
  * <li>the last stamp is within the call window of now and the origin within the run's lifetime (EXPIRED);
  * <li>the last stamp binds {@code expectedBind} (BINDING_MISMATCH);
  * <li>and commits to the influence (INFLUENCE_MISMATCH);
  * <li>its nonce key is new to the cache (REPLAY);
- * <li>the route is proven against the root (PATH_NOT_ALLOWED);
+ * <li>the route is proven against a current root with the proof's {@code rootId} (PATH_NOT_ALLOWED);
  * <li>with a peer, the peer's service is the last signer (PEER_MISMATCH).
  * </ol>
  *
@@ -82,14 +85,16 @@ public final class Verifier {
         if (in == null) {
             return VerifyResult.reject(ReasonCode.CHAIN_MISSING);
         }
-        VerifyResult result = check(in, now);
+        // The keyrings and roots current now, once for every check that follows.
+        VerifyResult result = check(in, now, ChainChecks.currentKeyrings(cfg.keyrings(), now),
+                ChainChecks.currentRoots(cfg.roots(), now));
         Peer peer = in.peer();
         return peer == null ? result : new VerifyResult(result.reason(), peer.svc(), peer.inst());
     }
 
-    private VerifyResult check(VerifyInput in, long now) {
+    private VerifyResult check(VerifyInput in, long now, List<Keyring> keyrings, List<PinnedRoot> roots) {
         // 1-6. Parse, delimiter, origin, signatures and links, then receivers, shared rid, session.
-        ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), cfg.keyring(), cfg.allowedOrigins(), cfg.sess(),
+        ParsedChain parsed = ChainChecks.checkStamps(in.stamps(), keyrings, cfg.allowedOrigins(), cfg.sess(),
                 ChainChecks.Shape.live(in.receiver()));
         if (!parsed.ok()) {
             return VerifyResult.reject(parsed.failure());
@@ -117,9 +122,9 @@ public final class Verifier {
             return VerifyResult.reject(ReasonCode.REPLAY);
         }
 
-        // 11. Route proven against the root, ending at the receiver only when it is on the route.
+        // 11. Route proven against a current root, ending at the receiver only when it is on the route.
         VerifyResult routed = ChainChecks.checkRoute(stamps, in.receiverInRoute() ? in.receiver() : null,
-                in.proof(), cfg.root(), cfg.rootId());
+                in.proof(), roots);
         if (!routed.ok()) {
             return routed;
         }

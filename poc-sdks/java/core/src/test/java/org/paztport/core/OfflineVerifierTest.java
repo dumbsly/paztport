@@ -5,6 +5,7 @@ package org.paztport.core;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -31,11 +32,15 @@ import org.paztport.core.offline.OfflineVerifier;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.offline.Signers;
 import org.paztport.core.policy.Keyring;
+import org.paztport.core.policy.MerkleLeaf;
+import org.paztport.core.policy.MerkleTree;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 
@@ -45,9 +50,14 @@ import org.paztport.core.verify.VerifierConfig;
  */
 class OfflineVerifierTest {
 
+    /** A second tree for the good call's route, under another rootId; built once, as its padding is random. */
+    private static MerkleTree second;
+
     @BeforeAll
     static void load() throws IOException {
         VectorsV3Test.load();
+        second = MerkleTree.build(List.of(new MerkleLeaf(new byte[16], good().get("proofRoute").asText())), 1,
+                "second");
     }
 
     private static JsonNode good() {
@@ -59,9 +69,9 @@ class OfflineVerifierTest {
     }
 
     private static OfflineConfig cfg(JsonNode c, Long runMax, Long callMax, Signers signers) {
-        OfflineConfig b = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
-        return new OfflineConfig(b.keyring(), b.root(), b.rootId(), b.allowedOrigins(), b.sess(), b.seen(), signers,
-                runMax, callMax);
+        OfflineConfig b = VectorsV3Test.offlineConfig(c);
+        return new OfflineConfig(b.keyrings(), b.roots(), b.allowedOrigins(), b.sess(), b.seen(), signers, runMax,
+                callMax);
     }
 
     private static OfflineInput with(OfflineInput i, String stamps, RecordedTimes t, String prompt, String nonce) {
@@ -85,7 +95,7 @@ class OfflineVerifierTest {
         String chain = JsonWriter.text(new JsonValue.Arr(stamps.stream().map(s -> (JsonValue) new JsonValue.Obj(s))
                 .toList()));
         return run(with(in, chain, in.recordedTs(), in.prompt(), in.nonceKey()),
-                VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c)));
+                VectorsV3Test.offlineConfig(c));
     }
 
     @Test
@@ -105,7 +115,7 @@ class OfflineVerifierTest {
     void neverThrows() {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        OfflineConfig cfg = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
+        OfflineConfig cfg = VectorsV3Test.offlineConfig(c);
         assertEquals(ReasonCode.CHAIN_MISSING, run(with(in, "\"x\"", in.recordedTs(), in.prompt(),
                 in.nonceKey()), cfg).reason());
         assertEquals(ReasonCode.CHAIN_MISSING, run(null, cfg).reason());
@@ -116,8 +126,7 @@ class OfflineVerifierTest {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         assertEquals(ReasonCode.TIME_MISMATCH,
-                run(with(in, in.stamps(), null, in.prompt(), in.nonceKey()), VectorsV3Test.offlineConfig(c,
-                        VectorsV3Test.policy(c))).reason());
+                run(with(in, in.stamps(), null, in.prompt(), in.nonceKey()), VectorsV3Test.offlineConfig(c)).reason());
     }
 
     @Test
@@ -125,7 +134,7 @@ class OfflineVerifierTest {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         long last = in.recordedTs().last();
-        OfflineConfig cfg = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
+        OfflineConfig cfg = VectorsV3Test.offlineConfig(c);
         assertEquals(ReasonCode.TIME_MISMATCH, run(with(in, in.stamps(), new RecordedTimes(last, Set.of(1L)),
                 in.prompt(), in.nonceKey()), cfg).reason());
         long origin = c.get("chain").get(0).get("ts").asLong();
@@ -153,9 +162,10 @@ class OfflineVerifierTest {
                 policy.bundles().get("gateway")).chain();
         Stamper.Stamped sent = second.next(hop, "payment", "b2", List.of(), policy.bundles().get("orders"));
         OfflineConfig cfg = new OfflineConfig(
-                Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
-                new LinkedHashSet<>(), null, runMax, callMax);
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
+                        orders.getPublic())), Long.MAX_VALUE)),
+                List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Long.MAX_VALUE)),
+                Set.of("gateway"), "", new LinkedHashSet<>(), null, runMax, callMax);
         OfflineInput in = new OfflineInput(Chains.toJson(sent.chain()), "b2", null, sent.proof().toJson(), "payment",
                 true, "k", null, new RecordedTimes(lastTs, Set.of(originTs)), "do it");
         return run(in, cfg).reason();
@@ -194,19 +204,19 @@ class OfflineVerifierTest {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         assertEquals(ReasonCode.PROMPT_MISMATCH, run(with(in, in.stamps(), in.recordedTs(), null, in.nonceKey()),
-                VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c))).reason());
+                VectorsV3Test.offlineConfig(c)).reason());
     }
 
     @Test
     void aSpentNonceIsRecordedAndRefusedOnTheSecondUse() {
         JsonNode c = good();
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
-        OfflineConfig cfg = VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c));
+        OfflineConfig cfg = VectorsV3Test.offlineConfig(c);
         assertEquals(ReasonCode.OK, run(in, cfg).reason());
         assertTrue(cfg.seen().contains(in.nonceKey()));
         assertEquals(ReasonCode.REPLAY, run(in, cfg).reason());
         OfflineInput none = with(in, in.stamps(), in.recordedTs(), in.prompt(), null);
-        assertEquals(ReasonCode.REPLAY, run(none, VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c))).reason());
+        assertEquals(ReasonCode.REPLAY, run(none, VectorsV3Test.offlineConfig(c)).reason());
     }
 
     @Test
@@ -227,7 +237,126 @@ class OfflineVerifierTest {
         OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
         for (String p : new String[] {"a\uD800b", "a\uDC00b"}) {
             assertEquals(ReasonCode.PROMPT_MISMATCH, run(with(in, in.stamps(), in.recordedTs(), p, in.nonceKey()),
-                    VectorsV3Test.offlineConfig(c, VectorsV3Test.policy(c))).reason());
+                    VectorsV3Test.offlineConfig(c)).reason());
         }
+    }
+
+    // Pinned keyrings and roots, each counting for a record no later than its notAfter.
+
+    private static final KeyPair OTHER = Crypto.generateEd25519KeyPair();
+
+    /** The good call's case keyring as one {@link Keyring}, from the vectors' keys. */
+    private static Keyring keys() {
+        return VectorsV3Test.keyring(good().get("keyring"));
+    }
+
+    /** The good call's keyring with pi's key swapped for one that signed nothing. */
+    private static Keyring rotated() {
+        return Keyring.of(Map.of("session", keys().keyFor("session"), "pi", OTHER.getPublic()));
+    }
+
+    private static PinnedRoot goodRoot(long notAfter) {
+        OfflineConfig b = VectorsV3Test.offlineConfig(good());
+        return new PinnedRoot(b.roots().get(0).root(), b.roots().get(0).rootId(), notAfter);
+    }
+
+    private static PinnedRoot secondRoot(long notAfter) {
+        return new PinnedRoot(second.root(), second.rootId(), notAfter);
+    }
+
+    /** The good call, its proof {@code proof} when non-null, judged against these keyrings and roots. */
+    private static OfflineResult judged(List<PinnedKeyring> keyrings, List<PinnedRoot> roots, String proof,
+            Set<String> seen) {
+        JsonNode c = good();
+        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
+        OfflineConfig b = VectorsV3Test.offlineConfig(c);
+        OfflineInput at = new OfflineInput(in.stamps(), in.expectedBind(), in.influence(),
+                proof == null ? in.proof() : proof, in.receiver(), in.receiverInRoute(), in.nonceKey(), in.rid(),
+                in.recordedTs(), in.prompt());
+        return run(at, new OfflineConfig(keyrings, roots, b.allowedOrigins(), b.sess(), seen, null, null, null));
+    }
+
+    private static ReasonCode judged(List<PinnedKeyring> keyrings, List<PinnedRoot> roots) {
+        return judged(keyrings, roots, null, new LinkedHashSet<>()).reason();
+    }
+
+    /** The good call's recorded time. */
+    private static long recorded() {
+        return good().get("recordedTs").get("last").asLong();
+    }
+
+    @Test
+    void aMemberCountsForARecordNoLaterThanItsNotAfter() {
+        long t = recorded();
+        assertEquals(ReasonCode.OK, judged(List.of(new PinnedKeyring(keys(), t)), List.of(goodRoot(t))));
+        assertEquals(ReasonCode.POLICY_EXPIRED,
+                judged(List.of(new PinnedKeyring(keys(), t - 1)), List.of(goodRoot(t))));
+        assertEquals(ReasonCode.POLICY_EXPIRED,
+                judged(List.of(new PinnedKeyring(keys(), t)), List.of(goodRoot(t - 1))));
+        // Beside a keyring that counts, one that has expired for the record gives no key.
+        List<PinnedKeyring> rotation = List.of(new PinnedKeyring(rotated(), t), new PinnedKeyring(keys(), t - 1));
+        assertEquals(ReasonCode.BAD_SIGNATURE, judged(rotation, List.of(goodRoot(t))));
+        List<PinnedKeyring> renewed = new ArrayList<>(rotation);
+        renewed.add(new PinnedKeyring(keys(), t));
+        assertEquals(ReasonCode.OK, judged(renewed, List.of(goodRoot(t))));
+        // And a root that has expired for it proves nothing, while one that counts does.
+        List<PinnedKeyring> ring = List.of(new PinnedKeyring(keys(), t));
+        List<PinnedRoot> roots = List.of(goodRoot(t - 1), secondRoot(t));
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, judged(ring, roots, null, new LinkedHashSet<>()).reason());
+        String proof = second.proofFor(good().get("proofRoute").asText()).toJson();
+        assertEquals(ReasonCode.OK, judged(ring, roots, proof, new LinkedHashSet<>()).reason());
+    }
+
+    @Test
+    void noRootCountingForTheRecordIsPolicyExpired() {
+        long t = recorded();
+        List<PinnedKeyring> ring = List.of(new PinnedKeyring(keys(), Long.MAX_VALUE));
+        List<PinnedRoot> lapsed = List.of(goodRoot(t - 1), secondRoot(0));
+        Set<String> seen = new LinkedHashSet<>();
+        OfflineResult expired = new OfflineResult(ReasonCode.POLICY_EXPIRED, "", "");
+        assertEquals(expired, judged(ring, lapsed, null, seen));
+        assertEquals(expired, judged(List.of(new PinnedKeyring(keys(), t - 1), new PinnedKeyring(rotated(), 0)),
+                List.of(goodRoot(Long.MAX_VALUE)), null, seen));
+        // Judged before check 1, so it names no one and spends no key, however malformed the chain.
+        JsonNode c = good();
+        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
+        OfflineConfig b = VectorsV3Test.offlineConfig(c);
+        assertEquals(expired, run(with(in, "\"x\"", in.recordedTs(), in.prompt(), in.nonceKey()),
+                new OfflineConfig(ring, lapsed, b.allowedOrigins(), b.sess(), seen, null, null, null)));
+        assertTrue(seen.isEmpty(), "no key spent");
+    }
+
+    @Test
+    void aRecordWithNoTimeIsLeftToCheck7() {
+        JsonNode c = good();
+        OfflineInput in = VectorsV3Test.offlineInput(c, VectorsV3Test.policy(c));
+        OfflineConfig b = VectorsV3Test.offlineConfig(c);
+        OfflineConfig lapsed = new OfflineConfig(List.of(new PinnedKeyring(keys(), 0)), List.of(goodRoot(0)),
+                b.allowedOrigins(), b.sess(), new LinkedHashSet<>(), null, null, null);
+        assertEquals(ReasonCode.TIME_MISMATCH, run(with(in, in.stamps(), null, in.prompt(), in.nonceKey()), lapsed)
+                .reason());
+        // A record with a time is judged at it.
+        assertEquals(ReasonCode.POLICY_EXPIRED, run(in, lapsed).reason());
+    }
+
+    /** A config pins at least one keyring and one root and no null member, refused when built. */
+    @Test
+    void aConfigRefusesNoMembersOrANullOne() {
+        List<PinnedKeyring> ring = List.of(new PinnedKeyring(keys(), Long.MAX_VALUE));
+        List<PinnedRoot> root = List.of(goodRoot(Long.MAX_VALUE));
+        assertThrows(IllegalArgumentException.class, () -> config(List.of(), root));
+        assertThrows(IllegalArgumentException.class, () -> config(ring, List.of()));
+        assertThrows(NullPointerException.class, () -> config(null, root));
+        assertThrows(NullPointerException.class, () -> config(ring, null));
+        assertThrows(NullPointerException.class, () -> config(Arrays.asList(ring.get(0), null), root));
+        assertThrows(NullPointerException.class, () -> config(ring, Arrays.asList(null, root.get(0))));
+        List<PinnedKeyring> rings = new ArrayList<>(ring);
+        OfflineConfig copied = config(rings, root);
+        rings.clear();
+        assertEquals(ring, copied.keyrings(), "copied in");
+    }
+
+    private static OfflineConfig config(List<PinnedKeyring> keyrings, List<PinnedRoot> roots) {
+        return new OfflineConfig(keyrings, roots, Set.of("session"), "", new LinkedHashSet<>(), null, null, null);
     }
 }

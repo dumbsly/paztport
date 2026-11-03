@@ -9,6 +9,7 @@ import com.github.dockerjava.core.DockerClientImpl;
 import com.github.dockerjava.transport.DockerHttpClient;
 import com.github.dockerjava.zerodep.ZerodepDockerHttpClient;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
@@ -64,7 +65,7 @@ public class ResponderApplication {
             @Value("${responder.keyring-path}") String keyringPath,
             @Value("${responder.allowed-signers}") Set<String> allowedSigners) {
         KeyringFile file = KeyringFile.load(Path.of(keyringPath));
-        return new EventVerifier(Keyring.fromFile(file), allowedSigners, System::currentTimeMillis);
+        return new EventVerifier(List.of(Keyring.fromFile(file)), allowedSigners, System::currentTimeMillis);
     }
 
     @Bean

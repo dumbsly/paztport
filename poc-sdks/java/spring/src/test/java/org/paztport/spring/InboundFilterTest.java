@@ -46,6 +46,8 @@ import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.ContextAccess;
@@ -111,10 +113,12 @@ class InboundFilterTest {
     }
 
     private Verifier paymentVerifier() {
+        long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
-                Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
-                Set.of("gateway"), "",
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic(), "orders",
+                        orders.getPublic())), notAfter)),
+                List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "",
                 new InMemoryNonceCache(), () -> NOW, 5000, 5000));
     }
 

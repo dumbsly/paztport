@@ -33,7 +33,7 @@ class EventControllerTest {
             new ResponderService(
                     new QuarantineDecider(new QuarantineConfig(1, 60_000, 2, 600_000), System::currentTimeMillis),
                     (svc, inst) -> quarantined.add(inst), Runnable::run),
-            new EventVerifier(Keyring.of(Map.of("payment", payment.getPublic())),
+            new EventVerifier(List.of(Keyring.of(Map.of("payment", payment.getPublic()))),
                     Set.of("payment"), System::currentTimeMillis))).build();
 
     @Test

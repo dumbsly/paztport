@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.security.KeyPair;
 import java.security.PublicKey;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.MerkleLeaf;
+import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.policy.MerkleTree;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.Chains;
@@ -54,8 +56,9 @@ class VerifierTest {
         c.get("keyring").properties().forEach(e -> keys.put(e.getKey(), Crypto.decodePublicKey(
                 Base64Url.decode(vectors.get("keys").get(e.getValue().asText()).get("pub").asText()))));
         long now = c.get("now").asLong();
-        return new Verifier(new VerifierConfig(Keyring.of(keys), Base64Url.decode(policy.get("root").asText()),
-                policy.get("rootId").asText(), NOT_AFTER, Set.of("session"), c.get("sess").asText(),
+        return new Verifier(new VerifierConfig(List.of(new PinnedKeyring(Keyring.of(keys), NOT_AFTER)),
+                List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
+                        NOT_AFTER)), NOT_AFTER, Set.of("session"), c.get("sess").asText(),
                 new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now, c.get("callMaxAgeMs").asLong(),
                 c.get("runMaxAgeMs").asLong()));
     }
@@ -106,16 +109,16 @@ class VerifierTest {
         byte[] root = new byte[32];
         SignedRoot signed = SignedRoot.sign(root, "v1", NOT_AFTER, policy.getPrivate());
         KeyringFile unsigned = new KeyringFile(Map.of(), pin, null, NOT_AFTER);
-        assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(unsigned, signed, pin,
-                Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+        assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(unsigned),
+                List.of(signed), pin, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
         KeyringFile good = KeyringFile.sign(Map.of(), pin, NOT_AFTER, policy.getPrivate());
-        VerifierConfig cfg = VerifierConfig.pinned(good, signed, pin, Set.of("session"), "s",
+        VerifierConfig cfg = VerifierConfig.pinned(List.of(good), List.of(signed), pin, Set.of("session"), "s",
                 new InMemoryNonceCache(), () -> 0L, 5000, 5000);
-        assertEquals("v1", cfg.rootId());
+        assertEquals("v1", cfg.roots().get(0).rootId());
         KeyPair other = Crypto.generateEd25519KeyPair();
         SignedRoot forged = SignedRoot.sign(root, "v1", NOT_AFTER, other.getPrivate());
-        assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(good, forged, pin,
-                Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
+        assertThrows(IllegalArgumentException.class, () -> VerifierConfig.pinned(List.of(good), List.of(forged),
+                pin, Set.of("session"), "s", new InMemoryNonceCache(), () -> 0L, 5000, 5000));
     }
 
     @Test
@@ -189,8 +192,8 @@ class VerifierTest {
     private static Verifier boundary(NonceCache cache, long callMax, long runMax) {
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic(),
                 "other", Crypto.generateEd25519KeyPair().getPublic()));
-        return new Verifier(new VerifierConfig(ring, TREE.root(), "vtest", NOT_AFTER, Set.of("session"), "s", cache,
-                () -> NOW, callMax, runMax));
+        return new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
+                List.of(root(TREE, NOT_AFTER)), NOT_AFTER, Set.of("session"), "s", cache, () -> NOW, callMax, runMax));
     }
 
     private static ReasonCode run(Case c) {
@@ -277,7 +280,7 @@ class VerifierTest {
                 "pi", Base64Url.encode(Crypto.encodePublicKey(PI.getPublic())));
         KeyringFile ring = KeyringFile.sign(services, pin, ringNotAfter, policy.getPrivate());
         SignedRoot root = SignedRoot.sign(TREE.root(), "vtest", rootNotAfter, policy.getPrivate());
-        return new Verifier(VerifierConfig.pinned(ring, root, pin, Set.of("session"), "s",
+        return new Verifier(VerifierConfig.pinned(List.of(ring), List.of(root), pin, Set.of("session"), "s",
                 new InMemoryNonceCache(2 * CALL), () -> clock[0], CALL, RUN));
     }
 
@@ -340,14 +343,170 @@ class VerifierTest {
     void aWindowOutOfRangeIsPolicyExpired() {
         for (long window : new long[] {JsonIntegers.MAX_SAFE + 1, Long.MAX_VALUE, -1, Long.MIN_VALUE}) {
             Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
-            Verifier v = new Verifier(new VerifierConfig(ring, TREE.root(), "vtest", window, Set.of("session"),
-                    "s", new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+            Verifier v = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
+                    List.of(root(TREE, NOT_AFTER)), window, Set.of("session"), "s", new InMemoryNonceCache(2 * CALL),
+                    () -> NOW, CALL, RUN));
             assertEquals(new VerifyResult(ReasonCode.POLICY_EXPIRED, "", ""), v.verify(boundaryInput("k1", null)),
                     String.valueOf(window));
         }
         Keyring ring = Keyring.of(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()));
-        Verifier largest = new Verifier(new VerifierConfig(ring, TREE.root(), "vtest", JsonIntegers.MAX_SAFE,
-                Set.of("session"), "s", new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+        Verifier largest = new Verifier(new VerifierConfig(List.of(new PinnedKeyring(ring, NOT_AFTER)),
+                List.of(root(TREE, NOT_AFTER)), JsonIntegers.MAX_SAFE, Set.of("session"), "s",
+                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
         assertEquals(ReasonCode.OK, largest.verify(boundaryInput("k1", null)).reason());
+    }
+
+    // Several pinned keyrings and roots, as while a rollover is under way: only those current at now are used.
+
+    private static final KeyPair OLD_PI = Crypto.generateEd25519KeyPair();
+    /** The same route under a second policy, the first tree renewed under its rootId, and a tree pinned nowhere. */
+    private static final MerkleTree SECOND = tree("v2", 1);
+    private static final MerkleTree RENEWED = tree("vtest", 2);
+    private static final MerkleTree UNPINNED = tree("v3", 3);
+    private static final VerifyResult OK_PI = new VerifyResult(ReasonCode.OK, "pi", "i");
+    private static final VerifyResult DENIED = new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, "pi", "i");
+    private static final VerifyResult UNSIGNED = new VerifyResult(ReasonCode.BAD_SIGNATURE, "", "");
+
+    /** A one-leaf tree for the boundary route, its salt filled with {@code salt} so each tree has its own root. */
+    private static MerkleTree tree(String rootId, int salt) {
+        byte[] bytes = new byte[16];
+        Arrays.fill(bytes, (byte) salt);
+        return MerkleTree.build(List.of(new MerkleLeaf(bytes, "session/pi/target")), 1, rootId);
+    }
+
+    private static PinnedKeyring ring(Map<String, PublicKey> keys, long notAfter) {
+        return new PinnedKeyring(Keyring.of(keys), notAfter);
+    }
+
+    private static PinnedKeyring ring(Map<String, PublicKey> keys) {
+        return ring(keys, NOT_AFTER);
+    }
+
+    private static PinnedRoot root(MerkleTree tree, long notAfter) {
+        return new PinnedRoot(tree.root(), tree.rootId(), notAfter);
+    }
+
+    private static PinnedRoot root(MerkleTree tree) {
+        return root(tree, NOT_AFTER);
+    }
+
+    private static String proofOf(MerkleTree tree) {
+        return tree.proofFor("session/pi/target").toJson();
+    }
+
+    /** {@code tree}'s proof, its {@code rootId} relabelled as {@code rootId}. */
+    private static String relabelled(MerkleTree tree, String rootId) {
+        MerkleProof p = tree.proofFor("session/pi/target");
+        return new MerkleProof(p.leafSalt(), p.siblings(), p.dirs(), rootId).toJson();
+    }
+
+    /** The boundary chain at {@code NOW}, checked against these keyrings and roots with {@code proof}. */
+    private static VerifyResult under(List<PinnedKeyring> keyrings, List<PinnedRoot> roots, String proof) {
+        Verifier v = new Verifier(new VerifierConfig(keyrings, roots, NOT_AFTER, Set.of("session"), "s",
+                new InMemoryNonceCache(2 * CALL), () -> NOW, CALL, RUN));
+        return v.verify(new VerifyInput(chain(new Case()), "b", null, proof, "target", true, "k", null));
+    }
+
+    private static VerifyResult keyedBy(PinnedKeyring... keyrings) {
+        return under(List.of(keyrings), List.of(root(TREE)), PROOF);
+    }
+
+    private static VerifyResult provenBy(String proof, PinnedRoot... roots) {
+        return under(List.of(ring(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()))), List.of(roots),
+                proof);
+    }
+
+    @Test
+    void aStampVerifiesUnderAKeyOnlyInTheSecondKeyring() {
+        // The first keyring has pi's old key, or none: each key the current keyrings give pi is tried.
+        assertEquals(OK_PI, keyedBy(ring(Map.of("session", SESSION.getPublic(), "pi", OLD_PI.getPublic())),
+                ring(Map.of("pi", PI.getPublic()))));
+        assertEquals(OK_PI, keyedBy(ring(Map.of("session", SESSION.getPublic())),
+                ring(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()))));
+    }
+
+    @Test
+    void aChainMayTakeItsKeysFromTwoKeyrings() {
+        assertEquals(OK_PI, keyedBy(ring(Map.of("session", SESSION.getPublic())), ring(Map.of("pi", PI.getPublic()))));
+        assertEquals(OK_PI, keyedBy(ring(Map.of("pi", PI.getPublic())), ring(Map.of("session", SESSION.getPublic()))));
+    }
+
+    @Test
+    void aKeyOnlyInAnExpiredKeyringIsBadSignature() {
+        assertEquals(UNSIGNED, keyedBy(ring(Map.of("session", SESSION.getPublic(), "pi", OLD_PI.getPublic())),
+                ring(Map.of("pi", PI.getPublic()), NOW - 1)));
+        assertEquals(UNSIGNED, keyedBy(ring(Map.of("session", SESSION.getPublic())),
+                ring(Map.of("pi", PI.getPublic()), NOW - 1)));
+    }
+
+    /** A key is looked up by the stamp's own service name: pi's key filed under another name signs nothing. */
+    @Test
+    void aKeyUnderAnotherNameIsBadSignature() {
+        assertEquals(OK_PI, keyedBy(ring(Map.of("session", SESSION.getPublic(), "pi", PI.getPublic()))));
+        assertEquals(UNSIGNED, keyedBy(ring(Map.of("session", SESSION.getPublic(), "other", PI.getPublic()))));
+        assertEquals(UNSIGNED, keyedBy(ring(Map.of("session", SESSION.getPublic(), "pi", OLD_PI.getPublic())),
+                ring(Map.of("Pi", PI.getPublic(), "pi-1", PI.getPublic(), "session", PI.getPublic()))));
+    }
+
+    @Test
+    void aProofUnderTheSecondRootProves() {
+        assertEquals(OK_PI, provenBy(proofOf(SECOND), root(TREE), root(SECOND)));
+        assertEquals(OK_PI, provenBy(proofOf(TREE), root(TREE), root(SECOND)));
+    }
+
+    @Test
+    void aProofWhoseRootIdIsPinnedNowhereIsPathNotAllowed() {
+        assertEquals(DENIED, provenBy(proofOf(UNPINNED), root(TREE), root(SECOND)));
+    }
+
+    /**
+     * The proof's rootId selects the root it is checked against: one tree's proof relabelled with the other current
+     * root's rootId is checked against that root, and proves nothing, though it would prove against its own.
+     */
+    @Test
+    void aProofRelabelledWithTheOtherCurrentRootsIdIsPathNotAllowed() {
+        assertEquals(DENIED, provenBy(relabelled(SECOND, "vtest"), root(TREE), root(SECOND)));
+        assertEquals(DENIED, provenBy(relabelled(TREE, "v2"), root(TREE), root(SECOND)));
+        assertEquals(DENIED, provenBy(relabelled(TREE, "v2"), root(SECOND), root(TREE)));
+    }
+
+    @Test
+    void aProofUnderAnExpiredRootIsPathNotAllowedWhileAnotherIsCurrent() {
+        assertEquals(DENIED, provenBy(proofOf(TREE), root(TREE, NOW - 1), root(SECOND)));
+        assertEquals(OK_PI, provenBy(proofOf(SECOND), root(TREE, NOW - 1), root(SECOND)));
+    }
+
+    @Test
+    void twoRootsSharingARootIdBothServe() {
+        assertEquals(OK_PI, provenBy(proofOf(TREE), root(TREE), root(RENEWED)));
+        assertEquals(OK_PI, provenBy(proofOf(RENEWED), root(TREE), root(RENEWED)));
+        // The renewal's tree is not the old one's: each proof proves against its own root only.
+        assertEquals(DENIED, provenBy(proofOf(RENEWED), root(TREE)));
+    }
+
+    @Test
+    void aMemberAtNowIsCurrentAndOneMsPastIsNot() {
+        PinnedKeyring session = ring(Map.of("session", SESSION.getPublic()));
+        assertEquals(OK_PI, keyedBy(session, ring(Map.of("pi", PI.getPublic()), NOW)));
+        assertEquals(UNSIGNED, keyedBy(session, ring(Map.of("pi", PI.getPublic()), NOW - 1)));
+        assertEquals(OK_PI, provenBy(PROOF, root(TREE, NOW)));
+        assertEquals(DENIED, provenBy(PROOF, root(TREE, NOW - 1)));
+    }
+
+    /**
+     * A member's window is a protocol integer, or {@link Long#MAX_VALUE} for none; any other is current at no time,
+     * as no signed object carries one.
+     */
+    @Test
+    void aMemberWindowOutOfRangeIsNeverCurrent() {
+        PinnedKeyring session = ring(Map.of("session", SESSION.getPublic()));
+        assertEquals(OK_PI, keyedBy(session, ring(Map.of("pi", PI.getPublic()), JsonIntegers.MAX_SAFE)));
+        assertEquals(OK_PI, keyedBy(session, ring(Map.of("pi", PI.getPublic()), Long.MAX_VALUE)));
+        assertEquals(OK_PI, provenBy(PROOF, root(TREE, Long.MAX_VALUE)));
+        for (long window : new long[] {JsonIntegers.MAX_SAFE + 1, Long.MAX_VALUE - 1, -1, Long.MIN_VALUE}) {
+            String at = String.valueOf(window);
+            assertEquals(UNSIGNED, keyedBy(session, ring(Map.of("pi", PI.getPublic()), window)), at);
+            assertEquals(DENIED, provenBy(PROOF, root(TREE, window)), at);
+        }
     }
 }

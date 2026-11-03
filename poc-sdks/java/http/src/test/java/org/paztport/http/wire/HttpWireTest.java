@@ -26,6 +26,8 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -52,11 +54,12 @@ class HttpWireTest {
     }
 
     private Verifier verifier() {
+        long notAfter = policy.signedRoot().notAfter();
         return new Verifier(new VerifierConfig(
-                Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders", ordersKey.getPublic(),
-                        "payment", paymentKey.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
-                Set.of("gateway"), "",
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gatewayKey.getPublic(), "orders",
+                        ordersKey.getPublic(), "payment", paymentKey.getPublic())), notAfter)),
+                List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "",
                 new InMemoryNonceCache(60_000), () -> NOW, 30_000, 300_000));
     }
 

@@ -5,9 +5,11 @@ package org.paztport.core.event;
 
 import java.security.PublicKey;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.LongSupplier;
+import org.paztport.core.internal.ChainChecks;
 import org.paztport.core.internal.JsonFields;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
@@ -48,7 +50,7 @@ public final class EventVerifier {
     public enum Refusal {
         MALFORMED_ENVELOPE,
         SIGNER_NOT_ALLOWED,
-        /** Allowed by configuration but absent from the keyring. */
+        /** Allowed by configuration but absent from every keyring. */
         UNKNOWN_SIGNER,
         BAD_SIGNATURE,
         MALFORMED_EVENT,
@@ -70,13 +72,18 @@ public final class EventVerifier {
         }
     }
 
-    private final Keyring keyring;
+    private final List<Keyring> keyrings;
     private final Set<String> allowedSigners;
     private final LongSupplier clock;
     private final Map<String, Long> seen = new HashMap<>();
 
-    public EventVerifier(Keyring keyring, Set<String> allowedSigners, LongSupplier clock) {
-        this.keyring = keyring;
+    /**
+     * A verifier taking events from {@code allowedSigners}, each signed under a key one of {@code keyrings} gives it
+     * by its own name. The keyrings carry no windows: they are the responder's own configuration, trusted as given.
+     * Throws for no keyrings or a null one, so no event meets either.
+     */
+    public EventVerifier(List<Keyring> keyrings, Set<String> allowedSigners, LongSupplier clock) {
+        this.keyrings = ChainChecks.members(keyrings, "keyrings");
         this.allowedSigners = Set.copyOf(allowedSigners);
         this.clock = clock;
     }
@@ -90,11 +97,11 @@ public final class EventVerifier {
         if (!allowedSigners.contains(envelope.signer())) {
             return refuse(Refusal.SIGNER_NOT_ALLOWED, null);
         }
-        PublicKey key = keyring.keyFor(envelope.signer());
-        if (key == null) {
+        List<PublicKey> keys = ChainChecks.keysFor(keyrings, envelope.signer());
+        if (keys.isEmpty()) {
             return refuse(Refusal.UNKNOWN_SIGNER, envelope.signer());
         }
-        if (!envelope.verifiesWith(key)) {
+        if (keys.stream().noneMatch(envelope::verifiesWith)) {
             return refuse(Refusal.BAD_SIGNATURE, envelope.signer());
         }
         ResponderEvent event = event(envelope.payloadBytes());

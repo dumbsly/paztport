@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
@@ -51,6 +53,8 @@ import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.verify.InMemoryNonceCache;
 import org.paztport.core.verify.Peer;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -378,9 +382,10 @@ class VectorsV3Test {
                 Map<String, PublicKey> ring = new LinkedHashMap<>();
                 request.clientKeyring().forEach((svc, key) -> ring.put(svc,
                         Crypto.decodePublicKey(Base64Url.decode(key))));
-                OfflineConfig cfg = new OfflineConfig(Keyring.of(ring),
-                        Base64Url.decode(clientRoot.root()), clientRoot.rootId(), origins,
-                        sessions.get(index).sess(), records.spent(), null,
+                // The session's windows are judged by callInSession, so the members have none.
+                OfflineConfig cfg = new OfflineConfig(List.of(new PinnedKeyring(Keyring.of(ring), Long.MAX_VALUE)),
+                        List.of(new PinnedRoot(Base64Url.decode(clientRoot.root()), clientRoot.rootId(),
+                                Long.MAX_VALUE)), origins, sessions.get(index).sess(), records.spent(), null,
                         c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
                 OfflineResult result = OfflineVerifier.verify(offlineInput(call, policy(call)), cfg);
                 ReasonCode reason = RecordSet.callInSession(sessions.get(index), result.reason(),
@@ -440,34 +445,81 @@ class VectorsV3Test {
         return Keyring.of(keys);
     }
 
+    /** A member's {@code notAfter}, or {@code absent} where it gives none. */
+    private static long window(JsonNode member, long absent) {
+        return member.has("notAfter") ? member.get("notAfter").asLong() : absent;
+    }
+
+    /**
+     * A case's pinned keyrings: its {@code keyrings}, in place of {@code keyring}, each member's window its own or
+     * {@code absent}; otherwise its one {@code keyring}, with the window {@code single}.
+     */
+    static List<PinnedKeyring> keyrings(JsonNode c, long single, long absent) {
+        if (!c.has("keyrings")) {
+            return List.of(new PinnedKeyring(keyring(c.get("keyring")), single));
+        }
+        assertFalse(c.has("keyring"), c.get("name").asText() + ": keyrings replace keyring");
+        List<PinnedKeyring> out = new ArrayList<>();
+        c.get("keyrings").forEach(k -> out.add(new PinnedKeyring(keyring(k.get("keyring")), window(k, absent))));
+        return out;
+    }
+
+    /**
+     * A case's pinned roots: its {@code roots}, each a policy's root and its window, its own or {@code absent};
+     * otherwise {@code policy}'s root, with the window {@code single}. With {@code roots}, {@code policy} names only
+     * where the case's proof comes from.
+     */
+    static List<PinnedRoot> roots(JsonNode c, long single, long absent) {
+        if (!c.has("roots")) {
+            return List.of(pinnedRoot(c.get("policy").asText(), single));
+        }
+        List<PinnedRoot> out = new ArrayList<>();
+        c.get("roots").forEach(r -> out.add(pinnedRoot(r.get("policy").asText(), window(r, absent))));
+        return out;
+    }
+
+    private static PinnedRoot pinnedRoot(String policy, long notAfter) {
+        JsonNode p = vectors.get("policies").get(policy);
+        return new PinnedRoot(Base64Url.decode(p.get("root").asText()), p.get("rootId").asText(), notAfter);
+    }
+
     @Test
     void verify() {
         for (JsonNode c : vectors.get("verify")) {
-            String name = c.get("name").asText();
-            JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
-            Set<String> origins = new LinkedHashSet<>();
-            c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
-            long now = c.get("now").asLong();
-            VerifierConfig cfg = new VerifierConfig(keyring(c.get("keyring")),
-                    Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
-                    c.get("policyNotAfter").asLong(), origins,
-                    c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
-                    c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
-            JsonNode route = c.get("proofRoute");
-            JsonNode peer = c.get("peer");
-            VerifyInput in = new VerifyInput(Vectors.tokenText(c.get("chainToken")),
-                    c.get("expectedBind").asText(), Vectors.tokenText(c.get("influenceToken")), proof(policy, route),
-                    c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
-                    peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
-            Verifier verifier = new Verifier(cfg);
-            VerifyResult result = null;
-            for (int i = 0; i < c.get("uses").asInt(); i++) {
-                result = verifier.verify(in);
-            }
-            JsonNode want = c.get("expected");
-            assertEquals(new VerifyResult(ReasonCode.valueOf(want.get("reason").asText()),
-                    want.get("suspectSvc").asText(), want.get("suspectInst").asText()), result, name);
+            assertEquals(expectedLive(c), replayLive(c), c.get("name").asText());
         }
+    }
+
+    /** A live case run {@code uses} times against one nonce cache; the last result. */
+    private static VerifyResult replayLive(JsonNode c) {
+        JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
+        Set<String> origins = new LinkedHashSet<>();
+        c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
+        long now = c.get("now").asLong();
+        long policyNotAfter = c.get("policyNotAfter").asLong();
+        // A live member always has a window: one without is never current.
+        VerifierConfig cfg = new VerifierConfig(keyrings(c, policyNotAfter, Long.MIN_VALUE),
+                roots(c, policyNotAfter, Long.MIN_VALUE), policyNotAfter, origins,
+                c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
+                c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong());
+        JsonNode route = c.get("proofRoute");
+        JsonNode peer = c.get("peer");
+        VerifyInput in = new VerifyInput(Vectors.tokenText(c.get("chainToken")),
+                c.get("expectedBind").asText(), Vectors.tokenText(c.get("influenceToken")), proof(policy, route),
+                c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
+                peer.isNull() ? null : new Peer(peer.get("svc").asText(), peer.get("inst").asText()));
+        Verifier verifier = new Verifier(cfg);
+        VerifyResult result = null;
+        for (int i = 0; i < c.get("uses").asInt(); i++) {
+            result = verifier.verify(in);
+        }
+        return result;
+    }
+
+    private static VerifyResult expectedLive(JsonNode c) {
+        JsonNode want = c.get("expected");
+        return new VerifyResult(ReasonCode.valueOf(want.get("reason").asText()), want.get("suspectSvc").asText(),
+                want.get("suspectInst").asText());
     }
 
     /**
@@ -490,14 +542,14 @@ class VectorsV3Test {
                 t.isNull() ? null : new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
     }
 
-    static OfflineConfig offlineConfig(JsonNode c, JsonNode policy) {
+    /** The offline config a case gives: offline, a member without a window counts for every record. */
+    static OfflineConfig offlineConfig(JsonNode c) {
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         Set<String> seen = new LinkedHashSet<>();
         c.get("seen").forEach(k -> seen.add(k.asText()));
-        return new OfflineConfig(keyring(c.get("keyring")), Base64Url.decode(policy.get("root").asText()),
-                policy.get("rootId").asText(), origins, c.get("sess").asText(), seen, null,
-                limit(c.get("runMaxAgeMs")), limit(c.get("callMaxAgeMs")));
+        return new OfflineConfig(keyrings(c, Long.MAX_VALUE, Long.MAX_VALUE), roots(c, Long.MAX_VALUE, Long.MAX_VALUE),
+                origins, c.get("sess").asText(), seen, null, limit(c.get("runMaxAgeMs")), limit(c.get("callMaxAgeMs")));
     }
 
     /** An age limit a case gives; {@code null} is a limit not configured. */
@@ -508,17 +560,91 @@ class VectorsV3Test {
     @Test
     void offline() {
         for (JsonNode c : vectors.get("offline")) {
-            JsonNode policy = vectors.get("policies").get(c.get("policy").asText());
-            OfflineResult result = OfflineVerifier.verify(offlineInput(c, policy), offlineConfig(c, policy));
-            JsonNode want = c.get("expected");
-            assertEquals(new OfflineResult(ReasonCode.valueOf(want.get("reason").asText()),
-                    want.get("suspectSvc").asText(), want.get("suspectInst").asText()),
-                    result, c.get("name").asText());
+            assertEquals(expectedOffline(c), replayOffline(c), c.get("name").asText());
         }
     }
 
-    static JsonNode offlineCase(String name) {
+    private static OfflineResult replayOffline(JsonNode c) {
+        return OfflineVerifier.verify(offlineInput(c, policy(c)), offlineConfig(c));
+    }
+
+    private static OfflineResult expectedOffline(JsonNode c) {
+        JsonNode want = c.get("expected");
+        return new OfflineResult(ReasonCode.valueOf(want.get("reason").asText()), want.get("suspectSvc").asText(),
+                want.get("suspectInst").asText());
+    }
+
+    /**
+     * Every verify and offline case, its one keyring and root rewritten as the optional {@code keyrings} and
+     * {@code roots}, gives its recorded answer: the replay reads the arrays a case may carry, though no committed
+     * case carries them yet. Each case is rewritten twice: one keyring, and its services split one to a keyring, so
+     * a stamp's key comes from whichever keyring holds it. Live, each member's window is the case's
+     * {@code policyNotAfter}; offline, a member has none.
+     */
+    @Test
+    void theOptionalArraysGiveTheAnswersOfTheirSingletons() {
+        for (JsonNode c : vectors.get("verify")) {
+            for (boolean split : new boolean[] {false, true}) {
+                assertEquals(expectedLive(c), replayLive(asArrays(c, c.get("policyNotAfter"), split)),
+                        c.get("name").asText() + (split ? ", split" : ""));
+            }
+        }
         for (JsonNode c : vectors.get("offline")) {
+            for (boolean split : new boolean[] {false, true}) {
+                assertEquals(expectedOffline(c), replayOffline(asArrays(c, null, split)),
+                        c.get("name").asText() + (split ? ", split" : ""));
+            }
+        }
+        // And what the arrays pin is what is used: the keyrings in place of keyring, the roots in place of policy's
+        // root, which still gives the proof, and each member's own window.
+        JsonNode ok = caseNamed("verify", "mcp call ok");
+        ObjectNode piless = (ObjectNode) asArrays(ok, ok.get("policyNotAfter"), true);
+        ((ArrayNode) piless.get("keyrings")).remove(1);
+        assertEquals(ReasonCode.BAD_SIGNATURE, replayLive(piless).reason());
+        ObjectNode elsewhere = (ObjectNode) asArrays(ok, ok.get("policyNotAfter"), false);
+        ((ObjectNode) elsewhere.get("roots").get(0)).put("policy", "server");
+        assertEquals(ReasonCode.PATH_NOT_ALLOWED, replayLive(elsewhere).reason());
+        JsonNode recorded = offlineCase("recorded call");
+        long before = recorded.get("recordedTs").get("last").asLong() - 1;
+        ObjectNode lapsed = (ObjectNode) asArrays(recorded, MAPPER.getNodeFactory().numberNode(before), false);
+        assertEquals(ReasonCode.POLICY_EXPIRED, replayOffline(lapsed).reason());
+    }
+
+
+    /**
+     * {@code c} with its {@code keyring} as {@code keyrings}, whole or split one service to a keyring, and its
+     * {@code policy}'s root as {@code roots}, each member until {@code notAfter}, or with no window when it is null.
+     */
+    private static JsonNode asArrays(JsonNode c, JsonNode notAfter, boolean split) {
+        ObjectNode o = c.deepCopy();
+        JsonNode keyring = o.remove("keyring");
+        ArrayNode keyrings = o.putArray("keyrings");
+        List<JsonNode> parts = new ArrayList<>();
+        if (split) {
+            keyring.properties().forEach(e -> parts.add(MAPPER.createObjectNode().set(e.getKey(), e.getValue())));
+        } else {
+            parts.add(keyring);
+        }
+        for (JsonNode part : parts) {
+            ObjectNode member = keyrings.addObject();
+            member.set("keyring", part);
+            if (notAfter != null) {
+                member.set("notAfter", notAfter);
+            }
+        }
+        ObjectNode root = o.putArray("roots").addObject().put("policy", c.get("policy").asText());
+        if (notAfter != null) {
+            root.set("notAfter", notAfter);
+        }
+        return o;
+    }
+
+    static JsonNode offlineCase(String name) {
+        return caseNamed("offline", name);
+    }
+
+    private static JsonNode caseNamed(String section, String name) {
+        for (JsonNode c : vectors.get(section)) {
             if (c.get("name").asText().equals(name)) {
                 return c;
             }

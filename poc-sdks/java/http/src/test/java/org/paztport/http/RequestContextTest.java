@@ -38,6 +38,8 @@ import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.event.EventPublisher;
@@ -209,9 +211,11 @@ class RequestContextTest {
 
     /** {@code orders} verifying requests, offering each to {@code listener} first. */
     private HttpReceiver orders(ReceivedRequestListener listener) {
-        Verifier verifier = new Verifier(new VerifierConfig(Keyring.of(Map.of("gateway", gateway.getPublic())),
-                policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), policy.signedRoot().notAfter(),
-                Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000));
+        long notAfter = policy.signedRoot().notAfter();
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(Map.of("gateway", gateway.getPublic())), notAfter)),
+                List.of(new PinnedRoot(policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), notAfter)),
+                notAfter, Set.of("gateway"), "", new InMemoryNonceCache(), System::currentTimeMillis, 5000, 5000));
         EventPublisher none = event -> {
         };
         return HttpReceiver.builder("orders").verifier(verifier).verifyRequests(true).publisher(none)

@@ -45,6 +45,8 @@ import org.paztport.core.policy.MerkleProof;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.InMemoryNonceCache;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
@@ -397,9 +399,12 @@ class VectorsHttpV3Export {
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
-        Verifier verifier = new Verifier(new VerifierConfig(Keyring.of(ring),
-                Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
-                c.get("policyNotAfter").asLong(), origins, c.get("sess").asText(),
+        long policyNotAfter = c.get("policyNotAfter").asLong();
+        // One keyring and one root, each with the case's window.
+        Verifier verifier = new Verifier(new VerifierConfig(
+                List.of(new PinnedKeyring(Keyring.of(ring), policyNotAfter)),
+                List.of(new PinnedRoot(Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
+                        policyNotAfter)), policyNotAfter, origins, c.get("sess").asText(),
                 new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
         List<Stamp> sent = new ArrayList<>();

@@ -5,7 +5,9 @@ package org.paztport.core.internal;
 
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
@@ -17,6 +19,8 @@ import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.ParsedChain;
 import org.paztport.core.stamp.Stamp;
+import org.paztport.core.verify.PinnedKeyring;
+import org.paztport.core.verify.PinnedRoot;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifyResult;
 
@@ -24,11 +28,62 @@ import org.paztport.core.verify.VerifyResult;
  * The checks the live and the offline chain verifiers share, each written once: 3 to 6 on the stamps, 8 and 9
  * on the last stamp, and 11 on the route. Checks 1 and 2 are {@link Chains#parse}. Internal, as the two
  * verifiers sit in two packages: callers choose the order and add their own checks (freshness, replay, the peer)
- * around these.
+ * around these. Each verifier also judges here, once and at its own time, which pinned keyrings and roots are
+ * current, and hands only those to the checks; the event verifier shares the keyrings' lookup.
  */
 public final class ChainChecks {
 
     private ChainChecks() {
+    }
+
+    /**
+     * A copy of the pinned {@code members} a config holds, refusing none ({@link IllegalArgumentException}) and a
+     * null one ({@link NullPointerException}), each naming the list as {@code name}, so no check meets either.
+     */
+    public static <T> List<T> members(List<T> members, String name) {
+        Objects.requireNonNull(members, name);
+        if (members.isEmpty()) {
+            throw new IllegalArgumentException(name + " is empty: pin at least one");
+        }
+        for (int i = 0; i < members.size(); i++) {
+            Objects.requireNonNull(members.get(i), name + "[" + i + "]");
+        }
+        return List.copyOf(members);
+    }
+
+    /**
+     * Whether a member pinned until {@code notAfter} is current at {@code at}: its window is a protocol integer, or
+     * {@link Long#MAX_VALUE} for none, and {@code at} has not passed it. Any other window is current at no time.
+     */
+    private static boolean current(long notAfter, long at) {
+        return (notAfter == Long.MAX_VALUE || JsonIntegers.inRange(notAfter)) && at <= notAfter;
+    }
+
+    /** The keys of the keyrings current at {@code at}, in their order. */
+    public static List<Keyring> currentKeyrings(List<PinnedKeyring> keyrings, long at) {
+        return keyrings.stream().filter(k -> current(k.notAfter(), at)).map(PinnedKeyring::keys).toList();
+    }
+
+    /** The roots current at {@code at}, in their order. */
+    public static List<PinnedRoot> currentRoots(List<PinnedRoot> roots, long at) {
+        return roots.stream().filter(r -> current(r.notAfter(), at)).toList();
+    }
+
+    /**
+     * The keys {@code keyrings} give {@code svc}, looked up by its own name in each, each distinct key once (compared
+     * by its encoding), so a key two keyrings share is tried once. Empty when none has a key for it.
+     */
+    public static List<PublicKey> keysFor(List<Keyring> keyrings, String svc) {
+        List<PublicKey> keys = new ArrayList<>();
+        List<byte[]> encoded = new ArrayList<>();
+        for (Keyring keyring : keyrings) {
+            PublicKey key = keyring.keyFor(svc);
+            if (key != null && encoded.stream().noneMatch(e -> Arrays.equals(e, key.getEncoded()))) {
+                keys.add(key);
+                encoded.add(key.getEncoded());
+            }
+        }
+        return keys;
     }
 
     /**
@@ -45,15 +100,15 @@ public final class ChainChecks {
 
     /**
      * Checks 1 to 6: the chain parses (CHAIN_MISSING) with no delimiter in a field (BAD_SIGNATURE), the origin
-     * is allowed (BAD_ORIGIN), each stamp is signed by its service's key and links to the one before
-     * (BAD_SIGNATURE, BROKEN_LINK), then each stamp's {@code rcv} names the next stamp's service and the
-     * last's names the receiver (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH) and the session
-     * (SESSION_UNKNOWN). With {@code signers}, a stamp from another service or instance than expected is not
-     * one the expected key signed: BAD_ORIGIN for the origin's instance, BAD_SIGNATURE for any other. The
-     * result carries the stamps, or the first failure.
+     * is allowed (BAD_ORIGIN), each stamp is signed under one of the keys {@code keyrings}, the current ones, give
+     * its service ({@link #keysFor}) and links to the one before (BAD_SIGNATURE, BROKEN_LINK), then each stamp's
+     * {@code rcv} names the next stamp's service and the last's names the receiver (BINDING_MISMATCH), every stamp
+     * carries the rid (RID_MISMATCH) and the session (SESSION_UNKNOWN). With {@code signers}, a stamp from another
+     * service or instance than expected is not one the expected key signed: BAD_ORIGIN for the origin's instance,
+     * BAD_SIGNATURE for any other. The result carries the stamps, or the first failure.
      */
-    public static ParsedChain checkStamps(String value, Keyring keyring, Set<String> allowedOrigins, String sess,
-            Shape shape) {
+    public static ParsedChain checkStamps(String value, List<Keyring> keyrings, Set<String> allowedOrigins,
+            String sess, Shape shape) {
         // 1-2. Parse, and no delimiter in any field.
         ParsedChain parsed = Chains.parse(value);
         if (!parsed.ok()) {
@@ -71,8 +126,7 @@ public final class ChainChecks {
         // 4. Signatures and links.
         for (int i = 0; i < stamps.size(); i++) {
             Stamp s = stamps.get(i);
-            PublicKey key = keyring.keyFor(s.svc());
-            if (key == null || !signatureValid(key, s)
+            if (keysFor(keyrings, s.svc()).stream().noneMatch(key -> signatureValid(key, s))
                     || (signers != null && (i >= signers.svcs().size() || !s.svc().equals(signers.svcs().get(i))
                             || !s.inst().equals(signers.inst())))) {
                 return fail(ReasonCode.BAD_SIGNATURE);
@@ -139,27 +193,30 @@ public final class ChainChecks {
     }
 
     /**
-     * Check 11 and the result: the chain's services, then the receiver when given, proven against the root
-     * (PATH_NOT_ALLOWED). Both outcomes name the last stamp; the caller decides whether that name is kept.
+     * Check 11 and the result: the chain's services, then the receiver when given, proven against one of
+     * {@code roots}, the current ones, that has the proof's {@code rootId} (PATH_NOT_ALLOWED). Both outcomes name the
+     * last stamp; the caller decides whether that name is kept.
      */
-    public static VerifyResult checkRoute(List<Stamp> stamps, String receiver, String proof, byte[] root,
-            String rootId) {
+    public static VerifyResult checkRoute(List<Stamp> stamps, String receiver, String proof, List<PinnedRoot> roots) {
         Stamp last = stamps.get(stamps.size() - 1);
         List<String> hops = new ArrayList<>(stamps.stream().map(Stamp::svc).toList());
         if (receiver != null) {
             hops.add(receiver);
         }
-        if (!provesPath(proof, Routes.join(hops), root, rootId)) {
+        if (!provesPath(proof, Routes.join(hops), roots)) {
             return new VerifyResult(ReasonCode.PATH_NOT_ALLOWED, last.svc(), last.inst());
         }
         return new VerifyResult(ReasonCode.OK, last.svc(), last.inst());
     }
 
-    /** Whether the proof names this root and proves the route against it; any malformed proof is "not proven". */
-    private static boolean provesPath(String proof, String route, byte[] root, String rootId) {
+    /**
+     * Whether the proof proves the route against a root with the proof's {@code rootId}: only those are tried, a root
+     * and its renewals sharing one. Any malformed proof is "not proven".
+     */
+    private static boolean provesPath(String proof, String route, List<PinnedRoot> roots) {
         try {
             MerkleProof p = MerkleProof.parse(proof);
-            return p.rootId().equals(rootId) && p.verify(route, root);
+            return roots.stream().anyMatch(r -> r.rootId().equals(p.rootId()) && p.verify(route, r.root()));
         } catch (RuntimeException e) {
             return false;
         }
