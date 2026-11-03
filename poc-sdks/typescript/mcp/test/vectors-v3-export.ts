@@ -70,6 +70,8 @@ const ABOUT =
   "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
   "A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), " +
   "where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. " +
+  "A case's one `keyring`, or `policy`'s root when it has no `roots`, is a single member whose window is the case's policyNotAfter in a verify case " +
+  "and none in an offline case, and two `roots` naming one policy are its root and a renewal of it. " +
   "The policy mesh-second is a second tree over mesh's routes, whose rootId and salts the vectors derive from the seed `second` as well as the routes " +
   "(rootId = \"v\" + first 12 hex of SHA-256(utf8(routes joined by newline + newline + \"#second\")), " +
   'salt = the first 16 bytes of SHA-256(utf8("paztport-v3-vector-salt:second:" + route))); ' +

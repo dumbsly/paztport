@@ -105,8 +105,8 @@ func TestAttributableVectors(t *testing.T) {
 func TestVerifyVectors(t *testing.T) {
 	file := vectors.Load(t, "events.json")
 	cases := file.Get("verify")
-	if cases.Len() != 80 {
-		t.Fatalf("verify has %d cases, want 80", cases.Len())
+	if cases.Len() != 81 {
+		t.Fatalf("verify has %d cases, want 81", cases.Len())
 	}
 	seen := map[event.Refusal]int{}
 	cases.Each(func(name string, c vectors.Node) {

@@ -945,6 +945,29 @@
       }
     }
   }, {
+    "name" : "a signer whose key is the second of two keyrings naming it",
+    "keyrings" : [ {
+      "payment" : "payment"
+    }, {
+      "payment" : "payment-next"
+    } ],
+    "earlier" : [ ],
+    "body" : "{\"payload\":\"eyJhdWRpdCI6ZmFsc2UsImV2ZW50SWQiOiJldmVudC0xIiwicmVhc29uIjoiUEFUSF9OT1RfQUxMT1dFRCIsInJpZCI6InJpZC1ldmVudC0xIiwic3VzcGVjdEluc3QiOiJzZWFyY2gtMSIsInN1c3BlY3RTdmMiOiJzZWFyY2giLCJ0cyI6MTc2NzIyNTYwMDAwMH0\",\"sig\":\"GOk5oYt9X0vq1Nk2G3OjQfQEWLFtJOPJKnD2EgUg1zrFNAg6sGmevzXWPcSfaBoV-QUER-viMXREveizojg6CQ\",\"signer\":\"payment\"}",
+    "now" : 1767225600000,
+    "uses" : 1,
+    "expected" : {
+      "refusal" : null,
+      "event" : {
+        "audit" : false,
+        "eventId" : "event-1",
+        "reason" : "PATH_NOT_ALLOWED",
+        "rid" : "rid-event-1",
+        "suspectInst" : "search-1",
+        "suspectSvc" : "search",
+        "ts" : 1767225600000
+      }
+    }
+  }, {
     "name" : "a signer in no keyring",
     "keyrings" : [ {
       "search" : "search"

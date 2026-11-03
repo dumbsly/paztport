@@ -55,24 +55,24 @@ import org.paztport.core.policy.Keyring;
 class EventVectorsExport {
 
     private static final String ABOUT = "Paztport event conformance vectors: the signed events a verifying service"
-            + " sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 ||"
-            + " seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI"
-            + " DER export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`."
-            + " An envelope case signs `eventJson`, the JCS text of `event`, as `signer` with that signer's key:"
-            + " `payload` is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig`"
-            + " the signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to"
-            + " public key, or, when the case has `keyrings`, those instead: a list of maps from service to the name of"
-            + " a key in `keys`, which the responder holds together), its"
-            + " `allowedSigners` and an empty memory of event ids: each `earlier` body is offered at"
-            + " its `now`, in order, then `body` is offered `uses` times at the case's `now`, and the last result is"
-            + " the one expected: an accepted event has a null `refusal` and the `event` read, and a refused one the"
-            + " refusal's name and a null `event`. Bodies are the exact text received, and the envelope and the event"
-            + " are each read from their bytes as wire bytes, which must be exactly the object's JCS bytes, so a"
-            + " replay hands each body over unchanged. The window is 30000 ms either way, and an accepted id is"
-            + " remembered for 60000 ms. Each `attributable` case gives an `event` (its seven fields) and whether a"
-            + " responder may act on it, `expected`: the spec's allow-list of reasons, with an audit event and an"
-            + " event naming no service or no instance excluded. Ed25519 is deterministic, so the file is reproduced"
-            + " byte for byte. Cases may be added; a recorded answer changes only with a protocol change.";
+            + " sends its responder. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed,"
+            + " where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER"
+            + " export, both base64url: v3.json's rule, so `payment` is the key http-v3.json names `payment`. An"
+            + " envelope case signs `eventJson`, the JCS text of `event`, as `signer` with that signer's key: `payload`"
+            + " is the base64url of its UTF-8 bytes, `signingBytes` (base64url) the bytes signed and `sig` the"
+            + " signature. Each verify case runs against a fresh `responder`, with its `keyring` (service to public"
+            + " key, or, when the case has `keyrings`, those instead: a list of maps from service to the name of a key"
+            + " in `keys`, which the responder holds together), its `allowedSigners` and an empty memory of event ids:"
+            + " each `earlier` body is offered at its `now`, in order, then `body` is offered `uses` times at the"
+            + " case's `now`, and the last result is the one expected: an accepted event has a null `refusal` and the"
+            + " `event` read, and a refused one the refusal's name and a null `event`. Bodies are the exact text"
+            + " received, and the envelope and the event are each read from their bytes as wire bytes, which must be"
+            + " exactly the object's JCS bytes, so a replay hands each body over unchanged. The window is 30000 ms"
+            + " either way, and an accepted id is remembered for 60000 ms. Each `attributable` case gives an `event`"
+            + " (its seven fields) and whether a responder may act on it, `expected`: the spec's allow-list of reasons,"
+            + " with an audit event and an event naming no service or no instance excluded. Ed25519 is deterministic,"
+            + " so the file is reproduced byte for byte. Cases may be added; a recorded answer changes only with a"
+            + " protocol change.";
 
     private static final long NOW = 1_767_225_600_000L;
     private static final long WINDOW_MS = 30_000;
@@ -341,6 +341,9 @@ class EventVectorsExport {
         verify.add(verifyCase("a signer known only to the second keyring", out, List.of(),
                 signed("payment", paymentNext.getPrivate(), event(NOW, "event-1")), NOW, 1,
                 List.of(Map.of("search", "search"), Map.of("payment", "payment-next"))));
+        verify.add(verifyCase("a signer whose key is the second of two keyrings naming it", out, List.of(),
+                signed("payment", paymentNext.getPrivate(), event(NOW, "event-1")), NOW, 1,
+                List.of(Map.of("payment", "payment"), Map.of("payment", "payment-next"))));
         verify.add(verifyCase("a signer in no keyring", out, List.of(), good, NOW, 1,
                 List.of(Map.of("search", "search"), Map.of("orders", "payment-next"))));
 
