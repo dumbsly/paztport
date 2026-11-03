@@ -521,11 +521,12 @@ These are design directions, not implementations.
 ## 7. Running it
 
 **Prerequisites:** JDK 25 or newer and Maven for the Java side, Docker with Compose
-for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, and unzip
-for `./run test`'s jar check. macOS and Linux; on Windows use WSL.
+for the mesh demo, Node 22.19 or newer with npm for the TypeScript side, Go 1.27 or
+newer for the Go SDK, and unzip for `./run test`'s jar check. macOS and Linux; on
+Windows use WSL.
 
 ```bash
-./run test        # the name and link checks, the TypeScript type checks, every suite and a check of the built jars; no Docker and no model
+./run test        # the name and link checks, the TypeScript type checks, gofmt and go vet, every suite and a check of the built jars; no Docker and no model
 ./run java-mesh   # build the Java SDK and the mesh demo, then run every scenario
 ./run agents-mcp  # install the TypeScript SDK and the agents demo, set up demo keys, start the demo page
 ./run bench       # time the primitives a verifying hop pays for (JMH, a few minutes); not part of test
@@ -544,10 +545,11 @@ paztport/
 ├── licenses/                 licence texts the bundling jars carry, and the license plugin's shared settings
 ├── run                       front door: java-mesh, agents-mcp, test, bench
 ├── poc-sdks/
-│   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which both SDKs replay (Java all of it but the MCP profile); http-v3, Java's only
+│   ├── spec/                 the protocol spec, and shared conformance vectors: v3, which every SDK replays (Java and Go all of it but the MCP profile); http-v3, Java's and Go's
 │   ├── scripts/              name check, link check, jar check, tests for ./run, THIRD-PARTY.txt regeneration
 │   ├── java/                 paztport-core, paztport-http, paztport-spring, tools/keygen, tools/policy-tool, tools/bench
-│   └── typescript/           @paztport/core, @paztport/mcp, policy-tool
+│   ├── typescript/           @paztport/core, @paztport/mcp, policy-tool
+│   └── go/                   one module: the protocol's packages, and paztporthttp with wire and boundary
 └── poc-demos/
     ├── java-mesh/            gateway, orders, payment, search, tickets, assistant, mailer, psp, responder; Compose, demo.sh, measure.sh, policy/paths.yaml
     └── agents-mcp/           agent/MCP demo
@@ -563,6 +565,8 @@ paztport/
 - [poc-sdks](poc-sdks/README.md): the SDKs and a summary of the on-the-wire format.
   - [poc-sdks/java](poc-sdks/java/README.md) and
     [poc-sdks/typescript](poc-sdks/typescript/README.md): one section per package.
+  - [poc-sdks/go](poc-sdks/go/README.md): the Go module's packages, and what the code
+    that embeds it does.
   - [poc-sdks/spec](poc-sdks/spec/README.md): the protocol spec and the shared conformance
     vectors.
 - [poc-demos](poc-demos/README.md): the demos.
@@ -619,7 +623,8 @@ the tools' unshaded module jars bundle nothing and carry just the two files.
 The mesh demo's images are `eclipse-temurin:25-jre` with one of the jars added, so an
 image's licences are the base image's (the Temurin JRE and its operating system
 packages) plus those its jar carries. The TypeScript packages bundle nothing; npm
-installs their dependencies as published.
+installs their dependencies as published. The Go module depends on nothing beyond
+Go's standard library.
 
 Bouncy Castle appears in the build for two reasons: the SDK's `keygen` uses it to
 build the mesh's X.509 certificates, and `docker-java` uses it for Docker TLS in the

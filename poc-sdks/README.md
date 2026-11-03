@@ -9,8 +9,11 @@ policy, verification, influence and sessions. The demos in
   `bench` micro-benchmarks.
 - [typescript](typescript/README.md): `@paztport/core`, the `@paztport/mcp`
   extension, and the policy command-line tools.
-- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v3, which both SDKs replay
-  (the Java SDK all of it but the MCP profile), and v3 over HTTP, which only the Java SDK speaks.
+- [go](go/README.md): one module, `github.com/dumbsly/paztport/poc-sdks/go`: the
+  protocol's packages, and `paztporthttp` with its `wire` and `boundary` packages.
+- [spec](spec/README.md): the written protocol spec and the shared conformance vectors: v3, which every SDK
+  replays (the Java and Go SDKs all of it but the MCP profile), and v3 over HTTP, which the Java and Go SDKs
+  speak.
 - `scripts/`: the name, link and jar checks that `./run test` runs, the tests for `./run`,
   and `third-party.sh`, which regenerates `THIRD-PARTY.txt` from both Java trees.
 
@@ -38,12 +41,12 @@ Every Paztport object travels as its JCS bytes, or as their base64url, its token
 those bytes with its own strict reader, never through a transport's JSON parser ([wire.md](spec/wire.md#json)).
 Over MCP (the TypeScript SDK), the chain, the route proof and the influence travel as tokens in the `tools/call`
 request's `_meta`, beside the call id, and a result carries the token of the server's attestation: its response
-chain and content labels. Over HTTP (the Java SDK), the chain, the proof and the influence travel as tokens in the
-`X-Path-Chain`, `X-Path-Proof` and `X-Path-Influence` headers, and a response carries one more stamp on the request
-chain, back to the caller, in `X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier accepts v3 stamps
-only. Binary values are base64url without padding.
+chain and content labels. Over HTTP (the Java and Go SDKs), the chain, the proof and the influence travel as
+tokens in the `X-Path-Chain`, `X-Path-Proof` and `X-Path-Influence` headers, and a response carries one more stamp
+on the request chain, back to the caller, in `X-Path-Response` ([wire.md](spec/wire.md#http-v3)). A verifier
+accepts v3 stamps only. Binary values are base64url without padding.
 
 The signed root (`root.json`) that verifiers pin is `{ "notAfter", "root", "rootId", "sig" }`, where `sig` is the
 policy key's Ed25519 signature over the root, its `rootId` and `notAfter`, the time after which the policy owner no
 longer vouches for it ([wire.md](spec/wire.md#the-signed-root)). A keyring (`keyring.json`) is signed by the same
-key, with its own `notAfter`, by both SDKs' tools.
+key, with its own `notAfter`, by the Java and TypeScript SDKs' tools.
