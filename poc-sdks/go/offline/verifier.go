@@ -48,8 +48,8 @@ type Input struct {
 	NonceKey *string
 	// RID is the rid the record files the chain under, which every stamp must carry; nil for the origin's.
 	RID *string
-	// Recorded is the times the record set gives for the chain. When it is nil no time is compared: the
-	// spec does not say what a record with no recorded times gives, and this is the Java SDK's choice.
+	// Recorded is the times the record set gives for the chain. A record with none gives no time to
+	// compare the stamps' against, so a nil one is TIME_MISMATCH.
 	Recorded *RecordedTimes
 	// Prompt is the run's recorded prompt, which the origin must bind; nil when the run has none or it is
 	// disputed, and the origin can then never bind it.
@@ -61,8 +61,8 @@ type Input struct {
 //
 // The age limits need no clock: a chain the live verifier passed at its last stamp's time has its last
 // stamp at most RunMaxAgeMs after the origin, and its origin at most CallMaxAgeMs after its last stamp.
-// Both nil leaves a chain's age unlimited. One alone is a misconfiguration, which fails closed: every chain
-// that reaches the age limits is EXPIRED. The spec leaves that case open, and this is the Java SDK's choice.
+// A limit left nil is its live default, [verify.RunMaxAgeMs] or [verify.CallMaxAgeMs], each on its own, so
+// no configuration leaves the age unlimited.
 type Config struct {
 	// Keyring is each service's public key.
 	Keyring policy.Keyring
@@ -74,9 +74,9 @@ type Config struct {
 	AllowedOrigins []string
 	// Sess is the session id every stamp must carry; "" for a chain in no session.
 	Sess string
-	// RunMaxAgeMs bounds how long after the origin the last stamp may be.
+	// RunMaxAgeMs bounds how long after the origin the last stamp may be; nil is [verify.RunMaxAgeMs].
 	RunMaxAgeMs *int64
-	// CallMaxAgeMs bounds how long after the last stamp the origin may be.
+	// CallMaxAgeMs bounds how long after the last stamp the origin may be; nil is [verify.CallMaxAgeMs].
 	CallMaxAgeMs *int64
 }
 
@@ -111,10 +111,11 @@ func NewRecordSet(spent ...string) *RecordSet {
 //     the last's names the receiver;
 //  5. RID_MISMATCH, unless every stamp carries the record's rid, the origin's when it gives none;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
-//  7. TIME_MISMATCH, unless the last stamp's ts is the time recorded with it and, when the run's records
-//     give start times, the origin's ts is one of them; then EXPIRED, if the last stamp is more than
-//     RunMaxAgeMs after the origin or the origin more than CallMaxAgeMs after the last stamp, or only one
-//     of the limits is set; then PROMPT_MISMATCH, unless there is a recorded prompt and the origin binds it;
+//  7. TIME_MISMATCH, unless the record gives a time and the last stamp's ts is it and, when the run's
+//     records give start times, the origin's ts is one of them; then EXPIRED, if the last stamp is more
+//     than RunMaxAgeMs after the origin or the origin more than CallMaxAgeMs after the last stamp, each
+//     limit its live default when not set; then PROMPT_MISMATCH, unless there is a recorded prompt and the
+//     origin binds it;
 //  8. BINDING_MISMATCH, unless the last stamp binds the expected binding;
 //  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
 //  10. REPLAY, unless there is a nonce key and the record set has not spent it; only then does the record
@@ -207,10 +208,10 @@ func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 
 // atRecordedTimes reports whether the origin's and the last stamp's ts are the times t records: the last
 // stamp's is t.Last, and the origin's is one of t.Run when the run gives start times. With no recorded
-// times, nothing is compared.
+// times there is nothing to match, so they are not the times.
 func atRecordedTimes(t *RecordedTimes, origin, last int64) bool {
 	if t == nil {
-		return true
+		return false
 	}
 	runGiven := t.RunGiven || len(t.Run) > 0
 	return last == t.Last && (!runGiven || slices.Contains(t.Run, origin))
@@ -227,15 +228,15 @@ func bindsPrompt(origin stamp.Stamp, prompt *string) bool {
 }
 
 // withinAge runs check 7's age limits on the origin's and the last stamp's ts: the last is at most run
-// after the origin, and the origin at most call after the last. With neither limit the age is unlimited;
-// with one alone, it is outside them. A difference too large for an int64 is compared exactly, never
-// wrapped.
+// after the origin, and the origin at most call after the last. A nil limit is its live default, each on
+// its own. A difference too large for an int64 is compared exactly, never wrapped.
 func withinAge(origin, last int64, run, call *int64) bool {
-	switch {
-	case run == nil && call == nil:
-		return true
-	case run == nil || call == nil:
-		return false
+	runMax, callMax := int64(verify.RunMaxAgeMs), int64(verify.CallMaxAgeMs)
+	if run != nil {
+		runMax = *run
 	}
-	return exact.AtMost(last, origin, *run) && exact.AtMost(origin, last, *call)
+	if call != nil {
+		callMax = *call
+	}
+	return exact.AtMost(last, origin, runMax) && exact.AtMost(origin, last, callMax)
 }

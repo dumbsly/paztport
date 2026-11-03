@@ -202,8 +202,11 @@ var faults = []fault{
 		s.times(end, start)
 		s.cfg.CallMaxAgeMs = ptr(end - start - 1)
 	}},
-	{"a run limit alone", reason.Expired, func(s *setup) { s.cfg.CallMaxAgeMs = nil }},
-	{"a call limit alone", reason.Expired, func(s *setup) { s.cfg.RunMaxAgeMs = nil }},
+	{"no recorded time", reason.TimeMismatch, func(s *setup) { s.in.Recorded = nil }},
+	{"no limits, a run past the default run age", reason.Expired, func(s *setup) {
+		s.times(start, start+verify.RunMaxAgeMs+1)
+		s.cfg.RunMaxAgeMs, s.cfg.CallMaxAgeMs = nil, nil
+	}},
 	{"another prompt", reason.PromptMismatch, func(s *setup) { s.in.Prompt = ptr("refund order 8") }},
 	{"no prompt", reason.PromptMismatch, func(s *setup) { s.in.Prompt = nil }},
 	{"a prompt that is not UTF-8", reason.PromptMismatch, func(s *setup) { s.in.Prompt = ptr(prompt + "\xff") }},
@@ -260,11 +263,12 @@ func TestOrder(t *testing.T) {
 		{"a chain for another receiver", "filed under another rid"},
 		{"filed under another rid", "another session"},
 		{"another session", "another recorded time"},
-		{"another session", "a run limit alone"},
+		{"another session", "no recorded time"},
+		{"no recorded time", "no limits, a run past the default run age"},
 		{"another recorded time", "a last stamp past the run's age"},
-		{"an origin not among the run's start times", "a call limit alone"},
+		{"an origin not among the run's start times", "no limits, a run past the default run age"},
 		{"a last stamp past the run's age", "another prompt"},
-		{"a run limit alone", "no prompt"},
+		{"no limits, a run past the default run age", "no prompt"},
 		{"another recorded time", "another prompt"},
 		{"another prompt", "another binding"},
 		{"no prompt", "an empty influence token"},
@@ -300,7 +304,7 @@ func TestRecordedTimes(t *testing.T) {
 		recorded *offline.RecordedTimes
 		code     reason.Code
 	}{
-		{"none", nil, reason.OK},
+		{"none", nil, reason.TimeMismatch},
 		{"the last stamp's, and no start times", &times{Last: end}, reason.OK},
 		{"another last, and no start times", &times{Last: start}, reason.TimeMismatch},
 		{"the origin's as the last", &times{Last: start, RunGiven: true, Run: []int64{start}}, reason.TimeMismatch},
@@ -323,7 +327,8 @@ func TestRecordedTimes(t *testing.T) {
 	}
 }
 
-// TestAgeLimits pins check 7's age limits at their bounds, and leaves the age unlimited with neither.
+// TestAgeLimits pins check 7's age limits at their bounds. A limit not configured is its live default,
+// each on its own, so no configuration leaves the age unlimited.
 func TestAgeLimits(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -336,8 +341,18 @@ func TestAgeLimits(t *testing.T) {
 		{"the origin at the call window after the last", end, start, ptr[int64](0), ptr(end - start), reason.OK},
 		{"the origin past the call window", end, start, ptr[int64](0), ptr(end - start - 1), reason.Expired},
 		{"the origin and the last stamp at once", start, start, ptr[int64](0), ptr[int64](0), reason.OK},
-		{"no limits, a run of years", 0, json.MaxSafe, nil, nil, reason.OK},
-		{"no limits, an origin years after", json.MaxSafe, 0, nil, nil, reason.OK},
+		{"no limits, a run at the default run age", 0, verify.RunMaxAgeMs, nil, nil, reason.OK},
+		{"no limits, a run past the default run age", 0, verify.RunMaxAgeMs + 1, nil, nil, reason.Expired},
+		{"no limits, an origin at the default call window", verify.CallMaxAgeMs, 0, nil, nil, reason.OK},
+		{"no limits, an origin past the default call window", verify.CallMaxAgeMs + 1, 0, nil, nil, reason.Expired},
+		{"no limits, a run of years", 0, json.MaxSafe, nil, nil, reason.Expired},
+		{"no limits, an origin years after", json.MaxSafe, 0, nil, nil, reason.Expired},
+		{"no run limit, the default run age", 0, verify.RunMaxAgeMs, nil, ptr[int64](0), reason.OK},
+		{"no run limit, past the default run age", 0, verify.RunMaxAgeMs + 1, nil, ptr[int64](0), reason.Expired},
+		{"no run limit, the call limit still applies", verify.CallMaxAgeMs, 0, nil, ptr[int64](0), reason.Expired},
+		{"no call limit, the default call window", verify.CallMaxAgeMs, 0, ptr[int64](0), nil, reason.OK},
+		{"no call limit, past the default call window", verify.CallMaxAgeMs + 1, 0, ptr[int64](0), nil, reason.Expired},
+		{"no call limit, the run limit still applies", 0, 1, ptr[int64](0), nil, reason.Expired},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -378,7 +393,9 @@ func TestExtremeTimes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			s := mesh(t)
 			s.times(tt.origin, tt.last)
-			s.in.Recorded = tt.recorded
+			if tt.recorded != nil {
+				s.in.Recorded = tt.recorded
+			}
 			s.cfg.RunMaxAgeMs, s.cfg.CallMaxAgeMs = ptr(tt.run), ptr(tt.call)
 			if got := s.run(t); got != named(tt.code) {
 				t.Fatalf("Verify = %+v, want %s", got, tt.code)
@@ -630,7 +647,6 @@ func TestCall(t *testing.T) {
 		{"a call at the limit", func(c *setup) { c.times(certNotAfter-1000, certNotAfter) }, named(reason.OK)},
 		{"a call past the limit", func(c *setup) {
 			c.times(certNotAfter-1000, certNotAfter+1)
-			c.in.Recorded = nil
 		}, verify.Result{Reason: reason.OutsideSession}},
 		{"a call that fails past the limit", func(c *setup) {
 			c.times(certNotAfter-1000, certNotAfter+1)
