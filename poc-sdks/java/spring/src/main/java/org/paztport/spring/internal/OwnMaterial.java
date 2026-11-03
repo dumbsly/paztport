@@ -46,6 +46,8 @@ public final class OwnMaterial {
 
     private static final String KEYRING = "paztport.keyring-path";
     private static final String ROOT = "paztport.root-path";
+    private static final String OVERLAP_KEYRINGS = "paztport.overlap.keyring-paths";
+    private static final String OVERLAP_ROOTS = "paztport.overlap.root-paths";
     private static final String PROOFS = "paztport.proofs-path";
     private static final String REPLY_CERT = "paztport.partner.reply-cert-path";
 
@@ -127,6 +129,50 @@ public final class OwnMaterial {
         }
     }
 
+    /**
+     * Refuses unless each overlap keyring and each overlap root verifies under {@code policyPin} and is current at
+     * {@code nowMs}, throwing {@link IllegalStateException} that names the property, the file's place in the list and
+     * the fix. {@code ownKeyring} and {@code ownRoot} have already passed {@link #require}, so they stand in for the
+     * other half of core's pairwise check. Never prints key material.
+     */
+    public static void requireOverlap(List<KeyringFile> keyrings, List<Path> keyringFiles, List<SignedRoot> roots,
+            List<Path> rootFiles, KeyringFile ownKeyring, SignedRoot ownRoot, String policyPin, long nowMs) {
+        for (int i = 0; i < keyrings.size(); i++) {
+            List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(keyrings.get(i), ownRoot, policyPin,
+                    nowMs);
+            if (!problems.isEmpty()) {
+                throw new IllegalStateException(message(problems.get(0), OVERLAP_KEYRINGS + "[" + i + "]",
+                        keyringFiles.get(i)));
+            }
+        }
+        for (int i = 0; i < roots.size(); i++) {
+            List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
+                    nowMs);
+            if (!problems.isEmpty()) {
+                throw new IllegalStateException(message(problems.get(0), OVERLAP_ROOTS + "[" + i + "]",
+                        rootFiles.get(i)));
+            }
+        }
+    }
+
+    /** Reads one of {@code paztport.overlap.keyring-paths}, as {@link #loadKeyring} reads the service's own. */
+    public static KeyringFile loadOverlapKeyring(Path file, int index) {
+        try {
+            return KeyringFile.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(OVERLAP_KEYRINGS + "[" + index + "]", e, file);
+        }
+    }
+
+    /** Reads one of {@code paztport.overlap.root-paths}, as {@link #loadRoot} reads the service's own. */
+    public static SignedRoot loadOverlapRoot(Path file, int index) {
+        try {
+            return SignedRoot.load(file);
+        } catch (IllegalArgumentException e) {
+            throw malformed(OVERLAP_ROOTS + "[" + index + "]", e, file);
+        }
+    }
+
     /** The integer, then its instant when there is one, so that no value however large makes the message throw. */
     public static String describe(long notAfter) {
         return org.paztport.core.policy.OwnMaterial.describe(notAfter);
@@ -134,8 +180,10 @@ public final class OwnMaterial {
 
     private static String message(Problem problem, Path keyringFile, Path rootFile) {
         boolean isKeyring = problem.subject() == Subject.KEYRING;
-        String property = isKeyring ? KEYRING : ROOT;
-        Path file = isKeyring ? keyringFile : rootFile;
+        return message(problem, isKeyring ? KEYRING : ROOT, isKeyring ? keyringFile : rootFile);
+    }
+
+    private static String message(Problem problem, String property, Path file) {
         return switch (problem.kind()) {
             case DOES_NOT_VERIFY -> property + " does not verify under paztport.policy-key-path";
             case EXPIRED -> property + " has expired, its notAfter " + describe(problem.notAfter())

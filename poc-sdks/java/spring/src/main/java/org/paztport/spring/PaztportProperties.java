@@ -72,6 +72,39 @@ public class PaztportProperties {
      */
     private String policyKeyPath;
 
+    /**
+     * {@code paztport.overlap.*}: further keyrings and roots the verifier pins beside this service's own, for the
+     * rollout of a renewed root or a rotated key. Each must verify under {@code policy-key-path} and be current at
+     * startup, or the service does not start. They add only to what the verifier accepts: this service's own
+     * {@code keyring-path} and {@code root-path} still serve its partner replies and its egress.
+     */
+    public static class Overlap {
+
+        /** Paths to further keyring.json files to pin beside {@code paztport.keyring-path}, in this order. */
+        private List<String> keyringPaths = List.of();
+
+        /** Paths to further root.json files to pin beside {@code paztport.root-path}, in this order. */
+        private List<String> rootPaths = List.of();
+
+        public List<String> getKeyringPaths() {
+            return keyringPaths;
+        }
+
+        public void setKeyringPaths(List<String> keyringPaths) {
+            this.keyringPaths = keyringPaths;
+        }
+
+        public List<String> getRootPaths() {
+            return rootPaths;
+        }
+
+        public void setRootPaths(List<String> rootPaths) {
+            this.rootPaths = rootPaths;
+        }
+    }
+
+    private final Overlap overlap = new Overlap();
+
     /** Path to this service's proofs-&lt;svc&gt;.json (calling services). */
     private String proofsPath;
 
@@ -365,6 +398,10 @@ public class PaztportProperties {
 
     public void setAdminToken(String adminToken) {
         this.adminToken = adminToken;
+    }
+
+    public Overlap getOverlap() {
+        return overlap;
     }
 
     public String getKeyPath() {

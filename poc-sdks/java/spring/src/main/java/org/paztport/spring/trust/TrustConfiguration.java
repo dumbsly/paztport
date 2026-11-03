@@ -6,6 +6,7 @@ package org.paztport.spring.trust;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -23,6 +24,8 @@ import org.paztport.spring.PaztportAutoConfiguration;
 import org.paztport.spring.PaztportProperties;
 import org.paztport.spring.internal.Durations;
 import org.paztport.spring.internal.OwnMaterial;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -34,6 +37,8 @@ import org.springframework.context.annotation.Configuration;
  */
 @Configuration(proxyBeanMethods = false)
 public class TrustConfiguration {
+
+    private static final Logger LOG = LoggerFactory.getLogger(TrustConfiguration.class);
 
     @Bean
     @ConditionalOnProperty("paztport.key-path")
@@ -62,10 +67,27 @@ public class TrustConfiguration {
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
         OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
                 System.currentTimeMillis());
-        // This service's own keyring and root, one of each.
+        // This service's own keyring and root first, then the overlap files in the order given.
+        List<Path> keyringFiles = paths(props.getOverlap().getKeyringPaths());
+        List<Path> rootFiles = paths(props.getOverlap().getRootPaths());
+        List<KeyringFile> keyrings = new ArrayList<>(List.of(keyring));
+        List<SignedRoot> roots = new ArrayList<>(List.of(root));
+        for (int i = 0; i < keyringFiles.size(); i++) {
+            keyrings.add(OwnMaterial.loadOverlapKeyring(keyringFiles.get(i), i));
+        }
+        for (int i = 0; i < rootFiles.size(); i++) {
+            roots.add(OwnMaterial.loadOverlapRoot(rootFiles.get(i), i));
+        }
+        OwnMaterial.requireOverlap(keyrings.subList(1, keyrings.size()), keyringFiles,
+                roots.subList(1, roots.size()), rootFiles, keyring, root, pin, System.currentTimeMillis());
+        if (!keyringFiles.isEmpty() || !rootFiles.isEmpty()) {
+            LOG.info("pinning {} overlap {} and {} overlap {} beside this service's own", rootFiles.size(),
+                    rootFiles.size() == 1 ? "root" : "roots", keyringFiles.size(),
+                    keyringFiles.size() == 1 ? "keyring" : "keyrings");
+        }
         VerifierConfig cfg = VerifierConfig.pinned(
-                List.of(keyring),
-                List.of(root),
+                keyrings,
+                roots,
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",
@@ -74,6 +96,10 @@ public class TrustConfiguration {
                 props.getMaxAgeMs(),
                 runMaxAgeMs);
         return new Verifier(cfg);
+    }
+
+    private static List<Path> paths(List<String> names) {
+        return names.stream().map(Path::of).toList();
     }
 
     @Bean

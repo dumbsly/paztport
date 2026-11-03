@@ -196,6 +196,20 @@ hands a session request's body to `HttpSessions.serve`.
   answered `400 {"reason":"INFLUENCE_MISMATCH"}` in every mode, unless verification
   refused the request first. An origin (`paztport.origin=true`) starts every
   request tree afresh: it ignores the chain and the influence a request brings.
+- **Overlap material.** A verifier can pin more than its own keyring and root, to
+  roll out a renewed root or a rotated key:
+
+  | Property | Meaning |
+  |---|---|
+  | `paztport.overlap.keyring-paths` | Further `keyring.json` files to pin beside `paztport.keyring-path`, comma-separated (env `PAZTPORT_OVERLAP_KEYRING_PATHS`). Default none. |
+  | `paztport.overlap.root-paths` | Further `root.json` files to pin beside `paztport.root-path`, comma-separated (env `PAZTPORT_OVERLAP_ROOT_PATHS`). Default none. |
+
+  Each must verify under `paztport.policy-key-path` and be current at startup, or the
+  service does not start, and they need the verifier's own three paths too. They add
+  only to what the verifier accepts: the service's own keyring and root still serve
+  its partner replies and its egress. Roll out in three steps: every verifier pins the
+  new root (or keyring) beside the old, each holder then switches its proofs (or key),
+  and every verifier unpins the old.
 - **Modes.** `paztport.mode` is `enforce` (the default), `audit` or `off`, and
   `/admin/mode` switches it at run time. The first two are the protocol's
   [modes](../spec/verification.md#modes-and-refusals): `enforce` refuses a request
