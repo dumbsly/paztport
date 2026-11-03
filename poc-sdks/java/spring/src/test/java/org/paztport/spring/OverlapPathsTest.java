@@ -4,6 +4,7 @@
 package org.paztport.spring;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
@@ -22,6 +23,7 @@ import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
+import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
@@ -160,6 +162,54 @@ class OverlapPathsTest {
     }
 
     @Test
+    void aSecondOverlapRootThatFailsOrNearsItsEndIsNamedByItsPlace(@TempDir Path dir) throws Exception {
+        writeOwn(dir);
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        long soon = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        JSON.writeValue(dir.resolve("renewed.json").toFile(), renewed.signedRoot());
+        JSON.writeValue(dir.resolve("forged-root.json").toFile(),
+                PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, NOT_AFTER, other.getPrivate())
+                        .signedRoot());
+        JSON.writeValue(dir.resolve("soon-root.json").toFile(),
+                PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, soon, policy.getPrivate())
+                        .signedRoot());
+        String first = "paztport.overlap.root-paths=" + dir.resolve("renewed.json") + ",";
+
+        runWith(dir, context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).rootCause()
+                    .hasMessageContaining("paztport.overlap.root-paths[1]")
+                    .hasMessageContaining("does not verify under paztport.policy-key-path");
+        }, first + dir.resolve("forged-root.json"));
+        List<String> warnings = warningsDuring(() -> runWith(dir, context -> assertThat(context).hasNotFailed(),
+                first + dir.resolve("soon-root.json")));
+        assertThat(warnings).hasSize(1);
+        assertThat(warnings.get(0)).contains("paztport.overlap.root-paths[1]")
+                .contains(dir.resolve("soon-root.json").toString()).contains("notAfter " + soon);
+    }
+
+    @Test
+    void aProblemWithTheServicesOwnHalfNamesItsOwnFileNotTheOverlapFile(@TempDir Path dir) {
+        long now = System.currentTimeMillis();
+        KeyringFile ownKeyring = KeyringFile.sign(Map.of("gateway", pub(gateway)), pub(policy), NOT_AFTER,
+                policy.getPrivate());
+        KeyringFile overlapKeyring = KeyringFile.sign(Map.of("gateway", pub(rotated)), pub(policy), NOT_AFTER,
+                policy.getPrivate());
+        SignedRoot lapsedRoot = PolicyBuilder.build(List.of(List.of("gateway", "orders")), 4, now - 1,
+                policy.getPrivate()).signedRoot();
+        Path keyringFile = dir.resolve("keyring.json");
+        Path rootFile = dir.resolve("root.json");
+        Path overlapFile = dir.resolve("rotated.json");
+
+        // The own root, standing in for the overlap keyring's other half, has lapsed: the own root is named.
+        assertThatThrownBy(() -> OwnMaterial.requireOverlap(List.of(overlapKeyring), List.of(overlapFile), List.of(),
+                List.of(), ownKeyring, keyringFile, lapsedRoot, rootFile, pub(policy), now))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageStartingWith("paztport.root-path has expired").hasMessageEndingWith(rootFile.toString())
+                .hasMessageNotContaining("paztport.overlap").hasMessageNotContaining(overlapFile.toString());
+    }
+
+    @Test
     void anExpiredOverlapFileFailsStartup(@TempDir Path dir) throws Exception {
         writeOwn(dir);
         long past = System.currentTimeMillis() - 1;
@@ -229,7 +279,8 @@ class OverlapPathsTest {
                         "paztport.overlap.root-paths=" + dir.resolve("renewed.json"))
                 .run(context -> {
                     assertThat(context).hasFailed();
-                    assertThat(context.getStartupFailure()).rootCause().hasMessageContaining("paztport.overlap");
+                    assertThat(context.getStartupFailure()).rootCause().hasMessageContaining("paztport.overlap")
+                            .hasMessageContaining("paztport.policy-key-path");
                 });
     }
 

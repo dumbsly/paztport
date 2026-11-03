@@ -65,8 +65,12 @@ public class TrustConfiguration {
         KeyringFile keyring = OwnMaterial.loadKeyring(Path.of(props.getKeyringPath()));
         SignedRoot root = OwnMaterial.loadRoot(Path.of(props.getRootPath()));
         String pin = KeyFiles.loadPolicyPin(Path.of(props.getPolicyKeyPath()));
-        OwnMaterial.require(keyring, Path.of(props.getKeyringPath()), root, Path.of(props.getRootPath()), pin,
-                System.currentTimeMillis());
+        // One reading of the clock judges every file at startup and pins them, so none can pass one check and
+        // expire before the next. The pinned members, judged at that reading, then go to a config on the live clock.
+        long startup = System.currentTimeMillis();
+        Path keyringFile = Path.of(props.getKeyringPath());
+        Path rootFile = Path.of(props.getRootPath());
+        OwnMaterial.require(keyring, keyringFile, root, rootFile, pin, startup);
         // This service's own keyring and root first, then the overlap files in the order given.
         List<Path> keyringFiles = paths(props.getOverlap().getKeyringPaths());
         List<Path> rootFiles = paths(props.getOverlap().getRootPaths());
@@ -79,23 +83,25 @@ public class TrustConfiguration {
             roots.add(OwnMaterial.loadOverlapRoot(rootFiles.get(i), i));
         }
         OwnMaterial.requireOverlap(keyrings.subList(1, keyrings.size()), keyringFiles,
-                roots.subList(1, roots.size()), rootFiles, keyring, root, pin, System.currentTimeMillis());
+                roots.subList(1, roots.size()), rootFiles, keyring, keyringFile, root, rootFile, pin, startup);
         if (!keyringFiles.isEmpty() || !rootFiles.isEmpty()) {
             LOG.info("pinning {} overlap {} and {} overlap {} beside this service's own", rootFiles.size(),
                     rootFiles.size() == 1 ? "root" : "roots", keyringFiles.size(),
                     keyringFiles.size() == 1 ? "keyring" : "keyrings");
         }
-        VerifierConfig cfg = VerifierConfig.pinned(
+        VerifierConfig pinned = VerifierConfig.pinned(
                 keyrings,
                 roots,
                 pin,
                 Set.copyOf(props.getOrigins()),
                 "",
                 new InMemoryNonceCache(VerifierConfig.nonceTtlFor(props.getMaxAgeMs())),
-                System::currentTimeMillis,
+                () -> startup,
                 props.getMaxAgeMs(),
                 runMaxAgeMs);
-        return new Verifier(cfg);
+        return new Verifier(new VerifierConfig(pinned.keyrings(), pinned.roots(), pinned.policyNotAfter(),
+                pinned.allowedOrigins(), pinned.sess(), pinned.nonces(), System::currentTimeMillis,
+                pinned.callMaxAgeMs(), pinned.runMaxAgeMs()));
     }
 
     private static List<Path> paths(List<String> names) {

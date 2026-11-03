@@ -132,17 +132,21 @@ public final class OwnMaterial {
     /**
      * Refuses unless each overlap keyring and each overlap root verifies under {@code policyPin} and is current at
      * {@code nowMs}, throwing {@link IllegalStateException} that names the property, the file's place in the list and
-     * the fix. {@code ownKeyring} and {@code ownRoot} have already passed {@link #require}, so they stand in for the
-     * other half of core's pairwise check. Never prints key material.
+     * the fix. {@code ownKeyring} and {@code ownRoot} stand in for the other half of core's pairwise check; they have
+     * passed {@link #require} at the same {@code nowMs}, so they raise nothing, and a problem with one would name its
+     * own property and file, never the overlap file's. Never prints key material.
      */
     public static void requireOverlap(List<KeyringFile> keyrings, List<Path> keyringFiles, List<SignedRoot> roots,
-            List<Path> rootFiles, KeyringFile ownKeyring, SignedRoot ownRoot, String policyPin, long nowMs) {
+            List<Path> rootFiles, KeyringFile ownKeyring, Path ownKeyringFile, SignedRoot ownRoot, Path ownRootFile,
+            String policyPin, long nowMs) {
         for (int i = 0; i < keyrings.size(); i++) {
             List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(keyrings.get(i), ownRoot, policyPin,
                     nowMs);
             if (!problems.isEmpty()) {
-                throw new IllegalStateException(message(problems.get(0), OVERLAP_KEYRINGS + "[" + i + "]",
-                        keyringFiles.get(i)));
+                Problem p = problems.get(0);
+                throw new IllegalStateException(p.subject() == Subject.KEYRING
+                        ? message(p, OVERLAP_KEYRINGS + "[" + i + "]", keyringFiles.get(i))
+                        : message(p, ownKeyringFile, ownRootFile));
             }
             if (org.paztport.core.policy.OwnMaterial.expiringSoon(keyrings.get(i), ownRoot, nowMs)
                     .contains(Subject.KEYRING)) {
@@ -153,8 +157,10 @@ public final class OwnMaterial {
             List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
                     nowMs);
             if (!problems.isEmpty()) {
-                throw new IllegalStateException(message(problems.get(0), OVERLAP_ROOTS + "[" + i + "]",
-                        rootFiles.get(i)));
+                Problem p = problems.get(0);
+                throw new IllegalStateException(p.subject() == Subject.ROOT
+                        ? message(p, OVERLAP_ROOTS + "[" + i + "]", rootFiles.get(i))
+                        : message(p, ownKeyringFile, ownRootFile));
             }
             if (org.paztport.core.policy.OwnMaterial.expiringSoon(ownKeyring, roots.get(i), nowMs)
                     .contains(Subject.ROOT)) {
