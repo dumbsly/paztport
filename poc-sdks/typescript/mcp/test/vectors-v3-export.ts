@@ -933,13 +933,14 @@ export function buildVectors(): Record<string, unknown> {
 
   // Recorded handshakes (sessions-and-influence.md §Recorded handshakes): the session a recorded request and reply
   // opened, judged offline at each `at`, at all (at the earliest of its limits), the policyNotAfter a response in it
-  // is checked with. The reply's session id is bound to the request it answers.
+  // is checked with, null when the server's signatures do not verify. The reply's session id is bound to the request
+  // it answers.
   const replyTo = (req: SessionRequest, signer: KeyName, o: Record<string, unknown> = {}, drop: string[] = []): SessionReply => {
-    const root = (Object.hasOwn(o, "serverRoot") ? o.serverRoot : serverRoot) as { sig: string };
+    const root = (Object.hasOwn(o, "serverRoot") ? o.serverRoot : serverRoot) as { sig: string } | null;
     const body: Record<string, unknown> = {
       serverRoot: root, serverPolicyKey: keys["server-policy"].pub, serverKeyring: serverRing.services, serverKeyringSig: serverRing.sig,
       serverKeyringNotAfter: LIVE_NOT_AFTER, serverReplyCert: entryCert, nonce: SERVER_NONCE,
-      sess: deriveSessionId(req.clientRoot?.sig ?? null, root.sig, req.nonce, SERVER_NONCE, req), status: "attested", disabled: [], ...o,
+      sess: deriveSessionId(req.clientRoot?.sig ?? null, root?.sig ?? null, req.nonce, SERVER_NONCE, req), status: "attested", disabled: [], ...o,
     };
     for (const f of drop) delete body[f];
     return signAnyReply(body, keys[signer].priv);
@@ -950,7 +951,7 @@ export function buildVectors(): Record<string, unknown> {
     const requestToken = tokenOf(request);
     const replyToken = tokenOf(reply);
     const s = recordedSession({ request: requestToken, reply: replyToken, pin: keys[pin].pub, serverEntry });
-    const expected = { attested: s.attested, attestedAt: at.map((t) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter };
+    const expected = { attested: s.attested, attestedAt: at.map((t) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter ?? null };
     return { name, request, requestToken, reply, replyToken, pin, serverEntry, at, expected };
   };
   const clientRootAt = (t: number): SessionRequest => ({ ...request, clientRoot: clientRootUntil(t) });
@@ -958,6 +959,7 @@ export function buildVectors(): Record<string, unknown> {
   const unsignedRequest = withoutSig as unknown as SessionRequest;
   const unwindowedRingRequest = withoutRingWindow as unknown as SessionRequest;
   const unwindowedRootRequest = { ...wireRequest, clientRoot: unwindowedClientRoot } as unknown as SessionRequest;
+  const serverRootByAnotherKey = signRoot(decode(policies.server.root), policies.server.rootId, keys["mcp-entry"].priv, LIVE_NOT_AFTER);
   const recordedHandshake = [
     handshakeCase("entry-key form, limited by the certificate", request, replyTo(request, "mcp-entry"), [CERT_NOT_AFTER, CERT_NOT_AFTER + 1]),
     handshakeCase("policy-key form, limited by the roots and keyrings", request, replyTo(request, "server-policy", {}, POLICY_KEY_FORM), [LIVE_NOT_AFTER, LIVE_NOT_AFTER + 1]),
@@ -981,6 +983,8 @@ export function buildVectors(): Record<string, unknown> {
     handshakeCase("another pin", request, replyTo(request, "mcp-entry"), [NOW], { pin: "client-policy" }),
     handshakeCase("the configured entry, not the reply's", request, replyTo(request, "github-tools", { serverReplyCert: certFor("github-tools", "github-tools") }), [NOW], { serverEntry: "mcp-entry" }),
     handshakeCase("configured for another entry", request, replyTo(request, "mcp-entry"), [NOW], { serverEntry: "github-tools" }),
+    handshakeCase("a reply with no server root: no response limit", request, replyTo(request, "mcp-entry", { serverRoot: null }), [NOW]),
+    handshakeCase("a server root another key signed: no response limit", request, replyTo(request, "mcp-entry", { serverRoot: serverRootByAnotherKey }), [NOW]),
     handshakeCase("client keyring window moved", { ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, replyTo({ ...withClientRing(newRing(NOW)), clientKeyringNotAfter: LIVE_NOT_AFTER }, "mcp-entry"), [NOW]),
     handshakeCase("client root signed by another key", { ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, replyTo({ ...request, clientRoot: newRoot(LIVE_NOT_AFTER, "server-policy") }, "mcp-entry"), [NOW]),
     handshakeCase("request without a client keyring signature", unsignedRequest, replyTo(unsignedRequest, "mcp-entry"), [NOW]),
@@ -1000,6 +1004,8 @@ export function buildVectors(): Record<string, unknown> {
     ["another pin", false, [false]],
     ["the configured entry, not the reply's", false, [false]],
     ["configured for another entry", false, [false]],
+    ["a reply with no server root: no response limit", false, [false]],
+    ["a server root another key signed: no response limit", false, [false]],
     ["client keyring window moved", false, [false]],
     ["client root signed by another key", false, [false]],
     ["request without a client keyring signature", false, [false]],
@@ -1011,17 +1017,30 @@ export function buildVectors(): Record<string, unknown> {
   const serverPin = keys["server-policy"].pub;
   const shapeRefusedLive = checkSessionReply(shapeRefused.replyToken, request, serverPin, "mcp-entry", NOW);
   check("the shape-refused reply live", shapeRefusedLive, "MALFORMED_REPLY");
-  check(
-    "the unsigned and unwindowed requests' response limits",
-    recordedHandshake.slice(-3).map((c) => c.expected.responseNotAfter),
-    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER],
-  );
-  check("the shape-refused reply's response limit", shapeRefused.expected.responseNotAfter, LIVE_NOT_AFTER);
-  check(
-    "recorded handshake response limits",
-    recordedHandshake.slice(0, 7).map((c) => c.expected.responseNotAfter),
-    [LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, LIVE_NOT_AFTER, NOW, NOW, NOW + 2],
-  );
+  // A response limit exists only where the server's signatures verify against the pin and the configured entry,
+  // whatever the client's side, the status or the time: a reply that does not read, has no server root, or fails the
+  // pin or the entry gives none.
+  check("recorded handshake response limits", recordedHandshake.map((c) => [c.name, c.expected.responseNotAfter]), [
+    ["entry-key form, limited by the certificate", LIVE_NOT_AFTER],
+    ["policy-key form, limited by the roots and keyrings", LIVE_NOT_AFTER],
+    ["client root's notAfter", LIVE_NOT_AFTER],
+    ["client keyring's notAfter", LIVE_NOT_AFTER],
+    ["server root's notAfter", NOW],
+    ["server keyring's notAfter", NOW],
+    ["attested at all at the earliest limit", NOW + 2],
+    ["unsafe", LIVE_NOT_AFTER],
+    ["a signed reply the client's shape check refuses", null],
+    ["another pin", null],
+    ["the configured entry, not the reply's", null],
+    ["configured for another entry", null],
+    ["a reply with no server root: no response limit", null],
+    ["a server root another key signed: no response limit", null],
+    ["client keyring window moved", LIVE_NOT_AFTER],
+    ["client root signed by another key", LIVE_NOT_AFTER],
+    ["request without a client keyring signature", LIVE_NOT_AFTER],
+    ["request without a client keyring notAfter", LIVE_NOT_AFTER],
+    ["client root without notAfter", LIVE_NOT_AFTER],
+  ]);
 
   // Recorded calls (verification.md §Offline verification): each call is checked by the offline verifier in the
   // session of the handshake it names, against the client keyring and root of that handshake's request and its reply's

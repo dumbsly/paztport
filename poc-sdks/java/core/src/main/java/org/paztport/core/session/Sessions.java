@@ -10,6 +10,7 @@ import java.security.PublicKey;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.Supplier;
 import org.paztport.core.crypto.Crypto;
@@ -270,6 +271,31 @@ public final class Sessions {
         }
     }
 
+    /**
+     * The {@code policyNotAfter} a response recorded under a recorded handshake's reply is checked with
+     * (verification.md &sect;Offline verification): the earlier of the server root's {@code notAfter} and, in the
+     * entry-key form, the server keyring's, once the server's signatures over them verify, judged at no time: the
+     * reply reads and verifies against the recorded pin and the server's entry service from the verifier's own
+     * configuration, and its root verifies under the pin. Whether the session is attested, and the client's side of
+     * the handshake, do not decide it. Empty for a reply that does not read, has no server root, or whose signatures
+     * do not verify: a response relying on it is {@code POLICY_EXPIRED}. Never throws.
+     */
+    public static OptionalLong responseNotAfterOffline(String reply, String pinnedServerPolicyKey,
+            String serverEntry) {
+        try {
+            SessionReply read = readOrNull(() -> SessionReply.parse(reply));
+            if (read == null || read.serverRoot() == null
+                    || !serverSignaturesVerify(read, pinnedServerPolicyKey, serverEntry)) {
+                return OptionalLong.empty();
+            }
+            long root = read.serverRoot().notAfter();
+            return OptionalLong.of(read.serverKeyringSig() == null ? root
+                    : Math.min(root, read.serverKeyringNotAfter()));
+        } catch (RuntimeException e) {
+            return OptionalLong.empty();
+        }
+    }
+
     /** The reply read, or null when it does not read, which the shape check then refuses. */
     private static SessionReply readOrNull(Supplier<SessionReply> reader) {
         try {
@@ -280,9 +306,10 @@ public final class Sessions {
     }
 
     /**
-     * The one reply check behind the live and the offline reading: a server root, and in the entry-key form a
-     * server keyring, must be current at {@code nowMs}, the client's clock live and the time of the record judged
-     * offline.
+     * The one reply check behind the live and the offline reading: the server's signatures
+     * ({@link #serverSignaturesVerify}), then its root, and in the entry-key form its certificate and keyring, current
+     * at {@code nowMs}, the client's clock live and the time of the record judged offline, then the roots and the
+     * session id.
      */
     private static ReplyCheck checkReply(SessionReply reply, SessionRequest req, String pinnedServerPolicyKey,
             String serverEntry, long nowMs) {
@@ -293,9 +320,7 @@ public final class Sessions {
             return ReplyCheck.PIN_MISMATCH;
         }
         try {
-            PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
-            PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry, nowMs);
-            if (signer == null || !Crypto.verify(signer, replySigningBytes(reply), Base64Url.decode(reply.sig()))) {
+            if (!serverSignaturesVerify(reply, pinnedServerPolicyKey, serverEntry) || !serverCurrent(reply, nowMs)) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
             SignedRoot root = reply.serverRoot();
@@ -309,9 +334,6 @@ public final class Sessions {
             if (expected == null || !expected.equals(reply.sess())) {
                 return ReplyCheck.BAD_SIGNATURE;
             }
-            if (root != null && (!root.verify(pin) || !root.isCurrent(nowMs))) {
-                return ReplyCheck.BAD_SIGNATURE;
-            }
             return attested ? ReplyCheck.ATTESTED : ReplyCheck.UNSAFE;
         } catch (RuntimeException e) {
             return ReplyCheck.BAD_SIGNATURE;
@@ -319,19 +341,51 @@ public final class Sessions {
     }
 
     /**
+     * Whether the server's signatures on a reply verify, judged at no time: the reply names the pin as its policy
+     * key, its {@code sig} verifies under the key its form names ({@link #replySigner}, which checks the keyring's and
+     * the certificate's signatures in the entry-key form), and its root, when there is one, verifies under the pin
+     * over its own {@code notAfter}. Only then does a window the reply holds count. Throws on a pin that is not a key.
+     */
+    private static boolean serverSignaturesVerify(SessionReply reply, String pinnedServerPolicyKey,
+            String serverEntry) {
+        if (!reply.serverPolicyKey().equals(pinnedServerPolicyKey)) {
+            return false;
+        }
+        PublicKey pin = Crypto.decodePublicKey(Base64Url.decode(pinnedServerPolicyKey));
+        PublicKey signer = replySigner(reply, pin, pinnedServerPolicyKey, serverEntry);
+        return signer != null && Crypto.verify(signer, replySigningBytes(reply), Base64Url.decode(reply.sig()))
+                && (reply.serverRoot() == null || reply.serverRoot().verify(pin));
+    }
+
+    /**
+     * Whether the server's material in a reply whose signatures verified is current at {@code nowMs}: its root,
+     * when there is one, and in the entry-key form its certificate and keyring.
+     */
+    private static boolean serverCurrent(SessionReply reply, long nowMs) {
+        SignedRoot root = reply.serverRoot();
+        ReplyCert cert = reply.serverReplyCert();
+        return (root == null || root.isCurrent(nowMs))
+                && (cert == null || (nowMs <= cert.notAfter() && serverKeyring(reply).isCurrent(nowMs)));
+    }
+
+    /** The server keyring an entry-key reply presents, with the window its signature was made over. */
+    private static KeyringFile serverKeyring(SessionReply reply) {
+        return new KeyringFile(reply.serverKeyring(), reply.serverPolicyKey(), reply.serverKeyringSig(),
+                reply.serverKeyringNotAfter());
+    }
+
+    /**
      * The key the reply's {@code sig} must verify under, or null when no key may. The policy-key form (none of the
      * keyring-signature fields) names the pin; a {@code serverKeyringNotAfter} there is a keyring window with no
      * keyring signature beside it, which nothing vouches for, so no key, as for either form field without the other.
      * The entry-key form names the certificate's key, and only when both fields are present, the keyring and the
-     * certificate verify under the pin, the certificate is for {@code serverEntry} and names the key the keyring
-     * holds for it, {@code nowMs} is no later than its {@code notAfter}, and the keyring is current at {@code nowMs}:
-     * the keyring alone is the reply's own claim until the policy key's signature covers it, and the certificate is
-     * what says the key is still current. The keyring's signature is checked over {@code serverKeyringNotAfter}, so
-     * a window moved in transit fails it before the window is judged. A reply read holds a keyring signature only
-     * beside its window.
+     * certificate verify under the pin, and the certificate is for {@code serverEntry} and names the key the keyring
+     * holds for it: the keyring alone is the reply's own claim until the policy key's signature covers it. The
+     * keyring's signature is checked over {@code serverKeyringNotAfter}, so a window moved in transit fails it before
+     * the window is judged. A reply read holds a keyring signature only beside its window. Says nothing about time:
+     * see {@link #serverCurrent}, which is what says the certificate's key is still current.
      */
-    private static PublicKey replySigner(SessionReply reply, PublicKey pin, String pinText, String serverEntry,
-            long nowMs) {
+    private static PublicKey replySigner(SessionReply reply, PublicKey pin, String pinText, String serverEntry) {
         boolean hasRingSig = reply.serverKeyringSig() != null;
         boolean hasCert = reply.serverReplyCert() != null;
         if (!hasRingSig && !hasCert) {
@@ -340,12 +394,9 @@ public final class Sessions {
         if (!hasRingSig || !hasCert || serverEntry == null) {
             return null;
         }
-        KeyringFile ring = new KeyringFile(reply.serverKeyring(), reply.serverPolicyKey(), reply.serverKeyringSig(),
-                reply.serverKeyringNotAfter());
         ReplyCert cert = reply.serverReplyCert();
-        if (!ring.verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
-                || !cert.key().equals(reply.serverKeyring().get(serverEntry)) || nowMs > cert.notAfter()
-                || !ring.isCurrent(nowMs)) {
+        if (!serverKeyring(reply).verifies(pinText) || !cert.verifies(pinText) || !cert.svc().equals(serverEntry)
+                || !cert.key().equals(reply.serverKeyring().get(serverEntry))) {
             return null;
         }
         return Crypto.decodePublicKey(Base64Url.decode(cert.key()));

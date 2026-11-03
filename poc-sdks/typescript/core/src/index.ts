@@ -34,7 +34,10 @@ export {
   readReplyCertFile, replyCertSigningBytes, signReplyCert, verifyReplyCert, type ReplyCert,
 } from "./session/reply-cert.ts";
 export * from "./policy/validity.ts";
-export * from "./session/session.ts";
+export {
+  deriveSessionId, isAttestedSession, newNonce, readSessionReply, sessionStatus, signSessionReply, verifySessionReply,
+  type ClientKeys, type SessionReply, type SessionRequest,
+} from "./session/session.ts";
 export * from "./session/request.ts";
 export * from "./session/reply-check.ts";
 export * from "./session/reply-builder.ts";

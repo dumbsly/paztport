@@ -68,7 +68,8 @@ It implements protocol v3, as the [spec](../spec/README.md) defines it:
   `notAfter`. A root or keyring without a `notAfter` is malformed: `readRoot`, `readRootFile` and `readSessionRequest`
   refuse it, and `verifyRoot` and `verifyKeyring` never accept it.
 - **A record set's checks are core's.** `recordedSession` reads a recorded handshake: attested at a time, at all
-  (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with.
+  (at the earliest of its limits) and the `policyNotAfter` a response in it is checked with, undefined where the
+  server's signatures do not verify, which check 0 refuses (`POLICY_EXPIRED`).
   `callInSession` limits a recorded call to its session (`OUTSIDE_SESSION`), `newRecordSet` holds a record set's
   spent keys and its response cache that never forgets, and `verifyRecordedLocalStep` checks a recorded local step
   ([the MCP profile](../spec/README.md#the-mcp-profile)) with its signers given. The agents demo's `verify` calls them.

@@ -36,7 +36,6 @@ final class Handshake {
     static final long NOW = 1_767_225_600_000L;
     /** Far past every time judged here. */
     static final long FAR = 4_102_444_800_000L;
-    static final long MAX_SAFE = (1L << 53) - 1;
 
     /** How to build one: each window's {@code notAfter}. */
     static final class Options {
@@ -144,7 +143,10 @@ final class Handshake {
         return RecordedSession.of(text(request), text(reply), pin, serverEntry);
     }
 
-    /** The reply with {@code edit} applied and signed again by the entry key, over every member it then has. */
+    /**
+     * The reply with {@code edit} applied and signed again by the key its form names, the entry key or the server
+     * policy key, over every member it then has.
+     */
     JsonValue.Obj resigned(UnaryOperator<JsonValue.Obj> edit) {
         JsonValue.Obj body = edit.apply(without(reply, "sig"));
         byte[] prefix = "paztport-session-reply\n".getBytes(StandardCharsets.UTF_8);
@@ -152,6 +154,7 @@ final class Handshake {
         byte[] signed = new byte[prefix.length + json.length];
         System.arraycopy(prefix, 0, signed, 0, prefix.length);
         System.arraycopy(json, 0, signed, prefix.length, json.length);
-        return with(body, "sig", new JsonValue.Str(Base64Url.encode(Crypto.sign(entry.getPrivate(), signed))));
+        KeyPair signer = reply.get("serverKeyringSig") != null ? entry : serverPolicy;
+        return with(body, "sig", new JsonValue.Str(Base64Url.encode(Crypto.sign(signer.getPrivate(), signed))));
     }
 }

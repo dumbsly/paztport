@@ -97,8 +97,12 @@ func FuzzRecord(f *testing.F) {
 	f.Add([]byte{}, []byte{}, "", "", int64(0))
 	f.Fuzz(func(t *testing.T, request, reply []byte, pin, entry string, at int64) {
 		s := offline.Record(request, reply, pin, entry)
-		if n := s.ResponseNotAfter(); n < 0 || n > json.MaxSafe {
+		n, limited := s.ResponseNotAfter()
+		if limited && (n < 0 || n > json.MaxSafe) {
 			t.Fatalf("ResponseNotAfter = %d, outside [0, 2^53 - 1]", n)
+		}
+		if s.Attested() && !limited {
+			t.Fatal("an attested session gives a response no limit")
 		}
 		if s.Attested() != s.AttestedAt(0) {
 			t.Fatalf("Attested = %t, but AttestedAt(0) = %t", s.Attested(), s.AttestedAt(0))

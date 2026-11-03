@@ -62,12 +62,7 @@ func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) C
 	if r.ServerPolicyKey != pin {
 		return PinMismatch
 	}
-	pinKey, err := keys.ParsePublic(pin)
-	if err != nil {
-		return BadSignature
-	}
-	signer, ok := replySigner(r, pinKey, pin, serverEntry, now)
-	if !ok || !signedBy(r, signer) {
+	if !serverSignaturesVerify(r, pin, serverEntry) || !serverCurrent(r, now) {
 		return BadSignature
 	}
 	isAttested := r.Status == StatusAttested
@@ -77,23 +72,56 @@ func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) C
 	if sess, ok := ID(req, r.ServerRoot, r.Nonce); !ok || sess != r.Sess {
 		return BadSignature
 	}
-	if r.ServerRoot != nil && (!r.ServerRoot.Verifies(pin) || !r.ServerRoot.Current(now)) {
-		return BadSignature
-	}
 	if isAttested {
 		return Attested
 	}
 	return Unsafe
 }
 
+// serverSignaturesVerify reports whether the server's signatures on reply r verify, judged at no time: r
+// names pin as its policy key, its sig verifies under the key its form names (replySigner, which checks
+// the keyring's and the certificate's signatures in the entry-key form), and its root, when there is one,
+// verifies under pin over its own notAfter. Only then does a window r holds count.
+func serverSignaturesVerify(r Reply, pin, serverEntry string) bool {
+	if r.ServerPolicyKey != pin {
+		return false
+	}
+	pinKey, err := keys.ParsePublic(pin)
+	if err != nil {
+		return false
+	}
+	signer, ok := replySigner(r, pinKey, pin, serverEntry)
+	return ok && signedBy(r, signer) && (r.ServerRoot == nil || r.ServerRoot.Verifies(pin))
+}
+
+// serverCurrent reports whether the server's material in reply r, whose signatures verified, is current
+// at now: its root, when there is one, and in the entry-key form its certificate and keyring.
+func serverCurrent(r Reply, now int64) bool {
+	if r.ServerRoot != nil && !r.ServerRoot.Current(now) {
+		return false
+	}
+	return r.ServerReplyCert == nil || (r.ServerReplyCert.Current(now) && serverKeyring(r).Current(now))
+}
+
+// serverKeyring returns the keyring an entry-key reply r presents, with the window its signature was made
+// over. A reply that reads holds a keyring signature only beside its window.
+func serverKeyring(r Reply) policy.KeyringFile {
+	return policy.KeyringFile{
+		Services: r.ServerKeyring,
+		Policy:   r.ServerPolicyKey,
+		Sig:      *r.ServerKeyringSig,
+		NotAfter: *r.ServerKeyringNotAfter,
+	}
+}
+
 // replySigner returns the key reply r's sig must verify under, and false when no key may. The policy-key
 // form, with neither the keyring's signature nor a certificate, names the pin, unless the reply has a
 // keyring window, which nothing would vouch for there. The entry-key form names the certificate's key,
-// and only when both members are present, the keyring and the certificate verify under the pin, the
-// certificate is for serverEntry and names the key the keyring holds for it, and both are current at now.
-// The keyring's signature is checked over the reply's own window, so a window moved in transit fails it
-// before the window is judged.
-func replySigner(r Reply, pinKey ed25519.PublicKey, pin, serverEntry string, now int64) (ed25519.PublicKey, bool) {
+// and only when both members are present, the keyring and the certificate verify under the pin, and the
+// certificate is for serverEntry and names the key the keyring holds for it. The keyring's signature is
+// checked over the reply's own window, so a window moved in transit fails it before the window is judged.
+// It says nothing about time: serverCurrent judges the certificate and the keyring at the time judged.
+func replySigner(r Reply, pinKey ed25519.PublicKey, pin, serverEntry string) (ed25519.PublicKey, bool) {
 	hasRingSig, hasCert := r.ServerKeyringSig != nil, r.ServerReplyCert != nil
 	if !hasRingSig && !hasCert {
 		if r.ServerKeyringNotAfter != nil {
@@ -104,17 +132,10 @@ func replySigner(r Reply, pinKey ed25519.PublicKey, pin, serverEntry string, now
 	if !hasRingSig || !hasCert {
 		return nil, false
 	}
-	// A reply that reads holds a keyring signature only beside its window.
-	ring := policy.KeyringFile{
-		Services: r.ServerKeyring,
-		Policy:   r.ServerPolicyKey,
-		Sig:      *r.ServerKeyringSig,
-		NotAfter: *r.ServerKeyringNotAfter,
-	}
 	cert := *r.ServerReplyCert
 	entryKey, listed := r.ServerKeyring[serverEntry]
-	if !ring.Verifies(pin) || !cert.Verifies(pin) || cert.Svc != serverEntry || !listed ||
-		entryKey != cert.Key || !cert.Current(now) || !ring.Current(now) {
+	if !serverKeyring(r).Verifies(pin) || !cert.Verifies(pin) || cert.Svc != serverEntry || !listed ||
+		entryKey != cert.Key {
 		return nil, false
 	}
 	key, err := keys.ParsePublic(cert.Key)
@@ -150,4 +171,23 @@ func AttestedOffline(reply []byte, req Request, pin, serverEntry string, at int6
 	ring := req.KeyringFile()
 	return ring.Verifies(req.ClientPolicyKey) && req.ClientRoot.Verifies(req.ClientPolicyKey) &&
 		req.ClientRoot.Current(at) && ring.Current(at)
+}
+
+// ResponseNotAfterOffline returns the policyNotAfter a response recorded under a recorded handshake's
+// reply is checked with (verification.md, Offline verification): the earlier of the server root's notAfter
+// and, in the entry-key form, the server keyring's, once the server's signatures over them verify, judged
+// at no time. The reply must read and verify against pin, the server policy key the client pinned, and
+// serverEntry, the server's entry service from the verifier's own configuration, and its root must verify
+// under pin. Whether the session is attested, and the client's side of the handshake, do not decide it.
+// It returns false for a reply that does not read, has no server root, or whose signatures do not verify:
+// a response relying on it is POLICY_EXPIRED. ResponseNotAfterOffline never panics.
+func ResponseNotAfterOffline(reply []byte, pin, serverEntry string) (int64, bool) {
+	r, err := ParseReply(reply)
+	if err != nil || r.ServerRoot == nil || !serverSignaturesVerify(r, pin, serverEntry) {
+		return 0, false
+	}
+	if r.ServerKeyringSig != nil {
+		return min(r.ServerRoot.NotAfter, *r.ServerKeyringNotAfter), true
+	}
+	return r.ServerRoot.NotAfter, true
 }

@@ -18,6 +18,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.LongPredicate;
 import org.junit.jupiter.api.BeforeAll;
@@ -344,7 +345,9 @@ class VectorsV3Test {
                 long at = c.get("at").get(i).asLong();
                 assertEquals(want.get("attestedAt").get(i).asBoolean(), s.attestedAt(at), name + ": at " + at);
             }
-            assertEquals(want.get("responseNotAfter").asLong(), s.responseNotAfter(), name + ": responseNotAfter");
+            JsonNode limit = want.get("responseNotAfter");
+            assertEquals(limit.isNull() ? OptionalLong.empty() : OptionalLong.of(limit.asLong()), s.responseNotAfter(),
+                    name + ": responseNotAfter");
         }
     }
 

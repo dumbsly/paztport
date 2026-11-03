@@ -82,7 +82,7 @@ function replayHandshake(v: any, c: any) {
   const s = recordedSession({
     request: c.requestToken, reply: c.replyToken, pin: v.keys[c.pin].pub, serverEntry: c.serverEntry,
   });
-  return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter };
+  return { attested: s.attested, attestedAt: c.at.map((t: number) => s.attestedAt(t)), responseNotAfter: s.responseNotAfter ?? null };
 }
 
 /**

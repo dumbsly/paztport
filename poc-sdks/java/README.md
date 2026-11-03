@@ -42,7 +42,8 @@ has one, the authenticated peer.
   `CALL_MAX_AGE_MS`), so no configuration leaves a chain's age unlimited.
 - **Record sets.** `RecordedSession` reads a recorded handshake from its request
   and reply, each its wire bytes as text, the pin and the configured entry: attested
-  at a time, at all (at the earliest of its limits) and the response limit.
+  at a time, at all (at the earliest of its limits) and the response limit, none where
+  the server's signatures do not verify (`Sessions.responseNotAfterOffline`).
   `RecordSet` holds a record set's spent nonce keys and a response cache that never
   forgets, and `RecordSet.callInSession` limits a recorded call to its session
   (`OUTSIDE_SESSION`).

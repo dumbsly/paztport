@@ -746,3 +746,108 @@ func TestCertificateForEntry(t *testing.T) {
 		}
 	}
 }
+
+// signed returns reply signed by key, as its bytes, its session id left as it is.
+func signed(t *testing.T, reply session.Reply, key ed25519.PrivateKey) []byte {
+	t.Helper()
+	r, err := session.SignReply(reply, key)
+	if err != nil {
+		t.Fatalf("SignReply: %v", err)
+	}
+	b, err := r.Wire()
+	if err != nil {
+		t.Fatalf("Wire: %v", err)
+	}
+	return b
+}
+
+// TestResponseNotAfterOffline checks the limit on a response recorded under a reply: the server root's
+// notAfter and, in the entry-key form, the server keyring's, once the server's signatures over them verify
+// against the pin and the configured entry, judged at no time; and none otherwise.
+func TestResponseNotAfterOffline(t *testing.T) {
+	h := attestedHandshake(t)
+	rootBytes, err := h.reply.ServerRoot.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	rootUntil := func(notAfter int64, key ed25519.PrivateKey) *policy.Root {
+		root, err := policy.SignRoot(rootBytes, h.reply.ServerRoot.RootID, notAfter, key)
+		if err != nil {
+			t.Fatalf("SignRoot: %v", err)
+		}
+		return &root
+	}
+	withRing := func(r session.Reply, notAfter int64, key ed25519.PrivateKey) session.Reply {
+		ring, err := policy.SignKeyring(r.ServerKeyring, h.pin, notAfter, key)
+		if err != nil {
+			t.Fatalf("SignKeyring: %v", err)
+		}
+		r.ServerKeyringSig, r.ServerKeyringNotAfter = &ring.Sig, &ring.NotAfter
+		return r
+	}
+	ringFirst := withRing(h.reply, h.now+1, h.server)
+	ringFirst.ServerRoot = rootUntil(h.now+2, h.server)
+	rootFirst := withRing(h.reply, h.now+2, h.server)
+	rootFirst.ServerRoot = rootUntil(h.now+1, h.server)
+	policyForm := h.reply
+	policyForm.ServerKeyringSig, policyForm.ServerKeyringNotAfter, policyForm.ServerReplyCert = nil, nil, nil
+	policyForm.ServerRoot = rootUntil(h.now+3, h.server)
+	expired := withRing(h.reply, 2, h.server)
+	expired.ServerRoot = rootUntil(1, h.server)
+	unsafe := ringFirst
+	unsafe.Status = session.StatusUnsafe
+	unsafe.Disabled = []string{"tool"}
+	otherSess := ringFirst
+	otherSess.Sess = h.reply.Nonce
+
+	limits := []struct {
+		name  string
+		reply []byte
+		want  int64
+	}{
+		{"the keyring's window, the earlier", signed(t, ringFirst, h.signer), h.now + 1},
+		{"the root's window, the earlier", signed(t, rootFirst, h.signer), h.now + 1},
+		{"the policy-key form, the root's alone", signed(t, policyForm, h.server), h.now + 3},
+		{"an unsafe reply", signed(t, unsafe, h.signer), h.now + 1},
+		{"a session id for another request", signed(t, otherSess, h.signer), h.now + 1},
+		{"expired material, judged at no time", signed(t, expired, h.signer), 1},
+	}
+	for _, tt := range limits {
+		if got, ok := session.ResponseNotAfterOffline(tt.reply, h.pin, h.entry); !ok || got != tt.want {
+			t.Errorf("%s: ResponseNotAfterOffline = %d, %t; want %d", tt.name, got, ok, tt.want)
+		}
+	}
+
+	rootless := h.reply
+	rootless.ServerRoot = nil
+	policyRootless := policyForm
+	policyRootless.ServerRoot = nil
+	otherRoot := h.reply
+	otherRoot.ServerRoot = rootUntil(h.now+1, h.client)
+	otherRing := withRing(h.reply, h.now+1, h.client)
+	unsigned := replace(t, h.wire, "serverKeyringNotAfter", json.I(h.now))
+	shapeless := edit(t, edit(t, h.wire, "disabled", nil), "sig", nil)
+	sig := ed25519.Sign(h.signer, append([]byte("paztport-session-reply\n"), shapeless...))
+	shapeless = replace(t, shapeless, "sig", json.S(b64.Encode(sig)))
+	none := []struct {
+		name       string
+		reply      []byte
+		pin, entry string
+	}{
+		{"no server root", signed(t, rootless, h.signer), h.pin, h.entry},
+		{"no server root, the policy-key form", signed(t, policyRootless, h.server), h.pin, h.entry},
+		{"a server root another key signed", signed(t, otherRoot, h.signer), h.pin, h.entry},
+		{"a server keyring another key signed", signed(t, otherRing, h.signer), h.pin, h.entry},
+		{"a keyring window moved", unsigned, h.pin, h.entry},
+		{"a signed reply the shape check refuses", shapeless, h.pin, h.entry},
+		{"another pin", h.wire, h.req.ClientPolicyKey, h.entry},
+		{"a pin that is not a key", h.wire, "AAAA", h.entry},
+		{"another entry", h.wire, h.pin, "orders"},
+		{"no reply", nil, h.pin, h.entry},
+	}
+	for _, tt := range none {
+		if got, ok := session.ResponseNotAfterOffline(tt.reply, tt.pin, tt.entry); ok {
+			t.Errorf("%s: ResponseNotAfterOffline = %d, want none", tt.name, got)
+		}
+	}
+}

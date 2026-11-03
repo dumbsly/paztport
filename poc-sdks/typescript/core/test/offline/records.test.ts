@@ -157,11 +157,51 @@ describe("recordedSession: what a recorded handshake opened", () => {
     expect(recordedSession(handshake({ windows: { cert: NOW, clientRoot: NOW, clientKeyring: NOW } }).recorded).responseNotAfter).toBe(FAR);
     // the policy-key form carries no keyring signature, so no keyring window
     expect(recordedSession(handshake({ form: "policy-key", windows: { serverRoot: NOW + 2 } }).recorded).responseNotAfter).toBe(NOW + 2);
-    // 2^53 − 1 when the reply holds neither window, as a policy-key reply with no root does
-    const rootless = handshake({ form: "policy-key" });
-    const s = recordedSession({ ...rootless.recorded, reply: token({ ...rootless.reply, serverRoot: null }) });
-    expect(s.attested).toBe(false);
-    expect(s.responseNotAfter).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  // "Those windows count only once the signatures covering them verify, whatever the time: the reply against the pin,
+  // and the server's root and, in the entry-key form, its keyring under the server's policy key. A reply without them
+  // gives no policyNotAfter."
+  it("theResponseLimitCountsOnlyOnceTheServersSignaturesVerify", () => {
+    const h = handshake({ windows: { serverKeyring: NOW + 1 } });
+    const limit = (recorded: RecordedHandshake) => recordedSession(recorded).responseNotAfter;
+    const other = generateKeyPair();
+    expect(limit(resigned(h, { serverRoot: null }))).toBeUndefined();
+    const p = handshake({ form: "policy-key" });
+    const { sig: _policySig, ...policyBody } = p.reply;
+    const rootless = signSessionReply({ ...policyBody, serverRoot: null }, p.serverPolicy.privateKey);
+    expect(limit({ ...p.recorded, reply: token(rootless) })).toBeUndefined();
+    expect(limit(resigned(h, { serverRoot: signRoot(h.serverTree.root, "s1", other.privateKey, FAR) }))).toBeUndefined();
+    const otherRing = signKeyring(h.reply.serverKeyring, h.serverPolicy.publicKey, other.privateKey, NOW + 1);
+    expect(limit(resigned(h, { serverKeyringSig: otherRing.sig }))).toBeUndefined();
+    expect(limit({ ...h.recorded, pin: other.publicKey })).toBeUndefined();
+    expect(limit({ ...h.recorded, serverEntry: "orders" })).toBeUndefined();
+    // a window moved in the record, or a reply edited and not signed again
+    expect(limit({ ...h.recorded, reply: token({ ...h.reply, serverKeyringNotAfter: FAR }) })).toBeUndefined();
+    expect(limit(resigned(h, { serverKeyringNotAfter: FAR }))).toBeUndefined();
+    // a reply the client's shape check refuses, though the server signed it
+    const { disabled: _disabled, ...shapeless } = h.reply;
+    const { sig: _sig, ...body } = shapeless;
+    expect(limit({ ...h.recorded, reply: token(signSessionReply(body as Omit<SessionReply, "sig">, h.entry.privateKey)) })).toBeUndefined();
+    // judged at no time: an expired certificate and the expired windows themselves still give the limit
+    expect(limit(handshake({ windows: { cert: 0, serverRoot: 1, serverKeyring: 2 } }).recorded)).toBe(1);
+  });
+
+  // "… whether or not the session is attested": the client's side, the session id and the status do not decide it.
+  it("theResponseLimitIsTheServersWhateverTheClientsSide", () => {
+    const h = handshake({ windows: { serverRoot: NOW + 1 } });
+    const limit = (recorded: RecordedHandshake) => recordedSession(recorded).responseNotAfter;
+    const badRing = { ...h.request, clientKeyringSig: signKeyring(h.request.clientKeyring, h.request.clientPolicyKey, generateKeyPair().privateKey, FAR).sig };
+    const unreadable = { ...h.request, clientKeyringSig: null };
+    for (const request of [badRing, unreadable]) {
+      const s = recordedSession({ ...h.recorded, request: token(request) });
+      expect(s.attested).toBe(false);
+      expect(s.responseNotAfter).toBe(NOW + 1);
+    }
+    expect(limit(resigned(h, { sess: h.reply.nonce }))).toBe(NOW + 1);
+    const unsafe = handshake({ status: "unsafe", windows: { serverRoot: NOW + 1 } });
+    expect(limit(unsafe.recorded)).toBe(NOW + 1);
+    expect(recordedSession(unsafe.recorded).attested).toBe(false);
   });
 
   // "There is no client pin offline. The server's signed "attested" reply … is its statement that it pinned them."
@@ -203,6 +243,7 @@ describe("recordedSession: what a recorded handshake opened", () => {
     const broken = { ...h.recorded, reply: null } as unknown as RecordedHandshake;
     expect(recordedSession(broken)).toMatchObject({ attested: false });
     expect(recordedSession(broken).attestedAt(NOW)).toBe(false);
+    expect(recordedSession(broken).responseNotAfter).toBeUndefined();
   });
 });
 
@@ -298,6 +339,16 @@ describe("newRecordSet: replay across a record set", () => {
     const cfg = { ...responseConfig(h, newRecordSet()), policyNotAfter: s.responseNotAfter };
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, { ...cfg, now: NOW + 11 }).result.reason).toBe("POLICY_EXPIRED");
     expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("OK");
+  });
+
+  // "A reply without them gives no policyNotAfter, and a response relying on it fails check 0 (POLICY_EXPIRED)."
+  it("aResponseRelyingOnAReplyWithoutThemIsPolicyExpired", () => {
+    const h = handshake();
+    const s = recordedSession({ ...h.recorded, pin: generateKeyPair().publicKey });
+    expect(s.responseNotAfter).toBeUndefined();
+    const respond = response(h);
+    const cfg = { ...responseConfig(h, newRecordSet()), policyNotAfter: s.responseNotAfter };
+    expect(verifyResponse(respond.att, respond.body, RESPONSE_CALL, cfg).result.reason).toBe("POLICY_EXPIRED");
   });
 });
 

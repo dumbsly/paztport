@@ -10,15 +10,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.paztport.core.offline.Handshake.ENTRY;
 import static org.paztport.core.offline.Handshake.FAR;
-import static org.paztport.core.offline.Handshake.MAX_SAFE;
 import static org.paztport.core.offline.Handshake.NOW;
 import static org.paztport.core.offline.Handshake.inMember;
 import static org.paztport.core.offline.Handshake.text;
 import static org.paztport.core.offline.Handshake.with;
 import static org.paztport.core.offline.Handshake.without;
 
+import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalLong;
 import java.util.function.Consumer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -126,48 +127,88 @@ class RecordedSessionTest {
     // keyring's: the client's windows and the certificate do not limit it."
     @Test
     void aResponseIsLimitedOnlyByTheServersRootAndEntryKeyKeyring() {
-        assertEquals(NOW + 1, Handshake.with(o -> {
+        assertEquals(OptionalLong.of(NOW + 1), Handshake.with(o -> {
             o.serverRoot = NOW + 2;
             o.serverKeyring = NOW + 1;
         }).recorded().responseNotAfter());
-        assertEquals(NOW + 1, Handshake.with(o -> {
+        assertEquals(OptionalLong.of(NOW + 1), Handshake.with(o -> {
             o.serverRoot = NOW + 1;
             o.serverKeyring = NOW + 2;
         }).recorded().responseNotAfter());
-        assertEquals(FAR, Handshake.with(o -> {
+        assertEquals(OptionalLong.of(FAR), Handshake.with(o -> {
             o.cert = NOW;
             o.clientRoot = NOW;
             o.clientKeyring = NOW;
         }).recorded().responseNotAfter());
         // the policy-key form carries no keyring signature, so no keyring window
-        assertEquals(NOW + 2, Handshake.with(o -> {
+        assertEquals(OptionalLong.of(NOW + 2), Handshake.with(o -> {
             o.policyKeyForm = true;
             o.serverRoot = NOW + 2;
         }).recorded().responseNotAfter());
-        // 2^53 - 1 when the reply holds neither window, as a policy-key reply with no root does
-        Handshake p = Handshake.with(o -> o.policyKeyForm = true);
-        RecordedSession rootless = Handshake.recorded(p.request, with(p.reply, "serverRoot", new JsonValue.Null()),
-                p.pin, ENTRY);
-        assertFalse(rootless.attested());
-        assertEquals(MAX_SAFE, rootless.responseNotAfter());
     }
 
-    // The response limit is read from the reply's windows whether or not the session is attested, as the vectors
-    // pin it; a reader gives a response in a session that is not attested no result.
+    // "Those windows count only once the signatures covering them verify, whatever the time: the reply against the
+    // pin, and the server's root and, in the entry-key form, its keyring under the server's policy key. A reply
+    // without them gives no policyNotAfter."
     @Test
-    void theResponseLimitIsReadWhetherOrNotTheSessionIsAttested() {
+    void theResponseLimitCountsOnlyOnceTheServersSignaturesVerify() {
+        Handshake h = Handshake.with(o -> o.serverKeyring = NOW + 1);
+        assertEquals(OptionalLong.of(NOW + 1), h.recorded().responseNotAfter());
+        KeyPair other = Crypto.generateEd25519KeyPair();
+        Handshake p = Handshake.with(o -> o.policyKeyForm = true);
+        String otherRoot = SignedRoot.sign(h.serverTree.root(), "s1", FAR, other.getPrivate()).sig();
+        String otherRing = KeyringFile.sign(Map.of(ENTRY, Handshake.key(h.entry), "tools", Handshake.key(h.entry)),
+                h.pin, NOW + 1, other.getPrivate()).sig();
+        List<RecordedSession> none = List.of(
+                Handshake.recorded(h.request, h.resigned(r -> with(r, "serverRoot", new JsonValue.Null())), h.pin,
+                        ENTRY),
+                Handshake.recorded(p.request, p.resigned(r -> with(r, "serverRoot", new JsonValue.Null())), p.pin,
+                        ENTRY),
+                Handshake.recorded(h.request, h.resigned(r -> inMember(r, "serverRoot",
+                        root -> with(root, "sig", new JsonValue.Str(otherRoot)))), h.pin, ENTRY),
+                Handshake.recorded(h.request,
+                        h.resigned(r -> with(r, "serverKeyringSig", new JsonValue.Str(otherRing))), h.pin, ENTRY),
+                Handshake.recorded(h.request, h.reply, Handshake.key(other), ENTRY),
+                Handshake.recorded(h.request, h.reply, h.pin, "orders"),
+                // a window moved in the record, signed again or not
+                Handshake.recorded(h.request, with(h.reply, "serverKeyringNotAfter", new JsonValue.Int(FAR)), h.pin,
+                        ENTRY),
+                Handshake.recorded(h.request, h.resigned(r -> with(r, "serverKeyringNotAfter", new JsonValue.Int(FAR))),
+                        h.pin, ENTRY),
+                // a reply the client's shape check refuses, though the server signed it
+                Handshake.recorded(h.request, h.resigned(r -> without(r, "disabled")), h.pin, ENTRY));
+        for (RecordedSession s : none) {
+            assertEquals(OptionalLong.empty(), s.responseNotAfter());
+        }
+        // judged at no time: an expired certificate and the expired windows themselves still give the limit
+        assertEquals(OptionalLong.of(1), Handshake.with(o -> {
+            o.cert = 0;
+            o.serverRoot = 1;
+            o.serverKeyring = 2;
+        }).recorded().responseNotAfter());
+    }
+
+    // "... whether or not the session is attested": the client's side, the session id and the status do not decide it.
+    @Test
+    void theResponseLimitIsTheServersWhateverTheClientsSide() {
+        Handshake h = Handshake.with(o -> o.serverRoot = NOW + 1);
+        String otherRingSig = KeyringFile.sign(Map.of("session", Handshake.key(h.session), "pi", Handshake.key(h.pi)),
+                Handshake.key(h.clientPolicy), FAR, Crypto.generateEd25519KeyPair().getPrivate()).sig();
+        List<RecordedSession> clientSideFails = List.of(
+                Handshake.recorded(with(h.request, "clientKeyringSig", new JsonValue.Str(otherRingSig)), h.reply, h.pin,
+                        ENTRY),
+                RecordedSession.of("not a request", text(h.reply), h.pin, ENTRY),
+                Handshake.recorded(h.request, h.resigned(r -> with(r, "sess", r.get("nonce"))), h.pin, ENTRY));
+        for (RecordedSession s : clientSideFails) {
+            assertFalse(s.attested());
+            assertEquals(OptionalLong.of(NOW + 1), s.responseNotAfter());
+        }
         RecordedSession unsafe = Handshake.with(o -> {
             o.status = "unsafe";
             o.serverRoot = NOW + 2;
         }).recorded();
         assertFalse(unsafe.attested());
-        assertEquals(NOW + 2, unsafe.responseNotAfter());
-        Handshake h = Handshake.with(o -> o.serverKeyring = NOW + 1);
-        RecordedSession otherEntry = Handshake.recorded(h.request, h.reply, h.pin, "tools");
-        assertFalse(otherEntry.attested());
-        assertEquals(NOW + 1, otherEntry.responseNotAfter());
-        assertEquals(NOW + 1,
-                RecordedSession.of("not a request", text(h.reply), h.pin, ENTRY).responseNotAfter());
+        assertEquals(OptionalLong.of(NOW + 2), unsafe.responseNotAfter());
     }
 
     // "There is no client pin offline. The server's signed "attested" reply … is its statement that it pinned them."
@@ -249,6 +290,6 @@ class RecordedSessionTest {
             assertFalse(s.attested());
             assertFalse(s.attestedAt(NOW));
             }
-        assertEquals(MAX_SAFE, RecordedSession.of(null, null, null, null).responseNotAfter());
+        assertEquals(OptionalLong.empty(), RecordedSession.of(null, null, null, null).responseNotAfter());
     }
 }

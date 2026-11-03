@@ -2,8 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { readToken, type JsonValue } from "../encoding/json.ts";
+import { serverPolicyNotAfter } from "../session/reply-check.ts";
 import { readSessionRequest } from "../session/request.ts";
-import { isAttestedSession, type SessionRequest } from "../session/session.ts";
+import { isAttestedSession, readSessionReply, serverSignaturesVerify, type SessionRequest } from "../session/session.ts";
 import { NonceCache } from "../verify/nonce.ts";
 import type { ReasonCode } from "../verify/reason.ts";
 
@@ -24,8 +25,14 @@ export type RecordedSession = {
   attestedAt: (at: number) => boolean;
   /** Attested at all: judged at the earliest of its limits, since each is an upper bound. */
   attested: boolean;
-  /** The `policyNotAfter` a recorded response in the session is checked with: the server root's window and, in the entry-key form, the server keyring's; 2^53 − 1 when the reply holds neither (it then opens no attested session). */
-  responseNotAfter: number;
+  /**
+   * The `policyNotAfter` a recorded response in the session is checked with: the earlier of the server root's window
+   * and, in the entry-key form, the server keyring's, once the server's signatures over them verify, judged at no
+   * time, whether or not the session is attested. Undefined for a reply that does not read, has no server root, or
+   * whose signatures do not verify against the pin and the configured entry: a response check given none fails
+   * check 0 (POLICY_EXPIRED).
+   */
+  responseNotAfter: number | undefined;
 };
 
 /** `o`'s own `field` when `o` is an object and that is an integer, else undefined: a limit the record lacks. */
@@ -44,10 +51,10 @@ function readOr<T>(read: () => T): T | undefined {
   }
 }
 
-/** The earliest of `windows`, or `none` when no item has one. */
-function earliest(windows: (number | undefined)[], none: number): number {
+/** The earliest of `windows`, or 0 when no item has one, as only for a request that does not read. */
+function earliest(windows: (number | undefined)[]): number {
   const set = windows.filter((w): w is number => w !== undefined);
-  return set.length === 0 ? none : Math.min(...set);
+  return set.length === 0 ? 0 : Math.min(...set);
 }
 
 /**
@@ -55,8 +62,8 @@ function earliest(windows: (number | undefined)[], none: number): number {
  * Its limits are the certificate's `notAfter` (entry-key form) and the `notAfter` of each root and keyring, both
  * sides; it is attested at all when attested at the earliest of them. The windows are read before the signatures
  * over them are checked, but none counts unless the session is attested at it, which checks each signature. A
- * response is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and
- * the certificate do not limit it. Never throws.
+ * response is limited only by the server's root and, in the entry-key form, its keyring, once the server's signatures
+ * over them verify: the client's windows and the certificate do not limit it. Never throws.
  */
 export function recordedSession(h: RecordedHandshake): RecordedSession {
   const { pin, serverEntry } = h;
@@ -65,22 +72,19 @@ export function recordedSession(h: RecordedHandshake): RecordedSession {
   const value = readOr(() => readToken(h.reply));
   const reply = typeof value === "object" && value !== null && !Array.isArray(value) ? value : undefined;
   const attestedAt = (at: number) => request !== undefined && isAttestedSession(request, h.reply, pin, serverEntry, at);
-  const limit = earliest(
-    [
-      ownWindow(reply?.serverReplyCert, "notAfter"),
-      request?.clientRoot?.notAfter,
-      request?.clientKeyringNotAfter,
-      ownWindow(reply?.serverRoot, "notAfter"),
-      ownWindow(reply, "serverKeyringNotAfter"),
-    ],
-    0,
-  );
-  const entryKeyForm = reply !== undefined && Object.hasOwn(reply, "serverKeyringSig");
-  const ring = entryKeyForm ? ownWindow(reply, "serverKeyringNotAfter") : undefined;
+  const limit = earliest([
+    ownWindow(reply?.serverReplyCert, "notAfter"),
+    request?.clientRoot?.notAfter,
+    request?.clientKeyringNotAfter,
+    ownWindow(reply?.serverRoot, "notAfter"),
+    ownWindow(reply, "serverKeyringNotAfter"),
+  ]);
+  const read = readOr(() => readSessionReply(h.reply));
+  const signed = read !== undefined && read.serverRoot !== null && serverSignaturesVerify(read, pin, serverEntry);
   return {
     attestedAt,
     attested: attestedAt(limit),
-    responseNotAfter: earliest([ownWindow(reply?.serverRoot, "notAfter"), ring], Number.MAX_SAFE_INTEGER),
+    responseNotAfter: signed ? serverPolicyNotAfter(read) : undefined,
   };
 }
 

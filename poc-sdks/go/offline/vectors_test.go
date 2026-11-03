@@ -86,8 +86,13 @@ func TestRecordedHandshakeVectors(t *testing.T) {
 					t.Errorf("AttestedAt(%d) = %t, want %t", at.Index(i).Int(), got, want.Index(i).Bool())
 				}
 			}
-			if got, want := s.ResponseNotAfter(), e.Get("responseNotAfter").Int(); got != want {
-				t.Errorf("ResponseNotAfter = %d, want %d", got, want)
+			got, ok := s.ResponseNotAfter()
+			if want := e.Get("responseNotAfter"); want.IsNull() {
+				if ok {
+					t.Errorf("ResponseNotAfter = %d, want none", got)
+				}
+			} else if !ok || got != want.Int() {
+				t.Errorf("ResponseNotAfter = %d, %t; want %d", got, ok, want.Int())
 			}
 		})
 	})

@@ -499,26 +499,28 @@ func edit(t *testing.T, wire []byte, name string, v *json.Value) []byte {
 
 // TestRecordNeverPanics records handshakes that open no attested session, from messages that do not read
 // to a pin or an entry that is not the server's. It expects sessions attested at no time, a request only
-// when it reads, and the response window the reply holds, 2^53 - 1 when it holds none.
+// when it reads, and the response window of a reply whose server signatures verify, whatever the request,
+// and none for any other.
 func TestRecordNeverPanics(t *testing.T) {
 	request, reply, pin, entry := handshake(t, "entry-key form, limited by the certificate")
+	const limit int64 = 4102444800000
 	tests := []struct {
-		name             string
-		request, reply   []byte
-		pin, entry       string
-		responseNotAfter int64
+		name           string
+		request, reply []byte
+		pin, entry     string
+		limit          *int64
 	}{
-		{"nothing", nil, nil, "", "", json.MaxSafe},
-		{"no request", nil, reply, pin, entry, 4102444800000},
-		{"a request that is null", []byte("null"), reply, pin, entry, 4102444800000},
-		{"a request that is an array", []byte("[]"), reply, pin, entry, 4102444800000},
-		{"no reply", request, nil, pin, entry, json.MaxSafe},
-		{"a reply cut short", request, reply[:len(reply)-1], pin, entry, json.MaxSafe},
-		{"a reply that is null", request, []byte("null"), pin, entry, json.MaxSafe},
-		{"a reply that is a string", request, []byte(`"sess"`), pin, entry, json.MaxSafe},
-		{"no pin", request, reply, "", entry, 4102444800000},
-		{"a pin that is not a key", request, reply, "AAAA", entry, 4102444800000},
-		{"no entry", request, reply, pin, "", 4102444800000},
+		{"nothing", nil, nil, "", "", nil},
+		{"no request", nil, reply, pin, entry, ptr(limit)},
+		{"a request that is null", []byte("null"), reply, pin, entry, ptr(limit)},
+		{"a request that is an array", []byte("[]"), reply, pin, entry, ptr(limit)},
+		{"no reply", request, nil, pin, entry, nil},
+		{"a reply cut short", request, reply[:len(reply)-1], pin, entry, nil},
+		{"a reply that is null", request, []byte("null"), pin, entry, nil},
+		{"a reply that is a string", request, []byte(`"sess"`), pin, entry, nil},
+		{"no pin", request, reply, "", entry, nil},
+		{"a pin that is not a key", request, reply, "AAAA", entry, nil},
+		{"no entry", request, reply, pin, "", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -529,8 +531,9 @@ func TestRecordNeverPanics(t *testing.T) {
 			if _, ok := s.Request(); ok != bytes.Equal(tt.request, request) {
 				t.Fatalf("Request reads: %t, want %t", ok, !ok)
 			}
-			if got := s.ResponseNotAfter(); got != tt.responseNotAfter {
-				t.Fatalf("ResponseNotAfter = %d, want %d", got, tt.responseNotAfter)
+			got, ok := s.ResponseNotAfter()
+			if ok != (tt.limit != nil) || ok && got != *tt.limit {
+				t.Fatalf("ResponseNotAfter = %d, %t; want %v", got, ok, tt.limit)
 			}
 		})
 	}
@@ -548,8 +551,8 @@ func TestZeroRecordedSession(t *testing.T) {
 		if _, ok := s.Request(); ok {
 			t.Fatal("the session has a request")
 		}
-		if got := s.ResponseNotAfter(); got != json.MaxSafe {
-			t.Fatalf("ResponseNotAfter = %d, want 2^53 - 1", got)
+		if got, ok := s.ResponseNotAfter(); ok {
+			t.Fatalf("ResponseNotAfter = %d, want none", got)
 		}
 	}
 }
@@ -581,29 +584,33 @@ func TestSess(t *testing.T) {
 	}
 }
 
-// TestResponseNotAfter pins the response window's leniency: it is read from the reply's value whether or
-// not the reply is well formed, counts the server keyring's window only in the entry-key form, and passes
-// over a window that is not an integer.
+// TestResponseNotAfter checks that the response window counts only once the server's signatures over it
+// verify: a reply edited in the record and not signed again gives none, as do v3.json's replies with no
+// server root and with one another key signed; the keyring's window counts only in the entry-key form.
 func TestResponseNotAfter(t *testing.T) {
 	request, reply, pin, entry := handshake(t, "server keyring's notAfter")
-	const keyringNotAfter, rootNotAfter int64 = 1767225600000, 4102444800000
+	const keyringNotAfter int64 = 1767225600000
+	if got, ok := offline.Record(request, reply, pin, entry).ResponseNotAfter(); !ok || got != keyringNotAfter {
+		t.Fatalf("ResponseNotAfter = %d, %t; want %d", got, ok, keyringNotAfter)
+	}
+	_, rootless, _, _ := handshake(t, "a reply with no server root: no response limit")
+	_, otherRoot, _, _ := handshake(t, "a server root another key signed: no response limit")
 	tests := []struct {
 		name  string
 		reply []byte
-		want  int64
 	}{
-		{"the entry-key form", reply, keyringNotAfter},
-		{"no keyring signature", edit(t, reply, "serverKeyringSig", nil), rootNotAfter},
-		{"a keyring signature that is null", edit(t, reply, "serverKeyringSig", ptr(json.Null())), keyringNotAfter},
-		{"a keyring window that is a string", edit(t, reply, "serverKeyringNotAfter", ptr(json.S("1"))), rootNotAfter},
-		{"a server root that is null", edit(t, reply, "serverRoot", ptr(json.Null())), keyringNotAfter},
-		{"neither window", edit(t, edit(t, reply, "serverRoot", ptr(json.Null())), "serverKeyringNotAfter", nil),
-			json.MaxSafe},
+		{"no keyring signature", edit(t, reply, "serverKeyringSig", nil)},
+		{"a keyring signature that is null", edit(t, reply, "serverKeyringSig", ptr(json.Null()))},
+		{"a keyring window moved", edit(t, reply, "serverKeyringNotAfter", ptr(json.I(4102444800000)))},
+		{"a keyring window that is a string", edit(t, reply, "serverKeyringNotAfter", ptr(json.S("1")))},
+		{"a server root that is null", edit(t, reply, "serverRoot", ptr(json.Null()))},
+		{"a signed reply with no server root", rootless},
+		{"a server root another key signed", otherRoot},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := offline.Record(request, tt.reply, pin, entry).ResponseNotAfter(); got != tt.want {
-				t.Fatalf("ResponseNotAfter = %d, want %d", got, tt.want)
+			if got, ok := offline.Record(request, tt.reply, pin, entry).ResponseNotAfter(); ok {
+				t.Fatalf("ResponseNotAfter = %d, want none", got)
 			}
 		})
 	}

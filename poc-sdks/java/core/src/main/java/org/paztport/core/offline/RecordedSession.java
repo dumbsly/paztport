@@ -5,8 +5,8 @@ package org.paztport.core.offline;
 
 import java.util.Arrays;
 import java.util.Objects;
+import java.util.OptionalLong;
 import java.util.function.Supplier;
-import org.paztport.core.internal.JsonIntegers;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.policy.SignedRoot;
@@ -23,8 +23,9 @@ import org.paztport.core.session.Sessions;
  * <p>Its limits are the certificate's {@code notAfter} (entry-key form) and the {@code notAfter} of each root and
  * keyring, both sides. It is attested at all when attested at the earliest of them. The windows are read before
  * the signatures over them are checked, but none counts unless the session is attested at it, which checks each
- * signature. A response is limited only by the server's root and, in the entry-key form, its keyring: the client's
- * windows and the certificate do not limit it. Nothing here throws on what the record holds.
+ * signature. A response is limited only by the server's root and, in the entry-key form, its keyring, once the
+ * server's signatures over them verify: the client's windows and the certificate do not limit it. Nothing here
+ * throws on what the record holds.
  */
 public final class RecordedSession {
 
@@ -34,7 +35,7 @@ public final class RecordedSession {
     private final String serverEntry;
     private final String sess;
     private final boolean attested;
-    private final long responseNotAfter;
+    private final OptionalLong responseNotAfter;
 
     private RecordedSession(String requestJson, String replyJson, String pin, String serverEntry) {
         this.reply = replyJson;
@@ -47,10 +48,9 @@ public final class RecordedSession {
         Long serverRoot = window(member(tree, "serverRoot"), "notAfter");
         Long serverKeyring = window(tree, "serverKeyringNotAfter");
         Long cert = window(member(tree, "serverReplyCert"), "notAfter");
-        this.attested = attestedAt(earliest(0, cert, clientRoot == null ? null : clientRoot.notAfter(),
+        this.attested = attestedAt(earliest(cert, clientRoot == null ? null : clientRoot.notAfter(),
                 request == null ? null : request.clientKeyringNotAfter(), serverRoot, serverKeyring));
-        boolean entryKeyForm = tree != null && tree.get("serverKeyringSig") != null;
-        this.responseNotAfter = earliest(JsonIntegers.MAX_SAFE, serverRoot, entryKeyForm ? serverKeyring : null);
+        this.responseNotAfter = Sessions.responseNotAfterOffline(replyJson, pin, serverEntry);
     }
 
     /**
@@ -87,18 +87,18 @@ public final class RecordedSession {
 
     /**
      * The {@code policyNotAfter} a response recorded in the session is checked with: the earlier of the server
-     * root's window and, in the entry-key form, the server keyring's; 2^53 &minus; 1 when the reply holds neither
-     * (it then opens no attested session). It is read
-     * from the reply's windows whether or not the session is attested: a reader gives a response in a session that
-     * is not attested no result.
+     * root's window and, in the entry-key form, the server keyring's, once the server's signatures over them verify,
+     * judged at no time, whether or not the session is attested. Empty for a reply that does not read, has no server
+     * root, or whose signatures do not verify against the pin and the configured entry: a response relying on it is
+     * {@code POLICY_EXPIRED}. See {@link Sessions#responseNotAfterOffline}.
      */
-    public long responseNotAfter() {
+    public OptionalLong responseNotAfter() {
         return responseNotAfter;
     }
 
-    /** The earliest of {@code windows}, or {@code none} when none of them is set. */
-    private static long earliest(long none, Long... windows) {
-        return Arrays.stream(windows).filter(Objects::nonNull).mapToLong(Long::longValue).min().orElse(none);
+    /** The earliest of {@code windows}, or 0 when none of them is set, as only for a request that does not read. */
+    private static long earliest(Long... windows) {
+        return Arrays.stream(windows).filter(Objects::nonNull).mapToLong(Long::longValue).min().orElse(0);
     }
 
     /** {@code o}'s own {@code field} when it is an integer, else null, a limit the record lacks. */

@@ -102,13 +102,15 @@ class RecordSetTest {
         RecordedSession first = h.recorded();
         assertEquals(ReasonCode.OK,
                 RecordSet.callInSession(first, checkCall(h, call(h, NOW), NOW, records.spent()), NOW));
-        assertEquals(ReasonCode.OK, checkResponse(h, first.responseNotAfter(), records.responseNonces(), NOW));
+        assertEquals(ReasonCode.OK,
+                checkResponse(h, first.responseNotAfter().getAsLong(), records.responseNonces(), NOW));
         // the same handshake recorded again
         RecordedSession again = h.recorded();
         assertTrue(again.attested());
         assertEquals(ReasonCode.REPLAY,
                 RecordSet.callInSession(again, checkCall(h, call(h, NOW), NOW, records.spent()), NOW));
-        assertEquals(ReasonCode.REPLAY, checkResponse(h, again.responseNotAfter(), records.responseNonces(), NOW));
+        assertEquals(ReasonCode.REPLAY,
+                checkResponse(h, again.responseNotAfter().getAsLong(), records.responseNonces(), NOW));
     }
 
     // "A recorded response: … one nonce cache that never forgets across the record set."
@@ -116,7 +118,7 @@ class RecordSetTest {
     void theResponseCacheNeverForgets() {
         Handshake h = Handshake.attested();
         RecordSet records = new RecordSet();
-        long limit = h.recorded().responseNotAfter();
+        long limit = h.recorded().responseNotAfter().getAsLong();
         assertEquals(ReasonCode.OK, checkResponse(h, limit, records.responseNonces(), NOW));
         assertEquals(ReasonCode.REPLAY, checkResponse(h, limit, records.responseNonces(), NOW));
         // a live cache forgets a key after its TTL; this one still holds it at the end of time
@@ -129,7 +131,7 @@ class RecordSetTest {
     @Test
     void aResponsePastTheServersMaterialIsPolicyExpired() {
         Handshake h = Handshake.with(o -> o.serverRoot = NOW + 10);
-        long limit = h.recorded().responseNotAfter();
+        long limit = h.recorded().responseNotAfter().getAsLong();
         assertEquals(ReasonCode.POLICY_EXPIRED, checkResponse(h, limit, new RecordSet().responseNonces(), NOW + 11));
         assertEquals(ReasonCode.OK, checkResponse(h, limit, new RecordSet().responseNonces(), NOW));
     }

@@ -207,10 +207,10 @@ export function signSessionReply(reply: Omit<SessionReply, "sig">, signingPrivat
  * The key the reply's `sig` must verify under, or undefined when none may. The policy-key form (none of the
  * keyring-signature fields) names the pin; a `serverKeyringNotAfter` there is a keyring window with no keyring
  * signature, so no key. The entry-key form names the certified key of `serverEntry`, only if the keyring (over
- * `serverKeyringNotAfter`) and certificate verify under the pin, the certificate names `serverEntry` and the
- * keyring's key for it, `at` is no later than its `notAfter`, and the keyring is current at `at`.
+ * `serverKeyringNotAfter`) and certificate verify under the pin, and the certificate names `serverEntry` and the
+ * keyring's key for it. Says nothing about time: see serverCurrent.
  */
-function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: number): string | undefined {
+function replySigner(reply: SessionReply, pin: string, serverEntry: string): string | undefined {
   const hasRingSig = Object.hasOwn(reply, "serverKeyringSig");
   const hasCert = Object.hasOwn(reply, "serverReplyCert");
   if (!hasRingSig && !hasCert) {
@@ -226,41 +226,62 @@ function replySigner(reply: SessionReply, pin: string, serverEntry: string, at: 
     verifyReplyCert(cert, pin) &&
     cert.svc === serverEntry &&
     Object.hasOwn(ring, serverEntry) &&
-    ring[serverEntry] === cert.key &&
-    typeof at === "number" &&
-    at <= cert.notAfter &&
-    windowCurrent(reply, "serverKeyringNotAfter", at);
+    ring[serverEntry] === cert.key;
   return ok ? cert.key : undefined;
 }
 
 /**
+ * Whether the server's signatures on a reply verify, judged at no time: the reply names the pin as its policy key,
+ * its `sig` verifies under the key its form names (see replySigner, which checks the keyring's and the certificate's
+ * signatures in the entry-key form), and its root, when there is one, verifies under the pin over its own `notAfter`.
+ * Only then does a window the reply holds count. Never throws.
+ */
+export function serverSignaturesVerify(reply: SessionReply, pin: string, serverEntry: string): boolean {
+  try {
+    if (reply.serverPolicyKey !== pin) {
+      return false;
+    }
+    const signer = replySigner(reply, pin, serverEntry);
+    const { sig, ...body } = reply;
+    return (
+      signer !== undefined &&
+      verify(signer, replySigningBytes(body), decode(sig)) &&
+      (reply.serverRoot === null || verifyRoot(reply.serverRoot, pin))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether the server's material in a reply whose signatures verified is current at `at`: its root, when there is
+ * one, and in the entry-key form its certificate and keyring.
+ */
+function serverCurrent(reply: SessionReply, at: number): boolean {
+  const cert = reply.serverReplyCert;
+  return (
+    (reply.serverRoot === null || isCurrent(reply.serverRoot, at)) &&
+    (cert === undefined || (typeof at === "number" && at <= cert.notAfter && windowCurrent(reply, "serverKeyringNotAfter", at)))
+  );
+}
+
+/**
  * The one reply check behind the live and offline verdicts, judged at `at`, the client's clock live and the time of
- * the record judged offline: after the pin, `sig` under the key the reply's form names (see replySigner), then the
- * roots and the session id, the server root verifying under the pin over its own `notAfter` and current at `at`. A
- * window is judged only after the signature over it has verified (the root's under the pin, the keyring's in
- * replySigner), so one moved in transit fails as a signature. Never throws.
+ * the record judged offline: the server's signatures (serverSignaturesVerify), its material current at `at`
+ * (serverCurrent), then the roots and the session id. A window is judged only after the signature over it has
+ * verified (the root's under the pin, the keyring's in replySigner), so one moved in transit fails as a signature.
+ * Never throws.
  */
 function replyHolds(reply: SessionReply, req: SessionRequest, pinnedServerPolicyKey: string, serverEntry: string, at: number): boolean {
   try {
-    if (reply.serverPolicyKey !== pinnedServerPolicyKey) {
-      return false;
-    }
-    const signer = replySigner(reply, pinnedServerPolicyKey, serverEntry, at);
-    const { sig, ...body } = reply;
-    if (signer === undefined || !verify(signer, replySigningBytes(body), decode(sig))) {
+    if (!serverSignaturesVerify(reply, pinnedServerPolicyKey, serverEntry) || !serverCurrent(reply, at)) {
       return false;
     }
     if (reply.status === "attested" && (reply.serverRoot === null || req.clientRoot === null)) {
       return false;
     }
     const expected = deriveSessionId(req.clientRoot?.sig ?? null, reply.serverRoot?.sig ?? null, req.nonce, reply.nonce, req);
-    if (reply.sess !== expected) {
-      return false;
-    }
-    if (reply.serverRoot === null) {
-      return true;
-    }
-    return verifyRoot(reply.serverRoot, pinnedServerPolicyKey) && isCurrent(reply.serverRoot, at);
+    return reply.sess === expected;
   } catch {
     return false;
   }

@@ -20,8 +20,8 @@ import (
 // Its limits are the certificate's notAfter, in the entry-key form, and the notAfter of each root and
 // keyring, the client's and the server's. The reply's windows are read before the signatures over them are
 // checked, but none counts unless the session is attested at it, which checks each signature. A response
-// is limited only by the server's root and, in the entry-key form, its keyring: the client's windows and
-// the certificate do not limit it.
+// is limited only by the server's root and, in the entry-key form, its keyring, once the server's
+// signatures over them verify: the client's windows and the certificate do not limit it.
 type RecordedSession struct {
 	reply            []byte
 	request          session.Request
@@ -29,7 +29,8 @@ type RecordedSession struct {
 	pin, serverEntry string
 	sess             string
 	attested         bool
-	responseLimit    *int64 // the earliest response window the reply holds, or nil for none
+	responseLimit    int64 // the response limit, when limited
+	limited          bool
 }
 
 // Record reads a recorded handshake: request and reply, the wire bytes of each message as recorded, pin,
@@ -41,7 +42,7 @@ type RecordedSession struct {
 // It reads the reply's windows and session id from its value whenever the reply reads as wire bytes,
 // whether or not it is a well-formed reply. Each counts only for a session that is attested, which
 // AttestedAt judges from the reply whole: a reader gives a record relying on a session that is not
-// attested no result.
+// attested no result. The response limit is the exception: see ResponseNotAfter.
 func Record(request, reply []byte, pin, serverEntry string) RecordedSession {
 	s := RecordedSession{reply: slices.Clone(reply), pin: pin, serverEntry: serverEntry}
 	req, err := session.ParseRequest(request)
@@ -69,14 +70,7 @@ func Record(request, reply []byte, pin, serverEntry string) RecordedSession {
 	// With no limit at all the request did not read, so the session is attested at no time.
 	at, _ := earliest(limits...)
 	s.attested = s.AttestedAt(at)
-
-	responseLimits := []*int64{serverRoot}
-	if _, entryKeyForm := json.Field(tree, "serverKeyringSig"); entryKeyForm {
-		responseLimits = append(responseLimits, serverKeyring)
-	}
-	if least, ok := earliest(responseLimits...); ok {
-		s.responseLimit = &least
-	}
+	s.responseLimit, s.limited = session.ResponseNotAfterOffline(s.reply, pin, serverEntry)
 	return s
 }
 
@@ -102,15 +96,13 @@ func (s RecordedSession) Sess() string {
 }
 
 // ResponseNotAfter returns the policyNotAfter a response recorded in the session is checked with: the
-// earlier of the server root's notAfter and, in the entry-key form, the server keyring's. It is read from
-// the reply's windows whether or not the session is attested. When the reply holds neither window, as a
-// reply with no server root does, it is 2^53 - 1; such a reply opens no attested session. The spec leaves
-// that case open, and this is the Java SDK's choice.
-func (s RecordedSession) ResponseNotAfter() int64 {
-	if s.responseLimit == nil {
-		return json.MaxSafe
-	}
-	return *s.responseLimit
+// earlier of the server root's notAfter and, in the entry-key form, the server keyring's, once the
+// server's signatures over them verify, judged at no time, whether or not the session is attested. It
+// returns false for a reply that does not read, has no server root, or whose signatures do not verify
+// against the pin and the configured entry: a response relying on it is POLICY_EXPIRED. See
+// session.ResponseNotAfterOffline.
+func (s RecordedSession) ResponseNotAfter() (int64, bool) {
+	return s.responseLimit, s.limited
 }
 
 // Request returns the handshake's request, and whether it read. The calls recorded in the session are
