@@ -74,6 +74,35 @@ func TestNoJSONLibrary(t *testing.T) {
 	}
 }
 
+// TestRefused names each refusal, so that a case taken out of refused fails here, though the module
+// imports nothing it refuses.
+func TestRefused(t *testing.T) {
+	for _, tc := range []struct {
+		pkg, imp string
+		refused  bool
+	}{
+		{module + "/paztporthttp", "net", true},
+		{module + "/paztporthttp", "net/http", true},
+		{module + "/paztporthttp", "net/http/httptest", true},
+		{module + "/paztporthttp", "net/url", true},
+		{module + "/paztporthttp", "net/netip", true},
+		{module + "/stamp", "log", true},
+		{module + "/stamp", "log/slog", true},
+		{module + "/policy", "encoding/json", true},
+		{module + "/policy", "encoding/json/v2", true},
+		{module + "/keys", harness, true},
+		{harness, "encoding/json", false},
+		{module + "/keys", "crypto/ed25519", false},
+		{module + "/keys", "network", false},
+		{module + "/keys", "logic", false},
+		{module + "/keys", "encoding/jsonx", false},
+	} {
+		if why := refused(tc.pkg, tc.imp); (why != "") != tc.refused {
+			t.Errorf("refused(%s, %s) = %q, want refused %v", tc.pkg, tc.imp, why, tc.refused)
+		}
+	}
+}
+
 // refused says why package pkg's non-test code may not import imp, or returns "" when it may.
 func refused(pkg, imp string) string {
 	switch {
@@ -81,8 +110,8 @@ func refused(pkg, imp string) string {
 		return "the SDK reads and writes JSON with its own reader and writer"
 	case imp == harness:
 		return "the vector harness is for tests only"
-	case within(imp, "net/http"):
-		return "the SDK sends nothing; the code that embeds it sends the bytes"
+	case within(imp, "net"):
+		return "the SDK does no network I/O; the code that embeds it sends the bytes"
 	case within(imp, "log"):
 		return "the SDK logs nothing; it returns results with reasons"
 	}
