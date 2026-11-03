@@ -78,10 +78,17 @@ The packages decide; the code that embeds them carries out what they decide:
   `boundary.Step` exactly as given, an `Answer` with `Content-Type:
   application/json` and no parameters, and passes the authenticated peer:
   `paztporthttp.PeerFromCertificate` reads one from a client certificate under
-  mutual TLS.
+  mutual TLS. It sets each header it is given, replacing any value of that name
+  the request already carries, and never appends one.
 - **Attests and checks answers.** It sends the `X-Path-Response` header that
   `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
   each response whole and passes it to `Caller.Check` before anything reads it.
+- **Applies the rules to its writes.** A handler's write to a public
+  destination is decided by `influence.PublicWriteRefused`, over the handler's
+  influence and everything it has read since, with the destination's owner
+  taken from its own records. It writes a trusted record only when
+  `Accepted.TrustedRecord`, or at a partner `PartnerAccepted.TrustedRecord`,
+  allows it.
 - **Refuses switched-off operations.** At a partner, `Sessions.Accept` does not
   refuse the operations switched off for unsafe sessions, since only the framework
   knows which handler a request reaches. For a call served and not attested, a

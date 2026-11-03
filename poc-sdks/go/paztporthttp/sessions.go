@@ -35,8 +35,9 @@ type SessionsConfig struct {
 	// EntryKey is the entry service's private key, which signs every reply in the entry-key form.
 	EntryKey ed25519.PrivateKey
 	// ReplyCert is the policy key's certificate for the entry service's key, which every reply carries.
-	// A client accepts a reply only while it is current, so the partner is given a fresh one before it
-	// expires.
+	// A client accepts a reply only while it is current. Renewing it, or the partner's own root or
+	// keyring, means a new Sessions, which forgets every session: each client's next call is refused
+	// SESSION_UNKNOWN, and the call after opens a new session.
 	ReplyCert policy.ReplyCert
 	// Pinned are the client policy keys whose sessions may be attested, each as base64url
 	// SubjectPublicKeyInfo. At least one is required: with none, every session would be unsafe.

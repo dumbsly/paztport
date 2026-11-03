@@ -66,7 +66,7 @@ func Record(request, reply []byte, pin, serverEntry string) RecordedSession {
 			limits = append(limits, &s.request.ClientRoot.NotAfter)
 		}
 	}
-	// With no limit at all, the earliest is 0.
+	// With no limit at all the request did not read, so the session is attested at no time.
 	at, _ := earliest(limits...)
 	s.attested = s.AttestedAt(at)
 
@@ -81,9 +81,8 @@ func Record(request, reply []byte, pin, serverEntry string) RecordedSession {
 }
 
 // Attested reports whether the handshake opened an attested session at all, judged at the earliest of its
-// limits, since each is an upper bound. A handshake with no limit at all is judged at 0. The spec leaves
-// that case open, and this is the Java SDK's choice; such a handshake has a request that does not read, so
-// it is attested at no time.
+// limits, since each is an upper bound. A handshake with no limit at all has a request that does not
+// read, so it is attested at no time.
 func (s RecordedSession) Attested() bool {
 	return s.attested
 }

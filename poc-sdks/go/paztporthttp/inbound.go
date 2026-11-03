@@ -17,7 +17,8 @@ type InboundRequest struct {
 	Method string
 	// Target is the request target exactly as sent, in origin form: the raw path, then "?" and the raw
 	// query when there is one, with nothing decoded, re-encoded or normalised, since the binding is over
-	// what was sent. It is never one rebuilt from a parsed URL.
+	// what was sent (net/http: Request.RequestURI; a gateway's external processor: the :path header). It
+	// is never one rebuilt from a parsed URL.
 	Target string
 	// Chain, Proof, Influence and Session are the values of the X-Path-* headers of those names, each as
 	// received, or "" when the header is absent. A repeated header's first value is the one Paztport
@@ -55,11 +56,11 @@ func NewInboundRequest(method, target string, body []byte, header func(name stri
 }
 
 // requestInput reads req's chain and returns the live order's input for req at the service named
-// receiver, with the chain it read, or nil when there is none or it does not read. The input is the spec's for a
-// request at its receiver: receiver in the route, the expected binding req's own (none when it has none,
-// which never matches), the tokens of its headers (an absent header none), the nonce key
-// <rid>|<last svc>|req from the chain (none when it does not read, which the verifier refuses first)
-// and peer. The verifier reads the chain again for itself, as it must.
+// receiver, with the chain it read, or nil when there is none or it does not read. The input is the
+// spec's for a request at its receiver: receiver in the route, the expected binding req's own (none when
+// it has none, which never matches), the tokens of its headers (an absent header none), the nonce key
+// <rid>|<last svc>|req from the chain (none when it does not read, which the verifier refuses first) and
+// peer. The verifier reads the chain again for itself, as it must.
 func requestInput(req InboundRequest, receiver string, peer *verify.Peer) (verify.Input, stamp.Chain) {
 	in := verify.Input{Receiver: receiver, ReceiverInRoute: true, Peer: peer}
 	if bind, err := wire.Bind(req.Method, req.Target, req.Body); err == nil {

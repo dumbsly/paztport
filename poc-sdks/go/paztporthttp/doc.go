@@ -60,5 +60,6 @@
 // Header values are read as package wire reads them: only HTTP's optional whitespace around a value is
 // trimmed, a value of nothing else is absent, and of a repeated header the first value counts. A
 // refusal's body is exactly {"reason":"<code>"} and carries no suspect: who is suspected is in the
-// verifier's Result, for the operator's logs and events, never for the caller.
+// verifier's Result, for the operator's logs and events, never for the caller. The adapter sends an
+// [Answer]'s Body exactly as its bytes, with the header Content-Type: wire.ContentType and no parameters.
 package paztporthttp

@@ -9,8 +9,8 @@ import (
 )
 
 // Answer is an answer the SDK gives in place of a handler's: a refusal, or the handshake endpoint's
-// reply. Body is JSON, sent exactly as these bytes and labelled application/json, with no parameters
-// (wire.ContentType), so that a framework neither serialises it again nor guesses its type.
+// reply. The adapter sends Body exactly as these bytes, with the header Content-Type: wire.ContentType
+// and no parameters, so that a framework neither serialises it again nor guesses its type.
 type Answer struct {
 	// Status is the HTTP status.
 	Status int

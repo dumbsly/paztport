@@ -20,16 +20,18 @@ type PeerCert struct {
 	// Issuer is the certificate's issuer as RFC 2253 text, or "" when the walk never reaches the issuer,
 	// or the issuer does not read as a distinguished name, holds a part encoding/asn1 cannot render or is
 	// empty: an issuer of "" opens no session and matches none. The issuer is read even when the subject
-	// is not, but such a certificate names no service, so it opens no session either. A partner keeps sessions
-	// by issuer as well as by service, since a transport may trust more than one CA and each could issue
-	// a certificate with the same name. The text is the same every time for the same issuer, which is
-	// all the partner that recorded it compares; it is not promised to match another implementation's.
+	// is not, but such a certificate names no service, so it opens no session either. A partner keeps
+	// sessions by issuer as well as by service, since a transport may trust more than one CA and each
+	// could issue a certificate with the same name. The text is the same every time for the same issuer,
+	// which is all the partner that recorded it compares; it is not promised to match another
+	// implementation's.
 	Issuer string
 }
 
 // PeerFromCertificate returns the peer der names, connected from remoteAddr: der is the client's own
 // certificate (the leaf, not one of its CAs'), in DER, as the TLS layer verified it, and remoteAddr the
-// TCP address the connection came from, which is the peer's Inst. It never panics, whatever der holds.
+// address the connection came from, without its port (for net/http, the host net.SplitHostPort gives of
+// Request.RemoteAddr), which is the peer's Inst. It never panics, whatever der holds.
 func PeerFromCertificate(der []byte, remoteAddr string) PeerCert {
 	p := PeerCert{Peer: verify.Peer{Inst: remoteAddr}}
 	n := certificateNames(der)
