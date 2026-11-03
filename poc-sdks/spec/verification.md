@@ -29,13 +29,16 @@ request.
 | `receiver` | What the last stamp's `rcv` must name: the receiver's own name, or for a response, the calling client's `svc`. |
 | `receiverInRoute` | Whether the route ends at `receiver`: true for a call, false for a response. |
 | `peer` | Optional; null is the same as absent. The sender the transport authenticated, `{ svc, inst }`: its service name and its network address, for example from an mTLS certificate. |
-| `keyrings` | One or more keyrings, each verified against its policy key ([wire.md](wire.md#the-signed-keyring)): service name to public key. Only a current one is used. A key is looked up by own name only: inherited or default entries MUST NOT match. |
-| `roots` | One or more pinned signed roots, each with its `rootId`, verified against its policy key ([wire.md](wire.md#the-signed-root)). Only a current one is used. |
+| `keyrings` | One or more keyrings, each verified against its policy key ([wire.md](wire.md#the-signed-keyring)): service name to public key. Only those current are used. A key is looked up by own name only: inherited or default entries MUST NOT match. |
+| `roots` | One or more pinned signed roots, each with its `rootId`, verified against its policy key ([wire.md](wire.md#the-signed-root)). Only those current are used. |
 | `policyNotAfter` | The last moment the policy owner vouches for some keyring and some root: the earlier of the latest keyring `notAfter` and the latest root `notAfter`. |
 | `allowedOrigins` | The services that may sign an origin stamp. |
 | `sess` | The session id every stamp must carry. |
 | `nonces`, `nonceKey` | The replay cache and this chain's key in it. |
 | `now` | The verifier's clock, in ms since the Unix epoch. |
+
+A keyring or root is current when `now` is at most its `notAfter`; a non-finite `now` leaves every one current, for
+check 7 to refuse.
 
 ## The live order
 
@@ -396,7 +399,7 @@ The offline verifier runs the live checks in the live order, with these differen
 
 | # | Offline |
 |---|---|
-| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. Against pinned keyrings and roots, one counts for a record when the record's recorded time is at most its `notAfter`; a record for which no keyring, or no root, counts is `POLICY_EXPIRED`, and one with no recorded time is left to check 7. |
+| 0 | Not run against a clock. Keyring and root lifetimes are judged per record instead, at the record's own signed time, as each kind below says: a root or keyring counts only for a record no later than its `notAfter`. Against pinned keyrings and roots, one counts for a record when the time recorded with its last stamp is at most its `notAfter`; a record for which no keyring, or no root, counts is `POLICY_EXPIRED`, and one with no recorded time is left to check 7, every keyring and root counting for it until then. The kinds below that judge a root's or keyring's window themselves pass theirs with no window, so for them check 0 refuses nothing and their own checks and codes stand. |
 | 3, 4 | With `signers`, for a chain that never leaves one process (a local step, [MCP profile](README.md#the-mcp-profile)): the origin MUST report the expected instance (`BAD_ORIGIN`), and each stamp MUST be by the expected service and instance (`BAD_SIGNATURE`). |
 | 5 | Every stamp carries the `rid` the record files it under, which defaults to the origin's (`RID_MISMATCH`). |
 | 7 | In place of freshness: the last stamp's `ts` equals the time recorded with it (a record with no recorded time fails), and when the run's records give start times, the origin's `ts` is one of them (`TIME_MISMATCH`). The last stamp is at most `RUN_MAX_AGE_MS` after the origin and the origin at most `CALL_MAX_AGE_MS` after the last stamp (`EXPIRED`), with the limits the live verifier used, each its default unless the deployment set it. Then the origin binds the run's recorded prompt (`PROMPT_MISMATCH`); a run with no prompt, or a disputed one, fails. |

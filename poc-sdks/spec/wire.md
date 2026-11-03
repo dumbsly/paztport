@@ -742,7 +742,7 @@ down, slow or refuses the event leaves the refusal as it was. A sender that wait
 answering the refusal SHOULD bound that wait, so that a slow responder cannot hold refusals up (the Java SDK
 waits at most `paztport.event-timeout-ms`; see the [Java SDK README](../java/README.md#paztport-spring)). The
 responder answers `200` when it accepts an event and `403` when it refuses one, with the same body for every
-refusal, so the answer tells a sender nothing about the allowed signers, the keyring or the window.
+refusal, so the answer tells a sender nothing about the allowed signers, the keyrings or the window.
 
 ## Proof bundles, and who holds what
 
@@ -764,7 +764,7 @@ the proof travels with.
 |---|---|---|
 | Policy owner | The policy private key, offline. It signs the root, the keyring and reply certificates. | |
 | Each service | Its own private key, and its own proof bundle. An entry service that answers session handshakes in the [entry-key form](sessions-and-influence.md#the-reply) also holds a current reply certificate for its key, and signs the replies with that key. | Other services' keys, other routes' salts. |
-| Each verifier | The pinned policy public key, and the signed roots and keyrings it pins: one of each, or two while a rollover is under way. | The tree, the route list or any salt but those in the proofs it is shown. |
+| Each verifier | The pinned policy public key, and the signed roots and keyrings it pins: one of each, or more while a rollover is under way. | The tree, the route list or any salt but those in the proofs it is shown. |
 | The other side of a session | The peer side's policy key, pinned in advance, and the root and keyring it sends in the handshake. A client also knows the server's entry service by name, from its own configuration, to check an entry-key reply. | Its map. |
 
 A server that answers in the entry-key form needs its policy private key only offline, to sign its root, keyring
