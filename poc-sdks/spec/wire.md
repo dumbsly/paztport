@@ -443,8 +443,8 @@ a service attests only a chain that verified there, and an origin never attests
 | `prev` | The request's last `sig`. |
 | `sig` | The answering service's signature over the v3 signed bytes, as for any stamp. |
 
-[verification.md](verification.md#http-requests-and-responses) says how each side checks these. Only the Java
-SDK speaks v3 over HTTP, and `http-v3.json` pins it.
+[verification.md](verification.md#http-requests-and-responses) says how each side checks these. The Java and
+Go SDKs speak v3 over HTTP, and `http-v3.json` pins it.
 
 ## The Merkle tree
 
@@ -591,8 +591,9 @@ signature offered as a keyring signature, which fail; and a keyring with no `not
 an integer, one of 2^53, one whose file writes it `1798761600000.0` and one that names a service `a/b`, which a
 reader refuses, the first and the last though their signatures are the policy key's over those same bytes.
 
-Both SDKs' keygens write signed keyrings, by default valid for seven days, and both policy tools sign roots, by
-default valid for seven days. The policy tools also re-sign the keyring on every rebuild and renew.
+The Java and TypeScript SDKs' keygens write signed keyrings, by default valid for seven days, and both their
+policy tools sign roots, by default valid for seven days. The policy tools also re-sign the keyring on every
+rebuild and renew.
 
 ## The reply certificate
 

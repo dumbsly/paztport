@@ -210,7 +210,7 @@ That is every [reason code](#reason-codes) except `OK` and the offline-only `TIM
 
 ## HTTP requests and responses
 
-Only the Java SDK implements this section ([wire.md](wire.md#http-v3) has the headers). Inside a mesh there is no
+The Java and Go SDKs implement this section ([wire.md](wire.md#http-v3) has the headers). Inside a mesh there is no
 handshake: its services pin one policy key, root and keyring in advance, and `sess` is `""`. Between
 organisations there is one ([sessions-and-influence.md](sessions-and-influence.md#over-http)), and the partner
 verifies as below with these inputs.

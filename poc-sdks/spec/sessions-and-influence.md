@@ -189,7 +189,7 @@ request again with `clientRoot: null` and a fresh nonce, and trusts the reply to
 
 ### Over HTTP
 
-The Java SDK carries the handshake over HTTP. The request and the reply are the same JSON objects, and the
+The Java and Go SDKs carry the handshake over HTTP. The request and the reply are the same JSON objects, and the
 session is the same.
 
 | Part | Rule |
@@ -197,7 +197,7 @@ session is the same.
 | Endpoint | `POST /paztport/session`. The body is the request's JCS bytes, with `Content-Type: application/json`, and a `200` returns the signed reply's JCS bytes. |
 | A body that does not read as a request: bytes that are not its JCS bytes (another member order, or a newline after them, as a file an editor saved ends), and a request [above](#the-request) refuses (a `clientKeyringSig` that is missing, `null`, not a string or empty, a `clientKeyring` naming a service that is not a route node, and a `clientKeyringNotAfter` or `clientRoot.notAfter` that is missing or not an integer in [0, 2^53 − 1], included) | `400 {"error":"INVALID_PARAMS"}`. The server reads at most the [wire limit](wire.md#limits), 256 KiB, and answers more than that the same way. |
 | A request that opens no session | `400 {"error":"NO_SESSION"}`: the checks of [The request](#the-request), or no client certificate, or one that names no single service or no issuer. |
-| `404` | The server has no Paztport. The Java client cannot tell this from any other failed handshake, so it sends the replacement anyway; that is answered `404` too, and the call fails. |
+| `404` | The server has no Paztport. The Java and Go clients cannot tell this from any other failed handshake, so they send the replacement anyway; that is answered `404` too, and the call fails. |
 
 **Sessions are kept by id, each bound to the peer that opened it.** HTTP has no connection to hold a session, so
 the server records, with each session, the peer the TLS layer authenticated: the client certificate's issuer (its
@@ -415,7 +415,7 @@ the owner's sort position and the with-and-without case.
 
 A server labels the content of each result it attests. A label is `{ "cid": ..., "cls": ..., "owner": ... }`:
 
-- `cls` is one of the four classes, and `cid` a fresh content id (both SDKs use 16 random bytes, base64url);
+- `cls` is one of the four classes, and `cid` a fresh content id (each SDK uses 16 random bytes, base64url);
 - `owner`, when present, MUST be non-empty, and the server MUST take it from its own records of whose data it
   served, never from the content.
 
@@ -486,7 +486,8 @@ SDK applies it as `PublicWrites.shapedOnlyByTrusted()`.)
 When a request crosses from one organisation to another, the receiving organisation (the partner) MUST NOT see
 the sender's internal chain, which is the map the protocol keeps private. A boundary attestation crosses
 instead. The Java SDK implements this section over HTTP, in `BoundaryClient` for the sender and in partner mode
-for the partner; the TypeScript SDK does not. Implementations that bridge two organisations MUST follow it.
+for the partner, and the Go SDK in `boundary.Egress` for the sender and `paztporthttp.Sessions` for the partner;
+the TypeScript SDK does not. Implementations that bridge two organisations MUST follow it.
 
 **The sender's egress service.** The sender's last internal hop before the boundary is its egress service. It
 MUST:
