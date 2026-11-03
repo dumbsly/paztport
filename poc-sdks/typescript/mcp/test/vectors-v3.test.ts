@@ -70,9 +70,10 @@ function replayLive(v: any, c: any) {
 /** Runs an offline case against the record set's spent nonce keys, `seen`. */
 function replayOffline(v: any, c: any) {
   const { cfg, input } = shared(v, c);
-  const recordedTs = c.recordedTs.run === undefined ? { last: c.recordedTs.last } : { last: c.recordedTs.last, run: new Set<number>(c.recordedTs.run) };
-  const offline: OfflineConfig = { ...cfg, seen: new Set<string>(c.seen), callMaxAgeMs: c.callMaxAgeMs, runMaxAgeMs: c.runMaxAgeMs };
-  const full: OfflineInput = { ...input, rid: c.rid, recordedTs, prompt: c.prompt };
+  // a null member is absent: no recorded time, or the limit not configured
+  const recordedTs = c.recordedTs === null ? undefined : c.recordedTs.run === undefined ? { last: c.recordedTs.last } : { last: c.recordedTs.last, run: new Set<number>(c.recordedTs.run) };
+  const offline: OfflineConfig = { ...cfg, seen: new Set<string>(c.seen), callMaxAgeMs: c.callMaxAgeMs ?? undefined, runMaxAgeMs: c.runMaxAgeMs ?? undefined };
+  const full: OfflineInput = { ...input, rid: c.rid, recordedTs: recordedTs as never, prompt: c.prompt };
   const result = verifyChainOffline(full, offline);
   return { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst };
 }

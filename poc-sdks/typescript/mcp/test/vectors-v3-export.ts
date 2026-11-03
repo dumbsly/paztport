@@ -58,7 +58,7 @@ const ABOUT =
   "A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; " +
   "its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. " +
   "An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, " +
-  "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` " +
+  "`prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` " +
   "is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). " +
   "A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), " +
   "its policy key `serverPolicyKey` and the client policy keys `pinned`. " +
@@ -422,6 +422,8 @@ export function buildVectors(): Record<string, unknown> {
   // An origin older than the run's lifetime when the call was made.
   const staleOrigin = stampBy({ ...originFields, ts: NOW - 1000 - RUN_MAX_AGE_MS - 1 }, "session");
   const staleCall = [staleOrigin, stampBy(hopFields(staleOrigin.sig), "pi")];
+  // The call's stamp `age` ms after the run's origin.
+  const windowCall = (age: number) => [origin, stampBy({ ...hopFields(origin.sig), ts: origin.ts + age }, "pi")];
   // Malformed rcv fields, built by hand: signStamp refuses the delimiter, and the parse and delimiter checks come before signatures.
   const { rcv: _rcv, ...hopWithoutRcv } = hop;
   const malformed = (last: unknown) => [origin, last] as unknown as Stamp[];
@@ -516,9 +518,12 @@ export function buildVectors(): Record<string, unknown> {
   ];
 
   /** An offline case; the recorded time defaults to the last stamp's, the prompt to the run's, and `seen` to none. */
-  type Offline = CaseInputs & { recordedTs?: { last: number }; prompt?: string; seen?: string[] };
+  type Offline = CaseInputs & { recordedTs?: { last: number } | null; prompt?: string; seen?: string[]; limits?: null };
   const offlineCase = (c: Offline, expected: Expected) => {
-    const recordedTs = c.recordedTs ?? { last: c.chain[c.chain.length - 1]!.ts };
+    // recordedTs null: the record has no time; limits null: neither age limit is configured, so the live defaults apply
+    const recordedTs = c.recordedTs === undefined ? { last: c.chain[c.chain.length - 1]!.ts } : c.recordedTs;
+    const callMaxAgeMs = c.limits === null ? null : CALL_MAX_AGE_MS;
+    const runMaxAgeMs = c.limits === null ? null : RUN_MAX_AGE_MS;
     const prompt = c.prompt ?? PROMPT;
     const seen = c.seen ?? [];
     const chainToken = chainTokenOf(c.name, c.chain);
@@ -526,19 +531,19 @@ export function buildVectors(): Record<string, unknown> {
     const result = verifyChainOffline(
       {
         chain: chainToken, expectedBind: c.expectedBind, influence: influenceToken, proof: proofTokenOf(c),
-        receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: RID, recordedTs, prompt,
+        receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: RID, recordedTs: (recordedTs ?? undefined) as never, prompt,
       },
       {
         keyring: resolveKeyring(c.keyring), root: rootOf(c.policy), rootId: policies[c.policy].rootId, allowedOrigins: c.allowedOrigins, sess: c.sess,
-        nonceKey: c.nonceKey, seen: new Set(seen), callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS,
+        nonceKey: c.nonceKey, seen: new Set(seen), callMaxAgeMs: callMaxAgeMs ?? undefined, runMaxAgeMs: runMaxAgeMs ?? undefined,
       },
     );
     check(`offline ${c.name}`, { reason: result.reason, suspectSvc: result.suspectSvc, suspectInst: result.suspectInst }, expected);
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, keyring, allowedOrigins, sess, nonceKey } = c;
     return {
       name, chain, chainToken, expectedBind, influence, influenceToken, policy: p, proofRoute, receiver,
-      receiverInRoute, keyring, allowedOrigins, sess, nonceKey, seen, callMaxAgeMs: CALL_MAX_AGE_MS,
-      runMaxAgeMs: RUN_MAX_AGE_MS, rid: RID, recordedTs, prompt, expected,
+      receiverInRoute, keyring, allowedOrigins, sess, nonceKey, seen, callMaxAgeMs,
+      runMaxAgeMs, rid: RID, recordedTs, prompt, expected,
     };
   };
   const offline = [
@@ -547,6 +552,9 @@ export function buildVectors(): Record<string, unknown> {
     offlineCase({ name: "receiver chain broken", ...clientCall, chain: strayCall }, no("BINDING_MISMATCH")),
     offlineCase({ name: "recorded time differs", ...clientCall, recordedTs: { last: hop.ts + 1 } }, no("TIME_MISMATCH")),
     offlineCase({ name: "expired", ...clientCall, chain: staleCall }, no("EXPIRED")),
+    offlineCase({ name: "no recorded time", ...clientCall, recordedTs: null }, no("TIME_MISMATCH")),
+    offlineCase({ name: "no age limits, at the run window", ...clientCall, chain: windowCall(RUN_MAX_AGE_MS), limits: null }, ok("pi", "pi-1")),
+    offlineCase({ name: "no age limits, 1 ms past the run window", ...clientCall, chain: windowCall(RUN_MAX_AGE_MS + 1), limits: null }, no("EXPIRED")),
     offlineCase({ name: "prompt differs", ...clientCall, prompt: "open a PR for issue #43" }, no("PROMPT_MISMATCH")),
     offlineCase({ name: "replay in the record set", ...clientCall, seen: [clientCall.nonceKey] }, no("REPLAY")),
   ];
@@ -1133,16 +1141,18 @@ export function buildVectors(): Record<string, unknown> {
   const localStepCase = (
     name: string,
     d: Partial<LocalDecision> = {},
-    o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[] } = {},
+    o: { client?: Partial<LocalClient>; proofRoute?: string | null; seen?: string[]; age?: number } = {},
   ) => {
     const decision: LocalDecision = { tool: "read", callId: "tc-1", input: { path: "notes.md" }, resolved: READ_NOTES, verdict: "OK", routeAllowed: true, rulesHash: rulesHash(LOCAL_RULES), ...d };
     const client: LocalClient = { keyring: { session: "session", pi: "pi" }, policy: "client", rootNotAfter: LIVE_NOT_AFTER, keyringNotAfter: LIVE_NOT_AFTER, rules: LOCAL_RULES, ...o.client };
     const first = localOrigin;
+    // the step's time: `age` ms after the run's origin, or the usual step time
+    const stepTs = o.age === undefined ? STEP_TS : first.ts + o.age;
     const chain = [
       first,
       stampLocalStep(
         {
-          svc: "pi", inst: "pi-1", rid: RID, ts: STEP_TS, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
+          svc: "pi", inst: "pi-1", rid: RID, ts: stepTs, prev: first.sig, toolName: decision.tool, toolCallId: decision.callId, input: decision.input,
           resolved: decision.resolved, verdict: decision.verdict, listed: decision.routeAllowed, rulesHash: decision.rulesHash, influence: INFLUENCE,
         },
         keys.pi.priv,
@@ -1155,7 +1165,7 @@ export function buildVectors(): Record<string, unknown> {
       routeAllowed: decision.routeAllowed, rulesHash: decision.rulesHash,
     };
     const step = {
-      ...decision, decisionToken: tokenOf(signed), rid: RID, now: STEP_TS, chain, chainToken: tokenOf(chain),
+      ...decision, decisionToken: tokenOf(signed), rid: RID, now: stepTs, chain, chainToken: tokenOf(chain),
       proofRoute, influence: INFLUENCE, influenceToken: tokenOf(INFLUENCE),
     };
     const run = { prompt: PROMPT, ts: [localOrigin.ts] };
@@ -1195,6 +1205,8 @@ export function buildVectors(): Record<string, unknown> {
     localStepCase("verdict not the rules', unlisted tool resolving something", { tool: "bash", input: { command: "cat notes.md" }, resolved: READ_NOTES, verdict: "PATH_NOT_ALLOWED", routeAllowed: false }),
     localStepCase("rules mismatch before verdict mismatch", { rulesHash: null, verdict: "SCOPE_DENIED" }),
     localStepCase("replay in the record set", {}, { seen: [`${RID}|tc-1|local`] }),
+    localStepCase("at the run window", {}, { age: RUN_MAX_AGE_MS }),
+    localStepCase("1 ms past the run window", {}, { age: RUN_MAX_AGE_MS + 1 }),
   ];
   check("recorded local step answers", recordedLocalStep.map((c) => [c.name, c.expected.reason, c.expected.verdict]), [
     ["allowed", "OK", "OK"],
@@ -1213,6 +1225,8 @@ export function buildVectors(): Record<string, unknown> {
     ["verdict not the rules', unlisted tool resolving something", "VERDICT_MISMATCH", null],
     ["rules mismatch before verdict mismatch", "RULES_MISMATCH", null],
     ["replay in the record set", "REPLAY", null],
+    ["at the run window", "OK", "OK"],
+    ["1 ms past the run window", "EXPIRED", null],
   ]);
 
   // The same response through the client's check, as the MCP profile carries it in `_meta`.

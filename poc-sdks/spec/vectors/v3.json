@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -3209,6 +3209,226 @@
       "rid": "rid-1",
       "recordedTs": {
         "last": 1767225599000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "no recorded time",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225599000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "yrHGYCIfpr5aP5gtUzuwTKNLwfbhSawsjOjIFnhuJZGt3LKPffWQP-f3FkSPKfKXH-EfhECCSOEFyI_uBRAbBw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJ5ckhHWUNJZnByNWFQNWd0VXp1d1RLTkx3ZmJoU2F3c2pPaklGbmh1SlpHdDNMS1BmZldRUC1mM0ZrU1BLZktYSC1FZmhFQ0NTT0VGeUlfdUJSQWJCdyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjU1OTkwMDAsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": null,
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "TIME_MISMATCH",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "no age limits, at the run window",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767227398000,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "WiUdXRo_3hqjNxnOM00KkWvFIj9HGZltnx-hF3J0WRq9nB-hBJ-IUrPo5zuZS0qmb_hSlKXqgGjRbe7h_hzvCQ"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJXaVVkWFJvXzNocWpOeG5PTTAwS2tXdkZJajlIR1psdG54LWhGM0owV1JxOW5CLWhCSi1JVXJQbzV6dVpTMHFtYl9oU2xLWHFnR2pSYmU3aF9oenZDUSIsInN2YyI6InBpIiwidHMiOjE3NjcyMjczOTgwMDAsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": null,
+      "runMaxAgeMs": null,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767227398000
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "pi",
+        "suspectInst": "pi-1"
+      }
+    },
+    {
+      "name": "no age limits, 1 ms past the run window",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "session",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767225598000,
+          "sess": "sess-1",
+          "rcv": "pi",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA"
+        },
+        {
+          "v": 3,
+          "svc": "pi",
+          "inst": "pi-1",
+          "rid": "rid-1",
+          "ts": 1767227398001,
+          "sess": "sess-1",
+          "rcv": "mcp:github.create_pull_request",
+          "bind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+          "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+          "prev": "b6q50Uvh7xxcJ7FRbX1OauDFVr0rwuJCdwrO0kp2Tm9k0lGMh95cARReqCKbrUuFULOkXaUBnAjC7V5niEisDA",
+          "sig": "4ELvlTLsaWFb-ctMFyx6C2tUeBeMgicQeDtkv9L3jmBTPgh0NLvxVZs_tKvoqWyH8C6wo3STamX7I-pfAGs7Dg"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiJiNnE1MFV2aDd4eGNKN0ZSYlgxT2F1REZWcjByd3VKQ2R3ck8wa3AyVG05azBsR01oOTVjQVJSZXFDS2JyVXVGVUxPa1hhVUJuQWpDN1Y1bmlFaXNEQSIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiMU9DUHJrZjJhUTJ6TVJPZzllOXkxSjJVdC1fZVlVSlNYTkxBbHZDREJvSSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiYjZxNTBVdmg3eHhjSjdGUmJYMU9hdURGVnIwcnd1SkNkd3JPMGtwMlRtOWswbEdNaDk1Y0FSUmVxQ0ticlV1RlVMT2tYYVVCbkFqQzdWNW5pRWlzREEiLCJyY3YiOiJtY3A6Z2l0aHViLmNyZWF0ZV9wdWxsX3JlcXVlc3QiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiJzZXNzLTEiLCJzaWciOiI0RUx2bFRMc2FXRmItY3RNRnl4NkMydFVlQmVNZ2ljUWVEdGt2OUwzam1CVFBnaDBOTHZ4VlpzX3RLdm9xV3lIOEM2d28zU1RhbVg3SS1wZkFHczdEZyIsInN2YyI6InBpIiwidHMiOjE3NjcyMjczOTgwMDEsInYiOjN9XQ",
+      "expectedBind": "1OCPrkf2aQ2zMROg9e9y1J2Ut-_eYUJSXNLAlvCDBoI",
+      "influence": [
+        {
+          "cls": "third-party",
+          "src": "web:example.com",
+          "h": "h2"
+        },
+        {
+          "cls": "private",
+          "src": "github:acme/app#42",
+          "h": "h1",
+          "cid": "cid-1",
+          "owner": "alice"
+        }
+      ],
+      "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0",
+      "policy": "client",
+      "proofRoute": "session/pi/mcp:github.create_pull_request",
+      "receiver": "mcp:github.create_pull_request",
+      "receiverInRoute": true,
+      "keyring": {
+        "session": "session",
+        "pi": "pi"
+      },
+      "allowedOrigins": [
+        "session"
+      ],
+      "sess": "sess-1",
+      "nonceKey": "rid-1|call-1|req",
+      "seen": [],
+      "callMaxAgeMs": null,
+      "runMaxAgeMs": null,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767227398001
       },
       "prompt": "open a PR for issue #42",
       "expected": {
@@ -7231,6 +7451,228 @@
       ],
       "expected": {
         "reason": "REPLAY",
+        "verdict": null
+      }
+    },
+    {
+      "name": "at the run window",
+      "client": {
+        "keyring": {
+          "session": "session",
+          "pi": "pi"
+        },
+        "policy": "client",
+        "rootNotAfter": 4102444800000,
+        "keyringNotAfter": 4102444800000,
+        "rules": {
+          "v": 1,
+          "folders": [
+            {
+              "path": ".",
+              "access": [
+                "read"
+              ]
+            }
+          ],
+          "programs": []
+        }
+      },
+      "signers": {
+        "svcs": [
+          "session",
+          "pi"
+        ],
+        "inst": "pi-1"
+      },
+      "step": {
+        "tool": "read",
+        "callId": "tc-1",
+        "input": {
+          "path": "notes.md"
+        },
+        "resolved": {
+          "paths": [
+            {
+              "need": "read",
+              "at": "notes.md"
+            }
+          ],
+          "programs": [],
+          "parse": "ok",
+          "readOnly": true
+        },
+        "verdict": "OK",
+        "routeAllowed": true,
+        "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
+        "rid": "rid-1",
+        "now": 1767227398000,
+        "chain": [
+          {
+            "v": 3,
+            "svc": "session",
+            "inst": "pi-1",
+            "rid": "rid-1",
+            "ts": 1767225598000,
+            "sess": "",
+            "rcv": "pi",
+            "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+            "infl": "",
+            "prev": "",
+            "sig": "2P6Xan_OyIKY35p03v8L8A1cO-JZvoTIcJVnM0GzarTAxJIfZ_EFMhQIpImXDz8wTLryQvYIRXlPlPBTnJXbBw"
+          },
+          {
+            "v": 3,
+            "svc": "pi",
+            "inst": "pi-1",
+            "rid": "rid-1",
+            "ts": 1767227398000,
+            "sess": "",
+            "rcv": "local:read",
+            "bind": "5j9N3DydGti7Fo_62asms02wwyCFryzpV7n1hLe9U0Y",
+            "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+            "prev": "2P6Xan_OyIKY35p03v8L8A1cO-JZvoTIcJVnM0GzarTAxJIfZ_EFMhQIpImXDz8wTLryQvYIRXlPlPBTnJXbBw",
+            "sig": "Rtgx-f4q90zL3j4tWCK6_1k7FfvxnQXmhnOqle8o4xsUkO9yXyrzx3-IX06V1DyYkt6OSt3PC-D6MWU8OVIwDA"
+          }
+        ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiUnRneC1mNHE5MHpMM2o0dFdDSzZfMWs3RmZ2eG5RWG1obk9xbGU4bzR4c1VrTzl5WHlyengzLUlYMDZWMUR5WWt0Nk9TdDNQQy1ENk1XVThPVkl3REEiLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI3Mzk4MDAwLCJ2IjozfV0",
+        "proofRoute": "session/pi/local:read",
+        "influence": [
+          {
+            "cls": "third-party",
+            "src": "web:example.com",
+            "h": "h2"
+          },
+          {
+            "cls": "private",
+            "src": "github:acme/app#42",
+            "h": "h1",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
+      },
+      "run": {
+        "prompt": "open a PR for issue #42",
+        "ts": [
+          1767225598000
+        ]
+      },
+      "seen": [],
+      "expected": {
+        "reason": "OK",
+        "verdict": "OK"
+      }
+    },
+    {
+      "name": "1 ms past the run window",
+      "client": {
+        "keyring": {
+          "session": "session",
+          "pi": "pi"
+        },
+        "policy": "client",
+        "rootNotAfter": 4102444800000,
+        "keyringNotAfter": 4102444800000,
+        "rules": {
+          "v": 1,
+          "folders": [
+            {
+              "path": ".",
+              "access": [
+                "read"
+              ]
+            }
+          ],
+          "programs": []
+        }
+      },
+      "signers": {
+        "svcs": [
+          "session",
+          "pi"
+        ],
+        "inst": "pi-1"
+      },
+      "step": {
+        "tool": "read",
+        "callId": "tc-1",
+        "input": {
+          "path": "notes.md"
+        },
+        "resolved": {
+          "paths": [
+            {
+              "need": "read",
+              "at": "notes.md"
+            }
+          ],
+          "programs": [],
+          "parse": "ok",
+          "readOnly": true
+        },
+        "verdict": "OK",
+        "routeAllowed": true,
+        "rulesHash": "wEu-LwON9Dy8RYf3f3NSLGDqLly1fZPEYtl63tBs_JY",
+        "decisionToken": "eyJjYWxsSWQiOiJ0Yy0xIiwicmVzb2x2ZWQiOnsicGFyc2UiOiJvayIsInBhdGhzIjpbeyJhdCI6Im5vdGVzLm1kIiwibmVlZCI6InJlYWQifV0sInByb2dyYW1zIjpbXSwicmVhZE9ubHkiOnRydWV9LCJyb3V0ZUFsbG93ZWQiOnRydWUsInJ1bGVzSGFzaCI6IndFdS1Md09OOUR5OFJZZjNmM05TTEdEcUxseTFmWlBFWXRsNjN0QnNfSlkiLCJ2ZXJkaWN0IjoiT0sifQ",
+        "rid": "rid-1",
+        "now": 1767227398001,
+        "chain": [
+          {
+            "v": 3,
+            "svc": "session",
+            "inst": "pi-1",
+            "rid": "rid-1",
+            "ts": 1767225598000,
+            "sess": "",
+            "rcv": "pi",
+            "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+            "infl": "",
+            "prev": "",
+            "sig": "2P6Xan_OyIKY35p03v8L8A1cO-JZvoTIcJVnM0GzarTAxJIfZ_EFMhQIpImXDz8wTLryQvYIRXlPlPBTnJXbBw"
+          },
+          {
+            "v": 3,
+            "svc": "pi",
+            "inst": "pi-1",
+            "rid": "rid-1",
+            "ts": 1767227398001,
+            "sess": "",
+            "rcv": "local:read",
+            "bind": "5j9N3DydGti7Fo_62asms02wwyCFryzpV7n1hLe9U0Y",
+            "infl": "OU-U8zauOZJUuP-yxVOIVr4hNe1NIU8bmkyoKVxMA6g",
+            "prev": "2P6Xan_OyIKY35p03v8L8A1cO-JZvoTIcJVnM0GzarTAxJIfZ_EFMhQIpImXDz8wTLryQvYIRXlPlPBTnJXbBw",
+            "sig": "JIlfsk49q_cz1OMcybp3jbJ9sqhu0lTb40pfzRGyB8N0MDIlV1q2z-1gjz-LQxeZb8lMKbCwvC5M75b4sSlHCg"
+          }
+        ],
+        "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiIiwicmN2IjoicGkiLCJyaWQiOiJyaWQtMSIsInNlc3MiOiIiLCJzaWciOiIyUDZYYW5fT3lJS1kzNXAwM3Y4TDhBMWNPLUpadm9USWNKVm5NMEd6YXJUQXhKSWZaX0VGTWhRSXBJbVhEejh3VExyeVF2WUlSWGxQbFBCVG5KWGJCdyIsInN2YyI6InNlc3Npb24iLCJ0cyI6MTc2NzIyNTU5ODAwMCwidiI6M30seyJiaW5kIjoiNWo5TjNEeWRHdGk3Rm9fNjJhc21zMDJ3d3lDRnJ5enBWN24xaExlOVUwWSIsImluZmwiOiJPVS1VOHphdU9aSlV1UC15eFZPSVZyNGhOZTFOSVU4Ym1reW9LVnhNQTZnIiwiaW5zdCI6InBpLTEiLCJwcmV2IjoiMlA2WGFuX095SUtZMzVwMDN2OEw4QTFjTy1KWnZvVEljSlZuTTBHemFyVEF4SklmWl9FRk1oUUlwSW1YRHo4d1RMcnlRdllJUlhsUGxQQlRuSlhiQnciLCJyY3YiOiJsb2NhbDpyZWFkIiwicmlkIjoicmlkLTEiLCJzZXNzIjoiIiwic2lnIjoiSklsZnNrNDlxX2N6MU9NY3licDNqYko5c3FodTBsVGI0MHBmelJHeUI4TjBNRElsVjFxMnotMWdqei1MUXhlWmI4bE1LYkN3dkM1TTc1YjRzU2xIQ2ciLCJzdmMiOiJwaSIsInRzIjoxNzY3MjI3Mzk4MDAxLCJ2IjozfV0",
+        "proofRoute": "session/pi/local:read",
+        "influence": [
+          {
+            "cls": "third-party",
+            "src": "web:example.com",
+            "h": "h2"
+          },
+          {
+            "cls": "private",
+            "src": "github:acme/app#42",
+            "h": "h1",
+            "cid": "cid-1",
+            "owner": "alice"
+          }
+        ],
+        "influenceToken": "W3siY2xzIjoidGhpcmQtcGFydHkiLCJoIjoiaDIiLCJzcmMiOiJ3ZWI6ZXhhbXBsZS5jb20ifSx7ImNpZCI6ImNpZC0xIiwiY2xzIjoicHJpdmF0ZSIsImgiOiJoMSIsIm93bmVyIjoiYWxpY2UiLCJzcmMiOiJnaXRodWI6YWNtZS9hcHAjNDIifV0"
+      },
+      "run": {
+        "prompt": "open a PR for issue #42",
+        "ts": [
+          1767225598000
+        ]
+      },
+      "seen": [],
+      "expected": {
+        "reason": "EXPIRED",
         "verdict": null
       }
     }

@@ -24,20 +24,28 @@ var offlineCodes = []reason.Code{
 	reason.InfluenceMismatch, reason.TimeMismatch, reason.PromptMismatch,
 }
 
-// FuzzVerify verifies any recorded chain token, with any rid, recorded times, age limits, prompt and
-// session, against a verifier that holds every key of v3.json's offline cases and the mesh fixture, in a
-// record set that has spent one key. The seeds are the mesh fixture's chain, recorded at its own time,
-// which verifies, and at another, and the offline cases' chains. It never panics, gives only an offline
-// code, and names no one unless the result is OK or PATH_NOT_ALLOWED.
+// FuzzVerify verifies any recorded chain token, with any rid, recorded times or none, age limits or none,
+// prompt and session, against a verifier that holds every key of v3.json's offline cases and the mesh
+// fixture, in a record set that has spent one key. The seeds are the mesh fixture's chain, recorded at its
+// own time, which verifies, at another, with no recorded time and with no age limits, and the offline
+// cases' chains, with their times and limits absent where the case gives none. It never panics, gives only
+// an offline code, and names no one unless the result is OK or PATH_NOT_ALLOWED.
 func FuzzVerify(f *testing.F) {
 	s := mesh(f)
 	tok := s.token(f)
-	f.Add(tok, "rid-1", "", end, start, true, int64(1800000), int64(5000), prompt)
-	f.Add(tok, "rid-1", "", end+1, start, true, int64(1800000), int64(5000), prompt)
+	f.Add(tok, "rid-1", "", true, end, start, true, true, int64(1800000), true, int64(5000), prompt)
+	f.Add(tok, "rid-1", "", true, end+1, start, true, true, int64(1800000), true, int64(5000), prompt)
+	f.Add(tok, "rid-1", "", false, int64(0), int64(0), false, true, int64(1800000), true, int64(5000), prompt)
+	f.Add(tok, "rid-1", "", true, end, start, true, false, int64(0), false, int64(0), prompt)
 	v3 := vectors.Load(f, "v3.json")
 	v3.Get("offline").Each(func(_ string, c vectors.Node) {
-		f.Add(c.Get("chainToken").Str(), "rid-1", "sess-1", c.Get("recordedTs").Get("last").Int(), int64(0), false,
-			c.Get("runMaxAgeMs").Int(), c.Get("callMaxAgeMs").Int(), c.Get("prompt").Str())
+		ts, runMax, callMax := c.Get("recordedTs"), c.Get("runMaxAgeMs"), c.Get("callMaxAgeMs")
+		last := int64(0)
+		if !ts.IsNull() {
+			last = ts.Get("last").Int()
+		}
+		f.Add(c.Get("chainToken").Str(), "rid-1", "sess-1", !ts.IsNull(), last, int64(0), false,
+			!runMax.IsNull(), orZero(runMax), !callMax.IsNull(), orZero(callMax), c.Get("prompt").Str())
 	})
 	mesh := v3.Get("policies").Get("mesh")
 	root, err := b64.Decode(mesh.Get("root").Str())
@@ -50,10 +58,10 @@ func FuzzVerify(f *testing.F) {
 		_, keyring[name] = vectors.V3Key(f, name)
 	}
 	rootID := mesh.Get("rootId").Str()
-	f.Fuzz(func(t *testing.T, chain, rid, sess string, last, run int64, runGiven bool, runMax, callMax int64,
-		prompt string) {
+	f.Fuzz(func(t *testing.T, chain, rid, sess string, recorded bool, last, run int64, runGiven bool,
+		runMaxGiven bool, runMax int64, callMaxGiven bool, callMax int64, prompt string) {
 		bind, key := "bind-1", "rid-1|orders|req"
-		r := offline.NewRecordSet("rid-0|orders|req").Verify(offline.Input{
+		in := offline.Input{
 			Chain:           &chain,
 			ExpectedBind:    &bind,
 			Proof:           &proof,
@@ -61,17 +69,25 @@ func FuzzVerify(f *testing.F) {
 			ReceiverInRoute: true,
 			NonceKey:        &key,
 			RID:             &rid,
-			Recorded:        &offline.RecordedTimes{Last: last, RunGiven: runGiven, Run: []int64{run}},
 			Prompt:          &prompt,
-		}, offline.Config{
+		}
+		if recorded {
+			in.Recorded = &offline.RecordedTimes{Last: last, RunGiven: runGiven, Run: []int64{run}}
+		}
+		cfg := offline.Config{
 			Keyring:        keyring,
 			Root:           root,
 			RootID:         rootID,
 			AllowedOrigins: []string{"gateway", "session"},
 			Sess:           sess,
-			RunMaxAgeMs:    &runMax,
-			CallMaxAgeMs:   &callMax,
-		})
+		}
+		if runMaxGiven {
+			cfg.RunMaxAgeMs = &runMax
+		}
+		if callMaxGiven {
+			cfg.CallMaxAgeMs = &callMax
+		}
+		r := offline.NewRecordSet("rid-0|orders|req").Verify(in, cfg)
 		if !slices.Contains(offlineCodes, r.Reason) {
 			t.Fatalf("Verify gave %q", r.Reason)
 		}
@@ -115,4 +131,12 @@ func FuzzRecord(f *testing.F) {
 			t.Fatalf("Call = %+v, %t; but Attested = %t", r, ok, s.Attested())
 		}
 	})
+}
+
+// orZero returns n's integer, or 0 when n is null.
+func orZero(n vectors.Node) int64 {
+	if n.IsNull() {
+		return 0
+	}
+	return n.Int()
 }

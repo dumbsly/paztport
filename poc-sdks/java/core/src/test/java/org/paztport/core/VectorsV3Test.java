@@ -470,11 +470,14 @@ class VectorsV3Test {
         }
     }
 
-    /** The offline inputs a case gives; {@code run} absent means the run's recorded times are not compared. */
+    /**
+     * The offline inputs a case gives; {@code run} absent means the run's recorded times are not compared, and a
+     * {@code null} {@code recordedTs} is a record with no time.
+     */
     static OfflineInput offlineInput(JsonNode c, JsonNode policy) {
         JsonNode t = c.get("recordedTs");
         Set<Long> run = null;
-        if (t.has("run")) {
+        if (!t.isNull() && t.has("run")) {
             run = new LinkedHashSet<>();
             for (JsonNode r : t.get("run")) {
                 run.add(r.asLong());
@@ -484,7 +487,7 @@ class VectorsV3Test {
                 Vectors.tokenText(c.get("influenceToken")), proof(policy, c.get("proofRoute")),
                 c.get("receiver").asText(), c.get("receiverInRoute").asBoolean(), c.get("nonceKey").asText(),
                 c.get("rid").asText(),
-                new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
+                t.isNull() ? null : new RecordedTimes(t.get("last").asLong(), run), c.get("prompt").asText());
     }
 
     static OfflineConfig offlineConfig(JsonNode c, JsonNode policy) {
@@ -494,7 +497,12 @@ class VectorsV3Test {
         c.get("seen").forEach(k -> seen.add(k.asText()));
         return new OfflineConfig(keyring(c.get("keyring")), Base64Url.decode(policy.get("root").asText()),
                 policy.get("rootId").asText(), origins, c.get("sess").asText(), seen, null,
-                c.get("runMaxAgeMs").asLong(), c.get("callMaxAgeMs").asLong());
+                limit(c.get("runMaxAgeMs")), limit(c.get("callMaxAgeMs")));
+    }
+
+    /** An age limit a case gives; {@code null} is a limit not configured. */
+    private static Long limit(JsonNode n) {
+        return n.isNull() ? null : n.asLong();
     }
 
     @Test
