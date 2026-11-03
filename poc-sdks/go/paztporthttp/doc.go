@@ -12,8 +12,8 @@
 // [Receiver.Accept] with the peer its transport authenticated and the operator's [Mode]. The [Accepted]
 // it gets back holds a refusal to send in place of the handler's answer, or the chain and influence the
 // handler starts from; once the handler's answer is complete, [Accepted.Attest] gives its X-Path-Response
-// header when it is attested. [TrustedRecord] says whether the handler may write a record later decisions
-// take as fact.
+// header when it is attested. [Accepted.TrustedRecord] says whether the handler may write a record later
+// decisions take as fact.
 //
 // The receiver follows the spec. Under [ModeEnforce] or [ModeAudit] it runs the live order once on each
 // request, with itself as receiver, the request's own binding, the tokens of its headers, the nonce key
@@ -46,7 +46,7 @@
 //
 // A partner, the entry point of another organisation's calls, keeps [Sessions], made with [NewSessions]
 // from its own material and the client policy keys it has pinned. Its adapter answers each POST to
-// wire.SessionPath with [ServeHandshake], which opens a session bound to the peer the transport
+// wire.SessionPath with [Sessions.ServeHandshake], which opens a session bound to the peer the transport
 // authenticated, by the certificate's issuer and service, and replies with the session's id and status,
 // signed by the entry service's key. It decides each call with [Sessions.Accept] in place of
 // [Receiver.Accept]: a call in an attested session is verified by that session's own verifier, pinned to

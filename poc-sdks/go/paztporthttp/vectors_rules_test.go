@@ -115,7 +115,7 @@ func runReceiverCase(t *testing.T, c vectors.Node) answer {
 	read := entries(c.Get("read"))
 	r := caseReceiver(t, c)
 	if c.Get("request").IsNull() {
-		return answer{trusted: paztporthttp.TrustedRecord(paztporthttp.Accepted{}, read)}
+		return answer{trusted: paztporthttp.Accepted{}.TrustedRecord(read)}
 	}
 	req := caseRequest(t, c.Get("request"))
 	peer := casePeer(c.Get("peer"))
@@ -136,7 +136,7 @@ func runReceiverCase(t *testing.T, c vectors.Node) answer {
 		if a.Refusal == nil {
 			readNow = read
 		}
-		trusted = paztporthttp.TrustedRecord(a, readNow)
+		trusted = a.TrustedRecord(readNow)
 	}
 	return answer{refusal: a.Refusal, verified: a.Verified, infl: a.Influence, attests: a.Attests(), trusted: trusted}
 }

@@ -20,7 +20,7 @@ import (
 )
 
 // TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps
-// against one partner, its clock set to each step's at. A handshake is served by ServeHandshake; a call is
+// against one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
 // decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off operations
 // are refused before the handler runs.
 func TestPartnerRulesVectors(t *testing.T) {
@@ -143,7 +143,7 @@ func (sc *partnerScript) handshake(t *testing.T, step vectors.Node) string {
 	} else {
 		body = vectors.RulesHandshakeBody(t, h.Get("request").Str())
 	}
-	a := paztporthttp.ServeHandshake(body, partnerPeer(t, h.Get("peer")), sc.sessions)
+	a := sc.sessions.ServeHandshake(body, partnerPeer(t, h.Get("peer")))
 	if a.Status != 200 {
 		return handshakeOutcome(a.Status, string(a.Body), "null", "null")
 	}
@@ -215,7 +215,7 @@ func (sc *partnerScript) call(t *testing.T, c vectors.Node) string {
 	if a.Attested != (a.Chain != nil) {
 		t.Fatalf("Attested is %v with chain %v", a.Attested, a.Chain)
 	}
-	return callOutcome("null", a.Attested, a.Influence, influence.ShapedOnlyByTrusted(a.Attested, a.Influence))
+	return callOutcome("null", a.Attested, a.Influence, a.TrustedRecord(nil))
 }
 
 // expectedCall returns a call step's expected, in the shape of callOutcome.

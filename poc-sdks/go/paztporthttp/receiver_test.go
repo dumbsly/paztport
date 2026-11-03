@@ -314,7 +314,6 @@ func TestAnswers(t *testing.T) {
 		{"unreadable influence", paztporthttp.Refusal(400, reason.InfluenceMismatch), 400,
 			`{"reason":"INFLUENCE_MISMATCH"}`},
 		{"unsafe session", paztporthttp.UnsafeRefusal(), 403, `{"reason":"UNSAFE_SESSION"}`},
-		{"handshake", paztporthttp.HandshakeError("INVALID_PARAMS"), 400, `{"error":"INVALID_PARAMS"}`},
 	}
 	for _, tt := range tests {
 		if tt.got.Status != tt.status || string(tt.got.Body) != tt.body {
@@ -863,14 +862,41 @@ func TestTrustedRecordLeavesInfluence(t *testing.T) {
 	backing[0] = clean
 	a := paztporthttp.Accepted{Verified: true, Influence: backing}
 	read := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-2"}}
-	if paztporthttp.TrustedRecord(a, read) {
+	if a.TrustedRecord(read) {
 		t.Fatal("a third-party read is trusted")
 	}
 	if spare := backing[:2][1]; spare != (influence.Entry{}) {
 		t.Fatalf("TrustedRecord wrote %+v past the influence it was given", spare)
 	}
-	if !paztporthttp.TrustedRecord(a, nil) || paztporthttp.TrustedRecord(paztporthttp.Accepted{Influence: backing}, nil) {
+	if !a.TrustedRecord(nil) || (paztporthttp.Accepted{Influence: backing}).TrustedRecord(nil) {
 		t.Fatal("TrustedRecord does not follow Verified")
+	}
+}
+
+// TestPartnerTrustedRecord: a partner's call qualifies only when attested, and a third-party read since
+// turns an attested call's answer false, without writing into the spare room of its influence.
+func TestPartnerTrustedRecord(t *testing.T) {
+	clean := influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-1"}
+	backing := make([]influence.Entry, 1, 4)
+	backing[0] = clean
+	p := paztporthttp.PartnerAccepted{Attested: true, Influence: backing}
+	read := []influence.Entry{{Class: influence.ThirdParty, Src: "web:example.com", H: "h-2"}}
+	if !p.TrustedRecord(nil) || !p.TrustedRecord([]influence.Entry{clean}) {
+		t.Fatal("an attested call with only trusted content does not qualify")
+	}
+	if p.TrustedRecord(read) {
+		t.Fatal("a third-party read is trusted")
+	}
+	if spare := backing[:2][1]; spare != (influence.Entry{}) {
+		t.Fatalf("TrustedRecord wrote %+v past the influence it was given", spare)
+	}
+	if (paztporthttp.PartnerAccepted{Influence: backing}).TrustedRecord(nil) {
+		t.Fatal("a call that is not attested qualifies")
+	}
+	untrusted := paztporthttp.PartnerAccepted{Attested: true,
+		Influence: []influence.Entry{{Class: influence.LocalUntrusted, Src: "http:orders", H: "h-3"}}}
+	if untrusted.TrustedRecord(nil) {
+		t.Fatal("an attested call with local-untrusted influence qualifies")
 	}
 }
 

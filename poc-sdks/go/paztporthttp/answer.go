@@ -29,10 +29,10 @@ func Refusal(status int, r reason.Code) Answer {
 	return Answer{Status: status, Body: codeBody("reason", string(r))}
 }
 
-// HandshakeError returns the handshake endpoint's error code: 400 and the body {"error":"<code>"}. It
+// handshakeError returns the handshake endpoint's error code: 400 and the body {"error":"<code>"}. It
 // answers a handshake, not a call, so it is not a refusal. Like [Refusal], it panics on a code that is
 // not valid UTF-8 or holds a noncharacter.
-func HandshakeError(code string) Answer {
+func handshakeError(code string) Answer {
 	return Answer{Status: 400, Body: codeBody("error", code)}
 }
 

@@ -38,23 +38,23 @@ const (
 // and root the client presented; otherwise it is unsafe, and the reply lists the operations
 // SessionsConfig.UnsafeDisabled switches off. The reply is in the entry-key form, signed by the entry
 // service's key. A handshake that opens no session changes no session.
-func ServeHandshake(body []byte, peer *PeerCert, s *Sessions) Answer {
+func (s *Sessions) ServeHandshake(body []byte, peer *PeerCert) Answer {
 	if peer == nil || peer.Peer.Svc == "" || peer.Issuer == "" {
-		return HandshakeError(noSession)
+		return handshakeError(noSession)
 	}
 	if len(body) > json.WireBytes {
-		return HandshakeError(invalidParams)
+		return handshakeError(invalidParams)
 	}
 	req, err := session.ParseRequest(body)
 	if err != nil {
-		return HandshakeError(invalidParams)
+		return handshakeError(invalidParams)
 	}
 	if !session.OpensSession(req) {
-		return HandshakeError(noSession)
+		return handshakeError(noSession)
 	}
 	reply, ok := s.open(req, peerKey{issuer: peer.Issuer, svc: peer.Peer.Svc})
 	if !ok {
-		return HandshakeError(noSession)
+		return handshakeError(noSession)
 	}
 	return Answer{Status: 200, Body: reply}
 }

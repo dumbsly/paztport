@@ -196,7 +196,7 @@ func TestSessionsKeepTheirOwnCopy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRequest: %v", err)
 	}
-	a := ServeHandshake(shop, rulesPeer(t, "shop"), s)
+	a := s.ServeHandshake(shop, rulesPeer(t, "shop"))
 	r := opened(t, a)
 	if r.Status != session.StatusAttested || len(r.ServerKeyring) == 0 {
 		t.Fatalf("the reply is %s with keyring %v after the caller changed its config", r.Status, r.ServerKeyring)
@@ -212,7 +212,7 @@ func TestSessionsKeepTheirOwnCopy(t *testing.T) {
 	if pa.Result == nil || pa.Result.Reason != reason.PathNotAllowed {
 		t.Fatalf("a call from payment is %+v after the caller changed its origins; want PATH_NOT_ALLOWED", pa)
 	}
-	u := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "no-root"), rulesPeer(t, "shop"), s))
+	u := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "no-root"), rulesPeer(t, "shop")))
 	if len(u.Disabled) != 1 || u.Disabled[0] != "POST /refund" {
 		t.Fatalf("the unsafe reply disables %q", u.Disabled)
 	}
@@ -248,7 +248,7 @@ func TestSessionsHoldTheCapUnderConcurrentHandshakes(t *testing.T) {
 	ids := map[string]bool{}
 	for range 64 {
 		wg.Go(func() {
-			a := ServeHandshake(body, peer, s)
+			a := s.ServeHandshake(body, peer)
 			if a.Status != 200 {
 				t.Errorf("a handshake is answered %d %s", a.Status, a.Body)
 				return
@@ -326,14 +326,14 @@ func TestServeHandshakeWireLimit(t *testing.T) {
 	s := newSessions(t, pspConfig(t, &now, 16, 60000))
 	peer := rulesPeer(t, "shop")
 
-	if a := ServeHandshake([]byte("not a request"), nil, s); a.Status != 400 || string(a.Body) != `{"error":"NO_SESSION"}` {
+	if a := s.ServeHandshake([]byte("not a request"), nil); a.Status != 400 || string(a.Body) != `{"error":"NO_SESSION"}` {
 		t.Fatalf("no peer: %d %s; want 400 NO_SESSION", a.Status, a.Body)
 	}
-	over := ServeHandshake(requestOfLength(t, 262145), peer, s)
+	over := s.ServeHandshake(requestOfLength(t, 262145), peer)
 	if over.Status != 400 || string(over.Body) != `{"error":"INVALID_PARAMS"}` {
 		t.Fatalf("262 145 bytes: %d %s; want 400 INVALID_PARAMS", over.Status, over.Body)
 	}
-	if at := opened(t, ServeHandshake(requestOfLength(t, 262144), peer, s)); at.Status != session.StatusUnsafe {
+	if at := opened(t, s.ServeHandshake(requestOfLength(t, 262144), peer)); at.Status != session.StatusUnsafe {
 		t.Fatalf("262 144 bytes: %s; want an unsafe session", at.Status)
 	}
 }
@@ -349,7 +349,7 @@ func TestHandshakeReplyIsSignedByTheEntryKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseRequest: %v", err)
 	}
-	a := ServeHandshake(body, rulesPeer(t, "shop"), s)
+	a := s.ServeHandshake(body, rulesPeer(t, "shop"))
 	r := opened(t, a)
 	if r.ServerReplyCert == nil || r.ServerKeyringSig == nil || r.ServerKeyringNotAfter == nil {
 		t.Fatalf("the reply is not in the entry-key form: %+v", r)
@@ -369,7 +369,7 @@ func TestHandshakeFromAnUnpinnedClientIsUnsafe(t *testing.T) {
 	cfg := pspConfig(t, &now, 16, 60000)
 	cfg.Pinned = []string{policyPin(t, "stranger-policy")}
 	s := newSessions(t, cfg)
-	r := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), rulesPeer(t, "shop"), s))
+	r := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), rulesPeer(t, "shop")))
 	if r.Status != session.StatusUnsafe {
 		t.Fatalf("an unpinned client's session is %s, want unsafe", r.Status)
 	}
@@ -401,7 +401,7 @@ func TestHandshakeWithMaterialPinnedRefusesOpensAnUnsafeSession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Wire: %v", err)
 	}
-	a := ServeHandshake(body, rulesPeer(t, "shop"), s)
+	a := s.ServeHandshake(body, rulesPeer(t, "shop"))
 	r := opened(t, a)
 	if r.Status != session.StatusUnsafe || len(r.Disabled) != 1 || r.Disabled[0] != "POST /refund" {
 		t.Fatalf("the reply is %s disabling %q; want unsafe disabling POST /refund", r.Status, r.Disabled)
@@ -425,7 +425,7 @@ func TestFailedHandshakesChangeNoSession(t *testing.T) {
 	s := newSessions(t, pspConfig(t, &now, 1, 60000))
 	shop := vectors.RulesHandshakeBody(t, "shop")
 	peer := rulesPeer(t, "shop")
-	opened(t, ServeHandshake(shop, peer, s))
+	opened(t, s.ServeHandshake(shop, peer))
 	now += 60000 // the session has expired, but is still held
 	before := snapshot(s)
 	if len(before.byID) != 1 {
@@ -450,7 +450,7 @@ func TestFailedHandshakesChangeNoSession(t *testing.T) {
 		{"a short root signature", vectors.RulesHandshakeBody(t, "short-root-sig"), peer, "NO_SESSION"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			a := ServeHandshake(tc.body, tc.peer, s)
+			a := s.ServeHandshake(tc.body, tc.peer)
 			if a.Status != 400 || string(a.Body) != `{"error":"`+tc.code+`"}` {
 				t.Fatalf("answered %d %s, want 400 %s", a.Status, a.Body, tc.code)
 			}
@@ -474,16 +474,16 @@ func TestHandshakesSweepEveryPeersExpiredSessions(t *testing.T) {
 	if shopKey == clinicKey {
 		t.Fatal("the case needs two peers")
 	}
-	opened(t, ServeHandshake(body, shop, s))
+	opened(t, s.ServeHandshake(body, shop))
 	now += 60000 // shop's session has expired
-	c1 := opened(t, ServeHandshake(body, clinic, s)).Sess
-	c2 := opened(t, ServeHandshake(body, clinic, s)).Sess
+	c1 := opened(t, s.ServeHandshake(body, clinic)).Sess
+	c2 := opened(t, s.ServeHandshake(body, clinic)).Sess
 	got := snapshot(s)
 	if want := map[string][]string{clinicKey: {c1, c2}}; !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) ||
 		len(got.byID) != 2 {
 		t.Fatalf("after clinic's handshakes the sessions hold %v; want only clinic's %v", got, want)
 	}
-	s1 := opened(t, ServeHandshake(body, shop, s)).Sess
+	s1 := opened(t, s.ServeHandshake(body, shop)).Sess
 	got = snapshot(s)
 	if want := map[string][]string{clinicKey: {c1, c2}, shopKey: {s1}}; !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) ||
 		len(got.byID) != 3 {
@@ -520,7 +520,7 @@ func TestSessionsMatchNoPeerWithoutAnIssuerOrAName(t *testing.T) {
 	now := int64(vectorNow)
 	s := newSessions(t, pspConfig(t, &now, 16, 60000))
 	peer := rulesPeer(t, "shop")
-	id := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer, s)).Sess
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
 	noIssuer := *peer
 	noIssuer.Issuer = ""
 	noName := *peer
@@ -599,7 +599,7 @@ func TestAcceptReturnsTheNonceCacheError(t *testing.T) {
 	cfg.Nonces = failingCache{}
 	s := newSessions(t, cfg)
 	peer := rulesPeer(t, "shop")
-	id := opened(t, ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer, s)).Sess
+	id := opened(t, s.ServeHandshake(vectors.RulesHandshakeBody(t, "shop"), peer)).Sess
 	a, err := s.Accept(t.Context(), boundaryCall(t, id, now), peer)
 	if !errors.Is(err, errStoreDown) {
 		t.Fatalf("Accept = %v, want the cache's error", err)

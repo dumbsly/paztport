@@ -62,7 +62,7 @@ type SessionsConfig struct {
 	Now func() int64
 }
 
-// Sessions is a partner's sessions: [ServeHandshake] opens them and [Sessions.Accept] decides each call
+// Sessions is a partner's sessions: [Sessions.ServeHandshake] opens them and [Sessions.Accept] decides each call
 // in the one it names. Each session is kept by its id and bound to the peer that opened it: the client
 // certificate's issuer and the service it names, both of which the transport authenticated. A call is
 // in a session only when that same issuer and service name it; the service alone is not enough, since
