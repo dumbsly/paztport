@@ -141,7 +141,8 @@ cmd_test() {
   (cd poc-sdks/java && mvn -q install)
   (cd poc-demos/java-mesh && mvn -q verify)
   bash poc-sdks/scripts/check-artefacts.sh
-  # The TS SDK's cross-language check reads a keyring the Java keygen writes, so it runs here instead of skipping.
+  # The TS and Go SDKs' cross-language checks read a keyring the Java keygen writes, so they run here instead of
+  # skipping.
   test_keys="$(mktemp -d)"
   trap 'rm -rf "$test_keys"' EXIT
   "$maven_java" -jar poc-sdks/java/tools/keygen/target/keygen.jar "$test_keys" >/dev/null
@@ -152,7 +153,7 @@ cmd_test() {
   (cd poc-demos/agents-mcp && npm run -s check)
   (cd poc-sdks/typescript && PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" npm test)
   (cd poc-demos/agents-mcp && npm test)
-  test_go
+  PAZTPORT_JAVA_KEYRING="$test_keys/keyring.json" test_go
   echo "all suites passed"
 }
 
