@@ -377,6 +377,14 @@ What Paztport needs from a deployment, and what it deliberately doesn't cover ye
   the proxy. A certificate is per service, not per container, so blaming one
   container needs per-instance certificates; until then the responder still checks
   that the container runs the named service.
+- **Replay protection is per nonce cache.** The SDKs' caches are in memory, so a service run as several
+  replicas refuses a replay only at the replica that saw the original. The peer check still confines a replay
+  to the last signer's own connections: a captured request can't be sent again from anywhere else. What is
+  left is that signer sending a request twice, as a proxy that retries does, which another replica would
+  serve. A deployment that must refuse every replay shares one expiring store across replicas behind the
+  nonce-cache interface that the Java and Go SDKs expose
+  ([verification.md](poc-sdks/spec/verification.md#freshness-and-replay)). The TypeScript SDK's cache is a
+  class, so it can't take a shared store.
 - **Revocation takes up to a lifetime.** A keyring or root presented when a
   session opens with a partner (the handshake) stays usable by someone replaying it
   until its `notAfter`, so a leaked service key, or a route removed from a policy,

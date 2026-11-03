@@ -104,6 +104,11 @@ can't spend each other's keys:
 An HTTP call has no call id, so its keys name the pair of services instead: a service calls a given receiver at
 most once per request tree, and a second call is `REPLAY`.
 
+**Replicas.** Replay protection holds within one nonce cache. A service run as several replicas, each with its
+own cache, refuses a replay only at a replica that saw the original. With a peer, check 12 still confines a
+replay to the last signer's own connections, so what is left is that signer sending a request twice, as a
+proxy's retry does. A service that must refuse every replay shares one cache across its replicas.
+
 ## Receivers, the peer and attribution
 
 **The receiver checks.** In a v3 chain every stamp names the hop it was handed to (check 4). So a chain
