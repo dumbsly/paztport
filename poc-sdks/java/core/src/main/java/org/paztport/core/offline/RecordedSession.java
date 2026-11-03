@@ -86,11 +86,14 @@ public final class RecordedSession {
     }
 
     /**
-     * The {@code policyNotAfter} a response recorded in the session is checked with: the earlier of the server
-     * root's window and, in the entry-key form, the server keyring's, once the server's signatures over them verify,
-     * judged at no time, whether or not the session is attested. Empty for a reply that does not read, has no server
-     * root, or whose signatures do not verify against the pin and the configured entry: a response relying on it is
-     * {@code POLICY_EXPIRED}. See {@link Sessions#responseNotAfterOffline}.
+     * The {@code policyNotAfter} a response recorded in the session is checked with: the earlier of the server root's
+     * window and, in the entry-key form, the server keyring's, once the server's signatures over them verify, judged at
+     * no time, whether or not the session is attested. The reply's status and session id are checked against no
+     * request, so a limit is not an attestation: {@link #attestedAt} judges that. Empty for a reply that does not read,
+     * has no server root, or whose signatures do not verify against the pin and the configured entry, and a response
+     * relying on it is then {@code POLICY_EXPIRED}, which the caller reports itself, since a
+     * {@link org.paztport.core.verify.VerifierConfig} has no empty window. See
+     * {@link Sessions#responseNotAfterOffline}.
      */
     public OptionalLong responseNotAfter() {
         return responseNotAfter;

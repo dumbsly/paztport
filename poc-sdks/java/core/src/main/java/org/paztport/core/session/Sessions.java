@@ -274,11 +274,13 @@ public final class Sessions {
     /**
      * The {@code policyNotAfter} a response recorded under a recorded handshake's reply is checked with
      * (verification.md &sect;Offline verification): the earlier of the server root's {@code notAfter} and, in the
-     * entry-key form, the server keyring's, once the server's signatures over them verify, judged at no time: the
-     * reply reads and verifies against the recorded pin and the server's entry service from the verifier's own
-     * configuration, and its root verifies under the pin. Whether the session is attested, and the client's side of
-     * the handshake, do not decide it. Empty for a reply that does not read, has no server root, or whose signatures
-     * do not verify: a response relying on it is {@code POLICY_EXPIRED}. Never throws.
+     * entry-key form, the server keyring's, once the server's signatures over them verify, judged at no time: the reply
+     * reads and verifies against the recorded pin and the server's entry service from the verifier's own configuration,
+     * and its root verifies under the pin. Whether the session is attested, and the client's side of the handshake, do
+     * not decide it. The reply's status and session id are checked against no request, so a limit is not an
+     * attestation: {@link #attestedOffline} judges that. Empty for a reply that does not read, has no server root, or
+     * whose signatures do not verify, and a response relying on it is then {@code POLICY_EXPIRED}, which the caller
+     * reports itself, since a {@link org.paztport.core.verify.VerifierConfig} has no empty window. Never throws.
      */
     public static OptionalLong responseNotAfterOffline(String reply, String pinnedServerPolicyKey,
             String serverEntry) {

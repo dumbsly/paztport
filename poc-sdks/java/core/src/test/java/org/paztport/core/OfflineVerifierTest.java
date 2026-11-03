@@ -13,6 +13,7 @@ import java.security.KeyPair;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,7 +39,10 @@ import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 
-/** Offline-only behaviour the vectors do not pin: totality, the optional inputs and the age-limit pair. */
+/**
+ * Offline-only behaviour the vectors do not pin: totality, the optional inputs, and the age limits, each of which
+ * not configured is its live default on its own.
+ */
 class OfflineVerifierTest {
 
     @BeforeAll
@@ -151,7 +155,7 @@ class OfflineVerifierTest {
         OfflineConfig cfg = new OfflineConfig(
                 Keyring.of(Map.of("gateway", gateway.getPublic(), "orders", orders.getPublic())),
                 policy.signedRoot().rootBytes(), policy.signedRoot().rootId(), Set.of("gateway"), "",
-                new java.util.LinkedHashSet<>(), null, runMax, callMax);
+                new LinkedHashSet<>(), null, runMax, callMax);
         OfflineInput in = new OfflineInput(Chains.toJson(sent.chain()), "b2", null, sent.proof().toJson(), "payment",
                 true, "k", null, new RecordedTimes(lastTs, Set.of(originTs)), "do it");
         return run(in, cfg).reason();
