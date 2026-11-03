@@ -90,7 +90,7 @@ func runPartnerScript(t *testing.T, c vectors.Node) {
 
 // partnerConfig returns the configuration partner p describes, its material read from its files' text by
 // the SDK's own readers, with clock now and a nonce cache of its own.
-func partnerConfig(t *testing.T, p vectors.Node, now func() int64) paztporthttp.SessionsConfig {
+func partnerConfig(t testing.TB, p vectors.Node, now func() int64) paztporthttp.SessionsConfig {
 	t.Helper()
 	m := vectors.RulesMaterial(t, p.Get("material").Str())
 	kf, err := policy.ParseKeyringFile(m.Keyring)
@@ -258,6 +258,13 @@ func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, ta
 	if err != nil {
 		t.Fatalf("Bind: %v", err)
 	}
+	return signBoundary(t, st, sc.sessionRef(t, st.Get("sess")), bind)
+}
+
+// signBoundary returns the X-Path-Chain value of the one boundary stamp st describes, in session sess and
+// binding bind, signed now with its key and committing to the stamp's influence.
+func signBoundary(t testing.TB, st vectors.Node, sess, bind string) string {
+	t.Helper()
 	infl, err := influence.Commit(entries(st.Get("influence")))
 	if err != nil {
 		t.Fatalf("Commit: %v", err)
@@ -265,7 +272,7 @@ func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, ta
 	key, _ := vectors.RulesKey(t, st.Get("key").Str())
 	s, err := stamp.Sign(stamp.Stamp{
 		Svc: st.Get("svc").Str(), Inst: st.Get("inst").Str(), RID: st.Get("rid").Str(), TS: st.Get("ts").Int(),
-		Sess: sc.sessionRef(t, st.Get("sess")), Rcv: st.Get("rcv").Str(), Bind: bind, Infl: infl,
+		Sess: sess, Rcv: st.Get("rcv").Str(), Bind: bind, Infl: infl,
 	}, key)
 	if err != nil {
 		t.Fatalf("stamp.Sign: %v", err)
@@ -279,7 +286,7 @@ func (sc *partnerScript) boundaryChain(t *testing.T, st vectors.Node, method, ta
 
 // partnerPeer returns the client certificate the peers name n names, as PeerFromCertificate reads it, or
 // nil for null, no client certificate.
-func partnerPeer(t *testing.T, n vectors.Node) *paztporthttp.PeerCert {
+func partnerPeer(t testing.TB, n vectors.Node) *paztporthttp.PeerCert {
 	t.Helper()
 	if n.IsNull() {
 		return nil
