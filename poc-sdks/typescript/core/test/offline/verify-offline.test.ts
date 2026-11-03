@@ -148,6 +148,11 @@ describe("verifyChainOffline", () => {
       const bad = w.input(w.chain(), { recordedTs: recordedTs as never });
       expect(verifyChainOffline(bad, w.cfg()).reason, String(recordedTs)).toBe("TIME_MISMATCH");
     }
+    // and so does one whose run times are not a set
+    for (const run of [null, [RUN_TS]]) {
+      const bad = w.input(w.chain(), { recordedTs: { last: STEP_TS, run: run as never } });
+      expect(verifyChainOffline(bad, w.cfg()).reason, JSON.stringify(run)).toBe("TIME_MISMATCH");
+    }
   });
 
   it("theOriginBindsTheRunsPrompt", () => {

@@ -118,10 +118,10 @@ export type RecordedCall = {
 
 /**
  * Offline check of a tools/call params object read back from a record set: the server-side check, with
- * verifyChainOffline in place of the live chain verifier. The calling hop recorded the call when it stamped it,
- * so the live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the
- * origin not after the call by more than the call window (EXPIRED), each limit `cfg`'s or its live default. A chain that verifies but is for another
- * call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
+ * verifyChainOffline in place of the live chain verifier. The calling hop recorded the call when it stamped it, so the
+ * live window becomes its clock-free limits: the call within the run's lifetime of its origin, and the origin not after
+ * the call by more than the call window (EXPIRED), each limit `cfg`'s or its live default. A chain that verifies but is
+ * for another call id than the record's is RID_MISMATCH. `cfg.seen` spans the whole record set. Never throws.
  */
 export function verifyRecordedCall(params: unknown, call: RecordedCall, cfg: Omit<OfflineConfig, "nonceKey">): CallVerification {
   return checkCall(params, call.serverId, (input, nonceKey, callId) => {

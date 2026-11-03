@@ -44,7 +44,10 @@ export type VerifierConfig = {
   nonces: NonceCache;
   nonceKey: string;
   now: number;
-  /** The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; none, or anything but an integer in [0, 2^53 − 1], fails closed. */
+  /**
+   * The earliest notAfter of the keyring and root (ms, inclusive), past which nothing verifies; none, or anything but
+   * an integer in [0, 2^53 − 1], fails closed.
+   */
   policyNotAfter: number | undefined;
   callMaxAgeMs?: number;
   runMaxAgeMs?: number;

@@ -15,7 +15,10 @@ export type { Signers };
 export type RecordedTimes = {
   /** When the chain's last hop made it, as recorded beside it: the last stamp's ts must be this. */
   last: number;
-  /** The start times the run's records give, when it has any: the origin's ts must be one of them. */
+  /**
+   * The start times the run's records give, when it has any: the origin's ts must be one of them. Anything else
+   * here but a Set is TIME_MISMATCH.
+   */
   run?: ReadonlySet<number>;
 };
 
@@ -83,7 +86,7 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
 
   // 7. Recorded times, the age limits, then the prompt.
   const t: RecordedTimes | undefined = input.recordedTs;
-  if (typeof t !== "object" || t === null || last.ts !== t.last || (t.run !== undefined && !t.run.has(first.ts))) {
+  if (typeof t !== "object" || t === null || last.ts !== t.last || !inRunTimes(t.run, first.ts)) {
     return reject("TIME_MISMATCH");
   }
   const runMax = cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS;
@@ -109,4 +112,9 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
 
   // 11. Route proven against the root.
   return checkRoute(stamps, input.receiverInRoute ? input.receiver : undefined, readOrUndefined(input.proof), cfg);
+}
+
+/** Whether `ts` is one of `run`, the run's recorded start times, or `run` is absent; never when it is not a Set. */
+function inRunTimes(run: unknown, ts: number): boolean {
+  return run === undefined || (run instanceof Set && run.has(ts));
 }
