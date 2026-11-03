@@ -20,26 +20,29 @@ import (
 // name: an address, a load balancer's name, or a name inside another network. The name a call's stamp
 // is addressed to is the deployment's configuration, never something the request or the destination
 // says, so it is kept in a table the operator writes. Build one with [NewReceivers], which keeps each
-// host in lower case, as [Receivers.Name] looks it up; the zero Receivers maps nothing. A Receivers never
-// changes once built.
+// host with its ASCII letters in lower case, as [Receivers.Name] looks it up; the zero Receivers maps
+// nothing. A host holding a byte outside ASCII has no name. A Receivers never changes once built.
 type Receivers struct {
-	byHost map[string]string // each host, in lower case, to its policy name
+	byHost map[string]string // each host, its ASCII letters in lower case, to its policy name
 }
 
 // NewReceivers returns the mapping byHost gives, host to policy name, as its own copy. It refuses a
-// blank host or name; a host that [Receivers.Name] could never match, one with a port or a colon outside
-// an IPv6 address's brackets; and two hosts that differ only in case, since a host is matched in any
-// case.
+// blank host or name; a host that [Receivers.Name] could never match, one with a port, a colon outside
+// an IPv6 address's brackets, or a byte outside ASCII; and two hosts that differ only in the case of
+// their ASCII letters, since a host is matched in any case.
 func NewReceivers(byHost map[string]string) (Receivers, error) {
 	r := make(map[string]string, len(byHost))
 	for host, name := range byHost {
 		if blank(host) || blank(name) {
 			return Receivers{}, errors.New("paztport http: a receiver's host and policy name must not be blank")
 		}
+		if !isASCII(host) {
+			return Receivers{}, errors.New("paztport http: a receiver host must be ASCII")
+		}
 		if hostOf(host) != host {
 			return Receivers{}, errors.New("paztport http: a receiver host must be a host alone, with no port")
 		}
-		key := strings.ToLower(host)
+		key := lowerASCII(host)
 		if _, dup := r[key]; dup {
 			return Receivers{}, errors.New("paztport http: a receiver host is listed twice, in different cases")
 		}
@@ -53,18 +56,45 @@ func blank(s string) bool {
 	return strings.TrimFunc(s, unicode.IsSpace) == ""
 }
 
-// Name returns the receiver's policy name for a call to host, which may carry a port: the name the host
-// is mapped to, or, when it is mapped to none, the host itself in lower case. The port is ignored, and the
-// host matched in any case, as DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets
-// ("[::1]:8443" is the host "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name
-// is also the call's target: its response must be stamped by it, and what the response adds to the
-// influence comes from "http:<name>".
-func (r Receivers) Name(host string) string {
-	host = strings.ToLower(hostOf(host))
-	if name, ok := r.byHost[host]; ok {
-		return name
+// isASCII reports whether every byte of s is below 0x80.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
 	}
-	return host
+	return true
+}
+
+// lowerASCII returns s with its ASCII letters A to Z in lower case, and every other byte as it is.
+func lowerASCII(s string) string {
+	b := []byte(s)
+	for i, c := range b {
+		if 'A' <= c && c <= 'Z' {
+			b[i] = c + ('a' - 'A')
+		}
+	}
+	return string(b)
+}
+
+// Name returns the receiver's policy name for a call to host, which may carry a port, and whether the
+// host has one. A host holding a byte outside ASCII has no name, mapped or not, and the call is not
+// stamped. Otherwise the name is the one the host is mapped to or, when it is mapped to none, the host
+// itself with its ASCII letters in lower case. The port is ignored, and the host matched in any case, as
+// DNS matches it, but otherwise exactly: an IPv6 address keeps its brackets ("[::1]:8443" is the host
+// "[::1]") and a trailing dot is kept, so "orders." is not "orders". The name is also the call's target:
+// its response must be stamped by it, and what the response adds to the influence comes from
+// "http:<name>".
+func (r Receivers) Name(host string) (string, bool) {
+	host = hostOf(host)
+	if !isASCII(host) {
+		return "", false
+	}
+	host = lowerASCII(host)
+	if name, ok := r.byHost[host]; ok {
+		return name, true
+	}
+	return host, true
 }
 
 // hostOf returns hostport without its port: up to and including the closing bracket of an IPv6 address,

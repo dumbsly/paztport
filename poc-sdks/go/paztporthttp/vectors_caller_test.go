@@ -222,7 +222,11 @@ func stampCallerCase(
 	if err != nil {
 		t.Fatalf("the call's body: %v", err)
 	}
-	o, err := caller.Stamp(call.Get("method").Str(), target, receivers.Name(authority), body,
+	name, named := receivers.Name(authority)
+	if !named {
+		t.Fatalf("the call's host %q has no receiver name", authority)
+	}
+	o, err := caller.Stamp(call.Get("method").Str(), target, name, body,
 		chainOf(c.Get("inbound")), entries(c.Get("influence")))
 	if err != nil {
 		t.Fatalf("Stamp: %v", err)

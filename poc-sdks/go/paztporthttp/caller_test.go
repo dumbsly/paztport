@@ -48,18 +48,51 @@ func TestReceiversName(t *testing.T) {
 		"pay.internal.example": "pay.internal.example",
 		"":                     "",
 	} {
-		if got := r.Name(host); got != want {
-			t.Errorf("Name(%q) = %q, want %q", host, got, want)
+		if got, ok := r.Name(host); !ok || got != want {
+			t.Errorf("Name(%q) = %q, %t, want %q, true", host, got, ok, want)
 		}
 	}
 	var none paztporthttp.Receivers
-	if got := none.Name("payment:8443"); got != "payment" {
-		t.Errorf("with no mapping, Name = %q, want payment", got)
+	if got, ok := none.Name("payment:8443"); !ok || got != "payment" {
+		t.Errorf("with no mapping, Name = %q, %t, want payment, true", got, ok)
 	}
 }
 
-// TestNewReceiversRefuses refuses a blank host or name, two hosts differing only in case, and a host Name
-// could never match, one with a port or an unbracketed colon, naming the problem but never the host.
+// TestReceiversNameUnmappedASCII lower-cases only ASCII letters of an unmapped host, and a mapped host is
+// found by its ASCII lower case alone.
+func TestReceiversNameUnmappedASCII(t *testing.T) {
+	r, err := paztporthttp.NewReceivers(map[string]string{"kafka": "broker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for host, want := range map[string]string{
+		"Catalogue.Internal:80": "catalogue.internal",
+		"KAFKA":                 "broker",
+		"[FE80::A]":             "[fe80::a]",
+	} {
+		if got, ok := r.Name(host); !ok || got != want {
+			t.Errorf("Name(%q) = %q, %t, want %q, true", host, got, ok, want)
+		}
+	}
+}
+
+// TestReceiversNameRefusesNonASCII gives no name to a host holding a byte outside ASCII, mapped or not,
+// whatever Unicode would fold it to: the Kelvin sign is not the letter K.
+func TestReceiversNameRefusesNonASCII(t *testing.T) {
+	r, err := paztporthttp.NewReceivers(map[string]string{"kafka": "broker"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range []string{"\u212Aafka", "\u212Aafka:9092", "caf\u00e9", "[\u212A::1]", "pay\xff", "\u00c9"} {
+		if got, ok := r.Name(host); ok || got != "" {
+			t.Errorf("Name(%q) = %q, %t, want no name", host, got, ok)
+		}
+	}
+}
+
+// TestNewReceiversRefuses refuses a blank host or name, two hosts differing only in case, a host Name
+// could never match, one with a port, an unbracketed colon or a byte outside ASCII, naming the problem but
+// never the host.
 func TestNewReceiversRefuses(t *testing.T) {
 	for _, m := range []map[string]string{
 		{"": "payment"},
@@ -71,14 +104,18 @@ func TestNewReceiversRefuses(t *testing.T) {
 		{"pay.internal:": "payment"},
 		{"[pay.internal]:8443": "payment"},
 		{"pay.internal::1": "payment"},
+		{"\u212Aafka": "broker"},
+		{"caf\u00e9": "cafe"},
 	} {
 		r, err := paztporthttp.NewReceivers(m)
 		if err == nil {
 			t.Errorf("NewReceivers(%q) = %v", m, r)
 			continue
 		}
-		if strings.Contains(strings.ToLower(err.Error()), "pay.internal") {
-			t.Errorf("the error %q echoes the host", err)
+		for host := range m {
+			if strings.TrimSpace(host) != "" && strings.Contains(err.Error(), host) {
+				t.Errorf("the error %q echoes the host", err)
+			}
 		}
 	}
 }
@@ -91,7 +128,7 @@ func TestNewReceiversCopies(t *testing.T) {
 		t.Fatal(err)
 	}
 	m["pay.internal"] = "other"
-	if got := r.Name("pay.internal"); got != "payment" {
+	if got, _ := r.Name("pay.internal"); got != "payment" {
 		t.Fatalf("after the map changed, Name = %q", got)
 	}
 }
