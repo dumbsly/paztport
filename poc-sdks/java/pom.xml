@@ -38,7 +38,7 @@
         <maven.compiler.release>25</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <spring.boot.version>4.1.1</spring.boot.version>
+        <spring.boot.version>4.1.2</spring.boot.version>
         <!-- The repository root, which holds LICENSE, NOTICE and licenses/. Both Maven trees, this one and
              poc-demos/java-mesh (whose parent is this pom), sit two directories below it. Maven sets
              maven.multiModuleProjectDirectory to the nearest directory holding .mvn/, so each tree's empty

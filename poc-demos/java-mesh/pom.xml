@@ -40,9 +40,9 @@
     <dependencyManagement>
         <dependencies>
             <!-- docker-java 3.4.0 (responder only) pulls in old versions of these
-                 with published CVEs (Guava 19.0, Commons Compress 1.21, Bouncy Castle
-                 1.76), and Spring Boot manages none of them, so later releases are
-                 pinned here. -->
+                 with published CVEs (Guava 19.0, Commons Compress 1.21, Commons IO 2.13.0,
+                 Bouncy Castle 1.76), and Spring Boot manages none of them, so later
+                 releases are pinned here. -->
             <dependency>
                 <groupId>com.google.guava</groupId>
                 <artifactId>guava</artifactId>
@@ -52,6 +52,11 @@
                 <groupId>org.apache.commons</groupId>
                 <artifactId>commons-compress</artifactId>
                 <version>1.28.0</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>2.22.0</version>
             </dependency>
             <dependency>
                 <groupId>org.bouncycastle</groupId>
