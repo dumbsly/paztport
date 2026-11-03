@@ -143,8 +143,11 @@ describe("verifyChainOffline", () => {
     // a run with no record has no times to compare, and no prompt either
     expect(verifyChainOffline(w.input(w.chain(), { recordedTs: { last: STEP_TS } }), w.cfg()).reason).toBe("OK");
     expect(verifyChainOffline(w.input(w.chain(), { recordedTs: { last: STEP_TS }, prompt: undefined }), w.cfg()).reason).toBe("PROMPT_MISMATCH");
-    // with no recorded times nothing is compared
-    expect(verifyChainOffline(w.input(w.chain({ ts: 99 }, { ts: 98 }), { recordedTs: undefined }), w.cfg()).reason).toBe("OK");
+    // a record with no recorded time fails, whatever the chain's times; so does one that is not an object
+    for (const recordedTs of [undefined, null, 5, "t"]) {
+      const bad = w.input(w.chain(), { recordedTs: recordedTs as never });
+      expect(verifyChainOffline(bad, w.cfg()).reason, String(recordedTs)).toBe("TIME_MISMATCH");
+    }
   });
 
   it("theOriginBindsTheRunsPrompt", () => {
@@ -188,7 +191,7 @@ describe("verifyChainOffline", () => {
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ seen })).reason).toBe("OK");
     // however much later it was recorded, the same key again is a replay
     const later = w.chain({ ts: STEP_TS + 3_600_000 });
-    expect(verifyChainOffline(w.input(later, { recordedTs: { last: STEP_TS + 3_600_000 } }), w.cfg({ seen })).reason).toBe("REPLAY");
+    expect(verifyChainOffline(w.input(later, { recordedTs: { last: STEP_TS + 3_600_000 } }), w.cfg({ seen, runMaxAgeMs: 7_200_000 })).reason).toBe("REPLAY");
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ seen, nonceKey: "rid-1|call-2|local" })).reason).toBe("OK");
     expect([...seen]).toEqual(["rid-1|call-1|local", "rid-1|call-2|local"]);
   });
@@ -284,9 +287,21 @@ describe("verifyChainOffline", () => {
     // and its origin is no more than the call window after it
     expect(at(RUN_TS + 5_000, RUN_TS)).toBe("OK");
     expect(at(RUN_TS + 5_001, RUN_TS)).toBe("EXPIRED");
-    // without bounds a recorded chain has no age limit
-    const o = w.origin({ ts: RUN_TS });
-    expect(verifyChainOffline(w.input([o, w.step(o, { ts: RUN_TS + 9e9 })], { recordedTs: { last: RUN_TS + 9e9 } }), w.cfg()).reason).toBe("OK");
+    // no bounds configured, each limit is its live default, independently
+    const bare = (originTs: number, stepTs: number, over: Partial<OfflineConfig> = {}) => {
+      const o = w.origin({ ts: originTs });
+      return verifyChainOffline(w.input([o, w.step(o, { ts: stepTs })], { recordedTs: { last: stepTs } }), w.cfg(over)).reason;
+    };
+    expect(bare(RUN_TS, RUN_TS + 1_800_000)).toBe("OK");
+    expect(bare(RUN_TS, RUN_TS + 1_800_001)).toBe("EXPIRED");
+    expect(bare(RUN_TS + 5_000, RUN_TS)).toBe("OK");
+    expect(bare(RUN_TS + 5_001, RUN_TS)).toBe("EXPIRED");
+    expect(bare(RUN_TS, RUN_TS + 9e9)).toBe("EXPIRED");
+    // one limit configured leaves the other at its default
+    expect(bare(RUN_TS, RUN_TS + 1_800_001, { callMaxAgeMs: 5_000 })).toBe("EXPIRED");
+    expect(bare(RUN_TS + 5_001, RUN_TS, { runMaxAgeMs: 1_800_000 })).toBe("EXPIRED");
+    expect(bare(RUN_TS, RUN_TS + 9e9, { runMaxAgeMs: 9e9 })).toBe("OK");
+    expect(bare(RUN_TS + 9, RUN_TS, { callMaxAgeMs: 9 })).toBe("OK");
     // a bound that isn't finite fails closed, as the live window does
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ runMaxAgeMs: NaN, callMaxAgeMs: 5_000 })).reason).toBe("EXPIRED");
     expect(verifyChainOffline(w.input(w.chain()), w.cfg({ runMaxAgeMs: 1_800_000, callMaxAgeMs: Infinity })).reason).toBe("EXPIRED");

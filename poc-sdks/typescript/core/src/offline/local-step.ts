@@ -62,7 +62,8 @@ function within(window: number, at: number): boolean {
  * 2. its chain, by the offline chain verifier with `signers` (the origin service then the client hop, both on the
  *    client's one instance), `sess = ""`, the client's root and keyring, the receiver `local:<tool>` in the route and
  *    the nonce key `<rid>|<callId>|local`, spent in `seen`; an unproven route is how the gate's refusal of an unlisted
- *    tool verifies, so PATH_NOT_ALLOWED goes on;
+ *    tool verifies, so PATH_NOT_ALLOWED goes on; the step is within `cfg.runMaxAgeMs` of the run's origin and the
+ *    origin within `cfg.callMaxAgeMs` of it, each limit its live default when omitted (EXPIRED);
  * 3. at the step's `ts`, the client's root and keyring are no later than their `notAfter` (POLICY_EXPIRED);
  * 4. the route verdict and proof it recorded are what its chain proves (PROOF_MISMATCH);
  * 5. the rules hash it signed is the client's (RULES_MISMATCH);
@@ -72,7 +73,11 @@ function within(window: number, at: number): boolean {
  */
 export function verifyRecordedLocalStep(
   step: RecordedLocalStep,
-  cfg: { client: LocalStepClient; signers: Signers; run?: RecordedRun; seen: Set<string> },
+  cfg: {
+    client: LocalStepClient; signers: Signers; run?: RecordedRun; seen: Set<string>;
+    /** The age limits of check 7 of the chain; each one omitted is its live default. */
+    runMaxAgeMs?: number; callMaxAgeMs?: number;
+  },
 ): LocalStepResult {
   const { client, signers, run } = cfg;
   const fail = (reason: ReasonCode): LocalStepResult => ({ reason });
@@ -111,6 +116,8 @@ export function verifyRecordedLocalStep(
       seen: cfg.seen,
       nonceKey: `${step.rid}|${step.callId}|local`,
       signers,
+      ...(cfg.runMaxAgeMs !== undefined ? { runMaxAgeMs: cfg.runMaxAgeMs } : {}),
+      ...(cfg.callMaxAgeMs !== undefined ? { callMaxAgeMs: cfg.callMaxAgeMs } : {}),
     },
   );
   if (chain.reason !== "OK" && chain.reason !== "PATH_NOT_ALLOWED") {

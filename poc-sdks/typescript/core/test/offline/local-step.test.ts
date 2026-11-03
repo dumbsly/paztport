@@ -236,4 +236,22 @@ describe("verifyRecordedLocalStep", () => {
     expect(verifyRecordedLocalStep(w.step(), { client: w.client(), signers: SIGNERS, run: { prompt: "another", ts: new Set([RUN_TS]) }, seen: new Set() }).reason).toBe("PROMPT_MISMATCH");
     expect(verifyRecordedLocalStep(w.step(), { client: w.client(), signers: SIGNERS, seen: new Set() }).reason).toBe("PROMPT_MISMATCH");
   });
+
+  // "each limit not configured is its live default": the step within the run's lifetime of its origin, the origin
+  // not more than the call window after it
+  it("aStepMoreThanThirtyMinutesIntoItsRunIsExpired", () => {
+    const w = world();
+    const at = (originTs: number, stepTs: number, limits: { runMaxAgeMs?: number; callMaxAgeMs?: number } = {}) => {
+      const s = w.step({}, { ts: stepTs, originOver: { ts: originTs } });
+      return verifyRecordedLocalStep(s, { client: w.client(), signers: SIGNERS, run: { prompt: PROMPT, ts: new Set([originTs]) }, seen: new Set(), ...limits }).reason;
+    };
+    expect(at(RUN_TS, RUN_TS + 1_800_000)).toBe("OK");
+    expect(at(RUN_TS, RUN_TS + 1_800_001)).toBe("EXPIRED");
+    expect(at(RUN_TS + 5_000, RUN_TS)).toBe("OK");
+    expect(at(RUN_TS + 5_001, RUN_TS)).toBe("EXPIRED");
+    // configured limits replace the defaults, each on its own
+    expect(at(RUN_TS, RUN_TS + 1_800_001, { runMaxAgeMs: 1_800_001 })).toBe("OK");
+    expect(at(RUN_TS + 5_001, RUN_TS, { callMaxAgeMs: 5_001 })).toBe("OK");
+    expect(at(RUN_TS, RUN_TS + 11, { runMaxAgeMs: 10 })).toBe("EXPIRED");
+  });
 });

@@ -7,7 +7,7 @@ import {
   checkCommitments, checkRoute, checkStamps, readOrUndefined, reject, type Signers,
 } from "../internal/chain-checks.ts";
 import type { VerifyResult } from "../verify/reason.ts";
-import type { VerifierConfig, VerifyInput } from "../verify/verify-chain.ts";
+import { CALL_MAX_AGE_MS, RUN_MAX_AGE_MS, type VerifierConfig, type VerifyInput } from "../verify/verify-chain.ts";
 
 export type { Signers };
 
@@ -22,8 +22,8 @@ export type RecordedTimes = {
 export type OfflineInput = Omit<VerifyInput, "peer"> & {
   /** The rid the record files the chain under: every stamp must carry it. Defaults to the origin's. */
   rid?: string;
-  /** Omitted, no time is compared. */
-  recordedTs?: RecordedTimes;
+  /** The times the record gives. A record with none (absent at run time) fails check 7 with TIME_MISMATCH. */
+  recordedTs: RecordedTimes;
   /** The run's recorded prompt, which the origin must bind; undefined when the run has none or it is in dispute. */
   prompt?: string;
 };
@@ -36,9 +36,9 @@ export type OfflineConfig = Pick<
   /** For a chain that never leaves one process, such as a client's local steps: who signs it and from which instance. */
   signers?: Signers;
   /**
-   * The live window's limits that need no clock, for a chain the live verifier checked at its last stamp's time
-   * (a recorded call): the last stamp is at most `runMaxAgeMs` after the origin, and the origin at most
-   * `callMaxAgeMs` after the last stamp. Omitted, the chain's age is not limited.
+   * The live window's limits that need no clock: the last stamp is at most `runMaxAgeMs` after the origin, and the
+   * origin at most `callMaxAgeMs` after the last stamp. Each one not configured is its live default
+   * (`RUN_MAX_AGE_MS`, `CALL_MAX_AGE_MS`), so a chain's age is never unlimited; one that is not finite is EXPIRED.
    */
   runMaxAgeMs?: number;
   callMaxAgeMs?: number;
@@ -60,8 +60,9 @@ export type OfflineResult = VerifyResult;
  * 6. every stamp is in the session (SESSION_UNKNOWN);
  * 7. in place of the live freshness window, which has no clock to be fresh against offline: the last stamp's
  *    time is the one recorded with it, and the origin's is one of the run's recorded times (TIME_MISMATCH);
- *    with age limits, the last stamp is within the run's lifetime of the origin, and the origin not more than
- *    the call window after it (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
+ *    a record with no recorded time is TIME_MISMATCH; then the last stamp is within the run's lifetime of the
+ *    origin, and the origin not more than the call window after it, each limit its configured one or its live
+ *    default (EXPIRED); then the origin binds the run's recorded prompt (PROMPT_MISMATCH);
  * 8. the last stamp binds `expectedBind` (BINDING_MISMATCH);
  * 9. and commits to the influence its token holds (INFLUENCE_MISMATCH);
  * 10. its nonce key has not been spent anywhere in the record set (REPLAY), which a live cache that forgets
@@ -69,7 +70,6 @@ export type OfflineResult = VerifyResult;
  * 11. the route, the chain's services then the receiver when `receiverInRoute`, is proven against the root by the
  *     proof its token holds (PATH_NOT_ALLOWED).
  * Checks 1 to 6, 8, 9 and 11 are the live verifier's own code.
- * Omitting `recordedTs` skips the recorded-time check (TIME_MISMATCH), leaving only `cfg`'s age limits on the times.
  */
 export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): OfflineResult {
   // 1-6. Parse, delimiter, origin, signatures and links then the receivers, the record's rid, session.
@@ -82,16 +82,14 @@ export function verifyChainOffline(input: OfflineInput, cfg: OfflineConfig): Off
   const last = stamps[stamps.length - 1]!;
 
   // 7. Recorded times, the age limits, then the prompt.
-  const t = input.recordedTs;
-  if (t !== undefined && (last.ts !== t.last || (t.run !== undefined && !t.run.has(first.ts)))) {
+  const t: RecordedTimes | undefined = input.recordedTs;
+  if (typeof t !== "object" || t === null || last.ts !== t.last || (t.run !== undefined && !t.run.has(first.ts))) {
     return reject("TIME_MISMATCH");
   }
-  if (cfg.runMaxAgeMs !== undefined || cfg.callMaxAgeMs !== undefined) {
-    const runMax = cfg.runMaxAgeMs ?? Number.NaN;
-    const callMax = cfg.callMaxAgeMs ?? Number.NaN;
-    if (![runMax, callMax].every(Number.isFinite) || last.ts - first.ts > runMax || first.ts - last.ts > callMax) {
-      return reject("EXPIRED");
-    }
+  const runMax = cfg.runMaxAgeMs ?? RUN_MAX_AGE_MS;
+  const callMax = cfg.callMaxAgeMs ?? CALL_MAX_AGE_MS;
+  if (![runMax, callMax].every(Number.isFinite) || last.ts - first.ts > runMax || first.ts - last.ts > callMax) {
+    return reject("EXPIRED");
   }
   if (input.prompt === undefined || !isWellFormed(input.prompt) || first.bind !== bindPrompt(input.prompt)) {
     return reject("PROMPT_MISMATCH");

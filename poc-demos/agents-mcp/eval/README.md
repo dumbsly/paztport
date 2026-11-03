@@ -213,7 +213,7 @@ Most results are the protocol's own: the Paztport SDK gives them, as [the spec's
 | `BAD_ORIGIN` | call, response, local | The chain starts at a service that is not its origin, or, for a local step, on another instance than `pi-1`. |
 | `BAD_SIGNATURE` | call, response, local | A key is unknown or a signature fails; for a local step, a stamp not by `session` then `pi` on `pi-1`. |
 | `BROKEN_LINK` | call, response, local | A stamp does not follow the one before it. |
-| `EXPIRED` | call, response | A call outside the run's age limits, or a response outside the freshness window at the time the client checked it. |
+| `EXPIRED` | call, local step, response | A call or local step outside the run's age limits (30 minutes into the run, or an origin more than 5 seconds after the step), or a response outside the freshness window at the time the client checked it. |
 | `RID_MISMATCH` | call, response, local | A stamp names another run, or the chain names another call id than the record. |
 | `BINDING_MISMATCH` | call, response, local | A stamp names the wrong next hop, or the chain is not bound to what the record holds; for a local step also a decision that does not read. |
 | `REPLAY` | call, response, local | The call, response or step appears earlier in the file. |
