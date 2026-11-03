@@ -4,7 +4,8 @@
 package verify_test
 
 import (
-	"math"
+	"fmt"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -18,7 +19,9 @@ import (
 
 // TestVectors replays v3.json's verify cases. Each builds its Config directly, with a fixed clock and a
 // fresh MemoryNonceCache of the case's nonceTtlMs, runs the verifier uses times against that one cache,
-// and expects the last result. A case reads only its tokens, never the readable values beside them.
+// and expects the last result. A case reads only its tokens, never the readable values beside them. A case
+// that carries keyrings or roots gives the pinning factory's policyNotAfter for them: the earlier of the
+// latest keyring notAfter and the latest root notAfter.
 func TestVectors(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	cases := v3.Get("verify")
@@ -28,6 +31,13 @@ func TestVectors(t *testing.T) {
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
+			if c.Has("keyrings") || c.Has("roots") {
+				policyNotAfter := c.Get("policyNotAfter").Int()
+				got := pinnedNotAfter(keyrings(t, c, policyNotAfter), roots(t, v3.With(t), c, policyNotAfter))
+				if got != policyNotAfter {
+					t.Fatalf("the members give policyNotAfter %d, the case %d", got, policyNotAfter)
+				}
+			}
 			got := replay(t, v3.With(t), c)
 			want := expected(c)
 			if got != want {
@@ -45,8 +55,7 @@ func TestVectors(t *testing.T) {
 // policy's root written as the arrays, each member until the case's policyNotAfter, gives its recorded answer, with its
 // keyring whole or split one service to a keyring. And what the arrays pin is what is used: without the
 // keyring that holds a signer's key the chain is BAD_SIGNATURE, and with another policy's root in place of
-// the one the proof comes from it is PATH_NOT_ALLOWED; so it is under a root past its window, or with
-// none, which live is never current.
+// the one the proof comes from it is PATH_NOT_ALLOWED; so it is under a root past its window.
 func TestVectorsReadTheOptionalArrays(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	v3.Get("verify").Each(func(name string, c vectors.Node) {
@@ -96,11 +105,81 @@ func TestVectorsReadTheOptionalArrays(t *testing.T) {
 	if got := replay(t, v3, lapsed); got.Reason != reason.PathNotAllowed {
 		t.Errorf("under a root past its window: Verify = %+v, want PATH_NOT_ALLOWED", got)
 	}
-	timeless := asArrays(ok, window, false).Rewrite([]string{"roots"},
-		vectors.Member{Name: "roots", Text: `[{"policy": "client"}]`})
-	if got := replay(t, v3, timeless); got.Reason != reason.PathNotAllowed {
-		t.Errorf("under a root with no window: Verify = %+v, want PATH_NOT_ALLOWED", got)
+}
+
+// TestVectorsRefuseALiveMemberWithNoWindow checks that the replay stops at a verify case whose keyring or
+// root has no notAfter, a shape the format gives only offline cases, rather than pinning it with a window
+// of its own choosing.
+func TestVectorsRefuseALiveMemberWithNoWindow(t *testing.T) {
+	v3 := vectors.Load(t, "v3.json")
+	var ok vectors.Node
+	v3.Get("verify").Each(func(name string, c vectors.Node) {
+		if name == "mcp call ok" {
+			ok = c
+		}
+	})
+	window := string(ok.Get("policyNotAfter").Raw())
+	single := ok.Get("policyNotAfter").Int()
+	arrays := asArrays(ok, window, false)
+	keyringless := arrays.Rewrite([]string{"keyrings"},
+		vectors.Member{Name: "keyrings", Text: `[{"keyring": ` + string(ok.Get("keyring").Raw()) + `}]`})
+	rootless := arrays.Rewrite([]string{"roots"},
+		vectors.Member{Name: "roots", Text: `[{"policy": ` + string(ok.Get("policy").Raw()) + `}]`})
+	for _, tt := range []struct {
+		name string
+		pin  func(tb testing.TB)
+		want string
+	}{
+		{"a keyring", func(tb testing.TB) { keyrings(tb, keyringless.With(tb), single) }, "keyrings[0] has no"},
+		{"a root", func(tb testing.TB) { roots(tb, v3.With(tb), rootless.With(tb), single) }, "roots[0] has no"},
+	} {
+		if got := fatal(t, tt.pin); !strings.Contains(got, tt.want) {
+			t.Errorf("%s with no notAfter: the replay failed with %q, want %q", tt.name, got, tt.want)
+		}
 	}
+}
+
+// stopped stands in for a test so a check can watch a helper fail one.
+type stopped struct {
+	testing.TB
+	message string
+}
+
+func (s *stopped) Helper() {}
+
+func (s *stopped) Fatalf(format string, args ...any) {
+	s.message = fmt.Sprintf(format, args...)
+	runtime.Goexit()
+}
+
+// fatal runs f against a stand-in test and returns the message f stopped it with, or "" when it did not.
+func fatal(t *testing.T, f func(tb testing.TB)) string {
+	t.Helper()
+	s := &stopped{TB: t}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		f(s)
+	}()
+	<-done
+	return s.message
+}
+
+// pinnedNotAfter returns what the pinning factory gives for keyrings and roots: the earlier of the latest
+// keyring notAfter and the latest root notAfter.
+func pinnedNotAfter(keyrings []verify.PinnedKeyring, roots []verify.PinnedRoot) int64 {
+	var latestKeyring, latestRoot int64
+	for i, k := range keyrings {
+		if i == 0 || k.NotAfter > latestKeyring {
+			latestKeyring = k.NotAfter
+		}
+	}
+	for i, r := range roots {
+		if i == 0 || r.NotAfter > latestRoot {
+			latestRoot = r.NotAfter
+		}
+	}
+	return min(latestKeyring, latestRoot)
 }
 
 // replay runs case c of v3.json's verify section and returns the last result.
@@ -108,10 +187,9 @@ func replay(t *testing.T, v3, c vectors.Node) verify.Result {
 	t.Helper()
 	p := v3.Get("policies").Get(c.Get("policy").Str())
 	now, policyNotAfter := c.Get("now").Int(), c.Get("policyNotAfter").Int()
-	// A live member always has a window: one without is never current.
 	cfg := verify.Config{
-		Keyrings:       keyrings(t, c, policyNotAfter, math.MinInt64),
-		Roots:          roots(t, v3, c, policyNotAfter, math.MinInt64),
+		Keyrings:       keyrings(t, c, policyNotAfter),
+		Roots:          roots(t, v3, c, policyNotAfter),
 		PolicyNotAfter: policyNotAfter,
 		AllowedOrigins: c.Get("allowedOrigins").Strs(),
 		Sess:           c.Get("sess").Str(),
@@ -161,8 +239,8 @@ func expected(c vectors.Node) verify.Result {
 }
 
 // keyrings returns the keyrings case c pins: its keyrings, which replace keyring, each until its own
-// notAfter or absent when it gives none; otherwise its one keyring, until single.
-func keyrings(t *testing.T, c vectors.Node, single, absent int64) []verify.PinnedKeyring {
+// notAfter, which a live member always has; otherwise its one keyring, until single.
+func keyrings(t testing.TB, c vectors.Node, single int64) []verify.PinnedKeyring {
 	t.Helper()
 	if !c.Has("keyrings") {
 		return []verify.PinnedKeyring{{Keys: keyring(t, c.Get("keyring")), NotAfter: single}}
@@ -171,29 +249,32 @@ func keyrings(t *testing.T, c vectors.Node, single, absent int64) []verify.Pinne
 		t.Fatal("the case gives keyrings and keyring, which keyrings replace")
 	}
 	var out []verify.PinnedKeyring
-	c.Get("keyrings").Each(func(_ string, k vectors.Node) {
-		out = append(out, verify.PinnedKeyring{Keys: keyring(t, k.Get("keyring")), NotAfter: window(k, absent)})
-	})
+	for i := range c.Get("keyrings").Len() {
+		k := c.Get("keyrings").Index(i)
+		notAfter := window(t, k, "keyrings", i)
+		out = append(out, verify.PinnedKeyring{Keys: keyring(t, k.Get("keyring")), NotAfter: notAfter})
+	}
 	return out
 }
 
-// roots returns the roots case c pins: its roots, each a policy's root until its own notAfter or absent
-// when it gives none; otherwise its policy's root, until single. With roots, policy names only where the
-// case's proof comes from.
-func roots(t *testing.T, v3, c vectors.Node, single, absent int64) []verify.PinnedRoot {
+// roots returns the roots case c pins: its roots, each a policy's root until its own notAfter, which a
+// live member always has; otherwise its policy's root, until single. With roots, policy names only where
+// the case's proof comes from.
+func roots(t testing.TB, v3, c vectors.Node, single int64) []verify.PinnedRoot {
 	t.Helper()
 	if !c.Has("roots") {
 		return []verify.PinnedRoot{pinnedRoot(t, v3, c.Get("policy").Str(), single)}
 	}
 	var out []verify.PinnedRoot
-	c.Get("roots").Each(func(_ string, r vectors.Node) {
-		out = append(out, pinnedRoot(t, v3, r.Get("policy").Str(), window(r, absent)))
-	})
+	for i := range c.Get("roots").Len() {
+		r := c.Get("roots").Index(i)
+		out = append(out, pinnedRoot(t, v3, r.Get("policy").Str(), window(t, r, "roots", i)))
+	}
 	return out
 }
 
 // keyring returns the keyring ring names: each service to the vector key of the name it maps to.
-func keyring(t *testing.T, ring vectors.Node) policy.Keyring {
+func keyring(t testing.TB, ring vectors.Node) policy.Keyring {
 	t.Helper()
 	k := policy.Keyring{}
 	for _, svc := range ring.Names() {
@@ -204,7 +285,7 @@ func keyring(t *testing.T, ring vectors.Node) policy.Keyring {
 }
 
 // pinnedRoot returns the root of v3.json's policy name, until notAfter.
-func pinnedRoot(t *testing.T, v3 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
+func pinnedRoot(t testing.TB, v3 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
 	t.Helper()
 	p := v3.Get("policies").Get(name)
 	root, err := b64.Decode(p.Get("root").Str())
@@ -214,10 +295,11 @@ func pinnedRoot(t *testing.T, v3 vectors.Node, name string, notAfter int64) veri
 	return verify.PinnedRoot{Root: root, RootID: p.Get("rootId").Str(), NotAfter: notAfter}
 }
 
-// window returns member m's notAfter, or absent when it gives none.
-func window(m vectors.Node, absent int64) int64 {
+// window returns live member i of the case's array name: its notAfter, failing t when it gives none.
+func window(t testing.TB, m vectors.Node, name string, i int) int64 {
+	t.Helper()
 	if !m.Has("notAfter") {
-		return absent
+		t.Fatalf("%s[%d] has no notAfter: a live member always has a window", name, i)
 	}
 	return m.Get("notAfter").Int()
 }
