@@ -11,8 +11,9 @@
 // paztporthttp.Accepted), the request's influence so far, and the call's path and body, and returns an
 // Exchange and the first Step: a POST for the embedder to send. The embedder sends each Step as it is,
 // its path, body and headers, and passes the partner's answer to Exchange.Answer, or a handshake's
-// absence of one to Exchange.NoAnswer, which return the next step, until the exchange ends; Exchange.Result then gives its Outcome: the partner's answer, whether the
-// call went out attested, and the request's influence with that answer joined.
+// absence of one to Exchange.NoAnswer, which return the next step, until the exchange ends;
+// Exchange.Result then gives its Outcome: the partner's answer, whether the call went out attested, and
+// the request's influence with that answer joined.
 //
 // In order, as the spec's egress does:
 //
@@ -36,7 +37,9 @@
 //     alone.
 //  5. The partner does not attest what it answers, so its answer joins the request's influence as one
 //     local-untrusted entry. A 403 whose body is the refusal SESSION_UNKNOWN drops the session the call was
-//     made in, and the next call opens a new one; the refused call is not retried.
+//     made in, and the next call opens a new one; the refused call is not retried. An attested session is
+//     dropped, too, once the egress's own root or keyring has passed its notAfter, since the partner
+//     would refuse every call in it; the next call's handshake then opens an unsafe session.
 //
 // One setting is not set by the spec: Config.IdleMs, how long the egress keeps a session no call has used,
 // which the spec says should be below the partner's own idle period, so that the partner never forgets a

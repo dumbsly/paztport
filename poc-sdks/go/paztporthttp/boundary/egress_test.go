@@ -497,19 +497,36 @@ func TestHandshakeStatus(t *testing.T) {
 }
 
 // TestBeginRefusesUnstampable: a call whose influence cannot be blinded, or that cannot be stamped, is
-// refused by Begin with nothing to send, whether a session is open or not.
+// refused by Begin with nothing to send, whether no session, an attested one or an unsafe one is open.
 func TestBeginRefusesUnstampable(t *testing.T) {
 	notUTF8 := string([]byte{0xFF})
 	badInfl := []influence.Entry{{Class: influence.ThirdParty, Src: "web:" + notUTF8, H: "h"}}
-	for _, open := range []bool{false, true} {
-		f := newFixture(t, []string{"attested"}, "unsafe", ok200)
-		if open {
-			f.post(t, f.a.Influence)
+	for _, open := range []string{"", "attested", "unsafe"} {
+		handshakes := []string{"attested"}
+		if open != "" {
+			handshakes = []string{open}
+		}
+		f := newFixture(t, handshakes, "unsafe", ok200)
+		// The stamper keeps its own clock, so that it can leave a stamp's range while the egress's stays.
+		stampClock := &atomic.Int64{}
+		stampClock.Store(f.clock.Load())
+		st := *f.cfg.Stamper
+		st.Now = stampClock.Load
+		f.cfg.Stamper = &st
+		e, err := boundary.New(f.cfg)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		f.e = e
+		if open != "" {
+			if out := f.post(t, f.a.Influence); out.Attested != (open == "attested") {
+				t.Fatalf("session %q: the first call went out Attested %v", open, out.Attested)
+			}
 		}
 		before := len(f.partner.render(t))
 		x, step, err := f.e.Begin(f.a, badInfl, "/charge", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
-			t.Errorf("session open %v: Begin with influence that cannot be blinded = %v, %+v, %v; want a refusal",
+			t.Errorf("session %q: Begin with influence that cannot be blinded = %v, %+v, %v; want a refusal",
 				open, x, step, err)
 		}
 		// A stamper that cannot sign: a request id holding "|", which no stamp may carry.
@@ -518,11 +535,18 @@ func TestBeginRefusesUnstampable(t *testing.T) {
 		a.Inbound[0].RID = "rid|1"
 		x, step, err = f.e.Begin(a, nil, "/charge", charge)
 		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
-			t.Errorf("session open %v: Begin with a call that cannot be stamped = %v, %+v, %v; want a refusal",
+			t.Errorf("session %q: Begin with a call that cannot be stamped = %v, %+v, %v; want a refusal",
+				open, x, step, err)
+		}
+		// A stamper whose clock has left the range a stamp's time may hold.
+		stampClock.Store(math.MaxInt64)
+		x, step, err = f.e.Begin(f.a, f.a.Influence, "/charge", charge)
+		if err == nil || x != nil || !reflect.DeepEqual(step, boundary.Step{}) {
+			t.Errorf("session %q: Begin with a stamper's clock out of range = %v, %+v, %v; want a refusal",
 				open, x, step, err)
 		}
 		if got := f.partner.render(t); len(got) != before {
-			t.Errorf("session open %v: the partner received %q", open, got[before:])
+			t.Errorf("session %q: the partner received %q", open, got[before:])
 		}
 	}
 }
@@ -634,6 +658,80 @@ func TestOutcomeInfluence(t *testing.T) {
 	out.Influence[0].H = "changed"
 	if infl[0].H == "changed" {
 		t.Fatal("the outcome's influence shares the caller's array")
+	}
+}
+
+// TestOutcomeInfluenceAsGiven keeps the influence Begin was given as it was given, out of normalised order and
+// with a duplicate, and joins the partner's answer after it.
+func TestOutcomeInfluenceAsGiven(t *testing.T) {
+	f := newFixture(t, []string{"attested"}, "unsafe", ok200)
+	web := influence.Entry{Class: influence.ThirdParty, Src: "web:z", H: "h-2"}
+	catalogue := influence.Entry{Class: influence.Public, Src: "http:catalogue", H: "h-1"}
+	infl := []influence.Entry{web, catalogue, web}
+	if slices.Equal(influence.Normalise(infl), infl) {
+		t.Fatal("the influence is already normalised")
+	}
+	out := f.post(t, infl)
+	want := slices.Concat(infl, []influence.Entry{{
+		Class: influence.LocalUntrusted, Src: "http:psp", H: wire.ResultHash(ok200.status, ok200.body),
+	}})
+	if !slices.Equal(out.Influence, want) {
+		t.Fatalf("Influence = %+v, want %+v", out.Influence, want)
+	}
+}
+
+// TestOwnMaterialExpired: an attested session is dropped once the root or the keyring the egress presented
+// has passed its notAfter, whichever is earlier, and the next call opens a new session, which is unsafe and
+// kept; at the notAfter itself the attested session is kept.
+func TestOwnMaterialExpired(t *testing.T) {
+	m := vectors.RulesMaterial(t, vectors.Rules(t).Get("egress").Index(0).Get("egress").Get("material").Str())
+	policyKey, _ := vectors.RulesKey(t, m.PolicyKey)
+	for _, earlier := range []string{"root", "keyring"} {
+		t.Run(earlier, func(t *testing.T) {
+			f := newFixture(t, []string{"attested", "unsafe"}, "unsafe", ok200, ok200, ok200)
+			start := f.clock.Load()
+			soon, later := start+10, start+20
+			rootAt, ringAt := soon, later
+			if earlier == "keyring" {
+				rootAt, ringAt = later, soon
+			}
+			b, err := f.cfg.Root.Bytes()
+			if err != nil {
+				t.Fatalf("Bytes: %v", err)
+			}
+			if f.cfg.Root, err = policy.SignRoot(b, f.cfg.Root.RootID, rootAt, policyKey); err != nil {
+				t.Fatalf("SignRoot: %v", err)
+			}
+			kf := f.cfg.Keyring
+			if f.cfg.Keyring, err = policy.SignKeyring(kf.Services, kf.Policy, ringAt, policyKey); err != nil {
+				t.Fatalf("SignKeyring: %v", err)
+			}
+			if f.e, err = boundary.New(f.cfg); err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			if out := f.post(t, f.a.Influence); !out.Attested {
+				t.Fatal("the first call did not go out attested")
+			}
+			f.clock.Store(soon)
+			x, step := f.begin(t)
+			if step.Handshake {
+				t.Fatalf("at the %s's notAfter, the call opened a new session", earlier)
+			}
+			f.run(t, x, step)
+			f.clock.Store(soon + 1)
+			x, step = f.begin(t)
+			if !step.Handshake {
+				t.Fatalf("past the %s's notAfter, the call went in the attested session", earlier)
+			}
+			if out := f.run(t, x, step); out.Attested {
+				t.Fatal("past the material's notAfter, a call went out attested")
+			}
+			// The unsafe session opened in its place is kept.
+			f.clock.Store(soon + 2)
+			if _, step = f.begin(t); step.Handshake {
+				t.Fatal("past the material's notAfter, the unsafe session was dropped")
+			}
+		})
 	}
 }
 

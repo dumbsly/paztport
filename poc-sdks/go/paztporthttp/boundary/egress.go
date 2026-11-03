@@ -60,7 +60,8 @@ type Config struct {
 	Bundle policy.ProofBundle
 	// Root and Keyring are the egress's own signed root and keyring, which every handshake presents. They
 	// are not checked here: material that does not verify under PolicyKey, or is no longer current, gives
-	// no attested session, so every call goes out in an unsafe one and its Outcome.Attested is false.
+	// no attested session, so every call goes out in an unsafe one and its Outcome.Attested is false. The
+	// egress presents the material it was built with, so renewed files need a new Egress.
 	Root    policy.Root
 	Keyring policy.KeyringFile
 	// PolicyKey is the egress's own policy public key, as base64url SubjectPublicKeyInfo: the key the
@@ -243,7 +244,8 @@ type Exchange struct {
 // blinds the influence and checks that the call can be stamped before it gives the first step, whether a
 // session is open or not. A refusal comes with no exchange and nothing to send.
 //
-// A session no call has used for Config.IdleMs is dropped here, and the call opens a new one.
+// A session no call has used for Config.IdleMs is dropped here, and so is an attested session once the
+// root or the keyring the egress presents has passed its notAfter; the call then opens a new session.
 func (e *Egress) Begin(
 	a paztporthttp.Accepted, infl []influence.Entry, path string, body []byte,
 ) (*Exchange, Step, error) {
@@ -267,7 +269,16 @@ func (e *Egress) Begin(
 		e: e, inbound: slices.Clone(a.Inbound), infl: slices.Clone(infl), path: path, body: bytes.Clone(body),
 		bind: bind, sent: sent, sentTok: sentTok, originals: influence.Normalise(infl),
 	}
-	if s := e.take(); s != nil {
+	s := e.take()
+	if s == nil || !s.attested {
+		// No attested session is open, so the call is not about to be stamped: it is stamped with a stand-in
+		// id, and the stamp dropped, so that a call that could not be stamped is refused whatever session
+		// is open, and before any handshake rather than after it.
+		if _, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, sent, e.bundle); err != nil {
+			return nil, Step{}, err
+		}
+	}
+	if s != nil {
 		x.sess = s
 		step, err := x.call()
 		if err != nil {
@@ -275,11 +286,6 @@ func (e *Egress) Begin(
 		}
 		x.phase = phaseCall
 		return x, step, nil
-	}
-	// No session is open: the call is stamped with a stand-in id, and the stamp dropped, so that a call
-	// that could not be stamped is refused before the handshake rather than after it.
-	if _, _, err := cfg.Stamper.Boundary(x.inbound, placeholderID, cfg.Partner, bind, sent, e.bundle); err != nil {
-		return nil, Step{}, err
 	}
 	step, err := x.handshake(&cfg.Root)
 	if err != nil {
@@ -472,7 +478,8 @@ func (x *Exchange) fail() (Step, bool, error) {
 }
 
 // take returns the session open with the partner, marked as used now, or nil when none is; a session no
-// call has used for IdleMs is dropped first.
+// call has used for IdleMs is dropped first, and so is an attested session once the egress's own root or
+// keyring has passed its notAfter, since the partner would refuse every call in it as POLICY_EXPIRED.
 func (e *Egress) take() *partnerSession {
 	now := e.cfg.Now()
 	e.mu.Lock()
@@ -481,7 +488,8 @@ func (e *Egress) take() *partnerSession {
 	if s == nil {
 		return nil
 	}
-	if !exact.AtMost(now, s.lastUsed, e.cfg.IdleMs-1) {
+	expired := s.attested && now > min(e.cfg.Root.NotAfter, e.cfg.Keyring.NotAfter)
+	if expired || !exact.AtMost(now, s.lastUsed, e.cfg.IdleMs-1) {
 		e.current = nil
 		return nil
 	}
