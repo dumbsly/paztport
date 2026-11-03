@@ -49,6 +49,7 @@ import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.Verifier;
 import org.paztport.http.wire.HttpWire;
+import org.paztport.http.wire.PaztportHeaders;
 import org.paztport.http.wire.RequestBinding;
 
 /**
@@ -68,7 +69,8 @@ class VectorsHttpV3Export {
             + " (seed = SHA-256(utf8(\"paztport-v3-vector-key:payment\")), the same PKCS#8 and SPKI encodings, both"
             + " base64url). resultHash maps a status and body (hex) to the result hash. requestBinding maps a method,"
             + " a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request"
-            + " binding. A responses case is a request chain `sent` from gateway to orders to payment and the"
+            + " binding. headerNames maps a header name to whether it is Paztport's: it begins with `X-Path-`, compared"
+            + " case-insensitively over ASCII. A responses case is a request chain `sent` from gateway to orders to payment and the"
             + " `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex)"
             + " with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at"
             + " `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one"
@@ -202,6 +204,15 @@ class VectorsHttpV3Export {
             o.put("target", c[1]);
             o.put("body", c[2]);
             o.put("bind", RequestBinding.compute(c[0], c[1], HexFormat.of().parseHex(c[2])));
+        }
+
+        ArrayNode headerNames = out.putArray("headerNames");
+        for (String name : new String[] {"X-Path-Chain", "x-path-chain", "X-PATH-PROOF", "X-Path-Influence",
+                "X-Path-Session", "X-Path-Response", "X-Path-Future", "X-Path-", "X-Path", "X-Pathology",
+                "X-Path_Chain", "XX-Path-Chain", "", "X\u2010Path\u2010Chain", "X-P\u0430th-Chain"}) {
+            ObjectNode o = headerNames.addObject();
+            o.put("header", name);
+            o.put("paztport", PaztportHeaders.isPaztport(name));
         }
 
         ArrayNode responses = out.putArray("responses");
@@ -361,6 +372,10 @@ class VectorsHttpV3Export {
         for (JsonNode c : http.get("requestBinding")) {
             assertEquals(c.get("bind").asText(), RequestBinding.compute(c.get("method").asText(),
                     c.get("target").asText(), HexFormat.of().parseHex(c.get("body").asText())));
+        }
+        for (JsonNode c : http.get("headerNames")) {
+            assertEquals(c.get("paztport").asBoolean(), PaztportHeaders.isPaztport(c.get("header").asText()),
+                    "header name " + c.get("header").asText());
         }
         for (JsonNode c : http.get("responses")) {
             assertResponse(c, http, core);

@@ -416,6 +416,20 @@ A request carries Paztport in three headers, each a token, the base64url of the 
 | `X-Path-Influence` | The influence entries the request was made under, as a JSON array ([sessions-and-influence.md](sessions-and-influence.md#entries)). An absent header means `[]`. The last stamp's `infl` commits to them. |
 | `X-Path-Session` | The [session id](sessions-and-influence.md#the-session-id), as plain text, on a call made in a session opened by [the handshake over HTTP](sessions-and-influence.md#over-http). Inside a mesh, which has no handshake, it is absent. An absent header means no session; one that names no live session opened by the peer is refused `SESSION_UNKNOWN`. |
 
+**Paztport's headers.** Every header whose name begins with `X-Path-` is Paztport's: the four above,
+`X-Path-Response`, and any added later. Names are compared case-insensitively over ASCII, as HTTP compares field
+names (RFC 9110 §5.1). A caller MUST send only the Paztport headers it stamped: before it sets them, it removes
+every Paztport header the call already carries, with all its values. An origin that forwards a request it
+received, such as a gateway's external processor, sends that request as its call, so it removes every Paztport
+header the client sent; and since its client is outside the request tree, it also removes every Paztport header
+from the response it passes back.
+
+Why: setting only the headers it stamped would leave the rest as the client sent them, beside a chain the origin
+signed: the client's own `X-Path-Proof` on a route this origin holds no proof for, its `X-Path-Influence` on a
+call made under none, and its `X-Path-Session` on every call. A response's `X-Path-Response` names the services
+that answered and the classes of what they read, which the client has no need to know. The rule names a prefix,
+not a list, so a header added later is covered. `http-v3.json` pins it in `headerNames`.
+
 A refusal carries no Paztport header. Its body is `{"reason":"<code>"}` and nothing else, so it never names the
 suspect to the caller ([verification.md](verification.md#modes-and-refusals)).
 
