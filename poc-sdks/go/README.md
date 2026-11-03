@@ -80,8 +80,9 @@ The packages decide; the code that embeds them carries out what they decide:
   `boundary.Step` exactly as given, an `Answer` with `Content-Type:
   application/json` and no parameters, and passes the authenticated peer:
   `paztporthttp.PeerFromCertificate` reads one from a client certificate under
-  mutual TLS. It sets each header it is given, replacing any value of that name
-  the request already carries, and never appends one.
+  mutual TLS. Before it sets each header it is given, replacing and never appending,
+  it removes every header of the request that `wire.IsPaztport` names, all values
+  (a gateway's processor also removes them from the response it passes back).
 - **Attests and checks answers.** It sends the `X-Path-Response` header that
   `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
   each response whole and passes it to `Caller.Check` before anything reads it.

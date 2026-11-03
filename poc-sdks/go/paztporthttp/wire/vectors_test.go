@@ -38,6 +38,24 @@ func TestRequestBindingVectors(t *testing.T) {
 	})
 }
 
+// TestHeaderNameVectors replays http-v3.json's header names: a header name is Paztport's when it begins
+// with X-Path-, compared case-insensitively over ASCII.
+func TestHeaderNameVectors(t *testing.T) {
+	cases := vectors.Load(t, "http-v3.json").Get("headerNames")
+	if cases.Len() == 0 {
+		t.Fatal("http-v3.json has no headerNames case")
+	}
+	cases.Each(func(name string, c vectors.Node) {
+		t.Run(name, func(t *testing.T) {
+			c := c.With(t)
+			header := c.Get("header").Str()
+			if got, want := wire.IsPaztport(header), c.Get("paztport").Bool(); got != want {
+				t.Fatalf("IsPaztport(%q) = %t, want %t", header, got, want)
+			}
+		})
+	})
+}
+
 // TestResultHashVectors replays http-v3.json's result hashes: a status and a body give the hash.
 func TestResultHashVectors(t *testing.T) {
 	cases := vectors.Load(t, "http-v3.json").Get("resultHash")

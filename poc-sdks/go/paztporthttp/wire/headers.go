@@ -43,3 +43,25 @@ func HeaderValue(v string) (string, bool) {
 	v = strings.Trim(v, " \t")
 	return v, v != ""
 }
+
+// IsPaztport reports whether name is one of Paztport's headers: it begins with X-Path-, compared
+// case-insensitively over ASCII only, so no other byte sequence folds onto the prefix. The rest of the
+// name is not read. Whoever sends a call removes every header of the request it names, all values, before
+// setting those a [Caller.Stamp] returns, and a gateway's external processor, a forwarding origin, also
+// removes them from the response it passes back.
+func IsPaztport(name string) bool {
+	const prefix = "x-path-"
+	if len(name) < len(prefix) {
+		return false
+	}
+	for i := 0; i < len(prefix); i++ {
+		c := name[i]
+		if 'A' <= c && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != prefix[i] {
+			return false
+		}
+	}
+	return true
+}

@@ -55,6 +55,32 @@ func TestHeaderNames(t *testing.T) {
 	}
 }
 
+// TestIsPaztportBytes pins the byte reading of the prefix: the suffix is never read, the prefix is ASCII
+// only, and no input panics.
+func TestIsPaztportBytes(t *testing.T) {
+	for name, tc := range map[string]struct {
+		header string
+		want   bool
+	}{
+		"suffix not read":      {"X-Path-\xff", true},
+		"bare prefix":          {"X-Path-", true},
+		"invalid lead byte":    {"\xff-Path-Chain", false},
+		"invalid byte in stem": {"X-Path\xff", false},
+		"empty":                {"", false},
+		"one byte short":       {"X-Path", false},
+		"hyphen replaced":      {"X-Path_Chain", false},
+		"non-ASCII suffix":     {"X-Path-\u212a", true},
+		"prefix not at start":  {"Y-X-Path-Chain", false},
+		"lookalike hyphen":     {"X\u2010Path-Chain", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := wire.IsPaztport(tc.header); got != tc.want {
+				t.Fatalf("IsPaztport(%q) = %t, want %t", tc.header, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestBindTargetsAsSent binds each target exactly as sent: nothing decoded or re-encoded, and only a bare
 // trailing "?", which ends an empty query, left out.
 func TestBindTargetsAsSent(t *testing.T) {

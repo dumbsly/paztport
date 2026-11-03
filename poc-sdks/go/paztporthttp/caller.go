@@ -133,8 +133,9 @@ type Caller struct {
 type Outbound struct {
 	// Headers are the headers to set on the call, in order: X-Path-Chain, then X-Path-Proof when the
 	// bundle holds a proof for the route, then X-Path-Influence when the call was made under influence.
-	// The adapter sets each one, replacing any value of that name the request already carries, and never
-	// appends one.
+	// The adapter first removes every header the request carries that [wire.IsPaztport] names, all values,
+	// then sets each one of these, replacing and never appending. A gateway's external processor also
+	// removes every such header from the response it passes back.
 	Headers []wire.Header
 	// Sent is the chain sent, ending in this call's stamp, whose rcv is the receiver's policy name: the
 	// response's target.
@@ -167,8 +168,9 @@ type Received struct {
 //
 // A gateway's external processor, an origin that stamps the requests it lets in, calls Stamp with
 // inbound and infl nil: the headers are then X-Path-Chain, holding the one origin stamp, and X-Path-Proof
-// when the bundle holds the route's proof. Whoever sends the call sets each header Stamp returns,
-// replacing any value of that name the request already carries, and never appends one.
+// when the bundle holds the route's proof. Whoever sends the call first removes every header the request
+// carries that [wire.IsPaztport] names, all values, then sets each header Stamp returns, replacing and
+// never appending; a gateway's external processor also removes them from the response it passes back.
 //
 // Stamp refuses a method or target that is not valid UTF-8, which has no binding (see [wire.Bind]), and
 // whatever the stamper refuses.
