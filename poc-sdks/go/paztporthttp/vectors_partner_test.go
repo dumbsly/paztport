@@ -18,10 +18,10 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps
-// against one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
-// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off operations
-// are refused before the handler runs.
+// TestPartnerRulesVectors replays the partner kinds of http-v3.json's rules: each case runs its steps against
+// one partner, its clock set to each step's at. A handshake is served by Sessions.ServeHandshake; a call is
+// decided by Sessions.Accept, and then, as an adapter does, an unsafe session's switched-off operations are
+// refused before the handler runs.
 func TestPartnerRulesVectors(t *testing.T) {
 	kinds := []struct {
 		name  string
