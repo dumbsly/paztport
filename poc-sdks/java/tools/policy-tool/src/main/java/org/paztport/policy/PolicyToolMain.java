@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
@@ -197,13 +198,44 @@ public final class PolicyToolMain {
             }
         }
 
-        // The key first: a keyring naming a key that was never written is worse than a key no keyring names.
+        writeRotation(nextKey, fresh.getPrivate(), nextKeyring, next);
+    }
+
+    /**
+     * Creates the two outputs, each only if absent: whatever is there by now, an output that appeared since the
+     * check in {@link #rotate}, is refused and never overwritten. The key goes first, since a keyring naming a key
+     * that was never written is worse than a key no keyring names. A failure writing the keyring removes the key
+     * this run created, so that the owner is not left to delete a private key by hand before trying again. Only
+     * files this run created are ever removed.
+     */
+    static void writeRotation(Path nextKey, PrivateKey key, Path nextKeyring, KeyringFile ring) throws IOException {
         try {
-            KeyFiles.writePrivateKey(nextKey, fresh.getPrivate());
+            KeyFiles.createPrivateKey(nextKey, key);
+        } catch (FileAlreadyExistsException e) {
+            throw new IllegalArgumentException(nextKey + " exists already; move it away first", e);
         } catch (IOException e) {
+            removeQuietly(nextKey);
             throw new CannotWrite(nextKey, e);
         }
-        writeKeyringInPlace(nextKeyring, next);
+        try {
+            KeyFiles.createNew(nextKeyring, ring.toFile());
+        } catch (FileAlreadyExistsException e) {
+            removeQuietly(nextKey);
+            throw new IllegalArgumentException(nextKeyring + " exists already; move it away first", e);
+        } catch (IOException e) {
+            removeQuietly(nextKey);
+            removeQuietly(nextKeyring);
+            throw new CannotWrite(nextKeyring, e);
+        }
+    }
+
+    /** Best effort: a file this run created and now wants gone. */
+    private static void removeQuietly(Path file) {
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            // Nothing more can be done; the original failure is what the caller reports.
+        }
     }
 
     /**

@@ -19,6 +19,7 @@ import java.nio.file.FileSystemException;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.util.Map;
@@ -607,7 +608,7 @@ class PolicyToolMainTest {
                 new PolicyToolMain.CannotWrite(file, new FileSystemException(file.toString())).getMessage());
     }
 
-    /** Writes the policy key and a keyring it signed, . */
+    /** Writes the policy key and a keyring it signed, and returns the policy key pair. */
     private KeyPair writeRotateWorld(Path keys) throws Exception {
         KeyPair policy = Crypto.generateEd25519KeyPair();
         Files.createDirectories(keys);
@@ -629,6 +630,10 @@ class PolicyToolMainTest {
         assertEquals(NOT_AFTER, next.notAfter());
         assertEquals(before.services().get("gateway"), next.services().get("gateway"));
         assertNotEquals(before.services().get("orders"), next.services().get("orders"));
+        if (keys.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+            assertEquals(PosixFilePermissions.fromString("rw-------"),
+                    Files.getPosixFilePermissions(keys.resolve("orders.next.key")));
+        }
         PrivateKey key = KeyFiles.loadPrivateKey(keys.resolve("orders.next.key"));
         byte[] message = "m".getBytes(StandardCharsets.UTF_8);
         assertTrue(Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(next.services().get("orders"))), message,
@@ -710,5 +715,42 @@ class PolicyToolMainTest {
                 () -> PolicyToolMain.parse(new String[] {"--rotate", "edge", "k", "o"}, null, null));
         assertThrows(IllegalArgumentException.class,
                 () -> PolicyToolMain.parse(new String[] {"--rotate", "a", "--rotate", "b"}, null, null));
+    }
+
+    /** A keyring that cannot be created, because something is there by then, leaves no key of this run behind. */
+    @Test
+    void aRotationThatCannotWriteItsKeyringLeavesNoNextKey(@TempDir Path dir) throws Exception {
+        KeyPair fresh = Crypto.generateEd25519KeyPair();
+        KeyringFile ring = KeyringFile.sign(Map.of("orders", pub(fresh)), pub(fresh), NOT_AFTER, fresh.getPrivate());
+        Path nextKey = dir.resolve("orders.next.key");
+        Path nextRing = Files.createDirectory(dir.resolve("keyring.next.json"));
+
+        IllegalArgumentException taken = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.writeRotation(nextKey, fresh.getPrivate(), nextRing, ring));
+        assertTrue(taken.getMessage().contains(nextRing.toString()));
+        assertFalse(Files.exists(nextKey));
+
+        Path missingDir = dir.resolve("absent").resolve("keyring.next.json");
+        PolicyToolMain.CannotWrite cannot = assertThrows(PolicyToolMain.CannotWrite.class,
+                () -> PolicyToolMain.writeRotation(nextKey, fresh.getPrivate(), missingDir, ring));
+        assertTrue(cannot.getMessage().startsWith("cannot write " + missingDir));
+        assertFalse(Files.exists(nextKey));
+    }
+
+    /** A next key that appears after the early check is neither overwritten nor removed, and no keyring is written. */
+    @Test
+    void aRotationNeverOverwritesOrRemovesAKeyThatAppearedFirst(@TempDir Path dir) throws Exception {
+        KeyPair fresh = Crypto.generateEd25519KeyPair();
+        KeyringFile ring = KeyringFile.sign(Map.of("orders", pub(fresh)), pub(fresh), NOT_AFTER, fresh.getPrivate());
+        Path nextKey = dir.resolve("orders.next.key");
+        Path nextRing = dir.resolve("keyring.next.json");
+        Files.writeString(nextKey, "earlier");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.writeRotation(nextKey, fresh.getPrivate(), nextRing, ring));
+
+        assertTrue(e.getMessage().contains(nextKey.toString()));
+        assertEquals("earlier", Files.readString(nextKey));
+        assertFalse(Files.exists(nextRing));
     }
 }
