@@ -144,6 +144,10 @@ public final class OwnMaterial {
                 throw new IllegalStateException(message(problems.get(0), OVERLAP_KEYRINGS + "[" + i + "]",
                         keyringFiles.get(i)));
             }
+            if (org.paztport.core.policy.OwnMaterial.expiringSoon(keyrings.get(i), ownRoot, nowMs)
+                    .contains(Subject.KEYRING)) {
+                warnOverlap(OVERLAP_KEYRINGS + "[" + i + "]", keyringFiles.get(i), keyrings.get(i).notAfter());
+            }
         }
         for (int i = 0; i < roots.size(); i++) {
             List<Problem> problems = org.paztport.core.policy.OwnMaterial.check(ownKeyring, roots.get(i), policyPin,
@@ -152,7 +156,16 @@ public final class OwnMaterial {
                 throw new IllegalStateException(message(problems.get(0), OVERLAP_ROOTS + "[" + i + "]",
                         rootFiles.get(i)));
             }
+            if (org.paztport.core.policy.OwnMaterial.expiringSoon(ownKeyring, roots.get(i), nowMs)
+                    .contains(Subject.ROOT)) {
+                warnOverlap(OVERLAP_ROOTS + "[" + i + "]", rootFiles.get(i), roots.get(i).notAfter());
+            }
         }
+    }
+
+    private static void warnOverlap(String property, Path file, long notAfter) {
+        LOG.warn("{} {} expires soon, its notAfter {}; unpin it or replace it with a renewed file before then, "
+                + "or the service will not restart", property, file, describe(notAfter));
     }
 
     /** Reads one of {@code paztport.overlap.keyring-paths}, as {@link #loadKeyring} reads the service's own. */

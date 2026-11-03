@@ -27,6 +27,7 @@ import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.ReasonCode;
 import org.paztport.core.verify.Verifier;
 import org.paztport.core.verify.VerifyInput;
+import org.paztport.spring.internal.OwnMaterial;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.properties.bind.Binder;
@@ -216,6 +217,65 @@ class OverlapPathsTest {
                             .hasMessageContaining("paztport.overlap")
                             .hasMessageContaining("paztport.policy-key-path");
                 });
+    }
+
+    @Test
+    void aPartnerEntryWithOverlapPathsButNotTheVerifiersOwnFailsStartup(@TempDir Path dir) throws Exception {
+        writeOwn(dir);
+        JSON.writeValue(dir.resolve("renewed.json").toFile(), renewed.signedRoot());
+        runner.withPropertyValues("paztport.service-name=payment", "paztport.partner.enabled=true",
+                        "paztport.keyring-path=" + dir.resolve("keyring.json"),
+                        "paztport.root-path=" + dir.resolve("root.json"),
+                        "paztport.overlap.root-paths=" + dir.resolve("renewed.json"))
+                .run(context -> {
+                    assertThat(context).hasFailed();
+                    assertThat(context.getStartupFailure()).rootCause().hasMessageContaining("paztport.overlap");
+                });
+    }
+
+    @Test
+    void anOverlapFileNearItsEndIsWarnedAboutNamingItsPlace(@TempDir Path dir) throws Exception {
+        writeOwn(dir);
+        long soon = System.currentTimeMillis() + OwnMaterial.WARN_WITHIN_MS - 60_000;
+        keyring(dir.resolve("far.json"), rotated, NOT_AFTER, policy);
+        keyring(dir.resolve("soon.json"), rotated, soon, policy);
+        JSON.writeValue(dir.resolve("soon-root.json").toFile(),
+                PolicyBuilder.build(List.of(List.of("gateway", "orders"), List.of("gateway", "payment")), 4, soon,
+                        policy.getPrivate()).signedRoot());
+
+        List<String> warnings = warningsDuring(() -> runWith(dir, context -> assertThat(context).hasNotFailed(),
+                "paztport.overlap.keyring-paths=" + dir.resolve("far.json") + "," + dir.resolve("soon.json"),
+                "paztport.overlap.root-paths=" + dir.resolve("soon-root.json")));
+
+        assertThat(warnings).hasSize(2);
+        assertThat(warnings.get(0)).contains("paztport.overlap.keyring-paths[1]").contains(dir.resolve("soon.json")
+                .toString()).contains("notAfter " + soon).contains("unpin it or replace it");
+        assertThat(warnings.get(1)).contains("paztport.overlap.root-paths[0]").contains("notAfter " + soon);
+    }
+
+    @Test
+    void anOverlapFileWithPlentyLeftIsNotWarnedAbout(@TempDir Path dir) throws Exception {
+        writeOwn(dir);
+        keyring(dir.resolve("far.json"), rotated, NOT_AFTER, policy);
+        assertThat(warningsDuring(() -> runWith(dir, context -> assertThat(context).hasNotFailed(),
+                "paztport.overlap.keyring-paths=" + dir.resolve("far.json")))).isEmpty();
+    }
+
+    /** The warning lines the starter's material check logs while {@code run} runs. */
+    private static List<String> warningsDuring(Runnable run) {
+        Logger log = (Logger) LoggerFactory.getLogger(OwnMaterial.class);
+        ListAppender<ILoggingEvent> lines = new ListAppender<>();
+        lines.start();
+        log.addAppender(lines);
+        log.setLevel(Level.WARN);
+        try {
+            run.run();
+        } finally {
+            log.detachAppender(lines);
+            log.setLevel(null);
+        }
+        return lines.list.stream().filter(e -> e.getLevel() == Level.WARN).map(ILoggingEvent::getFormattedMessage)
+                .toList();
     }
 
     @Test

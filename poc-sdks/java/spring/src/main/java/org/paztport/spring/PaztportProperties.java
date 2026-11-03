@@ -9,11 +9,12 @@ import java.util.Map;
 import org.paztport.http.PartnerSessions;
 import org.paztport.http.boundary.BoundaryClient;
 import org.paztport.spring.outbound.PooledTlsClient;
+import org.springframework.beans.factory.InitializingBean;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /** Configuration for the path-attestation glue, bound from {@code paztport.*}. */
 @ConfigurationProperties(prefix = "paztport")
-public class PaztportProperties {
+public class PaztportProperties implements InitializingBean {
 
     /** This service's name, used as the stamp svc and the verifier's receiving service. */
     private String serviceName;
@@ -398,6 +399,20 @@ public class PaztportProperties {
 
     public void setAdminToken(String adminToken) {
         this.adminToken = adminToken;
+    }
+
+    /**
+     * Overlap files are pinned by the verifier, which exists only where all three of its own paths are set; asked for
+     * without it they would be ignored without a word, on a partner's entry as on any other service, so the context
+     * refuses to start instead.
+     */
+    @Override
+    public void afterPropertiesSet() {
+        boolean overlapping = !overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty();
+        if (overlapping && (keyringPath == null || rootPath == null || policyKeyPath == null)) {
+            throw new IllegalStateException("paztport.overlap.keyring-paths or paztport.overlap.root-paths is set "
+                    + "but paztport.keyring-path, paztport.root-path and paztport.policy-key-path are not all set");
+        }
     }
 
     public Overlap getOverlap() {

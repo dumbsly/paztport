@@ -92,7 +92,7 @@ public class PaztportAutoConfiguration {
 
     /**
      * A service told to verify but given no trust paths fails to start, rather
-     * than serving unverified requests it was meant to check; so does one given overlap paths without them. A partner's entry
+     * than serving unverified requests it was meant to check. A partner's entry
      * has {@link PartnerFilter} instead.
      */
     @Bean
@@ -108,12 +108,6 @@ public class PaztportAutoConfiguration {
         if (props.isVerify() && shared == null) {
             throw new IllegalStateException("paztport.verify is true but paztport.keyring-path, "
                     + "paztport.root-path and paztport.policy-key-path are not all set");
-        }
-        PaztportProperties.Overlap overlap = props.getOverlap();
-        if (shared == null && (!overlap.getKeyringPaths().isEmpty() || !overlap.getRootPaths().isEmpty())) {
-            // Only the verifier pins overlap files; without it they would be ignored without a word.
-            throw new IllegalStateException("paztport.overlap.keyring-paths or paztport.overlap.root-paths is set "
-                    + "but paztport.keyring-path, paztport.root-path and paztport.policy-key-path are not all set");
         }
         // The verifier goes to every service that has one: where requests are not verified, it decides attestation.
         InboundFilter filter = new InboundFilter(
