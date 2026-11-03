@@ -432,4 +432,27 @@ describe("several pinned keyrings and roots", () => {
     expect(verify(chain(), {}, cfg({ keyrings: [both], roots: [pinned(tree, NOW)] })).reason).toBe("OK");
     expect(verify(chain(), {}, cfg({ keyrings: [both], roots: [pinned(tree, NOW - 1)] })).reason).toBe("PATH_NOT_ALLOWED");
   });
+  it("aWindowThatIsNotANotAfterIsNeverCurrent", () => {
+    // a window is an integer in [0, 2^53 - 1], or Infinity for none: any other never makes its member current
+    const windows: [number, boolean][] = [
+      [1.5, false], [NOW + 0.5, false], [-1, false], [2 ** 53, false], [Number.NaN, false], [2 ** 53 - 1, true], [Infinity, true],
+    ];
+    for (const [window, current] of windows) {
+      const keyrings = [ring({ session: session.publicKey }), ring({ pi: pi.publicKey }, window)];
+      expect(verify(chain(), {}, cfg({ keyrings })).reason, `a keyring until ${window}`).toBe(current ? "OK" : "BAD_SIGNATURE");
+      const roots = [pinned(tree, window)];
+      expect(verify(chain(), {}, cfg({ keyrings: [both], roots })).reason, `a root until ${window}`).toBe(current ? "OK" : "PATH_NOT_ALLOWED");
+    }
+  });
+  it("aKeyringGivesAKeyByOwnNameOnly", () => {
+    const inherited = ring(Object.create({ pi: pi.publicKey }) as Record<string, string>);
+    expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey }), inherited] })).reason).toBe("BAD_SIGNATURE");
+  });
+  it("aKeyringWhoseKeysAreNotAMapGivesNoKeyAndNeverThrows", () => {
+    for (const keys of [null, undefined, "pi", 5]) {
+      const odd = { keys, notAfter: POLICY_NOT_AFTER } as unknown as PinnedKeyring;
+      expect(verify(chain(), {}, cfg({ keyrings: [odd, both] })).reason, String(keys)).toBe("OK");
+      expect(verify(chain(), {}, cfg({ keyrings: [ring({ session: session.publicKey }), odd] })).reason, String(keys)).toBe("BAD_SIGNATURE");
+    }
+  });
 });

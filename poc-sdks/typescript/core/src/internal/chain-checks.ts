@@ -48,10 +48,15 @@ export function currentAt<T extends { notAfter: number }>(members: readonly T[],
   return Array.isArray(members) ? members.filter((m) => m != null && holds(m.notAfter)) : [];
 }
 
-/** The keys the keyrings give `svc`, by own name only, each distinct key once. */
+/**
+ * The keys the keyrings give `svc`, by own name only, each distinct key once. A member, or a member's `keys`, that
+ * is not an object gives none, as `currentAt` counts no member that is not one.
+ */
 function keysFor(keyrings: readonly PinnedKeyring[], svc: string): string[] {
   const keys = new Set<string>();
-  for (const { keys: ring } of keyrings) {
+  for (const member of keyrings) {
+    const ring: Readonly<Record<string, string>> | undefined = member?.keys;
+    if (typeof ring !== "object" || ring === null) continue;
     const key = Object.hasOwn(ring, svc) ? ring[svc] : undefined;
     if (typeof key === "string") keys.add(key);
   }
@@ -86,9 +91,9 @@ function signatureValid(publicKey: string, s: Stamp): boolean {
  * holds the delimiter, rcv included (BAD_SIGNATURE), the origin is allowed (BAD_ORIGIN), each stamp is signed under
  * one of the keys `cfg.keyrings` give its service, each distinct key tried once, and links to the one before
  * (BAD_SIGNATURE, BROKEN_LINK), then each stamp's rcv names the next stamp's service and the last's names `receiver`
- * (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session (SESSION_UNKNOWN). With `signers`, a stamp from another service or instance than expected is not
- * one the expected key signed: BAD_ORIGIN for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the
- * first failure.
+ * (BINDING_MISMATCH), every stamp carries the rid (RID_MISMATCH), and the session (SESSION_UNKNOWN). With
+ * `signers`, a stamp from another service or instance than expected is not one the expected key signed: BAD_ORIGIN
+ * for the origin, BAD_SIGNATURE for any other. Returns the stamps, or the first failure.
  */
 export function checkStamps(
   value: JsonValue | undefined,

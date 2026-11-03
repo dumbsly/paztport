@@ -205,7 +205,28 @@ describe("event verifier", () => {
   it("aSignerInNoKeyringIsUnknownSigner", () => {
     const none = createEventVerifier({ keyrings: [{ search: search.publicKey }, { orders: payment.publicKey }], allowedSigners: ["payment"], now: () => NOW });
     expect(none.accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
-    expect(createEventVerifier({ keyrings: [], allowedSigners: ["payment"], now: () => NOW }).accept(envelope("payment", payment, eventJson(NOW, "a")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "payment" });
+  });
+
+  it("refusesKeyringsThatAreNotANonEmptyListOfMapsAtConstruction", () => {
+    const make = (keyrings: unknown) => () => createEventVerifier({ keyrings: keyrings as never, allowedSigners: ["payment"], now: () => NOW });
+    const ring = { payment: payment.publicKey };
+    // eslint-disable-next-line no-sparse-arrays
+    const refused = [undefined, null, {}, "payment", ring, [], [null], [undefined], ["payment"], [5], [[]], [ring, null], [ring, ,]];
+    for (const [i, keyrings] of refused.entries()) expect(make(keyrings), `case ${i}`).toThrow(TypeError);
+    expect(make([ring])).not.toThrow();
+  });
+
+  it("keepsItsOwnCopyOfTheKeyringsItWasGiven", () => {
+    const ring: Record<string, string> = { payment: payment.publicKey };
+    const keyrings: Record<string, string>[] = [ring];
+    const auth = createEventVerifier({ keyrings, allowedSigners: ["payment", "search"], now: () => NOW });
+    // the caller's array and ring change after construction: the verifier still holds what it was given
+    ring.payment = search.publicKey;
+    ring.search = search.publicKey;
+    keyrings.push({ search: search.publicKey });
+    keyrings[0] = {};
+    expect(auth.accept(envelope("payment", payment, eventJson(NOW, "a")))).toHaveProperty("event");
+    expect(auth.accept(envelope("search", search, eventJson(NOW, "b")))).toEqual({ refusal: "UNKNOWN_SIGNER", signer: "search" });
   });
 
   it("looksTheSignerUpByOwnNameOnly", () => {

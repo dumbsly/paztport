@@ -61,13 +61,32 @@ function readEvent(bytes: Uint8Array): ResponderEvent | null {
   }
 }
 
+/**
+ * Each keyring's own string entries, copied so the caller's objects no longer reach the verifier. A TypeError
+ * unless `keyrings` is a non-empty array whose every member is a map, naming the first member that is not.
+ */
+function copyKeyrings(keyrings: unknown): ReadonlyMap<string, string>[] {
+  if (!Array.isArray(keyrings) || keyrings.length === 0) throw new TypeError("keyrings must be a non-empty array");
+  const copies: ReadonlyMap<string, string>[] = [];
+  for (let i = 0; i < keyrings.length; i++) {
+    const ring: unknown = keyrings[i];
+    if (typeof ring !== "object" || ring === null || Array.isArray(ring)) throw new TypeError(`keyrings[${i}] must be an object`);
+    copies.push(new Map(Object.entries(ring).filter((e): e is [string, string] => typeof e[1] === "string")));
+  }
+  return copies;
+}
+
 /** Decides whether an event body may reach whatever acts on it: a signed envelope from an allowed signer, fresh, and not seen before; every failure is a typed refusal that changes nothing, and nothing here throws on hostile input. */
 export function createEventVerifier(opts: {
-  /** One or more keyrings, service name to public key; a signer's key is looked up by own name in each. */
+  /**
+   * One or more keyrings, service name to public key, copied at construction (a TypeError unless a non-empty array
+   * of objects); a signer's key is looked up by own name in each.
+   */
   keyrings: readonly Readonly<Record<string, string>>[];
   allowedSigners: readonly string[];
   now: () => number;
 }): { accept(body: string): EventOutcome } {
+  const keyrings = copyKeyrings(opts.keyrings);
   const allowed = new Set(opts.allowedSigners);
   const seen = new Map<string, number>();
   return {
@@ -76,9 +95,9 @@ export function createEventVerifier(opts: {
       if (envelope === null) return { refusal: "MALFORMED_ENVELOPE" };
       if (!allowed.has(envelope.signer)) return { refusal: "SIGNER_NOT_ALLOWED" };
       const keys = new Set<string>();
-      for (const ring of opts.keyrings) {
-        const key = Object.hasOwn(ring, envelope.signer) ? ring[envelope.signer] : undefined;
-        if (typeof key === "string") keys.add(key);
+      for (const ring of keyrings) {
+        const key = ring.get(envelope.signer);
+        if (key !== undefined) keys.add(key);
       }
       if (keys.size === 0) return { refusal: "UNKNOWN_SIGNER", signer: envelope.signer };
       let signature: Uint8Array;

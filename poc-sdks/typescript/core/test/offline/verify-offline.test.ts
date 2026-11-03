@@ -340,6 +340,16 @@ describe("verifyChainOffline", () => {
     expect(verifyChainOffline(w.input(w.chain(), { proof: other.proofFor(ROUTE) }), w.cfg({ roots })).reason).toBe("OK");
   });
 
+  it("aKeyringWhoseKeysAreNotAMapGivesNoKeyAndNeverThrows", () => {
+    const w = world();
+    const keys = { session: w.session.publicKey, pi: w.pi.publicKey };
+    for (const odd of [null, undefined, "pi", 5]) {
+      const keyrings = [{ keys: odd as never, notAfter: Infinity }, { keys, notAfter: Infinity }];
+      expect(verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings })).reason, String(odd)).toBe("OK");
+      expect(verifyChainOffline(w.input(w.chain()), w.cfg({ keyrings: [keyrings[0]!] })).reason, String(odd)).toBe("BAD_SIGNATURE");
+    }
+  });
+
   it("noRootCountingForTheRecordIsPolicyExpired", () => {
     const w = world();
     const other = buildTree([ROUTE].map((path) => ({ salt: randomBytes(16), path })), 8, "v2");
