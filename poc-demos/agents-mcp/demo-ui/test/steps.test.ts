@@ -162,10 +162,17 @@ describe("steps", () => {
 
   it("an expired policy reads as a configuration failure to fix, not a block", () => {
     expect(plainReason("POLICY_EXPIRED")).toBe("the signed policy had expired, so nothing could pass until it was renewed");
-    expect(plainReason("EXPIRED")).toBe("the run was too old, or its start too far ahead of the clock, so the step was not allowed");
-    expect(PLAIN_RULE.EXPIRED).toMatch(/not a sign of an attack/);
     expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/expired/);
     expect(PLAIN_RULE.POLICY_EXPIRED).toMatch(/not a sign of an attack/);
+  });
+
+  it("a stale call or run reads as a time limit, not an attack: the server's for an MCP call, the gate's for a local step", () => {
+    expect(plainReason("EXPIRED")).toBe(
+      "the call was stamped more than 5 seconds from the server's clock, or its run started more than 30 minutes before that clock or more than 5 seconds after it",
+    );
+    expect(plainReason("EXPIRED", true)).toBe("the run started more than 30 minutes before the step, or more than 5 seconds after it, so the step was not allowed");
+    expect(PLAIN_RULE.EXPIRED).toMatch(/server's clock/);
+    expect(PLAIN_RULE.EXPIRED).toMatch(/not a sign of an attack/);
   });
 
   it("a call still waiting for its answer is left out until the run is complete, then shown as having no recorded answer", () => {
@@ -378,6 +385,23 @@ describe("local tool rows", () => {
     expect(steps[4]).toMatchObject({ code: "PATH_NOT_ALLOWED", reason: "outside what this session may do" });
     expect(plainReason("SCOPE_DENIED")).toBe("outside what this session may do");
     expect(steps[0]!.reason).toBeUndefined();
+  });
+
+  it("an EXPIRED refusal reads the gate's age limits on a local row and the server's freshness check on an MCP row", () => {
+    const logs = {
+      transcript: [lstart("l9", "read", { path: "website/README.md" }), start("c9", "list_issues", { owner: "acme", repo: "website" })],
+      events: [levent("l9", "read", "EXPIRED")],
+      outcome: [rec({ callId: "c9", rid: "r1", verdict: "EXPIRED" })],
+      evidence: [],
+    };
+    const [step, call] = buildSteps(local, logs, { complete: true });
+    expect(step).toMatchObject({ tool: "read", result: "refused", code: "EXPIRED", reason: plainReason("EXPIRED", true) });
+    expect(step!.rule).toBe(
+      "A local action is refused when its run started more than 30 minutes before it, or more than 5 seconds after it. That is a limit, not a sign of an attack: a new prompt starts a new run.",
+    );
+    expect(call).toMatchObject({ tool: "list_issues", result: "refused", code: "EXPIRED", reason: plainReason("EXPIRED"), rule: PLAIN_RULE.EXPIRED });
+    expect(call!.reason).not.toBe(step!.reason);
+    expect(call!.rule).not.toBe(step!.rule);
   });
 
   it("the rule that fired is the folder with its access and destination, or the program, from the record and the signed rules", () => {

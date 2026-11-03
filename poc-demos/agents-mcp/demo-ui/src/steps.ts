@@ -71,7 +71,8 @@ export const PLAIN_REASON: Record<string, string> = {
   SCOPE_DENIED: "outside what this session may do",
   UNCHECKABLE: "couldn't be checked",
   POLICY_EXPIRED: "the signed policy had expired, so nothing could pass until it was renewed",
-  EXPIRED: "the run was too old, or its start too far ahead of the clock, so the step was not allowed",
+  EXPIRED:
+    "the call was stamped more than 5 seconds from the server's clock, or its run started more than 30 minutes before that clock or more than 5 seconds after it",
 };
 
 export const PLAIN_RULE: Record<string, string> = {
@@ -84,15 +85,29 @@ export const PLAIN_RULE: Record<string, string> = {
   POLICY_EXPIRED:
     "Every call is refused once the signed policy it is checked against has expired. That is a configuration failure, not a sign of an attack: the policy has to be renewed before anything can pass.",
   EXPIRED:
+    "A call is refused when its last stamp is more than 5 seconds from the server's clock, either way, or its run started more than 30 minutes before that clock or more than 5 seconds after it. That is a freshness limit, not a sign of an attack.",
+};
+/** A local step's reason where the local gate's rule is not the server's. */
+const LOCAL_REASON: Record<string, string> = {
+  EXPIRED: "the run started more than 30 minutes before the step, or more than 5 seconds after it, so the step was not allowed",
+};
+/** A local step's rule where the local gate's rule is not the server's. */
+const LOCAL_RULE: Record<string, string> = {
+  INFLUENCE_DENIED:
+    "A write to a public folder is refused when what the agent has read so far includes private data together with text from someone outside the project or from an unverified source.",
+  EXPIRED:
     "A local action is refused when its run started more than 30 minutes before it, or more than 5 seconds after it. That is a limit, not a sign of an attack: a new prompt starts a new run.",
 };
-/** The influence rule as it reads for a local write. */
-const LOCAL_INFLUENCE_RULE =
-  "A write to a public folder is refused when what the agent has read so far includes private data together with text from someone outside the project or from an unverified source.";
 
-/** The plain reason for a refusal code; a code without its own wording reads `refused: <CODE>`. */
-export function plainReason(code: string): string {
-  return PLAIN_REASON[code] ?? `refused: ${code}`;
+/** The wording `words` has for `code`, a local step's own wording first when `local`; undefined when there is none. */
+function wordingFor(code: string, local: boolean, words: Record<string, string>, localWords: Record<string, string>): string | undefined {
+  if (local && Object.hasOwn(localWords, code)) return localWords[code];
+  return Object.hasOwn(words, code) ? words[code] : undefined;
+}
+
+/** The plain reason for a refusal code, on a local step when `local`; a code without its own wording reads `refused: <CODE>`. */
+export function plainReason(code: string, local = false): string {
+  return wordingFor(code, local, PLAIN_REASON, LOCAL_REASON) ?? `refused: ${code}`;
 }
 
 /** Read order for `held`, so the same classes always come out in the same order. */
@@ -289,7 +304,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       if (verdict !== undefined && verdict !== "OK") {
         result = "refused";
         code = verdict;
-        reason = plainReason(verdict);
+        reason = plainReason(verdict, true);
       } else if (row.ended?.isError) {
         result = "error";
         reason = "the tool returned an error";
@@ -338,6 +353,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
     }
     const rid = str(o?.rid) ?? str(response?.rid) ?? str((evs[0] as Obj | undefined)?.rid);
     const records = evidence.get(row.id) ?? [];
+    const rule = code !== undefined ? wordingFor(code, row.local === true, PLAIN_RULE, LOCAL_RULE) : undefined;
     steps.push({
       index: i + 1,
       tool: row.tool,
@@ -345,7 +361,7 @@ export function buildSteps(s: Scenario, logs: StepLogs, opts: BuildOptions = {})
       held: HELD_ORDER.filter((c) => before.includes(c)).map((c) => PLAIN_CLASS[c]),
       result,
       ...(reason !== undefined ? { reason } : {}),
-      ...(code !== undefined ? { code, ...(PLAIN_RULE[code] !== undefined ? { rule: row.local && code === "INFLUENCE_DENIED" ? LOCAL_INFLUENCE_RULE : PLAIN_RULE[code] } : {}) } : {}),
+      ...(code !== undefined ? { code, ...(rule !== undefined ? { rule } : {}) } : {}),
       ...(row.local ? { local: localDetail(localEvent, localRecord, rules) } : {}),
       evidence: { ...(row.real ? { callId: row.id } : {}), ...(rid !== undefined ? { rid } : {}), ...(o ? { outcome: o } : {}), events: evs, evidence: records, displays: records.map((r) => display(r as Obj)) },
     });
