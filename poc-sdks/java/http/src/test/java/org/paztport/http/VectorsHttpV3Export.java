@@ -70,20 +70,23 @@ class VectorsHttpV3Export {
             + " a target (the raw path plus `?` and the raw query when there is one) and a body (hex) to the request"
             + " binding. A responses case is a request chain `sent` from gateway to orders to payment and the"
             + " `responseHeader` payment returned; the caller `orders` checks it against `status` and `body` (hex)"
-            + " with the proof the mesh policy holds for `proofRoute`, running the check `uses` times against one"
+            + " with the proof the mesh policy holds for `proofRoute`, as a verifier whose policy window ends at"
+            + " `policyNotAfter` and whose clock reads `now`, running the check `uses` times against one"
             + " nonce cache of nonceTtlMs, and expects the last result, with `labels` empty unless the reason is OK."
             + " boundaryInfluence is the influence an egress sends to another organisation: under the boundary `key`"
             + " (SHA-256(utf8(\"paztport-http-v3-vector-boundary-key\")), base64url), for `rid`, the partner entry"
             + " `rcv` and the `egress`, the `input` entries reduce to `reduced`, with one salt (base64url) per"
             + " (cls, owner) group in `salts`; each `openings` case is a `sent` entry and an `opening`, with its"
             + " JCS bytes in `body` (hex), which the replay reads, and `opens` says whether it opens. Ed25519 is"
-            + " deterministic, so the file is reproduced byte for byte. Only the"
-            + " Java SDK speaks v3 over HTTP, so the TypeScript SDK does not replay this file.";
+            + " deterministic, so the file is reproduced byte for byte. Java writes and replays this"
+            + " file and Go replays it; the TypeScript SDK does not speak v3 over HTTP, so it does not replay it.";
 
     private static final long GATEWAY_TS = 1_767_225_598_500L;
     private static final long ORDERS_TS = 1_767_225_599_500L;
     private static final long RESPONSE_TS = 1_767_225_599_800L;
     private static final long NOW = 1_767_225_600_000L;
+    /** The mesh policy's window, 2100-01-01: past every case's {@code now}. */
+    private static final long MESH_NOT_AFTER = 4_102_444_800_000L;
     private static final String RID = "rid-http-1";
     private static final String ROUTE = "gateway/orders/payment";
     private static final byte[] REQUEST_BODY = "{\"amount\":100}".getBytes(StandardCharsets.UTF_8);
@@ -200,16 +203,19 @@ class VectorsHttpV3Export {
 
         ArrayNode responses = out.putArray("responses");
         responses.add(responseCase("response ok", sent, okHeader, 200, RESPONSE_BODY, 1,
-                ReasonCode.OK, "payment", "pay-1", labels, okHash));
+                MESH_NOT_AFTER, ReasonCode.OK, "payment", "pay-1", labels, okHash));
         responses.add(responseCase("response to wrong receiver", sent, HttpWire.encodeResponse(toGateway, labels), 200,
-                RESPONSE_BODY, 1, ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
+                RESPONSE_BODY, 1, MESH_NOT_AFTER, ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
         responses.add(responseCase("labels altered", sent, HttpWire.encodeResponse(okStamp,
                 List.of(new ContentLabel(InfluenceClass.PUBLIC, "cid-receipt-1", null))), 200, RESPONSE_BODY, 1,
-                ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
+                MESH_NOT_AFTER, ReasonCode.BINDING_MISMATCH, "", "", List.of(), okHash));
         responses.add(responseCase("status altered", sent, okHeader, 500, RESPONSE_BODY, 1,
-                ReasonCode.BINDING_MISMATCH, "", "", List.of(), HttpWire.resultHash(500, RESPONSE_BODY)));
+                MESH_NOT_AFTER, ReasonCode.BINDING_MISMATCH, "", "", List.of(),
+                HttpWire.resultHash(500, RESPONSE_BODY)));
         responses.add(responseCase("replayed response", sent, okHeader, 200, RESPONSE_BODY, 2,
-                ReasonCode.REPLAY, "", "", List.of(), okHash));
+                MESH_NOT_AFTER, ReasonCode.REPLAY, "", "", List.of(), okHash));
+        responses.add(responseCase("policy expired", sent, okHeader, 200, RESPONSE_BODY, 1,
+                NOW - 1, ReasonCode.POLICY_EXPIRED, "", "", List.of(), okHash));
         responses.forEach(c -> ((ObjectNode) c).put("proofRoute", ROUTE));
         out.set("rules", VectorsHttpRules.build(out, core));
 
@@ -303,8 +309,8 @@ class VectorsHttpV3Export {
     }
 
     private static ObjectNode responseCase(String name, List<Stamp> sent, String header, int status, byte[] body,
-            int uses, ReasonCode reason, String suspectSvc, String suspectInst, List<ContentLabel> labels,
-            String resultHash) {
+            int uses, long policyNotAfter, ReasonCode reason, String suspectSvc, String suspectInst,
+            List<ContentLabel> labels, String resultHash) {
         ObjectNode c = JsonNodeFactory.instance.objectNode();
         c.put("name", name);
         c.put("policy", "mesh");
@@ -320,6 +326,7 @@ class VectorsHttpV3Export {
         c.putArray("allowedOrigins").add("gateway");
         c.put("sess", "");
         c.put("now", NOW);
+        c.put("policyNotAfter", policyNotAfter);
         c.put("callMaxAgeMs", VerifierConfig.CALL_MAX_AGE_MS);
         c.put("runMaxAgeMs", VerifierConfig.RUN_MAX_AGE_MS);
         c.put("nonceTtlMs", VerifierConfig.NONCE_TTL_MS);
@@ -372,11 +379,10 @@ class VectorsHttpV3Export {
         Set<String> origins = new LinkedHashSet<>();
         c.get("allowedOrigins").forEach(o -> origins.add(o.asText()));
         long now = c.get("now").asLong();
-        // The response cases carry no policy window: the mesh policy is pinned until 2100-01-01, past every now.
         Verifier verifier = new Verifier(new VerifierConfig(Keyring.of(ring),
-                Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(), 4_102_444_800_000L,
-                origins,
-                c.get("sess").asText(), new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
+                Base64Url.decode(policy.get("root").asText()), policy.get("rootId").asText(),
+                c.get("policyNotAfter").asLong(), origins, c.get("sess").asText(),
+                new InMemoryNonceCache(c.get("nonceTtlMs").asLong()), () -> now,
                 c.get("callMaxAgeMs").asLong(), c.get("runMaxAgeMs").asLong()));
         List<Stamp> sent = new ArrayList<>();
         c.get("sent").forEach(s -> sent.add(stamp(s)));

@@ -17,11 +17,6 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// meshNotAfter is the mesh policy's window, 2100-01-01 in milliseconds. The responses cases do not carry
-// one: they are checked under the mesh policy pinned until then, past every case's now, as the Java
-// SDK's replay of the same file pins it.
-const meshNotAfter = 4102444800000
-
 // TestRequestBindingVectors replays http-v3.json's request bindings: a method, a target exactly as sent
 // and a body give the binding.
 func TestRequestBindingVectors(t *testing.T) {
@@ -186,7 +181,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 			Keyring:        keyring,
 			Root:           root,
 			RootID:         p.Get("rootId").Str(),
-			PolicyNotAfter: meshNotAfter,
+			PolicyNotAfter: c.Get("policyNotAfter").Int(),
 			AllowedOrigins: allowed,
 			Sess:           c.Get("sess").Str(),
 			Now:            func() int64 { return now },
