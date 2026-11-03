@@ -155,6 +155,8 @@ func TestNewSessionsRefusesAnUnusableConfig(t *testing.T) {
 		{"no entry key", "EntryKey", func(c *SessionsConfig) { c.EntryKey = nil }},
 		{"an entry key that is only a seed", "EntryKey", func(c *SessionsConfig) { c.EntryKey = c.EntryKey.Seed() }},
 		{"a call window of 0", "CallMaxAgeMs", func(c *SessionsConfig) { c.CallMaxAgeMs = 0 }},
+		{"a negative call window", "CallMaxAgeMs", func(c *SessionsConfig) { c.CallMaxAgeMs = -1 }},
+		{"a run window of 0", "RunMaxAgeMs", func(c *SessionsConfig) { c.RunMaxAgeMs = 0 }},
 		{"a negative run window", "RunMaxAgeMs", func(c *SessionsConfig) { c.RunMaxAgeMs = -1 }},
 		{"another organisation's keyring", "Keyring", func(c *SessionsConfig) { c.Keyring = shopKeyring }},
 		{"a keyring under another policy key", "Keyring", func(c *SessionsConfig) {
