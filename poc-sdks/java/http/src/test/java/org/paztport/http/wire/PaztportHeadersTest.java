@@ -21,7 +21,7 @@ class PaztportHeadersTest {
     @Test
     void aNameWithoutThePrefixIsNot() {
         for (String name : new String[] {"X-Path", "X-Pathology", "X-Path_Chain", "XX-Path-Chain", "",
-                "X‐Path‐Chain", "X-Pаth-Chain"}) {
+                "X\u2010Path\u2010Chain", "X-P\u0430th-Chain"}) {
             assertFalse(PaztportHeaders.isPaztport(name), name);
         }
     }
