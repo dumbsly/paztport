@@ -111,9 +111,9 @@ func hostOf(hostport string) string {
 }
 
 // Caller is one service's caller over HTTP. It stamps each call the service makes, with [Caller.Stamp],
-// and checks each response against the chain it sent, with [Caller.Check]. An adapter sets the headers
-// Stamp returns on the call, sends it, reads the response whole, and hands it to Check before anything
-// reads it.
+// and checks each response against the chain it sent, with [Caller.Check]. An adapter removes every header of
+// the call that [wire.IsPaztport] names, then sets the headers Stamp returns, sends the call, reads the
+// response whole, and hands it to Check before anything reads it.
 //
 // A Caller never changes itself, so it is safe for concurrent use when its Stamper and Verifier are.
 type Caller struct {

@@ -38,7 +38,8 @@
 //
 // A service's calls go through a [Caller]. [Caller.Stamp] stamps a call to the receiver's policy name,
 // after the chain the service received and committing to its influence so far, and returns the headers to
-// send in order; a gateway's external processor, an origin, calls it with neither. Which policy name a
+// send in order, which the adapter sets after removing every header of the call that wire.IsPaztport
+// names; a gateway's external processor, an origin, calls it with neither. Which policy name a
 // destination has is the deployment's to configure, never the request's: [Receivers] maps a host to it, and
 // a host holding a byte outside ASCII has none, so a call to it is not stamped. [Caller.Check] checks the
 // response against the chain sent and returns the influence it adds: an entry for each label of a response
