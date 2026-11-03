@@ -410,10 +410,10 @@ Each kind of record is checked this way:
   recorded verifying it, and one nonce cache that never forgets across the record set. Its `receiver` is the
   recorded call's verified last signer, the client that made the call. Check 0 runs at that time, with the
   `policyNotAfter` the client used: the earliest `notAfter` of the server's root and, in the entry-key form, its
-  keyring. Those windows count only once the signatures covering them verify, whatever the time: the reply against
-  the pin, and the server's root and, in the entry-key form, its keyring under the server's policy key. A reply
-  without them gives no `policyNotAfter`, and a response relying on it fails check 0 (`POLICY_EXPIRED`). So a
-  response recorded after the server's material expired is `POLICY_EXPIRED`.
+  keyring. So a response recorded after the server's material expired is `POLICY_EXPIRED`. Those windows count only
+  once the signatures covering them verify, whatever the time: the reply against the pin, and the server's root and,
+  in the entry-key form, its keyring under the server's policy key. A reply without them gives no `policyNotAfter`,
+  and a response relying on it fails check 0 (`POLICY_EXPIRED`).
 - **A recorded local step** ([MCP profile](README.md#the-mcp-profile)): first, the step binds its call and
   decision: the `decision` token MUST read as a [decision](wire.md#bindings), and its `callId` MUST be the
   step's; a decision that does not read, or one for another call, is `BINDING_MISMATCH`, as is a binding that
