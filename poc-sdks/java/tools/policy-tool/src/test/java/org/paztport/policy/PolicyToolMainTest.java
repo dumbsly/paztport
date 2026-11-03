@@ -3,8 +3,10 @@
 
 package org.paztport.policy;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
@@ -18,12 +20,14 @@ import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.security.KeyPair;
+import java.security.PrivateKey;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.stream.Stream;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.paztport.core.crypto.Crypto;
+import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonWriter;
@@ -537,22 +541,23 @@ class PolicyToolMainTest {
     /** Renewal is asked for by {@code --renew} anywhere on the line or by {@code PAZTPORT_RENEW=true}. */
     @Test
     void renewIsAnArgumentOrTheEnvironment() {
-        PolicyToolMain.Args rebuild = PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, null);
+        PolicyToolMain.Args rebuild = PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, null, null);
         assertFalse(rebuild.renew());
         assertEquals(Path.of("p.yaml"), rebuild.pathsYaml());
         assertEquals(Path.of("k"), rebuild.keysDir());
         assertEquals(Path.of("o"), rebuild.outDir());
-        assertFalse(PolicyToolMain.parse(new String[] {}, "false").renew());
-        assertFalse(PolicyToolMain.parse(new String[] {}, "").renew());
-        assertEquals(Path.of("out/keys"), PolicyToolMain.parse(new String[] {}, null).keysDir());
+        assertFalse(PolicyToolMain.parse(new String[] {}, "false", null).renew());
+        assertFalse(PolicyToolMain.parse(new String[] {}, "", null).renew());
+        assertEquals(Path.of("out/keys"), PolicyToolMain.parse(new String[] {}, null, null).keysDir());
 
-        PolicyToolMain.Args renew = PolicyToolMain.parse(new String[] {"p.yaml", "--renew", "k", "o"}, null);
+        PolicyToolMain.Args renew = PolicyToolMain.parse(new String[] {"p.yaml", "--renew", "k", "o"}, null, null);
         assertTrue(renew.renew());
         assertEquals(Path.of("k"), renew.keysDir());
         assertEquals(Path.of("o"), renew.outDir());
-        assertTrue(PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, "true").renew());
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {}, "yes"));
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {"--rebuild"}, null));
+        assertTrue(PolicyToolMain.parse(new String[] {"p.yaml", "k", "o"}, "true", null).renew());
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {}, "yes", null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rebuild"}, null, null));
     }
 
     /**
@@ -600,5 +605,110 @@ class PolicyToolMainTest {
                 new PolicyToolMain.CannotWrite(file, new NoSuchFileException(file.toString())).getMessage());
         assertEquals("cannot write " + file + ": FileSystemException",
                 new PolicyToolMain.CannotWrite(file, new FileSystemException(file.toString())).getMessage());
+    }
+
+    /** Writes the policy key and a keyring it signed, . */
+    private KeyPair writeRotateWorld(Path keys) throws Exception {
+        KeyPair policy = Crypto.generateEd25519KeyPair();
+        Files.createDirectories(keys);
+        Files.writeString(keys.resolve("policy.key"), Base64Url.encode(Crypto.encodePrivateKey(policy.getPrivate())));
+        writeKeyring(keys, policy, policy);
+        return policy;
+    }
+
+    @Test
+    void rotateWritesTheNextKeyAndKeyringBesideTheCurrentOnes(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        KeyPair policy = writeRotateWorld(keys);
+        KeyringFile before = KeyringFile.load(keys.resolve("keyring.json"));
+
+        PolicyToolMain.rotate(keys, "orders", NOT_AFTER);
+
+        KeyringFile next = KeyringFile.load(keys.resolve("keyring.next.json"));
+        assertTrue(next.verifies(pub(policy)));
+        assertEquals(NOT_AFTER, next.notAfter());
+        assertEquals(before.services().get("gateway"), next.services().get("gateway"));
+        assertNotEquals(before.services().get("orders"), next.services().get("orders"));
+        PrivateKey key = KeyFiles.loadPrivateKey(keys.resolve("orders.next.key"));
+        byte[] message = "m".getBytes(StandardCharsets.UTF_8);
+        assertTrue(Crypto.verify(Crypto.decodePublicKey(Base64Url.decode(next.services().get("orders"))), message,
+                Crypto.sign(key, message)));
+    }
+
+    @Test
+    void rotateLeavesTheCurrentFilesAsTheyAre(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        writeRotateWorld(keys);
+        Files.writeString(keys.resolve("orders.key"), "current orders key");
+        byte[] ring = Files.readAllBytes(keys.resolve("keyring.json"));
+
+        PolicyToolMain.rotate(keys, "orders", NOT_AFTER);
+
+        assertArrayEquals(ring, Files.readAllBytes(keys.resolve("keyring.json")));
+        assertEquals("current orders key", Files.readString(keys.resolve("orders.key")));
+        try (Stream<Path> files = Files.list(keys)) {
+            assertEquals(java.util.Set.of("policy.key", "keyring.json", "orders.key", "orders.next.key",
+                    "keyring.next.json"), files.map(p -> p.getFileName().toString()).collect(
+                            java.util.stream.Collectors.toSet()));
+        }
+    }
+
+    @Test
+    void rotateRefusesWhenANextFileExists(@TempDir Path dir) throws Exception {
+        Path keys = dir.resolve("keys");
+        writeRotateWorld(keys);
+        Path nextKey = keys.resolve("orders.next.key");
+        Path nextRing = keys.resolve("keyring.next.json");
+
+        Files.writeString(nextKey, "earlier");
+        IllegalArgumentException key = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.rotate(keys, "orders", NOT_AFTER));
+        assertTrue(key.getMessage().contains(nextKey.toString()));
+        assertEquals("earlier", Files.readString(nextKey));
+        assertFalse(Files.exists(nextRing));
+
+        Files.delete(nextKey);
+        Files.writeString(nextRing, "earlier");
+        IllegalArgumentException ring = assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.rotate(keys, "orders", NOT_AFTER));
+        assertTrue(ring.getMessage().contains(nextRing.toString()));
+        assertEquals("earlier", Files.readString(nextRing));
+        assertFalse(Files.exists(nextKey));
+
+        Files.delete(nextRing);
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.rotate(keys, "payment", NOT_AFTER));
+        assertFalse(Files.exists(nextKey));
+        assertFalse(Files.exists(nextRing));
+    }
+
+    /** Rotation is asked for by {@code --rotate <svc>} or {@code PAZTPORT_ROTATE}; it is not renewal. */
+    @Test
+    void rotateParsesTheFlagAndTheEnvironment() {
+        PolicyToolMain.Args flag = PolicyToolMain.parse(new String[] {"--rotate", "edge", "k"}, null, null);
+        assertEquals("edge", flag.rotate());
+        assertEquals(Path.of("k"), flag.keysDir());
+        assertFalse(flag.renew());
+        assertEquals(Path.of("out/keys"), PolicyToolMain.parse(new String[] {"--rotate", "edge"}, null, "").keysDir());
+
+        PolicyToolMain.Args env = PolicyToolMain.parse(new String[] {"k"}, null, "edge");
+        assertEquals("edge", env.rotate());
+        assertEquals(Path.of("k"), env.keysDir());
+        assertEquals("edge", PolicyToolMain.parse(new String[] {"--rotate", "edge"}, "false", "edge").rotate());
+        assertEquals(null, PolicyToolMain.parse(new String[] {"k"}, null, null).rotate());
+
+        // Exclusive with renewal, in either form, and needing a service and at most the keys directory.
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rotate", "edge", "--renew"}, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rotate", "edge"}, "true", null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--renew"}, null, "edge"));
+        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.parse(new String[] {"--rotate"}, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rotate", "--renew"}, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rotate", "edge", "k", "o"}, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.parse(new String[] {"--rotate", "a", "--rotate", "b"}, null, null));
     }
 }

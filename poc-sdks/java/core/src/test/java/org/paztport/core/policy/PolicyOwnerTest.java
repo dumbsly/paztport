@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.security.KeyPair;
+import java.security.PublicKey;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -117,5 +118,45 @@ class PolicyOwnerTest {
                 () -> PolicyOwner.issueReplyCert(tampered, "orders", NEW, policy.getPrivate()));
         assertThrows(IllegalArgumentException.class,
                 () -> PolicyOwner.issueReplyCert(ring(other, other, NEW), "orders", NEW, policy.getPrivate()));
+    }
+
+    @Test
+    void rotateKeyringReplacesOnlyTheNamedServicesKey() {
+        String orders = pub(Crypto.generateEd25519KeyPair());
+        String gateway = pub(Crypto.generateEd25519KeyPair());
+        KeyringFile current = KeyringFile.sign(Map.of("orders", orders, "gateway", gateway), pub(policy), OLD,
+                policy.getPrivate());
+        KeyPair fresh = Crypto.generateEd25519KeyPair();
+
+        KeyringFile rotated = PolicyOwner.rotateKeyring(current, "orders", fresh.getPublic(), NEW,
+                policy.getPrivate());
+
+        assertEquals(Map.of("orders", pub(fresh), "gateway", gateway), rotated.services());
+        assertEquals(pub(policy), rotated.policy());
+        assertEquals(NEW, rotated.notAfter());
+        assertTrue(rotated.verifies(pub(policy)));
+    }
+
+    @Test
+    void rotateKeyringRefusesAKeyringTheKeyDidNotSign() {
+        PublicKey fresh = Crypto.generateEd25519KeyPair().getPublic();
+        KeyringFile signed = ring(policy, policy, NEW);
+        KeyringFile tampered = new KeyringFile(services(), signed.policy(), signed.sig(), signed.notAfter());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyOwner.rotateKeyring(tampered, "orders", fresh, NEW, policy.getPrivate()));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyOwner.rotateKeyring(ring(other, other, NEW), "orders", fresh, NEW, policy.getPrivate()));
+        assertThrows(IllegalArgumentException.class, () -> PolicyOwner.rotateKeyring(ring(policy, policy, NEW),
+                "orders", fresh, KeyringFile.MAX_NOT_AFTER + 1, policy.getPrivate()));
+    }
+
+    @Test
+    void rotateKeyringRefusesAServiceTheKeyringDoesNotName() {
+        PublicKey fresh = Crypto.generateEd25519KeyPair().getPublic();
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyOwner.rotateKeyring(ring(policy, policy, NEW), "payment", fresh, NEW,
+                        policy.getPrivate()));
     }
 }

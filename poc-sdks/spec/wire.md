@@ -786,3 +786,6 @@ overlap. Both policy tools renew (`--renew`, or `PAZTPORT_RENEW=true` for the Ja
 re-signing the keyring either way; they check that the keyring and, renewing, the root were signed by the policy
 key before, and refuse, writing nothing, otherwise. That the keyring's keys are still the services' current keys,
 and that the tree's routes are still allowed, is the policy owner's to ensure.
+The Java policy tool also rotates one service's key (`--rotate <svc>`, or `PAZTPORT_ROTATE`): it writes the
+service's new key and a keyring naming it beside the current ones, for the overlap above, and leaves the current
+files as they are.

@@ -5,6 +5,8 @@ package org.paztport.core.policy;
 
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.paztport.core.crypto.Crypto;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.session.ReplyCert;
@@ -40,6 +42,31 @@ public final class PolicyOwner {
             throw new IllegalArgumentException("keyring is not signed by this policy key");
         }
         return renewed;
+    }
+
+    /**
+     * The keyring with {@code svc}'s key replaced by {@code newKey}, every other service's key kept exactly, signed
+     * until {@code notAfter} by {@code policyKey}. The old keyring must verify, expired or not, under the policy key
+     * it names, that key must be {@code policyKey}'s, and it must name {@code svc}: a rotation replaces a key, it
+     * does not add a service. A {@code notAfter} that no keyring can carry is refused, as in
+     * {@link #renewKeyring}. The result is for a verifier to pin beside the old keyring while the service moves to
+     * the new key; vouching that the other keys are still current is the owner's, as for a renewal.
+     */
+    public static KeyringFile rotateKeyring(KeyringFile current, String svc, PublicKey newKey, long notAfter,
+            PrivateKey policyKey) {
+        if (current.policy() == null || !current.verifies(current.policy())) {
+            throw new IllegalArgumentException("keyring is not signed by its policy key");
+        }
+        if (!current.services().containsKey(svc)) {
+            throw new IllegalArgumentException("keyring has no key for service " + svc);
+        }
+        Map<String, String> services = new LinkedHashMap<>(current.services());
+        services.put(svc, Base64Url.encode(Crypto.encodePublicKey(newKey)));
+        KeyringFile rotated = KeyringFile.sign(services, current.policy(), notAfter, policyKey);
+        if (!rotated.verifies(current.policy())) {
+            throw new IllegalArgumentException("keyring is not signed by this policy key");
+        }
+        return rotated;
     }
 
     /**

@@ -9,12 +9,15 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AccessDeniedException;
 import java.nio.file.FileSystemException;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.security.KeyPair;
 import java.security.PrivateKey;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.PolicyBuilder;
@@ -27,7 +30,8 @@ import org.paztport.core.session.ReplyCert;
  * CLI: build, or renew, a signed root and per-service proof bundles from paths.yaml, and re-sign the keyring beside
  * them.
  *
- * <pre>policy-tool [--renew] [paths.yaml] [keysDir] [outDir]</pre>
+ * <pre>policy-tool [--renew] [paths.yaml] [keysDir] [outDir]
+ * policy-tool --rotate svc [keysDir]</pre>
  *
  * Reads the policy private key from {@code keysDir/policy.key} and the keyring from {@code keysDir/keyring.json}. The
  * root and the keyring are signed to vouch for {@code PAZTPORT_POLICY_DAYS} days from the run (default 7). Two modes:
@@ -42,8 +46,17 @@ import org.paztport.core.session.ReplyCert;
  *       read.</li>
  * </ul>
  *
- * Either mode first checks the keyring (and, renewing, the root) is signed by the policy key in {@code policy.key},
- * whether or not it has expired, and that the keyring names that key; on a refusal it writes nothing and exits 2.
+ * <p>A third mode, {@code --rotate svc} or {@code PAZTPORT_ROTATE=svc}, exclusive with the other two, replaces one
+ * service's key: it writes {@code keysDir/svc.next.key}, a new key, and {@code keysDir/keyring.next.json}, the
+ * keyring with that service's key replaced by it, signed by the policy key, for the same {@code PAZTPORT_POLICY_DAYS}.
+ * It leaves {@code keyring.json} and {@code svc.key} as they are, so the verifiers can pin both keyrings, the
+ * service can switch to the new key, and the old keyring can be unpinned. It refuses, writing nothing and exiting 2,
+ * a keyring that does not verify under the policy key, a service the keyring does not name, and either output
+ * already existing.
+ *
+ * <p>Either of the first two modes first checks the keyring (and, renewing, the root) is signed by the policy key in
+ * {@code policy.key}, whether or not it has expired, and that the keyring names that key; on a refusal it writes
+ * nothing and exits 2.
  * The keyring is written in place, truncated and rewritten rather than replaced by a rename, so that it can be a
  * single file mounted into the tool. It is written first, so a keyring that cannot be written (mounted read-only,
  * say) stops the run with one line, {@code policy-tool: cannot write <file>: <reason>}, the reason being the file
@@ -159,22 +172,61 @@ public final class PolicyToolMain {
     }
 
     /**
+     * Rotates: a new key for {@code svc} in {@code keysDir/svc.next.key} and, in {@code keysDir/keyring.next.json},
+     * the keyring with that key in place of the service's, signed until {@code policyNotAfter}. The current
+     * {@code keyring.json} and {@code svc.key} are not touched. Throws {@link IllegalArgumentException}, having
+     * written nothing, when the keyring is missing or malformed, does not verify under the key it names or that key
+     * is not this policy key, does not name {@code svc}, or either output already exists.
+     */
+    public static void rotate(Path keysDir, String svc, long policyNotAfter) throws IOException {
+        PrivateKey policyKey = KeyFiles.loadPrivateKey(keysDir.resolve("policy.key"));
+        Path keyringFile = keysDir.resolve("keyring.json");
+        Path nextKey = keysDir.resolve(svc + ".next.key");
+        Path nextKeyring = keysDir.resolve("keyring.next.json");
+        KeyringFile current = loadKeyring(keyringFile);
+        KeyPair fresh = Crypto.generateEd25519KeyPair();
+        KeyringFile next;
+        try {
+            next = PolicyOwner.rotateKeyring(current, svc, fresh.getPublic(), policyNotAfter, policyKey);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(keyringFile + ": " + e.getMessage(), e);
+        }
+        for (Path out : List.of(nextKey, nextKeyring)) {
+            if (Files.exists(out, LinkOption.NOFOLLOW_LINKS)) {
+                throw new IllegalArgumentException(out + " exists already; move it away first");
+            }
+        }
+
+        // The key first: a keyring naming a key that was never written is worse than a key no keyring names.
+        try {
+            KeyFiles.writePrivateKey(nextKey, fresh.getPrivate());
+        } catch (IOException e) {
+            throw new CannotWrite(nextKey, e);
+        }
+        writeKeyringInPlace(nextKeyring, next);
+    }
+
+    /**
      * The keyring read from {@code keyringFile} and re-signed until {@code notAfter} by core's
      * {@link PolicyOwner#renewKeyring}, which holds the checks re-signing rests on. A refusal names the file.
      */
     private static KeyringFile renewedKeyring(Path keyringFile, long notAfter, PrivateKey policyKey) {
-        KeyringFile ring;
-        try {
-            ring = KeyringFile.load(keyringFile);
-        } catch (UncheckedIOException e) {
-            throw new IllegalArgumentException(keyringFile + " is missing or not a keyring", e);
-        } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException(keyringFile + " is missing or not a keyring: " + e.getMessage(), e);
-        }
+        KeyringFile ring = loadKeyring(keyringFile);
         try {
             return PolicyOwner.renewKeyring(ring, notAfter, policyKey);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(keyringFile + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** The keyring in {@code keyringFile}; a refusal names the file. */
+    private static KeyringFile loadKeyring(Path keyringFile) {
+        try {
+            return KeyringFile.load(keyringFile);
+        } catch (UncheckedIOException e) {
+            throw new IllegalArgumentException(keyringFile + " is missing or not a keyring", e);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException(keyringFile + " is missing or not a keyring: " + e.getMessage(), e);
         }
     }
 
@@ -264,29 +316,43 @@ public final class PolicyToolMain {
         return nowMs + d * DAY_MS;
     }
 
-    /** Parsed command line: the three paths, defaulted, and whether to renew. */
-    record Args(Path pathsYaml, Path keysDir, Path outDir, boolean renew) {
+    /**
+     * Parsed command line: the three paths, defaulted, whether to renew, and the service to rotate (null unless
+     * rotating). Rotating reads only {@code keysDir}, which it takes as its one path.
+     */
+    record Args(Path pathsYaml, Path keysDir, Path outDir, boolean renew, String rotate) {
     }
 
     /**
      * Positional paths with {@code --renew} anywhere among them; {@code renewEnv} is {@code PAZTPORT_RENEW}, which
      * also asks for renewal when {@code true}, so the same command line serves both modes. Any other flag, or any
      * other value of the variable but {@code false} or empty, is refused.
+     *
+     * <p>{@code --rotate svc}, or {@code rotateEnv}, which is {@code PAZTPORT_ROTATE}, asks to rotate that service's
+     * key instead; its one path is the keys directory. It is refused beside renewal, in either form, since a run does
+     * one thing, and without a service or with more than one.
      */
-    static Args parse(String[] args, String renewEnv) {
+    static Args parse(String[] args, String renewEnv, String rotateEnv) {
         boolean renew = false;
+        String rotate = null;
         List<String> positional = new ArrayList<>();
-        for (String a : args) {
+        for (int i = 0; i < args.length; i++) {
+            String a = args[i];
             if (a.equals("--renew")) {
                 renew = true;
+            } else if (a.equals("--rotate")) {
+                if (rotate != null) {
+                    throw new IllegalArgumentException("--rotate takes one service");
+                }
+                if (i + 1 == args.length || args[i + 1].startsWith("--")) {
+                    throw new IllegalArgumentException("--rotate needs a service");
+                }
+                rotate = args[++i];
             } else if (a.startsWith("--")) {
                 throw new IllegalArgumentException("unknown option " + a);
             } else {
                 positional.add(a);
             }
-        }
-        if (positional.size() > 3) {
-            throw new IllegalArgumentException("at most three paths");
         }
         if (renewEnv != null && !renewEnv.isEmpty()) {
             if (renewEnv.equals("true")) {
@@ -295,9 +361,25 @@ public final class PolicyToolMain {
                 throw new IllegalArgumentException("PAZTPORT_RENEW must be true or false");
             }
         }
+        if (rotate == null && rotateEnv != null && !rotateEnv.isEmpty()) {
+            rotate = rotateEnv;
+        }
+        if (rotate != null) {
+            if (renew) {
+                throw new IllegalArgumentException("rotating and renewing are separate runs");
+            }
+            if (positional.size() > 1) {
+                throw new IllegalArgumentException("rotating takes at most the keys directory");
+            }
+            return new Args(null, Path.of(positional.isEmpty() ? "out/keys" : positional.get(0)), null, false,
+                    rotate);
+        }
+        if (positional.size() > 3) {
+            throw new IllegalArgumentException("at most three paths");
+        }
         return new Args(Path.of(positional.size() > 0 ? positional.get(0) : "policy/paths.yaml"),
                 Path.of(positional.size() > 1 ? positional.get(1) : "out/keys"),
-                Path.of(positional.size() > 2 ? positional.get(2) : "out/policy"), renew);
+                Path.of(positional.size() > 2 ? positional.get(2) : "out/policy"), renew, null);
     }
 
     public static void main(String[] args) throws IOException {
@@ -307,7 +389,7 @@ public final class PolicyToolMain {
         long certNotAfter = 0;
         int depth;
         try {
-            a = parse(args, System.getenv("PAZTPORT_RENEW"));
+            a = parse(args, System.getenv("PAZTPORT_RENEW"), System.getenv("PAZTPORT_ROTATE"));
             long now = System.currentTimeMillis();
             policyNotAfter = policyNotAfter(System.getenv("PAZTPORT_POLICY_DAYS"), now);
             if (replyCertSvc != null) {
@@ -317,11 +399,14 @@ public final class PolicyToolMain {
         } catch (IllegalArgumentException e) {
             System.err.println("policy-tool: " + e.getMessage());
             System.err.println("usage: policy-tool [--renew] [paths.yaml] [keysDir] [outDir]");
+            System.err.println("       policy-tool --rotate svc [keysDir]");
             System.exit(2);
             return;
         }
         try {
-            if (a.renew()) {
+            if (a.rotate() != null) {
+                rotate(a.keysDir(), a.rotate(), policyNotAfter);
+            } else if (a.renew()) {
                 renew(a.keysDir(), a.outDir(), policyNotAfter, replyCertSvc, certNotAfter);
             } else {
                 run(a.pathsYaml(), a.keysDir(), a.outDir(), depth, policyNotAfter, replyCertSvc, certNotAfter);
@@ -337,6 +422,13 @@ public final class PolicyToolMain {
         }
 
         String when = "notAfter " + policyNotAfter + " (" + Instant.ofEpochMilli(policyNotAfter) + ")";
+        if (a.rotate() != null) {
+            System.out.println("policy-tool: wrote " + a.keysDir().resolve(a.rotate() + ".next.key") + " and "
+                    + a.keysDir().resolve("keyring.next.json") + ", " + when + "; current files unchanged. Next:"
+                    + " pin keyring.next.json beside keyring.json, switch " + a.rotate() + " to its new key,"
+                    + " unpin keyring.json");
+            return;
+        }
         if (a.renew()) {
             System.out.println("policy-tool: renewed " + a.outDir().resolve("root.json") + " and "
                     + a.keysDir().resolve("keyring.json") + ", " + when + "; proof bundles in " + a.outDir()

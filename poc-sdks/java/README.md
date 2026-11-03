@@ -560,6 +560,17 @@ narrowing a policy is a rebuild. Re-signing the keyring vouches that each listed
 current key: the tool can check only that this policy key signed the keyring before, so retiring a key, which
 needs a new keyring rather than a renewed one, is the policy owner's to ensure.
 
+A third run rotates one service's key, `policy-tool --rotate <svc> [keysDir]` or `PAZTPORT_ROTATE=<svc>`
+(exclusive with `--renew`; usage and exit 2 if both are given). It reads `keysDir/policy.key` and
+`keysDir/keyring.json` and writes `keysDir/<svc>.next.key`, a new key in the keygen's format, and
+`keysDir/keyring.next.json`, the keyring with that service's key replaced and every other kept exactly, signed by
+the policy key and valid for `PAZTPORT_POLICY_DAYS`. `keyring.json` and `<svc>.key` are left as they are. It
+checks the keyring as the other modes do, refuses a service the keyring does not name, and refuses, writing
+nothing, if either output exists already (exit 2). The rollout, which the
+[spec](../spec/wire.md) describes as the overlap, is then: pin `keyring.next.json` beside
+`keyring.json` (the Spring starter's `paztport.overlap.keyring-paths`), switch the service to `<svc>.next.key` and
+the new keyring, and unpin `keyring.json`.
+
 When `PAZTPORT_REPLY_CERT_SVC` names a service, either mode also writes `outDir/reply-cert.json`, a
 [reply certificate](../spec/wire.md#the-reply-certificate) for that service's key in the keyring, valid for
 `PAZTPORT_REPLY_CERT_DAYS` days (default 7), set apart from the policy's lifetime. It refuses, writing nothing,

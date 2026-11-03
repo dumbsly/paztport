@@ -7,8 +7,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermission;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.KeyPair;
 import java.security.SecureRandom;
 import java.time.Duration;
@@ -18,7 +16,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.paztport.core.crypto.Crypto;
 import org.paztport.core.crypto.KeyFiles;
 import org.paztport.core.encoding.Base64Url;
 import org.paztport.core.influence.BoundaryInfluence;
@@ -87,25 +84,25 @@ public final class KeygenMain {
         Files.writeString(outDir.resolve("policy.pub"), KeyGenerator.policyPublicKey(result) + "\n");
 
         for (Map.Entry<String, KeyPair> e : result.services().entrySet()) {
-            writePrivateKey(outDir.resolve(e.getKey() + ".key"), e.getValue());
+            KeyFiles.writePrivateKey(outDir.resolve(e.getKey() + ".key"), e.getValue().getPrivate());
         }
-        writePrivateKey(outDir.resolve("policy.key"), result.policy());
+        KeyFiles.writePrivateKey(outDir.resolve("policy.key"), result.policy().getPrivate());
         if (!keepBoundaryKey) {
             byte[] key = new byte[BoundaryInfluence.KEY_LENGTH];
             new SecureRandom().nextBytes(key);
-            writeSecret(boundaryKey, Base64Url.encode(key) + "\n");
+            KeyFiles.writeSecret(boundaryKey, Base64Url.encode(key) + "\n");
         }
 
         Path tls = Files.createDirectories(outDir.resolve("tls"));
         TlsIssuer.Ca ca = TlsIssuer.newCa(org, TLS_VALIDITY);
         Files.writeString(tls.resolve("ca.crt"), TlsIssuer.pem(ca.cert()));
         // Its own directory: tls/ is mounted into containers, and the CA key must never be.
-        writeSecret(Files.createDirectories(outDir.resolve("ca")).resolve("ca.key"),
+        KeyFiles.writeSecret(Files.createDirectories(outDir.resolve("ca")).resolve("ca.key"),
                 TlsIssuer.pem(ca.keys().getPrivate()));
         for (String name : names) {
             TlsIssuer.Issued leaf = TlsIssuer.issue(ca, name, TLS_VALIDITY);
             Files.writeString(tls.resolve(name + ".crt"), TlsIssuer.pem(leaf.cert()));
-            writeSecret(tls.resolve(name + ".key"), TlsIssuer.pem(leaf.keys().getPrivate()));
+            KeyFiles.writeSecret(tls.resolve(name + ".key"), TlsIssuer.pem(leaf.keys().getPrivate()));
         }
     }
 
@@ -125,27 +122,6 @@ public final class KeygenMain {
                     + " bytes as base64url. It is kept across runs, since a new one would make every entry sent"
                     + " under it unopenable, so it is not replaced: restore it, or delete it to start a new key.");
         }
-    }
-
-    /**
-     * Writes the key owner-read/write only. Permissions are set before the key
-     * is written, and again on an existing file, so the key is never readable by
-     * other users, even briefly. On non-POSIX filesystems the default applies.
-     */
-    private static void writePrivateKey(Path file, KeyPair kp) throws IOException {
-        writeSecret(file, Base64Url.encode(Crypto.encodePrivateKey(kp.getPrivate())));
-    }
-
-    private static void writeSecret(Path file, String content) throws IOException {
-        if (file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
-            Set<PosixFilePermission> ownerOnly = PosixFilePermissions.fromString("rw-------");
-            if (Files.exists(file)) {
-                Files.setPosixFilePermissions(file, ownerOnly);
-            } else {
-                Files.createFile(file, PosixFilePermissions.asFileAttribute(ownerOnly));
-            }
-        }
-        Files.writeString(file, content);
     }
 
     /**
