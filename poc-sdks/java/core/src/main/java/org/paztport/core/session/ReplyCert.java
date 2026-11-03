@@ -77,7 +77,7 @@ public record ReplyCert(String policy, String svc, String key, long notAfter, St
     /**
      * True only when this certificate names the pinned policy key and its signature verifies under it; never
      * throws. Says nothing about time: the caller compares {@code notAfter} with the time it judges. As for the
-     * keyring, the signature text is not held to the canonical-encoding rule.
+     * keyring, the signature text must be the canonical base64url encoding, as every decoded value must.
      */
     public boolean verifies(String pinnedPolicyKey) {
         if (sig == null || policy == null || pinnedPolicyKey == null || !policy.equals(pinnedPolicyKey)) {
