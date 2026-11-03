@@ -204,9 +204,10 @@ public final class PolicyToolMain {
     /**
      * Creates the two outputs, each only if absent: whatever is there by now, an output that appeared since the
      * check in {@link #rotate}, is refused and never overwritten. The key goes first, since a keyring naming a key
-     * that was never written is worse than a key no keyring names. A failure writing the keyring removes the key
-     * this run created, so that the owner is not left to delete a private key by hand before trying again. Only
-     * files this run created are ever removed.
+     * that was never written is worse than a key no keyring names. A failure writing the keyring removes the key,
+     * so that the owner is not left to delete a private key by hand before trying again. Only files this run
+     * created are ever removed: core's create-new writers remove a half-written file of their own, and the key is
+     * removed only once its creation has succeeded.
      */
     static void writeRotation(Path nextKey, PrivateKey key, Path nextKeyring, KeyringFile ring) throws IOException {
         try {
@@ -214,7 +215,6 @@ public final class PolicyToolMain {
         } catch (FileAlreadyExistsException e) {
             throw new IllegalArgumentException(nextKey + " exists already; move it away first", e);
         } catch (IOException e) {
-            removeQuietly(nextKey);
             throw new CannotWrite(nextKey, e);
         }
         try {
@@ -224,12 +224,11 @@ public final class PolicyToolMain {
             throw new IllegalArgumentException(nextKeyring + " exists already; move it away first", e);
         } catch (IOException e) {
             removeQuietly(nextKey);
-            removeQuietly(nextKeyring);
             throw new CannotWrite(nextKeyring, e);
         }
     }
 
-    /** Best effort: a file this run created and now wants gone. */
+    /** Best effort: the key this run created and now wants gone. */
     private static void removeQuietly(Path file) {
         try {
             Files.deleteIfExists(file);

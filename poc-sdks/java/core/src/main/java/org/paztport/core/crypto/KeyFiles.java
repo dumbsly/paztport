@@ -93,6 +93,7 @@ public final class KeyFiles {
      * and what is already there is left as it was.
      *
      * @throws FileAlreadyExistsException when {@code file} exists, even if it appeared an instant ago
+     * @throws IOException when it cannot be created or written; a file this call created is then removed again
      */
     public static void createPrivateKey(Path file, PrivateKey key) throws IOException {
         create(file, Base64Url.encode(Crypto.encodePrivateKey(key)), true);
@@ -114,9 +115,19 @@ public final class KeyFiles {
     private static void create(Path file, String content, boolean ownerOnly) throws IOException {
         if (ownerOnly && file.getFileSystem().supportedFileAttributeViews().contains("posix")) {
             Files.createFile(file, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
-            Files.writeString(file, content);
         } else {
-            Files.writeString(file, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            Files.writeString(file, "", StandardOpenOption.CREATE_NEW);
+        }
+        // From here the file is this call's own, so a failure to fill it takes it away again, never another's.
+        try {
+            Files.writeString(file, content);
+        } catch (IOException | RuntimeException e) {
+            try {
+                Files.deleteIfExists(file);
+            } catch (IOException suppressed) {
+                e.addSuppressed(suppressed);
+            }
+            throw e;
         }
     }
 }

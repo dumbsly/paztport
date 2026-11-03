@@ -753,4 +753,29 @@ class PolicyToolMainTest {
         assertEquals("earlier", Files.readString(nextKey));
         assertFalse(Files.exists(nextRing));
     }
+
+    /**
+     * Only what this run created is removed: a keyring that was there first stays, with its bytes, while the key
+     * this run made goes; and a key that cannot be created (no directory for it) leaves nothing behind and no
+     * keyring is attempted.
+     */
+    @Test
+    void aFailedRotationRemovesOnlyWhatItCreated(@TempDir Path dir) throws Exception {
+        KeyPair fresh = Crypto.generateEd25519KeyPair();
+        KeyringFile ring = KeyringFile.sign(Map.of("orders", pub(fresh)), pub(fresh), NOT_AFTER, fresh.getPrivate());
+        Path nextKey = dir.resolve("orders.next.key");
+        Path nextRing = dir.resolve("keyring.next.json");
+        Files.writeString(nextRing, "earlier");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.writeRotation(nextKey, fresh.getPrivate(), nextRing, ring));
+        assertEquals("earlier", Files.readString(nextRing));
+        assertFalse(Files.exists(nextKey));
+
+        Path noDir = dir.resolve("absent").resolve("orders.next.key");
+        assertThrows(PolicyToolMain.CannotWrite.class, () -> PolicyToolMain.writeRotation(noDir, fresh.getPrivate(),
+                dir.resolve("absent").resolve("keyring.next.json"), ring));
+        assertEquals("earlier", Files.readString(nextRing));
+        assertFalse(Files.exists(dir.resolve("absent")));
+    }
 }
