@@ -575,21 +575,27 @@ class VectorsV3Test {
     }
 
     /**
-     * Every verify and offline case, its one keyring and root rewritten as the optional {@code keyrings} and
-     * {@code roots}, gives its recorded answer: the replay reads the arrays a case may carry, though no committed
-     * case carries them yet. Each case is rewritten twice: one keyring, and its services split one to a keyring, so
+     * Every verify and offline case with one keyring and root, rewritten as the optional {@code keyrings} and
+     * {@code roots}, gives its recorded answer: the replay reads the arrays a case may carry, beside the committed
+     * cases that carry them. Each case is rewritten twice: one keyring, and its services split one to a keyring, so
      * a stamp's key comes from whichever keyring holds it. Live, each member's window is the case's
      * {@code policyNotAfter}; offline, a member has none.
      */
     @Test
     void theOptionalArraysGiveTheAnswersOfTheirSingletons() {
         for (JsonNode c : vectors.get("verify")) {
+            if (c.has("keyrings") || c.has("roots")) {
+                continue; // already written as arrays: verify() replays it
+            }
             for (boolean split : new boolean[] {false, true}) {
                 assertEquals(expectedLive(c), replayLive(asArrays(c, c.get("policyNotAfter"), split)),
                         c.get("name").asText() + (split ? ", split" : ""));
             }
         }
         for (JsonNode c : vectors.get("offline")) {
+            if (c.has("keyrings") || c.has("roots")) {
+                continue; // already written as arrays: offline() replays it
+            }
             for (boolean split : new boolean[] {false, true}) {
                 assertEquals(expectedOffline(c), replayOffline(asArrays(c, null, split)),
                         c.get("name").asText() + (split ? ", split" : ""));

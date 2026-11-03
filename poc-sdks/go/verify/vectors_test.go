@@ -41,8 +41,8 @@ func TestVectors(t *testing.T) {
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
-// though no committed case carries them yet: every verify case, its one keyring and its policy's root
-// written as the arrays, each member until the case's policyNotAfter, gives its recorded answer, with its
+// beside the committed cases that carry them: every verify case with one keyring, that keyring and its
+// policy's root written as the arrays, each member until the case's policyNotAfter, gives its recorded answer, with its
 // keyring whole or split one service to a keyring. And what the arrays pin is what is used: without the
 // keyring that holds a signer's key the chain is BAD_SIGNATURE, and with another policy's root in place of
 // the one the proof comes from it is PATH_NOT_ALLOWED; so it is under a root past its window, or with
@@ -50,6 +50,9 @@ func TestVectors(t *testing.T) {
 func TestVectorsReadTheOptionalArrays(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	v3.Get("verify").Each(func(name string, c vectors.Node) {
+		if c.Has("keyrings") || c.Has("roots") {
+			return // already written as arrays: TestVectors replays it
+		}
 		for _, split := range []bool{false, true} {
 			t.Run(name+", split "+strconv.FormatBool(split), func(t *testing.T) {
 				c := c.With(t)

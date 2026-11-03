@@ -37,13 +37,16 @@ func TestVectors(t *testing.T) {
 }
 
 // TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
-// though no committed case carries them yet: every offline case, its one keyring and its policy's root
-// written as the arrays with no window, gives its recorded answer, with its keyring whole or split one
+// beside the committed cases that carry them: every offline case with one keyring, that keyring and its
+// policy's root written as the arrays with no window, gives its recorded answer, with its keyring whole or split one
 // service to a keyring. And each member's window is the one it gives: a record later than every keyring's
 // or every root's notAfter is POLICY_EXPIRED, and one at it is not.
 func TestVectorsReadTheOptionalArrays(t *testing.T) {
 	v3 := vectors.Load(t, "v3.json")
 	v3.Get("offline").Each(func(name string, c vectors.Node) {
+		if c.Has("keyrings") || c.Has("roots") {
+			return // already written as arrays: TestVectors replays it
+		}
 		for _, split := range []bool{false, true} {
 			t.Run(name+", split "+strconv.FormatBool(split), func(t *testing.T) {
 				c := c.With(t)

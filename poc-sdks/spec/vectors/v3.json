@@ -1,5 +1,5 @@
 {
-  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. Cases may be added; a recorded answer changes only with a protocol change.",
+  "about": "Paztport v3 conformance vectors. Every case carries all of its inputs; keys and policies are named and defined in this file. Each key's private key is the PKCS#8 DER 302e020100300506032b657004220420 || seed, where seed = SHA-256(utf8(\"paztport-v3-vector-key:\" + name)), and its public key is the SPKI DER export; both are base64url. Each Merkle leaf salt is the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:\" + route)), and the policy's routes fill the first leaves in order; padding leaf i is SHA-256(utf8(\"paztport-v3-vector-pad:\" + rootId + \":\" + i)). This placement and rootId derivation are for the vectors only; real builds use random slots and a random rootId. Ed25519 is deterministic, so the file is reproduced byte for byte. A verify case runs the live verifier `uses` times against one nonce cache of nonceTtlMs and expects the last result; its policyNotAfter is the earliest notAfter of the keyring and root the verifier pins, which `now` must not pass. An offline case runs the offline verifier once: `recordedTs.last` is the recorded time of the last stamp, `rid` the record's rid, `prompt` the run's recorded prompt, and callMaxAgeMs and runMaxAgeMs the age limits; a null recordedTs is a record with no time, and a null limit is one not configured, which is absent, never 0; there is no peer, clock or nonce TTL, and `seen` is the set of nonce keys already spent in the record set. A policy's proof is looked up by `proofRoute` (null: no proof). A sessionStatus case is the server's status for `request` at `now`, against its own `serverRoot` and `serverKeyring` (whose notAfter is its window), its policy key `serverPolicyKey` and the client policy keys `pinned`. A sessionRequest case is a request as received, its bytes in `requestToken`, read by the server: `expected` is OK for a well-formed request and MALFORMED for one it refuses (JSON-RPC -32602, HTTP 400 INVALID_PARAMS). The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. The policy mesh-second is a second tree over mesh's routes, whose rootId and salts the vectors derive from the seed `second` as well as the routes (rootId = \"v\" + first 12 hex of SHA-256(utf8(routes joined by newline + newline + \"#second\")), salt = the first 16 bytes of SHA-256(utf8(\"paztport-v3-vector-salt:second:\" + route))); mesh-relabelled holds mesh's proofs with their rootId set to mesh-second's, over mesh's root. Cases may be added; a recorded answer changes only with a protocol change.",
   "keys": {
     "session": {
       "pub": "MCowBQYDK2VwAyEAb0m5BDnl3LzmednUhwMpU9Oc58beN-Saat_c5CTamcY",
@@ -32,6 +32,10 @@
     "server-policy": {
       "pub": "MCowBQYDK2VwAyEAOdyoxLQRNmlGbFkPnV76zvhKoT6dVmtC3o6ZUBRrB-I",
       "priv": "MC4CAQAwBQYDK2VwBCIEIOzTy22tVtEUhSUXKIpaE_1Kq_S4pYO-NnPS3l6wCKeM"
+    },
+    "orders-next": {
+      "pub": "MCowBQYDK2VwAyEAyYRtenpGnrPBvkus7WAVrWBQkzZFbRf0jCkw-_AiqC0",
+      "priv": "MC4CAQAwBQYDK2VwBCIEIAHSMLG_45pPCJzHygVunVLULplGeKVFxRBH3Y-Lqmd1"
     }
   },
   "policies": {
@@ -151,6 +155,62 @@
       },
       "proofTokens": {
         "gateway/orders/payment": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6IkN1dXVnUzJlZkhaTzZwSFRQZXNPZ3ciLCJyb290SWQiOiJ2NGY0YmEwZTRlMjVhIiwic2libGluZ3MiOlsia3ZVV1ZnT21GMEI1U01BQkJCU05wOWlOR3hCVjMzRXFMTGZrMVdlWTNsbyIsIklVU0VaY01qWnItUHVhdUZIUTJuZXNtRDBBZWlIbEpjakZpOEJfUE9DeU0iLCIzQmxjblZ5UXhsNUJwa05vcEh0a0tIMGJTSHk4QXlycmZjZGR3czIxTDBRIiwiN3diVDltdWVYcF9MZy1kcjZiRWRzNmhNS3NvQnhmQ1pUMzAxSV9ETFJSbyIsIjhiSmNmcW1GcnZvbVdVZU1EekRDRzlWbE1jd1VVVGJyUDd2cHNzUUtUc00iLCJYVm5pTlBYWENKMFZlOXRjX1BpX2Fza1E0ZEVuamV6OGVYX202R3otVUM4IiwiMjE3T2VHTUJFcFphQjZuTWRpaHJjVGZuVzdEcjROcFVPZk1YYlRCMjJQQSIsIl9GYXBwVVhDeXRCT2ZzZkxweFNIVXBoOUE4c0NXczR6MTBubVYzOEFGYUkiXX0"
+      }
+    },
+    "mesh-second": {
+      "routes": [
+        "gateway/orders/payment"
+      ],
+      "depth": 8,
+      "rootId": "v572a6c3225eb",
+      "root": "-aQWL90VbjQ-la4hu-a5Df_UQV1QV6OULYWhKtvJOik",
+      "proofs": {
+        "gateway/orders/payment": {
+          "leafSalt": "5K-LraY4A44R5ce6Y05mmw",
+          "siblings": [
+            "LGF6UtSkDkUKqrVgdk8J1FrGrE_X66FyHkBjdp1rHFo",
+            "P6CL6tx6bg4i8RzA8883HNQmhYXGhxzzmlsSSJxvO-E",
+            "tYf9y-N0jnKxxL0X_hWksRIVn4yxFiNTTmQ-yfo7158",
+            "OkUcRpLHVT4qIYiMu97UzMJxszLigTIgQbEgte2SubE",
+            "913Gi2PUl-MNncKJqhIpP2Qe2Sy4PsMs6Mf19RM3b4M",
+            "s74XK0Yz2UJiUSWdRfBnQlbC6cwGctVUy7p_5hvkkhU",
+            "kKuo-PgEZH208spuXhK-VpPsYkv43YGZIAGrx91FLZY",
+            "RdXfiR0lS0ZlhbEsAeO5j0vHTTos6veKVA5nhgxm6fE"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v572a6c3225eb"
+        }
+      },
+      "proofTokens": {
+        "gateway/orders/payment": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6IjVLLUxyYVk0QTQ0UjVjZTZZMDVtbXciLCJyb290SWQiOiJ2NTcyYTZjMzIyNWViIiwic2libGluZ3MiOlsiTEdGNlV0U2tEa1VLcXJWZ2RrOEoxRnJHckVfWDY2RnlIa0JqZHAxckhGbyIsIlA2Q0w2dHg2Ymc0aThSekE4ODgzSE5RbWhZWEdoeHp6bWxzU1NKeHZPLUUiLCJ0WWY5eS1OMGpuS3h4TDBYX2hXa3NSSVZuNHl4RmlOVFRtUS15Zm83MTU4IiwiT2tVY1JwTEhWVDRxSVlpTXU5N1V6TUp4c3pMaWdUSWdRYkVndGUyU3ViRSIsIjkxM0dpMlBVbC1NTm5jS0pxaElwUDJRZTJTeTRQc01zNk1mMTlSTTNiNE0iLCJzNzRYSzBZejJVSmlVU1dkUmZCblFsYkM2Y3dHY3RWVXk3cF81aHZra2hVIiwia0t1by1QZ0VaSDIwOHNwdVhoSy1WcFBzWWt2NDNZR1pJQUdyeDkxRkxaWSIsIlJkWGZpUjBsUzBabGhiRXNBZU81ajB2SFRUb3M2dmVLVkE1bmhneG02ZkUiXX0"
+      }
+    },
+    "mesh-relabelled": {
+      "routes": [
+        "gateway/orders/payment"
+      ],
+      "depth": 8,
+      "rootId": "v4f4ba0e4e25a",
+      "root": "Ops4RWm6rFYbNFIULv_FrLqD2Odqcnf_qnc7xHxFCec",
+      "proofs": {
+        "gateway/orders/payment": {
+          "leafSalt": "CuuugS2efHZO6pHTPesOgw",
+          "siblings": [
+            "kvUWVgOmF0B5SMABBBSNp9iNGxBV33EqLLfk1WeY3lo",
+            "IUSEZcMjZr-PuauFHQ2nesmD0AeiHlJcjFi8B_POCyM",
+            "3BlcnVyQxl5BpkNopHtkKH0bSHy8Ayrrfcddws21L0Q",
+            "7wbT9mueXp_Lg-dr6bEds6hMKsoBxfCZT301I_DLRRo",
+            "8bJcfqmFrvomWUeMDzDCG9VlMcwUUTbrP7vpssQKTsM",
+            "XVniNPXXCJ0Ve9tc_Pi_askQ4dEnjez8eX_m6Gz-UC8",
+            "217OeGMBEpZaB6nMdihrcTfnW7Dr4NpUOfMXbTB22PA",
+            "_FappUXCytBOfsfLpxSHUph9A8sCWs4z10nmV38AFaI"
+          ],
+          "dirs": "LLLLLLLL",
+          "rootId": "v572a6c3225eb"
+        }
+      },
+      "proofTokens": {
+        "gateway/orders/payment": "eyJkaXJzIjoiTExMTExMTEwiLCJsZWFmU2FsdCI6IkN1dXVnUzJlZkhaTzZwSFRQZXNPZ3ciLCJyb290SWQiOiJ2NTcyYTZjMzIyNWViIiwic2libGluZ3MiOlsia3ZVV1ZnT21GMEI1U01BQkJCU05wOWlOR3hCVjMzRXFMTGZrMVdlWTNsbyIsIklVU0VaY01qWnItUHVhdUZIUTJuZXNtRDBBZWlIbEpjakZpOEJfUE9DeU0iLCIzQmxjblZ5UXhsNUJwa05vcEh0a0tIMGJTSHk4QXlycmZjZGR3czIxTDBRIiwiN3diVDltdWVYcF9MZy1kcjZiRWRzNmhNS3NvQnhmQ1pUMzAxSV9ETFJSbyIsIjhiSmNmcW1GcnZvbVdVZU1EekRDRzlWbE1jd1VVVGJyUDd2cHNzUUtUc00iLCJYVm5pTlBYWENKMFZlOXRjX1BpX2Fza1E0ZEVuamV6OGVYX202R3otVUM4IiwiMjE3T2VHTUJFcFphQjZuTWRpaHJjVGZuVzdEcjROcFVPZk1YYlRCMjJQQSIsIl9GYXBwVVhDeXRCT2ZzZkxweFNIVXBoOUE4c0NXczR6MTBubVYzOEFGYUkiXX0"
       }
     }
   },
@@ -2844,6 +2904,780 @@
         "suspectSvc": "",
         "suspectInst": ""
       }
+    },
+    {
+      "name": "a proof under the second pinned root",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh-second",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a proof whose rootId is pinned nowhere",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "client",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "PATH_NOT_ALLOWED",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a rotated key only in the second keyring",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "fzu_oAd55PywGMifQnegh1qslYzu46HStdZm3SM0uxISX2OCgZhSXo2EGWQUTz1vy4uyuvU4yYfM1-JOAaMoDQ"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImZ6dV9vQWQ1NVB5d0dNaWZRbmVnaDFxc2xZenU0NkhTdGRabTNTTTB1eElTWDJPQ2daaFNYbzJFR1dRVVR6MXZ5NHV5dXZVNHlZZk0xLUpPQWFNb0RRIiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        },
+        {
+          "keyring": {
+            "orders": "orders-next"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a chain whose keys come from two keyrings",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway"
+          },
+          "notAfter": 4102444800000
+        },
+        {
+          "keyring": {
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a proof under an expired root while another is current",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 1767225599999
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "PATH_NOT_ALLOWED",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a key only in an expired keyring",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 1767225599999
+        },
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders-next"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "BAD_SIGNATURE",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "one root expired and one current",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 1767225599999
+        },
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "every keyring expired",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 1767225599999
+        },
+        {
+          "keyring": {
+            "orders": "orders-next"
+          },
+          "notAfter": 1767225599999
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 1767225599999,
+      "uses": 1,
+      "expected": {
+        "reason": "POLICY_EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "every root expired",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 1767225599999
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 1767225599999
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 1767225599999,
+      "uses": 1,
+      "expected": {
+        "reason": "POLICY_EXPIRED",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "a proof relabelled with the other pinned root's rootId",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-2",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "bind-gateway-to-orders",
+          "infl": "",
+          "prev": "",
+          "sig": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-2",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "ec03VjQ4ws4aullSDRTXprtBkYbBGXVj0noHn79CJWVz5JX0kX00LnhSVwTRqiPwDfvc8KtXYzwlUWGnYPlsDw",
+          "sig": "kEYhkvOte-jZRHim8seCvAkIF6FD247s3bH0l28xiE4ujomymvt7CTNj8ldZL6x_-Z1J-r-Cg88SfUPt_sKTAw"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6ImJpbmQtZ2F0ZXdheS10by1vcmRlcnMiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTIiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiZWMwM1ZqUTR3czRhdWxsU0RSVFhwcnRCa1liQkdYVmowbm9Ibjc5Q0pXVno1Slgwa1gwMExuaFNWd1RScWlQd0RmdmM4S3RYWXp3bFVXR25ZUGxzRHciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6ImVjMDNWalE0d3M0YXVsbFNEUlRYcHJ0QmtZYkJHWFZqMG5vSG43OUNKV1Z6NUpYMGtYMDBMbmhTVndUUnFpUHdEZnZjOEt0WFl6d2xVV0duWVBsc0R3IiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0yIiwic2VzcyI6InNlc3MtMiIsInNpZyI6ImtFWWhrdk90ZS1qWlJIaW04c2VDdkFrSUY2RkQyNDdzM2JIMGwyOHhpRTR1am9teW12dDdDVE5qOGxkWkw2eF8tWjFKLXItQ2c4OFNmVVB0X3NLVEF3Iiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh-relabelled",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "peer": null,
+      "keyrings": [
+        {
+          "keyring": {
+            "gateway": "gateway",
+            "orders": "orders"
+          },
+          "notAfter": 4102444800000
+        }
+      ],
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 4102444800000
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 4102444800000
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-2|orders|req",
+      "now": 1767225600000,
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "nonceTtlMs": 15000,
+      "policyNotAfter": 4102444800000,
+      "uses": 1,
+      "expected": {
+        "reason": "PATH_NOT_ALLOWED",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
     }
   ],
   "offline": [
@@ -3731,6 +4565,147 @@
       "prompt": "open a PR for issue #42",
       "expected": {
         "reason": "REPLAY",
+        "suspectSvc": "",
+        "suspectInst": ""
+      }
+    },
+    {
+      "name": "a record within only the second root's window",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-1",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "I8U3tJ7MlIfSVIrZf5h8Bb2FCVEZ2v5PXLeNfr6rTFKZ2Y0i_fFBwLr6Hc1qxiqmQoH6I6reQTE0wsq4m9zsBg"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-1",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "I8U3tJ7MlIfSVIrZf5h8Bb2FCVEZ2v5PXLeNfr6rTFKZ2Y0i_fFBwLr6Hc1qxiqmQoH6I6reQTE0wsq4m9zsBg",
+          "sig": "uhh-JRozdPjL-wgKrRZ325PR5bKhffCsdn6QnzMaxLwhJwcJA_spY8mTx5y2kkOJZwS038ijPNZwYdmGEEq1Bg"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiSThVM3RKN01sSWZTVklyWmY1aDhCYjJGQ1ZFWjJ2NVBYTGVOZnI2clRGS1oyWTBpX2ZGQndMcjZIYzFxeGlxbVFvSDZJNnJlUVRFMHdzcTRtOXpzQmciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6Ikk4VTN0SjdNbElmU1ZJclpmNWg4QmIyRkNWRVoydjVQWExlTmZyNnJURktaMlkwaV9mRkJ3THI2SGMxcXhpcW1Rb0g2STZyZVFURTB3c3E0bTl6c0JnIiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMiIsInNpZyI6InVoaC1KUm96ZFBqTC13Z0tyUlozMjVQUjViS2hmZkNzZG42UW56TWF4THdoSndjSkFfc3BZOG1UeDV5MmtrT0pad1MwMzhpalBOWndZZG1HRUVxMUJnIiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh-second",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "keyring": {
+        "gateway": "gateway",
+        "orders": "orders"
+      },
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 1767225599499
+        },
+        {
+          "policy": "mesh-second"
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-1|orders|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599500
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "OK",
+        "suspectSvc": "orders",
+        "suspectInst": "ord-1"
+      }
+    },
+    {
+      "name": "a record past every root's window",
+      "chain": [
+        {
+          "v": 3,
+          "svc": "gateway",
+          "inst": "gw-1",
+          "rid": "rid-1",
+          "ts": 1767225598500,
+          "sess": "sess-2",
+          "rcv": "orders",
+          "bind": "GHG2oeO8ahTQudo8ccWAGXTPNXpDcXX_dY_l1pjy4Uk",
+          "infl": "",
+          "prev": "",
+          "sig": "I8U3tJ7MlIfSVIrZf5h8Bb2FCVEZ2v5PXLeNfr6rTFKZ2Y0i_fFBwLr6Hc1qxiqmQoH6I6reQTE0wsq4m9zsBg"
+        },
+        {
+          "v": 3,
+          "svc": "orders",
+          "inst": "ord-1",
+          "rid": "rid-1",
+          "ts": 1767225599500,
+          "sess": "sess-2",
+          "rcv": "payment",
+          "bind": "bind-orders-to-payment",
+          "infl": "",
+          "prev": "I8U3tJ7MlIfSVIrZf5h8Bb2FCVEZ2v5PXLeNfr6rTFKZ2Y0i_fFBwLr6Hc1qxiqmQoH6I6reQTE0wsq4m9zsBg",
+          "sig": "uhh-JRozdPjL-wgKrRZ325PR5bKhffCsdn6QnzMaxLwhJwcJA_spY8mTx5y2kkOJZwS038ijPNZwYdmGEEq1Bg"
+        }
+      ],
+      "chainToken": "W3siYmluZCI6IkdIRzJvZU84YWhUUXVkbzhjY1dBR1hUUE5YcERjWFhfZFlfbDFwank0VWsiLCJpbmZsIjoiIiwiaW5zdCI6Imd3LTEiLCJwcmV2IjoiIiwicmN2Ijoib3JkZXJzIiwicmlkIjoicmlkLTEiLCJzZXNzIjoic2Vzcy0yIiwic2lnIjoiSThVM3RKN01sSWZTVklyWmY1aDhCYjJGQ1ZFWjJ2NVBYTGVOZnI2clRGS1oyWTBpX2ZGQndMcjZIYzFxeGlxbVFvSDZJNnJlUVRFMHdzcTRtOXpzQmciLCJzdmMiOiJnYXRld2F5IiwidHMiOjE3NjcyMjU1OTg1MDAsInYiOjN9LHsiYmluZCI6ImJpbmQtb3JkZXJzLXRvLXBheW1lbnQiLCJpbmZsIjoiIiwiaW5zdCI6Im9yZC0xIiwicHJldiI6Ikk4VTN0SjdNbElmU1ZJclpmNWg4QmIyRkNWRVoydjVQWExlTmZyNnJURktaMlkwaV9mRkJ3THI2SGMxcXhpcW1Rb0g2STZyZVFURTB3c3E0bTl6c0JnIiwicmN2IjoicGF5bWVudCIsInJpZCI6InJpZC0xIiwic2VzcyI6InNlc3MtMiIsInNpZyI6InVoaC1KUm96ZFBqTC13Z0tyUlozMjVQUjViS2hmZkNzZG42UW56TWF4THdoSndjSkFfc3BZOG1UeDV5MmtrT0pad1MwMzhpalBOWndZZG1HRUVxMUJnIiwic3ZjIjoib3JkZXJzIiwidHMiOjE3NjcyMjU1OTk1MDAsInYiOjN9XQ",
+      "expectedBind": "bind-orders-to-payment",
+      "influence": [],
+      "influenceToken": "W10",
+      "policy": "mesh-second",
+      "proofRoute": "gateway/orders/payment",
+      "receiver": "payment",
+      "receiverInRoute": true,
+      "keyring": {
+        "gateway": "gateway",
+        "orders": "orders"
+      },
+      "roots": [
+        {
+          "policy": "mesh",
+          "notAfter": 1767225599499
+        },
+        {
+          "policy": "mesh-second",
+          "notAfter": 1767225599499
+        }
+      ],
+      "allowedOrigins": [
+        "gateway"
+      ],
+      "sess": "sess-2",
+      "nonceKey": "rid-1|orders|req",
+      "seen": [],
+      "callMaxAgeMs": 5000,
+      "runMaxAgeMs": 1800000,
+      "rid": "rid-1",
+      "recordedTs": {
+        "last": 1767225599500
+      },
+      "prompt": "open a PR for issue #42",
+      "expected": {
+        "reason": "POLICY_EXPIRED",
         "suspectSvc": "",
         "suspectInst": ""
       }

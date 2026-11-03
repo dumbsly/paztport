@@ -31,7 +31,7 @@ import { InvalidParams, bindMcpCall, mcpReceiver, readSessionParams, sessionRepl
 
 const VECTORS_JSON = new URL("../../../spec/vectors/v3.json", import.meta.url);
 
-const KEY_NAMES = ["session", "pi", "mcp-entry", "github-tools", "gateway", "orders", "client-policy", "server-policy"] as const;
+const KEY_NAMES = ["session", "pi", "mcp-entry", "github-tools", "gateway", "orders", "client-policy", "server-policy", "orders-next"] as const;
 type KeyName = (typeof KEY_NAMES)[number];
 const PKCS8_ED25519_PREFIX = "302e020100300506032b657004220420";
 /** The keyring and root cases' fixed notAfter: 2027-01-01, as the Java tests use. */
@@ -68,6 +68,12 @@ const ABOUT =
   "The sections after sessionRequest pin the primitives the cases above rely on, each with its inputs: fixedInputs are `length` consecutive bytes from `start`, base64url, " +
   "which deriveSessionId's cases name; the prompt, result, response and tools/call bindings; the influence commitment; " +
   "and merkle, a tree of its own (depth 8, rootId merkle-vector) whose leaf hashes, node, root, proofs and proof headers (the base64url of each proof's JCS bytes) are recorded as the library computes them, and whose padding hashes are recorded as given, not derived. " +
+  "A verify or offline case may pin several keyrings and roots: `keyrings` ([{keyring, notAfter}], in place of `keyring`) and `roots` ([{policy, notAfter}], which pin those policies' roots), " +
+  "where `policy` then names only where the case's proof comes from; in an offline case a member without a notAfter has no window. " +
+  "The policy mesh-second is a second tree over mesh's routes, whose rootId and salts the vectors derive from the seed `second` as well as the routes " +
+  "(rootId = \"v\" + first 12 hex of SHA-256(utf8(routes joined by newline + newline + \"#second\")), " +
+  'salt = the first 16 bytes of SHA-256(utf8("paztport-v3-vector-salt:second:" + route))); ' +
+  "mesh-relabelled holds mesh's proofs with their rootId set to mesh-second's, over mesh's root. " +
   "Cases may be added; a recorded answer changes only with a protocol change.";
 
 /** The deterministic Ed25519 key pair for a name, as base64url SPKI and PKCS#8 DER. */
@@ -81,8 +87,9 @@ function vectorKey(name: string): { pub: string; priv: string } {
   return pair;
 }
 
-function salt(route: string): Uint8Array {
-  return sha256(utf8("paztport-v3-vector-salt:" + route)).slice(0, SALT_BYTES);
+/** A route's leaf salt; a policy with a seed (a second tree over the same routes) salts as "<seed>:<route>". */
+function salt(route: string, seed = ""): Uint8Array {
+  return sha256(utf8("paztport-v3-vector-salt:" + (seed === "" ? "" : seed + ":") + route)).slice(0, SALT_BYTES);
 }
 
 type Policy = {
@@ -96,14 +103,14 @@ type Policy = {
 };
 
 /** "v" + first 12 hex of SHA-256(routes joined by newline): the vectors' fixed rootId, not how real builds label a tree. */
-function deriveRootId(routes: string[]): string {
-  return "v" + Buffer.from(sha256(utf8(routes.join("\n")))).toString("hex").slice(0, 12);
+function deriveRootId(routes: string[], seed = ""): string {
+  return "v" + Buffer.from(sha256(utf8(routes.join("\n") + (seed === "" ? "" : "\n#" + seed)))).toString("hex").slice(0, 12);
 }
 
 /** A policy tree with fixed salts and padding (the library's tree pads at random), each proof checked by the library. */
-function policy(routes: string[]): Policy {
-  const rootId = deriveRootId(routes);
-  const level0 = routes.map((r) => leafHash(salt(r), r));
+function policy(routes: string[], seed = ""): Policy {
+  const rootId = deriveRootId(routes, seed);
+  const level0 = routes.map((r) => leafHash(salt(r, seed), r));
   for (let i = routes.length; i < 2 ** DEPTH; i++) {
     level0.push(sha256(utf8(`paztport-v3-vector-pad:${rootId}:${i}`)));
   }
@@ -113,7 +120,7 @@ function policy(routes: string[]): Policy {
     levels.push(below.flatMap((_, i) => (i % 2 === 0 ? [nodeHash(below[i]!, below[i + 1]!)] : [])));
   }
   const root = levels[levels.length - 1]![0]!;
-  const library = buildTree(routes.map((path) => ({ salt: salt(path), path })), DEPTH, rootId);
+  const library = buildTree(routes.map((path) => ({ salt: salt(path, seed), path })), DEPTH, rootId);
   const proofs: Record<string, MerkleProof> = {};
   routes.forEach((route, leaf) => {
     const siblings: string[] = [];
@@ -125,7 +132,7 @@ function policy(routes: string[]): Policy {
       dirs += left ? "L" : "R";
       index = Math.floor(index / 2);
     }
-    proofs[route] = { leafSalt: encode(salt(route)), siblings, dirs, rootId };
+    proofs[route] = { leafSalt: encode(salt(route, seed)), siblings, dirs, rootId };
     if (!provesPath(proofs[route], route, root, rootId)) {
       throw new Error(`proof for ${route} does not verify`);
     }
@@ -338,6 +345,12 @@ function sharedPrimitives() {
   };
 }
 
+type PolicyName = "client" | "server" | "mesh" | "mesh-second" | "mesh-relabelled";
+
+/** A pinned keyring or root of a case with several: the keyring's service-to-key-name map or the root's policy, and its window. */
+type KeyringPin = { keyring: Record<string, KeyName>; notAfter?: number };
+type RootPin = { policy: PolicyName; notAfter?: number };
+
 type Expected = { reason: string; suspectSvc: string; suspectInst: string };
 
 /** What a verify case shares with an offline one. */
@@ -346,7 +359,7 @@ type CaseInputs = {
   chain: Stamp[];
   expectedBind: string;
   influence: InfluenceEntry[];
-  policy: "client" | "server" | "mesh";
+  policy: PolicyName;
   proofRoute: string | null;
   receiver: string;
   receiverInRoute: boolean;
@@ -364,11 +377,23 @@ export function buildVectors(): Record<string, unknown> {
   const CALL_RCV = mcpReceiver("github", TOOL);
   const OTHER_RCV = mcpReceiver("github", "add_issue_comment");
   const LOCAL_RCV = localReceiver("read");
-  const policies = {
+  const meshRoutes = [routeOf(["gateway", "orders", "payment"])];
+  const mesh = policy(meshRoutes);
+  const meshSecond = policy(meshRoutes, "second");
+  // mesh's proofs with the rootId of the second tree: a proof that selects the second root and cannot prove against it
+  const relabelledProofs = Object.fromEntries(Object.entries(mesh.proofs).map(([route, p]) => [route, { ...p, rootId: meshSecond.rootId }]));
+  const policies: Record<PolicyName, Policy> = {
     client: policy([routeOf(["session", "pi", CALL_RCV]), routeOf(["session", "pi", OTHER_RCV]), routeOf(["session", "pi", LOCAL_RCV])]),
     server: policy([routeOf(["mcp-entry", "github-tools"])]),
-    mesh: policy([routeOf(["gateway", "orders", "payment"])]),
+    mesh,
+    "mesh-second": meshSecond,
+    "mesh-relabelled": {
+      ...mesh,
+      proofs: relabelledProofs,
+      proofTokens: Object.fromEntries(Object.entries(relabelledProofs).map(([route, p]) => [route, writeToken(p)])),
+    },
   };
+  check("the second tree has its own rootId and root", [meshSecond.rootId !== mesh.rootId, meshSecond.root !== mesh.root], [true, true]);
   const [CALL_ROUTE, OTHER_ROUTE, LOCAL_ROUTE] = policies.client.routes as [string, string, string];
 
   // signingBytes: the second pins UTF-8 with a non-ASCII inst.
@@ -441,14 +466,16 @@ export function buildVectors(): Record<string, unknown> {
 
   /** A verify case's pinned policy window unless it sets its own: 2100-01-01, far past `now`. */
   const PINNED_NOT_AFTER = 4_102_444_800_000;
-  type Live = CaseInputs & { peer: Peer | null; uses: number; policyNotAfter?: number };
+  type Live = CaseInputs & { peer: Peer | null; uses: number; policyNotAfter?: number; keyrings?: KeyringPin[]; roots?: RootPin[] };
   const live = (c: Live, expected: Expected) => {
     const nonces = new NonceCache(NONCE_TTL_MS);
     const policyNotAfter = c.policyNotAfter ?? PINNED_NOT_AFTER;
-    // one keyring and one root, each with the case's policy window
+    // one keyring and one root, each with the case's policy window, unless the case pins several (each with its own, in a verify case)
     const cfg = {
-      keyrings: [{ keys: resolveKeyring(c.keyring), notAfter: policyNotAfter }],
-      roots: [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: policyNotAfter }], allowedOrigins: c.allowedOrigins,
+      keyrings: c.keyrings === undefined ? [{ keys: resolveKeyring(c.keyring), notAfter: policyNotAfter }]
+        : c.keyrings.map((k) => ({ keys: resolveKeyring(k.keyring), notAfter: k.notAfter! })),
+      roots: c.roots === undefined ? [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: policyNotAfter }]
+        : c.roots.map((r) => ({ root: rootOf(r.policy), rootId: policies[r.policy].rootId, notAfter: r.notAfter! })), allowedOrigins: c.allowedOrigins,
       sess: c.sess, nonces, nonceKey: c.nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS, runMaxAgeMs: RUN_MAX_AGE_MS, policyNotAfter,
     };
     const chainToken = chainTokenOf(c.name, c.chain);
@@ -463,7 +490,7 @@ export function buildVectors(): Record<string, unknown> {
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey, uses } = c;
     return {
       name, chain, chainToken, expectedBind, influence, influenceToken, policy: p, proofRoute, receiver,
-      receiverInRoute, peer, keyring, allowedOrigins, sess, nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS,
+      receiverInRoute, peer, ...(c.keyrings === undefined ? { keyring } : { keyrings: c.keyrings }), ...(c.roots === undefined ? {} : { roots: c.roots }), allowedOrigins, sess, nonceKey, now: NOW, callMaxAgeMs: CALL_MAX_AGE_MS,
       runMaxAgeMs: RUN_MAX_AGE_MS, nonceTtlMs: NONCE_TTL_MS, policyNotAfter, uses, expected,
     };
   };
@@ -517,10 +544,57 @@ export function buildVectors(): Record<string, unknown> {
     live(callCase("policy expired beats bad signature, names no peer", { policyNotAfter: NOW - 1, chain: forgedCall, peer: { svc: "search", inst: "10.0.0.9" } }), no("POLICY_EXPIRED")),
     live(callCase("policy expired beats a malformed chain", { policyNotAfter: NOW - 1, chain: [] }), no("POLICY_EXPIRED")),
     live(callCase("policy notAfter out of range", { policyNotAfter: 2 ** 53 }), no("POLICY_EXPIRED")),
+    // Several keyrings and roots, each with its own window: current ones end at PINNED_NOT_AFTER, expired ones 1 ms before `now`.
+    // The mesh chain is pinned under the mesh keyring and root and the second tree; `policy` names where the proof comes from.
+    ...(() => {
+      const EXPIRED = NOW - 1;
+      const meshCase = (name: string, extra: Partial<Live>): Live => ({
+        name, chain: http, expectedBind: HTTP_BIND, influence: [], policy: "mesh", proofRoute: "gateway/orders/payment", receiver: "payment",
+        receiverInRoute: true, peer: null, keyring: { gateway: "gateway", orders: "orders" }, allowedOrigins: ["gateway"], sess: "sess-2",
+        nonceKey: "rid-2|orders|req", uses: 1, ...extra,
+      });
+      const ring = (keyring: Record<string, KeyName>, notAfter: number): KeyringPin => ({ keyring, notAfter });
+      const rootPin = (policy: PolicyName, notAfter: number): RootPin => ({ policy, notAfter });
+      const meshRing = { gateway: "gateway", orders: "orders" } as const;
+      const bothRoots = [rootPin("mesh", PINNED_NOT_AFTER), rootPin("mesh-second", PINNED_NOT_AFTER)];
+      const ordersNext = http.slice();
+      ordersNext[1] = stampBy({ ...http[1]!, rcv: "payment" } as Omit<Stamp, "v" | "sig">, "orders-next");
+      return [
+        live(meshCase("a proof under the second pinned root", { policy: "mesh-second", keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: bothRoots }), ok("orders", "ord-1")),
+        live(meshCase("a proof whose rootId is pinned nowhere", { keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: [rootPin("mesh-second", PINNED_NOT_AFTER), rootPin("client", PINNED_NOT_AFTER)] }), no("PATH_NOT_ALLOWED", "orders", "ord-1")),
+        live(meshCase("a rotated key only in the second keyring", {
+          chain: ordersNext, keyrings: [ring(meshRing, PINNED_NOT_AFTER), ring({ orders: "orders-next" }, PINNED_NOT_AFTER)], roots: bothRoots,
+        }), ok("orders", "ord-1")),
+        live(meshCase("a chain whose keys come from two keyrings", {
+          keyrings: [ring({ gateway: "gateway" }, PINNED_NOT_AFTER), ring({ orders: "orders" }, PINNED_NOT_AFTER)], roots: bothRoots,
+        }), ok("orders", "ord-1")),
+        live(meshCase("a proof under an expired root while another is current", {
+          keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: [rootPin("mesh", EXPIRED), rootPin("mesh-second", PINNED_NOT_AFTER)],
+        }), no("PATH_NOT_ALLOWED", "orders", "ord-1")),
+        live(meshCase("a key only in an expired keyring", {
+          keyrings: [ring(meshRing, EXPIRED), ring({ gateway: "gateway", orders: "orders-next" }, PINNED_NOT_AFTER)], roots: bothRoots,
+        }), no("BAD_SIGNATURE")),
+        // a renewal keeps the rootId and the root, so the expired member and the current one are one tree
+        live(meshCase("one root expired and one current", {
+          keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: [rootPin("mesh", EXPIRED), rootPin("mesh", PINNED_NOT_AFTER)],
+        }), ok("orders", "ord-1")),
+        live(meshCase("every keyring expired", {
+          policyNotAfter: EXPIRED, keyrings: [ring(meshRing, EXPIRED), ring({ orders: "orders-next" }, EXPIRED)], roots: bothRoots,
+        }), no("POLICY_EXPIRED")),
+        live(meshCase("every root expired", {
+          policyNotAfter: EXPIRED, keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: [rootPin("mesh", EXPIRED), rootPin("mesh-second", EXPIRED)],
+        }), no("POLICY_EXPIRED")),
+        live(meshCase("a proof relabelled with the other pinned root's rootId", {
+          policy: "mesh-relabelled", keyrings: [ring(meshRing, PINNED_NOT_AFTER)], roots: bothRoots,
+        }), no("PATH_NOT_ALLOWED", "orders", "ord-1")),
+      ];
+    })(),
   ];
 
   /** An offline case; the recorded time defaults to the last stamp's, the prompt to the run's, and `seen` to none. */
-  type Offline = CaseInputs & { recordedTs?: { last: number } | null; prompt?: string; seen?: string[]; limits?: null };
+  type Offline = CaseInputs & {
+    recordedTs?: { last: number } | null; prompt?: string; seen?: string[]; limits?: null; rid?: string; keyrings?: KeyringPin[]; roots?: RootPin[];
+  };
   const offlineCase = (c: Offline, expected: Expected) => {
     // recordedTs null: the record has no time; limits null: neither age limit is configured, so the live defaults apply
     const recordedTs = c.recordedTs === undefined ? { last: c.chain[c.chain.length - 1]!.ts } : c.recordedTs;
@@ -533,12 +607,14 @@ export function buildVectors(): Record<string, unknown> {
     const result = verifyChainOffline(
       {
         chain: chainToken, expectedBind: c.expectedBind, influence: influenceToken, proof: proofTokenOf(c),
-        receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: RID, recordedTs: (recordedTs ?? undefined) as never, prompt,
+        receiver: c.receiver, receiverInRoute: c.receiverInRoute, rid: c.rid ?? RID, recordedTs: (recordedTs ?? undefined) as never, prompt,
       },
       {
-        // one keyring and one root, each with no window
-        keyrings: [{ keys: resolveKeyring(c.keyring), notAfter: Infinity }],
-        roots: [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: Infinity }], allowedOrigins: c.allowedOrigins, sess: c.sess,
+        // one keyring and one root, each with no window, unless the case pins several (a member without notAfter has none)
+        keyrings: c.keyrings === undefined ? [{ keys: resolveKeyring(c.keyring), notAfter: Infinity }]
+          : c.keyrings.map((k) => ({ keys: resolveKeyring(k.keyring), notAfter: k.notAfter ?? Infinity })),
+        roots: c.roots === undefined ? [{ root: rootOf(c.policy), rootId: policies[c.policy].rootId, notAfter: Infinity }]
+          : c.roots.map((r) => ({ root: rootOf(r.policy), rootId: policies[r.policy].rootId, notAfter: r.notAfter ?? Infinity })), allowedOrigins: c.allowedOrigins, sess: c.sess,
         nonceKey: c.nonceKey, seen: new Set(seen), callMaxAgeMs: callMaxAgeMs ?? undefined, runMaxAgeMs: runMaxAgeMs ?? undefined,
       },
     );
@@ -546,8 +622,9 @@ export function buildVectors(): Record<string, unknown> {
     const { name, chain, expectedBind, influence, policy: p, proofRoute, receiver, receiverInRoute, keyring, allowedOrigins, sess, nonceKey } = c;
     return {
       name, chain, chainToken, expectedBind, influence, influenceToken, policy: p, proofRoute, receiver,
-      receiverInRoute, keyring, allowedOrigins, sess, nonceKey, seen, callMaxAgeMs,
-      runMaxAgeMs, rid: RID, recordedTs, prompt, expected,
+      receiverInRoute, ...(c.keyrings === undefined ? { keyring } : { keyrings: c.keyrings }), ...(c.roots === undefined ? {} : { roots: c.roots }),
+      allowedOrigins, sess, nonceKey, seen, callMaxAgeMs,
+      runMaxAgeMs, rid: c.rid ?? RID, recordedTs, prompt, expected,
     };
   };
   const offline = [
@@ -563,6 +640,22 @@ export function buildVectors(): Record<string, unknown> {
     offlineCase({ name: "no age limits, 1 ms past the call window", ...clientCall, chain: windowCall(-CALL_MAX_AGE_MS - 1), limits: null }, no("EXPIRED")),
     offlineCase({ name: "prompt differs", ...clientCall, prompt: "open a PR for issue #43" }, no("PROMPT_MISMATCH")),
     offlineCase({ name: "replay in the record set", ...clientCall, seen: [clientCall.nonceKey] }, no("REPLAY")),
+    // Several roots, each with its own window; the record's time is its last stamp's. The mesh run starts from the prompt.
+    ...(() => {
+      const origin2 = stampBy({ svc: "gateway", inst: "gw-1", rid: RID, ts: NOW - 1500, sess: "sess-2", rcv: "orders", bind: bindPrompt(PROMPT), infl: "", prev: "" }, "gateway");
+      const meshRun = [origin2, stampBy({ svc: "orders", inst: "ord-1", rid: RID, ts: NOW - 500, sess: "sess-2", rcv: "payment", bind: HTTP_BIND, infl: "", prev: origin2.sig }, "orders")];
+      const recorded = meshRun[1]!.ts;
+      const meshOffline = (name: string, roots: RootPin[], policy: PolicyName): Offline => ({
+        name, chain: meshRun, expectedBind: HTTP_BIND, influence: [], policy, proofRoute: "gateway/orders/payment", receiver: "payment",
+        receiverInRoute: true, keyring: { gateway: "gateway", orders: "orders" }, allowedOrigins: ["gateway"], sess: "sess-2",
+        nonceKey: `${RID}|orders|req`, roots,
+      });
+      return [
+        // the first root's window ends 1 ms before the record, the second has none
+        offlineCase(meshOffline("a record within only the second root's window", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second" }], "mesh-second"), ok("orders", "ord-1")),
+        offlineCase(meshOffline("a record past every root's window", [{ policy: "mesh", notAfter: recorded - 1 }, { policy: "mesh-second", notAfter: recorded - 1 }], "mesh-second"), no("POLICY_EXPIRED")),
+      ];
+    })(),
   ];
 
   const signatures = [
