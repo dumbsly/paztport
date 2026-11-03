@@ -210,6 +210,9 @@ public final class PolicyToolMain {
      * removed only once its creation has succeeded.
      */
     static void writeRotation(Path nextKey, PrivateKey key, Path nextKeyring, KeyringFile ring) throws IOException {
+        // The keyring's text first, so that nothing between creating the key and writing the keyring can throw
+        // past the removal below.
+        String keyringText = ring.toFile();
         try {
             KeyFiles.createPrivateKey(nextKey, key);
         } catch (FileAlreadyExistsException e) {
@@ -218,7 +221,7 @@ public final class PolicyToolMain {
             throw new CannotWrite(nextKey, e);
         }
         try {
-            KeyFiles.createNew(nextKeyring, ring.toFile());
+            KeyFiles.createNew(nextKeyring, keyringText);
         } catch (FileAlreadyExistsException e) {
             removeQuietly(nextKey);
             throw new IllegalArgumentException(nextKeyring + " exists already; move it away first", e);
