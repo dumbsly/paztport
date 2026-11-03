@@ -57,7 +57,7 @@ func TestResultHashVectors(t *testing.T) {
 
 // TestResponseVectors replays http-v3.json's responses: the caller checks the header payment returned
 // against the chain it sent, the status and the body, with the proof it sent, uses times against one
-// nonce cache, and expects the last check.
+// nonce cache, and expects the last check. Each case runs under its own policyNotAfter.
 func TestResponseVectors(t *testing.T) {
 	cases := vectors.Load(t, "http-v3.json").Get("responses")
 	if cases.Len() == 0 {

@@ -2,9 +2,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Builds spec/vectors/json.json, the vectors for reading and writing JSON (spec wire.md, JSON); run with `--write`
-// from poc-sdks/typescript to write the file. Every expected answer and value below is written by hand from the spec,
-// and the RFC 8785 rows are copied from the RFC, so no implementation confirms its own answers: this file imports
-// nothing but node: modules.
+// from poc-sdks/typescript to write the file. Every expected answer and value below is worked out from the spec by
+// hand (the base64url endings by the rule in base64UrlEndings), and the RFC 8785 rows are copied from the RFC, so no
+// implementation confirms its own answers: this file imports nothing but node: modules.
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -553,7 +553,10 @@ function base64UrlEndings(): Base64UrlCase[] {
   return rows;
 }
 
-/** Texts for the base64url decoder; each answer is worked out from RFC 4648 §3.5 and §5 by hand. */
+/**
+ * Texts for the base64url decoder; each answer is worked out from RFC 4648 §3.5 and §5: these by hand, the endings
+ * by the rule in base64UrlEndings.
+ */
 const BASE64URL: Base64UrlCase[] = [
   { name: "the empty text", text: "", expected: "" },
   { name: "AA, one zero byte", text: "AA", expected: "00" },

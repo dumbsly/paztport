@@ -85,7 +85,10 @@ class VectorsHttpV3Export {
     private static final long ORDERS_TS = 1_767_225_599_500L;
     private static final long RESPONSE_TS = 1_767_225_599_800L;
     private static final long NOW = 1_767_225_600_000L;
-    /** The mesh policy's window, 2100-01-01: past every case's {@code now}. */
+    /**
+     * The policy window the responses cases check under, 2100-01-01: past their {@code now}. The "policy expired"
+     * case ends its own window 1 ms before it.
+     */
     private static final long MESH_NOT_AFTER = 4_102_444_800_000L;
     private static final String RID = "rid-http-1";
     private static final String ROUTE = "gateway/orders/payment";
