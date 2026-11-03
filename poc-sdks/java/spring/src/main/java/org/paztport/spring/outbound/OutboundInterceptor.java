@@ -6,6 +6,7 @@ package org.paztport.spring.outbound;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.List;
 import org.paztport.core.policy.ProofBundle;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
@@ -30,6 +31,9 @@ import org.springframework.http.client.ClientHttpResponse;
  * application reads exactly what was checked. Influence is recorded only inside a {@link RequestContext.Scope},
  * which the inbound filter opens per request; outside one a call is still stamped and its response still checked
  * and traced, but nothing is recorded.
+ *
+ * <p>The request carries only the Paztport headers the caller stamped, as the spec's header rule says: any the
+ * application set are removed first.
  */
 public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
 
@@ -51,7 +55,13 @@ public final class OutboundInterceptor implements ClientHttpRequestInterceptor {
     public ClientHttpResponse intercept(HttpRequest request, byte[] body, ClientHttpRequestExecution execution)
             throws IOException {
         HttpCaller.Outbound sent = caller.stampFromContext(request.getMethod().name(), request.getURI(), body);
-        sent.headers().forEach(request.getHeaders()::set);
+        HttpHeaders headers = request.getHeaders();
+        for (String name : List.copyOf(headers.headerNames())) {
+            if (PaztportHeaders.isPaztport(name)) {
+                headers.remove(name);
+            }
+        }
+        sent.headers().forEach(headers::set);
 
         ClientHttpResponse response = execution.execute(request, body);
         Buffered buffered;

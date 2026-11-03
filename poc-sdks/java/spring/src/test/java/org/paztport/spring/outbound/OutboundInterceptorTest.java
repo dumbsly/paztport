@@ -5,6 +5,7 @@ package org.paztport.spring.outbound;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
@@ -204,6 +205,32 @@ class OutboundInterceptorTest {
 
         assertEquals("orders", chainOf(sent.get(0)).get(0).rcv());
         assertNotNull(sent.get(0).getFirst(PaztportHeaders.PROOF), "the proof is for the route to orders");
+    }
+
+    @Test
+    void sendsOnlyThePaztportHeadersItStamped() {
+        client(gatewayInterceptor(), "https://payment/x")
+                .get().uri("https://payment/x")
+                .header("X-Path-Proof", "p")
+                .header("X-Path-Influence", "i")
+                .header("x-path-session", "s")
+                .header("X-Path-Future", "f")
+                .header("x-path-chain", "c1", "c2")
+                .header("X-Pathology", "kept")
+                .retrieve().toBodilessEntity();
+
+        HttpHeaders received = sent.get(0);
+        assertEquals(1, received.get("X-Path-Chain").size(), "one chain value: the one the caller stamped");
+        List<Stamp> chain = chainOf(received);
+        assertEquals(1, chain.size());
+        assertEquals("rid-1", chain.get(0).rid());
+        assertEquals("gateway", chain.get(0).svc());
+        assertEquals("payment", chain.get(0).rcv());
+        assertNull(received.get("X-Path-Proof"), "the application's proof is not sent");
+        assertNull(received.get("X-Path-Influence"), "the application's influence is not sent");
+        assertNull(received.get("X-Path-Session"), "the application's session is not sent");
+        assertNull(received.get("X-Path-Future"), "an unknown X-Path- header is not sent");
+        assertEquals("kept", received.getFirst("X-Pathology"), "a header outside the prefix is the application's");
     }
 
     // The RestClient encodes the space; the binding is over the query as it goes on the wire.
