@@ -84,11 +84,13 @@
                                         <exclude>META-INF/MANIFEST.MF</exclude>
                                     </excludes>
                                 </filter>
-                                <!-- SnakeYAML's manifest describes that jar, not this one; this jar's own is written below. -->
+                                <!-- SnakeYAML's manifest and module descriptor describe that jar, not this one; this jar's own manifest is
+                                     written below. -->
                                 <filter>
                                     <artifact>org.yaml:snakeyaml</artifact>
                                     <excludes>
                                         <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
                                     </excludes>
                                 </filter>
                             </filters>

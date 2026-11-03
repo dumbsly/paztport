@@ -100,8 +100,8 @@
                                     <artifact>org.bouncycastle:*</artifact>
                                     <excludes>
                                         <exclude>META-INF/MANIFEST.MF</exclude>
-                                        <exclude>META-INF/versions/9/module-info.class</exclude>
-                                        <exclude>META-INF/versions/9/OSGI-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/versions/*/module-info.class</exclude>
+                                        <exclude>META-INF/versions/*/OSGI-INF/MANIFEST.MF</exclude>
                                     </excludes>
                                 </filter>
                             </filters>
