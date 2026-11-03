@@ -721,7 +721,7 @@ func TestAcceptModeWithoutVerifier(t *testing.T) {
 	} {
 		func() {
 			r := caseReceiver(t, c)
-			r.Verifier, r.Origin = nil, tt.origin
+			r.Verifier, r.Origin, r.Stamper.Origin = nil, tt.origin, tt.origin
 			defer func() {
 				if got := recover() != nil; got != tt.panics {
 					t.Errorf("%v, origin %v: panicked %v, want %v", tt.mode, tt.origin, got, tt.panics)
@@ -732,6 +732,41 @@ func TestAcceptModeWithoutVerifier(t *testing.T) {
 				t.Errorf("%v, origin %v: %+v, %v", tt.mode, tt.origin, a, err)
 			}
 		}()
+	}
+}
+
+// TestAcceptOriginMismatch panics on a receiver whose Origin and its stamper's disagree, in every mode: it
+// would carry what a request brings and start new trees, or the reverse, which is a fault in the program.
+// A receiver with no stamper has nothing to disagree with.
+func TestAcceptOriginMismatch(t *testing.T) {
+	c := verifiedCase(t)
+	req := caseRequest(t, c.Get("request"))
+	for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeNone, paztporthttp.ModeOff} {
+		for _, tt := range []struct {
+			origin, stamperOrigin, noStamper, panics bool
+		}{
+			{origin: true, stamperOrigin: false, panics: true},
+			{origin: false, stamperOrigin: true, panics: true},
+			{origin: true, stamperOrigin: true},
+			{origin: false, stamperOrigin: false},
+			{origin: true, noStamper: true},
+		} {
+			func() {
+				r := caseReceiver(t, c)
+				r.Origin, r.Stamper.Origin = tt.origin, tt.stamperOrigin
+				if tt.noStamper {
+					r.Stamper = nil
+				}
+				defer func() {
+					if got := recover() != nil; got != tt.panics {
+						t.Errorf("%v, %+v: panicked %v, want %v", mode, tt, got, tt.panics)
+					}
+				}()
+				if _, err := r.Accept(t.Context(), req, nil, mode); err != nil {
+					t.Errorf("%v, %+v: %v", mode, tt, err)
+				}
+			}()
+		}
 	}
 }
 
@@ -853,7 +888,7 @@ func FuzzAccept(f *testing.F) {
 	f.Add("", "", " \t", nbsp, "not*base64url", []byte{}, 2, true)
 	f.Fuzz(func(t *testing.T, method, target, chain, proof, infl string, body []byte, mode int, origin bool) {
 		rc := caseReceiver(t, c.With(t))
-		rc.Origin = origin
+		rc.Origin, rc.Stamper.Origin = origin, origin
 		req := paztporthttp.InboundRequest{Method: method, Target: target, Chain: chain, Proof: proof, Influence: infl, Body: body}
 		a, err := rc.Accept(t.Context(), req, nil, paztporthttp.Mode(mode))
 		if err != nil {

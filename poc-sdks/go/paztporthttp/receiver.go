@@ -26,7 +26,7 @@ type Receiver struct {
 	// Origin reports whether this service is an entry point, which starts every request tree afresh: it
 	// carries neither the chain nor the influence a request brings, never takes a chain as verified and
 	// never attests. Under a mode it still runs the live order on each request, and enforce refuses one
-	// that fails.
+	// that fails. It must agree with Stamper's Origin, when there is a Stamper: see [Receiver.Accept].
 	Origin bool
 	// Stamper is this service's stamper; nil for a service with no stamp key, which never attests.
 	Stamper *stamp.Stamper
@@ -36,14 +36,20 @@ type Receiver struct {
 // authenticated no one, under mode, which the adapter reads once per request so that a switch cannot
 // catch a request half-way.
 //
-// Accept never panics on any request, and a request that does not verify is answered, never an error.
-// ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer, and
-// comes with the zero Accepted, so the adapter fails the request.
+// Call it once per request: the live order spends the request's nonce key, so a second call reports
+// REPLAY. Accept never panics on any request, and a request that does not verify is answered, never an
+// error. ctx reaches only the verifier's nonce cache. The error is the cache's, when it could not answer,
+// and comes with the zero Accepted, so the adapter fails the request.
 //
-// Accept panics on a receiver with no Verifier that is given ModeEnforce, ModeAudit or a value that is
-// no mode: it is to verify requests with nothing to verify them with, which
-// is a fault in the program, and serving them unverified would fail open.
+// Accept panics on a receiver with no Verifier that is given ModeEnforce, ModeAudit or a value that is no
+// mode: it is to verify requests with nothing to verify them with, which is a fault in the program, and
+// serving them unverified would fail open. It panics, too, on a receiver whose Origin differs from its
+// Stamper's: one would carry what a request brings while the other starts a new request tree, which is a
+// fault in the program.
 func (r *Receiver) Accept(ctx context.Context, req InboundRequest, peer *verify.Peer, mode Mode) (Accepted, error) {
+	if r.Stamper != nil && r.Stamper.Origin != r.Origin {
+		panic("paztport http: a receiver's Origin and its Stamper's Origin must agree")
+	}
 	in, chain := requestInput(req, r.Name, peer)
 	a := Accepted{Inbound: chain}
 	if mode != ModeOff && mode != ModeNone {
