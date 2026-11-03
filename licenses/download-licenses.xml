@@ -45,23 +45,6 @@
                 </license>
             </licenses>
         </dependency>
-        <dependency>
-            <groupId>org\.checkerframework</groupId>
-            <artifactId>checker-qual</artifactId>
-            <matchLicenses>
-                <license>
-                    <name>MIT</name>
-                    <url>.*</url>
-                    <distribution>.*</distribution>
-                </license>
-            </matchLicenses>
-            <licenses>
-                <license>
-                    <name>MIT</name>
-                    <url>licenses:mit-checker-framework.txt</url>
-                </license>
-            </licenses>
-        </dependency>
 
         <!-- The elected licence of each dual-licensed component, as in overrides.properties. Each entry matches
              that version and its two licences, so a component whose version or licences change stops matching,

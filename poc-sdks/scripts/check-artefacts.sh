@@ -35,7 +35,6 @@ text_of() {
     "Bouncy Castle Licence|org.bouncycastle") echo bouncy-castle.txt ;;
     "EPL-2.0|"*) echo epl-2.0.txt ;;
     "MIT|org.slf4j") echo mit-slf4j.txt ;;
-    "MIT|org.checkerframework") echo mit-checker-framework.txt ;;
     *) return 1 ;;
   esac
 }
