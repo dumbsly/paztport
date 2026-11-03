@@ -70,3 +70,21 @@ func TestHasNoncharacter(t *testing.T) {
 		}
 	}
 }
+
+// TestTrimFileSpace trims JSON's four whitespace characters from either end of a key file's text, and
+// nothing else: not a vertical tab, a form feed, a no-break space or a space inside the value.
+func TestTrimFileSpace(t *testing.T) {
+	nbsp := string(rune(0xA0))
+	for _, tc := range []struct{ s, want string }{
+		{"key", "key"},
+		{" \t\r\nkey\n", "key"},
+		{"\r\n\r\n", ""},
+		{"a key", "a key"},
+		{"\vkey\f", "\vkey\f"},
+		{nbsp + "key" + nbsp, nbsp + "key" + nbsp},
+	} {
+		if got := text.TrimFileSpace(tc.s); got != tc.want {
+			t.Errorf("TrimFileSpace(%q) = %q, want %q", tc.s, got, tc.want)
+		}
+	}
+}

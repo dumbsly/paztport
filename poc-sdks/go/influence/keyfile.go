@@ -7,14 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/text"
 )
-
-// keyFileSpace is what a key file's reader trims from around its value: JSON's whitespace (RFC 8259),
-// space, horizontal tab, line feed and carriage return, and nothing else, as the keys package trims.
-const keyFileSpace = " \t\n\r"
 
 // LoadBoundaryKey reads an egress's boundary key file, boundary.key: KeyLength bytes as canonical
 // base64url, with the space, tab, line feed and carriage return around the text trimmed and nothing
@@ -27,7 +23,7 @@ func LoadBoundaryKey(path string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("paztport influence: can't read the boundary key file: %w", err)
 	}
-	key, err := b64.Decode(strings.Trim(string(b), keyFileSpace))
+	key, err := b64.Decode(text.TrimFileSpace(string(b)))
 	if err != nil || len(key) != KeyLength {
 		return nil, errors.New("paztport influence: " + path + ": not the base64url of a 32-byte boundary key")
 	}

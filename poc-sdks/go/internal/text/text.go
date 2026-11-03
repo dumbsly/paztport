@@ -3,12 +3,22 @@
 
 package text
 
-import "unicode/utf8"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // Valid reports whether s is valid UTF-8: no overlong form, no surrogate code point, nothing past
 // U+10FFFF and no sequence cut short.
 func Valid(s string) bool {
 	return utf8.ValidString(s)
+}
+
+// TrimFileSpace returns s, a key or pin file's text, without the whitespace around its value: JSON's
+// whitespace (RFC 8259), space, horizontal tab, line feed and carriage return, and nothing else. Every
+// key file reader trims this one set, so a file one reads, another reads too.
+func TrimFileSpace(s string) string {
+	return strings.Trim(s, " \t\n\r")
 }
 
 // IsNoncharacter reports whether r is one of Unicode's 66 noncharacters: U+FDD0 to U+FDEF, and the last two

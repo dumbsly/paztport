@@ -9,9 +9,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/text"
 )
 
 // The DER that opens each encoding, the same for every Ed25519 key. SubjectPublicKeyInfo is
@@ -32,10 +32,6 @@ var (
 	errPrivate = errors.New("paztport keys: " + notPrivate)
 	errSigning = errors.New("paztport keys: the signing key is not a 64-byte Ed25519 private key")
 )
-
-// whitespace is what a key file's readers trim from around its value: JSON's whitespace (RFC 8259), space,
-// horizontal tab, line feed and carriage return, and nothing else.
-const whitespace = " \t\n\r"
 
 // ParsePublic returns the public key whose SubjectPublicKeyInfo tok encodes. It refuses tok unless it is
 // canonical base64url of exactly 44 bytes: the fixed 12-byte prefix, then the 32-byte key.
@@ -83,7 +79,7 @@ func LoadPrivate(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("paztport keys: can't read the key file: %w", err)
 	}
-	key, err := ParsePrivate(strings.Trim(string(b), whitespace))
+	key, err := ParsePrivate(text.TrimFileSpace(string(b)))
 	if err != nil {
 		return nil, errors.New("paztport keys: " + path + ": " + notPrivate)
 	}
@@ -98,7 +94,7 @@ func LoadPin(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("paztport keys: can't read the pin file: %w", err)
 	}
-	return strings.Trim(string(b), whitespace), nil
+	return text.TrimFileSpace(string(b)), nil
 }
 
 // Sign returns key's Ed25519 signature over msg. It refuses a key that is not ed25519.PrivateKeySize bytes
