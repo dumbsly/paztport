@@ -259,7 +259,7 @@ func (e *Egress) Begin(
 	if err != nil {
 		return nil, Step{}, err
 	}
-	sentTok, _, err := wire.EncodeInfluence(sent)
+	sentTok, err := wire.EncodeInfluence(sent)
 	if err != nil {
 		return nil, Step{}, err
 	}

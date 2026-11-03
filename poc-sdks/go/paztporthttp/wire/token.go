@@ -26,18 +26,18 @@ func EncodeProof(p policy.Proof) (string, error) {
 }
 
 // EncodeInfluence returns the value of a request's [Influence] header: the token of es, in the order
-// given, which is the list the last stamp's infl commits to. With no entries it returns false, and the
-// request carries no header, which a receiver reads as none. It refuses what influence.EntriesWire
-// refuses.
-func EncodeInfluence(es []influence.Entry) (string, bool, error) {
+// given, which is the list the last stamp's infl commits to. With no entries it returns "", and the
+// request carries no header, which a receiver reads as none; a token is never "". It refuses what
+// influence.EntriesWire refuses.
+func EncodeInfluence(es []influence.Entry) (string, error) {
 	if len(es) == 0 {
-		return "", false, nil
+		return "", nil
 	}
 	b, err := influence.EntriesWire(es)
 	if err != nil {
-		return "", false, err
+		return "", err
 	}
-	return b64.Encode(b), true, nil
+	return b64.Encode(b), nil
 }
 
 // EncodeResponse returns the value of a response's [Response] header: the token of the object {labels,

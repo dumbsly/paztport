@@ -113,9 +113,9 @@ func TestCallerStampsInHeaderOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	inflTok, ok, err := wire.EncodeInfluence(infl)
-	if err != nil || !ok {
-		t.Fatalf("EncodeInfluence: %v, %v", ok, err)
+	inflTok, err := wire.EncodeInfluence(infl)
+	if err != nil || inflTok == "" {
+		t.Fatalf("EncodeInfluence = %q, %v", inflTok, err)
 	}
 	want := []wire.Header{{Name: wire.Chain, Value: chain}, {Name: wire.Proof, Value: proof},
 		{Name: wire.Influence, Value: inflTok}}

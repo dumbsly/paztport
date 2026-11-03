@@ -489,23 +489,23 @@ func TestEncodeProof(t *testing.T) {
 // TestEncodeInfluence sends no header for no influence, and otherwise the entries in the order given.
 func TestEncodeInfluence(t *testing.T) {
 	for _, none := range [][]influence.Entry{nil, {}} {
-		if tok, ok, err := wire.EncodeInfluence(none); tok != "" || ok || err != nil {
-			t.Fatalf("EncodeInfluence(%#v) = %q, %t, %v, want no header", none, tok, ok, err)
+		if tok, err := wire.EncodeInfluence(none); tok != "" || err != nil {
+			t.Fatalf("EncodeInfluence(%#v) = %q, %v, want no header", none, tok, err)
 		}
 	}
 	es := []influence.Entry{
 		{Class: influence.ThirdParty, Src: "web:z", H: "h-2"},
 		{Class: influence.Private, Src: "http:orders", H: "h-1", CID: "", HasCID: true, Owner: "alice"},
 	}
-	tok, ok, err := wire.EncodeInfluence(es)
-	if err != nil || !ok {
-		t.Fatalf("EncodeInfluence = %q, %t, %v", tok, ok, err)
+	tok, err := wire.EncodeInfluence(es)
+	if err != nil {
+		t.Fatalf("EncodeInfluence = %q, %v", tok, err)
 	}
 	if got, err := influence.ReadEntries(tok); err != nil || !slices.Equal(got, es) {
 		t.Fatalf("the token reads as %+v, %v", got, err)
 	}
-	if tok, ok, err := wire.EncodeInfluence([]influence.Entry{{Class: "secret", Src: "s", H: "h"}}); err == nil || ok || tok != "" {
-		t.Fatalf("EncodeInfluence of an unknown class = %q, %t, %v", tok, ok, err)
+	if tok, err := wire.EncodeInfluence([]influence.Entry{{Class: "secret", Src: "s", H: "h"}}); err == nil || tok != "" {
+		t.Fatalf("EncodeInfluence of an unknown class = %q, %v", tok, err)
 	}
 }
 

@@ -165,11 +165,11 @@ func (c *Caller) Stamp(
 		}
 		headers = append(headers, wire.Header{Name: wire.Proof, Value: proofTok})
 	}
-	inflTok, ok, err := wire.EncodeInfluence(infl)
+	inflTok, err := wire.EncodeInfluence(infl)
 	if err != nil {
 		return Outbound{}, err
 	}
-	if ok {
+	if inflTok != "" {
 		headers = append(headers, wire.Header{Name: wire.Influence, Value: inflTok})
 	}
 	return Outbound{Headers: headers, Sent: chain, Proof: proof}, nil
