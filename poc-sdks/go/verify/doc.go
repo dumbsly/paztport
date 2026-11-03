@@ -19,8 +19,8 @@
 // different codes for the same request.
 //
 // Check 0 is about the verifier's own material, not the request: once its clock passes the policy's
-// window, no keyring, or no root, it holds says which keys and routes the policy owner allows. So it comes
-// first, before the chain is read, and it names no one and spends no nonce key. The nonce cache is
+// window, no keyring it holds, or no root, still says which keys and routes the policy owner allows. So it
+// comes first, before the chain is read, and it names no one and spends no nonce key. The nonce cache is
 // consulted only after checks 1 to 9 have held, and a cache that forgets sooner than twice the call
 // window refuses every key before recording any, since it could forget a key while a replay of it is
 // still fresh. A context passed to Verify reaches only the nonce cache, which may block on a store.

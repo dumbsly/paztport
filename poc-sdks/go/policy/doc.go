@@ -26,5 +26,5 @@
 // A route is the services a request passed through, then its receiver, joined with "/", such as
 // "gateway/orders/payment". The allowed routes are the leaves of a salted Merkle tree of fixed depth, whose
 // root the policy key signs; a caller sends the proof for the route it completes, and a verifier checks it
-// against the root it pins.
+// against a pinned root with the proof's rootId.
 package policy

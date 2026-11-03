@@ -103,7 +103,7 @@ func proofFromValue(v json.Value) (Proof, error) {
 // Verify reports whether p proves route against root, the bytes of the root a verifier pins: from the
 // leaf of route under p's salt, each level hashes the working hash with its sibling, on the side dirs
 // gives, and the last hash is root. Any fault in p is false, never a panic, so a proof built by hand is
-// held to the reader's rules. Checking that p.RootID is the pinned root's is the caller's.
+// held to the reader's rules. Choosing the pinned root by p.RootID is the caller's.
 func (p Proof) Verify(route string, root []byte) bool {
 	if len(p.LeafSalt) != saltSize || !validDirs(p.Dirs, len(p.Siblings)) {
 		return false
