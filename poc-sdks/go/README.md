@@ -17,9 +17,10 @@ a caller, a partner and an egress. It replays `spec/vectors/v3.json` and
   imports no HTTP library. It takes a request or a response as the strings and
   bytes a server, client or gateway already has, and hands back answers, headers
   and verdicts. The adapter for a server or a gateway is the embedder's.
-- **Tools.** It writes no keys and signs no policy: the Java and TypeScript SDKs'
-  keygens and policy tools write the keys, keyrings, roots, proof bundles and
-  reply certificates it reads, and the Java keygen the boundary key.
+- **Tools.** It has no keygen or policy tool: it generates no keys, builds no
+  route tree and writes no files. The Java and TypeScript SDKs' keygens and policy
+  tools write the keys, keyrings, roots, proof bundles and reply certificates it
+  reads, and the Java keygen the boundary key.
 
 ```bash
 go test ./...   # every package; the vectors are read from ../spec/vectors
@@ -74,9 +75,20 @@ replace github.com/dumbsly/paztport/poc-sdks/go => ../path/to/poc-sdks/go
 The packages decide; the code that embeds them carries out what they decide:
 
 - **Sends the bytes.** It sends each `paztporthttp.Answer`, header list and
-  `boundary.Step` exactly as given, and passes the authenticated peer:
+  `boundary.Step` exactly as given, an `Answer` with `Content-Type:
+  application/json` and no parameters, and passes the authenticated peer:
   `paztporthttp.PeerFromCertificate` reads one from a client certificate under
   mutual TLS.
+- **Attests and checks answers.** It sends the `X-Path-Response` header that
+  `Accepted.Attest` gives for the handler's complete answer. As a caller, it reads
+  each response whole and passes it to `Caller.Check` before anything reads it.
+- **Refuses switched-off operations.** At a partner, `Sessions.Accept` does not
+  refuse the operations switched off for unsafe sessions, since only the framework
+  knows which handler a request reaches. For a call served and not attested, a
+  call with no session header included, the adapter sends
+  `paztporthttp.UnsafeRefusal()` before the handler runs when
+  `UnsafeOperations(SessionsConfig.UnsafeDisabled).Refuses` the method and the
+  handler's route pattern.
 - **Bounds bodies, and fails closed.** A receiver binds the body whole. An adapter
   that cannot hold a body whole refuses the request itself rather than pass on
   part of it; a handshake endpoint need read at most one byte past the wire limit,
@@ -84,7 +96,7 @@ The packages decide; the code that embeds them carries out what they decide:
 - **Logs.** A `verify.Result` names a suspect for the operator's logs, never for
   the caller; a refusal's body carries none.
 - **Publishes events.** `event.SignEnvelope` signs an event, and the embedder
-  POSTs the body to its responder's `/events` path.
+  POSTs the envelope's `Wire()` bytes to its responder's `/events` path.
 - **Keeps the egress's originals.** Before it sends an attested call, it keeps the
   `Step`'s `Originals` and `Sent` under the request's rid and the partner's entry
   service, and does not send the call if it cannot.

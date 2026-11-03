@@ -91,7 +91,8 @@ position on an allowed route. See
 [the support-assistant storyline](poc-demos/java-mesh/README.md#the-support-assistant-storyline).
 
 The idea is offered freely. The code is Apache-2.0, and every cryptographic
-primitive comes from the standard JDK, so anyone can lift it into their own stack.
+primitive comes from each language's standard library (the JDK, Node's
+`node:crypto`, Go's `crypto` packages), so anyone can lift it into their own stack.
 
 ---
 
