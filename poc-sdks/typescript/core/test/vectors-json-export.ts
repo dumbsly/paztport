@@ -526,6 +526,33 @@ const JCS: JcsCase[] = [
   { name: "a string holding a lone surrogate", value: "\ud800", expected: null },
 ];
 
+/** RFC 4648 §5, Table 2: the url-safe alphabet, in the order of the values 0 to 63. */
+const BASE64URL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+/**
+ * Every ending of a short group, one row for each last character c other than A (AA and AAA are rows of their own): after
+ * one byte the text is "A" + c, whose last 4 bits are unused, and after two bytes it is "AA" + c, whose last 2 are. The
+ * ending is canonical exactly when those bits are zero, and then the bytes follow from the 6-bit value v of c: the one
+ * byte is v >> 4, and the two are 00 and v >> 2.
+ */
+function base64UrlEndings(): Base64UrlCase[] {
+  const rows: Base64UrlCase[] = [];
+  for (const [prefix, unused, bytes] of [["A", 4, 1], ["AA", 2, 2]] as const) {
+    const after = bytes === 1 ? "one byte" : "two bytes";
+    for (let v = 1; v < 64; v++) {
+      const text = prefix + BASE64URL_ALPHABET[v];
+      if (v % (1 << unused) !== 0) {
+        rows.push({ name: `${text}, non-zero unused bits after ${after}`, text, expected: null });
+      } else {
+        const hex = (n: number) => n.toString(16).padStart(2, "0");
+        const decoded = bytes === 1 ? hex(v >> 4) : "00" + hex(v >> 2);
+        rows.push({ name: `${text}, unused bits zero after ${after}`, text, expected: decoded });
+      }
+    }
+  }
+  return rows;
+}
+
 /** Texts for the base64url decoder; each answer is worked out from RFC 4648 §3.5 and §5 by hand. */
 const BASE64URL: Base64UrlCase[] = [
   { name: "the empty text", text: "", expected: "" },
@@ -533,8 +560,7 @@ const BASE64URL: Base64UrlCase[] = [
   { name: "AAA, two zero bytes", text: "AAA", expected: "0000" },
   { name: "AAAA, three zero bytes", text: "AAAA", expected: "000000" },
   { name: "-_-_, the bytes the standard alphabet writes as +/+/", text: "-_-_", expected: "fbffbf" },
-  { name: "AB, non-zero unused bits after one byte", text: "AB", expected: null },
-  { name: "AAB, non-zero unused bits after two bytes", text: "AAB", expected: null },
+  ...base64UrlEndings(),
   { name: "A, a length one more than a multiple of 4", text: "A", expected: null },
   { name: "AA==, padded", text: "AA==", expected: null },
   { name: "AA=, padded once", text: "AA=", expected: null },

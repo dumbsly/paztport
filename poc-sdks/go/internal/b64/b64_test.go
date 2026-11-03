@@ -46,12 +46,6 @@ func TestDecodeRefuses(t *testing.T) {
 		"AA\r\nAA",
 		" AA",
 		"AA ",
-		"AB",
-		"AC",
-		"AE",
-		"AI",
-		"AAB",
-		"AAC",
 		"A",
 		"AA==",
 		"A+A",
@@ -80,23 +74,6 @@ func TestDecodeNamesTheRule(t *testing.T) {
 		_, err := b64.Decode(tc.s)
 		if err == nil || !strings.Contains(err.Error(), tc.rule) {
 			t.Errorf("Decode(%q) error = %v, want one naming the %s", tc.s, err, tc.rule)
-		}
-	}
-}
-
-// Each unused bit of a short group is checked, and no used bit is taken for one.
-func TestDecodeKeepsTheUsedBits(t *testing.T) {
-	for _, tc := range []struct{ s, want string }{
-		{"AQ", "01"},
-		{"AAE", "0001"},
-	} {
-		got, err := b64.Decode(tc.s)
-		if err != nil {
-			t.Errorf("Decode(%q): %v", tc.s, err)
-			continue
-		}
-		if hex.EncodeToString(got) != tc.want {
-			t.Errorf("Decode(%q) = %x, want %s", tc.s, got, tc.want)
 		}
 	}
 }

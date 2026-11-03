@@ -1228,8 +1228,628 @@
       "expected": null
     },
     {
+      "name": "AC, non-zero unused bits after one byte",
+      "text": "AC",
+      "expected": null
+    },
+    {
+      "name": "AD, non-zero unused bits after one byte",
+      "text": "AD",
+      "expected": null
+    },
+    {
+      "name": "AE, non-zero unused bits after one byte",
+      "text": "AE",
+      "expected": null
+    },
+    {
+      "name": "AF, non-zero unused bits after one byte",
+      "text": "AF",
+      "expected": null
+    },
+    {
+      "name": "AG, non-zero unused bits after one byte",
+      "text": "AG",
+      "expected": null
+    },
+    {
+      "name": "AH, non-zero unused bits after one byte",
+      "text": "AH",
+      "expected": null
+    },
+    {
+      "name": "AI, non-zero unused bits after one byte",
+      "text": "AI",
+      "expected": null
+    },
+    {
+      "name": "AJ, non-zero unused bits after one byte",
+      "text": "AJ",
+      "expected": null
+    },
+    {
+      "name": "AK, non-zero unused bits after one byte",
+      "text": "AK",
+      "expected": null
+    },
+    {
+      "name": "AL, non-zero unused bits after one byte",
+      "text": "AL",
+      "expected": null
+    },
+    {
+      "name": "AM, non-zero unused bits after one byte",
+      "text": "AM",
+      "expected": null
+    },
+    {
+      "name": "AN, non-zero unused bits after one byte",
+      "text": "AN",
+      "expected": null
+    },
+    {
+      "name": "AO, non-zero unused bits after one byte",
+      "text": "AO",
+      "expected": null
+    },
+    {
+      "name": "AP, non-zero unused bits after one byte",
+      "text": "AP",
+      "expected": null
+    },
+    {
+      "name": "AQ, unused bits zero after one byte",
+      "text": "AQ",
+      "expected": "01"
+    },
+    {
+      "name": "AR, non-zero unused bits after one byte",
+      "text": "AR",
+      "expected": null
+    },
+    {
+      "name": "AS, non-zero unused bits after one byte",
+      "text": "AS",
+      "expected": null
+    },
+    {
+      "name": "AT, non-zero unused bits after one byte",
+      "text": "AT",
+      "expected": null
+    },
+    {
+      "name": "AU, non-zero unused bits after one byte",
+      "text": "AU",
+      "expected": null
+    },
+    {
+      "name": "AV, non-zero unused bits after one byte",
+      "text": "AV",
+      "expected": null
+    },
+    {
+      "name": "AW, non-zero unused bits after one byte",
+      "text": "AW",
+      "expected": null
+    },
+    {
+      "name": "AX, non-zero unused bits after one byte",
+      "text": "AX",
+      "expected": null
+    },
+    {
+      "name": "AY, non-zero unused bits after one byte",
+      "text": "AY",
+      "expected": null
+    },
+    {
+      "name": "AZ, non-zero unused bits after one byte",
+      "text": "AZ",
+      "expected": null
+    },
+    {
+      "name": "Aa, non-zero unused bits after one byte",
+      "text": "Aa",
+      "expected": null
+    },
+    {
+      "name": "Ab, non-zero unused bits after one byte",
+      "text": "Ab",
+      "expected": null
+    },
+    {
+      "name": "Ac, non-zero unused bits after one byte",
+      "text": "Ac",
+      "expected": null
+    },
+    {
+      "name": "Ad, non-zero unused bits after one byte",
+      "text": "Ad",
+      "expected": null
+    },
+    {
+      "name": "Ae, non-zero unused bits after one byte",
+      "text": "Ae",
+      "expected": null
+    },
+    {
+      "name": "Af, non-zero unused bits after one byte",
+      "text": "Af",
+      "expected": null
+    },
+    {
+      "name": "Ag, unused bits zero after one byte",
+      "text": "Ag",
+      "expected": "02"
+    },
+    {
+      "name": "Ah, non-zero unused bits after one byte",
+      "text": "Ah",
+      "expected": null
+    },
+    {
+      "name": "Ai, non-zero unused bits after one byte",
+      "text": "Ai",
+      "expected": null
+    },
+    {
+      "name": "Aj, non-zero unused bits after one byte",
+      "text": "Aj",
+      "expected": null
+    },
+    {
+      "name": "Ak, non-zero unused bits after one byte",
+      "text": "Ak",
+      "expected": null
+    },
+    {
+      "name": "Al, non-zero unused bits after one byte",
+      "text": "Al",
+      "expected": null
+    },
+    {
+      "name": "Am, non-zero unused bits after one byte",
+      "text": "Am",
+      "expected": null
+    },
+    {
+      "name": "An, non-zero unused bits after one byte",
+      "text": "An",
+      "expected": null
+    },
+    {
+      "name": "Ao, non-zero unused bits after one byte",
+      "text": "Ao",
+      "expected": null
+    },
+    {
+      "name": "Ap, non-zero unused bits after one byte",
+      "text": "Ap",
+      "expected": null
+    },
+    {
+      "name": "Aq, non-zero unused bits after one byte",
+      "text": "Aq",
+      "expected": null
+    },
+    {
+      "name": "Ar, non-zero unused bits after one byte",
+      "text": "Ar",
+      "expected": null
+    },
+    {
+      "name": "As, non-zero unused bits after one byte",
+      "text": "As",
+      "expected": null
+    },
+    {
+      "name": "At, non-zero unused bits after one byte",
+      "text": "At",
+      "expected": null
+    },
+    {
+      "name": "Au, non-zero unused bits after one byte",
+      "text": "Au",
+      "expected": null
+    },
+    {
+      "name": "Av, non-zero unused bits after one byte",
+      "text": "Av",
+      "expected": null
+    },
+    {
+      "name": "Aw, unused bits zero after one byte",
+      "text": "Aw",
+      "expected": "03"
+    },
+    {
+      "name": "Ax, non-zero unused bits after one byte",
+      "text": "Ax",
+      "expected": null
+    },
+    {
+      "name": "Ay, non-zero unused bits after one byte",
+      "text": "Ay",
+      "expected": null
+    },
+    {
+      "name": "Az, non-zero unused bits after one byte",
+      "text": "Az",
+      "expected": null
+    },
+    {
+      "name": "A0, non-zero unused bits after one byte",
+      "text": "A0",
+      "expected": null
+    },
+    {
+      "name": "A1, non-zero unused bits after one byte",
+      "text": "A1",
+      "expected": null
+    },
+    {
+      "name": "A2, non-zero unused bits after one byte",
+      "text": "A2",
+      "expected": null
+    },
+    {
+      "name": "A3, non-zero unused bits after one byte",
+      "text": "A3",
+      "expected": null
+    },
+    {
+      "name": "A4, non-zero unused bits after one byte",
+      "text": "A4",
+      "expected": null
+    },
+    {
+      "name": "A5, non-zero unused bits after one byte",
+      "text": "A5",
+      "expected": null
+    },
+    {
+      "name": "A6, non-zero unused bits after one byte",
+      "text": "A6",
+      "expected": null
+    },
+    {
+      "name": "A7, non-zero unused bits after one byte",
+      "text": "A7",
+      "expected": null
+    },
+    {
+      "name": "A8, non-zero unused bits after one byte",
+      "text": "A8",
+      "expected": null
+    },
+    {
+      "name": "A9, non-zero unused bits after one byte",
+      "text": "A9",
+      "expected": null
+    },
+    {
+      "name": "A-, non-zero unused bits after one byte",
+      "text": "A-",
+      "expected": null
+    },
+    {
+      "name": "A_, non-zero unused bits after one byte",
+      "text": "A_",
+      "expected": null
+    },
+    {
       "name": "AAB, non-zero unused bits after two bytes",
       "text": "AAB",
+      "expected": null
+    },
+    {
+      "name": "AAC, non-zero unused bits after two bytes",
+      "text": "AAC",
+      "expected": null
+    },
+    {
+      "name": "AAD, non-zero unused bits after two bytes",
+      "text": "AAD",
+      "expected": null
+    },
+    {
+      "name": "AAE, unused bits zero after two bytes",
+      "text": "AAE",
+      "expected": "0001"
+    },
+    {
+      "name": "AAF, non-zero unused bits after two bytes",
+      "text": "AAF",
+      "expected": null
+    },
+    {
+      "name": "AAG, non-zero unused bits after two bytes",
+      "text": "AAG",
+      "expected": null
+    },
+    {
+      "name": "AAH, non-zero unused bits after two bytes",
+      "text": "AAH",
+      "expected": null
+    },
+    {
+      "name": "AAI, unused bits zero after two bytes",
+      "text": "AAI",
+      "expected": "0002"
+    },
+    {
+      "name": "AAJ, non-zero unused bits after two bytes",
+      "text": "AAJ",
+      "expected": null
+    },
+    {
+      "name": "AAK, non-zero unused bits after two bytes",
+      "text": "AAK",
+      "expected": null
+    },
+    {
+      "name": "AAL, non-zero unused bits after two bytes",
+      "text": "AAL",
+      "expected": null
+    },
+    {
+      "name": "AAM, unused bits zero after two bytes",
+      "text": "AAM",
+      "expected": "0003"
+    },
+    {
+      "name": "AAN, non-zero unused bits after two bytes",
+      "text": "AAN",
+      "expected": null
+    },
+    {
+      "name": "AAO, non-zero unused bits after two bytes",
+      "text": "AAO",
+      "expected": null
+    },
+    {
+      "name": "AAP, non-zero unused bits after two bytes",
+      "text": "AAP",
+      "expected": null
+    },
+    {
+      "name": "AAQ, unused bits zero after two bytes",
+      "text": "AAQ",
+      "expected": "0004"
+    },
+    {
+      "name": "AAR, non-zero unused bits after two bytes",
+      "text": "AAR",
+      "expected": null
+    },
+    {
+      "name": "AAS, non-zero unused bits after two bytes",
+      "text": "AAS",
+      "expected": null
+    },
+    {
+      "name": "AAT, non-zero unused bits after two bytes",
+      "text": "AAT",
+      "expected": null
+    },
+    {
+      "name": "AAU, unused bits zero after two bytes",
+      "text": "AAU",
+      "expected": "0005"
+    },
+    {
+      "name": "AAV, non-zero unused bits after two bytes",
+      "text": "AAV",
+      "expected": null
+    },
+    {
+      "name": "AAW, non-zero unused bits after two bytes",
+      "text": "AAW",
+      "expected": null
+    },
+    {
+      "name": "AAX, non-zero unused bits after two bytes",
+      "text": "AAX",
+      "expected": null
+    },
+    {
+      "name": "AAY, unused bits zero after two bytes",
+      "text": "AAY",
+      "expected": "0006"
+    },
+    {
+      "name": "AAZ, non-zero unused bits after two bytes",
+      "text": "AAZ",
+      "expected": null
+    },
+    {
+      "name": "AAa, non-zero unused bits after two bytes",
+      "text": "AAa",
+      "expected": null
+    },
+    {
+      "name": "AAb, non-zero unused bits after two bytes",
+      "text": "AAb",
+      "expected": null
+    },
+    {
+      "name": "AAc, unused bits zero after two bytes",
+      "text": "AAc",
+      "expected": "0007"
+    },
+    {
+      "name": "AAd, non-zero unused bits after two bytes",
+      "text": "AAd",
+      "expected": null
+    },
+    {
+      "name": "AAe, non-zero unused bits after two bytes",
+      "text": "AAe",
+      "expected": null
+    },
+    {
+      "name": "AAf, non-zero unused bits after two bytes",
+      "text": "AAf",
+      "expected": null
+    },
+    {
+      "name": "AAg, unused bits zero after two bytes",
+      "text": "AAg",
+      "expected": "0008"
+    },
+    {
+      "name": "AAh, non-zero unused bits after two bytes",
+      "text": "AAh",
+      "expected": null
+    },
+    {
+      "name": "AAi, non-zero unused bits after two bytes",
+      "text": "AAi",
+      "expected": null
+    },
+    {
+      "name": "AAj, non-zero unused bits after two bytes",
+      "text": "AAj",
+      "expected": null
+    },
+    {
+      "name": "AAk, unused bits zero after two bytes",
+      "text": "AAk",
+      "expected": "0009"
+    },
+    {
+      "name": "AAl, non-zero unused bits after two bytes",
+      "text": "AAl",
+      "expected": null
+    },
+    {
+      "name": "AAm, non-zero unused bits after two bytes",
+      "text": "AAm",
+      "expected": null
+    },
+    {
+      "name": "AAn, non-zero unused bits after two bytes",
+      "text": "AAn",
+      "expected": null
+    },
+    {
+      "name": "AAo, unused bits zero after two bytes",
+      "text": "AAo",
+      "expected": "000a"
+    },
+    {
+      "name": "AAp, non-zero unused bits after two bytes",
+      "text": "AAp",
+      "expected": null
+    },
+    {
+      "name": "AAq, non-zero unused bits after two bytes",
+      "text": "AAq",
+      "expected": null
+    },
+    {
+      "name": "AAr, non-zero unused bits after two bytes",
+      "text": "AAr",
+      "expected": null
+    },
+    {
+      "name": "AAs, unused bits zero after two bytes",
+      "text": "AAs",
+      "expected": "000b"
+    },
+    {
+      "name": "AAt, non-zero unused bits after two bytes",
+      "text": "AAt",
+      "expected": null
+    },
+    {
+      "name": "AAu, non-zero unused bits after two bytes",
+      "text": "AAu",
+      "expected": null
+    },
+    {
+      "name": "AAv, non-zero unused bits after two bytes",
+      "text": "AAv",
+      "expected": null
+    },
+    {
+      "name": "AAw, unused bits zero after two bytes",
+      "text": "AAw",
+      "expected": "000c"
+    },
+    {
+      "name": "AAx, non-zero unused bits after two bytes",
+      "text": "AAx",
+      "expected": null
+    },
+    {
+      "name": "AAy, non-zero unused bits after two bytes",
+      "text": "AAy",
+      "expected": null
+    },
+    {
+      "name": "AAz, non-zero unused bits after two bytes",
+      "text": "AAz",
+      "expected": null
+    },
+    {
+      "name": "AA0, unused bits zero after two bytes",
+      "text": "AA0",
+      "expected": "000d"
+    },
+    {
+      "name": "AA1, non-zero unused bits after two bytes",
+      "text": "AA1",
+      "expected": null
+    },
+    {
+      "name": "AA2, non-zero unused bits after two bytes",
+      "text": "AA2",
+      "expected": null
+    },
+    {
+      "name": "AA3, non-zero unused bits after two bytes",
+      "text": "AA3",
+      "expected": null
+    },
+    {
+      "name": "AA4, unused bits zero after two bytes",
+      "text": "AA4",
+      "expected": "000e"
+    },
+    {
+      "name": "AA5, non-zero unused bits after two bytes",
+      "text": "AA5",
+      "expected": null
+    },
+    {
+      "name": "AA6, non-zero unused bits after two bytes",
+      "text": "AA6",
+      "expected": null
+    },
+    {
+      "name": "AA7, non-zero unused bits after two bytes",
+      "text": "AA7",
+      "expected": null
+    },
+    {
+      "name": "AA8, unused bits zero after two bytes",
+      "text": "AA8",
+      "expected": "000f"
+    },
+    {
+      "name": "AA9, non-zero unused bits after two bytes",
+      "text": "AA9",
+      "expected": null
+    },
+    {
+      "name": "AA-, non-zero unused bits after two bytes",
+      "text": "AA-",
+      "expected": null
+    },
+    {
+      "name": "AA_, non-zero unused bits after two bytes",
+      "text": "AA_",
       "expected": null
     },
     {
