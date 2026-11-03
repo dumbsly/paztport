@@ -44,15 +44,16 @@ const (
 //  3. its signature verifies under the key its form names: in the entry-key form the certificate's key,
 //     once the keyring and the certificate verify under pin, the certificate is for serverEntry and names
 //     the key the keyring holds for it, and both are current at now; in the policy-key form pin itself,
-//     when the reply has no keyring window either. Then an "attested" reply has both roots, sess is the
-//     session id the client derives from req and the reply, and the server's root, when there is one,
-//     verifies under pin and is current at now (BadSignature);
+//     when the reply has no keyring window either. Then, whatever the status, sess is the session id the
+//     client derives from req and the reply, and the server's root, when there is one, verifies under pin
+//     and is current at now; and an "attested" reply has both roots (BadSignature);
 //  4. the reply's status: Attested or Unsafe.
 //
 // The form is told by which members are present, never by which key verifies, so a reply stripped of its
 // certificate, or given one, can't pass under whichever key signed it. The server's material is judged at
 // now whatever the reply's status, so a server whose root or keyring has expired is BadSignature, and the
-// client takes its replacement path. CheckReply never panics.
+// client takes its replacement path; and an unsafe reply is bound to req as an attested one is. CheckReply
+// never panics.
 func CheckReply(reply []byte, req Request, pin, serverEntry string, now int64) Check {
 	r, err := ParseReply(reply)
 	if err != nil {

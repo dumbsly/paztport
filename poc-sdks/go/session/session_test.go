@@ -235,37 +235,69 @@ func TestNullServerRoot(t *testing.T) {
 }
 
 // TestSessionIDMismatch checks that a reply signed over another session id, or one that names a nonce
-// that is not 16 bytes, so that there is no session id, fails as BAD_SIGNATURE.
+// that is not 16 bytes, so that there is no session id, fails as BAD_SIGNATURE, whatever its status: an
+// unsafe reply is bound to the request as an attested one is.
 func TestSessionIDMismatch(t *testing.T) {
 	h := attestedHandshake(t)
-	reply := h.reply
-	reply.Sess = b64.Encode(make([]byte, 32))
-	signed, err := session.SignReply(reply, h.signer)
-	if err != nil {
-		t.Fatalf("SignReply: %v", err)
-	}
-	wire, err := signed.Wire()
-	if err != nil {
-		t.Fatalf("Wire: %v", err)
-	}
-	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
-		t.Fatalf("another session id: CheckReply = %s, want %s", got, session.BadSignature)
+	for _, status := range []string{session.StatusAttested, session.StatusUnsafe} {
+		reply := h.reply
+		reply.Status = status
+		reply.Sess = b64.Encode(make([]byte, 32))
+		signed, err := session.SignReply(reply, h.signer)
+		if err != nil {
+			t.Fatalf("SignReply: %v", err)
+		}
+		wire, err := signed.Wire()
+		if err != nil {
+			t.Fatalf("Wire: %v", err)
+		}
+		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+			t.Fatalf("another session id, %s: CheckReply = %s, want %s", status, got, session.BadSignature)
+		}
 	}
 
 	// With no session id, not even an empty sess matches.
 	for _, sess := range []string{h.reply.Sess, ""} {
-		reply = h.reply
+		reply := h.reply
 		reply.Nonce = b64.Encode(make([]byte, 15))
 		reply.Sess = sess
-		if signed, err = session.SignReply(reply, h.signer); err != nil {
+		signed, err := session.SignReply(reply, h.signer)
+		if err != nil {
 			t.Fatalf("SignReply: %v", err)
 		}
-		if wire, err = signed.Wire(); err != nil {
+		wire, err := signed.Wire()
+		if err != nil {
 			t.Fatalf("Wire: %v", err)
 		}
 		if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
 			t.Fatalf("a 15-byte nonce, sess %q: CheckReply = %s, want %s", sess, got, session.BadSignature)
 		}
+	}
+}
+
+// TestUnsafeReplyServerRoot checks that an unsafe reply's server root, when there is one, must verify under
+// the pin as an attested reply's must: a root signed by the entry key fails as BAD_SIGNATURE.
+func TestUnsafeReplyServerRoot(t *testing.T) {
+	h := attestedHandshake(t)
+	root := *h.reply.ServerRoot
+	b, err := root.Bytes()
+	if err != nil {
+		t.Fatalf("Bytes: %v", err)
+	}
+	other, err := policy.SignRoot(b, root.RootID, root.NotAfter, h.signer)
+	if err != nil {
+		t.Fatalf("SignRoot: %v", err)
+	}
+	reply := h.reply
+	reply.Status = session.StatusUnsafe
+	wire := h.sign(t, h.req, reply, h.signer)
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.Unsafe {
+		t.Fatalf("the unsafe reply as it is: CheckReply = %s, want %s", got, session.Unsafe)
+	}
+	reply.ServerRoot = &other
+	wire = h.sign(t, h.req, reply, h.signer)
+	if got := session.CheckReply(wire, h.req, h.pin, h.entry, h.now); got != session.BadSignature {
+		t.Fatalf("a server root signed by the entry key: CheckReply = %s, want %s", got, session.BadSignature)
 	}
 }
 
