@@ -35,7 +35,7 @@ import org.paztport.core.internal.RootJson;
  */
 public record SignedRoot(String rootId, String root, String sig, long notAfter) {
 
-    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
+    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the SDKs would not all print the same digits. */
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-root\n";

@@ -27,7 +27,7 @@ public final class Base64Url {
     /**
      * Decodes the one canonical encoding of RFC 4648 §3.5: url-safe characters only, no padding, a length that is
      * never 1 modulo 4, and zero in the unused bits of the last character. Throws {@link IllegalArgumentException}
-     * otherwise, so both SDKs accept and refuse the same text.
+     * otherwise, so every SDK accepts and refuses the same text.
      */
     public static byte[] decode(String text) {
         if (!VALID.matcher(text).matches()) {

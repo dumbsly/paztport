@@ -10,7 +10,7 @@ package org.paztport.core.internal;
  */
 public final class JsonIntegers {
 
-    /** 2^53 &minus; 1, the largest integer both SDKs read and print the same way. */
+    /** 2^53 &minus; 1, the largest integer every SDK reads and prints the same way. */
     public static final long MAX_SAFE = (1L << 53) - 1;
 
     private JsonIntegers() {

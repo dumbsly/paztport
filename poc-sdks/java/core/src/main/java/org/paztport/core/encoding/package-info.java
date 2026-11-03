@@ -3,7 +3,7 @@
 
 /**
  * The byte forms on the wire: base64url, RFC 8785 canonical JSON, and the check that keeps a lone surrogate out
- * of anything signed. Each refuses what it cannot represent exactly, so both SDKs sign and hash the same bytes.
+ * of anything signed. Each refuses what it cannot represent exactly, so every SDK signs and hashes the same bytes.
  *
  * <p>JSON crosses the SDK's public API by one rule, so that no public signature names a JSON library and an
  * application keeps whichever one its framework brings:

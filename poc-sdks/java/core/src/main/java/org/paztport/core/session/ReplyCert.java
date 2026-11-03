@@ -28,14 +28,14 @@ import org.paztport.core.internal.JsonWriter;
  *
  * <p>The signature covers {@code utf8("paztport-reply-cert\n") || JCS({key, notAfter, policy, svc})}, and a
  * certificate has no other member but {@code sig}. {@code notAfter} is an integer in [0, 2^53 &minus; 1], the range
- * both SDKs print the same way.
+ * every SDK prints the same way.
  *
  * <p>What the signer must have verified: the policy owner issues a certificate only after checking that
  * {@code key} is {@code svc}'s key in its current keyring, signed by the same policy key.
  */
 public record ReplyCert(String policy, String svc, String key, long notAfter, String sig) {
 
-    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
+    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the SDKs would not all print the same digits. */
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-reply-cert\n";

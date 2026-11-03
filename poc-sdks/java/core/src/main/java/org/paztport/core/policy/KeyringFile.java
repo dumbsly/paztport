@@ -37,7 +37,7 @@ import org.paztport.core.internal.KeyringNames;
  */
 public record KeyringFile(Map<String, String> services, String policy, String sig, long notAfter) {
 
-    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the two SDKs would print different digits. */
+    /** The largest {@code notAfter}: 2^53 &minus; 1, beyond which the SDKs would not all print the same digits. */
     public static final long MAX_NOT_AFTER = JsonIntegers.MAX_SAFE;
 
     private static final String DOMAIN = "paztport-keyring\n";
