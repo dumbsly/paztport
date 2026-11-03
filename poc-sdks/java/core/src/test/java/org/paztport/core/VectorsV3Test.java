@@ -445,9 +445,17 @@ class VectorsV3Test {
         return Keyring.of(keys);
     }
 
-    /** A member's {@code notAfter}, or {@code absent} where it gives none. */
+    /**
+     * A member's {@code notAfter}, or {@code absent} where it gives none. It is read strictly, as the TypeScript
+     * replay's {@code isNotAfter} reads it: a value that is not an integral number fitting a long, such as 1.5, is
+     * {@link Long#MIN_VALUE}, a window no clock is within, never one truncated or rounded into range.
+     */
     private static long window(JsonNode member, long absent) {
-        return member.has("notAfter") ? member.get("notAfter").asLong() : absent;
+        if (!member.has("notAfter")) {
+            return absent;
+        }
+        JsonNode n = member.get("notAfter");
+        return n.isIntegralNumber() && n.canConvertToLong() ? n.longValue() : Long.MIN_VALUE;
     }
 
     /**
@@ -615,7 +623,6 @@ class VectorsV3Test {
         ObjectNode lapsed = (ObjectNode) asArrays(recorded, MAPPER.getNodeFactory().numberNode(before), false);
         assertEquals(ReasonCode.POLICY_EXPIRED, replayOffline(lapsed).reason());
     }
-
 
     /**
      * {@code c} with its {@code keyring} as {@code keyrings}, whole or split one service to a keyring, and its
