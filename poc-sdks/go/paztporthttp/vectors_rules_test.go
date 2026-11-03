@@ -198,7 +198,7 @@ func pinnedVerifier(t testing.TB, material string, cfg verify.Config) *verify.Ve
 		t.Fatalf("ParseRootFile: %v", err)
 	}
 	_, pub := vectors.RulesKey(t, m.PolicyKey)
-	cfg, err = verify.Pinned(kf, root, keys.EncodePublic(pub), cfg)
+	cfg, err = verify.Pinned([]policy.KeyringFile{kf}, []policy.Root{root}, keys.EncodePublic(pub), cfg)
 	if err != nil {
 		t.Fatalf("Pinned: %v", err)
 	}

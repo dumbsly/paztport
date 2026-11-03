@@ -65,10 +65,10 @@ type Verifier struct {
 	cfg Config
 }
 
-// New returns a verifier for cfg. The verifier keeps its own copy of cfg's keyring, its every key
-// included, its root and its allowed origins, so later changes to them do not reach it. New panics if cfg
+// New returns a verifier for cfg. The verifier keeps its own copy of cfg's keyrings, their every key
+// included, its roots and its allowed origins, so later changes to them do not reach it. New panics if cfg
 // has no clock or no nonce cache: no verifier can run without them, and that is a fault in the program,
-// not in any request.
+// not in any request. A cfg with no keyring or no root is not a fault: its verifier refuses every chain.
 func New(cfg Config) *Verifier {
 	if cfg.Now == nil {
 		panic("paztport verify: Config.Now must be a clock")
@@ -76,14 +76,39 @@ func New(cfg Config) *Verifier {
 	if cfg.Nonces == nil {
 		panic("paztport verify: Config.Nonces must be a nonce cache")
 	}
-	keyring := make(policy.Keyring, len(cfg.Keyring))
-	for svc, key := range cfg.Keyring {
-		keyring[svc] = slices.Clone(key)
+	keyrings := make([]PinnedKeyring, len(cfg.Keyrings))
+	for i, k := range cfg.Keyrings {
+		keys := make(policy.Keyring, len(k.Keys))
+		for svc, key := range k.Keys {
+			keys[svc] = slices.Clone(key)
+		}
+		keyrings[i] = PinnedKeyring{Keys: keys, NotAfter: k.NotAfter}
 	}
-	cfg.Keyring = keyring
-	cfg.Root = slices.Clone(cfg.Root)
+	roots := make([]PinnedRoot, len(cfg.Roots))
+	for i, r := range cfg.Roots {
+		roots[i] = PinnedRoot{Root: slices.Clone(r.Root), RootID: r.RootID, NotAfter: r.NotAfter}
+	}
+	cfg.Keyrings, cfg.Roots = keyrings, roots
 	cfg.AllowedOrigins = slices.Clone(cfg.AllowedOrigins)
 	return &Verifier{cfg: cfg}
+}
+
+// current returns the keys of the verifier's keyrings and the roots that are current at now, in their
+// order.
+func (v *Verifier) current(now int64) ([]policy.Keyring, []chaincheck.Root) {
+	var keyrings []policy.Keyring
+	for _, k := range v.cfg.Keyrings {
+		if chaincheck.Current(k.NotAfter, now) {
+			keyrings = append(keyrings, k.Keys)
+		}
+	}
+	var roots []chaincheck.Root
+	for _, r := range v.cfg.Roots {
+		if chaincheck.Current(r.NotAfter, now) {
+			roots = append(roots, chaincheck.Root{Bytes: r.Root, RootID: r.RootID})
+		}
+	}
+	return keyrings, roots
 }
 
 // Verify runs the live order on in, and answers with the first check that fails, or OK:
@@ -92,9 +117,9 @@ func New(cfg Config) *Verifier {
 //  1. CHAIN_MISSING, unless the chain reads from its token;
 //  2. BAD_SIGNATURE, if a signed field of any stamp holds "|";
 //  3. BAD_ORIGIN, unless the origin is an allowed origin;
-//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed by its
-//     service's key and links to the one before, and then each stamp's rcv names the next stamp's svc and
-//     the last's names the receiver;
+//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
+//     of the keys the current keyrings give its service and links to the one before, and then each
+//     stamp's rcv names the next stamp's svc and the last's names the receiver;
 //  5. RID_MISMATCH, unless every stamp carries the origin's rid;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. EXPIRED, unless the last stamp's ts is within the call window of now, either way, and the origin's
@@ -103,8 +128,12 @@ func New(cfg Config) *Verifier {
 //  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
 //  10. REPLAY, unless there is a nonce key, the cache remembers keys for at least twice the call window,
 //     and the key is new to it; only then is the key recorded;
-//  11. PATH_NOT_ALLOWED, unless the proof proves the route against the pinned root;
+//  11. PATH_NOT_ALLOWED, unless the proof proves the route against a current root with its rootId;
 //  12. PEER_MISMATCH, if there is a peer and it is not the last signer.
+//
+// A keyring or root is current while the clock is at most its own notAfter, and the verifier judges which
+// are current once for each request. Check 0 is the Config's PolicyNotAfter alone, which Pinned sets to the
+// last moment some keyring and some root are current.
 //
 // POLICY_EXPIRED names no one. With a peer, every other result names the peer; without one, OK and
 // PATH_NOT_ALLOWED name the last stamp's svc and inst, and every other result names no one.
@@ -146,8 +175,9 @@ func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code,
 	}
 	origin, last := c[0], c[len(c)-1]
 
-	// 3-6. The origin, signatures and links, receivers, rid and session.
-	if code := chaincheck.Stamps(c, v.cfg.Keyring, v.cfg.AllowedOrigins, v.cfg.Sess, in.Receiver, nil); code != reason.OK {
+	// 3-6. The origin, signatures and links, receivers, rid and session, under the keyrings current now.
+	keyrings, roots := v.current(now)
+	if code := chaincheck.Stamps(c, keyrings, v.cfg.AllowedOrigins, v.cfg.Sess, in.Receiver, nil); code != reason.OK {
 		return code, last, nil
 	}
 
@@ -175,9 +205,8 @@ func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code,
 		return reason.Replay, last, nil
 	}
 
-	// 11. The route.
-	if code := chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, v.cfg.Root,
-		v.cfg.RootID); code != reason.OK {
+	// 11. The route, against the roots current now.
+	if code := chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, roots); code != reason.OK {
 		return code, last, nil
 	}
 

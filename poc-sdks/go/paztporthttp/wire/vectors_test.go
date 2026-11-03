@@ -180,7 +180,7 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	for i := range allowed {
 		allowed[i] = origins.Index(i).Str()
 	}
-	now := c.Get("now").Int()
+	now, policyNotAfter := c.Get("now").Int(), c.Get("policyNotAfter").Int()
 	sentNode := c.Get("sent")
 	sent := make(stamp.Chain, sentNode.Len())
 	for i := range sent {
@@ -196,10 +196,10 @@ func readResponseCase(t testing.TB, c vectors.Node) responseCase {
 	}
 	return responseCase{
 		cfg: verify.Config{
-			Keyring:        keyring,
-			Root:           root,
-			RootID:         p.Get("rootId").Str(),
-			PolicyNotAfter: c.Get("policyNotAfter").Int(),
+			// The case gives one window, its policyNotAfter, so each member has that one.
+			Keyrings:       []verify.PinnedKeyring{{Keys: keyring, NotAfter: policyNotAfter}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: p.Get("rootId").Str(), NotAfter: policyNotAfter}},
+			PolicyNotAfter: policyNotAfter,
 			AllowedOrigins: allowed,
 			Sess:           c.Get("sess").Str(),
 			Now:            func() int64 { return now },

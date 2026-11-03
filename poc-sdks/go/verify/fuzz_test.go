@@ -43,9 +43,8 @@ func FuzzVerify(f *testing.F) {
 	const now = 1767225600000
 	f.Fuzz(func(t *testing.T, chain, influence, proof string) {
 		v := verify.New(verify.Config{
-			Keyring:        keyring,
-			Root:           root,
-			RootID:         rootID,
+			Keyrings:       []verify.PinnedKeyring{{Keys: keyring, NotAfter: 4102444800000}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: rootID, NotAfter: 4102444800000}},
 			PolicyNotAfter: 4102444800000,
 			AllowedOrigins: []string{"session", "gateway", "mcp-entry"},
 			Sess:           "sess-2",

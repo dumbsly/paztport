@@ -4,6 +4,9 @@
 package offline_test
 
 import (
+	"math"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
@@ -23,42 +26,164 @@ func TestVectors(t *testing.T) {
 	if cases.Len() == 0 {
 		t.Fatal("v3.json has no offline case")
 	}
-	policies := v3.Get("policies")
 	cases.Each(func(name string, c vectors.Node) {
 		t.Run(name, func(t *testing.T) {
 			c := c.With(t)
-			p := policies.With(t).Get(c.Get("policy").Str())
-			root, err := b64.Decode(p.Get("root").Str())
-			if err != nil {
-				t.Fatalf("the policy's root: %v", err)
-			}
-			keyring := policy.Keyring{}
-			ring := c.Get("keyring")
-			for _, svc := range ring.Names() {
-				_, pub := vectors.V3Key(t, ring.Get(svc).Str())
-				keyring[svc] = pub
-			}
-			cfg := offline.Config{
-				Keyring:        keyring,
-				Root:           root,
-				RootID:         p.Get("rootId").Str(),
-				AllowedOrigins: c.Get("allowedOrigins").Strs(),
-				Sess:           c.Get("sess").Str(),
-				RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
-				CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
-			}
-			got := offline.NewRecordSet(c.Get("seen").Strs()...).Verify(input(t, c, p), cfg)
-			e := c.Get("expected")
-			want := verify.Result{
-				Reason:      reason.Code(e.Get("reason").Str()),
-				SuspectSvc:  e.Get("suspectSvc").Str(),
-				SuspectInst: e.Get("suspectInst").Str(),
-			}
-			if got != want {
+			if got, want := replay(t, v3.With(t), c), expected(c); got != want {
 				t.Fatalf("Verify = %+v, want %+v", got, want)
 			}
 		})
 	})
+}
+
+// TestVectorsReadTheOptionalArrays checks that the replay reads the keyrings and roots a case may carry,
+// though no committed case carries them yet: every offline case, its one keyring and its policy's root
+// written as the arrays with no window, gives its recorded answer, with its keyring whole or split one
+// service to a keyring. And each member's window is the one it gives: a record later than every keyring's
+// or every root's notAfter is POLICY_EXPIRED, and one at it is not.
+func TestVectorsReadTheOptionalArrays(t *testing.T) {
+	v3 := vectors.Load(t, "v3.json")
+	v3.Get("offline").Each(func(name string, c vectors.Node) {
+		for _, split := range []bool{false, true} {
+			t.Run(name+", split "+strconv.FormatBool(split), func(t *testing.T) {
+				c := c.With(t)
+				if got, want := replay(t, v3.With(t), asArrays(c, "", split)), expected(c); got != want {
+					t.Fatalf("Verify = %+v, want %+v", got, want)
+				}
+			})
+		}
+	})
+	var recorded vectors.Node
+	v3.Get("offline").Each(func(name string, c vectors.Node) {
+		if name == "recorded call" {
+			recorded = c
+		}
+	})
+	last := recorded.Get("recordedTs").Get("last").Int()
+	at, before := strconv.FormatInt(last, 10), strconv.FormatInt(last-1, 10)
+	if got := replay(t, v3, asArrays(recorded, at, true)); got.Reason != reason.OK {
+		t.Errorf("under members until the record's time: Verify = %+v, want OK", got)
+	}
+	if got := replay(t, v3, asArrays(recorded, before, false)); got.Reason != reason.PolicyExpired {
+		t.Errorf("under members until before the record: Verify = %+v, want POLICY_EXPIRED", got)
+	}
+	lapsed := asArrays(recorded, "", false).Rewrite([]string{"roots"},
+		vectors.Member{Name: "roots", Text: `[{"policy": ` + string(recorded.Get("policy").Raw()) + `, "notAfter": ` +
+			before + `}]`})
+	if got := replay(t, v3, lapsed); got.Reason != reason.PolicyExpired {
+		t.Errorf("under a root until before the record: Verify = %+v, want POLICY_EXPIRED", got)
+	}
+	elsewhere := asArrays(recorded, "", false).Rewrite([]string{"roots"},
+		vectors.Member{Name: "roots", Text: `[{"policy": "server"}]`})
+	if got := replay(t, v3, elsewhere); got.Reason != reason.PathNotAllowed {
+		t.Errorf("under another policy's root: Verify = %+v, want PATH_NOT_ALLOWED", got)
+	}
+}
+
+// replay runs case c of v3.json's offline section once, in a record set that has already spent the case's
+// seen keys. A member a case gives with no window counts for every record.
+func replay(t *testing.T, v3, c vectors.Node) verify.Result {
+	t.Helper()
+	cfg := offline.Config{
+		Keyrings:       keyrings(t, c),
+		Roots:          roots(t, v3, c),
+		AllowedOrigins: c.Get("allowedOrigins").Strs(),
+		Sess:           c.Get("sess").Str(),
+		RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),
+		CallMaxAgeMs:   optionalInt(c.Get("callMaxAgeMs")),
+	}
+	p := v3.Get("policies").Get(c.Get("policy").Str())
+	return offline.NewRecordSet(c.Get("seen").Strs()...).Verify(input(t, c, p), cfg)
+}
+
+// expected returns the result case c expects.
+func expected(c vectors.Node) verify.Result {
+	e := c.Get("expected")
+	return verify.Result{
+		Reason:      reason.Code(e.Get("reason").Str()),
+		SuspectSvc:  e.Get("suspectSvc").Str(),
+		SuspectInst: e.Get("suspectInst").Str(),
+	}
+}
+
+// keyrings returns the keyrings case c pins: its keyrings, which replace keyring, each until its own
+// notAfter or with no window when it gives none; otherwise its one keyring, with no window.
+func keyrings(t *testing.T, c vectors.Node) []verify.PinnedKeyring {
+	t.Helper()
+	if !c.Has("keyrings") {
+		return []verify.PinnedKeyring{{Keys: keyring(t, c.Get("keyring")), NotAfter: math.MaxInt64}}
+	}
+	if c.Has("keyring") {
+		t.Fatal("the case gives keyrings and keyring, which keyrings replace")
+	}
+	var out []verify.PinnedKeyring
+	c.Get("keyrings").Each(func(_ string, k vectors.Node) {
+		out = append(out, verify.PinnedKeyring{Keys: keyring(t, k.Get("keyring")), NotAfter: window(k)})
+	})
+	return out
+}
+
+// roots returns the roots case c pins: its roots, each a policy's root until its own notAfter or with no
+// window when it gives none; otherwise its policy's root, with no window. With roots, policy names only
+// where the case's proof comes from.
+func roots(t *testing.T, v3, c vectors.Node) []verify.PinnedRoot {
+	t.Helper()
+	if !c.Has("roots") {
+		return []verify.PinnedRoot{pinnedRoot(t, v3, c.Get("policy").Str(), math.MaxInt64)}
+	}
+	var out []verify.PinnedRoot
+	c.Get("roots").Each(func(_ string, r vectors.Node) {
+		out = append(out, pinnedRoot(t, v3, r.Get("policy").Str(), window(r)))
+	})
+	return out
+}
+
+// keyring returns the keyring ring names: each service to the vector key of the name it maps to.
+func keyring(t *testing.T, ring vectors.Node) policy.Keyring {
+	t.Helper()
+	k := policy.Keyring{}
+	for _, svc := range ring.Names() {
+		_, pub := vectors.V3Key(t, ring.Get(svc).Str())
+		k[svc] = pub
+	}
+	return k
+}
+
+// pinnedRoot returns the root of v3.json's policy name, until notAfter.
+func pinnedRoot(t *testing.T, v3 vectors.Node, name string, notAfter int64) verify.PinnedRoot {
+	t.Helper()
+	p := v3.Get("policies").Get(name)
+	return verify.PinnedRoot{Root: decode(t, p.Get("root").Str()), RootID: p.Get("rootId").Str(), NotAfter: notAfter}
+}
+
+// window returns member m's notAfter, or math.MaxInt64, no window, when it gives none.
+func window(m vectors.Node) int64 {
+	if !m.Has("notAfter") {
+		return math.MaxInt64
+	}
+	return m.Get("notAfter").Int()
+}
+
+// asArrays returns case c with its keyring written as keyrings, whole or split one service to a keyring,
+// and its policy's root as roots, each member until notAfter, a JSON number's text, or with no window
+// when it is "".
+func asArrays(c vectors.Node, notAfter string, split bool) vectors.Node {
+	until := ""
+	if notAfter != "" {
+		until = `, "notAfter": ` + notAfter
+	}
+	ring := c.Get("keyring")
+	var parts []string
+	if split {
+		for _, svc := range ring.Names() {
+			parts = append(parts, `{"keyring": {`+strconv.Quote(svc)+`: `+string(ring.Get(svc).Raw())+`}`+until+`}`)
+		}
+	} else {
+		parts = append(parts, `{"keyring": `+string(ring.Raw())+until+`}`)
+	}
+	return c.Rewrite([]string{"keyring"},
+		vectors.Member{Name: "keyrings", Text: "[" + strings.Join(parts, ", ") + "]"},
+		vectors.Member{Name: "roots", Text: `[{"policy": ` + string(c.Get("policy").Raw()) + until + `}]`})
 }
 
 // TestRecordedHandshakeVectors replays v3.json's recordedHandshake cases: whether each opened an attested
@@ -152,10 +277,12 @@ func TestRecordedCallVectors(t *testing.T) {
 				if err != nil {
 					t.Fatalf("call %d: the client root: %v", i, err)
 				}
+				// The session's windows are Call's to judge, so the members have none.
 				cfg := offline.Config{
-					Keyring:        keyring,
-					Root:           root,
-					RootID:         req.ClientRoot.RootID,
+					Keyrings: []verify.PinnedKeyring{{Keys: keyring, NotAfter: math.MaxInt64}},
+					Roots: []verify.PinnedRoot{
+						{Root: root, RootID: req.ClientRoot.RootID, NotAfter: math.MaxInt64},
+					},
 					AllowedOrigins: origins,
 					Sess:           s.Sess(),
 					RunMaxAgeMs:    optionalInt(c.Get("runMaxAgeMs")),

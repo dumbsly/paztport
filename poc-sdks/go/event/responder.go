@@ -4,10 +4,12 @@
 package event
 
 import (
+	"crypto/ed25519"
 	"slices"
 	"sync"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/b64"
+	"github.com/dumbsly/paztport/poc-sdks/go/internal/chaincheck"
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/exact"
 	"github.com/dumbsly/paztport/poc-sdks/go/keys"
 	"github.com/dumbsly/paztport/poc-sdks/go/policy"
@@ -15,7 +17,7 @@ import (
 
 // Refusal is why a responder refused a body, as the spec names it. A refusal's name is for the
 // responder's own log: the sender is told only that the event was refused, the same for every refusal, so
-// the answer tells it nothing about the allowed signers, the keyring or the window.
+// the answer tells it nothing about the allowed signers, the keyrings or the window.
 type Refusal string
 
 // The refusals, in the order a responder checks for them.
@@ -24,9 +26,10 @@ const (
 	MalformedEnvelope Refusal = "MALFORMED_ENVELOPE"
 	// SignerNotAllowed means the signer is not one the responder takes events from.
 	SignerNotAllowed Refusal = "SIGNER_NOT_ALLOWED"
-	// UnknownSigner means the signer is allowed, but the keyring has no key for it.
+	// UnknownSigner means the signer is allowed, but no keyring has a key for it.
 	UnknownSigner Refusal = "UNKNOWN_SIGNER"
-	// BadSignature means the signature does not decode, or does not verify.
+	// BadSignature means the signature does not decode, or does not verify under any key the keyrings give
+	// the signer.
 	BadSignature Refusal = "BAD_SIGNATURE"
 	// MalformedEvent means the signed payload is not an event.
 	MalformedEvent Refusal = "MALFORMED_EVENT"
@@ -48,33 +51,38 @@ const idTTLMs = 2 * WindowMs
 // Responder decides whether an event body may reach whatever acts on it. It is safe for use by many
 // goroutines. Make one with NewResponder.
 type Responder struct {
-	keyring policy.Keyring
-	allowed []string
-	now     func() int64
+	keyrings []policy.Keyring
+	allowed  []string
+	now      func() int64
 
 	mu   sync.Mutex
 	seen map[string]int64 // each accepted id that is still remembered, and the now it was accepted at
 }
 
 // NewResponder returns a responder that takes events from allowedSigners alone, looks each signer's key up
-// in keyring by its own name, and reads the time, in milliseconds since the Unix epoch, from now. It keeps
-// its own copy of keyring, every key in it, and allowedSigners, so changing them later changes nothing. It
-// remembers no ids yet. A nil keyring or allowedSigners is empty, so the responder refuses every event.
-// NewResponder panics if now is nil: no responder can run without a clock, and that is a fault in the
-// program, not in any event.
-func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() int64) *Responder {
+// by its own name in every one of keyrings, and reads the time, in milliseconds since the Unix epoch, from
+// now. A responder holds one or more keyrings, so that a rollover can hold the old and the new together;
+// they come from its own configuration, and carry no window. It keeps its own copy of keyrings, every key
+// in them, and allowedSigners, so changing them later changes nothing. It remembers no ids yet. No keyring,
+// or no allowed signer, is not a fault: the responder then refuses every event, an allowed signer's as
+// UnknownSigner. NewResponder panics if now is nil: no responder can run without a clock, and that is a
+// fault in the program, not in any event.
+func NewResponder(keyrings []policy.Keyring, allowedSigners []string, now func() int64) *Responder {
 	if now == nil {
 		panic("paztport event: NewResponder's now must be a clock")
 	}
-	own := make(policy.Keyring, len(keyring))
-	for svc, key := range keyring {
-		own[svc] = slices.Clone(key)
+	own := make([]policy.Keyring, len(keyrings))
+	for i, keyring := range keyrings {
+		own[i] = make(policy.Keyring, len(keyring))
+		for svc, key := range keyring {
+			own[i][svc] = slices.Clone(key)
+		}
 	}
 	return &Responder{
-		keyring: own,
-		allowed: slices.Clone(allowedSigners),
-		now:     now,
-		seen:    make(map[string]int64),
+		keyrings: own,
+		allowed:  slices.Clone(allowedSigners),
+		now:      now,
+		seen:     make(map[string]int64),
 	}
 }
 
@@ -84,9 +92,9 @@ func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() in
 //  1. body is exactly the canonical bytes of an envelope, an object of exactly a string signer, payload
 //     and sig (MalformedEnvelope);
 //  2. the signer is allowed (SignerNotAllowed);
-//  3. the keyring has a key for the signer (UnknownSigner);
-//  4. sig is canonical base64url, and verifies under that key over EnvelopeSigningBytes(payload)
-//     (BadSignature);
+//  3. some keyring has a key for the signer, under its own name (UnknownSigner);
+//  4. sig is canonical base64url, and verifies over EnvelopeSigningBytes(payload) under one of the keys
+//     the keyrings give the signer, each distinct key tried once (BadSignature);
 //  5. payload is canonical base64url of exactly the canonical bytes of an event, every member of its type
 //     and no other member, but for an absent or null eventId, which is left to check 6 (MalformedEvent);
 //  6. eventId is present and is neither null nor "": any other string is an id (NoEventID);
@@ -94,7 +102,7 @@ func NewResponder(keyring policy.Keyring, allowedSigners []string, now func() in
 //  8. the id is not one the responder remembers (RepeatedEventID). It is then remembered, from now, for
 //     twice WindowMs.
 //
-// The allow-list comes before the keyring, so a name not on it, the sender's own text, is never looked up.
+// The allow-list comes before the keyrings, so a name not on it, the sender's own text, is never looked up.
 // Nothing past the envelope is read until an allowed key's signature has verified, so a malformed event
 // can only come from an allowed signer. The id is checked last, so a forged, stale or malformed body never
 // spends an id the real signer will use: a refused body changes nothing.
@@ -108,12 +116,16 @@ func (r *Responder) Accept(body []byte) (Event, Refusal) {
 	if !slices.Contains(r.allowed, env.Signer) {
 		return Event{}, SignerNotAllowed
 	}
-	key, ok := r.keyring[env.Signer]
-	if !ok {
+	candidates := chaincheck.KeysFor(r.keyrings, env.Signer)
+	if len(candidates) == 0 {
 		return Event{}, UnknownSigner
 	}
 	sig, err := b64.Decode(env.Sig)
-	if err != nil || !keys.Verify(key, EnvelopeSigningBytes(env.Payload), sig) {
+	if err != nil {
+		return Event{}, BadSignature
+	}
+	msg := EnvelopeSigningBytes(env.Payload)
+	if !slices.ContainsFunc(candidates, func(key ed25519.PublicKey) bool { return keys.Verify(key, msg, sig) }) {
 		return Event{}, BadSignature
 	}
 	payload, err := b64.Decode(env.Payload)

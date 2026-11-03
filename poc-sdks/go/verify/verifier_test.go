@@ -56,9 +56,11 @@ func mesh(t *testing.T) *setup {
 			{Svc: "orders", Inst: "ord-1", RID: "rid-1", TS: now - 500, Rcv: "payment", Bind: "bind-1"},
 		},
 		cfg: verify.Config{
-			Keyring:        policy.Keyring{"gateway": pub(t, "gateway"), "orders": pub(t, "orders"), "pi": pub(t, "pi")},
-			Root:           root,
-			RootID:         p.Get("rootId").Str(),
+			Keyrings: []verify.PinnedKeyring{{
+				Keys:     policy.Keyring{"gateway": pub(t, "gateway"), "orders": pub(t, "orders"), "pi": pub(t, "pi")},
+				NotAfter: 4102444800000,
+			}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: p.Get("rootId").Str(), NotAfter: 4102444800000}},
 			PolicyNotAfter: 4102444800000,
 			AllowedOrigins: []string{"gateway"},
 			Nonces:         verify.NewMemoryNonceCache(verify.NonceTTLMs),
@@ -195,8 +197,10 @@ var faults = []fault{
 	{"a sig of 63 bytes", reason.BadSignature, func(s *setup) {
 		s.tamper(1, func(st *stamp.Stamp) { st.Sig = b64.Encode(make([]byte, 63)) })
 	}},
-	{"no key for a signer", reason.BadSignature, func(s *setup) { delete(s.cfg.Keyring, "orders") }},
-	{"another service's key", reason.BadSignature, func(s *setup) { s.cfg.Keyring["orders"] = pub(s.t, "pi") }},
+	{"no key for a signer", reason.BadSignature, func(s *setup) { delete(s.cfg.Keyrings[0].Keys, "orders") }},
+	{"another service's key", reason.BadSignature, func(s *setup) {
+		s.cfg.Keyrings[0].Keys["orders"] = pub(s.t, "pi")
+	}},
 	{"a broken link", reason.BrokenLink, func(s *setup) { s.edit(1, func(st *stamp.Stamp) { st.Prev = "AAAA" }) }},
 	{"an origin with a prev", reason.BrokenLink, func(s *setup) { s.edit(0, func(st *stamp.Stamp) { st.Prev = "AAAA" }) }},
 	{"an inner rcv for another hop", reason.BindingMismatch, func(s *setup) {
@@ -231,7 +235,7 @@ var faults = []fault{
 	}},
 	{"no proof", reason.PathNotAllowed, func(s *setup) { s.in.Proof = nil }},
 	{"a route the proof does not prove", reason.PathNotAllowed, func(s *setup) { s.in.ReceiverInRoute = false }},
-	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.RootID = "v0" }},
+	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.Roots[0].RootID = "v0" }},
 	{"another peer", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{Svc: "search", Inst: "10.0.0.9"} }},
 	{"a peer with no svc", reason.PeerMismatch, func(s *setup) { s.in.Peer = &verify.Peer{} }},
 }
@@ -680,18 +684,29 @@ func TestCancelledContext(t *testing.T) {
 	}
 }
 
-// TestNewCopiesConfig checks that a verifier keeps its own copy of the Config's keyring, its keys
-// included, root and origins.
+// TestNewCopiesConfig checks that a verifier keeps its own copy of the Config's keyrings, their every
+// key included, roots and origins.
 func TestNewCopiesConfig(t *testing.T) {
-	s := mesh(t)
-	s.in.Chain = ptr(s.token(t))
-	v := verify.New(s.cfg)
-	s.cfg.Keyring["orders"] = pub(t, "pi")
-	s.cfg.Keyring["gateway"][0] ^= 1
-	s.cfg.Root[0] ^= 1
-	s.cfg.AllowedOrigins[0] = "orders"
-	if got, err := v.Verify(t.Context(), s.in); err != nil || !got.OK() {
-		t.Fatalf("Verify = %+v, %v after the Config changed, want OK", got, err)
+	for name, edit := range map[string]func(*verify.Config){
+		"a key replaced":     func(c *verify.Config) { c.Keyrings[0].Keys["orders"] = pub(t, "pi") },
+		"a key's bytes":      func(c *verify.Config) { c.Keyrings[0].Keys["gateway"][0] ^= 1 },
+		"a keyring's window": func(c *verify.Config) { c.Keyrings[0].NotAfter = now - 1 },
+		"a keyring replaced": func(c *verify.Config) { c.Keyrings[0] = verify.PinnedKeyring{} },
+		"a root's bytes":     func(c *verify.Config) { c.Roots[0].Root[0] ^= 1 },
+		"a root's rootId":    func(c *verify.Config) { c.Roots[0].RootID = "v0" },
+		"a root's window":    func(c *verify.Config) { c.Roots[0].NotAfter = now - 1 },
+		"a root replaced":    func(c *verify.Config) { c.Roots[0] = verify.PinnedRoot{} },
+		"an origin":          func(c *verify.Config) { c.AllowedOrigins[0] = "orders" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := mesh(t)
+			s.in.Chain = ptr(s.token(t))
+			v := verify.New(s.cfg)
+			edit(&s.cfg)
+			if got, err := v.Verify(t.Context(), s.in); err != nil || !got.OK() {
+				t.Fatalf("Verify = %+v, %v after the Config changed, want OK", got, err)
+			}
+		})
 	}
 }
 
@@ -767,7 +782,7 @@ func signedPolicy(
 		t.Fatal(err)
 	}
 	s := mesh(t)
-	root, err := policy.SignRoot(s.cfg.Root, s.cfg.RootID, rootNotAfter, priv)
+	root, err := policy.SignRoot(s.cfg.Roots[0].Root, s.cfg.Roots[0].RootID, rootNotAfter, priv)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -778,9 +793,8 @@ func signedPolicy(
 // material of its own that Pinned replaces.
 func pinnedConfig(t *testing.T, s *setup) verify.Config {
 	return verify.Config{
-		Keyring:        policy.Keyring{"other": pub(t, "orders")},
-		Root:           []byte("other"),
-		RootID:         "other",
+		Keyrings:       []verify.PinnedKeyring{{Keys: policy.Keyring{"other": pub(t, "orders")}, NotAfter: now}},
+		Roots:          []verify.PinnedRoot{{Root: []byte("other"), RootID: "other", NotAfter: now}},
 		PolicyNotAfter: -1,
 		AllowedOrigins: []string{"gateway"},
 		Sess:           "sess-2",
@@ -797,8 +811,9 @@ const (
 	pinnedRunMaxAgeMs  = verify.RunMaxAgeMs + 1000
 )
 
-// TestPinned checks that Pinned fills a Config that verifies from material the pin vouches for, with the
-// earlier window as PolicyNotAfter, and keeps everything else the caller set.
+// TestPinned checks that Pinned fills a Config that verifies from material the pin vouches for, each
+// member keeping its own window, with the earlier of the windows as PolicyNotAfter, and keeps everything
+// else the caller set.
 func TestPinned(t *testing.T) {
 	for _, w := range [][2]int64{{now + 10, now + 20}, {now + 20, now + 10}, {now, now}} {
 		kf, root, pin := signedPolicy(t, "client-policy", w[0], w[1])
@@ -806,16 +821,20 @@ func TestPinned(t *testing.T) {
 		for i := range s.stamps {
 			s.stamps[i].Sess = "sess-2"
 		}
-		cfg, err := verify.Pinned(kf, root, pin, pinnedConfig(t, s))
+		cfg, err := verify.Pinned([]policy.KeyringFile{kf}, []policy.Root{root}, pin, pinnedConfig(t, s))
 		if err != nil {
 			t.Fatalf("Pinned: %v", err)
 		}
 		if want := min(w[0], w[1]); cfg.PolicyNotAfter != want {
 			t.Fatalf("PolicyNotAfter = %d, want %d", cfg.PolicyNotAfter, want)
 		}
-		if !bytes.Equal(cfg.Root, s.cfg.Root) || cfg.RootID != s.cfg.RootID || len(cfg.Keyring) != 3 ||
-			!cfg.Keyring["orders"].Equal(pub(t, "orders")) || cfg.CallMaxAgeMs != pinnedCallMaxAgeMs ||
-			cfg.RunMaxAgeMs != pinnedRunMaxAgeMs || cfg.Sess != "sess-2" ||
+		if len(cfg.Keyrings) != 1 || len(cfg.Roots) != 1 {
+			t.Fatalf("Pinned = %+v, want one keyring and one root", cfg)
+		}
+		k, r := cfg.Keyrings[0], cfg.Roots[0]
+		if !bytes.Equal(r.Root, s.cfg.Roots[0].Root) || r.RootID != s.cfg.Roots[0].RootID || r.NotAfter != w[1] ||
+			len(k.Keys) != 3 || !k.Keys["orders"].Equal(pub(t, "orders")) || k.NotAfter != w[0] ||
+			cfg.CallMaxAgeMs != pinnedCallMaxAgeMs || cfg.RunMaxAgeMs != pinnedRunMaxAgeMs || cfg.Sess != "sess-2" ||
 			!slices.Equal(cfg.AllowedOrigins, []string{"gateway"}) {
 			t.Fatalf("Pinned = %+v", cfg)
 		}
@@ -826,44 +845,111 @@ func TestPinned(t *testing.T) {
 	}
 }
 
-// TestPinnedRefuses checks that Pinned refuses material the pin does not vouch for now, naming it.
+// TestPinnedTakesTheEarlierOfTheLatestWindows checks that Pinned keeps several keyrings and roots in their
+// order, each with its own window, and records as PolicyNotAfter the earlier of the latest keyring's
+// notAfter and the latest root's: the last moment the pin vouches for some keyring and some root.
+func TestPinnedTakesTheEarlierOfTheLatestWindows(t *testing.T) {
+	tests := []struct {
+		keyrings, roots []int64
+		want            int64
+	}{
+		{[]int64{now + 10, now + 30}, []int64{now + 20, now + 5}, now + 20},
+		{[]int64{now + 30, now + 10}, []int64{now + 5, now + 40}, now + 30},
+		{[]int64{now + 10}, []int64{now + 5, now + 20, now}, now + 10},
+		{[]int64{now, now}, []int64{now}, now},
+	}
+	for _, tt := range tests {
+		var kfs []policy.KeyringFile
+		var roots []policy.Root
+		var pin string
+		for _, w := range tt.keyrings {
+			var kf policy.KeyringFile
+			kf, _, pin = signedPolicy(t, "client-policy", w, now)
+			kfs = append(kfs, kf)
+		}
+		for _, w := range tt.roots {
+			_, root, _ := signedPolicy(t, "client-policy", now, w)
+			roots = append(roots, root)
+		}
+		s := mesh(t)
+		cfg, err := verify.Pinned(kfs, roots, pin, pinnedConfig(t, s))
+		if err != nil {
+			t.Fatalf("Pinned(%d, %d): %v", tt.keyrings, tt.roots, err)
+		}
+		if cfg.PolicyNotAfter != tt.want {
+			t.Errorf("Pinned(%d, %d): PolicyNotAfter = %d, want %d", tt.keyrings, tt.roots, cfg.PolicyNotAfter,
+				tt.want)
+		}
+		var gotKeyrings, gotRoots []int64
+		for _, k := range cfg.Keyrings {
+			gotKeyrings = append(gotKeyrings, k.NotAfter)
+		}
+		for _, r := range cfg.Roots {
+			gotRoots = append(gotRoots, r.NotAfter)
+		}
+		if !slices.Equal(gotKeyrings, tt.keyrings) || !slices.Equal(gotRoots, tt.roots) {
+			t.Errorf("Pinned(%d, %d) kept the windows %d and %d", tt.keyrings, tt.roots, gotKeyrings, gotRoots)
+		}
+	}
+}
+
+// TestPinnedRefuses checks that Pinned refuses material the pin does not vouch for now, naming the
+// member by its place in its list, and refuses no keyring or no root.
 func TestPinnedRefuses(t *testing.T) {
+	type material struct {
+		kfs   []policy.KeyringFile
+		roots []policy.Root
+		pin   string
+	}
 	good := func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
 		return signedPolicy(t, "client-policy", now, now)
 	}
+	one := func(kf policy.KeyringFile, root policy.Root, pin string) material {
+		return material{[]policy.KeyringFile{kf}, []policy.Root{root}, pin}
+	}
 	tests := []struct {
 		name  string
-		make  func(t *testing.T) (policy.KeyringFile, policy.Root, string)
+		make  func(t *testing.T) material
 		names string
 	}{
-		{"a keyring under another policy key", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+		{"a keyring under another policy key", func(t *testing.T) material {
 			kf, _, pin := signedPolicy(t, "server-policy", now, now)
 			_, root, _ := good(t)
-			return kf, root, pin
-		}, "keyring"},
-		{"a keyring with a bad signature", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, root, pin)
+		}, "keyrings[0]"},
+		{"a keyring with a bad signature", func(t *testing.T) material {
 			kf, root, pin := good(t)
 			kf.NotAfter++
-			return kf, root, pin
-		}, "keyring"},
-		{"an expired keyring", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, root, pin)
+		}, "keyrings[0]"},
+		{"an expired keyring", func(t *testing.T) material {
 			kf, _, pin := signedPolicy(t, "client-policy", now-1, now)
-			return kf, mustRoot(good(t)), pin
-		}, "keyring"},
-		{"a pin that is not a key", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, mustRoot(good(t)), pin)
+		}, "keyrings[0]"},
+		{"a pin that is not a key", func(t *testing.T) material {
 			kf, root, _ := good(t)
-			return kf, root, "AAAA"
-		}, "keyring"},
-		{"a root under another policy key", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, root, "AAAA")
+		}, "keyrings[0]"},
+		{"a second keyring under another policy key", func(t *testing.T) material {
+			kf, root, pin := good(t)
+			other, _, _ := signedPolicy(t, "server-policy", now, now)
+			return material{[]policy.KeyringFile{kf, other}, []policy.Root{root}, pin}
+		}, "keyrings[1]"},
+		{"a second keyring expired", func(t *testing.T) material {
+			kf, root, pin := good(t)
+			expired, _, _ := signedPolicy(t, "client-policy", now-1, now)
+			return material{[]policy.KeyringFile{kf, expired}, []policy.Root{root}, pin}
+		}, "keyrings[1]"},
+		{"a root under another policy key", func(t *testing.T) material {
 			kf, _, pin := good(t)
 			_, root, _ := signedPolicy(t, "server-policy", now, now)
-			return kf, root, pin
-		}, "root"},
-		{"an expired root", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, root, pin)
+		}, "roots[0]"},
+		{"an expired root", func(t *testing.T) material {
 			kf, root, pin := signedPolicy(t, "client-policy", now, now-1)
-			return kf, root, pin
-		}, "root"},
-		{"a root that is not base64url", func(t *testing.T) (policy.KeyringFile, policy.Root, string) {
+			return one(kf, root, pin)
+		}, "roots[0]"},
+		{"a root that is not base64url", func(t *testing.T) material {
 			kf, root, pin := good(t)
 			priv, _ := vectors.V3Key(t, "client-policy")
 			root.Root = "not base64url"
@@ -876,26 +962,56 @@ func TestPinnedRefuses(t *testing.T) {
 				t.Fatal(err)
 			}
 			root.Sig = b64.Encode(sig)
-			return kf, root, pin
+			return one(kf, root, pin)
+		}, "roots[0]"},
+		{"a second root under another policy key", func(t *testing.T) material {
+			kf, root, pin := good(t)
+			_, other, _ := signedPolicy(t, "server-policy", now, now)
+			return material{[]policy.KeyringFile{kf}, []policy.Root{root, other}, pin}
+		}, "roots[1]"},
+		{"a second root expired", func(t *testing.T) material {
+			kf, root, pin := good(t)
+			_, expired, _ := signedPolicy(t, "client-policy", now, now-1)
+			return material{[]policy.KeyringFile{kf}, []policy.Root{root, expired}, pin}
+		}, "roots[1]"},
+		{"no keyring", func(t *testing.T) material {
+			_, root, pin := good(t)
+			return material{nil, []policy.Root{root}, pin}
+		}, "keyring"},
+		{"an empty list of keyrings", func(t *testing.T) material {
+			_, root, pin := good(t)
+			return material{[]policy.KeyringFile{}, []policy.Root{root}, pin}
+		}, "keyring"},
+		{"no root", func(t *testing.T) material {
+			kf, _, pin := good(t)
+			return material{[]policy.KeyringFile{kf}, nil, pin}
+		}, "root"},
+		{"an empty list of roots", func(t *testing.T) material {
+			kf, _, pin := good(t)
+			return material{[]policy.KeyringFile{kf}, []policy.Root{}, pin}
 		}, "root"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			kf, root, pin := tt.make(t)
+			m := tt.make(t)
 			s := mesh(t)
-			_, err := verify.Pinned(kf, root, pin, pinnedConfig(t, s))
+			cfg, err := verify.Pinned(m.kfs, m.roots, m.pin, pinnedConfig(t, s))
 			if err == nil || !strings.Contains(err.Error(), tt.names) {
-				t.Fatalf("Pinned error = %v, want one naming the %s", err, tt.names)
+				t.Fatalf("Pinned error = %v, want one naming %s", err, tt.names)
+			}
+			if cfg.Keyrings != nil || cfg.Roots != nil || cfg.Now != nil {
+				t.Fatalf("Pinned = %+v with its error, want the zero Config", cfg)
 			}
 		})
 	}
 	t.Run("no clock or nonce cache", func(t *testing.T) {
 		kf, root, pin := good(t)
 		s := mesh(t)
-		if _, err := verify.Pinned(kf, root, pin, verify.Config{Nonces: s.cfg.Nonces}); err == nil {
+		kfs, roots := []policy.KeyringFile{kf}, []policy.Root{root}
+		if _, err := verify.Pinned(kfs, roots, pin, verify.Config{Nonces: s.cfg.Nonces}); err == nil {
 			t.Fatal("Pinned took no clock")
 		}
-		if _, err := verify.Pinned(kf, root, pin, verify.Config{Now: s.cfg.Now}); err == nil {
+		if _, err := verify.Pinned(kfs, roots, pin, verify.Config{Now: s.cfg.Now}); err == nil {
 			t.Fatal("Pinned took no nonce cache")
 		}
 	})

@@ -5,6 +5,7 @@ package paztporthttp
 
 import (
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/json"
+	"github.com/dumbsly/paztport/poc-sdks/go/policy"
 	"github.com/dumbsly/paztport/poc-sdks/go/session"
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
@@ -73,7 +74,9 @@ func (s *Sessions) open(req session.Request, peer peerKey) ([]byte, bool) {
 	status := session.Status(req, &cfg.Root, cfg.Keyring, cfg.PolicyKey, cfg.Pinned, cfg.Now())
 	if status == session.StatusAttested {
 		// The client's keyring whole, its window included, so that its signature is checked over that window.
-		vc, err := verify.Pinned(req.KeyringFile(), *req.ClientRoot, req.ClientPolicyKey, verify.Config{
+		// A session's material is single: the one keyring and the one root the client presented.
+		kfs, roots := []policy.KeyringFile{req.KeyringFile()}, []policy.Root{*req.ClientRoot}
+		vc, err := verify.Pinned(kfs, roots, req.ClientPolicyKey, verify.Config{
 			AllowedOrigins: cfg.ClientOrigins,
 			Sess:           id,
 			Nonces:         cfg.Nonces,

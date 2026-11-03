@@ -187,7 +187,8 @@ func acceptInbound(t testing.TB, in vectors.Node) paztporthttp.Accepted {
 	if s.Get("verifier").Bool() {
 		m := vectors.RulesMaterial(t, in.Get("material").Str())
 		_, pub := vectors.RulesKey(t, m.PolicyKey)
-		cfg, err := verify.Pinned(keyringOf(t, m), rootOf(t, m), keys.EncodePublic(pub), verify.Config{
+		kfs, roots := []policy.KeyringFile{keyringOf(t, m)}, []policy.Root{rootOf(t, m)}
+		cfg, err := verify.Pinned(kfs, roots, keys.EncodePublic(pub), verify.Config{
 			AllowedOrigins: in.Get("allowedOrigins").Strs(),
 			Nonces:         verify.NewMemoryNonceCache(in.Get("nonceTtlMs").Int()),
 			Now:            func() int64 { return now },

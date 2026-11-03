@@ -277,6 +277,49 @@ func (n Node) IsNull() bool {
 	return n.v.kind == Null
 }
 
+// Member is an object member Rewrite adds: its name, and its JSON text.
+type Member struct {
+	Name string
+	Text string
+}
+
+// Rewrite returns object n with the members named in drop left out and add's members after the rest, in
+// the order given, read again as one value, so that a test can give a case an input no committed case
+// carries. The members kept keep their text. It fails the test if n is not an object, or the new text does
+// not read, as when a name is given twice.
+func (n Node) Rewrite(drop []string, add ...Member) Node {
+	n.t.Helper()
+	n.want(Object)
+	var b bytes.Buffer
+	sep := ""
+	member := func(name string, text []byte) {
+		quoted, err := json.Marshal(name)
+		if err != nil {
+			n.t.Fatalf("vectors: the member name %q: %v", name, err)
+		}
+		b.WriteString(sep)
+		b.Write(quoted)
+		b.WriteByte(':')
+		b.Write(text)
+		sep = ","
+	}
+	b.WriteByte('{')
+	for i, name := range n.v.names {
+		if !slices.Contains(drop, name) {
+			member(name, n.v.kids[i].raw)
+		}
+	}
+	for _, m := range add {
+		member(m.Name, []byte(m.Text))
+	}
+	b.WriteByte('}')
+	v, err := parse(n.v.path+" (rewritten)", b.Bytes())
+	if err != nil {
+		n.t.Fatalf("vectors: %v", err)
+	}
+	return Node{n.t, v}
+}
+
 func (n Node) kid(i int) Node {
 	return Node{n.t, n.v.kids[i]}
 }

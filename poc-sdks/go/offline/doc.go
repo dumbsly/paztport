@@ -5,10 +5,12 @@
 // fresh against: its recorded calls, and the recorded handshakes that opened the sessions they were made in.
 //
 // A [RecordSet] is one record set being verified again. [RecordSet.Verify] runs the live verifier's checks
-// in the live order on one recorded chain, with the spec's offline differences. There is no check 0: the
-// record's own times stand in for a clock. Check 7 compares the stamps' times with the ones recorded beside
-// them (TIME_MISMATCH; a record with no time fails it), holds the chain to the age limits (EXPIRED; a limit
-// not set is its live default) and requires the origin to bind the run's recorded prompt (PROMPT_MISMATCH).
+// in the live order on one recorded chain, with the spec's offline differences. Check 0 runs against no
+// clock: the record's own time stands in for one, and a pinned keyring or root counts for a record when
+// that time is at most its notAfter, so a record that no keyring, or no root, counts for is POLICY_EXPIRED.
+// Check 7 compares the stamps' times with the ones recorded beside them (TIME_MISMATCH; a record with no
+// time fails it), holds the chain to the age limits (EXPIRED; a limit not set is its live default) and
+// requires the origin to bind the run's recorded prompt (PROMPT_MISMATCH).
 // Check 10 refuses a nonce key spent anywhere in the record set, which a live cache that forgets after its
 // window can't show; the record set holds the keys its chains have spent. There is no check 12, since a
 // record has no transport and so no peer.

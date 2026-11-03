@@ -193,6 +193,32 @@ func TestMissingFailsTheTestNamingThePlace(t *testing.T) {
 	}
 }
 
+// TestRewrite checks that Rewrite leaves out the members it drops, keeps the rest in order with their text,
+// adds its members after them, and fails the test on a name given twice or text that does not read.
+func TestRewrite(t *testing.T) {
+	n := inline(t, `{"name": "one", "keyring": {"pi": "pi"}, "now": 1798761600000, "policy": "mesh"}`)
+	r := n.Rewrite([]string{"keyring"}, Member{"keyrings", `[{"keyring": {"pi": "pi"}}]`}, Member{"<&>", "null"})
+	if got, want := r.Names(), []string{"name", "now", "policy", "keyrings", "<&>"}; !slices.Equal(got, want) {
+		t.Fatalf("Names = %q, want %q", got, want)
+	}
+	if r.Get("now").Int() != 1798761600000 || r.Get("policy").Str() != "mesh" || !r.Get("<&>").IsNull() ||
+		r.Get("keyrings").Index(0).Get("keyring").Get("pi").Str() != "pi" {
+		t.Fatalf("Rewrite = %s", r.Raw())
+	}
+	if n.Has("keyrings") || !n.Has("keyring") {
+		t.Fatal("Rewrite changed the Node it was called on")
+	}
+	if msg := failure(t, func(tb testing.TB) { n.With(tb).Rewrite(nil, Member{"now", "1"}) }); msg == "" {
+		t.Fatal("Rewrite to a name given twice did not fail the test")
+	}
+	if msg := failure(t, func(tb testing.TB) { n.With(tb).Rewrite(nil, Member{"x", "{"}) }); msg == "" {
+		t.Fatal("Rewrite to text that does not read did not fail the test")
+	}
+	if msg := failure(t, func(tb testing.TB) { n.With(tb).Get("now").Rewrite(nil) }); msg == "" {
+		t.Fatal("Rewrite of a number did not fail the test")
+	}
+}
+
 func TestEachNamesCases(t *testing.T) {
 	var got []string
 	inline(t, `[{"name": "one"}, 2, {"name": 3}]`).Each(func(name string, _ Node) { got = append(got, name) })

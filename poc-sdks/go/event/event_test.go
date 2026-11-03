@@ -40,7 +40,7 @@ func newResponder(t *testing.T) (*event.Responder, *clock) {
 	t.Helper()
 	_, pub := vectors.V3Key(t, "payment")
 	c := &clock{now: t0}
-	return event.NewResponder(policy.Keyring{"payment": pub}, []string{"payment"}, c.read), c
+	return event.NewResponder([]policy.Keyring{{"payment": pub}}, []string{"payment"}, c.read), c
 }
 
 // body returns ev signed by payment, as the body a responder receives.
@@ -219,7 +219,7 @@ func TestAllowListFirst(t *testing.T) {
 func TestIDsAcrossSigners(t *testing.T) {
 	_, paymentPub := vectors.V3Key(t, "payment")
 	searchPriv, searchPub := vectors.V3Key(t, "search")
-	r := event.NewResponder(policy.Keyring{"payment": paymentPub, "search": searchPub},
+	r := event.NewResponder([]policy.Keyring{{"payment": paymentPub, "search": searchPub}},
 		[]string{"payment", "search"}, func() int64 { return t0 })
 	if _, refusal := r.Accept(body(t, sample)); refusal != "" {
 		t.Fatalf("Accept from payment: %q", refusal)
@@ -279,22 +279,67 @@ func TestOneIDFrom64Goroutines(t *testing.T) {
 	}
 }
 
-// TestResponderKeepsItsOwnConfig changes the keyring, its key and the allowed signers a responder was made
-// with, after it was made: the responder still accepts the event, and once the key is deleted from the
-// keyring it was given, still verifies it, so the event is refused only as repeated.
+// TestResponderKeepsItsOwnConfig changes the keyrings, their keys and the allowed signers a responder was
+// made with, after it was made: the responder still accepts the event, and once the key is deleted from the
+// keyring it was given and the keyring replaced in the list, still verifies it, so the event is refused
+// only as repeated.
 func TestResponderKeepsItsOwnConfig(t *testing.T) {
 	_, pub := vectors.V3Key(t, "payment")
 	keyring := policy.Keyring{"payment": append(ed25519.PublicKey(nil), pub...)}
+	keyrings := []policy.Keyring{keyring}
 	allowed := []string{"payment"}
-	r := event.NewResponder(keyring, allowed, func() int64 { return t0 })
+	r := event.NewResponder(keyrings, allowed, func() int64 { return t0 })
 	keyring["payment"][0] ^= 1
 	allowed[0] = "orders"
 	if _, refusal := r.Accept(body(t, sample)); refusal != "" {
 		t.Fatalf("Accept: %q", refusal)
 	}
 	delete(keyring, "payment")
+	keyrings[0] = nil
 	if _, refusal := r.Accept(body(t, sample)); refusal != event.RepeatedEventID {
 		t.Fatalf("Accept again: %q", refusal)
+	}
+}
+
+// TestResponderKeyrings checks checks 3 and 4 against several keyrings: some keyring must have a key for
+// the signer under its own name (UNKNOWN_SIGNER), and the signature must verify under one of the keys they
+// give it (BAD_SIGNATURE). A responder with no keyring refuses every signer as unknown.
+func TestResponderKeyrings(t *testing.T) {
+	_, payment := vectors.V3Key(t, "payment")
+	_, search := vectors.V3Key(t, "search")
+	tests := []struct {
+		name     string
+		keyrings []policy.Keyring
+		refusal  event.Refusal
+	}{
+		{"the signer's key in the only keyring", []policy.Keyring{{"payment": payment}}, ""},
+		{"the signer known only to the second keyring", []policy.Keyring{{"search": search}, {"payment": payment}}, ""},
+		{"the signer's key in the second keyring, an old one in the first",
+			[]policy.Keyring{{"payment": search}, {"payment": payment}}, ""},
+		{"the signer's key in the first keyring, an old one in the second",
+			[]policy.Keyring{{"payment": payment}, {"payment": search}}, ""},
+		{"the signer's key in both", []policy.Keyring{{"payment": payment}, {"payment": payment}}, ""},
+		{"a nil keyring beside the signer's", []policy.Keyring{nil, {"payment": payment}}, ""},
+		{"only old keys for the signer", []policy.Keyring{{"payment": search}, {"payment": search}},
+			event.BadSignature},
+		{"the signer in no keyring", []policy.Keyring{{"search": search}, {"search": payment}}, event.UnknownSigner},
+		{"the signer's key under other names", []policy.Keyring{{"Payment": payment}, {"payment-1": payment}},
+			event.UnknownSigner},
+		{"no keyring", nil, event.UnknownSigner},
+		{"an empty list of keyrings", []policy.Keyring{}, event.UnknownSigner},
+		{"only empty keyrings", []policy.Keyring{nil, {}}, event.UnknownSigner},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := event.NewResponder(tt.keyrings, []string{"payment"}, func() int64 { return t0 })
+			got, refusal := r.Accept(body(t, sample))
+			if refusal != tt.refusal {
+				t.Fatalf("Accept: %q, want %q", refusal, tt.refusal)
+			}
+			if (refusal == "") != (got == sample) {
+				t.Fatalf("Accept = %+v, %q", got, refusal)
+			}
+		})
 	}
 }
 

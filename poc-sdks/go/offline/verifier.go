@@ -4,6 +4,7 @@
 package offline
 
 import (
+	"math"
 	"slices"
 
 	"github.com/dumbsly/paztport/poc-sdks/go/internal/chaincheck"
@@ -59,17 +60,20 @@ type Input struct {
 // Config is what the offline verifier pins: the policy material it checks chains against, the session it
 // expects and the age limits.
 //
+// It pins one or more keyrings and one or more roots, each with its own window. A member counts for a
+// record when the record's recorded time is at most its notAfter, and for every record when its notAfter is
+// math.MaxInt64, no window: a caller that judges the windows itself, as RecordSet.Call does a session's,
+// pins its members so. Checks 4 and 11 use only the members that count for the record.
+//
 // The age limits need no clock: a chain the live verifier passed at its last stamp's time has its last
 // stamp at most RunMaxAgeMs after the origin, and its origin at most CallMaxAgeMs after its last stamp.
 // A limit left nil is its live default, [verify.RunMaxAgeMs] or [verify.CallMaxAgeMs], each on its own, so
 // no configuration leaves the age unlimited.
 type Config struct {
-	// Keyring is each service's public key.
-	Keyring policy.Keyring
-	// Root is the bytes of the root of the allowed routes' tree.
-	Root []byte
-	// RootID labels that tree; a proof for another tree proves nothing.
-	RootID string
+	// Keyrings are the keyrings the verifier pins.
+	Keyrings []verify.PinnedKeyring
+	// Roots are the roots the verifier pins.
+	Roots []verify.PinnedRoot
 	// AllowedOrigins are the services that may sign an origin stamp.
 	AllowedOrigins []string
 	// Sess is the session id every stamp must carry; "" for a chain in no session.
@@ -103,12 +107,15 @@ func NewRecordSet(spent ...string) *RecordSet {
 // Verify runs the offline order on in, one recorded chain of the record set, and answers with the first
 // check that fails, or OK:
 //
+//  0. POLICY_EXPIRED, unless some keyring and some root count for the record: their notAfter is no
+//     earlier than its recorded time, Recorded.Last, or they have no window. For a record with no
+//     recorded time every member with a well-formed window counts, and check 7 refuses the record;
 //  1. CHAIN_MISSING, unless the chain reads from its token;
 //  2. BAD_SIGNATURE, if a signed field of any stamp holds "|";
 //  3. BAD_ORIGIN, unless the origin is an allowed origin;
-//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed by its
-//     service's key and links to the one before, and then each stamp's rcv names the next stamp's svc and
-//     the last's names the receiver;
+//  4. BAD_SIGNATURE, BROKEN_LINK, then BINDING_MISMATCH, unless each stamp in turn is signed under one
+//     of the keys the keyrings that count give its service and links to the one before, and then each
+//     stamp's rcv names the next stamp's svc and the last's names the receiver;
 //  5. RID_MISMATCH, unless every stamp carries the record's rid, the origin's when it gives none;
 //  6. SESSION_UNKNOWN, unless every stamp carries the Config's session;
 //  7. TIME_MISMATCH, unless the record gives a time and the last stamp's ts is it and, when the run's
@@ -120,11 +127,12 @@ func NewRecordSet(spent ...string) *RecordSet {
 //  9. INFLUENCE_MISMATCH, unless the influence reads and the last stamp commits to it;
 //  10. REPLAY, unless there is a nonce key and the record set has not spent it; only then does the record
 //     set spend it;
-//  11. PATH_NOT_ALLOWED, unless the proof proves the route against the root.
+//  11. PATH_NOT_ALLOWED, unless the proof proves the route against a root that counts, with its rootId.
 //
-// There is no check 0, since the record's own times stand in for a clock, and no check 12, since a record
-// has no peer. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live verifier's do with
-// no peer; every other result names no one. Verify never panics, and a malformed input is a result.
+// Check 0 runs against no clock: the record's own time stands in for one. There is no check 12, since a
+// record has no peer. OK and PATH_NOT_ALLOWED name the last stamp's svc and inst, as the live verifier's
+// do with no peer; every other result names no one, and POLICY_EXPIRED spends no key. Verify never panics,
+// and a malformed input is a result.
 func (rs *RecordSet) Verify(in Input, cfg Config) verify.Result {
 	return result(rs.check(in, cfg))
 }
@@ -159,9 +167,16 @@ func result(code reason.Code, last stamp.Stamp) verify.Result {
 	return r
 }
 
-// check runs checks 1 to 11 and returns the first code that fails, or OK, with the chain's last stamp
+// check runs checks 0 to 11 and returns the first code that fails, or OK, with the chain's last stamp
 // once the chain has read.
 func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
+	// 0. The keyrings and roots that count at the record's own time, judged once; none of either names no
+	// one and spends no key.
+	keyrings, roots := counting(cfg, in.Recorded)
+	if len(keyrings) == 0 || len(roots) == 0 {
+		return reason.PolicyExpired, stamp.Stamp{}
+	}
+
 	// 1-2. The chain reads, and no signed field holds the delimiter.
 	if in.Chain == nil {
 		return reason.ChainMissing, stamp.Stamp{}
@@ -173,7 +188,7 @@ func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 	origin, last := c[0], c[len(c)-1]
 
 	// 3-6. The origin, signatures and links, receivers, rid and session.
-	if code := chaincheck.Stamps(c, cfg.Keyring, cfg.AllowedOrigins, cfg.Sess, in.Receiver, in.RID); code != reason.OK {
+	if code := chaincheck.Stamps(c, keyrings, cfg.AllowedOrigins, cfg.Sess, in.Receiver, in.RID); code != reason.OK {
 		return code, last
 	}
 
@@ -202,8 +217,31 @@ func (rs *RecordSet) check(in Input, cfg Config) (reason.Code, stamp.Stamp) {
 	}
 	rs.spent[*in.NonceKey] = true
 
-	// 11. The route.
-	return chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, cfg.Root, cfg.RootID), last
+	// 11. The route, against the roots that count for the record.
+	return chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, roots), last
+}
+
+// counting returns the keys of cfg's keyrings and the roots that count for a record with the recorded
+// times t, in their order: those whose window holds t.Last. A record with no recorded time is judged
+// before every window, so that every member with a well-formed one counts and check 7 refuses the record.
+func counting(cfg Config, t *RecordedTimes) ([]policy.Keyring, []chaincheck.Root) {
+	at := int64(math.MinInt64)
+	if t != nil {
+		at = t.Last
+	}
+	var keyrings []policy.Keyring
+	for _, k := range cfg.Keyrings {
+		if chaincheck.Current(k.NotAfter, at) {
+			keyrings = append(keyrings, k.Keys)
+		}
+	}
+	var roots []chaincheck.Root
+	for _, r := range cfg.Roots {
+		if chaincheck.Current(r.NotAfter, at) {
+			roots = append(roots, chaincheck.Root{Bytes: r.Root, RootID: r.RootID})
+		}
+	}
+	return keyrings, roots
 }
 
 // atRecordedTimes reports whether the origin's and the last stamp's ts are the times t records: the last

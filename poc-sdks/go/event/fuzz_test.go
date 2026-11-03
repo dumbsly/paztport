@@ -32,7 +32,7 @@ func FuzzAccept(f *testing.F) {
 	})
 	keyring, allowed := responderConfig(f, file.Get("responder"))
 	f.Fuzz(func(t *testing.T, body []byte) {
-		r := event.NewResponder(keyring, allowed, func() int64 { return t0 })
+		r := event.NewResponder([]policy.Keyring{keyring}, allowed, func() int64 { return t0 })
 		got, refusal := r.Accept(body)
 		if refusal != "" {
 			if !slices.Contains(refusals, refusal) || got != (event.Event{}) {
@@ -79,7 +79,7 @@ func FuzzAcceptSigned(f *testing.F) {
 			t.Fatal(err)
 		}
 		now := now1
-		r := event.NewResponder(keyring, []string{"payment"}, func() int64 { return now })
+		r := event.NewResponder([]policy.Keyring{keyring}, []string{"payment"}, func() int64 { return now })
 		first, refusal1 := r.Accept(b)
 		check(t, first, refusal1, payload, now1)
 		now = now2

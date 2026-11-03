@@ -4,6 +4,7 @@
 package offline_test
 
 import (
+	"math"
 	"slices"
 	"testing"
 
@@ -16,8 +17,9 @@ import (
 	"github.com/dumbsly/paztport/poc-sdks/go/verify"
 )
 
-// offlineCodes are the codes the offline verifier gives: a live verifier's but PEER_MISMATCH and
-// POLICY_EXPIRED, and TIME_MISMATCH and PROMPT_MISMATCH.
+// offlineCodes are the codes the offline verifier gives under keyrings and roots with no window, which
+// count for every record: a live verifier's but PEER_MISMATCH and POLICY_EXPIRED, and TIME_MISMATCH and
+// PROMPT_MISMATCH.
 var offlineCodes = []reason.Code{
 	reason.OK, reason.ChainMissing, reason.BadOrigin, reason.BadSignature, reason.BrokenLink, reason.Expired,
 	reason.RIDMismatch, reason.BindingMismatch, reason.Replay, reason.PathNotAllowed, reason.SessionUnknown,
@@ -75,9 +77,8 @@ func FuzzVerify(f *testing.F) {
 			in.Recorded = &offline.RecordedTimes{Last: last, RunGiven: runGiven, Run: []int64{run}}
 		}
 		cfg := offline.Config{
-			Keyring:        keyring,
-			Root:           root,
-			RootID:         rootID,
+			Keyrings:       []verify.PinnedKeyring{{Keys: keyring, NotAfter: math.MaxInt64}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: rootID, NotAfter: math.MaxInt64}},
 			AllowedOrigins: []string{"gateway", "session"},
 			Sess:           sess,
 		}

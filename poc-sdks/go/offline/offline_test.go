@@ -60,9 +60,11 @@ func mesh(t testing.TB) *setup {
 			{Svc: "orders", Inst: "ord-1", RID: "rid-1", TS: end, Rcv: "payment", Bind: "bind-1"},
 		},
 		cfg: offline.Config{
-			Keyring:        policy.Keyring{"gateway": pub(t, "gateway"), "orders": pub(t, "orders")},
-			Root:           root,
-			RootID:         p.Get("rootId").Str(),
+			Keyrings: []verify.PinnedKeyring{{
+				Keys:     policy.Keyring{"gateway": pub(t, "gateway"), "orders": pub(t, "orders")},
+				NotAfter: math.MaxInt64,
+			}},
+			Roots:          []verify.PinnedRoot{{Root: root, RootID: p.Get("rootId").Str(), NotAfter: math.MaxInt64}},
 			AllowedOrigins: []string{"gateway"},
 			RunMaxAgeMs:    ptr[int64](verify.RunMaxAgeMs),
 			CallMaxAgeMs:   ptr[int64](verify.CallMaxAgeMs),
@@ -171,6 +173,10 @@ type fault struct {
 
 // faults are one or more for each check of the offline order, in its order.
 var faults = []fault{
+	{"no keyring counting for the record", reason.PolicyExpired, func(s *setup) {
+		s.cfg.Keyrings[0].NotAfter = end - 1
+	}},
+	{"no root counting for the record", reason.PolicyExpired, func(s *setup) { s.cfg.Roots[0].NotAfter = end - 1 }},
 	{"no chain", reason.ChainMissing, func(s *setup) { s.stamps = nil }},
 	{"an empty chain token", reason.ChainMissing, func(s *setup) {
 		s.stamps = nil
@@ -183,7 +189,7 @@ var faults = []fault{
 	}},
 	{"an origin not allowed", reason.BadOrigin, func(s *setup) { s.cfg.AllowedOrigins = []string{"orders"} }},
 	{"a bad signature", reason.BadSignature, func(s *setup) { s.tamper(1, func(st *stamp.Stamp) { st.Inst = "ord-2" }) }},
-	{"no key for a signer", reason.BadSignature, func(s *setup) { delete(s.cfg.Keyring, "orders") }},
+	{"no key for a signer", reason.BadSignature, func(s *setup) { delete(s.cfg.Keyrings[0].Keys, "orders") }},
 	{"a broken link", reason.BrokenLink, func(s *setup) { s.edit(1, func(st *stamp.Stamp) { st.Prev = "AAAA" }) }},
 	{"an inner rcv for another hop", reason.BindingMismatch, func(s *setup) {
 		s.edit(0, func(st *stamp.Stamp) { st.Rcv = "payment" })
@@ -223,7 +229,7 @@ var faults = []fault{
 	}},
 	{"no proof", reason.PathNotAllowed, func(s *setup) { s.in.Proof = nil }},
 	{"a route the proof does not prove", reason.PathNotAllowed, func(s *setup) { s.in.ReceiverInRoute = false }},
-	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.RootID = "v0" }},
+	{"a proof for another tree", reason.PathNotAllowed, func(s *setup) { s.cfg.Roots[0].RootID = "v0" }},
 }
 
 // TestOK pins the fixture: it verifies, and names its last signer.
@@ -255,6 +261,8 @@ func TestOrder(t *testing.T) {
 		byName[f.name] = f
 	}
 	pairs := [][2]string{
+		{"no keyring counting for the record", "no chain"},
+		{"no root counting for the record", "an empty chain token"},
 		{"a delimiter in rcv", "an origin not allowed"},
 		{"an origin not allowed", "a bad signature"},
 		{"a bad signature", "an inner rcv for another hop"},
