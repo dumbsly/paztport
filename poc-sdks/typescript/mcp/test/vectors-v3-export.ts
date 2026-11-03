@@ -422,7 +422,7 @@ export function buildVectors(): Record<string, unknown> {
   // An origin older than the run's lifetime when the call was made.
   const staleOrigin = stampBy({ ...originFields, ts: NOW - 1000 - RUN_MAX_AGE_MS - 1 }, "session");
   const staleCall = [staleOrigin, stampBy(hopFields(staleOrigin.sig), "pi")];
-  // The call's stamp `age` ms after the run's origin.
+  // The call's stamp `age` ms after the run's origin; a negative age puts the origin after the stamp.
   const windowCall = (age: number) => [origin, stampBy({ ...hopFields(origin.sig), ts: origin.ts + age }, "pi")];
   // Malformed rcv fields, built by hand: signStamp refuses the delimiter, and the parse and delimiter checks come before signatures.
   const { rcv: _rcv, ...hopWithoutRcv } = hop;
@@ -555,6 +555,8 @@ export function buildVectors(): Record<string, unknown> {
     offlineCase({ name: "no recorded time", ...clientCall, recordedTs: null }, no("TIME_MISMATCH")),
     offlineCase({ name: "no age limits, at the run window", ...clientCall, chain: windowCall(RUN_MAX_AGE_MS), limits: null }, ok("pi", "pi-1")),
     offlineCase({ name: "no age limits, 1 ms past the run window", ...clientCall, chain: windowCall(RUN_MAX_AGE_MS + 1), limits: null }, no("EXPIRED")),
+    offlineCase({ name: "no age limits, at the call window", ...clientCall, chain: windowCall(-CALL_MAX_AGE_MS), limits: null }, ok("pi", "pi-1")),
+    offlineCase({ name: "no age limits, 1 ms past the call window", ...clientCall, chain: windowCall(-CALL_MAX_AGE_MS - 1), limits: null }, no("EXPIRED")),
     offlineCase({ name: "prompt differs", ...clientCall, prompt: "open a PR for issue #43" }, no("PROMPT_MISMATCH")),
     offlineCase({ name: "replay in the record set", ...clientCall, seen: [clientCall.nonceKey] }, no("REPLAY")),
   ];
