@@ -8,7 +8,6 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeSet;
@@ -115,15 +114,17 @@ public final class HttpCaller {
         /**
          * The receivers' policy names, by the host a call is sent to, where that host is not the name: an address, a
          * load balancer's name, or a name inside another network. The host is matched as {@link URI#getHost} gives
-         * it, ignoring case, as DNS does, and nothing else: an IPv6 host keeps its brackets, and a trailing dot is
-         * kept, so {@code orders.} is not {@code orders}. A host not listed is its own name. This replaces any
-         * mapping given before.
+         * it with its ASCII letters in lower case, as DNS does, and nothing else: an IPv6 host keeps its brackets,
+         * and a trailing dot is kept, so {@code orders.} is not {@code orders}. A host not listed is its own name,
+         * lower-cased the same way. A host is ASCII, so a key that is not is refused. This replaces any mapping
+         * given before.
          *
          * <p>A table, not a function: the name is the deployment's configuration, which a table holds and shows, and
          * the same table is what the starter binds, and what another language's caller is given.
          *
          * @throws NullPointerException when {@code byHost} is null; an empty map is no mapping
-         * @throws IllegalArgumentException when a host or a name is blank, or two hosts differ only in case
+         * @throws IllegalArgumentException when a host or a name is blank, a host is not ASCII, or two hosts differ
+         *     only in the case of their ASCII letters
          */
         public Builder receivers(Map<String, String> byHost) {
             Objects.requireNonNull(byHost, "receivers");
@@ -132,7 +133,10 @@ public final class HttpCaller {
                 if (host == null || host.isBlank() || name == null || name.isBlank()) {
                     throw new IllegalArgumentException("a receiver's host and policy name must not be blank");
                 }
-                if (names.putIfAbsent(host.toLowerCase(Locale.ROOT), name) != null) {
+                if (!isAscii(host)) {
+                    throw new IllegalArgumentException("a receiver's host must be ASCII");
+                }
+                if (names.putIfAbsent(asciiLower(host), name) != null) {
                     throw new IllegalArgumentException("the receiver host " + LogSafe.of(host)
                             + " is listed twice, in different cases");
                 }
@@ -147,12 +151,32 @@ public final class HttpCaller {
     }
 
     /**
-     * The receiver's policy name for a call to {@code uri}: the name its host is mapped to, or the host itself. The
-     * same name is the response's target.
+     * The receiver's policy name for a call to {@code uri}: the name its host is mapped to, or the host with its
+     * ASCII letters in lower case. The same name is the response's target. {@link URI}'s host grammar is ASCII, so
+     * {@code getHost()} is null for any host that is not, and for a URI with no host: such a call gets no name
+     * (null), and {@code stamp} refuses it.
      */
     public String receiver(URI uri) {
         String host = uri.getHost();
-        return host == null ? null : receivers.getOrDefault(host.toLowerCase(Locale.ROOT), host);
+        if (host == null) {
+            return null;
+        }
+        String lower = asciiLower(host);
+        return receivers.getOrDefault(lower, lower);
+    }
+
+    private static boolean isAscii(String s) {
+        return s.chars().allMatch(c -> c <= 0x7F);
+    }
+
+    /** Folds only A-Z to a-z: a Unicode fold maps a non-ASCII character such as U+212A KELVIN SIGN onto a letter. */
+    private static String asciiLower(String s) {
+        StringBuilder out = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            out.append(c >= 'A' && c <= 'Z' ? (char) (c + ('a' - 'A')) : c);
+        }
+        return out.toString();
     }
 
     /**
@@ -218,6 +242,8 @@ public final class HttpCaller {
      * @param body the request body, whole
      * @param inbound the chain this request received, or null where there is none (an origin, or no request)
      * @param influence what has shaped the call so far; empty for none
+     * @throws IllegalArgumentException when the URI's host has no receiver name (see {@link #receiver}); nothing is
+     *     signed
      */
     public Outbound stamp(String method, URI uri, byte[] body, List<Stamp> inbound,
             List<InfluenceEntry> influence) {
@@ -228,6 +254,8 @@ public final class HttpCaller {
      * The blocking binding of {@link #stamp(String, URI, byte[], List, List)}: inside a scope, the call is stamped
      * after the request's inbound chain and commits to its influence so far; outside one, with neither, and its
      * response will not be recorded.
+     *
+     * @throws IllegalArgumentException when the URI's host has no receiver name; nothing is signed
      */
     public Outbound stampFromContext(String method, URI uri, byte[] body) {
         // Outside a scope the context belongs to no unit of work, so it is neither read nor written.
@@ -241,6 +269,9 @@ public final class HttpCaller {
         String query = uri.getRawQuery();
         String target = query == null || query.isEmpty() ? uri.getRawPath() : uri.getRawPath() + "?" + query;
         String receiver = receiver(uri);
+        if (receiver == null) {
+            throw new IllegalArgumentException("the host of a call has no receiver name");
+        }
         Stamper.Stamped stamped = stamper.next(inbound, receiver, RequestBinding.compute(method, target, body),
                 influence, bundle);
 

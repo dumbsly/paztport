@@ -256,8 +256,42 @@ class HttpCallerTest {
 
         assertEquals("orders", caller.receiver(URI.create("https://ORDERS-internal:8443/x")));
         assertEquals("orders", caller.receiver(URI.create("https://orders-internal/x")));
-        assertEquals("Search", caller.receiver(URI.create("https://Search/x")), "an unlisted host, as written");
+        assertEquals("search", caller.receiver(URI.create("https://Search/x")), "an unlisted host, lower-cased");
         assertNull(caller.receiver(URI.create("file:/x")), "no host, no name");
+    }
+
+    @Test
+    void anUnmappedHostIsNamedInLowerCase() {
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper()).build();
+
+        HttpCaller.Outbound sent = caller.stampFromContext("GET", URI.create("https://ORDERS-Internal:8443/x"),
+                NO_BODY);
+
+        assertEquals("orders-internal", sent.receiver());
+        assertEquals("orders-internal", sent.sent().chain().get(0).rcv());
+    }
+
+    @Test
+    void aHostWithANonAsciiCharacterHasNoNameAndIsNotStamped() {
+        // A non-ASCII host (U+212A KELVIN SIGN, which a Unicode fold would turn into 'k') gets no name through URI,
+        // and the call is refused with the stated message instead of reaching the "kafka" mapping.
+        HttpCaller caller = HttpCaller.builder("gateway", gatewayStamper())
+                .receivers(Map.of("kafka", "events")).build();
+        URI kelvin = URI.create("https://\u212Aafka/x");
+
+        assertNull(caller.receiver(kelvin));
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                () -> caller.stampFromContext("GET", kelvin, NO_BODY));
+        assertEquals("the host of a call has no receiver name", refused.getMessage());
+    }
+
+    @Test
+    void aMappingKeyedByANonAsciiHostIsRefusedWithoutNamingIt() {
+        HttpCaller.Builder builder = HttpCaller.builder("gateway", gatewayStamper());
+
+        IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                () -> builder.receivers(Map.of("\u212Aafka", "events")));
+        assertEquals("a receiver's host must be ASCII", refused.getMessage());
     }
 
     // The policy name is the response's target too: the nonce key, the service that must attest, and the src.

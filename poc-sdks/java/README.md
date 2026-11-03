@@ -127,8 +127,9 @@ names the receiver by its policy name: the URI's host with its ASCII letters in
 lower case, unless its builder's `receivers(Map)` maps that host to another name.
 A host with a character outside ASCII (or none) gets no name, and `stamp` refuses
 the call (`IllegalArgumentException`) before anything is signed.
-`stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two in the blocking binding below,
-which read and add to the request's context, and record nothing outside a scope.
+`stampFromContext(method, uri, body)` and `recordToContext(...)` are the same two
+in the blocking binding below, which read and add to the request's context, and
+record nothing outside a scope.
 The layers do not mix: inside a scope, `recordToContext` refuses a call that was
 not stamped from the context (`IllegalStateException`, before anything is checked
 or logged) rather than silently drop what its response adds, so a call the

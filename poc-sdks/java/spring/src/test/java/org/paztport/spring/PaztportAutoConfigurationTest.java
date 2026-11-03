@@ -1065,7 +1065,7 @@ class PaztportAutoConfigurationTest {
 
     /**
      * {@code paztport.receiver-names} maps the host a call goes to onto the policy name its stamp names, a dotted
-     * host as much as a plain one, and ignoring case; a host not listed is its own name.
+     * host as much as a plain one, and in lower case; a host not listed is its own name, lower-cased.
      */
     @Test
     void theReceiverNamesMapAHostToItsPolicyName(@TempDir Path dir) throws Exception {

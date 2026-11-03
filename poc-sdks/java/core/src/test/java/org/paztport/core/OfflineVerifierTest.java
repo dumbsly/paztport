@@ -19,6 +19,7 @@ import java.util.Set;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.paztport.core.crypto.Crypto;
 import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.internal.JsonWriter;
@@ -28,15 +29,14 @@ import org.paztport.core.offline.OfflineResult;
 import org.paztport.core.offline.OfflineVerifier;
 import org.paztport.core.offline.RecordedTimes;
 import org.paztport.core.offline.Signers;
-import org.paztport.core.crypto.Crypto;
 import org.paztport.core.policy.Keyring;
 import org.paztport.core.policy.PolicyBuilder;
 import org.paztport.core.stamp.Bindings;
 import org.paztport.core.stamp.Chains;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
-import org.paztport.core.verify.VerifierConfig;
 import org.paztport.core.verify.ReasonCode;
+import org.paztport.core.verify.VerifierConfig;
 
 /** Offline-only behaviour the vectors do not pin: totality, the optional inputs and the age-limit pair. */
 class OfflineVerifierTest {
