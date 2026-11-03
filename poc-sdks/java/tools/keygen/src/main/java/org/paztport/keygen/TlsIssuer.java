@@ -99,7 +99,8 @@ public final class TlsIssuer {
             b.addExtension(Extension.basicConstraints, true, new BasicConstraints(false));
             b.addExtension(Extension.keyUsage, true, new KeyUsage(KeyUsage.digitalSignature));
             b.addExtension(Extension.extendedKeyUsage, false,
-                    new ExtendedKeyUsage(new KeyPurposeId[] {KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth}));
+                    new ExtendedKeyUsage(
+                            new KeyPurposeId[] {KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth}));
             return new Issued(sign(b, ca.keys().getPrivate()), keys);
         } catch (IOException | GeneralSecurityException | OperatorCreationException e) {
             throw new IllegalStateException("could not issue a certificate for " + name, e);
@@ -141,7 +142,8 @@ public final class TlsIssuer {
         return g.generateKeyPair();
     }
 
-    private static X509v3CertificateBuilder builder(X500Name issuer, X500Name subject, KeyPair keys, Duration validity) {
+    private static X509v3CertificateBuilder builder(
+            X500Name issuer, X500Name subject, KeyPair keys, Duration validity) {
         Instant now = Instant.now();
         return new JcaX509v3CertificateBuilder(issuer, new BigInteger(127, RANDOM).add(BigInteger.ONE),
                 Date.from(now.minus(SKEW)), Date.from(now.plus(validity)), subject, keys.getPublic());

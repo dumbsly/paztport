@@ -125,7 +125,8 @@ class MerkleTreeTest {
         byte[] resalted = new byte[salt.length + prefix.length];
         System.arraycopy(salt, 0, resalted, 0, salt.length);
         System.arraycopy(prefix, 0, resalted, salt.length, prefix.length);
-        MerkleProof forged = new MerkleProof(Base64Url.encode(resalted), proof.siblings(), proof.dirs(), proof.rootId());
+        MerkleProof forged =
+                new MerkleProof(Base64Url.encode(resalted), proof.siblings(), proof.dirs(), proof.rootId());
 
         assertFalse(forged.verify("orders/payment", tree.root()));
     }

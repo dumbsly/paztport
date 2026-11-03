@@ -260,7 +260,8 @@ class BoundaryInfluenceTest {
         assertFalse(BoundaryInfluence.opens(null, opening(InfluenceClass.PRIVATE, "alice", ALICE_ORDER)));
         assertFalse(BoundaryInfluence.opens(sent, null));
         assertFalse(BoundaryInfluence.opens(sent, new BoundaryInfluence.Opening(null, null, null, null)));
-        assertFalse(BoundaryInfluence.opens(sent, new BoundaryInfluence.Opening(InfluenceClass.PRIVATE, "alice", s, null)));
+        assertFalse(
+                BoundaryInfluence.opens(sent, new BoundaryInfluence.Opening(InfluenceClass.PRIVATE, "alice", s, null)));
         assertFalse(BoundaryInfluence.opens(sent,
                 new BoundaryInfluence.Opening(null, "alice", s, List.of(ALICE_ORDER))));
         assertFalse(BoundaryInfluence.opens(sent,

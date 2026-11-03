@@ -260,7 +260,10 @@ class PartnerLifetimeTest {
         return new Opened(reply.get("sess").asText(), reply.get("status").asText());
     }
 
-    /** The headers of a boundary call in {@code sess}, stamped by the moved clock and carrying the {@code built} proofs. */
+    /**
+     * The headers of a boundary call in {@code sess}, stamped by the moved clock and carrying the {@code built}
+     * proofs.
+     */
     private static Map<String, String> boundary(String sess, String rid, PolicyBuilder.Result built) {
         List<Stamp> chain = new Stamper("gateway", "gw-1", GATEWAY_KEY.getPrivate(), true, () -> rid,
                 CLOCK::millis).next(null, "orders", "unused", List.of(), null).chain();

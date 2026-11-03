@@ -22,10 +22,10 @@ public final class DecisionLine {
     }
 
     /**
-     * {@code PAZTPORT_TRACE decision rid=… receiver=… rule=… reason=… ✓|✗ classes=…}, for the public-write rule
-     * ({@link PublicWrites}) and the partner's unsafe-session gate. The rid is the verified chain's, else the inbound
-     * chain's, else {@code -}. It comes from the request, so it goes through {@link LogSafe}, as do the receiver and
-     * the classes.
+     * {@code PAZTPORT_TRACE decision rid=… receiver=… rule=… reason=… ✓|✗ classes=…}, for the public-write
+     * rule ({@link PublicWrites}) and the partner's unsafe-session gate. The rid is the verified chain's, else
+     * the inbound chain's, else {@code -}. It comes from the request, so it goes through {@link LogSafe}, as do
+     * the receiver and the classes.
      */
     public static String of(String receiver, String rule, ReasonCode reason, List<InfluenceEntry> influence) {
         List<Stamp> chain = RequestContext.verifiedChain() != null

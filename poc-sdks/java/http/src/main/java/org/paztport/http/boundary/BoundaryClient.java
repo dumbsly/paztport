@@ -462,9 +462,9 @@ public final class BoundaryClient implements AutoCloseable {
     }
 
     /**
-     * {@code PAZTPORT_TRACE boundary rid=… receiver=… session=attested|unsafe status=… classes=…|classes=-}. The
-     * classes are those of the influence the call carried, so an unsafe session's are always {@code -}. The rid
-     * comes from the request, so it goes through {@link LogSafe}, as do the receiver and the classes.
+     * {@code PAZTPORT_TRACE boundary rid=… receiver=… session=attested|unsafe status=… classes=…|classes=-}.
+     * The classes are those of the influence the call carried, so an unsafe session's are always {@code -}. The
+     * rid comes from the request, so it goes through {@link LogSafe}, as do the receiver and the classes.
      */
     static String boundaryLine(String rid, String receiver, boolean attested, int status,
             List<InfluenceEntry> sent) {

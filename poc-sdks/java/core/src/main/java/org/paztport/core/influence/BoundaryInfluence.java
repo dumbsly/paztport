@@ -95,7 +95,8 @@ public final class BoundaryInfluence {
             String partnerEntry, String egress) {
         checkKey(key);
         if (entries == null || rid == null || partnerEntry == null || egress == null || egress.isEmpty()) {
-            throw new IllegalArgumentException("boundary reduction needs entries, a rid, a partner entry and an egress");
+            throw new IllegalArgumentException(
+                    "boundary reduction needs entries, a rid, a partner entry and an egress");
         }
         Map<InfluenceFact, List<InfluenceEntry>> groups = new LinkedHashMap<>();
         for (InfluenceEntry e : Influence.normalise(entries)) {
@@ -197,7 +198,10 @@ public final class BoundaryInfluence {
             originals = originals == null ? null : Collections.unmodifiableList(new ArrayList<>(originals));
         }
 
-        /** {@code {cls, owner?, salt, originals}}, with {@code owner} left out when null; needs a well-formed opening. */
+        /**
+         * {@code {cls, owner?, salt, originals}}, with {@code owner} left out when null; needs a well-formed
+         * opening.
+         */
         public String toJson() {
             if (cls == null || salt == null || originals == null || originals.contains(null)) {
                 throw new IllegalArgumentException("only a well-formed opening has a JSON form");

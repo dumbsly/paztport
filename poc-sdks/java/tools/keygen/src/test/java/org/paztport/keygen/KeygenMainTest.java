@@ -169,8 +169,10 @@ class KeygenMainTest {
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "--org", "x", "a", "--tls-only"}).tlsOnly());
         assertEquals(List.of(), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "--org", "x"}).tlsOnly());
-        assertEquals(List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--org", "x", "--tls-only", "v"}).tlsOnly());
-        assertEquals(List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).tlsOnly());
+        assertEquals(
+                List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--org", "x", "--tls-only", "v"}).tlsOnly());
+        assertEquals(
+                List.of("v"), KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).tlsOnly());
         assertEquals("x", KeygenMain.parse(new String[] {"out", "a", "--tls-only", "v", "--org", "x"}).org());
     }
 

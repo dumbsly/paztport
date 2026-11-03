@@ -28,7 +28,8 @@ class VectorsHttpV3Test {
 
     @Test
     void committedMatchesBuilder() throws IOException {
-        assertArrayEquals(VectorsHttpV3Export.loadBytes("http-v3.json"), VectorsHttpV3Export.render(VectorsHttpV3Export.build()));
+        assertArrayEquals(
+                VectorsHttpV3Export.loadBytes("http-v3.json"), VectorsHttpV3Export.render(VectorsHttpV3Export.build()));
     }
 
     @Test

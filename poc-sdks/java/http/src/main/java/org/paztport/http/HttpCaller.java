@@ -328,9 +328,9 @@ public final class HttpCaller {
     }
 
     /**
-     * {@code PAZTPORT_TRACE response rid=… from=… reason=… receiver=… ✓|✗ labels=…|labels=-}. With no verifier
-     * nothing was checked, so the reason is {@code -}. The labels are the verified ones' classes; every value goes
-     * through {@link LogSafe}, since the target and the labels come from outside.
+     * {@code PAZTPORT_TRACE response rid=… from=… reason=… receiver=… ✓|✗ labels=…|labels=-}. With no
+     * verifier nothing was checked, so the reason is {@code -}. The labels are the verified ones' classes; every
+     * value goes through {@link LogSafe}, since the target and the labels come from outside.
      */
     static String traceLine(String rid, String from, HttpWire.ResponseCheck check, String receiver) {
         TreeSet<String> classes = new TreeSet<>();

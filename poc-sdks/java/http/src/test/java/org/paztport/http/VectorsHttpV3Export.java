@@ -58,8 +58,8 @@ import org.paztport.http.wire.RequestBinding;
  * The writer is opt-in. This class is not matched by Surefire's default
  * includes, so name it: {@code (cd poc-sdks/java && mvn -q -pl http -am test -Dtest=VectorsHttpV3Export
  * -Dpaztport.exportHttpVectors=true -Dvectors.out=<repo>/poc-sdks/spec/vectors/http-v3.json
- * -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build} replays every case it records, so an export can never record a
- * wrong answer.
+ * -Dsurefire.failIfNoSpecifiedTests=false)}. {@link #build} replays every case it records, so an export can
+ * never record a wrong answer.
  */
 class VectorsHttpV3Export {
 
@@ -157,7 +157,8 @@ class VectorsHttpV3Export {
         Stamper.Stamped toOrders = new Stamper("gateway", "gw-1", gatewayKey, true, () -> RID, () -> GATEWAY_TS)
                 .next(List.of(), "orders", "bind-gateway-to-orders", List.of(), null);
         Stamper.Stamped toPayment = new Stamper("orders", "ord-1", ordersKey, false, () -> RID, () -> ORDERS_TS)
-                .next(toOrders.chain(), "payment", RequestBinding.compute("POST", "/pay", REQUEST_BODY), List.of(), null);
+                .next(toOrders.chain(), "payment", RequestBinding.compute("POST", "/pay", REQUEST_BODY), List.of(),
+                        null);
         List<Stamp> sent = toPayment.chain();
         Stamper responder = new Stamper("payment", "pay-1", payment.getPrivate(), false, () -> RID, () -> RESPONSE_TS);
 

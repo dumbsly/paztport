@@ -168,7 +168,8 @@ class HttpWireTest {
         assertEquals("", HttpWire.request("%%%", null, null, "GET", "/", BODY, "payment", null).nonceKey());
     }
 
-    private static final List<ContentLabel> LABELS = List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-1", "alice"));
+    private static final List<ContentLabel> LABELS =
+            List.of(new ContentLabel(InfluenceClass.PRIVATE, "cid-1", "alice"));
 
     private String respondHeader(Stamper.Stamped s, int status, List<ContentLabel> labels) {
         Stamp stamp = stamper("payment", paymentKey, false).respond(s.chain(), HttpWire.resultHash(status, BODY), RID,

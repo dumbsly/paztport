@@ -68,10 +68,15 @@ class InfluenceTest {
     @Test
     void entryRefusesWhatTheBytesCannotCarry() {
         assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(null, "s", "h", null, null));
-        assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(InfluenceClass.PUBLIC, null, "h", null, null));
-        assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(InfluenceClass.PUBLIC, "s", null, null, null));
-        assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(InfluenceClass.PRIVATE, "s", "h", null, ""));
-        assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(InfluenceClass.PUBLIC, "\ud800", "h", null, null));
-        assertThrows(IllegalArgumentException.class, () -> new InfluenceEntry(InfluenceClass.PUBLIC, "s", "h", "\udc00", null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new InfluenceEntry(InfluenceClass.PUBLIC, null, "h", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new InfluenceEntry(InfluenceClass.PUBLIC, "s", null, null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new InfluenceEntry(InfluenceClass.PRIVATE, "s", "h", null, ""));
+        assertThrows(IllegalArgumentException.class,
+                () -> new InfluenceEntry(InfluenceClass.PUBLIC, "\ud800", "h", null, null));
+        assertThrows(IllegalArgumentException.class,
+                () -> new InfluenceEntry(InfluenceClass.PUBLIC, "s", "h", "\udc00", null));
     }
 }

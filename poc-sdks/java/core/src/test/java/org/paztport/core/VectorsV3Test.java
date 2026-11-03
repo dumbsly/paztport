@@ -164,12 +164,13 @@ class VectorsV3Test {
     void merkle() {
         JsonNode m = vectors.get("merkle");
         for (JsonNode l : m.get("leaves")) {
-            assertEquals(l.get("hash").asText(),
-                    Base64Url.encode(MerkleHash.leaf(Base64Url.decode(l.get("salt").asText()), l.get("path").asText())));
+            assertEquals(l.get("hash").asText(), Base64Url.encode(
+                    MerkleHash.leaf(Base64Url.decode(l.get("salt").asText()), l.get("path").asText())));
         }
         for (JsonNode n : m.get("nodes")) {
             assertEquals(n.get("hash").asText(), Base64Url.encode(
-                    MerkleHash.node(Base64Url.decode(n.get("left").asText()), Base64Url.decode(n.get("right").asText()))));
+                    MerkleHash.node(
+                            Base64Url.decode(n.get("left").asText()), Base64Url.decode(n.get("right").asText()))));
         }
         byte[] root = Base64Url.decode(m.get("root").asText());
         int proofs = 0;

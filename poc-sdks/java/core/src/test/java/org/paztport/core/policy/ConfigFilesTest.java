@@ -50,7 +50,8 @@ class ConfigFilesTest {
         SignedRoot signedRoot = SignedRoot.sign(tree.root(), "v1", NOT_AFTER, policy.getPrivate());
         Files.writeString(dir.resolve("root.json"), signedRoot.toFile());
 
-        ProofBundle bundle = new ProofBundle("gateway", "v1", Map.of("gateway/orders", tree.proofFor("gateway/orders")));
+        ProofBundle bundle =
+                new ProofBundle("gateway", "v1", Map.of("gateway/orders", tree.proofFor("gateway/orders")));
         Files.writeString(dir.resolve("proofs-gateway.json"), bundle.toFile());
 
         // Load them back.

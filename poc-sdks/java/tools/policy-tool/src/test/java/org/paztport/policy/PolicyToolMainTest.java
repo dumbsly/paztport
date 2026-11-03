@@ -202,12 +202,14 @@ class PolicyToolMainTest {
                 signed.policy(), signed.sig(), signed.notAfter());
         JSON.writeValue(keys.resolve("keyring.json").toFile(), tampered);
 
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
         assertFalse(Files.exists(out));
 
         JSON.writeValue(keys.resolve("keyring.json").toFile(),
                 new KeyringFile(signed.services(), signed.policy(), null, signed.notAfter()));
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
         assertFalse(Files.exists(out));
     }
 
@@ -221,7 +223,8 @@ class PolicyToolMainTest {
         KeyPair other = Crypto.generateEd25519KeyPair();
         writeKeyring(keys, other, other);
 
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "orders", NOT_AFTER));
         assertFalse(Files.exists(out));
     }
 
@@ -249,7 +252,8 @@ class PolicyToolMainTest {
         KeyPair policy = writeWorld(keys, pathsYaml);
         writeKeyring(keys, policy, policy);
 
-        assertThrows(IllegalArgumentException.class, () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "payment", NOT_AFTER));
+        assertThrows(IllegalArgumentException.class,
+                () -> PolicyToolMain.run(pathsYaml, keys, out, 8, "payment", NOT_AFTER));
         assertFalse(Files.exists(out));
     }
 
@@ -271,7 +275,8 @@ class PolicyToolMainTest {
             }
             try (Stream<Path> walk = Files.walk(d)) {
                 for (Path f : walk.filter(Files::isRegularFile).toList()) {
-                    files.put(f, Base64Url.encode(Files.readAllBytes(f)) + "@" + Files.getLastModifiedTime(f).toMillis());
+                    files.put(f,
+                            Base64Url.encode(Files.readAllBytes(f)) + "@" + Files.getLastModifiedTime(f).toMillis());
                 }
             }
         }

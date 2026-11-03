@@ -19,7 +19,10 @@ class JcsTest {
                 + "\"\ud83d\ude00\":\"Emoji: Grinning Face\",\"\u0080\":\"Control\","
                 + "\"\u00f6\":\"Latin Small Letter O With Diaeresis\"}";
         assertEquals(
-                "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\u0080\":\"Control\",\"\u00f6\":\"Latin Small Letter O With Diaeresis\",\"\u20ac\":\"Euro Sign\",\"\ud83d\ude00\":\"Emoji: Grinning Face\",\"\ufb33\":\"Hebrew Letter Dalet With Dagesh\"}",
+                "{\"\\r\":\"Carriage Return\",\"1\":\"One\",\"\u0080\":\"Control\","
+                        + "\"\u00f6\":\"Latin Small Letter O With Diaeresis\",\"\u20ac\":\"Euro Sign\","
+                        + "\"\ud83d\ude00\":\"Emoji: Grinning Face\","
+                        + "\"\ufb33\":\"Hebrew Letter Dalet With Dagesh\"}",
                 Jcs.canonicalize(in));
     }
 

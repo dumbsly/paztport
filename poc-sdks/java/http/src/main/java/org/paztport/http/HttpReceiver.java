@@ -291,8 +291,8 @@ public final class HttpReceiver {
     }
 
     /**
-     * {@code PAZTPORT_TRACE request rid=… reason=… receiver=… ✓|✗ peer=…|peer=none classes=…|classes=-}. The rid
-     * and the classes come from the request, so every value goes through {@link LogSafe}.
+     * {@code PAZTPORT_TRACE request rid=… reason=… receiver=… ✓|✗ peer=…|peer=none classes=…|classes=-}.
+     * The rid and the classes come from the request, so every value goes through {@link LogSafe}.
      */
     static String traceLine(String rid, VerifyResult result, String receiver, Peer peer,
             List<InfluenceEntry> influence) {

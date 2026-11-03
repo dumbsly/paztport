@@ -193,8 +193,9 @@ class RecordedSessionTest {
     }
 
     // "A root or keyring is judged at the record's time, on both sides, as above, but only after its own signature
-    // has verified … so one moved in the record fails its signature offline too … One dropped from the record leaves
-    // a root or keyring without a window, which a reader refuses, so the handshake opened no attested session."
+    // has verified … so one moved in the record fails its signature offline too … One dropped from the record
+    // leaves a root or keyring without a window, which a reader refuses, so the handshake opened no attested
+    // session."
     @Test
     void aMovedWindowFailsItsSignatureAndADroppedOneIsRefused() {
         Handshake h = Handshake.with(o -> o.clientRoot = NOW);

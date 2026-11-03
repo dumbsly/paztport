@@ -69,7 +69,8 @@ public final class OfflineVerifier {
         if ((cfg.runMaxAgeMs() != null || cfg.callMaxAgeMs() != null) && !withinAge(first.ts(), last.ts(), cfg)) {
             return result(ReasonCode.EXPIRED);
         }
-        if (in.prompt() == null || !Text.isWellFormed(in.prompt()) || !first.bind().equals(Bindings.prompt(in.prompt()))) {
+        if (in.prompt() == null || !Text.isWellFormed(in.prompt())
+                || !first.bind().equals(Bindings.prompt(in.prompt()))) {
             return result(ReasonCode.PROMPT_MISMATCH);
         }
 

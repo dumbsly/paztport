@@ -47,7 +47,8 @@ class ReplyCertTest {
     void signsTheFourFieldsUnderADomainPrefix() {
         assertEquals("paztport-reply-cert\n{\"key\":\"K\",\"notAfter\":1798761600000,\"policy\":\"P\",\"svc\":\"s\"}",
                 new String(ReplyCert.signingBytes("P", "s", "K", NOT_AFTER), StandardCharsets.UTF_8));
-        assertEquals("paztport-reply-cert\n{\"key\":\"K\",\"notAfter\":9007199254740991,\"policy\":\"P\",\"svc\":\"s\"}",
+        assertEquals(
+                "paztport-reply-cert\n{\"key\":\"K\",\"notAfter\":9007199254740991,\"policy\":\"P\",\"svc\":\"s\"}",
                 new String(ReplyCert.signingBytes("P", "s", "K", MAX_SAFE), StandardCharsets.UTF_8));
     }
 

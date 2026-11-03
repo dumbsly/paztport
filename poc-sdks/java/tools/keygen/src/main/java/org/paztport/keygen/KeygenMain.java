@@ -35,8 +35,8 @@ import org.paztport.core.policy.KeyringFile;
  * {@code responder} (they speak mTLS but sign no stamps, so stay out of the keyring), and org {@code shop}.
  * One CA is made per run and every certificate is issued from it. {@code tls/} holds {@code ca.crt} and the leaf
  * certificates and keys, and is what gets mounted; the CA key is written alone to {@code ca/ca.key}. {@code ca} is
- * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are logged; private key material
- * never is.
+ * therefore not a usable name, and names must be unique across services and TLS-only names. Only names are
+ * logged; private key material never is.
  *
  * <p>Every key is new on each run except {@code boundary.key}, the egress's boundary key (32 random bytes as
  * base64url), which is written only when it does not exist: rotating it would make every influence entry the

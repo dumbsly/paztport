@@ -233,7 +233,8 @@ class OutboundInterceptorTest {
         assertEquals(List.of(mine.toEntry("http:orders", hash), web.toEntry("http:orders", hash)), recorded);
         assertEquals(List.of(), RequestContext.influence(), "closing the scope drops what it recorded");
         assertEquals(List.of(
-                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ labels=private,third-party"),
+                "PAZTPORT_TRACE response rid=rid-1 from=orders reason=OK receiver=gateway ✓ "
+                        + "labels=private,third-party"),
                 traceLines());
     }
 
