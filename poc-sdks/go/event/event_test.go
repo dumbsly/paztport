@@ -354,8 +354,10 @@ func TestSignEnvelopeRefuses(t *testing.T) {
 		{"an array", []byte("[]"), priv},
 		{"whitespace around the event", append(append([]byte(" "), wire...), ' '), priv},
 		{"no id", []byte(`{"audit":false,"reason":"REPLAY","rid":"","suspectInst":"","suspectSvc":"","ts":0}`), priv},
-		{"a null id", []byte(`{"audit":false,"eventId":null,"reason":"REPLAY","rid":"","suspectInst":"","suspectSvc":"","ts":0}`), priv},
-		{"another member", []byte(`{"audit":false,"eventId":"e","kid":"k","reason":"REPLAY","rid":"","suspectInst":"","suspectSvc":"","ts":0}`), priv},
+		{"a null id", []byte(`{"audit":false,"eventId":null,"reason":"REPLAY","rid":"",` +
+			`"suspectInst":"","suspectSvc":"","ts":0}`), priv},
+		{"another member", []byte(`{"audit":false,"eventId":"e","kid":"k","reason":"REPLAY","rid":"",` +
+			`"suspectInst":"","suspectSvc":"","ts":0}`), priv},
 		{"a short key", wire, priv[:32]},
 	}
 	for _, tt := range tests {

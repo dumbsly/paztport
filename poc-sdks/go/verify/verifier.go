@@ -176,7 +176,8 @@ func (v *Verifier) check(ctx context.Context, in Input, now int64) (reason.Code,
 	}
 
 	// 11. The route.
-	if code := chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, v.cfg.Root, v.cfg.RootID); code != reason.OK {
+	if code := chaincheck.Route(c, in.Receiver, in.ReceiverInRoute, in.Proof, v.cfg.Root,
+		v.cfg.RootID); code != reason.OK {
 		return code, last, nil
 	}
 

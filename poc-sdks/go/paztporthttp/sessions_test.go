@@ -157,7 +157,9 @@ func TestNewSessionsRefusesAnUnusableConfig(t *testing.T) {
 		{"a call window of 0", "CallMaxAgeMs", func(c *SessionsConfig) { c.CallMaxAgeMs = 0 }},
 		{"a negative run window", "RunMaxAgeMs", func(c *SessionsConfig) { c.RunMaxAgeMs = -1 }},
 		{"another organisation's keyring", "Keyring", func(c *SessionsConfig) { c.Keyring = shopKeyring }},
-		{"a keyring under another policy key", "Keyring", func(c *SessionsConfig) { c.PolicyKey = policyPin(t, "shop-policy") }},
+		{"a keyring under another policy key", "Keyring", func(c *SessionsConfig) {
+			c.PolicyKey = policyPin(t, "shop-policy")
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := good
@@ -409,7 +411,8 @@ func TestHandshakeWithMaterialPinnedRefusesOpensAnUnsafeSession(t *testing.T) {
 	if got := session.CheckReply(a.Body, req, cfg.PolicyKey, "psp", now); got != session.Unsafe {
 		t.Fatalf("CheckReply = %s, want %s", got, session.Unsafe)
 	}
-	pa, err := s.Accept(t.Context(), InboundRequest{Method: "POST", Target: "/charge", Session: r.Sess}, rulesPeer(t, "shop"))
+	call := InboundRequest{Method: "POST", Target: "/charge", Session: r.Sess}
+	pa, err := s.Accept(t.Context(), call, rulesPeer(t, "shop"))
 	if err != nil {
 		t.Fatalf("Accept: %v", err)
 	}
@@ -485,8 +488,8 @@ func TestHandshakesSweepEveryPeersExpiredSessions(t *testing.T) {
 	}
 	s1 := opened(t, s.ServeHandshake(body, shop)).Sess
 	got = snapshot(s)
-	if want := map[string][]string{clinicKey: {c1, c2}, shopKey: {s1}}; !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) ||
-		len(got.byID) != 3 {
+	want := map[string][]string{clinicKey: {c1, c2}, shopKey: {s1}}
+	if !maps.EqualFunc(got.byPeer, want, slices.Equal[[]string]) || len(got.byID) != 3 {
 		t.Fatalf("after shop's handshake the sessions hold %v; want %v", got, want)
 	}
 }

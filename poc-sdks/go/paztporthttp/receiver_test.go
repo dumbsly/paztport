@@ -53,7 +53,9 @@ func header(c vectors.Node, name string) string {
 }
 
 // accept runs a fresh receiver for case c, its own nonce cache, on req under mode, failing t on an error.
-func accept(t *testing.T, c vectors.Node, req paztporthttp.InboundRequest, mode paztporthttp.Mode) paztporthttp.Accepted {
+func accept(
+	t *testing.T, c vectors.Node, req paztporthttp.InboundRequest, mode paztporthttp.Mode,
+) paztporthttp.Accepted {
 	t.Helper()
 	a, err := caseReceiver(t, c).Accept(t.Context(), req, nil, mode)
 	if err != nil {
@@ -602,9 +604,13 @@ func TestAcceptLiveOrderOnce(t *testing.T) {
 		req   func(*testing.T) paztporthttp.InboundRequest
 		calls int // the keys the cache is offered: one once checks 1 to 9 hold, else none
 	}{
-		{"verified", verified, func(t *testing.T) paztporthttp.InboundRequest { return caseRequest(t, verified.Get("request")) }, 1},
+		{"verified", verified, func(t *testing.T) paztporthttp.InboundRequest {
+			return caseRequest(t, verified.Get("request"))
+		}, 1},
 		{"no proof", verified, noProof, 1},
-		{"forged", refused, func(t *testing.T) paztporthttp.InboundRequest { return caseRequest(t, refused.Get("request")) }, 0},
+		{"forged", refused, func(t *testing.T) paztporthttp.InboundRequest {
+			return caseRequest(t, refused.Get("request"))
+		}, 0},
 	} {
 		for _, mode := range []paztporthttp.Mode{paztporthttp.ModeEnforce, paztporthttp.ModeAudit, paztporthttp.ModeNone} {
 			t.Run(tt.name+", "+mode.String(), func(t *testing.T) {
@@ -684,7 +690,8 @@ func TestAcceptCacheError(t *testing.T) {
 		CallMaxAgeMs:   verify.CallMaxAgeMs,
 		RunMaxAgeMs:    verify.RunMaxAgeMs,
 	})
-	if _, err := r.Accept(ctx, caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce); !errors.Is(err, context.Canceled) {
+	_, err := r.Accept(ctx, caseRequest(t, c.Get("request")), nil, paztporthttp.ModeEnforce)
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err = %v, want the cancelled context's", err)
 	}
 }
@@ -915,7 +922,9 @@ func FuzzAccept(f *testing.F) {
 	f.Fuzz(func(t *testing.T, method, target, chain, proof, infl string, body []byte, mode int, origin bool) {
 		rc := caseReceiver(t, c.With(t))
 		rc.Origin, rc.Stamper.Origin = origin, origin
-		req := paztporthttp.InboundRequest{Method: method, Target: target, Chain: chain, Proof: proof, Influence: infl, Body: body}
+		req := paztporthttp.InboundRequest{
+			Method: method, Target: target, Chain: chain, Proof: proof, Influence: infl, Body: body,
+		}
 		a, err := rc.Accept(t.Context(), req, nil, paztporthttp.Mode(mode))
 		if err != nil {
 			t.Fatalf("Accept: %v", err)

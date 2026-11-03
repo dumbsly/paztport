@@ -204,7 +204,9 @@ var faults = []fault{
 	}},
 	{"a chain for another receiver", reason.BindingMismatch, func(s *setup) { s.in.Receiver = "billing" }},
 	{"another rid", reason.RIDMismatch, func(s *setup) { s.edit(1, func(st *stamp.Stamp) { st.RID = "rid-2" }) }},
-	{"another rid at the origin", reason.RIDMismatch, func(s *setup) { s.edit(0, func(st *stamp.Stamp) { st.RID = "rid-2" }) }},
+	{"another rid at the origin", reason.RIDMismatch, func(s *setup) {
+		s.edit(0, func(st *stamp.Stamp) { st.RID = "rid-2" })
+	}},
 	{"another session", reason.SessionUnknown, func(s *setup) { s.cfg.Sess = "sess-1" }},
 	{"a stamp in another session", reason.SessionUnknown, func(s *setup) {
 		s.edit(0, func(st *stamp.Stamp) { st.Sess = "sess-1" })
@@ -452,7 +454,8 @@ func TestInfluence(t *testing.T) {
 		{"none, as an empty token", none, func(*testing.T) *string { return ptr("") }, reason.InfluenceMismatch},
 		{"some, committed", committed, func(t *testing.T) *string { return ptr(entriesToken(t, entries)) }, reason.OK},
 		{"some, absent", committed, func(*testing.T) *string { return nil }, reason.InfluenceMismatch},
-		{"some, not committed", none, func(t *testing.T) *string { return ptr(entriesToken(t, entries)) }, reason.InfluenceMismatch},
+		{"some, not committed", none, func(t *testing.T) *string { return ptr(entriesToken(t, entries)) },
+			reason.InfluenceMismatch},
 		{"some, not wire bytes", committed, func(*testing.T) *string {
 			return ptr(b64.Encode([]byte(`[ {"cls":"third-party","h":"h1","src":"web:example.com"}]`)))
 		}, reason.InfluenceMismatch},
@@ -749,7 +752,9 @@ func TestWindows(t *testing.T) {
 
 // signedPolicy returns a keyring of gateway's, orders' and pi's keys and the mesh root, each signed by
 // the policy key of signer until its notAfter, and the pin of client-policy.
-func signedPolicy(t *testing.T, signer string, keyringNotAfter, rootNotAfter int64) (policy.KeyringFile, policy.Root, string) {
+func signedPolicy(
+	t *testing.T, signer string, keyringNotAfter, rootNotAfter int64,
+) (policy.KeyringFile, policy.Root, string) {
 	t.Helper()
 	priv, _ := vectors.V3Key(t, signer)
 	policyPub := keys.EncodePublic(priv.Public().(ed25519.PublicKey))
@@ -810,7 +815,8 @@ func TestPinned(t *testing.T) {
 		}
 		if !bytes.Equal(cfg.Root, s.cfg.Root) || cfg.RootID != s.cfg.RootID || len(cfg.Keyring) != 3 ||
 			!cfg.Keyring["orders"].Equal(pub(t, "orders")) || cfg.CallMaxAgeMs != pinnedCallMaxAgeMs ||
-			cfg.RunMaxAgeMs != pinnedRunMaxAgeMs || cfg.Sess != "sess-2" || !slices.Equal(cfg.AllowedOrigins, []string{"gateway"}) {
+			cfg.RunMaxAgeMs != pinnedRunMaxAgeMs || cfg.Sess != "sess-2" ||
+			!slices.Equal(cfg.AllowedOrigins, []string{"gateway"}) {
 			t.Fatalf("Pinned = %+v", cfg)
 		}
 		s.cfg = cfg

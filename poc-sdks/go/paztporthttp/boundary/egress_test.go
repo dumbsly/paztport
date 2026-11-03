@@ -233,7 +233,8 @@ func TestAttestedCallStep(t *testing.T) {
 	}
 	chain, code := stamp.ReadChain(header(step, wire.Chain))
 	commit, err := influence.Commit(step.Sent)
-	if code != reason.OK || err != nil || len(chain) != 1 || chain[0].Infl != commit || chain[0].Sess != header(step, wire.Session) {
+	if code != reason.OK || err != nil || len(chain) != 1 || chain[0].Infl != commit ||
+		chain[0].Sess != header(step, wire.Session) {
 		t.Fatalf("the boundary stamp is %+v, want one committing to the entries sent in the session", chain)
 	}
 	if out := f.run(t, x, step); !out.Attested {

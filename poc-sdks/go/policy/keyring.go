@@ -91,7 +91,9 @@ func KeyringSigningBytes(policy string, services map[string]string, notAfter int
 // SignKeyring signs services under the policy key key, whose public key is policy, vouching for them until
 // notAfter. The caller has already checked that each key is its service's current key. It refuses a service
 // name that is not a route node, which every reader refuses, before signing.
-func SignKeyring(services map[string]string, policy string, notAfter int64, key ed25519.PrivateKey) (KeyringFile, error) {
+func SignKeyring(
+	services map[string]string, policy string, notAfter int64, key ed25519.PrivateKey,
+) (KeyringFile, error) {
 	if !routeNodes(services) {
 		return KeyringFile{}, errServiceName
 	}

@@ -26,7 +26,8 @@ var (
 )
 
 func TestParseClass(t *testing.T) {
-	for _, c := range []influence.Class{influence.ThirdParty, influence.Private, influence.Public, influence.LocalUntrusted} {
+	classes := []influence.Class{influence.ThirdParty, influence.Private, influence.Public, influence.LocalUntrusted}
+	for _, c := range classes {
 		if got, ok := influence.ParseClass(string(c)); !ok || got != c {
 			t.Errorf("ParseClass(%q) = %q, %v", c, got, ok)
 		}
@@ -160,7 +161,8 @@ func TestReadEntries(t *testing.T) {
 	if !slices.Equal(es, want) {
 		t.Fatalf("ReadEntries = %+v, want %+v in the order read", es, want)
 	}
-	for _, tok := range []string{"", b64.Encode([]byte(`[ ]`)), b64.Encode([]byte(`[{"cls":"secret","h":"h","src":"s"}]`)), "W10="} {
+	unknown := b64.Encode([]byte(`[{"cls":"secret","h":"h","src":"s"}]`))
+	for _, tok := range []string{"", b64.Encode([]byte(`[ ]`)), unknown, "W10="} {
 		if _, err := influence.ReadEntries(tok); err == nil {
 			t.Errorf("ReadEntries(%q) read it", tok)
 		}
@@ -260,7 +262,8 @@ func TestCommit(t *testing.T) {
 }
 
 func TestLabels(t *testing.T) {
-	wire := []byte(`[{"cid":"c2","cls":"public"},{"cid":"c1","cls":"private","owner":"alice"},{"cid":"","cls":"third-party"}]`)
+	wire := []byte(`[{"cid":"c2","cls":"public"},{"cid":"c1","cls":"private","owner":"alice"},` +
+		`{"cid":"","cls":"third-party"}]`)
 	ls, err := influence.ParseLabels(wire)
 	if err != nil {
 		t.Fatalf("ParseLabels: %v", err)
@@ -605,13 +608,17 @@ func TestOpensChecksBeforeTheCommitment(t *testing.T) {
 	}{
 		{"a genuine opening", salt, []influence.Entry{alice}, true},
 		{"no originals", salt, nil, false},
-		{"an original of another owner", salt, []influence.Entry{alice, {Class: influence.Private, Src: "s", H: "g", Owner: "bob"}}, false},
+		{"an original of another owner", salt,
+			[]influence.Entry{alice, {Class: influence.Private, Src: "s", H: "g", Owner: "bob"}}, false},
 		{"an original with no owner", salt, []influence.Entry{alice, {Class: influence.Private, Src: "s", H: "g"}}, false},
-		{"an original of another class", salt, []influence.Entry{alice, {Class: influence.Public, Src: "s", H: "g", Owner: "alice"}}, false},
+		{"an original of another class", salt,
+			[]influence.Entry{alice, {Class: influence.Public, Src: "s", H: "g", Owner: "alice"}}, false},
 		{"a short salt", salt[:influence.SaltLength-1], []influence.Entry{alice}, false},
 		{"a long salt", append(slices.Clone(salt), 0), []influence.Entry{alice}, false},
 	} {
-		sent := influence.Entry{Class: influence.Private, Src: "boundary:payment", H: commitTo(t, c.salt, c.originals), Owner: "alice"}
+		sent := influence.Entry{
+			Class: influence.Private, Src: "boundary:payment", H: commitTo(t, c.salt, c.originals), Owner: "alice",
+		}
 		o := influence.Opening{Class: influence.Private, Owner: "alice", Salt: c.salt, Originals: c.originals}
 		if got := influence.Opens(sent, o); got != c.opens {
 			t.Errorf("%s: Opens = %v, want %v", c.name, got, c.opens)
@@ -687,7 +694,8 @@ func TestParseOpeningRefuses(t *testing.T) {
 		{"a salt with padding", `{"cls":"private","originals":[],"salt":"-kN8YOjmxnwiGm4BTq9hXw=="}`, false},
 		{"a salt that is not a string", `{"cls":"private","originals":[],"salt":16}`, false},
 		{"originals not an array", `{"cls":"private","originals":` + original + `,"salt":` + salt + `}`, false},
-		{"a malformed original", `{"cls":"private","originals":[` + original + `,{"cls":"private"}],"salt":` + salt + `}`, false},
+		{"a malformed original",
+			`{"cls":"private","originals":[` + original + `,{"cls":"private"}],"salt":` + salt + `}`, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := influence.ParseOpening([]byte(c.wire))
@@ -697,7 +705,8 @@ func TestParseOpeningRefuses(t *testing.T) {
 			if got := errors.Is(err, influence.ErrNotObject); got != c.notObject {
 				t.Fatalf("errors.Is(%q, ErrNotObject) = %v", err, got)
 			}
-			if !strings.HasPrefix(err.Error(), "paztport influence: malformed opening: ") || strings.Contains(err.Error(), "secret") {
+			if !strings.HasPrefix(err.Error(), "paztport influence: malformed opening: ") ||
+				strings.Contains(err.Error(), "secret") {
 				t.Fatalf("the refusal %q is not the opening's, or quotes the input", err)
 			}
 		})

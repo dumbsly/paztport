@@ -79,7 +79,9 @@ func TestWriterRefuses(t *testing.T) {
 		{"the noncharacter U+FDD0 in a member name", json.Obj(json.Member{Name: "\uFDD0", Value: json.Null()})},
 		{"a negative integer", json.I(-1)},
 		{"2^53", json.I(json.MaxSafe + 1)},
-		{"a repeated member name", json.Obj(json.Member{Name: "a", Value: json.I(1)}, json.Member{Name: "a", Value: json.I(2)})},
+		{"a repeated member name", json.Obj(
+			json.Member{Name: "a", Value: json.I(1)}, json.Member{Name: "a", Value: json.I(2)},
+		)},
 		{"33 nested arrays", arrays(33)},
 		{"33 nested objects", objects(33)},
 	} {
@@ -166,7 +168,9 @@ func TestEscapes(t *testing.T) {
 func TestWireForm(t *testing.T) {
 	v := json.Obj(
 		json.Member{Name: "b", Value: json.Arr(json.I(0), json.I(json.MaxSafe), json.B(true), json.B(false), json.Null())},
-		json.Member{Name: "a", Value: json.Obj(json.Member{Name: "y", Value: json.Arr()}, json.Member{Name: "x", Value: json.Obj()})},
+		json.Member{Name: "a", Value: json.Obj(
+			json.Member{Name: "y", Value: json.Arr()}, json.Member{Name: "x", Value: json.Obj()},
+		)},
 		json.Member{Name: "c", Value: json.S("")},
 	)
 	got, err := json.Wire(v)
@@ -233,7 +237,9 @@ func TestValuesDoNotChange(t *testing.T) {
 }
 
 func TestAccessorsOfAnotherKind(t *testing.T) {
-	for _, v := range []json.Value{json.Null(), json.B(true), json.I(7), json.S("x"), json.Arr(json.I(1)), json.Obj(json.Member{Name: "a"})} {
+	for _, v := range []json.Value{
+		json.Null(), json.B(true), json.I(7), json.S("x"), json.Arr(json.I(1)), json.Obj(json.Member{Name: "a"}),
+	} {
 		k := v.Kind()
 		if k != json.KindString && v.Str() != "" ||
 			k != json.KindInt && v.Int() != 0 ||

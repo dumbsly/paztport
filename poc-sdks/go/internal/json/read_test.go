@@ -112,8 +112,10 @@ func TestReadWireSteps(t *testing.T) {
 		{"whitespace", `{"a": 1}`, json.StepCanonical, "not the canonical bytes, from byte 5"},
 		{"members out of order", `{"b":1,"a":2}`, json.StepCanonical, "not the canonical bytes, from byte 2"},
 		{"an escape JCS does not write", `["\/"]`, json.StepCanonical, "not the canonical bytes, from byte 2"},
-		{"a repeated name, refused at parse though not canonical either", `{"b":1,"b":2}`, json.StepParse, "a repeated member name at byte 7"},
-		{"over the limit, though not JSON at all", strings.Repeat("x", json.WireBytes+1), json.StepSize, "the wire bytes are over the 262144-byte limit"},
+		{"a repeated name, refused at parse though not canonical either", `{"b":1,"b":2}`, json.StepParse,
+			"a repeated member name at byte 7"},
+		{"over the limit, though not JSON at all", strings.Repeat("x", json.WireBytes+1), json.StepSize,
+			"the wire bytes are over the 262144-byte limit"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			_, err := json.ReadWire([]byte(c.in))
@@ -200,9 +202,12 @@ func TestExactly(t *testing.T) {
 		{"an optional member absent", ab, []string{"a", "b"}, []string{"c"}, ""},
 		{"no member, none required", json.Obj(), nil, []string{"a"}, ""},
 		{"the first missing member in sorted order", json.Obj(), []string{"z", "b", "a"}, nil, `the member "a" is missing`},
-		{"missing comes before other", json.Obj(json.Member{Name: "hunter2"}), []string{"a"}, nil, `the member "a" is missing`},
-		{"a member it does not have", json.Obj(json.Member{Name: "a"}, json.Member{Name: "hunter2"}), []string{"a"}, nil, "member 1 is not one the object has"},
-		{"a repeated member", json.Obj(json.Member{Name: "a"}, json.Member{Name: "a"}), []string{"a"}, nil, `the member "a" is repeated`},
+		{"missing comes before other", json.Obj(json.Member{Name: "hunter2"}), []string{"a"}, nil,
+			`the member "a" is missing`},
+		{"a member it does not have", json.Obj(json.Member{Name: "a"}, json.Member{Name: "hunter2"}), []string{"a"}, nil,
+			"member 1 is not one the object has"},
+		{"a repeated member", json.Obj(json.Member{Name: "a"}, json.Member{Name: "a"}), []string{"a"}, nil,
+			`the member "a" is repeated`},
 		{"an array", json.Arr(), nil, nil, "the value is not an object"},
 		{"a string", json.S("hunter2"), nil, nil, "the value is not an object"},
 	} {
@@ -248,11 +253,15 @@ func TestMemberReaders(t *testing.T) {
 		read func() error
 		want string
 	}{
-		{"String of an integer", func() error { _, err := json.String(o, "i"); return err }, `the member "i" is not a string`},
+		{"String of an integer", func() error { _, err := json.String(o, "i"); return err },
+			`the member "i" is not a string`},
 		{"String of null", func() error { _, err := json.String(o, "n"); return err }, `the member "n" is not a string`},
-		{"String of a missing member", func() error { _, err := json.String(o, "x"); return err }, `the member "x" is missing`},
-		{"Integer of a string", func() error { _, err := json.Integer(o, "s"); return err }, `the member "s" is not an integer`},
-		{"Integer of a missing member", func() error { _, err := json.Integer(o, "x"); return err }, `the member "x" is missing`},
+		{"String of a missing member", func() error { _, err := json.String(o, "x"); return err },
+			`the member "x" is missing`},
+		{"Integer of a string", func() error { _, err := json.Integer(o, "s"); return err },
+			`the member "s" is not an integer`},
+		{"Integer of a missing member", func() error { _, err := json.Integer(o, "x"); return err },
+			`the member "x" is missing`},
 		{"Integer of a negative integer", func() error {
 			_, err := json.Integer(json.Obj(json.Member{Name: "i", Value: json.I(-1)}), "i")
 			return err
@@ -262,7 +271,8 @@ func TestMemberReaders(t *testing.T) {
 			return err
 		}, `the member "i" is not a protocol integer`},
 		{"Bool of a string", func() error { _, err := json.Bool(o, "s"); return err }, `the member "s" is not a boolean`},
-		{"Bool of a missing member", func() error { _, err := json.Bool(json.S("b"), "b"); return err }, `the member "b" is missing`},
+		{"Bool of a missing member", func() error { _, err := json.Bool(json.S("b"), "b"); return err },
+			`the member "b" is missing`},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			err := c.read()
@@ -274,7 +284,9 @@ func TestMemberReaders(t *testing.T) {
 }
 
 func TestStringMap(t *testing.T) {
-	m, err := json.StringMap(json.Obj(json.Member{Name: "x", Value: json.S("1")}, json.Member{Name: "y", Value: json.S("")}))
+	m, err := json.StringMap(json.Obj(
+		json.Member{Name: "x", Value: json.S("1")}, json.Member{Name: "y", Value: json.S("")},
+	))
 	if err != nil || len(m) != 2 || m["x"] != "1" || m["y"] != "" {
 		t.Fatalf("StringMap = %v, %v", m, err)
 	}
@@ -286,8 +298,12 @@ func TestStringMap(t *testing.T) {
 		v    json.Value
 		want string
 	}{
-		{"a value that is not a string", json.Obj(json.Member{Name: "x", Value: json.S("1")}, json.Member{Name: "hunter2", Value: json.I(1)}), "member 1 is not a string"},
-		{"a repeated name", json.Obj(json.Member{Name: "hunter2", Value: json.S("1")}, json.Member{Name: "hunter2", Value: json.S("2")}), "member 1 repeats a name"},
+		{"a value that is not a string", json.Obj(
+			json.Member{Name: "x", Value: json.S("1")}, json.Member{Name: "hunter2", Value: json.I(1)},
+		), "member 1 is not a string"},
+		{"a repeated name", json.Obj(
+			json.Member{Name: "hunter2", Value: json.S("1")}, json.Member{Name: "hunter2", Value: json.S("2")},
+		), "member 1 repeats a name"},
 		{"an array", json.Arr(json.S("x")), "the value is not an object"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

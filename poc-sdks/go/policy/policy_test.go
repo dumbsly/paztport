@@ -244,7 +244,9 @@ func TestVerifiesNeverPanics(t *testing.T) {
 		t.Error("Root.Verifies accepted another policy key")
 	}
 	sig := decode(t, root.Sig)
-	for _, s := range []string{"", b64.Encode(sig[:63]), b64.Encode(append(bytes.Clone(sig), 0)), root.Sig + "=", root.Sig[:85] + "B"} {
+	for _, s := range []string{
+		"", b64.Encode(sig[:63]), b64.Encode(append(bytes.Clone(sig), 0)), root.Sig + "=", root.Sig[:85] + "B",
+	} {
 		r := root
 		r.Sig = s
 		if r.Verifies(pin) {
@@ -397,7 +399,9 @@ func TestRootReads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `{"notAfter":1798761600000,"root":"` + root.Root + `","rootId":"` + root.RootID + `","sig":"` + root.Sig + `"}`; string(wire) != want {
+	want := `{"notAfter":1798761600000,"root":"` + root.Root + `","rootId":"` + root.RootID + `","sig":"` + root.Sig +
+		`"}`
+	if string(wire) != want {
 		t.Fatalf("Wire = %s, want %s", wire, want)
 	}
 	read, err := policy.ParseRoot(wire)
@@ -504,7 +508,9 @@ func TestProofVerifyRefuses(t *testing.T) {
 	if !p.Verify(route, root) {
 		t.Fatal("the proof does not prove its route")
 	}
-	for _, other := range []string{"gateway/search", "gateway/orders/payment", "gateway/orders ", "gateway/order", "", "gateway/orders\xed\xa0\x80"} {
+	for _, other := range []string{
+		"gateway/search", "gateway/orders/payment", "gateway/orders ", "gateway/order", "", "gateway/orders\xed\xa0\x80",
+	} {
 		if p.Verify(other, root) {
 			t.Errorf("the proof proves %+q", other)
 		}
@@ -660,7 +666,8 @@ func TestProofBundle(t *testing.T) {
 		{"a route through ..", route, `"gateway/../search": {`},
 		{"a route holding |", route, `"gateway/se|cret": {`},
 		{"a malformed proof", `"dirs": "LRLLLLLL"`, `"dirs": "LRLLLLL"`},
-		{"an extra member", `"rootId": "merkle-vector",` + "\n  \"service\"", `"rootId": "merkle-vector", "secret": 1, "service"`},
+		{"an extra member", `"rootId": "merkle-vector",` + "\n  \"service\"",
+			`"rootId": "merkle-vector", "secret": 1, "service"`},
 		{"a service that is not a string", `"service": "gateway"`, `"service": 1`},
 		{"a root id that is not a string", `"rootId": "merkle-vector",` + "\n  \"service\"", `"rootId": null, "service"`},
 	} {

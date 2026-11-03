@@ -54,7 +54,8 @@ func FuzzReadFile(f *testing.F) {
 		// they have none.
 		wire, err := json.Wire(v)
 		if err != nil {
-			if len(b) <= json.WireBytes || !sizeRefusal(err, "the wire bytes would be over the "+strconv.Itoa(json.WireBytes)+"-byte limit") {
+			limit := "the wire bytes would be over the " + strconv.Itoa(json.WireBytes) + "-byte limit"
+			if len(b) <= json.WireBytes || !sizeRefusal(err, limit) {
 				t.Fatalf("Wire refused a value ReadFile read from %d bytes: %v", len(b), err)
 			}
 			return

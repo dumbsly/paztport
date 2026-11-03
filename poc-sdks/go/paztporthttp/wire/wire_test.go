@@ -172,7 +172,8 @@ func TestResultHashStatus(t *testing.T) {
 	}{
 		{200, ""}, {201, "x"}, {20, "0\nx"}, {599, "\xff"},
 	} {
-		if got, want := wire.ResultHash(c.status, []byte(c.body)), sha("http-response\n"+strconv.Itoa(c.status)+"\n"+c.body); got != want {
+		want := sha("http-response\n" + strconv.Itoa(c.status) + "\n" + c.body)
+		if got := wire.ResultHash(c.status, []byte(c.body)); got != want {
 			t.Errorf("ResultHash(%d) = %s, want %s", c.status, got, want)
 		}
 	}
@@ -255,7 +256,9 @@ func TestCheckResponseShape(t *testing.T) {
 		members []json.Member
 	}{
 		{"an extra member", []json.Member{member("labels", labels), member("stamp", stampValue), member("x", json.I(0))}},
-		{"an extra null member", []json.Member{member("labels", labels), member("sess", json.Null()), member("stamp", stampValue)}},
+		{"an extra null member", []json.Member{
+			member("labels", labels), member("sess", json.Null()), member("stamp", stampValue),
+		}},
 		{"no labels", []json.Member{member("stamp", stampValue)}},
 		{"no stamp", []json.Member{member("labels", labels)}},
 		{"no members", nil},
@@ -282,7 +285,9 @@ func TestCheckResponseShape(t *testing.T) {
 		})
 	}
 	t.Run("bytes not canonical", func(t *testing.T) {
-		b, err := json.Wire(json.Obj(json.Member{Name: "labels", Value: labels}, json.Member{Name: "stamp", Value: stampValue}))
+		b, err := json.Wire(json.Obj(
+			json.Member{Name: "labels", Value: labels}, json.Member{Name: "stamp", Value: stampValue},
+		))
 		if err != nil {
 			t.Fatalf("Wire: %v", err)
 		}
@@ -403,7 +408,8 @@ func TestCheckResponseProof(t *testing.T) {
 			if err != nil {
 				t.Fatalf("CheckResponse: %v", err)
 			}
-			if w := (verify.Result{Reason: reason.PathNotAllowed, SuspectSvc: "payment", SuspectInst: "pay-1"}); got.Result != w {
+			w := verify.Result{Reason: reason.PathNotAllowed, SuspectSvc: "payment", SuspectInst: "pay-1"}
+			if got.Result != w {
 				t.Fatalf("Result = %+v, want %+v", got.Result, w)
 			}
 			if got.Labels != nil {
