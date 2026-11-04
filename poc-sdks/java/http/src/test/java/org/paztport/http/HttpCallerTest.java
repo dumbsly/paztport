@@ -14,13 +14,20 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.sun.net.httpserver.HttpServer;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.KeyPair;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -335,6 +342,12 @@ class HttpCallerTest {
 
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(Map.of("orders-internal", " ")));
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(Map.of("", "orders")));
+        for (String name : List.of(".", "..", "orders/x", "orders\\x", "orders|x")) {
+            IllegalArgumentException refused = assertThrows(IllegalArgumentException.class,
+                    () -> builder.receivers(Map.of("orders-internal", name)), name);
+            assertTrue(refused.getMessage().contains("route node"), refused.getMessage());
+            assertTrue(name.length() < 3 || !refused.getMessage().contains(name), "the rule is named, not the value");
+        }
         Map<String, String> twice = new TreeMap<>(Map.of("orders-internal", "orders", "ORDERS-INTERNAL", "payment"));
         assertThrows(IllegalArgumentException.class, () -> builder.receivers(twice));
     }
@@ -596,9 +609,8 @@ class HttpCallerTest {
     void theClientSendsASlashForAnEmptyPathSoThatIsWhatIsBound() throws Exception {
         // RFC 9112 section 3.2.1: a request line's target is never empty; a client sends "/" for an empty path.
         // The receiver below recomputes the binding from the request line it actually got.
-        List<String> targets = new java.util.concurrent.CopyOnWriteArrayList<>();
-        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
-                new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
+        List<String> targets = new CopyOnWriteArrayList<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
         server.createContext("/", exchange -> {
             targets.add(exchange.getRequestMethod() + " " + exchange.getRequestURI().getRawPath()
                     + (exchange.getRequestURI().getRawQuery() == null ? ""
@@ -607,14 +619,12 @@ class HttpCallerTest {
             exchange.close();
         });
         server.start();
-        try {
-            java.net.http.HttpClient client = java.net.http.HttpClient.newHttpClient();
+        try (HttpClient client = HttpClient.newHttpClient()) {
             String base = "http://localhost:" + server.getAddress().getPort();
             for (String suffix : List.of("", "?q=1")) {
                 URI uri = URI.create(base + suffix);
                 HttpCaller.Outbound sent = gatewayCaller().stampFromContext("GET", uri, NO_BODY);
-                client.send(java.net.http.HttpRequest.newBuilder(uri).GET().build(),
-                        java.net.http.HttpResponse.BodyHandlers.discarding());
+                client.send(HttpRequest.newBuilder(uri).GET().build(), HttpResponse.BodyHandlers.discarding());
                 String line = targets.get(targets.size() - 1);
                 String target = line.substring(line.indexOf(' ') + 1);
                 assertEquals("/" + suffix, target);

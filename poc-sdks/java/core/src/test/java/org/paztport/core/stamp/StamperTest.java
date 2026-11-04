@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.security.KeyPair;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -279,7 +280,7 @@ class StamperTest {
 
     // --- Refusing what could never verify: nothing is signed for a name no policy can hold ---
 
-    private static final List<String> BAD_NODES = java.util.Arrays.asList(null, "", ".", "..", "a/b", "a\\b", "a|b");
+    private static final List<String> BAD_NODES = Arrays.asList(null, "", ".", "..", "a/b", "a\\b", "a|b");
 
     @Test
     void nextRefusesAReceiverThatIsNotARouteNode() {

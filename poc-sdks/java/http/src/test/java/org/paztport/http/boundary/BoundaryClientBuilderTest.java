@@ -110,6 +110,12 @@ class BoundaryClientBuilderTest {
             assertEquals(BoundaryClient.Fault.UNNAMED_EGRESS, fault(sound().stamper(new Stamper(svc, "payment-1",
                     payment.getPrivate(), false, () -> "unused", System::currentTimeMillis))), svc);
         }
+        // A name no verifier could take a key or a route for would only fail at the first call, so it fails here.
+        for (String name : Arrays.asList("ps/p", "ps|p", ".", "..", "ps\\p")) {
+            assertEquals(BoundaryClient.Fault.PARTNER_NOT_A_NODE, fault(sound().partner(name)), name);
+            assertEquals(BoundaryClient.Fault.EGRESS_NOT_A_NODE, fault(sound().stamper(new Stamper(name, "payment-1",
+                    payment.getPrivate(), false, () -> "unused", System::currentTimeMillis))), name);
+        }
         assertEquals(BoundaryClient.Fault.IDLE_PERIOD, fault(sound().sessionIdleMs(0)));
         assertEquals(BoundaryClient.Fault.OWN_UNVERIFIED,
                 fault(sound().ownPolicyKey(pub(Crypto.generateEd25519KeyPair()))));

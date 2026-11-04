@@ -400,6 +400,24 @@ class BoundaryClientTest {
         assertEquals(List.of(), lines("PAZTPORT_TRACE boundary "));
     }
 
+    // A call that is never sent is never recorded: the boundary stamp is signed before the listener is told.
+    @Test
+    void aStampThatCannotBeSignedIsNotRecordedByTheListener() throws Exception {
+        Stamper failing = new Stamper("payment", "payment-1", payment.getPrivate(), false, () -> "unused", () -> {
+            throw new IllegalStateException("clock unavailable");
+        });
+        try (BoundaryClient broken = egress(partner, tls()).stamper(failing).build()) {
+            verified("rid-1", () -> {
+                assertEquals("clock unavailable",
+                        assertThrows(IllegalStateException.class, () -> broken.post("/charge", CHARGE)).getMessage());
+                return null;
+            });
+        }
+
+        assertEquals(List.of(), heard, "the listener was not told of a call that was never sent");
+        assertEquals(List.of(), partner.calls().stream().filter(c -> c.header(PaztportHeaders.CHAIN) != null).toList());
+    }
+
     @Test
     void unsafeSessionSendsNoInfluenceAndNoListenerCall() throws Exception {
         partner.status("unsafe");

@@ -15,6 +15,7 @@ import org.paztport.core.influence.ContentLabel;
 import org.paztport.core.influence.InfluenceClass;
 import org.paztport.core.influence.InfluenceEntry;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.stamp.Stamp;
 import org.paztport.core.stamp.Stamper;
 import org.paztport.core.verify.Verifier;
@@ -123,8 +124,9 @@ public final class HttpCaller {
          * the same table is what the starter binds, and what another language's caller is given.
          *
          * @throws NullPointerException when {@code byHost} is null; an empty map is no mapping
-         * @throws IllegalArgumentException when a host or a name is blank, a host is not ASCII, or two hosts differ
-         *     only in the case of their ASCII letters
+         * @throws IllegalArgumentException when a host or a name is blank, a name is not a route node (see
+         *     {@link org.paztport.core.policy.Routes#requireValidNode}: a call to it could never be stamped), a host
+         *     is not ASCII, or two hosts differ only in the case of their ASCII letters
          */
         public Builder receivers(Map<String, String> byHost) {
             Objects.requireNonNull(byHost, "receivers");
@@ -135,6 +137,12 @@ public final class HttpCaller {
                 }
                 if (!isAscii(host)) {
                     throw new IllegalArgumentException("a receiver's host must be ASCII");
+                }
+                try {
+                    Routes.requireValidNode(name);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("a receiver's policy name must be a route node: non-empty, not"
+                            + " \".\" or \"..\", and none of '/', '\\', '|' or a lone surrogate");
                 }
                 if (names.putIfAbsent(asciiLower(host), name) != null) {
                     throw new IllegalArgumentException("the receiver host " + LogSafe.of(host)

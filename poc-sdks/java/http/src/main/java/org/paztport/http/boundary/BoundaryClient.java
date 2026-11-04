@@ -32,6 +32,7 @@ import org.paztport.core.internal.JsonReader;
 import org.paztport.core.internal.JsonValue;
 import org.paztport.core.policy.KeyringFile;
 import org.paztport.core.policy.ProofBundle;
+import org.paztport.core.policy.Routes;
 import org.paztport.core.policy.SignedRoot;
 import org.paztport.core.session.ReplyCheck;
 import org.paztport.core.session.SessionReply;
@@ -205,8 +206,8 @@ public final class BoundaryClient implements AutoCloseable {
 
     /**
      * POSTs {@code json} to {@code path} at the partner, in the session, opening it first if there is none. In an
-     * attested session the influence is reduced, the listener told, and the boundary stamp signed over the reduced
-     * list, in that order, before the request is sent.
+     * attested session the influence is reduced, the boundary stamp signed over the reduced list, and the listener
+     * told, in that order, before the request is sent: a call that cannot be signed is never recorded.
      *
      * @param path the raw path, and {@code ?} and the raw query if any, exactly as it is to go on the wire
      * @throws IllegalStateException with nothing sent, when this request's chain did not verify at this hop or
@@ -215,7 +216,9 @@ public final class BoundaryClient implements AutoCloseable {
      *     would not be sent as given
      * @throws UncheckedIOException when the call itself fails, or has no whole answer within the read timeout (its
      *     cause then an {@link java.net.http.HttpTimeoutException})
-     * @throws RuntimeException whatever the listener throws, with the request not sent
+     * @throws RuntimeException whatever the listener throws, with the request not sent; and whatever the stamper
+     *     throws when it cannot sign, with the listener not told. A partner or egress service that is not a route
+     *     node never gets this far: {@link Builder#build} refuses it
      */
     public Response post(String path, byte[] json) {
         // The guard, before anything else: nothing is signed, or sent, on the strength of a chain not verified here.
@@ -239,11 +242,12 @@ public final class BoundaryClient implements AutoCloseable {
         if (current.attested()) {
             // Only influence held after the chain verified here, every (class, owner) pair of it kept.
             sent = List.copyOf(BoundaryInfluence.reduce(influence, blindingKey, rid, partner, stamper.svc()));
+            // Signed first, so a call that can't be signed is never sent and never recorded.
+            Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
             if (listener != null) {
                 // Before anything of the request goes: if the shop can't keep the originals, nothing is sent.
                 listener.sent(rid, partner, List.copyOf(Influence.normalise(influence)), sent);
             }
-            Stamper.Stamped stamped = stamper.boundary(verified, current.sess(), partner, bind, sent, bundle);
             request.header(PaztportHeaders.CHAIN, HttpWire.encodeChain(stamped.chain()));
             if (stamped.proof() != null) {
                 request.header(PaztportHeaders.PROOF, HttpWire.encodeProof(stamped.proof()));
@@ -501,6 +505,10 @@ public final class BoundaryClient implements AutoCloseable {
         UNNAMED_PARTNER,
         /** The stamper names no service. */
         UNNAMED_EGRESS,
+        /** The partner's entry service is not a route node, so no stamp for it could verify. */
+        PARTNER_NOT_A_NODE,
+        /** The stamper's service is not a route node, so no stamp of its could verify. */
+        EGRESS_NOT_A_NODE,
         /** The session idle period is not positive. */
         IDLE_PERIOD,
         /** The partner URL has a path, a query or a fragment, or no authority. */
@@ -509,6 +517,18 @@ public final class BoundaryClient implements AutoCloseable {
         OWN_UNVERIFIED,
         /** This side's root or keyring has passed its {@code notAfter}. */
         OWN_EXPIRED
+    }
+
+    private static final String NODE_RULE =
+            "non-empty, not \".\" or \"..\", and none of '/', '\\', '|' or a lone surrogate";
+
+    private static boolean isRouteNode(String name) {
+        try {
+            Routes.requireValidNode(name);
+            return true;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
     }
 
     /** A setting {@link Builder#build} refused: its message says which, and {@link #fault} says why. */
@@ -706,6 +726,15 @@ public final class BoundaryClient implements AutoCloseable {
             }
             if (stamper.svc() == null || stamper.svc().isEmpty()) {
                 throw new InvalidSetting(Fault.UNNAMED_EGRESS, "the egress service must be named");
+            }
+            // Every stamp names them, and no verifier could take a key or a route for a name that is not a node.
+            if (!isRouteNode(partner)) {
+                throw new InvalidSetting(Fault.PARTNER_NOT_A_NODE, "the partner's entry service must be a route node: "
+                        + NODE_RULE);
+            }
+            if (!isRouteNode(stamper.svc())) {
+                throw new InvalidSetting(Fault.EGRESS_NOT_A_NODE, "the egress service must be a route node: "
+                        + NODE_RULE);
             }
             if (sessionIdleMs <= 0) {
                 throw new InvalidSetting(Fault.IDLE_PERIOD, "the session idle period must be positive");
