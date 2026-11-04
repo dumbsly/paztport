@@ -838,7 +838,7 @@ func TestRefusesARequestWithoutOneMethodAndPath(t *testing.T) {
 }
 
 // TestRefusesMessagesOutOfOrder refuses a stream that does not open with the request's headers, or that
-// sends request headers twice or the response before the request was stamped.
+// sends request headers twice, or a response body or trailers before the request was stamped.
 func TestRefusesMessagesOutOfOrder(t *testing.T) {
 	for name, reqs := range map[string][]*extprocv3.ProcessingRequest{
 		"a body first":           {requestBody(`{}`, true)},
@@ -847,10 +847,8 @@ func TestRefusesMessagesOutOfOrder(t *testing.T) {
 			ResponseBody: &extprocv3.HttpBody{Body: []byte(`{}`), EndOfStream: true}}}},
 		"response trailers before a stamp": {requestHeaders(false, post...), {Request: &extprocv3.ProcessingRequest_ResponseTrailers{
 			ResponseTrailers: &extprocv3.HttpTrailers{Trailers: headerMap([]header{{"grpc-status", "0"}})}}}},
-		"a response first":          {responseHeaders(header{":status", "200"})},
-		"headers twice":             {requestHeaders(false, post...), requestHeaders(true, post...)},
-		"a response before a stamp": {requestHeaders(false, post...), responseHeaders(header{":status", "200"})},
-		"an empty message":          {{}},
+		"headers twice":    {requestHeaders(false, post...), requestHeaders(true, post...)},
+		"an empty message": {{}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newFixture(t)
@@ -867,6 +865,67 @@ func TestRefusesMessagesOutOfOrder(t *testing.T) {
 				}
 			}
 			f.observed(t, edge.RefusedError)
+		})
+	}
+}
+
+// TestPassesEnvoysLocalReplyBeforeTheStamp passes on, with its Paztport headers removed, response headers that
+// arrive before the request was stamped: Envoy's own local reply, such as its 413 for a body over the buffer
+// limit, or a refusal by a filter before ext_proc. The request never went on, so the reply is let through as
+// Envoy made it, never replaced by the processor's 500; a request whose body was awaited is decided refused,
+// for its body when the reply is a 413.
+func TestPassesEnvoysLocalReplyBeforeTheStamp(t *testing.T) {
+	reply := func(status string) []header {
+		return []header{{":status", status}, {"x-path-response", "r"}, {"X-Path-Chain", "c"}, {"content-type", "text/plain"}}
+	}
+	body := &extprocv3.ProcessingRequest{Request: &extprocv3.ProcessingRequest_ResponseBody{
+		ResponseBody: &extprocv3.HttpBody{Body: []byte("Payload Too Large"), EndOfStream: true},
+	}}
+	for _, tc := range []struct {
+		name     string
+		reqs     func(hs []header) []*extprocv3.ProcessingRequest
+		status   string
+		observed []edge.Outcome
+	}{
+		{"a 413 while the body is awaited", func(hs []header) []*extprocv3.ProcessingRequest {
+			return []*extprocv3.ProcessingRequest{requestHeaders(false, post...), responseHeaders(hs...), body}
+		}, "413", []edge.Outcome{edge.RefusedBody}},
+		{"a 408 while the body is awaited", func(hs []header) []*extprocv3.ProcessingRequest {
+			return []*extprocv3.ProcessingRequest{requestHeaders(false, post...), responseHeaders(hs...), body}
+		}, "408", []edge.Outcome{edge.RefusedError}},
+		{"a 401 before the request's headers", func(hs []header) []*extprocv3.ProcessingRequest {
+			return []*extprocv3.ProcessingRequest{responseHeaders(hs...), body}
+		}, "401", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			hs := reply(tc.status)
+			out, err := f.run(nil, tc.reqs(hs)...)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, r := range out {
+				if r.GetImmediateResponse() != nil {
+					t.Fatalf("responses %v: the local reply was replaced", out)
+				}
+			}
+			rh := out[len(out)-2].GetResponseHeaders().GetResponse()
+			if rh == nil || rh.GetHeaderMutation().GetSetHeaders() != nil {
+				t.Fatalf("the response headers answer is %v", out[len(out)-2])
+			}
+			if got := paztportNames(apply(t, hs, rh.GetHeaderMutation())); len(got) != 0 {
+				t.Fatalf("the local reply keeps %q", got)
+			}
+			if rb := out[len(out)-1].GetResponseBody(); rb == nil || rb.GetResponse().GetBodyMutation() != nil {
+				t.Fatalf("the response body answer is %v", out[len(out)-1])
+			}
+			var got []edge.Outcome
+			for _, o := range f.obs {
+				got = append(got, o.Outcome)
+			}
+			if !slices.Equal(got, tc.observed) {
+				t.Fatalf("observed %v, want %v", got, tc.observed)
+			}
 		})
 	}
 }

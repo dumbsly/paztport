@@ -158,7 +158,8 @@ func InstFromEnv() (string, error) {
 // timeout refuses it.
 //
 // At the response headers and trailers, it removes every Paztport header; it passes the response body as
-// it is.
+// it is. Response headers that arrive before the stamp are Envoy's own local reply, such as its 413 for a body
+// over its buffer limit: the request never went on, and the reply is passed on in the same way.
 func (p *Processor) Process(stream extprocv3.ExternalProcessor_ProcessServer) error {
 	r := &request{p: p}
 	for {
@@ -189,6 +190,7 @@ const (
 	awaitingHeaders phase = iota // nothing received yet
 	awaitingBody                 // headers answered; waiting for the message that ends the stream
 	passed                       // stamped and let go on; the response may follow
+	localReply                   // Envoy answered the request itself, before it was stamped; its reply follows
 )
 
 // request is one stream's state.
@@ -225,7 +227,7 @@ func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.Processin
 		return r.refuse(RefusedBody, refusedOther)
 	case *extprocv3.ProcessingRequest_ResponseHeaders:
 		if r.phase != passed {
-			return r.refuse(RefusedError, refusedOther)
+			r.localReply(m.ResponseHeaders.GetHeaders())
 		}
 		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseHeaders{
 			ResponseHeaders: &extprocv3.HeadersResponse{Response: &extprocv3.CommonResponse{
@@ -233,14 +235,14 @@ func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.Processin
 			}},
 		}}, false
 	case *extprocv3.ProcessingRequest_ResponseBody:
-		if r.phase != passed {
+		if r.phase != passed && r.phase != localReply {
 			return r.refuse(RefusedError, refusedOther)
 		}
 		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseBody{
 			ResponseBody: &extprocv3.BodyResponse{},
 		}}, false
 	case *extprocv3.ProcessingRequest_ResponseTrailers:
-		if r.phase != passed {
+		if r.phase != passed && r.phase != localReply {
 			return r.refuse(RefusedError, refusedOther)
 		}
 		return &extprocv3.ProcessingResponse{Response: &extprocv3.ProcessingResponse_ResponseTrailers{
@@ -251,6 +253,38 @@ func (r *request) handle(msg *extprocv3.ProcessingRequest) (*extprocv3.Processin
 	default:
 		return r.refuse(RefusedError, refusedOther)
 	}
+}
+
+// localReply takes response headers that arrive before the request was stamped. They can only be Envoy's own
+// local reply: until the processor answers, Envoy holds the request's headers back from the router, so no
+// upstream has the request. Envoy sends such a reply here when it refuses a body over its buffer limit (413)
+// while the body is awaited, and, before the request's headers were ever sent, when a filter ahead of ext_proc
+// refused the request (Envoy Gateway places its security filters there). The reply is passed on, with its
+// Paztport headers removed, rather than replaced with the processor's 500; a request whose body was awaited is
+// decided refused, for its body when the reply is a 413.
+func (r *request) localReply(hs *corev3.HeaderMap) {
+	if r.phase == awaitingBody {
+		outcome := RefusedError
+		if status(hs) == "413" {
+			outcome = RefusedBody
+		}
+		r.decide(Observation{Outcome: outcome, BodyBytes: len(r.body)})
+	}
+	r.phase = localReply
+}
+
+// status returns the response's :status, or "" when hs do not carry exactly one.
+func status(hs *corev3.HeaderMap) string {
+	var found []string
+	for _, h := range hs.GetHeaders() {
+		if h.GetKey() == ":status" {
+			found = append(found, string(h.GetRawValue()))
+		}
+	}
+	if len(found) != 1 {
+		return ""
+	}
+	return found[0]
 }
 
 // requestHeaders answers the request's headers: it refuses the request, stamps it when the headers end
