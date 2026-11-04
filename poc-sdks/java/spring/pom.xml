@@ -59,6 +59,18 @@
             <scope>test</scope>
         </dependency>
         <dependency>
+            <!-- Test code only: Boot's own observation and metrics auto-configurations, to prove that the starter's
+                 observations become meters in Boot's registry. -->
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-observation</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-micrometer-metrics</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
             <!-- Test code only: reads the JSON the tests send and receive. The SDK reads and writes JSON itself. -->
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>

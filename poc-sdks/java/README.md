@@ -117,7 +117,9 @@ The receivers decide a request with no framework and keep no per-request state.
 for a service and returns an `Accepted`: either a refusal to send in place of the
 handler's answer (an `HttpAnswer`, `{"reason":"<code>"}`), or what the handler
 starts from and whether its answer is attested, by `Accepted.attest(status, body,
-labels)` once the framework holds the answer whole. `PartnerReceiver.accept(
+labels)` once the framework holds the answer whole. `Accepted.result()` is the verification
+result the decision rests on, or null where none ran, for an adapter to report;
+`PartnerAccepted.result()` is the same for a partner's call. The caller is never told it. `PartnerReceiver.accept(
 InboundRequest, PeerCert)` does the same for a partner, in the session the caller
 names. `PeerCert.of(certificate, address)` reads the peer and its issuer from a
 client certificate. `PartnerSessions` keeps a partner's sessions; its `builder()`
@@ -509,6 +511,50 @@ hands a session request's body to `HttpSessions.serve`.
   `ReceivedRequestListener` hook that lets an application observe each request the
   filter receives. The SDK captures nothing itself: the mesh demo's request
   capture, for its replay scenario, is a listener on that hook.
+
+### Metrics
+
+The filters and the outbound interceptor record each verification result as a
+Micrometer observation, so an application with Spring Boot's observation and metrics
+auto-configurations (Actuator, for one) gets a timer for each, with no setting of
+the starter's. An application without a Micrometer registry runs exactly as before:
+the starter then records into `ObservationRegistry.NOOP`. The names, keys and values
+are those of `PaztportObservation`:
+
+| Observation | Recorded by | Keys | Values |
+|---|---|---|---|
+| `paztport.request` | `InboundFilter` | `mode`, `reason`, `outcome` | `mode`: `off`, `audit` or `enforce` where the service verifies requests (`paztport.verify=true`), otherwise `none`. |
+| `paztport.partner.request` | `PartnerFilter` | `session`, `reason`, `outcome` | `session`: `attested`; `unknown` for a refused call; otherwise `unsafe`. |
+| `paztport.response` | `OutboundInterceptor` | `reason` | |
+
+`reason` is the name of the verification result's reason code (`OK`, `CHAIN_MISSING`,
+…), or `none` where no verification ran or its result was not available: a service
+that does not verify requests, an unsafe session, a call with no verifier to check its
+response, or a decision that threw. `outcome` is `refused` when the request is answered
+with a refusal in place of the handler's answer, otherwise `served`; it is there because
+a request refused for influence the filter cannot read has a reason (or none) that says
+nothing of the refusal. Where a decision throws, the observation carries the error and
+is stopped before the exception goes on.
+
+Actuator with a Prometheus registry exports each as a timer, such as
+`paztport_request_seconds_count`, `_sum` and `_max`, labelled `mode`, `reason` and
+`outcome` and also `error`, which Micrometer adds; a `paztport.request.active`
+long-task timer goes with it. The count is the number of requests.
+
+Each timer spans the decision only: `RequestContext.accept` for the filters and the
+response check for the interceptor. It is stopped before the handler runs, so it
+says nothing of how long the handler takes or of an answer written later.
+
+Nothing from a request is a tag: no service name, request id, suspect, peer or target.
+A tag from traffic would make a series for each value, and a count that names a service
+or a peer is more than a metric needs to know; every value is one of the fixed words
+above or a reason code's name, so the series stay few whatever arrives. Those values
+are in the `PAZTPORT_EVENT` and `PAZTPORT_TRACE` logs, which are unchanged. The control
+plane (the handshake endpoint and the unverified paths) is not observed.
+
+Boot's standard property switches an observation off by name:
+`management.observations.enable.paztport.request=false`, or
+`management.observations.enable.paztport=false` for all three.
 
 ## tools/keygen
 
