@@ -119,8 +119,8 @@ func (f *fixture) observed(t *testing.T, want edge.Outcome) edge.Observation {
 	return f.obs[0]
 }
 
-// routeMetadata returns the xds.route_metadata attribute for the HTTPRoute ns/name, in the text form
-// the hand-built fixture in the routes package shows.
+// routeMetadata returns the xds.route_metadata attribute for the HTTPRoute ns/name, in the text form the
+// captured fixture in the routes package shows, with no policies attached.
 func routeMetadata(ns, name string) string {
 	return `filter_metadata { key: "envoy-gateway" value { fields { key: "resources" value { list_value { ` +
 		`values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } ` +

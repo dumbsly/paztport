@@ -1,1 +1,0 @@
-filter_metadata { key: "envoy-gateway" value { fields { key: "resources" value { list_value { values { struct_value { fields { key: "kind" value { string_value: "HTTPRoute" } } fields { key: "name" value { string_value: "orders" } } fields { key: "namespace" value { string_value: "default" } } } } } } } } } 

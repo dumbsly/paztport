@@ -47,16 +47,18 @@ func httpRoute(namespace, name string) map[string]any {
 	return map[string]any{"kind": "HTTPRoute", "name": name, "namespace": namespace}
 }
 
-// TestFromAttributesReadsTheHandBuiltFixture reads the route from the hand-built fixture: route metadata
-// as Envoy v1.39.1 prints it for a route Envoy Gateway v1.9.2 built from the HTTPRoute default/orders.
-func TestFromAttributesReadsTheHandBuiltFixture(t *testing.T) {
-	b, err := os.ReadFile(filepath.Join("testdata", "route-metadata.handbuilt-from-source.txtpb"))
+// TestFromAttributesReadsACapturedRoute reads the route from route metadata as Envoy v1.39.1 sent it to the
+// processor under Envoy Gateway v1.9.2, for the HTTPRoute paztport/orders with a BackendTrafficPolicy attached: one
+// line, ending in a space, with the attached policies listed before the route's resources. Only the policy's kind
+// and name are masked; the rest is as captured.
+func TestFromAttributesReadsACapturedRoute(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "route-metadata.captured.txtpb"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	ns, name, err := routes.FromAttributes(attributes(string(b)))
-	if err != nil || ns != "default" || name != "orders" {
-		t.Fatalf("FromAttributes = %q, %q, %v, want default, orders", ns, name, err)
+	if err != nil || ns != "paztport" || name != "orders" {
+		t.Fatalf("FromAttributes = %q, %q, %v, want paztport, orders", ns, name, err)
 	}
 }
 
